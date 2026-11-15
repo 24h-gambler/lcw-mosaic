@@ -19,8 +19,6 @@ import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 const F = UI_STRINGS_KO.firstVisit;
 /** The world's errand giver at the honey cafe door (town.ts `errand_neighbor`). */
 export const ERRAND_GIVER_NPC_ID = 'errand_neighbor';
-/** Asked of the world domain (walk up to an NPC and face it); optional until it lands in WorldHandle. */
-type WorldWithWalk = WorldHandle & { walkToNpc?: (npcId: string) => Promise<void> };
 const SEEN_KEY = 'lcw.firstVisitSeen';
 
 function seen(): boolean {
@@ -136,8 +134,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
             e.currentTarget.blur();
             unlockDialogAudio();
             playSfx('ui.click');
-            const w = world as WorldWithWalk;
-            if (walk.npcId && w.walkToNpc) void w.walkToNpc(walk.npcId);
+            if (walk.npcId && world.walkToNpc) void world.walkToNpc(walk.npcId);
             else void world.goToScene(walk.scene);
           }}
           style={{

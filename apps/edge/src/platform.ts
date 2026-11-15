@@ -7,10 +7,11 @@ import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
 import { createInitialPlayerState } from '@lcw/sim-core';
 import { z } from 'zod';
-import { FREE_TIER_LIMITS, QuotaMeter } from '@lcw/quota';
+import { FREE_TIER_LIMITS, type QuotaMeter } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
+import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaView, readQuotaSettings, rollupQuota } from './quota.js';
 import {
   createDurableSqliteExecutor,
   prefixedExecutor,
@@ -183,6 +184,8 @@ export class PlatformDO {
   readonly db: EdgePlatformDb;
   private app: Hono;
   private appDay: string;
+  /** Today's quota meter (WP-112): counters in `quota_daily`, limit/outage from `quota_settings`. */
+  quota!: QuotaMeter;
   private readonly worlds: LazyWorlds;
   private readonly lessons: LazyLessons;
 
@@ -190,6 +193,7 @@ export class PlatformDO {
     this.sql = createDurableSqliteExecutor(state.storage);
     this.db = new EdgePlatformDb(this.sql);
     this.sql.exec(OPS_SCHEMA);
+    ensureQuotaSchema(this.sql);
     const blobs = new SqliteBlobStore(this.sql);
     this.ensureDemo();
     this.worlds = new LazyWorlds(this.sql, blobs);
@@ -200,11 +204,12 @@ export class PlatformDO {
 
   /** The QuotaMeter is per UTC day; a DO can live for days, so the app is rebuilt when the day changes. */
   private buildApp(day: string): Hono {
+    this.quota = createDayMeter(this.sql, day);
     const inner = createEdgeApp({
       db: this.db,
       worlds: this.worlds,
       lessons: this.lessons,
-      quota: new QuotaMeter(day),
+      quota: this.quota,
       nowMs: () => Date.now(),
       // The understand route awaits the model but does not use its answer yet, so calling it would only burn the
       // daily Workers AI budget. Wire runAiCapped back in when the LLM reply is consumed (docs/04 §4.4).
@@ -214,14 +219,30 @@ export class PlatformDO {
     return buildGatedApp(inner, this.env, this);
   }
 
-  /** Durable per-day AI counter: the in-memory QuotaMeter resets when the DO is evicted, this does not. */
-  async runAiCapped(model: string, input: LlmConverseInput): Promise<unknown> {
+  /** Operator settings changed: today's meter follows at once (the next day's meter reads them when it is built). */
+  applyQuotaSettings(): void {
+    const s = readQuotaSettings(this.sql);
+    this.quota.setDailyNeuronsLimit(s.dailyNeurons);
+    this.quota.setProviderOutage(s.outage);
+  }
+
+  /**
+   * Every Workers AI call goes through the meter (AGENTS 4.8): the degrade ladder decides (stage 1+ keeps creative
+   * AI for lesson rooms, stage 3+ and limit 0 are bank only), the neurons are counted before the call so a failed
+   * call never overshoots, and the durable per-day call count stays as a second cap. Null = use the bank.
+   */
+  async runAiCapped(model: string, input: LlmConverseInput, opts: { seatId?: string; isLesson?: boolean; neurons?: number } = {}): Promise<unknown> {
     const day = utcDay(Date.now());
     const used = this.sql.get<{ used: number }>(
       "select used from quota_daily where day = ? and k = 'ai_calls'",
       [day]
     )?.used ?? 0;
     if (used >= AI_DAILY_CALL_CAP || !this.env.AI) return null;
+    const now = Date.now();
+    this.quota.setScheduledLessons(activeLessonStarts(this.sql, now));
+    const seatId = opts.seatId ?? 'server';
+    if (!this.quota.canUseCreativeLlm({ seatId, isLesson: opts.isLesson ?? false, nowMs: now })) return null;
+    if (!this.quota.consumeNeurons(seatId, opts.neurons ?? 100, 'llm')) return null;
     this.sql.run(
       "insert into quota_daily (day, k, used) values (?, 'ai_calls', 1) on conflict(day, k) do update set used = used + 1",
       [day]
@@ -354,7 +375,9 @@ export class PlatformDO {
         // Seat notices run in their own try: a failure there never hides the report reminders, and the reverse.
         const seats = this.runSeatNotices(now);
         const r = this.db.processPendingReportReminders(now);
-        detail = { reminded: r.remindedCount, seat_notices: seats };
+        // docs/09 P9: the day's stage; a day that reached 85% is kept as an alert day.
+        const quota = rollupQuota(this.sql, this.quota, now);
+        detail = { reminded: r.remindedCount, seat_notices: seats, quota };
       }
       this.recordRun(task, true, detail);
       return { task, ok: true, detail };
@@ -390,7 +413,10 @@ export class PlatformDO {
         this.sql.get<{ used: number }>("select used from quota_daily where day = ? and k = 'ai_calls'", [
           utcDay(Date.now())
         ])?.used ?? 0,
-      ai_daily_cap: AI_DAILY_CALL_CAP
+      ai_daily_cap: AI_DAILY_CALL_CAP,
+      quota: (({ stage, neurons_used, neurons_limit, bank_only, lesson_reserve_active }) => ({ stage, neurons_used, neurons_limit, bank_only, lesson_reserve_active }))(
+        quotaView(this.sql, this.quota, Date.now()) as { stage: number; neurons_used: number; neurons_limit: number; bank_only: boolean; lesson_reserve_active: boolean }
+      )
     };
   }
 
@@ -400,6 +426,8 @@ export class PlatformDO {
       this.appDay = day;
       this.app = this.buildApp(day);
     }
+    // The lesson reserve follows the lessons table (a lesson started from any device holds it at once).
+    if (new URL(request.url).pathname.startsWith('/v1/converse/')) this.quota.setScheduledLessons(activeLessonStarts(this.sql, Date.now()));
     const res = await this.app.fetch(request);
     // Drain a body the route never read (early 401/403/404 answers, `{}` on bodyless POSTs): workerd otherwise fails
     // the next request on the same kept-alive connection ("Can't read from request stream after response has been sent").
@@ -578,6 +606,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     return c.json({ ok: true, id: p.data.id }, 201);
   });
   app.get('/v1/admin/health', (c) => c.json(platform.health()));
+  app.route('/', buildQuotaAdminApp({ sql: platform.sql, meter: () => platform.quota, nowMs: () => Date.now(), onSettings: () => platform.applyQuotaSettings() }));
   // Public share link: strong tokens only, 30-day life, guardian revocation, allow-listed parent fields (family.ts).
   app.get('/v1/reports/:token', (c) => {
     const token = c.req.param('token');

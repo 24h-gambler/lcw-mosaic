@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
+import { SEAT_FAIR_USE_LIMITS } from '@lcw/quota';
 import type { DurableStorageLike } from '../do-sqlite.js';
 import { BLOB_PART_CHARS, prefixedExecutor, SqliteBlobStore, splitStatements, worldPrefix } from '../do-sqlite.js';
 import { createNodeSqliteExecutor } from '../node-sqlite.js';
@@ -248,7 +249,14 @@ describe('production worker (Durable Object SQLite wiring)', () => {
     for (let i = 0; i < AI_DAILY_CALL_CAP + 5; i++) {
       await platform.runAiCapped('@cf/meta/llama-3.1-8b-instruct-fast', {} as never);
     }
-    expect(calls).toBe(AI_DAILY_CALL_CAP);
+    // ~100 neurons a call: solo AI stops at the seat's fair use (60 a day) before stage 1 (70%, WP-112 ladder)
+    expect(calls).toBe(Math.min(SEAT_FAIR_USE_LIMITS.creativeAiPerDay, Math.round(AI_DAILY_CALL_CAP * 0.7)));
+    for (let i = 0; i < AI_DAILY_CALL_CAP + 5; i++) {
+      await platform.runAiCapped('@cf/meta/llama-3.1-8b-instruct-fast', {} as never, { isLesson: true });
+    }
+    // lesson rooms keep it up to stage 3 (95%), and never past the durable call cap
+    expect(calls).toBe(Math.round(AI_DAILY_CALL_CAP * 0.95));
+    expect(calls).toBeLessThanOrEqual(AI_DAILY_CALL_CAP);
   });
 
   it('routes /v1 and /health to the platform DO and everything else to static assets', async () => {

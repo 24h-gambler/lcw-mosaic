@@ -98,6 +98,8 @@ flowchart TB
 
 수업 예약 시간 30분 전부터는 수업 몫(3,000 뉴런)을 따로 떼어 둡니다.
 
+구현(WP-112): 별도 `QuotaDO` 대신 모든 `/v1` 요청을 받는 플랫폼 DO 하나의 SQLite에 둡니다(`apps/edge/src/quota.ts`). 그날 카운터는 `quota_daily`(뉴런·좌석별 창작 AI·서버 인식 초)라 객체가 내려갔다 올라와도 이어서 셉니다. 일일 한도와 공급 장애는 운영자가 `POST /v1/admin/quota {daily_neurons?: number|null, outage?: boolean}`로 정하고(`quota_settings`, null 은 무료 한도 10,000), `GET /v1/admin/quota`·`/v1/admin/health`가 단계를 보여 줍니다. 진행 중인 수업(`lessons.ended_at` 없음, 시작 2시간 안)이 있으면 수업 몫이 걸립니다. 주문 채점(`/v1/converse/score`)은 뱅크만 쓰므로 한도 0·장애에서도 끝나고, 서버 AI 호출은 `runAiCapped`(사다리 → 뉴런 선차감 → 일일 호출 상한)로만 나갑니다.
+
 ## 6. AI 사용 원칙
 
 | 용도 | 사용 | 사용하지 않는 것과 이유 |

@@ -250,6 +250,24 @@ describe('lesson mode (docs/18)', () => {
       expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/event`, { kind: 'star_celebration' })).status).toBe(409);
     });
 
+    it('typed or card-built sentences earn two stars at most (docs/04 §4.1)', async () => {
+      const p = platform();
+      const { lessonId, st } = await startLesson(p);
+      const three = 'Can I have a warm honey tea so that I stay warm?';
+      await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: [three] });
+      const typed = await call(
+        p,
+        'POST',
+        '/v1/lesson/utterance',
+        { target_text: three, transcript: three, chosen_stars: 3, stt_source: 'keyboard' },
+        st
+      );
+      expect(typed.body).toMatchObject({ pass: true, stars: 2 });
+      expect(typed.body.feedback_ko).toContain('목소리');
+      const spoken = await call(p, 'POST', '/v1/lesson/utterance', { target_text: three, transcript: three, chosen_stars: 3 }, st);
+      expect(spoken.body.stars).toBe(3);
+    });
+
     it('validates npc ids and text, and a fresh client only sees recent lines', async () => {
       let now = Date.parse('2026-11-16T15:00:00+09:00');
       vi.spyOn(Date, 'now').mockImplementation(() => now);

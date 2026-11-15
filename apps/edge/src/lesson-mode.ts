@@ -36,6 +36,8 @@ export const LESSON_LIVE_MAX_ITEMS = 20;
 export const TEACHER_MS_PER_WORD = 400;
 export const STUDENT_MS_PER_WORD = 500;
 export const LESSON_MINUTES_MAX = 240;
+export const TYPED_INPUT_MAX_STARS = 2;
+const TYPED_INPUT_SOURCES: ReadonlySet<string> = new Set(['keyboard', 'board']);
 
 export const LESSON_MODE_SCHEMA = `
 create table if not exists lesson_joins (code text primary key, lesson_id text not null, player_id text not null, expires_at integer not null);
@@ -86,9 +88,11 @@ export function feedbackKo(r: {
   capped: boolean;
   mode: string;
   coreMissed?: boolean;
+  typedCapped?: boolean;
 }): string {
   if (!r.pass && r.coreMissed) return '내용은 좋아요! so that · because 같은 연결어를 넣어서 한 번 더 말해 볼까요?';
   if (!r.pass) return '거의 다 왔어요! 화면의 문장을 보면서 한 번 더 천천히 말해 볼까요?';
+  if (r.typedCapped) return '좋아요! 다음엔 목소리로 말해 보면 별 3개까지 받을 수 있어요.';
   if (r.capped) return '좋아요! so that · because 같은 연결어까지 넣으면 별 3개예요.';
   if (r.mode === 'free') return r.stars >= 3 ? '와, 길게 잘 말했어요! 별 3개!' : '잘했어요! 조금 더 길게 이어 말하면 별이 늘어나요.';
   if (r.stars >= 3) return '완벽해요! 별 3개!';
@@ -741,6 +745,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       capped = r.pass && r.starCap < u.chosen_stars;
       coreMissed = r.coreTotal > 0 && r.coreMatchRate === 0;
     }
+    // Typed or card-assembled sentences are not speech: two stars at most (docs/04 §4.1, same as /v1/converse/score).
+    const typedCapped = TYPED_INPUT_SOURCES.has(u.stt_source) && stars > TYPED_INPUT_MAX_STARS;
+    if (typedCapped) stars = TYPED_INPUT_MAX_STARS;
     d.db.logUtterance({
       id: `utt-${s.lesson_id}-${now}-${hex(d.randomBytes(3))}`,
       player_id: s.player_id,
@@ -778,7 +785,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       pass,
       score: Math.round(score * 1000) / 1000,
       stars,
-      feedback_ko: feedbackKo({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed }),
+      feedback_ko: feedbackKo({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
       coins_total: Number(totals?.s ?? 0) * COINS_PER_STAR,
       utterances_today: Number(today?.n ?? 0)
     });

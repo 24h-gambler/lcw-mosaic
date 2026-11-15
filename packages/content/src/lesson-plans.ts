@@ -17,9 +17,9 @@ export interface LessonNpc {
 }
 
 export const LESSON_NPCS: readonly LessonNpc[] = [
-  { id: 'guide', nameKo: '안내인 선생님', nameEn: 'Guide', ctx: 'plaza' },
+  { id: 'guide', nameKo: '안내인 선생님', nameEn: 'Guide', ctx: 'resident' },
   { id: 'cafe_owner', nameKo: '카페 주인', nameEn: 'Cafe owner', ctx: 'cafe' },
-  { id: 'shop_owner', nameKo: '상점 주인', nameEn: 'Shop owner', ctx: 'trade' }
+  { id: 'shop_owner', nameKo: '상점 주인', nameEn: 'Shop owner', ctx: 'exchange' }
 ];
 
 export function getLessonNpc(id: string | null | undefined): LessonNpc | undefined {

@@ -54,6 +54,7 @@ import {
 import { handleDirectorKeydown } from './director.js';
 import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView } from './directorLiveState.js';
 import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentScreenBox } from './DirectorLive.js';
+import { LessonAudioBox } from './LessonAudioBox.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 
@@ -781,6 +782,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
         </div>
         <div style={{ display: 'grid', gap: sp(4), minWidth: 0 }}>
           <StudentScreenBox live={liveX} localNow={clock} startedAt={serverStartedAt} />
+          <LessonAudioBox token={token} lessonId={lesson.lesson_id} disabled={ended} />
           <Box title={S.liveTitle} testId="director-counters">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
               <Stat label={S.countSaid} value={live.utterances} testId="count-said" />

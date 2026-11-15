@@ -66,7 +66,15 @@ export interface LessonWindowPayload {
   minutes: Array<{ minute: number; student_ms: number; teacher_ms: number }>;
   captions: LessonWindowCaption[];
   next_lesson_at: string | null;
-  audio: { direction: 'recvonly'; available: boolean; reason: string | null };
+  audio: {
+    direction: 'recvonly';
+    available: boolean;
+    reason: string | null;
+    /** Changes when the teacher republishes (a listening window reconnects). */
+    stream_id?: string | null;
+    /** The polling window's own listener: 'closed' → the server hung it up (republish, consent off). */
+    listener?: 'open' | 'closed' | null;
+  };
   poll_ms: number;
   server_now: number;
 }
@@ -200,6 +208,12 @@ export interface IssueSeatInput {
   paid_at?: number;
   note?: string;
 }
+export interface ListenStart {
+  listener_id: string;
+  sdp: string;
+  ice_servers: RTCIceServer[];
+  stream_id: string;
+}
 export interface FamilyMe {
   service_consented: boolean;
   children: FamilyChild[];
@@ -256,8 +270,24 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
     linkDevice: (code: string, label: string) =>
       request<{ device_token: string; nickname: string; level: string }>('POST', '/v1/device/link', null, { code, label }),
     dashboard: (g: string, playerId: string) => request<DashboardPayload>('GET', `/v1/family/children/${enc(playerId)}/dashboard`, g),
-    lessonWindow: (g: string, playerId: string, after = 0) =>
-      request<LessonWindowPayload>('GET', `/v1/family/children/${enc(playerId)}/lesson-window${after > 0 ? `?after=${after}` : ''}`, g),
+    lessonWindow: (g: string, playerId: string, after = 0, listener: string | null = null) => {
+      const q = [after > 0 ? `after=${after}` : '', listener ? `listener=${enc(listener)}` : ''].filter(Boolean).join('&');
+      return request<LessonWindowPayload>('GET', `/v1/family/children/${enc(playerId)}/lesson-window${q ? `?${q}` : ''}`, g);
+    },
+    // Live lesson sound, receive-only (lesson-audio.ts on the server, lessonAudio.ts here).
+    listenStart: (g: string, playerId: string) =>
+      request<ListenStart>('POST', `/v1/family/children/${enc(playerId)}/lesson-window/audio`, g, {}),
+    listenAnswer: (g: string, playerId: string, listenerId: string, sdp: string) =>
+      request<{ ok: boolean }>('PUT', `/v1/family/children/${enc(playerId)}/lesson-window/audio/${enc(listenerId)}`, g, { sdp }),
+    listenStop: (g: string, playerId: string, listenerId: string) =>
+      request<{ ok: boolean }>('DELETE', `/v1/family/children/${enc(playerId)}/lesson-window/audio/${enc(listenerId)}`, g),
+    // Teacher console (operator token): publish the lesson sound one way.
+    audioIce: (op: string, lessonId: string) => request<{ ice_servers: RTCIceServer[] }>('POST', `/v1/admin/lessons/${enc(lessonId)}/audio/ice`, op, {}),
+    audioPublish: (op: string, lessonId: string, input: { sdp: string; mid: string }) =>
+      request<{ sdp: string; stream_id: string }>('POST', `/v1/admin/lessons/${enc(lessonId)}/audio/publish`, op, input),
+    audioBeat: (op: string, lessonId: string) => request<{ live: boolean; listeners: number }>('POST', `/v1/admin/lessons/${enc(lessonId)}/audio/beat`, op, {}),
+    audioStop: (op: string, lessonId: string) =>
+      request<{ ok: boolean; listeners_closed: number }>('POST', `/v1/admin/lessons/${enc(lessonId)}/audio/stop`, op, {}),
     deviceMe: (d: string) =>
       request<{ nickname: string; level: string; voice_store: boolean; play_allowed: boolean; seat: { state: SeatState } | null }>(
         'GET',

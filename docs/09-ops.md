@@ -133,3 +133,11 @@ P4와 P13은 크론 없이 돌아갑니다. 복습은 접속할 때 "지금 시�
 - 비용: 클립 하나 약 10~40KB(12초, Opus 24kbps). 아이 한 명이 하루 50번 말해도 월 약 50MB라 R2 무료 10GB 안에서 수백 명 분량입니다. 클래스 A(쓰기) 월 100만 회 무료.
 - 보기: `GET /v1/admin/voice`(운영자 토큰) — 아이별 클립 수·바이트·마지막 시각·보관 기한(`keep_until`), `purge_queue`·`purge_failing`, `store_bound`. 운영자는 듣지 않습니다: 재생 URL은 보호자 화면에서만 나옵니다.
 - 이상 신호: `purge_failing`가 0이 아니거나 `ops_runs`의 `hourly_voice_purge`가 `ok=0`이면 R2 삭제가 막힌 것입니다. 해당 클립은 이미 재생 불가이고, R2가 돌아오면 다음 정각에 지워집니다(20번 실패하면 멈추므로 그 전에 원인 확인).
+
+## 11. 수업 실시간 듣기 (Cloudflare Realtime)
+
+- 설정(한 번): Cloudflare 대시보드 Realtime → SFU 앱 하나 만들기 → `npx wrangler secret put REALTIME_APP_ID`, `npx wrangler secret put REALTIME_APP_TOKEN`. 엄격한 네트워크(회사·학교 와이파이)용 TURN은 선택: TURN 키를 만들고 `REALTIME_TURN_KEY_ID`·`REALTIME_TURN_KEY_TOKEN`. 둘 다 없으면 STUN(`stun.cloudflare.com`)만 씁니다. 비밀값이 없으면 콘솔은 "실시간 음성 서버가 아직 설정되지 않았어요", 창문은 글로만 보여 줍니다(503 `realtime_not_configured`). `REALTIME_API_BASE`는 로컬 실측용(가짜 SFU)이라 운영에는 넣지 않습니다.
+- 비용: SFU·TURN 합쳐 월 1,000GB 무료. Opus 약 32kbps 기준 듣는 사람 1명·1시간 약 0.014GB → 120분 수업에 보호자 2명이 들어도 0.06GB. 사실상 0원.
+- 보기: 콘솔 「수업 소리 내보내기」 상자가 지금 듣는 보호자 수를 10초마다 보여 줍니다. 서버 쪽은 표 `lesson_audio_pub`·`lesson_audio_listeners`(`close_reason`: `guardian_stopped`·`consent_revoked`·`republished`·`teacher_stopped`·`stale`·`listen_only`).
+- 이상 신호: 보호자가 "듣기 시작이 안 돼요" → 콘솔이 내보내는 중인지(30초 안 신호), `listen_only`로 닫힌 줄이 있으면 그 브라우저가 송신 답을 만든 것(확장 프로그램 등). 콘솔에 "아이 소리 입력을 섞지 못해…"가 뜨면 두 번째 입력 섞기가 소리를 못 내서 선생님 마이크만 보내는 중입니다(첫 신호 때 스스로 바꿈).
+- 로컬 실측: `REALTIME_API_BASE`를 가짜 SFU(HTTP는 node, WebRTC 전달은 헤드리스 Chrome 중계 페이지)에 두고 교사·보호자 헤드리스 Chrome으로 측정합니다. 실제 Cloudflare SFU와 폰 브라우저는 앱을 만든 뒤 따로 확인합니다.

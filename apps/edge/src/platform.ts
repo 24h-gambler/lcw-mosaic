@@ -21,6 +21,7 @@ import { FREE_TIER_LIMITS, type QuotaMeter } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
+import { handleServerStt } from './stt.js';
 import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaView, readQuotaSettings, rollupQuota } from './quota.js';
 import {
   createDurableSqliteExecutor,
@@ -615,6 +616,24 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (blocked) return blocked;
     if (!body) return c.json({ error: 'invalid_review_request' }, 400);
     return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
+  });
+  // Server speech recognition for the child's own dialog turn (docs/02 6장): lesson or device token only, through
+  // the quota meter, audio never kept (stt.ts).
+  app.post('/v1/converse/stt', async (c) => {
+    const drain = () => (c.req.raw.body && !c.req.raw.bodyUsed ? c.req.raw.body.cancel().catch(() => undefined) : undefined);
+    const student = await platform.studentFromRequest(c.req.raw);
+    const device = student ? null : await platform.deviceFromRequest(c.req.raw);
+    const playerId = student?.player_id ?? device?.player_id;
+    if (!playerId) {
+      await drain();
+      return c.json({ error: 'child_token_required' }, 401);
+    }
+    const blocked = device ? seatBlocked({ player_id: playerId, device: true }) : null;
+    if (blocked) {
+      await drain();
+      return blocked;
+    }
+    return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota: () => platform.quota, ai: env.AI, nowMs: () => Date.now() });
   });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();

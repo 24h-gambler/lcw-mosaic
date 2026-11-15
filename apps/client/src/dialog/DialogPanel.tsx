@@ -16,7 +16,8 @@ import {
 } from './hints.js';
 import { createMediaClipRecorder } from '@lcw/audio';
 import { MicController, type MicView } from './mic-controller.js';
-import { createBrowserSpeechEngine, isKakaoInApp, kakaoOpenExternalUrl, type MicIssue, type SpeechEngine } from './speech.js';
+import { isKakaoInApp, kakaoOpenExternalUrl, type MicIssue, type SpeechEngine } from './speech.js';
+import { createDialogSpeechEngine } from './server-stt.js';
 import { cancelMicCue, micClosed, micCue, playAgain, playPass, playSfx, speakEnglish, stopSpeaking, unlockDialogAudio } from './sound.js';
 import { DIALOG_CSS } from './styles.js';
 import { newDialogId, SubmitError } from './submit.js';
@@ -111,7 +112,7 @@ function HintTag(props: { tag: string }) {
 export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const { npc, level, mode, hint, submit, onDone, onClose } = props;
   const fontScale = Math.max(1, Math.min(1.5, props.fontScale ?? 1));
-  const engine: SpeechEngine = useMemo(() => props.speech ?? createBrowserSpeechEngine(), [props.speech]);
+  const engine: SpeechEngine = useMemo(() => props.speech ?? createDialogSpeechEngine(), [props.speech]);
   const availability = useMemo(() => engine.availability(), [engine]);
   // voice_store on (the world says so): record the spoken turn for the guardian's replay (clip-recorder.ts).
   const recordClip = props.recordClip === true;

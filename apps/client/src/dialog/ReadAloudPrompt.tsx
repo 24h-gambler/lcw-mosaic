@@ -3,7 +3,8 @@ import { UI_STRINGS_KO } from '@lcw/content';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { MicController, type MicView } from './mic-controller.js';
 import { cancelMicCue, micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
-import { createBrowserSpeechEngine, type SpeechEngine } from './speech.js';
+import type { SpeechEngine } from './speech.js';
+import { createDialogSpeechEngine } from './server-stt.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 
 /** The App loads this module lazily; the trade shop's furniture offers come with it (one slot, docs/19 3장). */
@@ -74,7 +75,7 @@ export interface ReadAloudPromptProps {
 
 export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement {
   const { kind, sentence, player, baseUrl, fetchImpl, onResult } = props;
-  const engine = useMemo(() => props.speech ?? createBrowserSpeechEngine(), [props.speech]);
+  const engine = useMemo(() => props.speech ?? createDialogSpeechEngine(), [props.speech]);
   const ok = useMemo(() => engine.availability().ok, [engine]);
   const [mic, setMic] = useState<MicView>({ recording: false, interim: '', hangover: false, level: 0 });
   const [busy, setBusy] = useState(false);

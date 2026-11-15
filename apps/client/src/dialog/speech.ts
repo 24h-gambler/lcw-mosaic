@@ -29,6 +29,10 @@ export interface SpeechSession {
 
 export interface SpeechEngine {
   readonly source: 'browser' | 'device' | 'workers_ai';
+  /** False when `onInterim` only signals speech (a level meter), so it is never taken as the child's words. */
+  readonly interimIsText?: boolean;
+  /** How long the mic controller waits for `onEnd` after stop (server recognition needs the upload + model). */
+  readonly stopGraceMs?: number;
   availability(): { ok: true } | { ok: false; issue: MicIssue };
   start(cb: SpeechCallbacks): SpeechSession;
 }

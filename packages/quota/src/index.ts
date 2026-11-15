@@ -13,6 +13,27 @@ export const SEAT_FAIR_USE_LIMITS = {
   maxObjectsPerWorld: 300
 } as const;
 
+/**
+ * Server speech recognition (docs/02 6장: Workers AI Whisper for devices without on-device recognition, Opus at
+ * 16 kbps). One dialog turn is at most 12 s (docs/04 4.1), so a request carries at most 15 s. Neurons are counted
+ * from the audio length before the call: Whisper large-v3-turbo is priced about 46 neurons per audio minute.
+ */
+export const SERVER_STT = {
+  model: '@cf/openai/whisper-large-v3-turbo',
+  maxSec: 15,
+  /** 15 s of Opus at up to 64 kbps plus container overhead; larger bodies are refused unread. */
+  maxBytes: 160_000,
+  /** 16 kbps Opus: the length estimate from the size when it is longer than the client says. */
+  opusBytesPerSec: 2_000,
+  neuronsPerMinute: 46,
+  /** Transcripts longer than this are cut (a dialog sentence is far shorter). */
+  maxTranscriptChars: 400
+} as const;
+
+export function serverSttNeurons(sec: number): number {
+  return Math.max(1, Math.ceil((Math.max(0, sec) * SERVER_STT.neuronsPerMinute) / 60));
+}
+
 export type DegradeStage = 0 | 1 | 2 | 3 | 4;
 
 export interface QuotaStatus {

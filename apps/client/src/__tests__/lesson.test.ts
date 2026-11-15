@@ -7,7 +7,7 @@ import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
 import { LESSON_BANNER_MS, LESSON_POLL_MS, LessonController, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
-import { LessonLayer } from '../lesson/LessonLayer.js';
+import { LessonLayer, goToSceneChecked } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
 
 // App mounts the layer through import.meta.glob (no compile-time check there): pin the docs/19 §5 contract here.
@@ -284,6 +284,24 @@ describe('client lesson module (docs/19 §4)', () => {
     const safari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
     const android = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36 KAKAOTALK';
     expect([kakao, wk, safari, android].map(micUnreliable)).toEqual([true, true, false, false]);
+  });
+
+  it('a scene walk that ends without arriving (dialog pausing the world) is tried once more', async () => {
+    let scene = 'plaza';
+    let calls = 0;
+    const w = {
+      ...fakeWorld().world,
+      getScene: () => scene,
+      goToScene: async (id: string) => {
+        calls++;
+        if (calls > 1) scene = id; // the first walk is cut short
+      }
+    };
+    await goToSceneChecked(w, 'honey_cafe');
+    expect(scene).toBe('honey_cafe');
+    expect(calls).toBe(2);
+    await goToSceneChecked(w, 'honey_cafe');
+    expect(calls).toBe(3); // arrived: no extra walk
   });
 
   it('hints follow the stage ladder and the layer draws nothing outside a lesson', () => {

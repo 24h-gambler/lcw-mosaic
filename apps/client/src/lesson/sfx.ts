@@ -28,7 +28,8 @@ const EXTRA: Record<'pass' | 'mic_on', SynthParams[]> = {
 let ctx: AudioContext | null = null;
 
 function audio(): AudioContext | null {
-  const AC = (globalThis as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
+  const g = globalThis as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+  const AC = g.AudioContext ?? g.webkitAudioContext; // older iOS Safari
   if (!AC) return null;
   ctx ??= new AC();
   return ctx;

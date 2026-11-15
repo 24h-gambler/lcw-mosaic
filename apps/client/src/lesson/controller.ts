@@ -293,7 +293,8 @@ export class LessonController {
       const def = LESSON_DIRECTOR_EVENTS.find((x) => x.kind === ev.kind);
       if (!def) continue;
       w?.playDirectorEvent?.(ev.kind, ev.detail);
-      if (ev.kind === 'star_celebration') w?.celebrate(3);
+      // A world that plays director events does its own star burst; celebrate only for one that does not.
+      if (ev.kind === 'star_celebration' && !w?.playDirectorEvent) w?.celebrate(3);
       patch.banner = {
         id: ev.id,
         kind: ev.kind,

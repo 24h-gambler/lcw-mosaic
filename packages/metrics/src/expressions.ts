@@ -131,11 +131,19 @@ export function meaningfulExpression(raw: string, ctx: ExpressionContext): strin
   const text = clean(raw);
   const ws = tokens(text);
   if (!ws.length || !/[a-z]/i.test(text)) return null;
-  if (isWholeExpression(text)) return formatExpression(text);
+  // Plan sentences with blanks ("My name is ___.") are patterns, not something the child said.
+  const sources = [...ctx.utterances, ...(ctx.targets ?? []).map((t) => t.text).filter((t) => !t.includes('_'))];
+  const vocab = new Set(sources.flatMap(tokens));
+  // Only the child's words or the lesson's sentences reach a parent: a teacher's own remark ("nice pronunciation",
+  // "Great job!") is not an expression of the child's, however whole it reads.
+  const said = (t: string) => tokens(t).every((w) => EXPRESSION_FUNCTION_WORDS.has(w) || vocab.has(w));
+  if (isWholeExpression(text) && said(text)) return formatExpression(text);
   if (ws.length > EXPRESSION_MAX_WORDS) {
     // A whole long line: the clause with a core pattern of the plan, else the first whole clause.
     const words = text.split(' ').filter(Boolean);
-    const parts = clauses(words.map((w) => tokens(w).join(' '))).map(([a, b]) => words.slice(a, b).join(' ')).filter(isWholeExpression);
+    const parts = clauses(words.map((w) => tokens(w).join(' ')))
+      .map(([a, b]) => words.slice(a, b).join(' '))
+      .filter((c) => isWholeExpression(c) && said(c));
     const tags = (ctx.targets ?? []).flatMap((t) => t.hintTags ?? []).map((t) => tokens(t));
     // A clause that opens with a core pattern ("because …", "so that …") is the lesson's point; then any clause with one.
     const withTag =
@@ -147,13 +155,13 @@ export function meaningfulExpression(raw: string, ctx: ExpressionContext): strin
   // One stray word ("the", "yes") is not a pinned phrase; a one-word core pattern of the plan ("because") is.
   const planTags = new Set((ctx.targets ?? []).flatMap((t) => t.hintTags ?? []).map((t) => tokens(t).join(' ')));
   if (ws.length === 1 && !planTags.has(ws[0]!)) return null;
-  // Plan sentences with blanks ("My name is ___.") are patterns, not something the child said.
-  const sources = [...ctx.utterances, ...(ctx.targets ?? []).map((t) => t.text).filter((t) => !t.includes('_'))];
   for (const s of sources) {
     const unit = unitAround(s, ws);
     if (unit && isWholeExpression(unit)) return formatExpression(unit);
   }
-  return contentWords(ws) >= 2 && ws.length >= 2 && !EXPRESSION_FUNCTION_WORDS.has(ws[ws.length - 1]!) ? formatExpression(text) : null;
+  return said(text) && contentWords(ws) >= 2 && ws.length >= 2 && !EXPRESSION_FUNCTION_WORDS.has(ws[ws.length - 1]!)
+    ? formatExpression(text)
+    : null;
 }
 
 /** meaningfulExpression over a list, duplicates (same words) collapsed, order kept. */

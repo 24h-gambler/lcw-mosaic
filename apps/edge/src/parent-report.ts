@@ -110,6 +110,8 @@ const COMMON_CAPITALISED = new Set(
 export function publicSafeText(text: string, names: string[]): boolean {
   const t = text.trim();
   if (!t || /[가-힣]/.test(t) || t.includes('___')) return false;
+  // Numbers a child might read out (phone, address, door code) in any spacing: "010 1234 5678", "1 2 3 4".
+  if (/\d{3,}/.test(t) || /\d(?:[\s.-]*\d){3,}/.test(t)) return false;
   const n = ` ${norm(t)} `;
   if (SELF_IDENTIFYING_PATTERN.test(n)) return false;
   for (const m of n.matchAll(INTRO_OPENER)) if (!INTRO_SAFE_NEXT.has(m[1]!)) return false;
@@ -215,7 +217,9 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
     // F2 notes default to the child's last utterance (docs/10 §2) but teachers also type fragments ("Can I have",
     // "for your"): grow each to a whole unit from the child's lines nearest the pin (before it first), then the plan.
     const at = lesson.started_at + p.at_ms;
-    const near = [...rows]
+    // Grow only from lines that could be quoted themselves (passed, heard clearly, public-safe) and the plan.
+    const near = rows
+      .filter((u) => quotable(u, names))
       .sort((a, b) => (a.created_at <= at ? at - a.created_at : a.created_at - at + 3_600_000) - (b.created_at <= at ? at - b.created_at : b.created_at - at + 3_600_000))
       .map((u) => u.final_text);
     const note = meaningfulExpression(p.note, { utterances: near, targets });

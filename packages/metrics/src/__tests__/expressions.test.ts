@@ -36,9 +36,16 @@ describe('parent-readable expressions (report "오늘 수업에서 나온 표현
     expect(formatExpression('what is your name')).toBe('What is your name?');
   });
 
+  it("a teacher's own remark is not the child's expression, even when it reads whole", () => {
+    expect(meaningfulExpression('nice pronunciation', { utterances: said, targets })).toBeNull();
+    expect(meaningfulExpression('Great job! warm honey tea', { utterances: said, targets })).toBeNull();
+    // a mixed Korean/English note keeps only the English pattern, grown from the child's line
+    expect(meaningfulExpression('아이가 Can I have 를 잘 말함', { utterances: said, targets })).toBe('Can I have a warm honey tea?');
+  });
+
   it('a long whole line is cut to the clause with the plan\'s core pattern', () => {
     const long = 'yesterday after school I went to the shop with my mom because I need a helmet for the cave trip';
-    expect(meaningfulExpression(long, { utterances: [], targets })).toBe('because I need a helmet for the cave trip');
+    expect(meaningfulExpression(long, { utterances: [long], targets })).toBe('because I need a helmet for the cave trip');
   });
 
   it('every word of a kept expression is in its source: nothing is invented', () => {

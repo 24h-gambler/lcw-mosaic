@@ -621,8 +621,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     for (const w of pinWindows) {
       const note = /[A-Za-z]{2,}/.test(w.note) ? w.note.trim() : '';
       const said = w.lines.filter((x) => x.speaker === 'student').map((x) => x.text).reverse();
-      const whole = note ? meaningfulExpression(note, { utterances: said, targets }) : null;
-      const lemma = w.kind === 'expression' ? (whole || w.candidate_expressions[0] || '').slice(0, 120) : '';
+      // The lemma stays the pattern the teacher pinned ("can I have"): transfer tracking looks for it in solo play
+      // (every lemma token must reappear), so a whole sentence would almost never count. A note that nothing in the
+      // lesson explains (a remark, "for your") is not a pattern: the top candidate line stands in.
+      const pattern = note && meaningfulExpression(note, { utterances: said, targets }) ? note : '';
+      const lemma = w.kind === 'expression' ? (pattern || w.candidate_expressions[0] || '').slice(0, 120) : '';
       if (lemma) {
         d.db.registerLessonExpression({ id: `expr-${w.pin_id}`, playerId: l.player_id, lemmaKey: lemma, lessonId: id, nowMs: d.nowMs() });
       }

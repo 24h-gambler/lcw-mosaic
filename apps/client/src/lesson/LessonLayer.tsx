@@ -6,7 +6,14 @@
  * Until the world handle arrives it draws its own goal bar and bubbles.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { getLessonNpc, type LessonDirectorEventKind, type LessonHintLevel, type LessonNpcContext, type LessonUtteranceMode } from '@lcw/content';
+import {
+  getLessonNpc,
+  type LessonDirectorEventKind,
+  type LessonHintLevel,
+  type LessonNpcContext,
+  type LessonSceneId,
+  type LessonUtteranceMode
+} from '@lcw/content';
 import type { Level } from '@lcw/schemas';
 import { TOKENS } from '@lcw/ui';
 import { codeFromSearch, createStudentLessonApi, loadStudentSession, type DialogResult, type LessonOffer, type StudentLessonApi, type UtteranceSubmit } from './api.js';
@@ -50,19 +57,17 @@ export interface LessonLayerProps {
 }
 
 /** World members the layer uses beyond the controller's (docs/19 §2): the child's own line as a bubble. */
-type LayerWorld = LessonWorld & { playerSay?(text: string): void };
+type LayerWorld = LessonWorld & { playerSay?(text: string): void; getScene?(): string };
 
-export function hasWebGL(): boolean {
-  try {
-    if (typeof document === 'undefined') return true;
-    const c = document.createElement('canvas');
-    const gl = (c.getContext('webgl2') ?? c.getContext('webgl')) as WebGLRenderingContext | null;
-    // Give the probe context back at once: browsers keep ~16 and drop the oldest (the game's renderer) first.
-    gl?.getExtension('WEBGL_lose_context')?.loseContext();
-    return Boolean(gl);
-  } catch {
-    return false;
-  }
+/**
+ * Walks the world to the stage's scene and checks it arrived. A travel can end early without moving (the dialog
+ * window pausing the world at the same moment clears the walk), so one more try settles it; the next poll's
+ * resync covers anything after that.
+ */
+export async function goToSceneChecked(w: LayerWorld | null, id: LessonSceneId): Promise<void> {
+  if (!w) return;
+  await w.goToScene(id);
+  if (w.getScene && w.getScene() !== id) await w.goToScene(id);
 }
 
 export function isLessonPage(search: string): boolean {
@@ -85,14 +90,16 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
         api,
         // The world can arrive after the first render; the controller always talks to the current one.
         world: {
-          goToScene: (id) => worldRef.current?.goToScene(id) ?? Promise.resolve(),
+          goToScene: (id) => goToSceneChecked(worldRef.current, id),
           npcSay: (n, t, o) => worldRef.current?.npcSay(n, t, o),
           setGoal: (g, t) => worldRef.current?.setGoal(g, t),
           celebrate: (s) => worldRef.current?.celebrate(s),
           setPossessed: (n) => worldRef.current?.setPossessed?.(n),
           playDirectorEvent: (k, d) => {
-            playLessonSfx(k);
-            worldRef.current?.playDirectorEvent?.(k, d);
+            // The world plays its own effect and sound for events; ours only when it has none (no double sound).
+            const w = worldRef.current;
+            if (w?.playDirectorEvent) w.playDirectorEvent(k, d);
+            else playLessonSfx(k);
           }
         },
         ui: props.canRender3d === false ? 'cards' : '3d',
@@ -101,12 +108,27 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     [api]
   );
 
+  const [foldedKey, setFoldedKey] = useState<string | null>(null);
+  const [doneSeq, setDoneSeq] = useState(0);
+  // New stage or new sentences from the teacher: the panel starts fresh (selection, heard text, open microphone),
+  // and a folded dialog window opens again.
+  const panelKey = `${view.stageSeq}:${view.offers.map((o) => o.text).join('|')}`;
   // App decides WebGL once (canRunWorld) and never mounts the layer without it; no probing here on every render.
   const lowTier = props.canRender3d === false;
   const live = view.phase === 'live';
+  // Again when the world arrives: App's callback reaches the world's "수업 중" badge only once the world exists.
   useEffect(() => {
     onActive.current?.(live);
-  }, [live]);
+  }, [live, props.world]);
+  // The world can load after the lesson joined (slow phones): give it the lesson's current scene, goal and possession.
+  useEffect(() => {
+    const w = props.world;
+    const v = ctl.state;
+    if (!w || v.phase !== 'live') return;
+    if (v.sceneId) void goToSceneChecked(w, v.sceneId).catch(() => undefined);
+    if (v.goalKo) w.setGoal(v.goalKo, v.offers[0]?.text);
+    w.setPossessed?.(v.possessedNpcId);
+  }, [props.world, ctl]);
   useEffect(() => () => onActive.current?.(false), []);
   useEffect(() => {
     if (!active) return;
@@ -159,12 +181,55 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     offers: view.offers,
     hint: view.hint,
     submit: ctl.submit,
-    onDone: () => undefined
+    // "완료" on a result: the window starts over for the next sentence (free talk takes many in one stage).
+    onDone: () => setDoneSeq((n) => n + 1),
+    // ✕ on the dialog window folds it away so the child can look at the world; "말하기" brings it back.
+    onClose: () => setFoldedKey(panelKey)
   };
   const external = props.renderDialog?.(npcRef, cfg) ?? null;
 
-  // New stage or new sentences from the teacher: the panel starts fresh (selection, heard text, open microphone).
-  const panelKey = `${view.stageSeq}:${view.offers.map((o) => o.text).join('|')}`;
+  if (external) {
+    // The dialog window is a full-screen modal (dim backdrop, z 40): our banner and status go on a layer above it,
+    // never catching taps, and "나가기" lives with the reopen button while the window is folded.
+    const folded = foldedKey === panelKey;
+    return (
+      <Shell>
+        <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
+        {folded ? (
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: SP[3], display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
+            <div style={{ width: '100%', maxWidth: 720, display: 'flex', justifyContent: 'flex-end' }}>
+              <StatusPill view={view} onLeave={() => ctl.leave()} />
+            </div>
+            <button
+              type="button"
+              data-testid="lesson-reopen"
+              onClick={() => setFoldedKey(null)}
+              className="lcw-btn"
+              style={{ ...bigButton(C['brand-d']), pointerEvents: 'auto', width: '100%', maxWidth: 720, minHeight: TOKENS.shape.micButtonPx, fontSize: T.scale.h3.sizePx }}
+            >
+              🎤 {S.speak.title(npcRef.nameKo)}
+            </button>
+          </div>
+        ) : (
+          // New stage, new sentences or a finished answer: a fresh window (selection, result and step reset).
+          <React.Fragment key={`${panelKey}:${doneSeq}`}>{external}</React.Fragment>
+        )}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 45, pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: SP[2] }}>
+          {view.connection !== 'ok' ? (
+            <div role="status" style={{ ...card, marginTop: 56, padding: `${SP[1]}px ${SP[3]}px`, background: C.sun, fontWeight: 700, fontSize: T.scale.small.sizePx }}>
+              <span className="lcw-blink">●</span> {S.status.retrying}
+            </div>
+          ) : null}
+          {/* The teacher's newest line stays readable above the dim backdrop (the NPC's own bubble is behind it). */}
+          <div style={{ marginTop: '22vh', width: '100%', maxWidth: 640, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
+            <LatestLine view={view} />
+            <EventBanner view={view} />
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
       <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
@@ -401,6 +466,31 @@ function EventEffect({ kind, id, handledByWorld }: { kind: LessonDirectorEventKi
     );
   }
   return null;
+}
+
+/** How long the teacher's newest line shows over the dialog window. */
+export const LATEST_LINE_MS = 8_000;
+
+function LatestLine({ view }: { view: LessonView }) {
+  const b = view.bubbles[view.bubbles.length - 1];
+  const [shown, setShown] = useState<string | null>(null);
+  useEffect(() => {
+    if (!b) return;
+    setShown(b.id);
+    const t = setTimeout(() => setShown(null), LATEST_LINE_MS);
+    return () => clearTimeout(t);
+  }, [b?.id]);
+  if (!b || shown !== b.id) return null;
+  return (
+    <div key={b.id} className="lcw-pop" role="status" style={{ ...card, padding: `${SP[2]}px ${SP[3]}px`, borderColor: b.possessed ? C.grape : C['ink-900'], borderWidth: b.possessed ? 3 : 2 }}>
+      <div style={{ fontSize: T.scale.small.sizePx, fontWeight: 800, color: b.possessed ? C['grape-d'] : C['ink-700'] }}>
+        {b.possessed ? <span className="lcw-sparkle" aria-hidden>✨ </span> : null}
+        {b.npcNameKo}
+        {b.possessed ? ` · ${S.possessed}` : ''}
+      </div>
+      <div style={{ fontFamily: T.fonts.target, fontSize: T.targetSentenceMinPx, lineHeight: '30px', color: C['ink-900'] }}>{b.text}</div>
+    </div>
+  );
 }
 
 function Bubbles({ view }: { view: LessonView }) {

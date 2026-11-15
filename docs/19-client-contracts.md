@@ -89,6 +89,12 @@ export interface DialogPanelProps {
   - 화면: `apps/client/src/dialog/ReviewDock.tsx`의 `ReviewDock({world, player, hidden})` — 오른쪽 위(별·코인 칩 아래, top 112px) 번개 표시 카드 최대 3장, 새 징후가 뜨면 `mem.warn`, 누르면 그 카드 문장 한 개로 대화창(`mode` read/recall, 칸의 `hint`, `listen`)을 열고 통과하면 `mem.fix` + `celebrate`. 다음 복습 시각에 맞춰 다시 묻습니다(같은 세션의 20분 복습). 게스트는 카드가 없어 비어 있습니다.
   - 수업 발화로 생기는 카드는 같은 입구 `createMemoryCard(db, {origin: 'lesson', itemId: 'lesson-<utt>|<대상>'})`(`apps/edge/src/review.ts`)를 씁니다. 수업 리포트의 35일 유지율은 이 카드들로 계산합니다.
 
+- 소리 내어 읽기 가구 할인(`03` D13, WP-405, 2026-11-16):
+  - 월드의 건축 화면이 방 판정을 내면 `WorldHandle.onRoomCheck?(cb)`로 `{missing: ('light'|'rest'|'flat')[], sentence}`를 알립니다(문장은 `sim-core`의 `ROOM_MISSING_SENTENCES` 한 표). 앱은 그 아래(화면 아래 가운데, 단축 칸 위)에 `apps/client/src/dialog/ReadAloudPrompt.tsx`의 `ReadAloudPrompt({kind, sentence, player})`를 붙입니다 — 영어 문장(22px 이상) + [소리 내어 읽기].
+  - `POST /v1/furniture/read-aloud` `{kind, transcript, stt_source, confidence, dur_ms}`(학생·기기 토큰): 서버가 그 종류의 문장과 맞춰 채점(목소리만 — 글자·카드 입력은 할인 없음)하고 `claimReadAloudDiscount`로 **가구 종류당 한국 시간 하루 1회, 플레이어마다** 10%를 줍니다. 같은 날 다시 읽으면 `already_claimed`. `GET /v1/furniture/discounts`는 오늘 받은 할인과 사용 여부.
+  - 할인은 다음 그 종류 가구 구매에서 서버가 씁니다: 교환 상점(`trade_shop`, 토비)이 가구 9종(`FURNITURE_SHOP_GOODS`, 조명·쉴 곳·탁자, 코인 가격 = 별 가격)을 팔고, `/v1/converse/score`가 오늘 할인을 그 구매(`dialog_id`)에 묶어 가격을 깎습니다(`read_aloud_discount_pct`). 같은 창의 "별 하나 더"도 할인 유지, 같은 날 두 번째 구매는 정가. 교환 상점의 기본 제안은 그대로 물물교환 문장입니다(첫 수업 장면 그대로).
+  - 혼자 놀이에서 방에 그 종류가 없다고 나왔거나(방 판정) 아이가 그 문장을 읽었으면, 앱이 토비 대화창에 그 종류 가구 문장(`furnitureOffersFor(kind, level)`, `ReadAloudPrompt.tsx`가 함께 내보냄)을 `cfg.offers`로 넘깁니다. 그 밖에는 물물교환 문장 그대로입니다.
+
 ## 4. 수업 → 다른 도메인 (`apps/client/src/lesson/`)
 
 - `/game/?code=123456` 또는 첫 화면의 코드 입력 → `POST /v1/join` → 학생 토큰은 `sessionStorage`.

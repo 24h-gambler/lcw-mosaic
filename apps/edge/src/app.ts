@@ -22,6 +22,7 @@ import {
 } from '@lcw/metrics';
 import { inspectSpecG1ToG5 } from '@lcw/guard';
 import type { ConsentScope, EdgePlatformDb, LessonDO, WorldDO } from './storage.js';
+import { claimReadAloud, isFurnitureKind, priceWithReadAloud, readAloudStatus } from './furniture.js';
 import { attemptReview, createMemoryCard, listMemoryCards, listReviewSigns, memoryCardId } from './review.js';
 
 export interface EdgeRuntimeDeps {
@@ -147,6 +148,19 @@ const ScoreExtendedRequestSchema = ScoreRequestSchema.extend({
   confidence: z.number().finite().min(0).max(1).default(0.95)
 }).strict();
 
+const ReadAloudBodySchema = z
+  .object({
+    player_id: z.string().min(1),
+    world_id: z.string().min(1),
+    level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).default('L1'),
+    kind: z.string().min(1).max(20),
+    transcript: z.string().max(400),
+    stt_source: z.enum(['device', 'workers_ai', 'browser', 'keyboard', 'board']).default('browser'),
+    confidence: z.number().finite().min(0).max(1).default(0.9),
+    dur_ms: z.number().int().min(0).max(60_000).default(3000)
+  })
+  .strict();
+
 const ReviewAttemptBodySchema = z
   .object({
     player_id: z.string().min(1),
@@ -257,6 +271,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     let grantedItem: string | null = null;
     let askedKey: string | undefined;
     let shortOfCoins = false;
+    let readAloudPct = 0;
     let coinsTotal: number | undefined;
     const worldDo = deps.worlds.get(req.world_id);
     if (decision.stars > 0 && decision.bank) {
@@ -272,10 +287,23 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         );
         const alreadyBought = Number(paidRow?.n ?? 0) > 0;
         const paid = Number(paidRow?.paid ?? 0);
-        const price = decision.priceCoins;
+        // Furniture: today's read-aloud discount of its kind (docs/03 D13), bound to this purchase.
+        const priced = priceWithReadAloud(deps.db, {
+          playerId: req.player_id,
+          itemKey,
+          price: decision.priceCoins,
+          ref,
+          nowMs,
+          commit: false
+        });
+        const price = priced.price;
+        readAloudPct = priced.discountPct;
         const reason = `purchase:${req.npc_ctx}:${itemKey}:${decision.stars}`;
         if (!alreadyBought) {
           if (worldDo.getPlayerBalance(req.player_id) >= price) {
+            if (priced.discountPct > 0) {
+              priceWithReadAloud(deps.db, { playerId: req.player_id, itemKey, price: decision.priceCoins, ref, nowMs, commit: true });
+            }
             coinsDelta = -price;
             worldDo.appendLedger(req.player_id, coinsDelta, reason, ref, nowMs);
             grantedItem = itemKey;
@@ -371,6 +399,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       feedback_ko: converseFeedbackKo({ ...decision, inputSource: req.stt_source, shortOfCoins }),
       coins_total: coinsTotal,
       asked_key: askedKey,
+      read_aloud_discount_pct: grantedItem && readAloudPct > 0 ? readAloudPct : undefined,
       target_text: decision.targetText !== req.target_text ? decision.targetText : undefined,
       memory_card: card ? { id: card.id, next_review_at: new Date(card.next_review_at).toISOString() } : null
     });
@@ -385,6 +414,33 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const worldId = c.req.query('world_id') ?? '';
     if (!playerId) return c.json({ error: 'player_id_required' }, 400);
     return c.json(listReviewSigns(deps.db, deps.worlds.get(worldId), playerId, deps.nowMs()));
+  });
+
+  // Read-aloud furniture discount (docs/03 D13): the build screen sends what the child read for one missing kind.
+  app.post('/v1/furniture/read-aloud', async (c) => {
+    const parsed = ReadAloudBodySchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: 'invalid_read_aloud_request', issues: parsed.error.issues }, 400);
+    const b = parsed.data;
+    if (!isFurnitureKind(b.kind)) return c.json({ error: 'not_a_furniture_kind' }, 400);
+    return c.json(
+      claimReadAloud(deps.db, {
+        playerId: b.player_id,
+        worldId: b.world_id,
+        kind: b.kind,
+        transcript: b.transcript,
+        sttSource: b.stt_source,
+        confidence: b.confidence,
+        durMs: b.dur_ms,
+        level: b.level,
+        nowMs: deps.nowMs()
+      })
+    );
+  });
+
+  app.get('/v1/furniture/discounts', (c) => {
+    const playerId = c.req.query('player_id') ?? '';
+    if (!playerId) return c.json({ error: 'player_id_required' }, 400);
+    return c.json(readAloudStatus(deps.db, playerId, deps.nowMs()));
   });
 
   app.post('/v1/review/attempt', async (c) => {

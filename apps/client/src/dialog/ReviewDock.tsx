@@ -78,9 +78,11 @@ export function ReviewDock(props: ReviewDockProps): React.ReactElement | null {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const live = useRef(true);
 
+  // Keyed on the token string: the shell hands a fresh player object on every render, which must not re-poll.
+  const playerToken = player?.deviceToken ?? '';
   const refresh = useCallback(async () => {
     if (timer.current) clearTimeout(timer.current);
-    const token = tokenOf(player);
+    const token = readStudentToken() || playerToken;
     if (!token) return;
     let delay = 60_000;
     try {
@@ -95,7 +97,7 @@ export function ReviewDock(props: ReviewDockProps): React.ReactElement | null {
       if (err instanceof SubmitError && err.kind === 'auth') return; // token gone: no more polling
     }
     if (live.current) timer.current = setTimeout(() => void refresh(), delay);
-  }, [player, baseUrl, fetchImpl]);
+  }, [playerToken, baseUrl, fetchImpl]);
 
   useEffect(() => {
     live.current = true;

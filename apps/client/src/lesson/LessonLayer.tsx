@@ -212,7 +212,10 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
           </div>
         ) : (
           // New stage, new sentences or a finished answer: a fresh window (selection, result and step reset).
-          <React.Fragment key={`${panelKey}:${doneSeq}`}>{external}</React.Fragment>
+          // pointer-events: the Shell lets taps through to the world; the dialog window must take them again.
+          <div key={`${panelKey}:${doneSeq}`} data-testid="lesson-dialog" style={{ pointerEvents: 'auto' }}>
+            {external}
+          </div>
         )}
         <div style={{ position: 'absolute', inset: 0, zIndex: 45, pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: SP[2] }}>
           {view.connection !== 'ok' ? (

@@ -107,7 +107,9 @@ const CompleteLessonSendReportSchema = z
     next_lesson_at: z.string().min(1).default('일요일 오전 10:00'),
     share_token: z.string().min(16),
     share_url: z.string().min(1).optional(),
-    clips: z.array(z.unknown()).default([])
+    clips: z.array(z.unknown()).default([]),
+    /** Lesson-only progress numbers built by lesson mode (docs/18 §3), stored with the facts. No transcript text. */
+    lesson_extra: z.object({ progress: z.record(z.union([z.number(), z.record(z.number())])) }).strict().optional()
   })
   .strict();
 
@@ -603,7 +605,8 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       new_expressions: contribution.lesson_born_expressions,
       solo_reused_expressions: Math.round(
         contribution.lesson_born_expressions * contribution.solo_transfer_14d_rate
-      )
+      ),
+      ...(req.lesson_extra ?? {})
     };
     const verified = verifyOrReplaceReportBody(facts, req.draft_body);
     const shareUrl = req.share_url ?? `/report?token=${req.share_token}`;

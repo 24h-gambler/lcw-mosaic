@@ -617,3 +617,5 @@ export function verifyOrReplaceReportBody(
     body: trimmed
   };
 }
+
+export * from './bookmarks.js';

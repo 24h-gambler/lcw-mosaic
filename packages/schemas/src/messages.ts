@@ -173,3 +173,22 @@ export const ServerRoomMessageSchema = z.discriminatedUnion('type', [
   ServerEventMsgSchema
 ]);
 export type ServerRoomMessage = z.infer<typeof ServerRoomMessageSchema>;
+
+/**
+ * Text-only status line for the parent lesson window (docs/08 P04, WP-307).
+ * No video or audio frames: LessonDO sends these few strings every ~10 seconds.
+ */
+export const LESSON_WINDOW_SCENE_ICONS = ['cafe', 'plaza', 'boutique', 'makers_lab', 'dungeon', 'home'] as const;
+
+export const LessonWindowStatusSchema = z
+  .object({
+    type: z.literal('lesson.window_status'),
+    lesson_id: z.string().min(1),
+    place: z.string().min(1).max(40),
+    situation: z.string().min(1).max(80),
+    target_sentence: z.string().max(200).nullable(),
+    scene_icon: z.enum(LESSON_WINDOW_SCENE_ICONS),
+    sent_at: z.number().int().nonnegative()
+  })
+  .strict();
+export type LessonWindowStatus = z.infer<typeof LessonWindowStatusSchema>;

@@ -90,6 +90,8 @@ export function roadsConnected(w: World): boolean {
   return ANCHORS.every(([ax, , az]) => seen[ax * CFG.SZ + az] === 1);
 }
 
+const jcursor = new WeakMap<World, number>();
+
 export function check(w: World, ref: { deep: boolean; core?: number | null }): string[] {
   const v: string[] = [];
   const [sx, sy, sz] = CFG.SPAWN;
@@ -110,6 +112,53 @@ export function check(w: World, ref: { deep: boolean; core?: number | null }): s
     if (w.zone(...w.unkey(k)) === Z.CORE) {
       v.push('I8 temp in core');
       break;
+    }
+  }
+  // I9: permission rules (docs/17). Visitors never edit when visitorBuild is off,
+  // nobody places VAULT in CITY, shop fronts are never edited.
+  {
+    const visitorOff = !w.settings.visitorBuild;
+    // Journal is append-only between rollbacks: scan only new entries (cursor per world).
+    let cur = jcursor.get(w) ?? 0;
+    if (cur > w.journal.length) cur = 0;
+    for (; cur < w.journal.length; cur++) {
+      const j = w.journal[cur]!;
+      const [x, y, z] = w.unkey(j.key);
+      if (
+        (visitorOff && !w.isAllowed(j.actor)) ||
+        w.isShopFront(x, y, z) ||
+        (w.get(x, y, z) === B.VAULT && w.zone(x, y, z) === Z.CITY)
+      ) {
+        v.push('I9 forbidden edit');
+        break;
+      }
+    }
+    jcursor.set(w, cur);
+    for (const [k, e] of ref.deep || w.tick % 16 === 0 ? w.temp : []) {
+      if (visitorOff && !w.isAllowed(e.actor)) {
+        v.push('I9 visitor temp edit');
+        break;
+      }
+      const [x, y, z] = w.unkey(k);
+      if (e.blockId === B.VAULT && w.zone(x, y, z) === Z.CITY) {
+        v.push('I9 vault in city');
+        break;
+      }
+      if (w.isShopFront(x, y, z)) {
+        v.push('I9 temp in shop front');
+        break;
+      }
+    }
+    for (const [k, id] of w.delta) {
+      const [x, y, z] = w.unkey(k);
+      if (id === B.VAULT && w.zone(x, y, z) === Z.CITY) {
+        v.push('I9 vault in city');
+        break;
+      }
+      if (w.isShopFront(x, y, z)) {
+        v.push('I9 delta in shop front');
+        break;
+      }
     }
   }
   if (w.fluid.size > CFG.MAX_FLUID) v.push('fluid cap');
@@ -151,6 +200,11 @@ const HOT: Array<[number, number, number]> = [
   [47, 1, 200],
   [20, 8, 20]
 ];
+// Shop entrances inside the city (z=54 wall, doors facing -z / +z).
+export const FUZZ_SHOPS = [
+  { x: 56, y: 1, z: 54, dx: 0, dz: -1 },
+  { x: 62, y: 1, z: 66, dx: 0, dz: 1 }
+] as const;
 const BAD = [NaN, Infinity, -Infinity, 1e12, -1e12, -1, 1e9, 0.5, -0.0];
 
 export interface FuzzResult {
@@ -162,10 +216,11 @@ export interface FuzzResult {
 }
 
 export function runFuzz(seed: number, actions: number, mut: MutantFlags = {}): FuzzResult {
-  const w = new World(seed, mut);
+  // Odd seeds: visitors may not edit; even seeds: visitors may edit WILD/CITY (never PLOT).
+  const w = new World(seed, mut, { visitorBuild: seed % 2 === 0, shops: FUZZ_SHOPS });
   const r = mulberry32(seed * 7919 + 13);
   w.players.push({ id: 0, x: 144.5, y: 1, z: 144.5, vx: 0, vy: 0, vz: 0, owner: true });
-  w.players.push({ id: 1, x: 60.5, y: 12, z: 100.5, vx: 0, vy: 0, vz: 0 });
+  w.players.push({ id: 1, x: 60.5, y: 12, z: 100.5, vx: 0, vy: 0, vz: 0, permitted: true });
   w.players.push({ id: 2, x: 116.5, y: 1, z: 170.5, vx: 0, vy: 0, vz: 0 });
   for (let id = 3; id < 8; id++) {
     w.players.push({ id, x: 20.5 + id * 30, y: 20, z: 20.5, vx: 0, vy: 0, vz: 0 });

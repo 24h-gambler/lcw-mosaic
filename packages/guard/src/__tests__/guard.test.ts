@@ -206,7 +206,7 @@ describe('@lcw/guard WP-601, WP-604, WP-605, WP-606 & docs/05 9 tests', () => {
   });
 
   it('Test 6: rolling back journal empties L2 and satisfies all invariants I1..I8', () => {
-    const w = new World(1);
+    const w = new World(1, {}, { visitorBuild: true });
     w.place(0, 200, 10, 200, B.STONE);
     expect(w.delta.size).toBe(1);
     w.rollbackAll();

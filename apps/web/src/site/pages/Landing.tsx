@@ -1,6 +1,6 @@
 import React from 'react';
-import { HERO, LANDING, LOOP_OFFERS, STEPS, STEP_GROW } from '../copy.js';
-import { HeroLoop } from '../HeroLoop.js';
+import { HERO, LANDING, LOOP, LOOP_OFFERS, STEPS, STEP_GROW } from '../copy.js';
+import { GameClip } from '../GameMedia.js';
 import { SLink } from '../SiteShell.js';
 import { track } from '../track.js';
 import { OfferList } from '../widgets.js';
@@ -37,7 +37,7 @@ export function LandingPage(): React.ReactElement {
               </SLink>
             </div>
           </div>
-          <HeroLoop />
+          <GameClip clip="hero-cafe" captions={LOOP.captions} label={LOOP.label} />
         </div>
       </section>
 

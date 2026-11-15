@@ -104,6 +104,15 @@ export function siteCss(): string {
 .s-loop-cap span{background:${C['night-900']};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;${type('small')};text-align:center}
 .s-loop-ctrl{position:absolute;top:8px;right:8px;z-index:4;display:flex;gap:6px}
 .s-loop-ctrl button{min-height:${S.touchTargetMinPx}px;min-width:${S.touchTargetMinPx}px;border:2px solid ${C['ink-900']};background:${C['paper-0']};border-radius:${S.radiusButtonPx}px;font:inherit;font-weight:800;cursor:pointer}
+.s-clip{position:relative;border:2px solid ${C['ink-900']};border-radius:${S.radiusCardPx}px;box-shadow:${S.shadowDefault};overflow:hidden;background:${C['night-900']};isolation:isolate}
+.s-clip video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.s-clip-tag{position:absolute;top:10px;left:10px;z-index:3;background:${C['paper-0']};color:${C['ink-900']}}
+.s-clip-btn{position:absolute;top:8px;right:8px;z-index:4;min-height:${S.touchTargetMinPx}px;min-width:${S.touchTargetMinPx}px;border:2px solid ${C['ink-900']};background:${C['paper-0']};color:${C['ink-900']};border-radius:${S.radiusButtonPx}px;font:inherit;font-weight:800;cursor:pointer}
+.s-shot{position:relative;border:2px solid ${C['ink-900']};border-radius:${S.radiusCardPx}px;box-shadow:${S.shadowDefault};overflow:hidden;background:${C['night-900']}}
+.s-shot img{display:block;width:100%;height:auto}
+.s-shot-thumb{box-shadow:none;border-width:1px}
+.s-shot-thumb img{height:120px;object-fit:cover}
+.s-shot-thumb .s-clip-tag{display:none}
 .s-loop-dots{position:absolute;top:12px;left:12px;z-index:4;display:flex;gap:6px}
 .s-loop-dots i{width:28px;height:6px;border:1px solid ${C['ink-900']};background:${C['paper-0']}}
 .s-loop-dots i[data-on="1"]{background:${C.brand}}

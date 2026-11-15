@@ -1,6 +1,8 @@
 /** W07 expression pages (docs/14 §9): text first for search; the 3D scene loads only from the [이 장면 해 보기] button. */
 import React from 'react';
-import { LEARN, LEARN_PAGES } from '../copy.js';
+import { LEARN, LEARN_PAGES, MEDIA } from '../copy.js';
+import { GameShot } from '../GameMedia.js';
+import type { SiteStillKey } from '../media.js';
 import { SLink } from '../SiteShell.js';
 import { OfferList } from '../widgets.js';
 import { VoxelSvg, box, cafe, floatingIsland, grass, merge, miniCharacter as character, placeAt, shift, tree, type Vox } from '../voxel.js';
@@ -12,6 +14,15 @@ export const LEARN_ART_PARTS: Readonly<Record<string, Vox[][]>> = {
   trade: [grass(12, 8), placeAt(character({}), 2, 5), placeAt(character({ shirt: 'sky-d', hair: 'sun-d' }), 10, 5), box(5, 3, 0, 2, 4, 3, 'sun-d'), box(5, 4, 3, 1, 1, 1, 'sky')],
   court: [grass(12, 8), box(1, 1, 0, 10, 2, 5, 'sun-d'), placeAt(character({ shirt: 'ink-700', hair: 'silver' }), 6, 2, 5), placeAt(character({}), 6, 6)],
   open_question: [shift(floatingIsland('leaf', 'sun-d'), 0, 0, 2), shift(tree(), 3, 0, 3), placeAt(character({}), 2, 4, 3)]
+};
+/**
+ * Scenes the game already has get a real /game capture (docs/14 §10.3); the others keep the drawn picture until the
+ * world builds them (gear lab, court).
+ */
+export const LEARN_STILL: Readonly<Record<string, { still: SiteStillKey; alt: string }>> = {
+  cafe: { still: 'cafe-offers', alt: MEDIA.cafeOffers },
+  trade: { still: 'trade-offers', alt: MEDIA.tradeOffers },
+  open_question: { still: 'build-plot', alt: MEDIA.buildPlot }
 };
 const ART: Readonly<Record<string, Vox[]>> = Object.fromEntries(Object.entries(LEARN_ART_PARTS).map(([k, parts]) => [k, merge(...parts)]));
 
@@ -27,7 +38,11 @@ export function LearnIndexPage(): React.ReactElement {
         <div className="s-grid-3">
           {LEARN_PAGES.map((p) => (
             <SLink key={p.slug} to={`/learn/${p.slug}`} className="s-card s-stack" style={{ color: 'inherit', textDecoration: 'none', gap: 8 }}>
-              <VoxelSvg voxels={ART[p.ctx] ?? ART.cafe!} unit={6} style={{ height: 120, width: '100%' }} />
+              {LEARN_STILL[p.ctx] ? (
+                <GameShot still={LEARN_STILL[p.ctx]!.still} alt="" className="s-shot-thumb" sizes="(max-width: 720px) 92vw, 320px" />
+              ) : (
+                <VoxelSvg voxels={ART[p.ctx] ?? ART.cafe!} unit={6} style={{ height: 120, width: '100%' }} />
+              )}
               <strong className="s-h3">{p.title}</strong>
               <span className="s-en-sm" lang="en">
                 {p.offers[2]?.text}
@@ -57,9 +72,13 @@ export function LearnPage({ slug }: { slug: string }): React.ReactElement {
               {LEARN.tryCta} ▶
             </SLink>
           </div>
-          <div className="s-show" style={{ cursor: 'default' }}>
-            <VoxelSvg voxels={ART[p.ctx] ?? ART.cafe!} unit={12} title={p.scene} />
-          </div>
+          {LEARN_STILL[p.ctx] ? (
+            <GameShot still={LEARN_STILL[p.ctx]!.still} alt={LEARN_STILL[p.ctx]!.alt} eager sizes="(max-width: 720px) 92vw, 560px" />
+          ) : (
+            <div className="s-show" style={{ cursor: 'default' }}>
+              <VoxelSvg voxels={ART[p.ctx] ?? ART.cafe!} unit={12} title={p.scene} />
+            </div>
+          )}
         </div>
       </section>
       <section className="s-sec">

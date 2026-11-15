@@ -15,6 +15,7 @@ import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicRe
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
+import { injectShowroomShareMeta, showroomTokenFromPath } from './showroom-page.js';
 import { createInitialPlayerState } from '@lcw/sim-core';
 import { z } from 'zod';
 import { FREE_TIER_LIMITS, type QuotaMeter } from '@lcw/quota';
@@ -745,6 +746,14 @@ export const workerHandler = {
     if (env.ASSETS && url.pathname.startsWith('/r/')) {
       const shell = await env.ASSETS.fetch(new Request(new URL('/', url), { headers: request.headers }));
       return injectReportShareMeta(shell, url);
+    }
+    // Showroom share links get the world's own title as preview tags, and 404 once consent is gone (showroom-page.ts).
+    if (env.ASSETS && request.method === 'GET' && showroomTokenFromPath(url.pathname)) {
+      const shell = await env.ASSETS.fetch(new Request(new URL('/', url), { headers: request.headers }));
+      return injectShowroomShareMeta(shell, url, async (token) => {
+        const res = await platformStub(env).fetch(new Request(new URL(`/v1/showroom/${token}`, url)));
+        return res.ok ? ((await res.json()) as { title: string }) : null;
+      });
     }
     if (env.ASSETS) return env.ASSETS.fetch(request);
     return new Response('not found', { status: 404 });

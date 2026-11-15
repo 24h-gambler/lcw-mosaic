@@ -1,6 +1,7 @@
 /** W03 student page (docs/14 §5). No price, payment, stock or deadline anywhere on this page. */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { LOOP_OFFERS, PLAY } from '../copy.js';
+import { LOOP_OFFERS, PLAY, TOUR } from '../copy.js';
+import { GameClip } from '../GameMedia.js';
 import { SLink } from '../SiteShell.js';
 import { prefersReducedMotion } from '../sound.js';
 import { ListenButton, OfferList, Toast, useShareToParent } from '../widgets.js';
@@ -162,7 +163,7 @@ export function PlayPage(): React.ReactElement {
               </button>
             </div>
           </div>
-          <BuildMontage />
+          <GameClip clip="tour-town" captions={TOUR.captions} label={TOUR.label} />
         </div>
       </section>
 

@@ -6,15 +6,18 @@ import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { App } from '../App.js';
 import { routeFromPath } from '../main.js';
 import { bestOfferMatch, wordHits } from '../tryFlow.js';
-import { FAQ, LEARN_PAGES, PARENTS, PRICING } from '../site/copy.js';
-import { HERO_LOOP_MS, heroPhaseAt, heroWordsLit } from '../site/HeroLoop.js';
-import { CHILD_PAGES, parseSitePath, prerenderPaths } from '../site/routes.js';
+import { FAQ, LEARN_PAGES, LOOP, PARENTS, PRICING, TOUR } from '../site/copy.js';
+import { clipCaptionAt } from '../site/GameMedia.js';
+import { SITE_CLIPS, SITE_STILLS } from '../site/media.js';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { CHILD_PAGES, SHARE_IMAGES, parseSitePath, prerenderPaths, shareImageFor } from '../site/routes.js';
 import { SitePageView } from '../site/SiteRoot.js';
 import { SAMPLE_SNAPSHOTS, parseShowroomSnapshot } from '../site/showroom.js';
 import { siteCss } from '../site/siteCss.js';
 import { TryScene } from '../site/TryScene.js';
 import { chooseTryStage, worldCueFor } from '../site/TryWorld.js';
-import { allPages, fillShell, prerenderPage } from '../site/prerender.js';
+import { allPages, fillShell, prerenderPage, robotsTxt } from '../site/prerender.js';
 import { TRY } from '../site/tryCopy.js';
 import { TRY_LOUDNESS_TRIES, TRY_RECOGNITION_ANSWER_MS, TRY_RECOGNITION_AUDIO_MS, cardOrderStars } from '../site/TrySpeak.js';
 import { TRY_INITIAL, TRY_OFFERS, TRY_PRICES, TRY_WALK_STEPS, TRY_WALLET, tryReducer, type TryPhase, type TryState } from '../site/tryState.js';
@@ -68,28 +71,46 @@ describe('site map (docs/14 §2)', () => {
 });
 
 describe('W01 first screen', () => {
-  it('shows the one-line title, the captioned loop, both entrances and the try CTA', () => {
+  it('shows the one-line title, the captioned real-game clip, both entrances and the try CTA', () => {
     const html = render('/');
     expect(html).toContain('말하면 생기는 세계');
     expect(html).toContain('영어로 말해야 물건이 생기는 3D 블록 게임');
-    expect(html).toContain('data-testid="hero-loop"');
+    expect(html).toContain('data-testid="clip-hero-cafe"');
+    // the clip waits until it is on screen: poster only, no video bytes on first load (docs/14 §11)
+    expect(html).toContain('preload="none"');
+    expect(html).toContain(`poster="${SITE_CLIPS['hero-cafe'].poster}"`);
+    expect(html).toContain('실제 게임 화면 · 시연');
     expect(html).toContain('학부모님이세요?');
     expect(html).toContain('플레이어세요?');
     expect(html).toContain('href="/try"');
     // the loop carries its own caption (understandable with the sound off) and a pause control
-    expect(html).toMatch(/s-loop-cap[\s\S]*더 좋은 장비가 됩니다/);
+    expect(html).toMatch(/s-loop-cap[\s\S]*카페 주인이 영어로 말을 걸어요/);
     expect(html).toContain('aria-pressed');
   });
 
-  it('runs the loop phases in order within 15 seconds and paints the 3-star words progressively', () => {
-    expect(HERO_LOOP_MS).toBe(15_000);
-    expect([0, 4_000, 9_000, 14_000].map(heroPhaseAt)).toEqual([0, 1, 2, 3]);
-    expect(heroPhaseAt(15_100)).toBe(0);
-    expect(heroWordsLit(7_000, 10)).toBe(0);
-    const mid = heroWordsLit(9_500, 10);
-    expect(mid).toBeGreaterThan(0);
-    expect(mid).toBeLessThan(10);
-    expect(heroWordsLit(12_000, 10)).toBe(10);
+  it('follows the clip with its captions, from the marks the capture recorded', () => {
+    const c = SITE_CLIPS['hero-cafe'];
+    const order = LOOP.captions.map(([k]) => k);
+    expect(order.every((k) => k in c.marks)).toBe(true);
+    expect(clipCaptionAt(0, c.marks, order)).toBe(0);
+    expect(clipCaptionAt(c.marks.offers + 0.1, c.marks, order)).toBe(1);
+    expect(clipCaptionAt(c.marks.speak + 0.1, c.marks, order)).toBe(2);
+    expect(clipCaptionAt(c.seconds, c.marks, order)).toBe(3);
+    expect(TOUR.captions.every(([k]) => k in SITE_CLIPS['tour-town'].marks)).toBe(true);
+  });
+
+  it('ships every captured file the pages name, and keeps clips inside the 1.5 MB per 15 s budget (docs/14 §11)', () => {
+    const pub = join(__dirname, '../../public');
+    for (const s of Object.values(SITE_STILLS)) for (const f of [s.src, s.src480]) expect(existsSync(join(pub, f)), f).toBe(true);
+    for (const c of Object.values(SITE_CLIPS)) {
+      expect(existsSync(join(pub, c.poster)), c.poster).toBe(true);
+      const bytes = readFileSync(join(pub, c.src)).length;
+      expect(bytes, c.src).toBeLessThanOrEqual(Math.max(c.seconds, 1) * 100 * 1024 * 1.05);
+    }
+    // nothing stale is left next to them (names are content-hashed)
+    const named = new Set<string>([...Object.values(SITE_STILLS).flatMap((s) => [s.src, s.src480]), ...Object.values(SITE_CLIPS).flatMap((c) => [c.src, c.poster])]);
+    for (const f of readdirSync(join(pub, 'media'))) expect(named.has(`/media/${f}`), f).toBe(true);
+    for (const og of SHARE_IMAGES) expect(existsSync(join(pub, 'og', `${og}.jpg`)), og).toBe(true);
   });
 });
 
@@ -269,6 +290,27 @@ describe('static pages for crawlers and first paint (docs/14 §11)', () => {
     expect(parents).toContain(PARENTS.title.slice(0, 8));
     // hydrateRoot needs renderToString's text separators; renderToStaticMarkup output fails hydration on every page.
     expect(prerenderPage('/pass').body).toContain('<!-- -->');
+  });
+
+  it('gives every page a share picture, site name and large card; only listed pages are indexable', () => {
+    for (const p of allPages()) {
+      const html = fillShell(shell, p);
+      expect(html).toContain(`<meta property="og:image" content="https://lcw.worldwidesomething.com/og/${p.image}.jpg" />`);
+      expect(html).toContain('og:image:width" content="1200"');
+      expect(html).toContain('og:site_name');
+      expect(html).toContain('<meta name="twitter:card" content="summary_large_image" />');
+      expect(html.includes('<meta name="robots" content="noindex" />')).toBe(p.path === '/pass');
+    }
+    expect(shareImageFor(parseSitePath('/learn/trade-items')!)).toBe('learn-trade');
+    expect(shareImageFor(parseSitePath('/learn/order-a-drink')!)).toBe('learn-cafe');
+    expect(shareImageFor(parseSitePath('/s/demo')!)).toBe('showroom');
+  });
+
+  it('keeps report and showroom links readable for link previews (robots), app screens out of search', () => {
+    const r = robotsTxt();
+    expect(r).not.toMatch(/Disallow: \/(r|s)\//);
+    for (const p of ['/join', '/director', '/family', '/link', '/game/', '/v1/', '/report', '/dashboard']) expect(r).toContain(`Disallow: ${p}`);
+    for (const p of prerenderPaths()) expect(r.split('\n').includes(`Disallow: ${p}`)).toBe(false);
   });
 
   it('clears the pre-rendered page before paint when the file is served for another address', () => {

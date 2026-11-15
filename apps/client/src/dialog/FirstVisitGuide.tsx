@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { UI_STRINGS_KO } from '@lcw/content';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
-import { errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
+import { errandGiverNameKo, errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
 import { MicController, type MicView } from './mic-controller.js';
 import { micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
 import type { SpeechEngine } from './speech.js';
@@ -11,8 +11,8 @@ import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 
 /**
  * docs/08 G15 첫 접속 안내: mic check -> move -> first order within 3 minutes (docs/01 활성화, docs/09 첫 문장까지
- * 시간), carried by the first-visit errand (docs/03 D1): the neighbour Mina at the honey cafe door asks for a cold
- * water, the child orders it from Hani inside (the first order) and brings it out to her for 50 coins. The headset tip and the "volume with a
+ * 시간), carried by the first-visit errand (docs/03 D1): the neighbour at the honey cafe door (cast pack: Mia) asks for a cold
+ * water, the child orders it from the cafe owner inside (the first order) and brings it out to her for 50 coins. The headset tip and the "volume with a
  * guardian" note are shown once (docs/12 3·4장). The server owns the errand; this screen shows the step and the way.
  */
 
@@ -115,13 +115,13 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
     );
   }
   if (hidden) return null;
-  // Mina waits at the honey cafe door (world errand_neighbor) and the cafe is behind her: to her to start and to hand
+  // The giver waits at the honey cafe door (world errand_neighbor) and the cafe is behind her: to her to start and to hand
   // over, to the counter to order. A world without walkToNpc walks to the scene.
   const walk =
     errand.state === 'accepted'
       ? { label: `☕ ${F.walkCafe}`, scene: 'honey_cafe' as const, npcId: null }
       : errand.state === 'offered' || errand.state === 'carrying'
-        ? { label: `🙋 ${F.walkMina}`, scene: 'honey_cafe' as const, npcId: ERRAND_GIVER_NPC_ID }
+        ? { label: `🙋 ${F.walkGiver.replace('{giver}', errandGiverNameKo())}`, scene: 'honey_cafe' as const, npcId: ERRAND_GIVER_NPC_ID }
         : null;
   return (
     <>

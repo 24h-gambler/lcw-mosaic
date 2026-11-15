@@ -482,7 +482,7 @@ export function App(): React.ReactElement {
   const Lesson = lessonMod?.LessonLayer;
   const SoloPanel = dialogMod?.DialogPanel;
   const soloLevel = identity?.kind === 'child' ? identity.level : undefined;
-  // docs/03 D1 first-visit errand: the giver (Luna) and the cafe speak the errand's sentences while it runs.
+  // docs/03 D1 first-visit errand: the giver (the neighbour at the cafe door) and the cafe speak the errand's sentences while it runs.
   if (errandDialog.current.npc !== soloNpc) {
     errandDialog.current = {
       npc: soloNpc,

@@ -78,8 +78,8 @@ describe('ReviewDock', () => {
   });
 
   it('opens the review on the NPC the world has for that context, else a built-in one', () => {
-    const world = { listNpcs: () => [{ id: 'cafe_owner', ctx: 'cafe', nameKo: '하니', nameEn: 'Hani' }] } as unknown as WorldHandle;
-    expect(npcForReview(world, 'cafe').nameKo).toBe('하니');
+    const world = { listNpcs: () => [{ id: 'cafe_owner', ctx: 'cafe', nameKo: '해나', nameEn: 'Hannah' }] } as unknown as WorldHandle;
+    expect(npcForReview(world, 'cafe').nameKo).toBe('해나');
     expect(npcForReview(null, 'trade_shop').id).toBe('shop_owner');
     expect(npcForReview(null, 'unknown').id).toBe('guide');
   });

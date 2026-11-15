@@ -471,7 +471,7 @@ export interface ResidentDef {
  * Fixed 12-resident roster (docs/03 D13 lines 400-414). AI never generates residents.
  */
 export const RESIDENT_REGISTRY: readonly ResidentDef[] = [
-  { id: 'res_chef', nameKo: '요리사', nameEn: 'Chef Mina', jobFurnitureId: 'job_stove', unlockRequirement: 'food_orders_20', benefit: 'home_food_orders' },
+  { id: 'res_chef', nameKo: '요리사', nameEn: 'Chef Leo', jobFurnitureId: 'job_stove', unlockRequirement: 'food_orders_20', benefit: 'home_food_orders' },
   { id: 'res_tailor', nameKo: '재단사', nameEn: 'Tailor Leo', jobFurnitureId: 'job_sewing_machine', unlockRequirement: 'outfits_5', benefit: 'home_dye_repair' },
   { id: 'res_mason', nameKo: '석공', nameEn: 'Mason Theo', jobFurnitureId: 'job_stone_bench', unlockRequirement: 'blocks_500', benefit: 'stone_discount' },
   { id: 'res_carpenter', nameKo: '목수', nameEn: 'Carpenter Nora', jobFurnitureId: 'job_saw_bench', unlockRequirement: 'wood_blocks_300', benefit: 'wood_discount' },

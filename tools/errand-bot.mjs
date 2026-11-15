@@ -1,5 +1,5 @@
 // WP-111 acceptance bot (docs/11): a new linked child device opens the built game, passes the first-visit guide,
-// takes the neighbour Mina's errand at the honey cafe door, orders the cold water inside and hands it over, through the real dialog window
+// takes the neighbour Mia's errand at the honey cafe door, orders the cold water inside and hands it over, through the real dialog window
 // (keyboard input) and the real edge routes. Measures spawn -> first order (target: 3 minutes) and the server's
 // activation clock. Headless only, audio muted.
 //
@@ -40,7 +40,7 @@ await page.click('.lcw-firstvisit-go');
 await page.waitForTimeout(1200);
 const goal1 = await page.evaluate(() => document.body.innerText);
 await shot('51-errand-goal');
-mark('intro_done', { goalShown: goal1.includes('미나') || goal1.includes('심부름') });
+mark('intro_done', { goalShown: goal1.includes('미아') || goal1.includes('심부름') });
 
 // Talk to the NPC whose name matches: a dialog with someone else is closed (nothing bought) and the walk goes on.
 async function talk(name) {
@@ -94,7 +94,7 @@ await page.click('.lcw-errand-walk');
 await page.waitForFunction(() => window.__lcwWorld.getScene?.() === 'honey_cafe', null, { timeout: 60000 });
 await page.waitForTimeout(3500);
 mark('to_mina', { walk: walk0 });
-const okMina = await talk(/미나|Mina/);
+const okMina = await talk(/미아|Mia/);
 mark('mina_open', { ok: okMina });
 const a1 = await answer(2, '52-errand-ask');
 mark('accept_scored', a1);
@@ -109,7 +109,7 @@ await page.waitForFunction(() => window.__lcwWorld.getScene?.() === 'honey_cafe'
 await page.waitForTimeout(2500);
 mark('at_cafe', { walk: walk1 });
 
-const okHani = await talk(/하니|Hani/);
+const okHani = await talk(/해나|Hannah/);
 mark('hani_open', { ok: okHani });
 const a2 = await answer(2, '55-errand-cafe-offers');
 mark('first_order', a2);
@@ -122,7 +122,7 @@ await page.click('.lcw-errand-walk');
 await page.waitForFunction(() => window.__lcwWorld.getScene?.() === 'honey_cafe', null, { timeout: 60000 });
 await page.waitForTimeout(3500);
 mark('back_to_mina', { walk: walk2 });
-const okMina2 = await talk(/미나|Mina/);
+const okMina2 = await talk(/미아|Mia/);
 mark('mina2_open', { ok: okMina2 });
 const a3 = await answer(3, '57-errand-deliver');
 mark('deliver_scored', a3);

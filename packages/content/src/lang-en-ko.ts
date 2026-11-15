@@ -170,6 +170,8 @@ export const LEXICON_L1_KO_EN: Record<string, string> = {
   '민트티': 'mint tea',
   '아이스티': 'iced tea',
   '코코아': 'cocoa',
+  '꿀차': 'honey tea',
+  '꿀': 'honey',
   '빵': 'bread',
 
   // Cafe modifiers (6)
@@ -242,25 +244,84 @@ export const LEXICON_L1_KO_EN: Record<string, string> = {
   '배고파요': 'am hungry',
   '죄송해요': 'sorry',
   '실수였어요': 'was a mistake',
-  '약속할게요': 'promise'
+  '약속할게요': 'promise',
+
+  // Trade shop (barter) goods and verbs
+  '랜턴': 'lantern',
+  '지도': 'map',
+  '밧줄': 'rope',
+  '가방': 'backpack',
+  '배낭': 'backpack',
+  '나침반': 'compass',
+  '바꿔주세요': 'trade please',
+  '바꿔요': 'trade',
+  '교환': 'trade',
+  '줄게요': 'will give'
 };
 
-export const CAFE_DRINKS = [
-  { key: 'water', label: 'water', basePrice: 20 },
-  { key: 'milk', label: 'milk', basePrice: 25 },
-  { key: 'tea', label: 'tea', basePrice: 30 },
-  { key: 'juice', label: 'juice', basePrice: 35 },
-  { key: 'smoothie', label: 'smoothie', basePrice: 50 },
-  { key: 'hot_chocolate', label: 'hot chocolate', basePrice: 45 },
-  { key: 'lemonade', label: 'lemonade', basePrice: 40 },
-  { key: 'apple_juice', label: 'apple juice', basePrice: 40 },
-  { key: 'berry_smoothie', label: 'berry smoothie', basePrice: 60 },
-  { key: 'mint_tea', label: 'mint tea', basePrice: 35 },
-  { key: 'iced_tea', label: 'iced tea', basePrice: 35 },
-  { key: 'cocoa', label: 'cocoa', basePrice: 45 }
-] as const;
+/**
+ * Cafe menu (WP-107: 12 drinks x 6 modifiers). `temp` keeps the bank from teaching nonsense such as
+ * "cold hot chocolate" or "warm iced tea": a modifier that clashes with the drink is answered with the
+ * drink's `defaultMod` sentences instead (the child still gets a complete 1~3 star set).
+ */
+export interface CafeDrinkDef {
+  key: string;
+  label: string;
+  nameKo: string;
+  /** Picture shown on the thought board and for the `picture` hint level. */
+  emoji: string;
+  basePrice: number;
+  /** Modifiers that read naturally with this drink; the others resolve to `defaultMod`. */
+  mods: readonly CafeModifier[];
+  defaultMod: CafeModifier;
+}
 
 export const CAFE_MODIFIERS = ['cold', 'warm', 'sweet', 'large', 'small', 'fresh'] as const;
+export type CafeModifier = (typeof CAFE_MODIFIERS)[number];
+
+export const CAFE_MODIFIER_INFO: Record<CafeModifier, { nameKo: string; emoji: string }> = {
+  cold: { nameKo: '차가운', emoji: '🧊' },
+  warm: { nameKo: '따뜻한', emoji: '♨️' },
+  sweet: { nameKo: '달콤한', emoji: '🍯' },
+  large: { nameKo: '큰', emoji: '⬆️' },
+  small: { nameKo: '작은', emoji: '⬇️' },
+  fresh: { nameKo: '신선한', emoji: '🌿' }
+};
+
+const ALL_MODS = CAFE_MODIFIERS;
+const NO_WARM = ['cold', 'sweet', 'large', 'small', 'fresh'] as const;
+
+export const CAFE_DRINKS: readonly CafeDrinkDef[] = [
+  { key: 'water', label: 'water', nameKo: '물', emoji: '💧', basePrice: 20, mods: ['cold', 'warm', 'large', 'small', 'fresh'], defaultMod: 'cold' },
+  { key: 'milk', label: 'milk', nameKo: '우유', emoji: '🥛', basePrice: 25, mods: ALL_MODS, defaultMod: 'warm' },
+  { key: 'tea', label: 'tea', nameKo: '차', emoji: '🍵', basePrice: 30, mods: ['cold', 'warm', 'sweet', 'large', 'small'], defaultMod: 'warm' },
+  { key: 'juice', label: 'juice', nameKo: '주스', emoji: '🧃', basePrice: 35, mods: NO_WARM, defaultMod: 'cold' },
+  { key: 'smoothie', label: 'smoothie', nameKo: '스무디', emoji: '🥤', basePrice: 50, mods: NO_WARM, defaultMod: 'cold' },
+  { key: 'hot_chocolate', label: 'hot chocolate', nameKo: '핫초코', emoji: '☕', basePrice: 45, mods: ['sweet', 'large', 'small'], defaultMod: 'sweet' },
+  { key: 'lemonade', label: 'lemonade', nameKo: '레모네이드', emoji: '🍋', basePrice: 40, mods: NO_WARM, defaultMod: 'cold' },
+  { key: 'apple_juice', label: 'apple juice', nameKo: '사과주스', emoji: '🍎', basePrice: 40, mods: NO_WARM, defaultMod: 'cold' },
+  { key: 'berry_smoothie', label: 'berry smoothie', nameKo: '베리스무디', emoji: '🍓', basePrice: 60, mods: NO_WARM, defaultMod: 'cold' },
+  { key: 'mint_tea', label: 'mint tea', nameKo: '민트티', emoji: '🌱', basePrice: 35, mods: ALL_MODS, defaultMod: 'warm' },
+  { key: 'iced_tea', label: 'iced tea', nameKo: '아이스티', emoji: '🧋', basePrice: 35, mods: ['sweet', 'large', 'small', 'fresh'], defaultMod: 'sweet' },
+  { key: 'cocoa', label: 'cocoa', nameKo: '코코아', emoji: '🍫', basePrice: 45, mods: ['warm', 'sweet', 'large', 'small'], defaultMod: 'warm' }
+];
+
+/** The honey cafe's own drink (first lesson plan, cafe_order). Sold beside the 12 WP-107 drinks. */
+export const CAFE_SIGNATURE_DRINKS: readonly CafeDrinkDef[] = [
+  { key: 'honey_tea', label: 'honey tea', nameKo: '꿀차', emoji: '🍯', basePrice: 40, mods: ['warm', 'sweet', 'large', 'small'], defaultMod: 'warm' }
+];
+
+export const CAFE_MENU: readonly CafeDrinkDef[] = [...CAFE_DRINKS, ...CAFE_SIGNATURE_DRINKS];
+
+/**
+ * Price factor by granted star grade (docs/04 4.2 cafe/boutique/makers: list price, 20% off, 50% off).
+ * The server charges `round(basePrice * factor)` for the stars it granted, never a client-sent price.
+ */
+export const STAR_PRICE_FACTOR: Record<1 | 2 | 3, number> = { 1: 1, 2: 0.8, 3: 0.5 };
+
+export function starPrice(basePrice: number, stars: 1 | 2 | 3): number {
+  return Math.round(basePrice * STAR_PRICE_FACTOR[stars]);
+}
 
 function buildCafeOffers(
   drinkLabel: string,
@@ -268,9 +329,9 @@ function buildCafeOffers(
   basePrice: number,
   level: LangLevel
 ): [PhraseOffer, PhraseOffer, PhraseOffer] {
-  const p1 = basePrice;
-  const p2 = Math.round(basePrice * 0.8);
-  const p3 = Math.round(basePrice * 0.5);
+  const p1 = starPrice(basePrice, 1);
+  const p2 = starPrice(basePrice, 2);
+  const p3 = starPrice(basePrice, 3);
 
   if (level === 'L1') {
     return [
@@ -318,14 +379,24 @@ function buildCafeOffers(
   ];
 }
 
+/** Hint tags per level: the item words plus the level's core pattern (docs/04 4.6 core tokens). */
+function cafeHintTags(level: LangLevel, modifier: string, drinkLabel: string): string[] {
+  if (level === 'L1') return [drinkLabel, modifier, 'can I have'];
+  // The 3-star clause connector is the only core pattern at L2, so a 3-star order without it cannot pass.
+  if (level === 'L2') return [drinkLabel, modifier, 'because'];
+  return [drinkLabel, modifier, 'could you', 'so that'];
+}
+
 function capitalize(s: string): string {
   return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1);
 }
 
 const GENERATED_CAFE_BANK: PhraseBankEntry[] = [];
 for (const level of ['L1', 'L2', 'L3'] as const) {
-  for (const drink of CAFE_DRINKS) {
-    for (const mod of CAFE_MODIFIERS) {
+  for (const drink of CAFE_MENU) {
+    // The default modifier comes first so a clashing modifier falls back to it (lookupPhraseBank same-item fallback).
+    const mods = [drink.defaultMod, ...drink.mods.filter((m) => m !== drink.defaultMod)];
+    for (const mod of mods) {
       GENERATED_CAFE_BANK.push({
         id: `cafe_${level}_${drink.key}_${mod}`,
         lang: 'en',
@@ -334,11 +405,90 @@ for (const level of ['L1', 'L2', 'L3'] as const) {
         slotsKey: `item=${drink.key}|mod=${mod}`,
         level,
         offers: buildCafeOffers(drink.label, mod, drink.basePrice, level),
-        hintTags: [mod, drink.label, level === 'L3' ? 'so that' : 'please'],
+        hintTags: cafeHintTags(level, mod, drink.label),
         baseMesh: 'item_cup_01',
         socket: 'RightHand_Socket'
       });
     }
+  }
+}
+
+/**
+ * Trade shop goods (docs/19 trade_shop, first lesson trade_roleplay). Barter sentences: the child offers one of
+ * their own things for a shop good and says why. Coins do not move on these (price 0); the item swap itself is the
+ * atomic /v1/worlds/:id/trades settlement.
+ */
+export interface ShopGoodDef {
+  key: string;
+  label: string;
+  adj: string;
+  nameKo: string;
+  emoji: string;
+  /** What the child offers in exchange. */
+  give: string;
+  /** Why the child needs it (3-star clause). */
+  need: string;
+  baseValueCoins: number;
+}
+
+export const TRADE_SHOP_GOODS: readonly ShopGoodDef[] = [
+  { key: 'helmet', label: 'helmet', adj: 'red', nameKo: '빨간 헬멧', emoji: '⛑️', give: 'my blue stone', need: 'I need a helmet for the cave', baseValueCoins: 80 },
+  { key: 'lantern', label: 'lantern', adj: 'bright', nameKo: '밝은 랜턴', emoji: '🏮', give: 'my iron ore', need: 'it is dark at night', baseValueCoins: 60 },
+  { key: 'map', label: 'map', adj: 'old', nameKo: '오래된 지도', emoji: '🗺️', give: 'my gold coin', need: 'I want to find the island', baseValueCoins: 70 },
+  { key: 'rope', label: 'rope', adj: 'long', nameKo: '긴 밧줄', emoji: '🪢', give: 'my wood planks', need: 'I want to climb the hill', baseValueCoins: 40 },
+  { key: 'boots', label: 'boots', adj: 'green', nameKo: '초록 부츠', emoji: '🥾', give: 'my red apple', need: 'my feet are cold', baseValueCoins: 50 },
+  { key: 'backpack', label: 'backpack', adj: 'big', nameKo: '큰 가방', emoji: '🎒', give: 'my two shells', need: 'I have many things', baseValueCoins: 60 },
+  { key: 'umbrella', label: 'umbrella', adj: 'yellow', nameKo: '노란 우산', emoji: '☂️', give: 'my blue stone', need: 'it is raining outside', baseValueCoins: 40 },
+  { key: 'compass', label: 'compass', adj: 'shiny', nameKo: '반짝이는 나침반', emoji: '🧭', give: 'my silver ring', need: 'I do not want to get lost', baseValueCoins: 90 }
+];
+
+function buildShopOffers(g: ShopGoodDef, level: LangLevel): [PhraseOffer, PhraseOffer, PhraseOffer] {
+  if (level === 'L1') {
+    return [
+      { stars: 1, text: `The ${g.label}, please.`, price: 0, bonus: null },
+      { stars: 2, text: `I want the ${g.adj} ${g.label}.`, price: 0, bonus: null },
+      { stars: 3, text: `Can I trade ${g.give} for the ${g.label}?`, price: 0, bonus: 'trade_fee_off' }
+    ];
+  }
+  if (level === 'L2') {
+    return [
+      { stars: 1, text: `I want the ${g.adj} ${g.label}.`, price: 0, bonus: null },
+      { stars: 2, text: `Can I trade ${g.give} for the ${g.label}?`, price: 0, bonus: null },
+      { stars: 3, text: `I want to trade ${g.give} because ${g.need}.`, price: 0, bonus: 'trade_fee_off' }
+    ];
+  }
+  return [
+    { stars: 1, text: `I'd like to trade for the ${g.adj} ${g.label}.`, price: 0, bonus: null },
+    { stars: 2, text: `Could you give me the ${g.label} for ${g.give}?`, price: 0, bonus: null },
+    {
+      stars: 3,
+      text: `I will give you ${g.give} for the ${g.label} because ${g.need}.`,
+      price: 0,
+      bonus: 'trade_fee_off'
+    }
+  ];
+}
+
+const GENERATED_SHOP_BANK: PhraseBankEntry[] = [];
+for (const level of ['L1', 'L2', 'L3'] as const) {
+  for (const g of TRADE_SHOP_GOODS) {
+    GENERATED_SHOP_BANK.push({
+      id: `trade_shop_${level}_${g.key}`,
+      lang: 'en',
+      ctx: 'trade_shop',
+      intent: 'trade_item',
+      slotsKey: `item=${g.key}|mod=${g.adj}`,
+      level,
+      offers: buildShopOffers(g, level),
+      hintTags:
+        level === 'L1'
+          ? [g.label, 'can I trade', 'for']
+          : level === 'L2'
+            ? [g.label, 'can I trade', 'because']
+            : [g.label, 'could you', 'because'],
+      baseMesh: 'item_crate_01',
+      socket: 'RightHand_Socket'
+    });
   }
 }
 
@@ -525,6 +675,7 @@ const DOMAIN_BANK_ENTRIES: PhraseBankEntry[] = [
 
 export const PHRASE_BANK: readonly PhraseBankEntry[] = [
   ...GENERATED_CAFE_BANK,
+  ...GENERATED_SHOP_BANK,
   ...DOMAIN_BANK_ENTRIES
 ];
 
@@ -541,7 +692,7 @@ export function lookupPhraseBank(params: {
   // Exact match on ctx + level + item + mod/color
   const exact = PHRASE_BANK.find((e) => {
     if (e.ctx !== params.ctx || e.level !== params.level) return false;
-    if (!e.slotsKey.includes(`item=${itemKey}`)) return false;
+    if (bankItemKey(e) !== itemKey) return false;
     if (params.color && e.slotsKey.includes(`color=${params.color}`)) return true;
     if (e.slotsKey.includes(`mod=${modKey}`)) return true;
     return false;
@@ -550,13 +701,13 @@ export function lookupPhraseBank(params: {
 
   // Fallback within same ctx + level + item
   const sameItemLevel = PHRASE_BANK.find(
-    (e) => e.ctx === params.ctx && e.level === params.level && e.slotsKey.includes(`item=${itemKey}`)
+    (e) => e.ctx === params.ctx && e.level === params.level && bankItemKey(e) === itemKey
   );
   if (sameItemLevel) return sameItemLevel;
 
   // Fallback within same ctx + item across closest levels
   const sameItem = PHRASE_BANK.find(
-    (e) => e.ctx === params.ctx && e.slotsKey.includes(`item=${itemKey}`)
+    (e) => e.ctx === params.ctx && bankItemKey(e) === itemKey
   );
   if (sameItem) return sameItem;
 
@@ -595,6 +746,76 @@ export const VOICE_SKILL_DATA = {
   ] as const,
   adjectives: ['big', 'fast', 'red', 'blue', 'cold', 'dark', 'strong', 'small', 'flying'] as const
 } as const;
+
+/** Lowercase, punctuation-free form used to match a sentence the client claims it attempted against the bank. */
+export function bankTextKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/[^a-z0-9' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+let bankTextIndex: Map<string, Array<{ entry: PhraseBankEntry; offer: PhraseOffer }>> | null = null;
+
+/**
+ * Finds the bank offer whose text is `text` (server-side trust anchor for /v1/converse/score: the star grade,
+ * price and item come from here, never from the request). Prefers the given ctx and level.
+ */
+export function findBankOffer(params: {
+  ctx: string;
+  level?: LangLevel;
+  text: string;
+}): { entry: PhraseBankEntry; offer: PhraseOffer } | null {
+  if (!bankTextIndex) {
+    bankTextIndex = new Map();
+    for (const entry of PHRASE_BANK) {
+      for (const offer of entry.offers) {
+        const k = bankTextKey(offer.text);
+        const list = bankTextIndex.get(k) ?? [];
+        list.push({ entry, offer });
+        bankTextIndex.set(k, list);
+      }
+    }
+  }
+  const hits = (bankTextIndex.get(bankTextKey(params.text)) ?? []).filter((h) => h.entry.ctx === params.ctx);
+  if (hits.length === 0) return null;
+  return hits.find((h) => h.entry.level === params.level) ?? hits[0]!;
+}
+
+/** Item key of a bank entry (`item=<key>|...`). */
+export function bankItemKey(entry: PhraseBankEntry): string {
+  return /item=([^|]+)/.exec(entry.slotsKey)?.[1] ?? entry.id;
+}
+
+/** Korean gloss for hint tags (docs/08 8.2: long-press a tag to see its meaning for 0.5 s). */
+export const PATTERN_GLOSS_KO: Record<string, string> = {
+  please: '~ 주세요',
+  'can i have': '~ 주실래요? (정중하게)',
+  'can i get': '~ 받을 수 있을까요?',
+  'could you': '~해 주실 수 있어요?',
+  'i would': '나라면 ~할 거예요',
+  'i want': '~를 원해요',
+  'i like': '~를 좋아해요',
+  'my name is': '내 이름은 ~',
+  because: '왜냐하면',
+  'so that': '~하려고 / ~할 수 있게',
+  'can i trade': '바꿔도 될까요?',
+  'can i': '~해도 될까요?',
+  for: '~와 바꿔서 / ~를 위해',
+  with: '~가 있는 / ~와 함께',
+  'see you': '또 만나요',
+  'if i win': '내가 이기면',
+  'i will': '~할게요'
+};
+
+export function glossKo(tag: string): string | null {
+  const k = tag.toLowerCase().trim();
+  if (PATTERN_GLOSS_KO[k]) return PATTERN_GLOSS_KO[k]!;
+  for (const [ko, en] of Object.entries(LEXICON_L1_KO_EN)) if (en === k) return ko;
+  return null;
+}
 
 export const OPEN_ENDED_PROMPTS = [
   'Why do you need it?',
@@ -649,6 +870,68 @@ export const UI_STRINGS_KO = {
     lessonBanner: '수업 중',
     observerNotice: '지금 수업은 보호자가 함께 들을 수 있어요.',
     sendToParent: '부모님께 소개 보내기'
+  },
+  /** Dialog window G02 (docs/08 8.2). Warm, short, never blames the child (docs/04 4.1). */
+  dialog: {
+    feedback: {
+      perfect: '완벽해요! 별 3개!',
+      passNextUp: '통과! 다음엔 별 하나 더 도전해 볼까요?',
+      pass: '잘했어요! 통과!',
+      almost: '거의 다 왔어요! 한 번 더 천천히 말해 볼까요?',
+      coreMissed: '내용은 좋아요! because · so that 같은 연결하는 말까지 넣어 볼까요?',
+      cappedCore: '좋아요! 연결하는 말까지 넣으면 별 3개예요.',
+      cappedNonVoice: '카드로 잘 만들었어요! 다음엔 목소리로 말하면 별 3개도 받을 수 있어요.',
+      echoDone: '끝까지 따라 말했어요! 정말 잘했어요.',
+      shortOfCoins: '말은 완벽해요! 코인을 조금 더 모으면 받을 수 있어요.'
+    },
+    chooseTitle: '말하고 싶은 문장을 골라요',
+    starsAria: '별 {n}개',
+    listen: '듣기',
+    listenAgain: '다시 듣기',
+    micStart: '눌러서 말하기',
+    micStop: '다 말했어요',
+    micListening: '듣고 있어요…',
+    micHangover: '다 말했으면 한 번 더 눌러요',
+    processing: '확인하는 중',
+    processingSlow: '거의 다 됐어요',
+    mySpeech: '내 말',
+    converted: '영어로 바꿔 보여 줄게요',
+    retry: '한 번 더',
+    tryHigher: '별 하나 더 도전',
+    done: '좋아요!',
+    close: '닫기',
+    boardOpen: '단어 카드',
+    keyboardOpen: '글자로 쓰기',
+    micOpen: '목소리로 말하기',
+    boardTitle: '단어 카드를 순서대로 눌러요',
+    boardUndo: '하나 빼기',
+    boardClear: '처음부터',
+    boardSubmit: '이렇게 말할래요',
+    keyboardPlaceholder: 'Type in English',
+    keyboardSubmit: '보내기',
+    micDenied: '마이크를 쓸 수 없어요. 단어 카드로 만들어도 괜찮아요!',
+    micUnsupported: '이 브라우저에서는 마이크가 안 돼요. 단어 카드로 해 봐요!',
+    inAppBrowser: '카카오톡 안에서는 마이크가 안 될 수 있어요.',
+    openExternal: '다른 브라우저로 열기',
+    noSpeech: '잘 안 들렸어요. 마이크 가까이에서 다시 말해 볼까요?',
+    networkError: '연결이 잠깐 끊겼어요. 한 번 더 눌러 볼까요?',
+    submitError: '잠깐 문제가 생겼어요. 한 번 더 해 볼까요?',
+    echoTitle: '조금씩 끊어서 따라 말해요',
+    echoStep: '{i} / {n}',
+    echoNext: '다음 조각',
+    missedHint: '밑줄 친 단어를 넣어 봐요',
+    tagHelp: '꼬리표를 꾹 누르면 뜻이 보여요',
+    freePrompt: '하고 싶은 말을 영어로 해 봐요. 한국어를 섞어도 괜찮아요!',
+    ideas: '이런 말도 할 수 있어요',
+    coins: '코인',
+    stars: '별',
+    hintLevel: {
+      full: '전체 문장',
+      keyword: '핵심 단어',
+      initial: '첫 글자',
+      picture: '그림',
+      none: '스스로'
+    }
   },
   guardian: {
     noData: '첫 플레이를 기다리는 중입니다.',

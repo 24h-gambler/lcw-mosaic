@@ -68,6 +68,22 @@ export interface LessonModeDeps {
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 
+/** Resolves a student bearer token to its one lesson and player (also used by the solo /v1/converse/score path). */
+export async function studentFromRequest(
+  d: Pick<LessonModeDeps, 'sql' | 'sha256Hex' | 'nowMs'>,
+  req: Request
+): Promise<{ lesson_id: string; player_id: string } | null> {
+  const h = req.headers.get('authorization') ?? '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : '';
+  if (token.length < 32) return null;
+  return (
+    d.sql.get<{ lesson_id: string; player_id: string }>(
+      'select lesson_id, player_id from student_tokens where token_hash = ? and expires_at > ?',
+      [await d.sha256Hex(token), d.nowMs()]
+    ) ?? null
+  );
+}
+
 export function makeJoinCode(bytes: Uint8Array): string {
   // 6 digits from 4 random bytes (bias < 0.03%)
   const n = ((bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!) >>> 0;
@@ -683,17 +699,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     });
   });
 
-  const student = async (req: Request) => {
-    const h = req.headers.get('authorization') ?? '';
-    const token = h.startsWith('Bearer ') ? h.slice(7) : '';
-    if (token.length < 32) return null;
-    return (
-      d.sql.get<{ lesson_id: string; player_id: string }>(
-        'select lesson_id, player_id from student_tokens where token_hash = ? and expires_at > ?',
-        [await d.sha256Hex(token), d.nowMs()]
-      ) ?? null
-    );
-  };
+  const student = (req: Request) => studentFromRequest(d, req);
 
   /* Polled every 3 s by the student client (docs/19 §4). `since` is the previous `server_now`; `scene` and `ui`
      tell the director console what the student's screen shows right now. */

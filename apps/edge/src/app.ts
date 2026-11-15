@@ -7,7 +7,7 @@ import {
   UnderstandRequestSchema,
   type LlmConverseInput
 } from '@lcw/schemas';
-import { scoreUtterance, understandUtterance } from '@lcw/converse';
+import { converseFeedbackKo, decideConverseReward, scoreUtterance, understandUtterance } from '@lcw/converse';
 import { LESSON_ARC_STAGE_GUIDES, TEACHER_STUDENT_TRADE_SCENARIOS } from '@lcw/content';
 import { QuotaMeter } from '@lcw/quota';
 import {
@@ -125,8 +125,15 @@ const ScoreExtendedRequestSchema = ScoreRequestSchema.extend({
   target_text: z.string().min(1),
   mode: z.enum(['free', 'guided', 'read', 'recall']).default('free'),
   interlocutor: z.enum(['npc', 'teacher', 'peer', 'self']).default('npc'),
-  price: z.number().int().min(0).default(20),
-  item_id: z.string().min(1).default('honey_tea'),
+  /**
+   * Ignored (AGENTS 4.7). Older clients sent the 3-star price and item here and the server charged it even when it
+   * granted fewer stars; price and item now come from the server bank for the stars actually granted.
+   */
+  price: z.number().int().min(0).optional(),
+  item_id: z.string().min(1).optional(),
+  stt_source: z.enum(['device', 'workers_ai', 'browser', 'keyboard', 'board']).default('browser'),
+  echo: z.boolean().default(false),
+  attempts: z.number().int().min(1).max(20).default(1),
   latency_ms: z.number().int().min(0).default(1500),
   dur_ms: z.number().int().min(0).default(3000),
   confidence: z.number().finite().min(0).max(1).default(0.95)
@@ -193,33 +200,40 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const req = parsed.data;
     const nowMs = deps.nowMs();
 
-    const scored = scoreUtterance({
-      targetText: req.target_text,
-      spokenTranscript: req.transcript,
+    // Stars, price and item are decided here from the server bank (AGENTS 4.7, docs/04 4.2/4.6).
+    const decision = decideConverseReward({
+      ctx: req.npc_ctx,
       level: req.level,
+      targetText: req.target_text,
+      chosenStars: req.chosen_stars,
+      transcript: req.transcript,
       hintLevel: req.hint_level,
-      stars: req.chosen_stars
+      inputSource: req.stt_source,
+      echo: req.echo
     });
 
     let coinsDelta = 0;
     let grantedItem: string | null = null;
+    let shortOfCoins = false;
+    let coinsTotal: number | undefined;
     const worldDo = deps.worlds.get(req.world_id);
-    if (scored.pass && worldDo) {
+    if (decision.stars > 0 && decision.bank && worldDo) {
       const bal = worldDo.getPlayerBalance(req.player_id);
-      if (bal >= req.price) {
-        coinsDelta = -req.price;
-        worldDo.appendLedger(
-          req.player_id,
-          coinsDelta,
-          `purchase:${req.npc_ctx}`,
-          req.dialog_id,
-          nowMs
-        );
-        grantedItem = req.item_id;
+      const price = decision.priceCoins;
+      if (bal >= price) {
+        grantedItem = decision.bank.itemKey;
+        if (price > 0) {
+          coinsDelta = -price;
+          worldDo.appendLedger(req.player_id, coinsDelta, `purchase:${req.npc_ctx}:${grantedItem}:${decision.stars}`, req.dialog_id, nowMs);
+        }
+      } else {
+        shortOfCoins = true;
       }
     }
+    if (worldDo) coinsTotal = worldDo.getPlayerBalance(req.player_id);
 
-    const uttId = `utt-${req.dialog_id}-${nowMs}`;
+    // A dialog can be scored several times in the same millisecond (retries, ECHO); the suffix keeps ids unique.
+    const uttId = `utt-${req.dialog_id}-${nowMs}-${crypto.randomUUID().slice(0, 8)}`;
     deps.db.logUtterance({
       id: uttId,
       player_id: req.player_id,
@@ -236,34 +250,37 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       l1_words: 0,
       dur_ms: req.dur_ms,
       latency_ms: req.latency_ms,
-      stars: scored.pass ? Math.min(req.chosen_stars, scored.starCap) : 0,
+      stars: decision.stars,
       hint_level: req.hint_level,
-      attempts: 1,
-      score: scored.score,
+      attempts: req.attempts,
+      score: decision.score,
       confidence: req.confidence,
-      source: 'workers',
+      source: req.stt_source,
       audio_first: req.audio_key ?? null,
       audio_final: req.audio_key ?? null,
       created_at: nowMs
     });
 
-    if (scored.pass && req.session_kind !== 'lesson') {
+    if (decision.pass && req.session_kind !== 'lesson') {
       deps.db.recordSoloExpressionReuse(req.player_id, req.transcript, nowMs);
     }
 
     const out = ScoreResponseSchema.parse({
-      pass: scored.pass,
-      score: scored.score,
-      missed: scored.missed,
-      granted:
-        scored.pass && grantedItem
-          ? {
-              item_id: grantedItem,
-              slot_or_socket: 'slot_0',
-              coins_delta: coinsDelta
-            }
-          : null,
-      memory_card: scored.pass
+      pass: decision.pass,
+      score: decision.score,
+      missed: decision.missed,
+      granted: grantedItem
+        ? {
+            item_id: grantedItem,
+            slot_or_socket: decision.bank?.entry.socket ?? 'slot_0',
+            coins_delta: coinsDelta
+          }
+        : null,
+      stars: decision.stars,
+      target_stars: decision.targetStars,
+      feedback_ko: converseFeedbackKo({ ...decision, shortOfCoins }),
+      coins_total: coinsTotal,
+      memory_card: decision.pass
         ? {
             id: `card-${req.dialog_id}`,
             next_review_at: new Date(nowMs + 86_400_000).toISOString()

@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
-import { buildLessonModeApp } from './lesson-mode.js';
+import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
 import { FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { injectReportShareMeta } from './report-page.js';
+import { createInitialPlayerState } from '@lcw/sim-core';
 import { z } from 'zod';
 import { FREE_TIER_LIMITS, QuotaMeter } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
@@ -237,6 +238,32 @@ export class PlatformDO {
     );
   }
 
+  /** Student token → lesson/player (docs/18 tokens), for the student's own solo scoring path. */
+  studentFromRequest(req: Request): Promise<{ lesson_id: string; player_id: string } | null> {
+    return studentFromRequest({ sql: this.sql, sha256Hex, nowMs: () => Date.now() }, req);
+  }
+
+  playerLevel(playerId: string): string {
+    return this.sql.get<{ level: string }>('select level from players where id = ?', [playerId])?.level ?? 'L1';
+  }
+
+  /**
+   * The student's own home world holds their coin ledger. Created on first solo order with the starting purse of
+   * a new player (sim-core createInitialPlayerState), granted once.
+   */
+  ensureHomeWorld(playerId: string): string {
+    const id = homeWorldId(playerId);
+    this.sql.run(
+      'insert or ignore into worlds (id, owner_id, name, seed, gen_version, mode, lang) values (?, ?, ?, ?, ?, ?, ?)',
+      [id, playerId, 'Home', id, 1, 'survival_city', 'en']
+    );
+    const w = this.worlds.get(id);
+    if (w && !w.sql.get('select 1 as x from ledger where player = ? and reason = ?', [playerId, 'starter'])) {
+      w.appendLedger(playerId, createInitialPlayerState(playerId).coins, 'starter', 'starter', Date.now());
+    }
+    return id;
+  }
+
   recordRun(task: string, ok: boolean, detail: unknown): void {
     this.sql.run('insert into ops_runs (task, at, ok, detail) values (?, ?, ?, ?)', [
       task,
@@ -326,6 +353,10 @@ async function sha256Hex(s: string): Promise<string> {
   return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+export function homeWorldId(playerId: string): string {
+  return `home-${playerId}`;
+}
+
 function utcDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
@@ -343,6 +374,30 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (c.req.header('x-lcw-internal') !== 'cron') return c.json({ error: 'forbidden' }, 403);
     const body = (await c.req.json()) as { cron: string };
     return c.json(platform.runCron(body.cron));
+  });
+  // Students score their own solo orders with their lesson token (docs/19 3: solo submit -> /v1/converse/score).
+  // Who, which world and which level come from the token and the server, never from the body (AGENTS 4.7).
+  app.post('/v1/converse/score', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await platform.studentFromRequest(c.req.raw);
+    if (!s) return next();
+    const body = (await c.req.json()) as Record<string, unknown>;
+    const forwarded = {
+      ...body,
+      player_id: s.player_id,
+      world_id: platform.ensureHomeWorld(s.player_id),
+      session_kind: 'solo',
+      session_id: `solo-${s.lesson_id}`,
+      level: platform.playerLevel(s.player_id),
+      interlocutor: 'npc'
+    };
+    return inner.fetch(
+      new Request(c.req.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(forwarded)
+      })
+    );
   });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();

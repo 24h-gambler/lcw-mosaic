@@ -1,0 +1,114 @@
+import { bankItemKey, findBankOffer, UI_STRINGS_KO, type LangLevel, type PhraseBankEntry } from '@lcw/content';
+import type { HintLevel } from '@lcw/schemas';
+import { scoreUtterance, type ScoringResult } from './scoring.js';
+
+/**
+ * Server-side reward decision for /v1/converse/score (docs/04 4.2, 4.6; AGENTS 4.7).
+ * Everything that is worth something — the star grade of the sentence, the price, the item — comes from the
+ * phrase bank on the server. The request only says which sentence the child tried and what they said.
+ */
+
+export type InputSource = 'device' | 'workers_ai' | 'browser' | 'keyboard' | 'board';
+
+/** docs/04 4.1: typed (or card-assembled) input counts for at most 2 stars. */
+export const NON_VOICE_STAR_CAP = 2;
+/**
+ * ECHO (docs/04 4.1) ends with the child repeating phrase by phrase; the joined phrases are scored against the
+ * target. This floor only guards against an empty/garbage echo, the normal threshold would make ECHO pointless.
+ */
+export const ECHO_MIN_SCORE = 0.4;
+/** A sentence the bank does not know (teacher-typed, or forged) may log at most 1 star and never buys anything. */
+export const UNKNOWN_TARGET_STAR_CAP = 1;
+
+export interface ConverseRewardInput {
+  ctx: string;
+  level: LangLevel;
+  targetText: string;
+  /** Client claim; only used when the bank does not know the sentence (then capped at 1). */
+  chosenStars: 1 | 2 | 3;
+  transcript: string;
+  hintLevel: HintLevel;
+  inputSource?: InputSource;
+  /** The child finished the phrase-by-phrase ECHO step after 3 misses. */
+  echo?: boolean;
+}
+
+export interface ConverseRewardDecision {
+  pass: boolean;
+  score: number;
+  missed: string[];
+  /** Stars granted (0 when not passed). */
+  stars: 0 | 1 | 2 | 3;
+  /** Star grade of the attempted sentence according to the bank (or the capped claim). */
+  targetStars: 1 | 2 | 3;
+  bank: { entry: PhraseBankEntry; itemKey: string } | null;
+  /** Coins to charge for the granted stars (0 when nothing is bought). */
+  priceCoins: number;
+  capped: 'none' | 'core_pattern' | 'non_voice' | 'unknown_target' | 'echo';
+  coreMissed: boolean;
+  scoring: ScoringResult;
+}
+
+export function decideConverseReward(input: ConverseRewardInput): ConverseRewardDecision {
+  const hit = findBankOffer({ ctx: input.ctx, level: input.level, text: input.targetText });
+  const targetStars: 1 | 2 | 3 = hit ? hit.offer.stars : (Math.min(input.chosenStars, UNKNOWN_TARGET_STAR_CAP) as 1);
+  const scoring = scoreUtterance({
+    targetText: input.targetText,
+    spokenTranscript: input.transcript,
+    level: input.level,
+    hintLevel: input.hintLevel,
+    stars: targetStars,
+    hintTags: hit?.entry.hintTags
+  });
+
+  let capped: ConverseRewardDecision['capped'] = 'none';
+  let pass = scoring.pass;
+  let stars = 0;
+  if (input.echo) {
+    pass = scoring.score >= ECHO_MIN_SCORE;
+    stars = pass ? Math.max(1, targetStars - 1) : 0;
+    if (pass) capped = 'echo';
+  } else if (pass) {
+    stars = targetStars;
+    if (scoring.starCap < stars) {
+      stars = scoring.starCap;
+      capped = 'core_pattern';
+    }
+  }
+  const nonVoice = input.inputSource === 'keyboard' || input.inputSource === 'board';
+  if (pass && nonVoice && stars > NON_VOICE_STAR_CAP) {
+    stars = NON_VOICE_STAR_CAP;
+    capped = 'non_voice';
+  }
+  if (!hit && input.chosenStars > UNKNOWN_TARGET_STAR_CAP && pass) capped = 'unknown_target';
+
+  const granted = stars as 0 | 1 | 2 | 3;
+  const priceCoins = hit && granted > 0 ? hit.entry.offers[granted - 1]!.price : 0;
+  return {
+    pass,
+    score: scoring.score,
+    missed: scoring.missed,
+    stars: granted,
+    targetStars,
+    bank: hit ? { entry: hit.entry, itemKey: bankItemKey(hit.entry) } : null,
+    priceCoins,
+    capped,
+    coreMissed: scoring.coreTotal > 0 && scoring.coreMatchRate === 0,
+    scoring
+  };
+}
+
+/** Short, warm Korean feedback for the result card (docs/08 8.2; never blames the child, docs/04 4.1). */
+export function converseFeedbackKo(d: Pick<ConverseRewardDecision, 'pass' | 'stars' | 'targetStars' | 'capped' | 'coreMissed'> & {
+  bought?: boolean;
+  shortOfCoins?: boolean;
+}): string {
+  const s = UI_STRINGS_KO.dialog.feedback;
+  if (!d.pass) return d.coreMissed ? s.coreMissed : s.almost;
+  if (d.capped === 'echo') return s.echoDone;
+  if (d.capped === 'core_pattern') return s.cappedCore;
+  if (d.capped === 'non_voice') return s.cappedNonVoice;
+  if (d.shortOfCoins) return s.shortOfCoins;
+  if (d.stars >= 3) return s.perfect;
+  return d.stars >= d.targetStars ? s.passNextUp : s.pass;
+}

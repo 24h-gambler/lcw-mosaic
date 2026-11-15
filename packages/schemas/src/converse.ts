@@ -130,7 +130,12 @@ export const ScoreResponseSchema = z
         next_review_at: z.string().min(1)
       })
       .strict()
-      .nullable()
+      .nullable(),
+    // Server-decided values the dialog shows (docs/19 DialogResult); optional for older callers.
+    stars: z.number().int().min(0).max(3).optional(),
+    target_stars: z.number().int().min(1).max(3).optional(),
+    feedback_ko: z.string().min(1).max(200).optional(),
+    coins_total: z.number().int().optional()
   })
   .strict();
 export type ScoreResponse = z.infer<typeof ScoreResponseSchema>;

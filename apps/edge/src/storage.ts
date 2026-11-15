@@ -108,7 +108,32 @@ create table if not exists cache_entries (key_hash text primary key, lang text n
 create table if not exists quota_daily (day text not null, k text not null, used integer not null, primary key (day, k));
 `;
 
-export type ConsentScope = 'voice_store' | 'ai_report_draft' | 'peer_multiplayer' | 'clip_share';
+/**
+ * docs/16 §3: `service` is the required consent; `voice_store` · `lesson_window` · `showroom_public` · `public_server` ·
+ * `friend_voice` are the optional ones a guardian toggles one by one (family.ts). The last three legacy scopes predate
+ * the family screens and stay readable for older callers.
+ */
+export type ConsentScope =
+  | 'service'
+  | 'voice_store'
+  | 'lesson_window'
+  | 'showroom_public'
+  | 'public_server'
+  | 'friend_voice'
+  | 'ai_report_draft'
+  | 'peer_multiplayer'
+  | 'clip_share';
+export const CONSENT_SCOPES: readonly ConsentScope[] = [
+  'service',
+  'voice_store',
+  'lesson_window',
+  'showroom_public',
+  'public_server',
+  'friend_voice',
+  'ai_report_draft',
+  'peer_multiplayer',
+  'clip_share'
+];
 
 export interface UtteranceLogRow {
   id: string;
@@ -217,12 +242,10 @@ export class EdgePlatformDb {
   }
 
   listConsents(playerId: string): Record<ConsentScope, boolean> {
-    return {
-      voice_store: this.hasActiveConsent(playerId, 'voice_store'),
-      ai_report_draft: this.hasActiveConsent(playerId, 'ai_report_draft'),
-      peer_multiplayer: this.hasActiveConsent(playerId, 'peer_multiplayer'),
-      clip_share: this.hasActiveConsent(playerId, 'clip_share')
-    };
+    return Object.fromEntries(CONSENT_SCOPES.map((s) => [s, this.hasActiveConsent(playerId, s)])) as Record<
+      ConsentScope,
+      boolean
+    >;
   }
 
   /**

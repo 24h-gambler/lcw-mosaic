@@ -15,7 +15,8 @@ routes = [{ pattern = "lcw.worldwidesomething.com", custom_domain = true }]
 directory = "./public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/v1/*", "/health"]
+# /r/* runs the Worker first so report share links get name-free preview tags (src/report-page.ts).
+run_worker_first = ["/v1/*", "/health", "/r/*"]
 
 [ai]
 binding = "AI"

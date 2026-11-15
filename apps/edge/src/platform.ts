@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp } from './lesson-mode.js';
+import { buildFamilyApp, openPublicReport } from './family.js';
+import { injectReportShareMeta } from './report-page.js';
 import { z } from 'zod';
 import { FREE_TIER_LIMITS, QuotaMeter } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
@@ -63,6 +65,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   // Lesson mode (docs/18): the join code exchange is public; /v1/lesson/* checks its own student token.
   if (method === 'POST' && path === '/v1/join') return true;
   if (path.startsWith('/v1/lesson/')) return true;
+  // Guardian (WP-301): /v1/family/* checks its own guardian session token, /v1/device/* the child device token.
+  if (path.startsWith('/v1/family/') || path.startsWith('/v1/device/')) return true;
   return false;
 }
 
@@ -373,28 +377,26 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     return c.json({ ok: true, id: p.data.id }, 201);
   });
   app.get('/v1/admin/health', (c) => c.json(platform.health()));
-  // Public share link: strong tokens only, and only the parent-facing fields (no player/guardian ids).
+  // Public share link: strong tokens only, 30-day life, guardian revocation, allow-listed parent fields (family.ts).
   app.get('/v1/reports/:token', (c) => {
     const token = c.req.param('token');
     if (token === 'weekly' || token.length < MIN_SHARE_TOKEN_CHARS) return c.json({ error: 'report_not_found' }, 404);
-    const r = platform.db.openSharedReport(token, Date.now());
-    if (!r) return c.json({ error: 'report_not_found' }, 404);
-    const parse = (v: unknown) => {
-      try {
-        return typeof v === 'string' ? JSON.parse(v) : v;
-      } catch {
-        return v;
-      }
-    };
-    return c.json({
-      kind: r.kind,
-      ref_id: r.ref_id,
-      facts: parse(r.facts),
-      body: r.body,
-      clips: parse(r.clips),
-      created_at: r.created_at
-    });
+    // The director's preview carries the operator token; a parent's open is recorded only without it.
+    const r = openPublicReport(platform.sql, platform.db, token, Date.now(), isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN));
+    c.header('cache-control', 'private, no-store');
+    c.header('referrer-policy', 'no-referrer');
+    c.header('x-robots-tag', 'noindex, nofollow');
+    if (r.status !== 200) return c.json({ error: r.error }, r.status);
+    return c.json(r.view);
   });
+  const familyDeps = {
+    sql: platform.sql,
+    db: platform.db,
+    nowMs: () => Date.now(),
+    randomBytes: (n: number) => crypto.getRandomValues(new Uint8Array(n)),
+    sha256Hex
+  };
+  app.route('/', buildFamilyApp(familyDeps));
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))
   );
@@ -431,6 +433,11 @@ export const workerHandler = {
     const url = new URL(request.url);
     if (url.pathname === '/health' || url.pathname.startsWith('/v1/')) {
       return platformStub(env).fetch(request);
+    }
+    // Report share links get name-free preview tags and no-referrer/noindex (docs/16 §2-18), see report-page.ts.
+    if (env.ASSETS && url.pathname.startsWith('/r/')) {
+      const shell = await env.ASSETS.fetch(new Request(new URL('/', url), { headers: request.headers }));
+      return injectReportShareMeta(shell, url);
     }
     if (env.ASSETS) return env.ASSETS.fetch(request);
     return new Response('not found', { status: 404 });

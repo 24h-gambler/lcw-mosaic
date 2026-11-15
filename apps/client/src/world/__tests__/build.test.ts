@@ -3,9 +3,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BK, VoxelWorld, blockRef, buildTown, cellKey, furnitureRef } from '@lcw/sim-core';
 import { PlotBuilder, type PlotOp, type RoomCheckEvent } from '../build.js';
-import { PLOT_QUEUE_KEY, PlotSync } from '../plot-sync.js';
+import { PLOT_QUEUE_KEY, PlotSync, plotQueueKey } from '../plot-sync.js';
 import { SEAT_INACTIVE_EVENT, noteSeatResponse, onSeatInactive } from '../seat.js';
-import { DEVICE_PLAY_BLOCKED_KEY, type KeyStore } from '../identity.js';
+import { DEVICE_PLAY_BLOCKED_KEY, DEVICE_TOKEN_KEY, type KeyStore } from '../identity.js';
 import { blockTokenMap, nearestToken, plotSnapshot, publishShowroom } from '../showroom.js';
 import { buildAtlasPixels } from '../atlas.js';
 import { buildAccessOf, withSeatStopped } from '../../App.js';
@@ -172,15 +172,15 @@ describe('PlotSync: server answers win, nothing lost (WP-205/207)', () => {
     });
     const sync = new PlotSync({ token: 't'.repeat(40), store, fetchFn: srv.fetchFn, onResync: () => undefined });
     for (let i = 0; i < 3; i++) sync.push({ op: 'place', x: 110 + i, y: 1, z: 170, slot: 0 });
-    expect(JSON.parse(store.getItem(PLOT_QUEUE_KEY)!).queue).toHaveLength(3);
+    expect(JSON.parse(store.getItem(plotQueueKey('t'.repeat(40)))!).queue).toHaveLength(3);
     await sync.flush();
     const posts = srv.calls.filter((c) => c.url.endsWith('/ops'));
     expect(posts.map((c) => c.body.ops.map((o: any) => o.x))).toEqual([[110, 111, 112], [112]]);
-    expect(store.getItem(PLOT_QUEUE_KEY)).toBeNull();
+    expect(store.getItem(plotQueueKey('t'.repeat(40)))).toBeNull();
     expect(sync.sent).toBe(3);
 
     // a tab closed with a batch in flight: the next start sends it again with the same id, then loads
-    store.setItem(PLOT_QUEUE_KEY, JSON.stringify({ inFlight: { id: 'abc-123456789', ops: [{ op: 'swap', a: 0, b: 1 }] }, queue: [] }));
+    store.setItem(plotQueueKey('t'.repeat(40)), JSON.stringify({ inFlight: { id: 'abc-123456789', ops: [{ op: 'swap', a: 0, b: 1 }] }, queue: [] }));
     const srv2 = fakeServer((c) =>
       c.url.endsWith('/v1/plot') ? { status: 200, body: snap } : { status: 200, body: { results: [{ ok: true }], processed: 1, inv: {}, rev: 2 } }
     );
@@ -217,6 +217,66 @@ describe('PlotSync: server answers win, nothing lost (WP-205/207)', () => {
     expect(store.getItem(DEVICE_PLAY_BLOCKED_KEY)).toBe('1');
     expect(sync.status).toBe('paused');
     expect(sync.pending).toBe(0);
+  });
+
+  it('any other 403 refuses that batch only: no seat card, no stop, the plot comes back from the server (review L1)', async () => {
+    const store = new MemStore();
+    const seen = vi.fn();
+    const off = onSeatInactive(seen);
+    const denied = vi.fn();
+    const resync = vi.fn();
+    let first = true;
+    const srv = fakeServer((c) => {
+      if (c.url.endsWith('/v1/plot')) return { status: 200, body: { ...snap, rev: 4 } };
+      if (first) {
+        first = false;
+        return { status: 403, body: { error: 'forbidden' } };
+      }
+      return { status: 200, body: { results: [{ ok: true }], processed: 1, inv: {}, rev: 5 } };
+    });
+    const sync = new PlotSync({ token: 't'.repeat(40), store, fetchFn: srv.fetchFn, onResync: resync, onDenied: denied });
+    sync.push({ op: 'place', x: 110, y: 1, z: 170, slot: 0 });
+    await sync.flush();
+    expect(denied).not.toHaveBeenCalled();
+    expect(seen).not.toHaveBeenCalled();
+    expect(store.getItem(DEVICE_PLAY_BLOCKED_KEY)).toBeNull();
+    expect(resync).toHaveBeenCalledWith({ ...snap, rev: 4 });
+    expect(sync.status).toBe('saved');
+    // still saving afterwards
+    sync.push({ op: 'place', x: 111, y: 1, z: 170, slot: 0 });
+    await sync.flush();
+    off();
+    expect(srv.calls.filter((c) => c.url.endsWith('/ops')).map((c) => c.body.ops[0].x)).toEqual([110, 111]);
+    expect(sync.status).toBe('saved');
+  });
+
+  it('keeps unsent ops per token: one child queue never goes out under another child token (review L3)', async () => {
+    const store = new MemStore();
+    const lesson = 'L'.repeat(48);
+    const device = 'D'.repeat(48);
+    const offline = async (): Promise<Response> => {
+      throw new Error('offline');
+    };
+    const a = new PlotSync({ token: lesson, store, fetchFn: offline, onResync: () => undefined });
+    a.push({ op: 'place', x: 110, y: 1, z: 170, slot: 0 });
+    a.stop();
+    expect(plotQueueKey(lesson)).not.toBe(plotQueueKey(device));
+    expect(plotQueueKey(lesson)).not.toContain(lesson.slice(0, 8));
+    const srv = fakeServer((c) => (c.url.endsWith('/v1/plot') ? { status: 200, body: snap } : { status: 200, body: { results: [], processed: 0 } }));
+    const b = new PlotSync({ token: device, store, fetchFn: srv.fetchFn, onResync: () => undefined });
+    expect(b.pending).toBe(0);
+    await b.start();
+    expect(srv.calls.filter((c) => c.url.endsWith('/ops'))).toHaveLength(0);
+    expect(JSON.parse(store.getItem(plotQueueKey(lesson))!).queue).toHaveLength(1);
+
+    // the queue saved before per-token keys belongs to this device's own linked token, and only that token takes it
+    store.setItem(PLOT_QUEUE_KEY, JSON.stringify({ inFlight: null, queue: [{ op: 'swap', a: 0, b: 1 }] }));
+    store.setItem(DEVICE_TOKEN_KEY, device);
+    expect(new PlotSync({ token: lesson, store, fetchFn: offline, onResync: () => undefined }).pending).toBe(1); // its own op only
+    expect(store.getItem(PLOT_QUEUE_KEY)).not.toBeNull();
+    expect(new PlotSync({ token: device, store, fetchFn: offline, onResync: () => undefined }).pending).toBe(1);
+    expect(store.getItem(PLOT_QUEUE_KEY)).toBeNull();
+    expect(JSON.parse(store.getItem(plotQueueKey(device))!).queue).toEqual([{ op: 'swap', a: 0, b: 1 }]);
   });
 });
 
@@ -258,7 +318,9 @@ describe('seat stop mid-play (docs/19 6장, #23 seat_inactive)', () => {
     expect(withSeatStopped({ kind: 'lesson', code: '123456' })).toEqual({ kind: 'lesson', code: '123456' });
     expect(buildAccessOf(child, null)).toEqual({ kind: 'saved', token: child.token });
     expect(buildAccessOf({ ...child, playAllowed: false }, null)).toEqual({ kind: 'paused' });
-    expect(buildAccessOf({ kind: 'lesson', code: '123456' }, 'y'.repeat(40))).toEqual({ kind: 'saved', token: 'y'.repeat(40), pausedFallback: 'local' });
+    // a lesson saves with the student's own lesson token (the server picks that child's plot), never the device's
+    expect(buildAccessOf({ kind: 'lesson', code: '123456' }, 'y'.repeat(48))).toEqual({ kind: 'saved', token: 'y'.repeat(48), lesson: true });
+    expect(buildAccessOf({ kind: 'lesson', code: '123456' }, null)).toEqual({ kind: 'local' });
     expect(buildAccessOf({ kind: 'guest' }, null)).toEqual({ kind: 'local' });
   });
 });
@@ -289,7 +351,10 @@ describe('쇼룸 공개 from the game (docs/19 7장, WP-703)', () => {
     const s = { v: 1 as const, title: 't', blocks: [], avatar: { shirt: 'sky' as const, pants: 'ink-700' as const, hair: 'ink-900' as const } };
     expect(await publishShowroom('t', s, answer(201, { token: 'a'.repeat(32), path: '/s/abc' }))).toEqual({ ok: true, path: '/s/abc' });
     expect(await publishShowroom('t', s, answer(403, { error: 'consent_required' }))).toEqual({ ok: false, reason: 'consent' });
-    expect(await publishShowroom('t', s, answer(404, { error: 'not_found' }))).toEqual({ ok: false, reason: 'consent' });
+    // only consent_required shows the guardian notice (review L2)
+    expect(await publishShowroom('t', s, answer(403, { error: 'forbidden' }))).toEqual({ ok: false, reason: 'server' });
+    expect(await publishShowroom('t', s, answer(403, {}))).toEqual({ ok: false, reason: 'server' });
+    expect(await publishShowroom('t', s, answer(404, { error: 'not_found' }))).toEqual({ ok: false, reason: 'server' });
     expect(await publishShowroom('t', s, answer(422, { error: 'title' }))).toEqual({ ok: false, reason: 'title' });
     expect(await publishShowroom('t', s, answer(429, {}))).toEqual({ ok: false, reason: 'busy' });
     const seen = vi.fn();

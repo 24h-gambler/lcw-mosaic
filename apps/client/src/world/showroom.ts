@@ -109,8 +109,12 @@ export async function publishShowroom(token: string, snapshot: ShowroomSnapshotO
   }
   if (await noteSeatResponse(res)) return { ok: false, reason: 'seat' };
   if (res.status === 401) return { ok: false, reason: 'unlinked' };
-  // no guardian consent: 403 consent_required (or 404 where the route hides itself)
-  if (res.status === 403 || res.status === 404) return { ok: false, reason: 'consent' };
+  // The guardian notice only for the server's own answer: 403 consent_required (edge showroom.ts). Any other 403/404
+  // (another child's plot, a hidden route) is not something the guardian can fix by consenting.
+  if (res.status === 403) {
+    const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    return { ok: false, reason: body?.error === 'consent_required' ? 'consent' : 'server' };
+  }
   if (res.status === 422) return { ok: false, reason: 'title' };
   if (res.status === 429) return { ok: false, reason: 'busy' };
   if (!res.ok) return { ok: false, reason: 'server' };

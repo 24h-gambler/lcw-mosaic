@@ -60,6 +60,11 @@ export interface NpcDef {
   roams?: readonly SceneId[];
   /** a fixed place outside any scene's NPC spot (the errand giver at the cafe door) */
   spot?: Spot;
+  /**
+   * Solo play only (the errand giver): hidden and not talkable while a lesson runs, so the stage NPC is the only one
+   * E or a tap can reach in the lesson's scenes (review L4: 미나 stood 1.2 m farther than the cafe owner).
+   */
+  soloOnly?: true;
 }
 
 
@@ -98,6 +103,7 @@ export const NPCS: readonly NpcDef[] = [
     nameEn: 'Mina',
     home: 'honey_cafe',
     spot: { x: 161.0, y: 1, z: 139.0, yaw: 0 },
+    soloOnly: true,
     look: { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3dbe6b, pants: 0x3fa9f5, shoes: 0xf3efe7, hairStyle: 'bun', hat: 0xffc53d }
   }
 ];
@@ -169,6 +175,34 @@ export const SCENES: Readonly<Record<SceneId, SceneDef>> = {
 };
 
 /** Topmost walkable surface at a column at or below `fromY` (for spawning and NPC placement). */
+/** Who E or a tap may reach: everyone in solo play, only lesson NPCs while a lesson runs. */
+export function npcTalkable(def: Pick<NpcDef, 'soloOnly'>, lesson: boolean): boolean {
+  return !(lesson && def.soloOnly);
+}
+
+/**
+ * Where the player stands to talk to an NPC (walkToNpc): `dist` m in front of it (its facing), else to its sides or
+ * behind, on ground no higher than a step from the NPC's feet with two free cells above and nothing solid between
+ * (not across a counter). null when boxed in.
+ */
+export function talkSpotFor(world: VoxelWorld, npc: { x: number; y: number; z: number; yaw: number }, dist = 1.5): { x: number; z: number } | null {
+  for (const turn of [0, Math.PI / 2, -Math.PI / 2, Math.PI / 4, -Math.PI / 4, Math.PI]) {
+    const a = npc.yaw + turn;
+    const x = npc.x + Math.sin(a) * dist;
+    const z = npc.z + Math.cos(a) * dist;
+    const y = standHeight(world, x, z, Math.ceil(npc.y) + 2);
+    if (Math.abs(y - npc.y) > 1.05) continue;
+    const by = Math.ceil(y - 0.01);
+    if (collideHeight(world.getBlock(Math.floor(x), by, Math.floor(z))) > 0) continue;
+    if (collideHeight(world.getBlock(Math.floor(x), by + 1, Math.floor(z))) > 0) continue;
+    const mx = (npc.x + x) / 2;
+    const mz = (npc.z + z) / 2;
+    if (collideHeight(world.getBlock(Math.floor(mx), by, Math.floor(mz))) > 0) continue;
+    return { x, z };
+  }
+  return null;
+}
+
 export function standHeight(world: VoxelWorld, x: number, z: number, fromY = 40): number {
   const bx = Math.floor(x);
   const bz = Math.floor(z);

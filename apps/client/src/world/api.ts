@@ -75,8 +75,16 @@ export interface WorldHandle {
   getScene?(): SceneId;
   /** All talkable NPCs. */
   listNpcs?(): NpcRef[];
-  /** Small "수업 중" tag on the HUD (docs/08 8.1). */
+  /**
+   * Small "수업 중" tag on the HUD (docs/08 8.1). It also marks the lesson as live: solo-only NPCs (the errand giver)
+   * step out, so E and taps reach only the lesson's NPCs.
+   */
   setLessonBadge?(on: boolean): void;
+  /**
+   * Walk up to an NPC and face it, about 1.5 m in front (inside the talk range): the NPC's scene first when it is
+   * far. Resolves on arrival (a dialog pausing the world ends the walk where it is). Unknown or hidden NPCs: no-op.
+   */
+  walkToNpc?(npcId: string): Promise<void>;
   /** Coin balance from the server ledger (dialog `coinsTotal`, lesson sync); null hides it. */
   setCoins?(total: number | null): void;
   /**
@@ -110,8 +118,11 @@ export interface WorldHandle {
 export type BuildAccess =
   | { kind: 'local' }
   | { kind: 'paused' }
-  /** `pausedFallback: 'local'` keeps building unsaved when the seat is paused (a lesson is never gated). */
-  | { kind: 'saved'; token: string; base?: string; pausedFallback?: 'local' };
+  /**
+   * `lesson`: the token is the lesson student's own (saved to that child's plot, never seat-gated, no showroom: the
+   * showroom belongs to a linked device). A lesson never saves with the device token of whoever this tablet is linked to.
+   */
+  | { kind: 'saved'; token: string; base?: string; lesson?: true };
 
 export interface RoomCheckInfo {
   /** furniture kinds the room still needs (empty when only the shape is wrong, or the room is complete) */

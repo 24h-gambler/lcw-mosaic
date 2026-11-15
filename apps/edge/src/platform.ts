@@ -657,9 +657,10 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await soloPlayer(c.req.raw);
     if (!s) return next();
+    // Read the body first: answering a POST before draining it breaks the next request on a kept-alive connection (workerd).
+    const body = await readBody(c);
     const blocked = seatBlocked(s);
     if (blocked) return blocked;
-    const body = await readBody(c);
     if (!body) return c.json({ error: 'invalid_plot_ops' }, 400);
     return forwardSolo(c.req.url, s, { ops: body.ops, batch: body.batch }, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
   });

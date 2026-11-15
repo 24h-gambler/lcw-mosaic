@@ -7,7 +7,8 @@ import { BK, BLOCK_LOOKS, TILE_LAYER, TILE_NAMES, blockLook, collideHeight, isOp
 import { TILE_PX, buildAtlasPixels } from '../atlas.js';
 import { AO_CURVE, PAD, meshChunk, padIndex } from '../mesher.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type BlockAt } from '../physics.js';
-import { NPCS, SCENES, WANDERERS, buildTown, standHeight, terrainHeight } from '../town.js';
+import { NPCS, SCENES, WANDERERS, buildTown, npcTalkable, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
+import { PAGE_KEYS_ON_BUTTONS, TALK_RANGE, keyIsPressable, keyIsTyping } from '../engine.js';
 import { extractPadded } from '../chunks.js';
 import { skyAt } from '../sky.js';
 import { pickTier } from '../../App.js';
@@ -40,6 +41,29 @@ describe('world api contract (docs/19 §2)', () => {
       expect(n.nameKo.length).toBeGreaterThan(0);
       expect(n.nameEn.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('keys and focus (review M1)', () => {
+  const el = (tagName: string, extra: { type?: string; role?: string; editable?: boolean } = {}): HTMLElement =>
+    ({ tagName, type: extra.type, isContentEditable: extra.editable === true, getAttribute: (k: string) => (k === 'role' ? (extra.role ?? null) : null) }) as unknown as HTMLElement;
+
+  it('a text box takes every key; a focused button or link keeps only Space, Enter and Tab', () => {
+    for (const t of [el('INPUT'), el('INPUT', { type: 'text' }), el('INPUT', { type: 'range' }), el('TEXTAREA'), el('SELECT'), el('DIV', { editable: true })]) {
+      expect(keyIsTyping(t)).toBe(true);
+      expect(keyIsPressable(t)).toBe(false);
+    }
+    for (const t of [el('BUTTON'), el('A'), el('INPUT', { type: 'checkbox' }), el('INPUT', { type: 'submit' }), el('DIV', { role: 'button' })]) {
+      expect(keyIsTyping(t)).toBe(false);
+      expect(keyIsPressable(t)).toBe(true);
+    }
+    for (const t of [null, el('CANVAS'), el('BODY'), el('DIV')]) {
+      expect(keyIsTyping(t)).toBe(false);
+      expect(keyIsPressable(t)).toBe(false);
+    }
+    // walking, talking, slots and the build keys are never page keys, so they play with a button focused
+    for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'KeyE', 'Digit1', 'KeyZ', 'KeyR', 'KeyC', 'Escape', 'F5']) expect(PAGE_KEYS_ON_BUTTONS.has(code)).toBe(false);
+    for (const code of ['Space', 'Enter', 'Tab']) expect(PAGE_KEYS_ON_BUTTONS.has(code)).toBe(true);
   });
 });
 
@@ -146,6 +170,57 @@ describe('town build (all through setBlock)', () => {
       const [bx, bz] = walk[i]!;
       for (let t = 0; t <= 1; t += 0.05) expect(Math.hypot(ax + (bx - ax) * t - spot.x, az + (bz - az) * t - spot.z)).toBeGreaterThanOrEqual(2);
     }
+  });
+
+  it('in a lesson only the stage NPC is in reach where each scene starts: the errand giver steps out (review L4)', () => {
+    // where everyone stands while the lesson is in scene `id`: its NPC on the scene spot, the rest at home
+    const homeSpot = (npcId: string): Spot | undefined => {
+      const d = NPCS.find((n) => n.id === npcId)!;
+      return d.spot ?? (SCENES[d.home].npc?.id === npcId ? SCENES[d.home].npc!.spot : undefined);
+    };
+    expect(NPCS.filter((n) => n.soloOnly).map((n) => n.id)).toEqual(['errand_neighbor']);
+    expect(npcTalkable(NPCS.find((n) => n.id === 'errand_neighbor')!, false)).toBe(true);
+    for (const id of SCENE_IDS) {
+      const s = SCENES[id];
+      if (!s.npc) continue;
+      const stage = Math.hypot(s.npc.spot.x - s.player.x, s.npc.spot.z - s.player.z);
+      for (const n of NPCS) {
+        if (n.id === s.npc.id || !npcTalkable(n, true)) continue;
+        const at = homeSpot(n.id);
+        if (!at) continue;
+        const d = Math.hypot(at.x - s.player.x, at.z - s.player.z);
+        // clearly farther than the stage NPC and out of E reach from the scene spot
+        expect(d, `${id}: ${n.id} vs ${s.npc.id}`).toBeGreaterThan(Math.max(stage + 2, TALK_RANGE + 1));
+      }
+    }
+  });
+
+  it('finds a talk spot in front of every fixed-place NPC, inside the talk range and reachable from its scene (walkToNpc)', () => {
+    // counter NPCs are reached by their scene walk (paths tested below); fixed places need their own spot
+    const fixed = NPCS.filter((n) => n.spot);
+    expect(fixed.length).toBeGreaterThan(0);
+    for (const n of fixed) {
+      const at = n.spot!;
+      const y = standHeight(world, at.x, at.z, Math.ceil(at.y) + 1);
+      const spot = talkSpotFor(world, { x: at.x, y, z: at.z, yaw: at.yaw });
+      expect(spot, n.id).not.toBeNull();
+      expect(Math.hypot(spot!.x - at.x, spot!.z - at.z)).toBeLessThan(TALK_RANGE - 1);
+      // a straight walk from where the NPC's scene starts, no wall taller than a step
+      const from = SCENES[n.home].player;
+      let prevY = standHeight(world, from.x, from.z, Math.ceil(from.y) + 1);
+      const steps = Math.ceil(Math.hypot(spot!.x - from.x, spot!.z - from.z) / 0.25);
+      for (let i = 1; i <= steps; i++) {
+        const x = from.x + ((spot!.x - from.x) * i) / steps;
+        const z = from.z + ((spot!.z - from.z) * i) / steps;
+        const yy = standHeight(world, x, z, Math.ceil(prevY) + 2);
+        expect(yy - prevY, `${n.id} near ${x.toFixed(1)},${z.toFixed(1)}`).toBeLessThanOrEqual(1.05);
+        prevY = yy;
+      }
+    }
+    // 미나: in front of her (facing the road, +z), not behind the cafe wall
+    const mina = NPCS.find((n) => n.id === 'errand_neighbor')!.spot!;
+    const spot = talkSpotFor(world, { ...mina, y: standHeight(world, mina.x, mina.z, 2) })!;
+    expect(spot.z).toBeGreaterThan(mina.z);
   });
 
   it('keeps the auto-walk paths from the plaza walkable (no wall taller than a step)', () => {

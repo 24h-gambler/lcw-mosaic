@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Level } from '@lcw/schemas';
 import { canRunWorld, createWorld, SCENE_IDS, type NpcRef, type SceneId, type WorldHandle, type WorldTier } from './world/api.js';
 import { WORLD_STRINGS as W } from './world/strings.js';
-import { DEVICE_TOKEN_KEY, browserStore, resolveIdentity, type PlayerIdentity } from './world/identity.js';
+import { resolveIdentity, browserStore, storedStudentToken, type PlayerIdentity } from './world/identity.js';
 import { onSeatInactive } from './world/seat.js';
 import type { BuildAccess } from './world/api.js';
 import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
@@ -113,12 +113,13 @@ function sessionStoreOrNull(): Pick<Storage, 'getItem'> | null {
 
 /**
  * Who builds on my plot and where it is saved (docs/03 D13, WP-207): a linked child saves on the server, a paused
- * seat looks only, a lesson saves to the linked device's plot when this device has one (never gated: a paused seat
- * falls back to unsaved building), a guest builds on the device only.
+ * seat looks only, a lesson saves with the student's own lesson token (the server picks that child's plot from the
+ * token, never seat-gated) once the join gave one, a guest builds on the device only. A lesson never uses the device
+ * token: a borrowed or shared tablet is linked to another child, whose plot must not get this student's building.
  */
-export function buildAccessOf(id: PlayerIdentity | null, storedDeviceToken: string | null): BuildAccess {
+export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | null): BuildAccess {
   if (id?.kind === 'child') return id.playAllowed ? { kind: 'saved', token: id.token } : { kind: 'paused' };
-  if (id?.kind === 'lesson' && storedDeviceToken && storedDeviceToken.length >= 32) return { kind: 'saved', token: storedDeviceToken, pausedFallback: 'local' };
+  if (id?.kind === 'lesson' && studentToken && studentToken.length >= 32) return { kind: 'saved', token: studentToken, lesson: true };
   return { kind: 'local' };
 }
 
@@ -351,17 +352,18 @@ export function App(): React.ReactElement {
     if (world && identity?.kind === 'child' && identity.nickname) world.setPlayerName?.(identity.nickname);
   }, [world, identity]);
 
-  // Building on my plot: saved for a linked child, look-only while the seat is paused, device-only for a guest.
+  // Building on my plot: saved for a linked child, look-only while the seat is paused, device-only for a guest; in a
+  // lesson, saved with the student token once the join gave one (lessonOn flips when it is live). Same access twice
+  // does not restart the save queue.
+  const lastAccess = useRef<{ world: WorldHandle | null; key: string }>({ world: null, key: '' });
   useEffect(() => {
     if (!world?.setBuildAccess || !identity) return;
-    let stored: string | null = null;
-    try {
-      stored = browserStore()?.getItem(DEVICE_TOKEN_KEY) ?? null;
-    } catch {
-      stored = null;
-    }
-    world.setBuildAccess(buildAccessOf(identity, stored));
-  }, [world, identity]);
+    const access = buildAccessOf(identity, identity.kind === 'lesson' ? storedStudentToken() : null);
+    const key = JSON.stringify(access);
+    if (lastAccess.current.world === world && lastAccess.current.key === key) return;
+    lastAccess.current = { world, key };
+    world.setBuildAccess(access);
+  }, [world, identity, lessonOn]);
 
   // A solo write answered 403 seat_inactive (seat stopped mid-play): same card as play_allowed=false, not an error.
   useEffect(

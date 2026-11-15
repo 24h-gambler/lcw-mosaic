@@ -6,7 +6,7 @@ import { UI_STRINGS_KO } from '@lcw/content';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { createReviewSubmit, fetchReviewDue, nextPollDelay } from '../dialog/review.js';
-import { ReviewDock, npcForReview } from '../dialog/ReviewDock.js';
+import { ReviewDock, npcForReview, reviewDockTop } from '../dialog/ReviewDock.js';
 import type { WorldHandle } from '../world/api.js';
 
 /**
@@ -82,5 +82,13 @@ describe('ReviewDock', () => {
     expect(npcForReview(world, 'cafe').nameKo).toBe('하니');
     expect(npcForReview(null, 'trade_shop').id).toBe('shop_owner');
     expect(npcForReview(null, 'unknown').id).toBe('guide');
+  });
+});
+
+describe('ReviewDock place on the HUD (docs/19 5장)', () => {
+  it('sits under the star+coin chip on desktop and under the touch view button on touch screens', () => {
+    // world HUD: star+coin chip top 12, 36 high; touch view button about 60~116px.
+    expect(reviewDockTop(false)).toBeGreaterThanOrEqual(12 + 36 + 8);
+    expect(reviewDockTop(true)).toBeGreaterThanOrEqual(116 + 8);
   });
 });

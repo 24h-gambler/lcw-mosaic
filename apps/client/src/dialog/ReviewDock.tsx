@@ -45,7 +45,32 @@ function tokenOf(player?: SoloPlayerRef): string {
   return readStudentToken() || player?.deviceToken || '';
 }
 
+/**
+ * Top-right column under the world's star+coin chip (top 12, 36 high). Touch HUDs also carry the world's view button
+ * at about 60~116px, so the dock starts below it there (docs/19 5장).
+ */
+export function reviewDockTop(coarse: boolean): number {
+  return coarse ? 128 : 60;
+}
+
+function coarseQuery(): MediaQueryList | null {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(pointer: coarse)') : null;
+}
+
+function useCoarsePointer(): boolean {
+  const [coarse, setCoarse] = useState(() => coarseQuery()?.matches ?? false);
+  useEffect(() => {
+    const q = coarseQuery();
+    if (!q) return;
+    const on = () => setCoarse(q.matches);
+    q.addEventListener?.('change', on);
+    return () => q.removeEventListener?.('change', on);
+  }, []);
+  return coarse;
+}
+
 export function ReviewDock(props: ReviewDockProps): React.ReactElement | null {
+  const coarse = useCoarsePointer();
   const { world, player, hidden, baseUrl, fetchImpl, speech, onReviewed } = props;
   const [signs, setSigns] = useState<ReviewSignView[]>([]);
   const [open, setOpen] = useState<ReviewSignView | null>(null);
@@ -129,7 +154,7 @@ export function ReviewDock(props: ReviewDockProps): React.ReactElement | null {
       aria-label={R.dockTitle}
       style={{
         position: 'absolute',
-        top: 112,
+        top: reviewDockTop(coarse),
         right: 12,
         width: 'min(300px, calc(100vw - 24px))',
         display: 'flex',

@@ -25,6 +25,7 @@ import type { ConsentScope, EdgePlatformDb, LessonDO, WorldDO } from './storage.
 import { indexedPrice } from './economy.js';
 import { claimReadAloud, isFurnitureKind, priceWithReadAloud, readAloudStatus } from './furniture.js';
 import { attemptReview, createMemoryCard, listMemoryCards, listReviewSigns, memoryCardId } from './review.js';
+import { applyErrandStep, getErrand } from './errand.js';
 
 export interface EdgeRuntimeDeps {
   db: EdgePlatformDb;
@@ -331,6 +332,18 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         }
       }
     }
+    // First-visit errand (docs/03 D1, WP-111): accept / buy the asked drink / hand it over, paid from the ledger.
+    const errand =
+      req.session_kind !== 'lesson'
+        ? applyErrandStep(deps.db, worldDo, {
+            playerId: req.player_id,
+            ctx: req.npc_ctx,
+            pass: decision.pass,
+            askedKey,
+            grantedItem,
+            nowMs
+          })
+        : undefined;
     if (worldDo) coinsTotal = worldDo.getPlayerBalance(req.player_id);
 
     // A dialog can be scored several times in the same millisecond (retries, ECHO); the suffix keeps ids unique.
@@ -370,7 +383,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     // sentences the thing it named). Nothing bought (short of coins) → nothing to wear out → no card.
     const cardItemId = grantedItem
       ? `buy-${req.dialog_id}|${grantedItem}`
-      : askedKey
+      : askedKey && req.npc_ctx !== 'errand'
         ? `ask-${req.dialog_id}|${askedKey}`
         : null;
     const card =
@@ -404,6 +417,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       coins_total: coinsTotal,
       asked_key: askedKey,
       read_aloud_discount_pct: grantedItem && readAloudPct > 0 ? readAloudPct : undefined,
+      errand,
       target_text: decision.targetText !== req.target_text ? decision.targetText : undefined,
       memory_card: card ? { id: card.id, next_review_at: new Date(card.next_review_at).toISOString() } : null
     });
@@ -439,6 +453,13 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         nowMs: deps.nowMs()
       })
     );
+  });
+
+  // The child's first errand and activation clock (docs/03 D1, docs/09 첫 문장까지 시간). Created on first ask.
+  app.get('/v1/errand', (c) => {
+    const playerId = c.req.query('player_id') ?? '';
+    if (!playerId) return c.json({ error: 'player_id_required' }, 400);
+    return c.json(getErrand(deps.db, playerId, deps.nowMs()));
   });
 
   app.get('/v1/furniture/discounts', (c) => {

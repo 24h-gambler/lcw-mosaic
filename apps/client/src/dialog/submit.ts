@@ -38,6 +38,14 @@ async function postJson(fetchImpl: Fetch, url: string, token: string, body: unkn
 
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
+const ERRAND_STATES = new Set(['offered', 'accepted', 'carrying', 'done']);
+function errandOf(v: unknown): DialogResult['errand'] {
+  if (!v || typeof v !== 'object') return undefined;
+  const e = v as { state?: unknown; reward_coins?: unknown };
+  if (typeof e.state !== 'string' || !ERRAND_STATES.has(e.state)) return undefined;
+  return { state: e.state as NonNullable<DialogResult['errand']>['state'], rewardCoins: num(e.reward_coins) };
+}
+
 export function lessonBody(u: UtteranceSubmit): Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId'> {
   const { echo: _e, attempt: _a, dialogId: _d, ...body } = u;
   return body;
@@ -103,7 +111,8 @@ export function createSoloSubmitWith(opts: {
           ? (j.granted as { item_id: string }).item_id
           : undefined,
       askedKey: typeof j.asked_key === 'string' ? j.asked_key : undefined,
-      matchedText: typeof j.target_text === 'string' ? j.target_text : undefined
+      matchedText: typeof j.target_text === 'string' ? j.target_text : undefined,
+      errand: errandOf(j.errand)
     };
   };
 }

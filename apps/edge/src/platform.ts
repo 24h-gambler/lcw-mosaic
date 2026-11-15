@@ -519,6 +519,12 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (!body) return c.json({ error: 'invalid_read_aloud_request' }, 400);
     return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
   });
+  app.get('/v1/errand', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id }));
+  });
   app.get('/v1/furniture/discounts', async (c, next) => {
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await soloPlayer(c.req.raw);

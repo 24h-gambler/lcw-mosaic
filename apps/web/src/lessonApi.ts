@@ -2,7 +2,8 @@
  * Typed client for the lesson-mode API (docs/18 §2). Same-origin JSON; every non-2xx response throws a LessonApiError
  * whose message is the server `error` code, so screens can map codes to friendly copy and offer a retry.
  */
-import type { LessonPlan, LessonUtteranceMode } from '@lcw/content';
+import type { LessonDirectorEventKind, LessonPlan, LessonUtteranceMode } from '@lcw/content';
+import type { FeedLiveExtra } from './directorLiveState.js';
 
 export type PlayerLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
 export type PinKind = 'expression' | 'coaching' | 'highlight';
@@ -261,8 +262,20 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       request<{ ok: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/stage`, op, input),
     addPin: (op: string, lessonId: string, input: PinInput) =>
       request<{ ok: boolean; id: string }>('POST', `/v1/admin/lessons/${enc(lessonId)}/pins`, op, input),
-    feed: (op: string, lessonId: string, since: number) =>
-      request<LessonFeed>('GET', `/v1/admin/lessons/${enc(lessonId)}/feed?since=${Math.max(0, Math.floor(since))}`, op),
+    feed: (op: string, lessonId: string, since: number, liveCursor = 0) =>
+      request<LessonFeed & FeedLiveExtra>(
+        'GET',
+        `/v1/admin/lessons/${enc(lessonId)}/feed?since=${Math.max(0, Math.floor(since))}&live_cursor=${Math.max(0, Math.floor(liveCursor))}`,
+        op
+      ),
+    npcSay: (op: string, lessonId: string, input: { npc_id: string; text: string }) =>
+      request<{ ok: boolean; id: string; at: number }>('POST', `/v1/admin/lessons/${enc(lessonId)}/npc-say`, op, input),
+    possess: (op: string, lessonId: string, npcId: string | null) =>
+      request<{ ok: boolean; possessed_npc_id: string | null }>('POST', `/v1/admin/lessons/${enc(lessonId)}/possess`, op, {
+        npc_id: npcId
+      }),
+    fireEvent: (op: string, lessonId: string, input: { kind: LessonDirectorEventKind; detail?: string }) =>
+      request<{ ok: boolean; id: string; at: number }>('POST', `/v1/admin/lessons/${enc(lessonId)}/event`, op, input),
     endLesson: (op: string, lessonId: string, input: EndLessonInput) =>
       request<EndLessonResult>('POST', `/v1/admin/lessons/${enc(lessonId)}/end`, op, input),
     studentDaily: (op: string, playerId: string, days = 14) =>

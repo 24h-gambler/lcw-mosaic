@@ -50,6 +50,8 @@ import {
   type NewStudentForm
 } from './lessonFlow.js';
 import { handleDirectorKeydown } from './director.js';
+import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView } from './directorLiveState.js';
+import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentScreenBox } from './DirectorLive.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 
@@ -483,6 +485,11 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
   const [feedError, setFeedError] = useState<string | null>(null);
   const [viewStageId, setViewStageId] = useState<string>(lesson.stage_id ?? plan.stages[0]!.id);
 
+  const [liveX, setLiveX] = useState<DirectorLiveView>(() =>
+    initialFeed ? mergeDirectorLive(EMPTY_DIRECTOR_LIVE, initialFeed, now()) : EMPTY_DIRECTOR_LIVE
+  );
+  const liveCursorRef = useRef(liveX.liveCursor);
+  liveCursorRef.current = liveX.liveCursor;
   const lessonRef = useRef(lesson);
   lessonRef.current = lesson;
   const sinceRef = useRef(feed.since);
@@ -502,8 +509,9 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const f = await api.feed(token, lessonRef.current.lesson_id, sinceRef.current);
+      const f = await api.feed(token, lessonRef.current.lesson_id, sinceRef.current, liveCursorRef.current);
       setFeed((prev) => mergeFeed(prev, f));
+      setLiveX((prev) => mergeDirectorLive(prev, f, now()));
       setLive(f.live ?? EMPTY_LIVE);
       setServerLesson(f.lesson);
       setFeedFails(0);
@@ -584,10 +592,13 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
 
   const elapsed = clock - startedAt;
   const lastUtterances = [...feed.utterances].reverse();
+  const currentStage = stageById(plan, lesson.stage_id ?? serverLesson?.stage_id ?? undefined) ?? undefined;
+  const runningMinute = ended ? null : Math.max(0, Math.floor(elapsed / 60_000));
 
   return (
     <div style={{ display: 'grid', gap: sp(4) }} data-testid="director-live">
       <JoinCodeBar lesson={lesson} elapsedMs={elapsed} totalMinutes={plan.totalMinutes} />
+      <HelpsStrip utterances={live.utterances} pins={feed.pins.length} minutes={liveX.minutes.length} />
       {feedError ? (
         <Notice onRetry={() => void poll()} retryLabel={S.retry} testId="feed-error">
           {`${feedError} ${S.feedStale(feedFails)}`}
@@ -627,8 +638,28 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
               void poll();
             }}
           />
+          <PossessBox
+            api={api}
+            token={token}
+            lessonId={lesson.lesson_id}
+            stage={currentStage}
+            live={liveX}
+            disabled={ended}
+            onSent={() => void poll()}
+            onAuthError={onAuthError}
+          />
+          <EventsBox
+            api={api}
+            token={token}
+            lessonId={lesson.lesson_id}
+            stage={currentStage}
+            disabled={ended}
+            onSent={() => void poll()}
+            onAuthError={onAuthError}
+          />
         </div>
         <div style={{ display: 'grid', gap: sp(4), minWidth: 0 }}>
+          <StudentScreenBox live={liveX} localNow={clock} startedAt={startedAt} />
           <Box title={S.liveTitle} testId="director-counters">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
               <Stat label={S.countSaid} value={live.utterances} testId="count-said" />
@@ -638,6 +669,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
               <Stat label={S.countSpeaking} value={formatClock(live.student_speaking_ms)} />
             </div>
           </Box>
+          <ProgressBox minutes={liveX.minutes} live={liveX} plan={plan} runningMinute={runningMinute} />
           <Box title={S.pinsTitle} testId="director-pins">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), marginBottom: sp(2) }}>
               <Button type="button" variant="sky" disabled={ended} onClick={() => addPin('coaching')}>
@@ -728,6 +760,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
             onEnded={(path) => setLesson({ ...lessonRef.current, report_path: path })}
             onReset={() => setLesson(null)}
           />
+          <NextLessonBox plan={plan} />
         </div>
       </div>
     </div>

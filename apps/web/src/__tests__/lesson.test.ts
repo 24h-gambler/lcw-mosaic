@@ -229,7 +229,7 @@ describe('lessonApi client (docs/18 §2)', () => {
     await api.studentDaily('op', 'stu-1');
     await api.daily('op', '2026-11-16');
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'GET /v1/admin/lessons/les-1/feed?since=1234',
+      'GET /v1/admin/lessons/les-1/feed?since=1234&live_cursor=0',
       'POST /v1/admin/lessons/les-1/pins',
       'POST /v1/admin/lessons/les-1/end',
       'GET /v1/admin/students/stu-1/daily?days=14',

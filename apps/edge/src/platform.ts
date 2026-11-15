@@ -643,6 +643,25 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     }
     return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota: () => platform.quota, ai: env.AI, nowMs: () => Date.now() });
   });
+  // My plot (WP-207): the child's own home world, from the same tokens. Building alone is solo play, so a linked
+  // device whose seat has paused play may still look (GET) but not build (docs/01 §4; the client shows the notice).
+  // A lesson token always may: the lesson is the teacher's time.
+  app.get('/v1/plot', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+  });
+  app.post('/v1/plot/ops', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const blocked = seatBlocked(s);
+    if (blocked) return blocked;
+    const body = await readBody(c);
+    if (!body) return c.json({ error: 'invalid_plot_ops' }, 400);
+    return forwardSolo(c.req.url, s, { ops: body.ops, batch: body.batch }, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+  });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();
     if (!env.LCW_OPERATOR_TOKEN) return c.json({ error: 'operator_token_not_configured' }, 503);

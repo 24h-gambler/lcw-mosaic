@@ -54,7 +54,20 @@ export function createDurableSqliteExecutor(storage: DurableStorageLike): Sqlite
 }
 
 /** Tables owned by WorldDO (WORLD_DO_SCHEMA_SQL). */
-export const WORLD_TABLES = ['meta', 'chunks', 'objects', 'items', 'ledger', 'journal', 'snapshots'] as const;
+export const WORLD_TABLES = [
+  'meta',
+  'chunks',
+  'objects',
+  'items',
+  'ledger',
+  'journal',
+  'snapshots',
+  // the child's plot in their home world (plot.ts PLOT_SCHEMA_SQL)
+  'plot_cells',
+  'plot_furniture',
+  'plot_inv',
+  'plot_journal'
+] as const;
 
 /**
  * Lets several worlds share one SQLite database by giving each world its own table names

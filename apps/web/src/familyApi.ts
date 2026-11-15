@@ -214,6 +214,13 @@ export interface ListenStart {
   ice_servers: RTCIceServer[];
   stream_id: string;
 }
+export interface PushState {
+  public_key: string;
+  devices: number;
+  this_device: boolean;
+  /** False until the operator turns sending on (notices are kept until then). */
+  sending: boolean;
+}
 export interface FamilyMe {
   service_consented: boolean;
   children: FamilyChild[];
@@ -288,6 +295,12 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
     audioBeat: (op: string, lessonId: string) => request<{ live: boolean; listeners: number }>('POST', `/v1/admin/lessons/${enc(lessonId)}/audio/beat`, op, {}),
     audioStop: (op: string, lessonId: string) =>
       request<{ ok: boolean; listeners_closed: number }>('POST', `/v1/admin/lessons/${enc(lessonId)}/audio/stop`, op, {}),
+    pushState: (g: string, endpoint: string | null) =>
+      request<PushState>('GET', `/v1/family/push${endpoint ? `?endpoint=${enc(endpoint)}` : ''}`, g),
+    pushSubscribe: (g: string, sub: { endpoint: string; keys: { p256dh: string; auth: string }; label?: string }) =>
+      request<{ id: string }>('POST', '/v1/family/push/subscribe', g, sub),
+    pushUnsubscribe: (g: string, endpoint: string) => request<{ ok: boolean }>('POST', '/v1/family/push/unsubscribe', g, { endpoint }),
+    pushTest: (g: string) => request<{ sending: boolean; sent: boolean }>('POST', '/v1/family/push/test', g, {}),
     deviceMe: (d: string) =>
       request<{ nickname: string; level: string; voice_store: boolean; play_allowed: boolean; seat: { state: SeatState } | null }>(
         'GET',

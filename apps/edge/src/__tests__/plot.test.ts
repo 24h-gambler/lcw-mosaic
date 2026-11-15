@@ -4,6 +4,7 @@ import { PlatformDO, homeWorldId, type LcwEnv } from '../platform.js';
 import { PlotStore, baseTownPlot } from '../plot.js';
 import { createNodeSqliteExecutor } from '../node-sqlite.js';
 import { fakeDurableStorage } from './fake-do.js';
+import { timeRuns } from '../../../../tools/timing.mjs';
 
 /**
  * WP-201/205/207 (docs/03 D13): my plot through the real gateway — the child's device token picks the home world,
@@ -157,8 +158,9 @@ describe('PlotStore (WP-205 crash safety, pace)', () => {
   });
 
   it('the town plot builds once per isolate', () => {
-    const t0 = performance.now();
-    baseTownPlot();
-    expect(performance.now() - t0).toBeLessThan(50);
+    const first = baseTownPlot();
+    // later calls hand back the same world without building the town again
+    expect(baseTownPlot()).toBe(first);
+    expect(timeRuns(() => baseTownPlot(), { warmup: 0, runs: 5 }).min).toBeLessThan(5);
   });
 });

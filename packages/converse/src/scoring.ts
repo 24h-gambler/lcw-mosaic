@@ -14,8 +14,98 @@ const CONTRACTION_MAP: Array<[RegExp, string]> = [
   [/\bthat's\b/gi, 'that is'],
   [/\bwe'll\b/gi, 'we will'],
   [/\byou're\b/gi, 'you are'],
-  [/\bisn't\b/gi, 'is not']
+  [/\bisn't\b/gi, 'is not'],
+  // Spoken forms speech recognisers write for children (docs/04 4.6 leniency, measured with Workers AI Whisper).
+  [/\bwanna\b/gi, 'want to'],
+  [/\bgonna\b/gi, 'going to'],
+  [/\bgotta\b/gi, 'got to'],
+  [/\bgimme\b/gi, 'give me'],
+  [/\blemme\b/gi, 'let me'],
+  [/\b(?:'cause|cuz|coz|becuz)\b/gi, 'because'],
+  [/\b(?:plz|pls)\b/gi, 'please']
 ];
+
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+
+/**
+ * How close a spoken word must be to the target word to count (docs/04 4.6 "관대하게"): Korean children and the
+ * recogniser blur the same sounds (cold → "code"/"colt"/"gold", water → "warter", thirsty → "tursty"), and a plural
+ * or third-person -s on the item word ("smoothies") must not lose the item. One edit on a sound key of 4+ letters.
+ */
+export const LENIENT_MATCH = { minKeyLength: 4, shortKeyLength: 3, maxEdits: 1, minFunctionWordLength: 5 } as const;
+
+/** Sound key for Korean-English confusions: f/p, v/b, r/l, z/j/s, th → t, c/ck/q → k, silent final e, doubles. */
+export function soundKey(word: string): string {
+  let w = word.toLowerCase().replace(/[^a-z]/g, '');
+  if (w.length > 3 && /[^aeiou]e$/.test(w)) w = w.slice(0, -1);
+  // final vowel sounds: smoothie / smoothy / smoothi; water / wata (a Korean 워터)
+  w = w.replace(/(?:ie|ee|ey|y)$/, 'i');
+  if (w.length >= 5) w = w.replace(/(?:er|or|ar)$/, 'a');
+  w = w
+    .replace(/ph/g, 'f')
+    .replace(/th/g, 't')
+    .replace(/ck|q/g, 'k')
+    .replace(/c(?=[eiy])/g, 's')
+    .replace(/c/g, 'k')
+    .replace(/f/g, 'p')
+    .replace(/v/g, 'b')
+    .replace(/r/g, 'l')
+    .replace(/[zj]/g, 's')
+    .replace(/x/g, 'ks')
+    .replace(/(.)\1+/g, '$1');
+  return w;
+}
+
+function within(a: string, b: string, max: number): boolean {
+  if (Math.abs(a.length - b.length) > max) return false;
+  const prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0]!;
+    prev[0] = i;
+    let rowMin = prev[0];
+    for (let j = 1; j <= b.length; j++) {
+      const up = prev[j]!;
+      prev[j] = Math.min(up + 1, prev[j - 1]! + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = up;
+      rowMin = Math.min(rowMin, prev[j]!);
+    }
+    if (rowMin > max) return false;
+  }
+  return prev[b.length]! <= max;
+}
+
+function singular(w: string): string {
+  if (w.length > 4 && w.endsWith('ies')) return `${w.slice(0, -3)}y`;
+  if (w.length > 4 && /(ches|shes|sses|xes)$/.test(w)) return w.slice(0, -2);
+  if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
+  return w;
+}
+
+/**
+ * Does a spoken token count as the target token? Exact, the same number as a digit, the same word without a plural
+ * -s, or one sound edit apart (keys of 4+ letters on one side, 3+ on the other, same first sound). Function words
+ * shorter than 5 letters stay exact: "a"/"I" must not stand in for each other.
+ */
+export function wordsMatch(target: string, spoken: string): boolean {
+  if (target === spoken) return true;
+  const ti = NUMBER_WORDS.indexOf(target);
+  if (ti >= 0 && spoken === String(ti)) return true;
+  const si = NUMBER_WORDS.indexOf(spoken);
+  if (si >= 0 && target === String(si)) return true;
+  // short function words stay exact ("a"/"I", "is"/"it"); long ones blur like content words ("please", "because")
+  const fn = (w: string) => FUNCTION_WORDS.has(w) && w.length < LENIENT_MATCH.minFunctionWordLength;
+  if (fn(target) || fn(spoken)) return false;
+  if (singular(target) === singular(spoken)) return true;
+  const a = soundKey(singular(target));
+  const b = soundKey(singular(spoken));
+  if (a === b) return a.length >= LENIENT_MATCH.shortKeyLength;
+  // one side may be a 3-letter key ("code" → kod for "cold" → kold), never both
+  if (Math.max(a.length, b.length) < LENIENT_MATCH.minKeyLength || Math.min(a.length, b.length) < LENIENT_MATCH.shortKeyLength) return false;
+  // the first sound must agree (or be a k/g, t/d, p/b pair): "cold"/"gold" yes, "water"/"later" no
+  const pair = (x: string, y: string) => x === y || [x, y].sort().join('') === 'gk' || [x, y].sort().join('') === 'dt' || [x, y].sort().join('') === 'bp';
+  if (!pair(a[0]!, b[0]!)) return false;
+  return within(a, b, LENIENT_MATCH.maxEdits);
+}
 
 export function tokenizeForScoring(text: string): string[] {
   let out = text.toLowerCase();
@@ -133,12 +223,19 @@ export function scoreUtterance(params: {
 
   for (let ti = 0; ti < targetTokens.length; ti++) {
     const targetWord = targetTokens[ti]!;
-    for (let si = spokenCursor; si < spokenTokens.length; si++) {
-      if (spokenTokens[si] === targetWord) {
-        matchedFlags[ti] = true;
-        spokenCursor = si + 1;
-        break;
+    // the same word first, then a near one (a near match must not take a word another target word is spoken as)
+    let at = spokenTokens.indexOf(targetWord, spokenCursor);
+    if (at < 0) {
+      for (let si = spokenCursor; si < spokenTokens.length; si++) {
+        if (wordsMatch(targetWord, spokenTokens[si]!) && !targetTokens.includes(spokenTokens[si]!)) {
+          at = si;
+          break;
+        }
       }
+    }
+    if (at >= 0) {
+      matchedFlags[ti] = true;
+      spokenCursor = at + 1;
     }
   }
 
@@ -146,13 +243,13 @@ export function scoreUtterance(params: {
   const spokenPool = [...spokenTokens];
   for (let ti = 0; ti < targetTokens.length; ti++) {
     if (matchedFlags[ti]) {
-      const idx = spokenPool.indexOf(targetTokens[ti]!);
+      const idx = spokenPool.findIndex((s) => wordsMatch(targetTokens[ti]!, s));
       if (idx >= 0) spokenPool.splice(idx, 1);
     }
   }
   for (let ti = 0; ti < targetTokens.length; ti++) {
     if (!matchedFlags[ti]) {
-      const idx = spokenPool.indexOf(targetTokens[ti]!);
+      const idx = spokenPool.findIndex((s) => wordsMatch(targetTokens[ti]!, s));
       if (idx >= 0) {
         matchedFlags[ti] = true;
         spokenPool.splice(idx, 1);

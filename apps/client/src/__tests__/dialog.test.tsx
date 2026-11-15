@@ -106,6 +106,9 @@ describe('dialog hints (WP-109, docs/08 8.2)', () => {
     expect(convertMixedSpeech('Can I have 차가운 water please').converted).toBe('Can I have cold water please');
     expect(convertMixedSpeech('Can I have cold water').converted).toBeNull();
     expect(heardMask("I'd like a cold milk, please.", 'I would like cold milk')).toEqual([true, true, false, true, true, false]);
+    // near words count like on the server (lenient match): "code" for cold, "smoothies" for smoothie
+    expect(heardMask('Cold water, please.', 'Code water please')).toEqual([true, true, true]);
+    expect(heardMask('Smoothie, please.', 'smoothies')).toEqual([true, false]);
   });
 
   it('finds offers for an NPC from the bank when the caller passes none, at the right level', () => {

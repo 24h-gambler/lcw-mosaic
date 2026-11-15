@@ -4,6 +4,7 @@
  * No prices, payment or deadlines (AGENTS 4.9). The server scores; the client only measures and sends.
  */
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { createMediaClipRecorder, turnClipRecordingOff, uploadClip, type ClipRecorder } from '@lcw/audio';
 import { Button, TOKENS } from '@lcw/ui';
 import {
   createLessonApi,
@@ -98,7 +99,7 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
       .join(state.code)
       .then((r) => {
         if (!live) return;
-        saveStudentSession({ token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname });
+        saveStudentSession({ token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, voiceStore: r.voice_store === true });
         dispatch({ type: 'join_ok', result: r });
       })
       .catch((e: unknown) => {
@@ -278,11 +279,28 @@ interface LessonPlayProps {
   isIosWebView: boolean;
   onResult: (r: NonNullable<JoinState['last']>) => void;
   onSessionGone: () => void;
+  /** voice_store on (from /v1/join): a recorder for the spoken turn, else null. Test seam. */
+  makeClipRecorder?: () => ClipRecorder | null;
+}
+
+/** The guardian turned voice_store on for this lesson's child: record spoken turns for the guardian's replay. */
+function defaultClipRecorder(): ClipRecorder | null {
+  return loadStudentSession()?.voiceStore ? createMediaClipRecorder() : null;
 }
 
 type MicIssue = null | 'none' | 'blocked';
 
-function LessonPlay({ api, token, state, now, recognition, isIosWebView, onResult, onSessionGone }: LessonPlayProps): React.ReactElement {
+function LessonPlay({
+  api,
+  token,
+  state,
+  now,
+  recognition,
+  isIosWebView,
+  onResult,
+  onSessionGone,
+  makeClipRecorder = defaultClipRecorder
+}: LessonPlayProps): React.ReactElement {
   const lesson = state.lesson;
   const mode = lesson?.mode;
   const cards = targetCards(lesson?.targets ?? []);
@@ -321,12 +339,14 @@ function LessonPlay({ api, token, state, now, recognition, isIosWebView, onResul
   const card: TargetCard | null = cards[Math.min(selected, cards.length - 1)] ?? null;
 
   const send = useCallback(
-    async (payload: UtteranceInput) => {
+    async (payload: UtteranceInput, clip?: Promise<Blob | null>) => {
       pending.current = payload;
       setSending(true);
       setSendFailed(false);
       try {
         const r = await api.postUtterance(token, payload);
+        // Only when the server asked (voice_store on); the child never waits for the upload.
+        if (r.audio_upload && clip) void uploadClip(r.audio_upload, clip);
         onResult(r);
         setHeard({ text: payload.transcript, target: payload.target_text });
         setShowResult(true);
@@ -391,19 +411,25 @@ function LessonPlay({ api, token, state, now, recognition, isIosWebView, onResul
     r.onerror = (e) => {
       a.error = e.error ?? 'unknown';
     };
+    const clipRec = makeClipRecorder();
     r.onend = () => {
       recRef.current = null;
       setListening(false);
       if (a.error && BLOCKING_ERRORS.has(a.error)) {
+        // Recognition lost the mic while the recorder held it too: stop recording on this device (recognition wins).
+        if (clipRec) turnClipRecordingOff();
+        clipRec?.abort();
         setMicIssue('blocked');
         setTyping(true);
         return;
       }
       const pick = pickAlternative(a.alts, target.text, mode);
       if (!pick) {
+        clipRec?.abort();
         setNotHeard(true);
         return;
       }
+      const clip = clipRec ? clipRec.stop() : undefined;
       const start = a.speechStart ?? a.tapAt;
       void send({
         target_text: target.text.slice(0, TARGET_TEXT_MAX),
@@ -414,10 +440,11 @@ function LessonPlay({ api, token, state, now, recognition, isIosWebView, onResul
         dur_ms: clampMs((a.speechEnd ?? a.resultAt ?? now()) - start),
         stt_source: 'browser',
         confidence: pick.confidence
-      });
+      }, clip);
     };
     try {
       r.start();
+      clipRec?.start();
       recRef.current = r;
       setListening(true);
       setNotHeard(false);

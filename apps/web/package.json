@@ -8,6 +8,7 @@
     "build": "vite build && node ../../tools/prerender-site.mjs"
   },
   "dependencies": {
+    "@lcw/audio": "workspace:*",
     "@lcw/content": "workspace:*",
     "@lcw/metrics": "workspace:*",
     "@lcw/schemas": "workspace:*",

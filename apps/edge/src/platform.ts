@@ -1,6 +1,16 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
 import { playAllowed, sweepSeatNotices } from './seats.js';
+import {
+  VOICE_PUBLIC_ROUTES,
+  buildVoiceApp,
+  drainVoicePurge,
+  offerVoiceUpload,
+  queueExpiredVoice,
+  r2VoiceStore,
+  type R2BucketLike,
+  type VoiceBlobStore
+} from './voice.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
@@ -49,6 +59,8 @@ export interface LcwEnv {
   /** Operator (teacher) token — `wrangler secret put LCW_OPERATOR_TOKEN`. Unset → gated routes fail closed. */
   LCW_OPERATOR_TOKEN?: string;
   BUILD_SHA?: string;
+  /** R2 bucket for children's voice clips (voice.ts). Unbound → uploads answer 503 and nothing is stored. */
+  VOICE?: R2BucketLike;
 }
 interface DoState {
   storage: DurableStorageLike;
@@ -77,6 +89,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
   if (SHOWROOM_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Voice clips (voice.ts): upload checks its one-use token, playback its signature.
+  if (VOICE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   return false;
 }
 
@@ -214,7 +228,12 @@ export class PlatformDO {
       // The understand route awaits the model but does not use its answer yet, so calling it would only burn the
       // daily Workers AI budget. Wire runAiCapped back in when the LLM reply is consumed (docs/04 §4.4).
       runWorkersAi: undefined,
-      priceIndex: (worldId) => priceIndexOf(this.sql, worldId)
+      priceIndex: (worldId) => priceIndexOf(this.sql, worldId),
+      // No R2 binding → no offer: the device then records nothing.
+      offerVoiceUpload: async (p) =>
+        this.env.VOICE
+          ? offerVoiceUpload({ sql: this.sql, db: this.db, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)), sha256Hex }, p)
+          : null
     });
     return buildGatedApp(inner, this.env, this);
   }
@@ -333,6 +352,31 @@ export class PlatformDO {
     ]);
     // keep 90 days of run history
     this.sql.run('delete from ops_runs where at < ?', [Date.now() - 90 * 86_400_000]);
+  }
+
+  voiceStore(): VoiceBlobStore | null {
+    return this.env.VOICE ? r2VoiceStore(this.env.VOICE) : null;
+  }
+
+  /**
+   * Voice clip deletion (voice.ts), its own ops run: hourly drains the purge queue into R2 (consent revocations R2
+   * refused at the time), daily 03:00 first queues clips past retention (last seat end + 12 months).
+   */
+  async runVoiceCron(cron: string, now: number): Promise<unknown> {
+    if (cron === '0 6 * * 1') return null;
+    const task = cron === '0 3 * * *' ? 'daily_voice_retention' : 'hourly_voice_purge';
+    try {
+      const expired = cron === '0 3 * * *' ? queueExpiredVoice(this.sql, now) : {};
+      const store = this.voiceStore();
+      const purge = await drainVoicePurge(this.sql, store);
+      const detail = { ...expired, ...purge, store_bound: store !== null };
+      this.recordRun(task, purge.failed === 0, detail);
+      return detail;
+    } catch (err) {
+      const detail = { error: err instanceof Error ? err.message : String(err) };
+      this.recordRun(task, false, detail);
+      return detail;
+    }
   }
 
   /** Hourly seat notices (docs/09 시간별 "좌석 만료 안내"), recorded as their own ops run. */
@@ -461,7 +505,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.post('/internal/cron', async (c) => {
     if (c.req.header('x-lcw-internal') !== 'cron') return c.json({ error: 'forbidden' }, 403);
     const body = (await c.req.json()) as { cron: string };
-    return c.json(platform.runCron(body.cron));
+    const r = platform.runCron(body.cron);
+    const voice = await platform.runVoiceCron(body.cron, Date.now());
+    return c.json({ ...r, voice });
   });
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
   // or outside a lesson with their linked device token. Who, which world and which level come from the token and
@@ -624,9 +670,11 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     db: platform.db,
     nowMs: () => Date.now(),
     randomBytes: (n: number) => crypto.getRandomValues(new Uint8Array(n)),
-    sha256Hex
+    sha256Hex,
+    voiceStore: () => platform.voiceStore()
   };
   app.route('/', buildFamilyApp(familyDeps));
+  app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
   app.get('/v1/admin/ops-runs', (c) =>
@@ -640,6 +688,10 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       nowMs: () => Date.now(),
       randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
       sha256Hex,
+      offerVoiceUpload: async (p) =>
+        platform.voiceStore()
+          ? offerVoiceUpload({ sql: platform.sql, db: platform.db, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)), sha256Hex }, p)
+          : null,
       coins: {
         credit: (playerId, delta, ref, nowMs) => platform.creditCoins(playerId, delta, 'lesson_stars', ref, nowMs),
         balance: (playerId) => platform.coinBalance(playerId)

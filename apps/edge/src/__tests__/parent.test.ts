@@ -74,6 +74,8 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
     expect(L.expressions).toEqual(['so that']);
     expect(L.coaching_moments).toBe(1);
     expect(L.stages.map((s: any) => s.id)).toEqual(['warmup_anchor', 'cafe_order', 'open_question']);
+    expect(L.stages.map((s: any) => s.title_ko)).toEqual(['인사와 고정 과제', '카페 주문', '열린 질문']);
+    expect(L.lesson_number).toBe(1);
     expect(L.summary_ko).toBe(lessonSummaryKo(L));
     for (const n of L.summary_ko.match(/\d+/g) ?? []) {
       expect([L.utterances, L.passes, Math.floor(L.speaking_sec / 60), L.speaking_sec % 60, L.speaking_sec, L.free_words].map(String)).toContain(n);

@@ -32,6 +32,8 @@ export interface LessonParentStage {
 
 export interface LessonParentFacts {
   lesson_day: string;
+  /** 1 for the child's first lesson: the page says the numbers become the baseline only then. */
+  lesson_number: number;
   started_at: number;
   ended_at: number;
   duration_min: number;
@@ -157,7 +159,9 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
   );
   if (!lesson) return null;
   const plan = getLessonPlan(lesson.plan || undefined);
-  const titleOf = (id: string) => plan.stages.find((s) => s.id === id)?.titleKo.replace(/^[①-⑩]\s*/, '') ?? '';
+  // Parent wording: drop the step number and the teacher's note in brackets ("② 카페 주문 (1성 → 3성)" → "카페 주문").
+  const titleOf = (id: string) =>
+    plan.stages.find((s) => s.id === id)?.titleKo.replace(/^[①-⑩]\s*/, '').replace(/\s*\([^)]*\)\s*$/, '') ?? '';
   const rows = sql.all<UttRow>(
     `select final_text, stars, mode, ctx, words, dur_ms, confidence, hint_level, created_at
      from utterances where session_id = ? and player_id = ? order by created_at`,
@@ -193,6 +197,12 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
 
   const base = {
     lesson_day: kstDayOf(lesson.started_at),
+    lesson_number: Number(
+      sql.get<{ n: number }>('select count(*) as n from lessons where player_id = ? and started_at <= ?', [
+        lesson.player_id,
+        lesson.started_at
+      ])?.n ?? 1
+    ),
     started_at: lesson.started_at,
     ended_at: ended,
     duration_min: Math.max(0, Math.round((ended - lesson.started_at) / 60_000)),

@@ -116,3 +116,11 @@ export interface DialogPanelProps {
 ## 6. 보호자 → 월드 (기기 토큰 발급 쪽 보장, WP-301)
 
 - `/link`가 저장하는 `lcw.deviceToken`은 64자 소문자 16진수(서버에는 해시만, 365일), `lcw.deviceNickname`은 아이 별명입니다. 보호자가 우리 가족 화면에서 기기를 해제하거나 365일이 지나면 `GET /v1/device/me`가 401 `device_only`를 돌려줍니다(5장의 "401이면 지우고 게스트"). 200 응답은 `{nickname, level, voice_store}`뿐이며 `player_id`는 없습니다. `voice_store`가 false면 음성 원본은 서버가 저장하지 않습니다(`logUtterance` 동의 확인).
+
+## 7. 다른 도메인 → 외부인(공개 사이트) 쓰임
+
+- **`/try` 체험**(`apps/web/src/site/TryWorld.tsx`): 2장 `createWorld`만 씁니다(`startScene: 'plaza'`, `hudRoot`는 사이트 무대). 쓰는 멤버: `goToScene('honey_cafe')`(카페로 가기·인사 때), `onNpcInteract`(`cafe_owner`에게 E·탭이면 도착/인사 넘김), `npcSay('cafe_owner', …)`, `giveItem('honey_tea')`, `celebrate(1|2|3)`, `setGoal`, `setPaused`(걷기 단계만 false), `getScene?`, `getStats?().fps`(시작 화면에서 2.5초 재어 20 미만이면 2D 무대 유지), `dispose`. 이 이름·id 가 바뀌면 같은 PR 에서 `TryWorld.tsx`도 고칩니다. `?world=0|1`로 2D/3D 를 강제합니다.
+- **쇼룸 게시**(`apps/edge/src/showroom.ts`, WP-703): 게임(월드 도메인)이 아이 기기 토큰(`/link`, `lcw.deviceToken`)으로 `POST /v1/showroom` `{ snapshot }`을 보냅니다. 운영자는 `{ snapshot, player_id }`로 대신 게시할 수 있습니다.
+  - `snapshot = { v: 1, title: string(1–40), blocks: [x(-512..512), y(-512..512), z(-64..512), 색 토큰 이름][] (최대 20,000), avatar: { shirt, pants, hair } }`. 색은 `@lcw/ui` `COLOR_TOKENS` 이름만 받고, 다른 필드가 하나라도 있으면 400 입니다(위치·음성·실명 차단). 블록 종류 → 색 토큰 변환은 게시하는 쪽(월드)이 합니다.
+  - 보호자의 `showroom_public` 동의가 있어야 합니다(없으면 403 `consent_required`). 아이마다 링크는 하나이고, 다시 게시하면 같은 링크의 내용만 바뀝니다. 응답은 `{ token, path: '/s/<token>' }`이고, 제목은 닉네임과 같은 개인정보·욕설 필터(422)를 거칩니다. 게시는 시간당 30회까지입니다.
+  - 공개 읽기는 `GET /v1/showroom/<token>`(32자 hex, noindex)이고, 동의를 철회하면 바로 404 가 되며 저장본도 지웁니다. 아이 기기는 `DELETE /v1/showroom`으로 자기 링크를 지웁니다.

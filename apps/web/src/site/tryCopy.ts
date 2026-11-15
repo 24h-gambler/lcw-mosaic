@@ -23,6 +23,8 @@ export const TRY = {
   walkKeys: '키보드 → 나 D 키도 돼요',
   walkBtn: '앞으로',
   autoWalk: '카페로 가기',
+  walkHint3d: '꿀벌 카페까지 걸어가서 카페 주인에게 말을 걸어요.',
+  walkKeys3d: '키보드는 W A S D·화살표, 휴대폰은 왼쪽 아래 조이스틱으로 걸어요. 주인 앞에서 E 키나 말 걸기 버튼을 눌러요.',
   npc: '카페 주인',
   welcomeKo: '꿀벌 카페에 온 걸 환영해요! 오늘은 뭘 마실래요?',
   next: '다음',
@@ -50,6 +52,7 @@ export const TRY = {
   serveKo: (stars: number) => (stars >= 3 ? '여기 따뜻한 꿀차! 멋진 문장이라 꿀 쿠키도 줄게요.' : '여기 따뜻한 꿀차 나왔어요.'),
   drinkBtn: '꿀차 마시기',
   drinkHint: '1번 칸을 누르거나 키보드 1 을 눌러도 돼요',
+  drinkHint3d: '키보드 1 을 눌러도 돼요',
   saveTitle: '이 월드를 저장할까요?',
   saveBody: '저장하면 다음에 이 카페에서 이어서 놀 수 있어요.',
   saveYes: '저장할래요',
@@ -69,5 +72,6 @@ export const TRY = {
   warm: '체온',
   slotCup: '꿀차',
   slotCookie: '꿀 쿠키',
-  stageLabel: '체험 장면: 광장과 꿀벌 카페'
+  stageLabel: '체험 장면: 광장과 꿀벌 카페',
+  stageLabel3d: '3D 체험 장면: 광장과 꿀벌 카페'
 } as const;

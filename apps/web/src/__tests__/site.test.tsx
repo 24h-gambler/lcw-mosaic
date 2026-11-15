@@ -13,6 +13,8 @@ import { SitePageView } from '../site/SiteRoot.js';
 import { SAMPLE_SNAPSHOTS, parseShowroomSnapshot } from '../site/showroom.js';
 import { siteCss } from '../site/siteCss.js';
 import { TryScene } from '../site/TryScene.js';
+import { chooseTryStage, worldCueFor } from '../site/TryWorld.js';
+import { TRY } from '../site/tryCopy.js';
 import { TRY_LOUDNESS_TRIES, TRY_RECOGNITION_ANSWER_MS, TRY_RECOGNITION_AUDIO_MS, cardOrderStars } from '../site/TrySpeak.js';
 import { TRY_INITIAL, TRY_OFFERS, TRY_PRICES, TRY_WALK_STEPS, TRY_WALLET, tryReducer, type TryPhase, type TryState } from '../site/tryState.js';
 import { eventPayload } from '../site/track.js';
@@ -218,6 +220,34 @@ describe('W06 /try flow (WP-702: one order, no server)', () => {
     expect(html).toContain('시작하기 (소리 켜기)');
     expect(html).toContain('목소리는 저장되지 않아요');
     expect(html).toContain('data-phase="start"');
+  });
+});
+
+describe('W06 /try in the 3D town (docs/19 createWorld)', () => {
+  const base = { webgl2: true, coarse: false, deviceMemory: 8, hardwareConcurrency: 8, search: '' };
+  it('uses the town only where it runs well, and the 2D stage everywhere else', () => {
+    expect(chooseTryStage(base)).toEqual({ stage: '3d', tier: 'high', forced: false });
+    expect(chooseTryStage({ ...base, coarse: true, deviceMemory: undefined })).toMatchObject({ stage: '3d', tier: 'mid' });
+    expect(chooseTryStage({ ...base, webgl2: false }).stage).toBe('2d');
+    expect(chooseTryStage({ ...base, deviceMemory: 2 }).stage).toBe('2d');
+    expect(chooseTryStage({ ...base, saveData: true }).stage).toBe('2d');
+    expect(chooseTryStage({ ...base, search: '?world=0' })).toMatchObject({ stage: '2d', forced: true });
+    expect(chooseTryStage({ ...base, deviceMemory: 2, search: '?world=1' })).toMatchObject({ stage: '3d', tier: 'low', forced: true });
+  });
+
+  it('moves only while walking, shows the target line while speaking, and orders inside the cafe', () => {
+    const t = 'Can I have a warm honey tea?';
+    expect(worldCueFor('walk', TRY.goals, t)).toEqual({ goalKo: TRY.goals.walk, targetEn: undefined, paused: false, scene: 'plaza' });
+    expect(worldCueFor('speak', TRY.goals, t)).toMatchObject({ targetEn: t, paused: true, scene: 'honey_cafe' });
+    for (const ph of ['greet', 'choose', 'receive', 'drink', 'save', 'end'] as const) {
+      expect(worldCueFor(ph, TRY.goals, t)).toMatchObject({ paused: true, scene: 'honey_cafe' });
+    }
+  });
+
+  it('renders the 2D stage on the server, so the page works before and without the town', () => {
+    const html = renderToStaticMarkup(<TryScene />);
+    expect(html).toContain('data-stage="2d"');
+    expect(html).not.toContain('data-testid="try-world"');
   });
 });
 

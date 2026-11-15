@@ -259,13 +259,14 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // one character per task (each is a few dozen boxes; all of them at once was a 150 ms task on a throttled tablet)
   await yieldToMain();
   let heldItem: THREE.Group | null = null;
+  let heldKey: string | null = null;
 
   const npcs = new Map<string, NpcRt>();
   for (const def of NPCS) {
     const char = new VoxelCharacter(def.look);
     scene.add(char.root);
     const homeScene = SCENES[def.home];
-    let spot: Spot = homeScene.npc?.id === def.id ? homeScene.npc.spot : homeScene.player;
+    let spot: Spot = def.spot ?? (homeScene.npc?.id === def.id ? homeScene.npc.spot : homeScene.player);
     if (def.roams && opts.startScene && SCENES[opts.startScene].npc?.id === def.id) spot = SCENES[opts.startScene].npc!.spot;
     const pos = new THREE.Vector3(spot.x, spotY(spot), spot.z);
     npcs.set(def.id, {
@@ -1276,11 +1277,24 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       hud.putItem(slot, itemKey);
       if (heldItem) player.hand.remove(heldItem);
       heldItem = makeItemModel(itemKey);
+      heldKey = itemKey;
       player.hand.add(heldItem);
       const hp = new THREE.Vector3();
       player.hand.getWorldPosition(hp);
       effects.sparkle(hp.x, hp.y, hp.z);
       sfx.play('item.get');
+    },
+    takeItem(itemKey) {
+      const slot = hotbar.lastIndexOf(itemKey);
+      if (slot < 0) return false;
+      hotbar[slot] = null;
+      hud.clearItem(slot);
+      if (heldItem && heldKey === itemKey && !hotbar.includes(itemKey)) {
+        player.hand.remove(heldItem);
+        heldItem = null;
+        heldKey = null;
+      }
+      return true;
     },
     celebrate(stars) {
       hud.celebrate(stars, reduceMotion);

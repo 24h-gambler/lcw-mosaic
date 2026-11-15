@@ -55,6 +55,11 @@ export interface WorldHandle {
   npcSay(npcId: string, text: string, opts?: { possessed?: boolean }): void; // 말풍선(빙의 중엔 반짝임)
   playerSay(text: string): void;
   giveItem(itemKey: string): void; // 주문한 음료·교환한 물건이 손/슬롯에
+  /**
+   * The item left the child (handed to an NPC, e.g. the errand water): its slot empties and, if it was in hand, the
+   * hand too. False when no slot held it. Shells call it after the server already moved the item.
+   */
+  takeItem?(itemKey: string): boolean;
   celebrate(stars: 0 | 1 | 2 | 3): void; // 별 연출·효과음
   setGoal(goalKo: string, targetEn?: string): void; // 화면 맨 위 목표 한 줄
   setPaused(paused: boolean): void; // 대화창이 열리면 이동 멈춤

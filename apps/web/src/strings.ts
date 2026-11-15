@@ -287,6 +287,15 @@ export const LESSON_STRINGS_KO = {
       think_speak_index: '생각말하기 지수',
       new_expressions: '새로 나온 표현',
       solo_reused_expressions: '혼자서도 다시 쓴 표현'
+    } as Record<string, string>,
+    lessonFactLabels: {
+      speaking_sec: '직접 말한 시간',
+      utterances: '영어로 말한 횟수',
+      passes: '통과한 문장',
+      free_words: '대본 없이 말한 단어',
+      hintless_passes: '힌트 없이 통과',
+      stars_total: '받은 별',
+      longest_words: '가장 긴 문장'
     } as Record<string, string>
   }
 } as const;

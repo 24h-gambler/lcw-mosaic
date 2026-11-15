@@ -527,14 +527,18 @@ const BANNED_CAUSAL_OR_DIAGNOSTIC_TERMS = [
 
 export function buildFactualWeeklySummary(facts: ReportFacts): string {
   const freePct = Math.round(facts.weekly_free_ratio * 100);
-  const mins = Math.round(facts.active_speaking_minutes);
+  // Under a minute "총 0분" contradicts a fact table that says "42초": speak in seconds then (docs/07 §5).
+  const time =
+    facts.active_speaking_minutes < 1
+      ? `${Math.round(facts.active_speaking_minutes * 60)}초`
+      : `${Math.round(facts.active_speaking_minutes)}분`;
   const indexPart =
     facts.think_speak_index !== null
       ? `스스로 문장 지수는 ${facts.think_speak_index}입니다.`
       : '스스로 발화 표본이 30문장 미만이라 지수는 표본 수집 중입니다.';
 
   return [
-    `이번 주 인식된 발화는 ${facts.total_valid_utterances}건(총 ${mins}분)이며, 직접 만들어 말한 발화는 ${facts.free_utterances}건(${freePct}%)입니다.`,
+    `이번 주 인식된 발화는 ${facts.total_valid_utterances}건(총 ${time})이며, 직접 만들어 말한 발화는 ${facts.free_utterances}건(${freePct}%)입니다.`,
     `문장당 평균 단어 수는 ${facts.mean_words_per_utterance}단어입니다.`,
     indexPart
   ].join(' ');
@@ -549,6 +553,7 @@ function collectAllowedFactNumbers(facts: ReportFacts): Set<string> {
     roundTo(facts.weekly_free_ratio * 100, 1),
     facts.active_speaking_minutes,
     Math.round(facts.active_speaking_minutes),
+    Math.round(facts.active_speaking_minutes * 60),
     facts.mean_words_per_utterance,
     Math.round(facts.mean_words_per_utterance),
     THINK_SPEAK_MIN_FREE_UTTERANCES

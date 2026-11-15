@@ -475,10 +475,63 @@ export function formatFact(key: string, v: unknown): string {
   }
 }
 
-/** Known facts first in a fixed order with Korean labels; anything else the server adds follows as-is. */
+/** This-lesson facts (`facts.lesson`), in the order a parent reads them. */
+const LESSON_FACT_ORDER = [
+  'speaking_sec',
+  'utterances',
+  'passes',
+  'free_words',
+  'hintless_passes',
+  'stars_total',
+  'longest_words'
+] as const;
+
+function lessonFactOf(facts: Record<string, unknown>): Record<string, unknown> | null {
+  const l = facts.lesson;
+  return l && typeof l === 'object' && !Array.isArray(l) && typeof (l as Record<string, unknown>).utterances === 'number'
+    ? (l as Record<string, unknown>)
+    : null;
+}
+
+export function formatLessonFact(key: string, v: unknown): string {
+  if (typeof v !== 'number') return '—';
+  switch (key) {
+    case 'speaking_sec': {
+      const s = Math.max(0, Math.round(v));
+      const m = Math.floor(s / 60);
+      return m > 0 ? (s % 60 ? `${m}분 ${s % 60}초` : `${m}분`) : `${s}초`;
+    }
+    case 'utterances':
+    case 'passes':
+    case 'hintless_passes':
+      return `${fmtNum(v)}번`;
+    case 'free_words':
+    case 'longest_words':
+      return `${fmtNum(v)}단어`;
+    case 'stars_total':
+      return `${fmtNum(v)}개`;
+    default:
+      return fmtNum(v);
+  }
+}
+
+/**
+ * Known facts first in a fixed order with Korean labels; anything else the server adds follows as-is.
+ * When the report carries this lesson's own facts (`facts.lesson`), the table shows only those —
+ * the same numbers the summary sentence uses — so a parent never sees "10초" in the sentence and
+ * "7초" in the table (weekly aggregates count a different base and belong on the dashboard).
+ */
 export function reportFactRows(facts: Record<string, unknown>): FactRow[] {
   const labels = L.report.factLabels as Record<string, string>;
   const rows: FactRow[] = [];
+  const lesson = lessonFactOf(facts);
+  if (lesson) {
+    const ll = L.report.lessonFactLabels as Record<string, string>;
+    for (const k of LESSON_FACT_ORDER) {
+      if (typeof lesson[k] === 'number') rows.push({ key: `lesson.${k}`, label: ll[k] ?? k, value: formatLessonFact(k, lesson[k]) });
+    }
+    return rows;
+  }
   for (const k of FACT_ORDER) {
     if (k in facts) rows.push({ key: k, label: labels[k] ?? k, value: formatFact(k, facts[k]) });
   }

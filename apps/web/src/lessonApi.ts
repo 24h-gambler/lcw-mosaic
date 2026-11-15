@@ -169,6 +169,8 @@ export interface SharedReport {
   created_at: number;
   teacher_comment?: string;
   next_lesson_at?: string;
+  /** Share links live 30 days (docs/16 §2-18). */
+  expires_at?: number;
 }
 
 /** Network failure (no response) uses this code so screens can say "check the connection". */
@@ -271,8 +273,13 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
     lessonState: (studentToken: string) => request<StudentLessonState>('GET', '/v1/lesson/state', studentToken),
     postUtterance: (studentToken: string, input: UtteranceInput) =>
       request<UtteranceResult>('POST', '/v1/lesson/utterance', studentToken, input),
-    getReport: async (token: string): Promise<SharedReport> => {
-      const r = await request<SharedReport>('GET', `/v1/reports/${enc(token)}`, null);
+    /** With the operator token (director preview) the server does not record a parent open. */
+    getReport: async (token: string, previewOp: string | null = null): Promise<SharedReport> => {
+      const r = await request<SharedReport>(
+        'GET',
+        `/v1/reports/${enc(token)}${previewOp ? '?preview=1' : ''}`,
+        previewOp
+      );
       // Older servers return facts/clips as stored JSON text.
       const facts = parseMaybeJson(r.facts);
       const clips = parseMaybeJson(r.clips);

@@ -10,6 +10,7 @@ import {
   type UtteranceMetricInput
 } from '@lcw/metrics';
 import { LessonDO, type DirectorEventKind, type EdgePlatformDb, type SqliteExecutor } from './storage.js';
+import { buildLessonParentFacts } from './parent-report.js';
 
 /**
  * Lesson mode (docs/18): a real lesson without the 3D world. The teacher (operator token) starts a lesson and gets a
@@ -597,7 +598,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       share_url: `/r/${token}`,
       clips: [],
       // Numbers only on the public report (docs/18 §1, 07 §5); pin transcripts go back to the teacher below.
-      lesson_extra: { progress: progressOf(id, minutesOf(id, d.nowMs())) }
+      lesson_extra: { progress: progressOf(id, minutesOf(id, d.nowMs())) },
+      lesson_facts: buildLessonParentFacts(d.sql, id, d.nowMs()) ?? undefined
     });
     const body = (await res.json()) as { facts?: unknown; error?: string };
     if (!res.ok) return c.json({ error: body.error ?? 'report_failed' }, 500);

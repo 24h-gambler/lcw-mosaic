@@ -109,7 +109,9 @@ const CompleteLessonSendReportSchema = z
     share_url: z.string().min(1).optional(),
     clips: z.array(z.unknown()).default([]),
     /** Lesson-only progress numbers built by lesson mode (docs/18 §3), stored with the facts. No transcript text. */
-    lesson_extra: z.object({ progress: z.record(z.union([z.number(), z.record(z.number())])) }).strict().optional()
+    lesson_extra: z.object({ progress: z.record(z.union([z.number(), z.record(z.number())])) }).strict().optional(),
+    /** Parent-facing facts for this one lesson (parent-report.ts); shown on /r/<token> as facts.lesson. */
+    lesson_facts: z.record(z.unknown()).optional()
   })
   .strict();
 
@@ -606,9 +608,14 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       solo_reused_expressions: Math.round(
         contribution.lesson_born_expressions * contribution.solo_transfer_14d_rate
       ),
-      ...(req.lesson_extra ?? {})
+      ...(req.lesson_extra ?? {}),
+      ...(req.lesson_facts ? { lesson: req.lesson_facts } : {})
     };
-    const verified = verifyOrReplaceReportBody(facts, req.draft_body);
+    const checked = verifyOrReplaceReportBody(facts, req.draft_body);
+    // A lesson report's fallback sentence is about this lesson (parent-report.ts lessonSummaryKo, same numbers as
+    // facts.lesson), not the weekly template.
+    const lessonSummary = typeof req.lesson_facts?.summary_ko === 'string' ? req.lesson_facts.summary_ko : null;
+    const verified = checked.replaced && lessonSummary ? { ...checked, body: lessonSummary } : checked;
     const shareUrl = req.share_url ?? `/report?token=${req.share_token}`;
 
     const delivery = deps.db.createAndDeliverParentReport({

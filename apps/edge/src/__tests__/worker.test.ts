@@ -207,7 +207,7 @@ describe('production worker (Durable Object SQLite wiring)', () => {
     const short = await platform.fetch(new Request('https://x/v1/reports/abc'));
     expect(short.status).toBe(404);
     const token = 'tok-0123456789abcdefXYZ';
-    platform.db.saveReport({ id: 'r1', playerId: 'player-demo', kind: 'weekly', refId: 'w1', facts: { a: 1 }, body: 'hi', clips: [], shareToken: token, nowMs: 1 });
+    platform.db.saveReport({ id: 'r1', playerId: 'player-demo', kind: 'weekly', refId: 'w1', facts: { a: 1 }, body: 'hi', clips: [], shareToken: token, nowMs: Date.now() });
     const res = await platform.fetch(new Request(`https://x/v1/reports/${token}`));
     expect(res.status).toBe(200);
     const j = (await res.json()) as Record<string, unknown>;

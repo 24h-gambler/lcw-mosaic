@@ -12,6 +12,22 @@ export const PLAN_PRICES_KRW = {
 } as const;
 
 export const REFUND_WINDOW_MS = 7 * DAY_MS;
+const KST_OFFSET_MS = 9 * 3_600_000;
+
+/**
+ * End of the 7-day refund window (exclusive), in KST calendar days: counting starts the day after payment and the
+ * window closes at 24:00 KST of the 7th day. Paid 11-01 15:00 KST → refundable until 11-08 24:00 KST (= 11-09 00:00).
+ * Screens show the same moment ("11월 8일 24:00까지").
+ */
+export function refundDeadlineMs(paidAtMs: number): number {
+  const kstMidnight = Math.floor((paidAtMs + KST_OFFSET_MS) / DAY_MS) * DAY_MS - KST_OFFSET_MS;
+  return kstMidnight + 8 * DAY_MS;
+}
+
+/** Inside the refund window: on or after payment and before `refundDeadlineMs`. */
+export function inRefundWindow(paidAtMs: number, atMs: number): boolean {
+  return atMs >= paidAtMs && atMs < refundDeadlineMs(paidAtMs);
+}
 export const TERM_DAYS = { month: 30, year: 365 } as const;
 
 export type BillingTerm = keyof typeof TERM_DAYS;
@@ -49,14 +65,13 @@ export function hasSingleDuoPayer(seats: readonly DuoSeatRecord[]): boolean {
 }
 
 /**
- * If one seat of a Duo is refunded within 7 days, the remaining seat is converted to Solo pricing:
+ * If one seat of a Duo is refunded within the refund window (`refundDeadlineMs`), the remaining seat is converted to Solo pricing:
  * - refund_difference: payer is refunded (Duo paid - Solo price); the seat keeps the whole term.
  * - convert_to_solo_days: nothing is refunded; the remaining seat's half of the Duo payment is
  *   converted pro-rata into Solo days.
  */
 export function settleDuoSeatRefund(input: DuoPartialRefundInput): DuoPartialRefundResult {
-  const elapsed = input.refundRequestedAtMs - input.paidAtMs;
-  if (elapsed < 0 || elapsed > REFUND_WINDOW_MS) {
+  if (!inRefundWindow(input.paidAtMs, input.refundRequestedAtMs)) {
     return { eligible: false, reason: 'outside_refund_window' };
   }
   const paid = input.paidAmountKrw ?? PLAN_PRICES_KRW.duo[input.term];

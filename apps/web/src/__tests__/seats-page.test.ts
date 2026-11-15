@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { App } from '../App.js';
 import { routeFromPath } from '../main.js';
-import { FamilySeatsView, SeatBadge, SeatsAdminPage, daysLeft, doneText } from '../SeatsPage.js';
+import { FamilySeatsView, SeatBadge, SeatsAdminPage, daysLeft, doneText, kstInputToMs, sentKind } from '../SeatsPage.js';
 import { createFamilyApi, type FamilySeat } from '../familyApi.js';
 import type { FetchLike } from '../lessonApi.js';
 import { PARENT_STRINGS_KO } from '../parentStrings.js';
@@ -25,10 +25,11 @@ const seat = (over: Partial<FamilySeat> = {}): FamilySeat => ({
   state: 'active',
   read_only_until: null,
   is_payer: true,
-  payment: { amount_krw: 14_900, paid_at: NOW - 2 * DAY, refunded_krw: 0, plan: 'solo' },
+  payments: [{ order_id: 'o-issue-14900', kind: 'issue', plan: 'solo', days: null, amount_krw: 14_900, paid_at: NOW - 2 * DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false }],
   refund_until: NOW + 5 * DAY,
   can_request_refund: true,
   pending_request: null,
+  can_choose_mode: false,
   notice: null,
   duo_options: null,
   ...over
@@ -53,8 +54,8 @@ describe('guardian seats section (WP-704)', () => {
 
   it('other family Duo seat: no name, no money; non-payer sees no payment', () => {
     const html = render([
-      seat({ id: 'seat-b', child: null, plan: 'duo', is_payer: true, payment: { amount_krw: 19_900, paid_at: NOW, refunded_krw: 0, plan: 'duo' } }),
-      seat({ id: 'seat-c', plan: 'duo', is_payer: false, payment: null })
+      seat({ id: 'seat-b', child: null, plan: 'duo', is_payer: true, payments: [{ order_id: 'o-issue-19900', kind: 'issue', plan: 'duo', days: null, amount_krw: 19_900, paid_at: NOW, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false }] }),
+      seat({ id: 'seat-c', plan: 'duo', is_payer: false, payments: null })
     ]);
     expect(html).toContain(S.otherSeat);
     expect(html).toContain(S.otherSeatNote);
@@ -64,9 +65,9 @@ describe('guardian seats section (WP-704)', () => {
   it('expiring, read-only, archived and refunded each explain what happens, in words', () => {
     const html = render([
       seat({ id: 's1', state: 'expiring', ends_at: NOW + 3 * DAY }),
-      seat({ id: 's2', state: 'read_only', ends_at: NOW - DAY, read_only_until: NOW + 29 * DAY, refund_until: NOW - 20 * DAY }),
-      seat({ id: 's3', state: 'archived', ends_at: NOW - 40 * DAY }),
-      seat({ id: 's4', state: 'refunded', payment: { amount_krw: 14_900, paid_at: NOW, refunded_krw: 14_900, plan: 'solo' } })
+      seat({ id: 's2', state: 'read_only', ends_at: NOW - DAY, read_only_until: NOW + 29 * DAY, refund_until: NOW - 20 * DAY, can_request_refund: false }),
+      seat({ id: 's3', state: 'archived', ends_at: NOW - 40 * DAY, can_request_refund: false }),
+      seat({ id: 's4', state: 'refunded', can_request_refund: false, payments: [{ order_id: 'o-issue-14900', kind: 'issue', plan: 'solo', days: null, amount_krw: 14_900, paid_at: NOW, refund_until: NOW + 5 * DAY, refunded_krw: 14_900, refunded: false }] })
     ]);
     expect(html).toContain(S.state.expiring(3));
     expect(html).toContain('혼자 놀기는 멈췄습니다');
@@ -78,10 +79,65 @@ describe('guardian seats section (WP-704)', () => {
   });
 
   it('pending request replaces the ask button', () => {
-    const html = render([seat({ pending_request: { id: 'rf-1', requested_at: NOW, status: 'pending' } })]);
+    const html = render([seat({ can_request_refund: false, pending_request: { id: 'rf-1', requested_at: NOW, status: 'pending', awaiting_payer_choice: false } })]);
     expect(html).toContain('data-testid="seat-pending"');
-    expect(render([seat({ pending_request: { id: 'rf-2', requested_at: NOW, status: 'review' } })])).toContain('선생님이 직접 확인하고');
+    expect(render([seat({ can_request_refund: false, pending_request: { id: 'rf-2', requested_at: NOW, status: 'review', awaiting_payer_choice: false } })])).toContain(
+      '선생님이 직접 확인하고'
+    );
     expect(html).not.toContain('data-testid="seat-ask-');
+  });
+
+  it('refund deadline: the date of the last refundable moment, at 24:00 KST', () => {
+    // exclusive deadline 2026-11-09 00:00 KST → "11월 8일 24:00까지"
+    const until = Date.UTC(2026, 10, 8, 15, 0, 0);
+    const html = renderToStaticMarkup(
+      React.createElement(FamilySeatsView, { seats: [seat({ refund_until: until })], now: until - DAY, onRequest: () => undefined })
+    );
+    expect(html).toContain(S.refundUntil('11월 8일'));
+    expect(html).toContain('11월 8일 24:00까지');
+  });
+
+  it('Duo: payment lines include extensions; the payer chooses when the other family asked; the friend waits', () => {
+    const duo = { refund_difference_krw: 5_000, solo_days: 20 };
+    const payer = render([
+      seat({
+        id: 'seat-b',
+        child: null,
+        plan: 'duo',
+        can_request_refund: false,
+        can_choose_mode: true,
+        duo_options: duo,
+        pending_request: { id: 'rf-1', requested_at: NOW, status: 'pending', awaiting_payer_choice: true },
+        payments: [{ order_id: 'o-extend-9950', kind: 'extend', plan: 'duo', days: 30, amount_krw: 9_950, paid_at: NOW, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false }, { order_id: 'o-issue-19900', kind: 'issue', plan: 'duo', days: null, amount_krw: 19_900, paid_at: NOW - DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false }]
+      })
+    ]);
+    expect(payer).toContain('data-testid="seat-choose-seat-b"');
+    expect(payer).toContain(S.duoDiff('5,000'));
+    expect(payer).toContain(S.duoDays(20));
+    expect(payer).toContain('연장 30일');
+    expect(payer).toContain('두 좌석 합계 19,900원');
+    const friend = render([
+      seat({
+        plan: 'duo',
+        is_payer: false,
+        payments: null,
+        can_request_refund: false,
+        pending_request: { id: 'rf-1', requested_at: NOW, status: 'pending', awaiting_payer_choice: true }
+      })
+    ]);
+    expect(friend).toContain('결제하신 분이 정산 방식을 고르면');
+    expect(friend).not.toContain('seat-choose');
+    expect(friend).not.toContain('원 ·');
+  });
+
+  it('confirmation after a request, and KST input → ms for payment times', () => {
+    expect(sentKind({ status: 'pending', mode: 'convert_to_solo_days' })).toBe('chosen');
+    expect(sentKind({ status: 'pending', awaiting_payer_choice: true })).toBe('awaiting');
+    expect(sentKind({ status: 'pending', awaiting_payer_choice: false })).toBe('pending');
+    expect(sentKind({ status: 'review', awaiting_payer_choice: false })).toBe('review');
+    expect(kstInputToMs('2026-11-01T15:00')).toBe(Date.UTC(2026, 10, 1, 6, 0, 0));
+    expect(kstInputToMs('')).toBeNull();
+    expect(doneText({ refund_krw: 9_950, removed_days: 30, remaining_seat: null })).toBe(A.refundDoneExtend('9,950', 30));
   });
 
   it('operator message says what to send: Solo full, Duo difference keeps the term, Duo days sends nothing', () => {

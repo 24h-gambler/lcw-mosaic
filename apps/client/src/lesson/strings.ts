@@ -1,0 +1,52 @@
+/** Korean copy for the lesson layer of the 3D client (AGENTS 6). No prices, payments or deadlines (AGENTS 4.9). */
+export const LESSON_STRINGS_KO = {
+  code: {
+    title: '선생님이 알려 준 숫자 6개를 넣어요',
+    sub: '수업 화면으로 바로 들어가요',
+    placeholder: '000000',
+    enter: '들어가기',
+    joining: '들어가는 중…',
+    errors: {
+      invalid_code: '숫자가 맞지 않아요. 선생님께 다시 물어봐요.',
+      too_many_attempts: '여러 번 해 봤네요. 잠깐 쉬었다가 다시 해 봐요.',
+      expired: '수업 연결이 끝났어요. 새 숫자를 받아 주세요.',
+      network: '인터넷 연결을 확인해 주세요.',
+      default: '들어가지 못했어요. 다시 해 볼까요?'
+    } as Record<string, string>
+  },
+  status: {
+    ok: (nickname: string) => (nickname ? `${nickname} · 선생님과 연결됨` : '선생님과 연결됨'),
+    retrying: '다시 연결하는 중…',
+    leave: '나가기'
+  },
+  goal: {
+    label: '오늘의 목표',
+    sayThis: '이렇게 말해 봐요'
+  },
+  speak: {
+    title: (npc: string) => `${npc}에게 말하기`,
+    pickStars: '도전할 문장을 골라요',
+    mic: '말하기',
+    micStop: '다 말했어요',
+    listening: '듣고 있어요…',
+    typeInstead: '글자로 쓰기',
+    typePlaceholder: '영어로 써 봐요',
+    send: '보내기',
+    sending: '선생님께 보내는 중…',
+    heard: '들린 말',
+    free: '정답은 없어요. 하고 싶은 말을 영어로 길게 해 봐요!',
+    recallHint: (first: string) => `첫 단어: ${first} …`,
+    failed: '보내지 못했어요. 한 번 더 눌러 볼까요?'
+  },
+  result: {
+    coins: (n: number) => `코인 ${n}`,
+    today: (n: number) => `오늘 말한 문장 ${n}개`
+  },
+  possessed: '선생님',
+  ended: {
+    title: '오늘 수업 끝! 정말 잘했어요',
+    body: '다음 수업에서 또 만나요.',
+    today: (n: number) => `오늘 영어로 말한 문장 ${n}개`
+  },
+  lowTier: '이 기기에서는 단어 카드 화면으로 수업해요…'
+} as const;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ECHO_TRANSITION_LINE, UI_STRINGS_KO } from '@lcw/content';
 import { QuotaMeter } from '@lcw/quota';
 import {
   classifyUtteranceMode,
@@ -105,7 +106,8 @@ describe('@lcw/converse WP-105, WP-106, WP-108, WP-302, WP-410, WP-502, WP-508 a
     expect(a).toEqual(b);
     expect(a.pass).toBe(true);
     expect(a.missed).toEqual(['that']);
-    expect(a.score).toBeGreaterThanOrEqual(0.85);
+    // 'so' said, 'that' dropped: core pattern is 1/2 matched => 0.775 under the 0.45/0.45/0.10 weights
+    expect(a.score).toBeGreaterThanOrEqual(0.75);
 
     const zeroQuota = new QuotaMeter('2026-11-15', 0);
     const res = understandUtterance({
@@ -179,5 +181,98 @@ describe('@lcw/converse WP-105, WP-106, WP-108, WP-302, WP-410, WP-502, WP-508 a
     const ok = filterSpeechBubble('Look at my big red house!');
     expect(ok.allowed).toBe(true);
     expect(ok.targetLangRatio).toBe(1);
+  });
+
+  it('feedback 4.6: core-pattern scoring blocks the noun-list jetpack loophole', () => {
+    const target = 'Could you build a fast red jetpack so that I can fly?';
+    const hintTags = ['could you', 'red jetpack', 'so that'];
+    const lazy = scoreUtterance({
+      targetText: target,
+      spokenTranscript: 'build fast red jetpack fly',
+      level: 'L3',
+      stars: 3,
+      hintTags
+    });
+    expect(lazy.pass).toBe(false);
+    expect(lazy.starCap).toBe(2);
+    expect(lazy.coreMatchRate).toBe(0);
+    expect(lazy.score).toBeCloseTo(0.45, 2);
+
+    const full = scoreUtterance({ targetText: target, spokenTranscript: target, level: 'L3', stars: 3, hintTags });
+    expect(full.pass).toBe(true);
+    expect(full.score).toBe(1);
+    expect(full.starCap).toBe(3);
+
+    // Same lazy utterance for a 2-star attempt is not a 3-star cap case
+    expect(
+      scoreUtterance({ targetText: target, spokenTranscript: 'build fast red jetpack fly', level: 'L3', stars: 2, hintTags })
+        .starCap
+    ).toBe(3);
+  });
+
+  it('feedback 4.6: caps a 3-star at 2 stars when no core token is spoken, and is deterministic', () => {
+    // Without the core token the score tops out at 0.55 (< every pass threshold), so the cap is a
+    // belt-and-suspenders guard: the attempt fails AND may never be granted 3 stars.
+    const params = {
+      targetText: 'Because it is raining I want a yellow raincoat',
+      spokenTranscript: 'it is raining I want a yellow raincoat',
+      level: 'L3' as const,
+      stars: 3 as const,
+      hintTags: ['because']
+    };
+    const r1 = scoreUtterance(params);
+    const r2 = scoreUtterance(params);
+    expect(r1).toEqual(r2);
+    expect(r1.pass).toBe(false);
+    expect(r1.score).toBeLessThan(0.6);
+    expect(r1.starCap).toBe(2);
+  });
+
+  it('feedback 4.6: falls back to 0.8/0.2 weighting when the target has no core pattern', () => {
+    const r = scoreUtterance({
+      targetText: 'I want a red jetpack',
+      spokenTranscript: 'want red jetpack',
+      level: 'L1',
+      stars: 3,
+      hintTags: ['red jetpack']
+    });
+    expect(r.coreTotal).toBe(0);
+    expect(r.starCap).toBe(3);
+    // content 3/3, function (i, a) 0/2 => 0.8
+    expect(r.score).toBeCloseTo(0.8, 4);
+  });
+
+  it('feedback 4.12: bubbles substitute Korean via dictionary instead of blocking', () => {
+    const vocative = filterSpeechBubble('지우야 Watch out!');
+    expect(vocative.allowed).toBe(true);
+    expect(vocative.text).toBe('지우야 Watch out!');
+
+    const mixed = filterSpeechBubble('이거 red brick 어디 놔?');
+    expect(mixed.allowed).toBe(true);
+    expect(mixed.substituted).toBe(true);
+    expect(mixed.text).toBe('This red brick where put?');
+    expect(mixed.noticeKo).toBe(UI_STRINGS_KO.player.bubbleSubstituted);
+
+    // still hard blocks
+    expect(filterSpeechBubble('shit 이거 red brick').allowed).toBe(false);
+    expect(filterSpeechBubble('이거 red brick 010-1234-5678').reason).toBe('pii');
+    // unknown Korean stays <70% after substitution
+    expect(filterSpeechBubble('안녕 친구들 let us go').allowed).toBe(false);
+  });
+
+  it('feedback 4.1: third failed attempt enters ECHO with the environment-blaming NPC line', () => {
+    const machine = new ConversationMachine('cafe', 'L2');
+    machine.start();
+    machine.onPromptAudioComplete();
+    machine.submitBoardSelection({ item: 'water', modifier: 'cold' });
+    machine.chooseOffer(2, 'board');
+    expect(machine.submitRepeat('uh').echoLine).toBeUndefined();
+    expect(machine.submitRepeat('uh').echoLine).toBeUndefined();
+    const third = machine.submitRepeat('uh');
+    expect(third.state).toBe('ECHO');
+    expect(third.echoLine?.id).toBe('npc.echo.noisy');
+    expect(third.echoLine?.text).toBe("It's a bit noisy here! Let's take it step by step.");
+    expect(third.echoLine?.ko.length).toBeGreaterThan(0);
+    expect(machine.echoLine).toBe(ECHO_TRANSITION_LINE);
   });
 });

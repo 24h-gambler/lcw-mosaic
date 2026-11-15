@@ -1,4 +1,4 @@
-import type { LangLevel } from '@lcw/content';
+import { ECHO_TRANSITION_LINE, type LangLevel } from '@lcw/content';
 import type { HintLevel, NpcContext, UnderstandResponse } from '@lcw/schemas';
 import { QuotaMeter } from '@lcw/quota';
 import { parseIntentAndSlots, understandFromBoard, understandUtterance, type BoardSelection } from './parser.js';
@@ -57,6 +57,8 @@ export class ConversationMachine {
   highlightMissedWords: string[] = [];
   grantedStars: 1 | 2 | 3 = 1;
   hintTagsVisible = false;
+  /** NPC line to play on entering ECHO (docs/04 4.1); null outside ECHO. */
+  echoLine: typeof ECHO_TRANSITION_LINE | null = null;
 
   constructor(ctx: NpcContext, level: LangLevel) {
     this.ctx = ctx;
@@ -70,6 +72,7 @@ export class ConversationMachine {
     this.repeatAttempts = 0;
     this.highlightMissedWords = [];
     this.hintTagsVisible = false;
+    this.echoLine = null;
     return this.state;
   }
 
@@ -155,7 +158,7 @@ export class ConversationMachine {
   submitRepeat(
     transcript: string,
     hintLevel: HintLevel = 'full'
-  ): { state: DialogState; result: ScoringResult } {
+  ): { state: DialogState; result: ScoringResult; echoLine?: typeof ECHO_TRANSITION_LINE } {
     if (this.state !== 'REPEAT') throw new Error(`Expected REPEAT, got ${this.state}`);
     if (!this.currentUnderstand) throw new Error('Missing offers in REPEAT');
     this.state = 'SCORE';
@@ -165,19 +168,23 @@ export class ConversationMachine {
       targetText: offer.text,
       spokenTranscript: transcript,
       level: this.level,
-      hintLevel
+      hintLevel,
+      stars: this.chosenStars,
+      hintTags: this.currentUnderstand.hint_tags
     });
     this.lastScore = result;
 
     if (result.pass) {
-      this.grantedStars = this.chosenStars;
+      // docs/04 4.6: 3-star without any core-pattern token is capped at 2 stars
+      this.grantedStars = Math.min(this.chosenStars, result.starCap) as 1 | 2 | 3;
       this.state = 'REWARD';
       return { state: this.state, result };
     }
 
     if (this.repeatAttempts >= 3) {
       this.state = 'ECHO';
-      return { state: this.state, result };
+      this.echoLine = ECHO_TRANSITION_LINE;
+      return { state: this.state, result, echoLine: ECHO_TRANSITION_LINE };
     }
 
     if (this.repeatAttempts === 2) {

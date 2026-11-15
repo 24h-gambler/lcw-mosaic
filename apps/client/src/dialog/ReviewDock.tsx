@@ -116,6 +116,8 @@ export function ReviewDock(props: ReviewDockProps): React.ReactElement | null {
     (r: DialogResult | null) => {
       setOpen(null);
       if (r) {
+        // The server ledger is the only coin record (a mastered card pays its bonus there).
+        if (typeof r.coinsTotal === 'number') world?.setCoins?.(r.coinsTotal);
         if (r.pass) {
           playSfx('mem.fix');
           world?.celebrate(Math.max(0, Math.min(3, Math.round(r.stars))) as 0 | 1 | 2 | 3);

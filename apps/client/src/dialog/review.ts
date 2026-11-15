@@ -1,6 +1,7 @@
 import { UI_STRINGS_KO } from '@lcw/content';
 import type { DialogHint, DialogResult, UtteranceSubmit } from './types.js';
 import { SubmitError } from './submit.js';
+import { noteSeatResponse } from '../world/seat.js';
 
 /**
  * Memory-card reviews from the child's side (docs/03 D8, docs/09 P4). The server decides everything: which cards
@@ -61,6 +62,7 @@ export function createReviewSubmit(opts: { token: string; cardId: string; baseUr
     } catch (err) {
       throw new SubmitError('network', err instanceof Error ? err.message : String(err));
     }
+    if (res.status === 403 && (await noteSeatResponse(res))) throw new SubmitError('auth', 'seat_inactive');
     if (res.status === 401 || res.status === 403) throw new SubmitError('auth', `status ${res.status}`);
     const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (res.status === 409) {

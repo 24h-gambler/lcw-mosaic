@@ -70,7 +70,7 @@ export const PARENT_STRINGS_KO = {
       },
       lesson_window: {
         title: '수업 창문',
-        body: '수업 중에 보호자가 실시간으로 들을 수 있습니다. 듣기만 하며 보호자 마이크는 연결되지 않습니다.',
+        body: '수업 중에 장면·목표 문장·자막을 보고, 선생님이 수업 소리를 내보내면 실시간으로 들을 수 있습니다. 듣기만 하며 보호자 마이크는 연결되지 않고, 소리는 저장하지 않습니다. 끄면 듣던 연결도 바로 끊습니다.',
         refuse: '수업 창문이 열리지 않습니다.'
       },
       showroom_public: {
@@ -182,7 +182,7 @@ export const PARENT_STRINGS_KO = {
   window: {
     title: (nick: string) => `수업 창문 · ${nick}`,
     titlePlain: '수업 창문',
-    lead: '수업 중인 장면을 10초마다 글로 알려 드립니다. 영상은 보내지 않고, 보호자 마이크는 연결되지 않습니다.',
+    lead: '수업 중인 장면을 10초마다 글로 알려 드리고, 선생님이 소리를 내보내면 들을 수 있습니다. 영상은 보내지 않고, 보호자 마이크는 연결되지 않습니다.',
     noSession: '보호자 화면(우리 가족)에서 들어와 주세요.',
     goFamily: '우리 가족으로',
     noChild: '연결된 아이가 없습니다.',
@@ -209,6 +209,17 @@ export const PARENT_STRINGS_KO = {
     notPassed: '다시 도전',
     audioTitle: '소리 듣기',
     audioOff: '선생님 쪽 음성 연결이 아직 준비되지 않아 지금은 글로만 보여 드립니다. 소리가 연결되어도 듣기만 하며, 보호자 마이크는 켜지지 않습니다.',
+    audioNoStream: '선생님이 아직 수업 소리를 내보내지 않았습니다. 소리가 시작되면 여기서 들을 수 있습니다.',
+    audioUnsupported: '이 브라우저에서는 수업 소리를 들을 수 없습니다. 최신 크롬·사파리·삼성 인터넷에서 열어 주세요.',
+    audioStart: '수업 소리 듣기',
+    audioStop: '소리 끄기',
+    audioVolume: '소리 크기',
+    audioConnecting: '연결하는 중…',
+    audioListening: '수업 소리를 듣는 중입니다',
+    audioFailed: '소리를 연결하지 못했습니다. 다시 눌러 주세요.',
+    audioTooMany: '이 아이의 수업을 듣는 기기가 너무 많습니다. 다른 기기에서 소리를 끈 뒤 다시 눌러 주세요.',
+    audioConsent: '수업 창문 동의가 꺼져 있어 소리를 들을 수 없습니다.',
+    audioPrivacy: '듣기만 합니다. 보호자 마이크와 카메라는 켜지지 않고, 수업 소리는 저장하지 않습니다.',
     elapsed: (min: number) => `수업 ${min}분째`,
     error: '수업 창문을 불러오지 못했습니다. 잠시 뒤 다시 시도합니다.',
     open: '수업 창문 열기'

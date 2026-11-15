@@ -12,6 +12,7 @@ import {
   type VoiceBlobStore
 } from './voice.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
+import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
@@ -64,6 +65,14 @@ export interface LcwEnv {
   BUILD_SHA?: string;
   /** R2 bucket for children's voice clips (voice.ts). Unbound → uploads answer 503 and nothing is stored. */
   VOICE?: R2BucketLike;
+  /** Cloudflare Realtime SFU app for live lesson listening (lesson-audio.ts). Both unset → the window is text only. */
+  REALTIME_APP_ID?: string;
+  REALTIME_APP_TOKEN?: string;
+  /** Optional TURN key (strict networks); without it ICE uses Cloudflare STUN only. */
+  REALTIME_TURN_KEY_ID?: string;
+  REALTIME_TURN_KEY_TOKEN?: string;
+  /** Local real-path rig only: a stand-in SFU. Never set in production. */
+  REALTIME_API_BASE?: string;
 }
 interface DoState {
   storage: DurableStorageLike;
@@ -635,6 +644,25 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     }
     return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota: () => platform.quota, ai: env.AI, nowMs: () => Date.now() });
   });
+  // My plot (WP-207): the child's own home world, from the same tokens. Building alone is solo play, so a linked
+  // device whose seat has paused play may still look (GET) but not build (docs/01 §4; the client shows the notice).
+  // A lesson token always may: the lesson is the teacher's time.
+  app.get('/v1/plot', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+  });
+  app.post('/v1/plot/ops', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const blocked = seatBlocked(s);
+    if (blocked) return blocked;
+    const body = await readBody(c);
+    if (!body) return c.json({ error: 'invalid_plot_ops' }, 400);
+    return forwardSolo(c.req.url, s, { ops: body.ops, batch: body.batch }, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+  });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();
     if (!env.LCW_OPERATOR_TOKEN) return c.json({ error: 'operator_token_not_configured' }, 503);
@@ -686,16 +714,20 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (r.status !== 200) return c.json({ error: r.error }, r.status);
     return c.json(r.view);
   });
+  const rtConfig = realtimeConfigFrom(env);
+  const realtime = rtConfig ? cloudflareRealtime(rtConfig) : null;
   const familyDeps = {
     sql: platform.sql,
     db: platform.db,
     nowMs: () => Date.now(),
     randomBytes: (n: number) => crypto.getRandomValues(new Uint8Array(n)),
     sha256Hex,
-    voiceStore: () => platform.voiceStore()
+    voiceStore: () => platform.voiceStore(),
+    realtime: () => realtime
   };
   app.route('/', buildFamilyApp(familyDeps));
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
+  app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
   app.get('/v1/admin/ops-runs', (c) =>

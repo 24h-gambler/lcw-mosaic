@@ -169,7 +169,8 @@ export const BLOCK_LOOKS: ReadonlyArray<BlockLook | undefined> = (() => {
   put(cube(20, 'pine_plank', 'wood'));
   put(cube(21, 'log_side', 'wood', { top: 'log_top', bottom: 'log_top' }));
   put({ ...cube(22, 'oak_plank', 'wood'), shape: 'boxes', boxes: [B16(6, 0, 6, 10, 16, 10)], collideH: 1 });
-  put(cube(23, 'door', 'wood', { top: 'oak_plank', bottom: 'oak_plank' }));
+  // a door is walked through (a room on my plot needs one to be entered, D13 출입구)
+  put(cube(23, 'door', 'wood', { top: 'oak_plank', bottom: 'oak_plank', collideH: 0 }));
   put({ ...cube(24, 'ladder', 'wood'), shape: 'cutout', collideH: 0 });
   put({ ...cube(25, 'stained_glass', 'glass'), shape: 'glass' });
   put({

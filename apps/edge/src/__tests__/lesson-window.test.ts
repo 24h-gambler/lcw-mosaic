@@ -76,7 +76,7 @@ describe('parent lesson window (WP-307, docs/08 P04, docs/16 §3)', () => {
       scene_icon: 'cafe'
     });
     expect(r.body.poll_ms).toBe(LESSON_WINDOW_POLL_MS);
-    expect(r.body.audio).toEqual({ direction: 'recvonly', available: false, reason: 'realtime_not_configured' });
+    expect(r.body.audio).toEqual({ direction: 'recvonly', available: false, reason: 'realtime_not_configured', stream_id: null, listener: null });
     expect(r.body.minutes.length).toBeGreaterThanOrEqual(1);
     expect(r.body.minutes[0].student_ms).toBeGreaterThan(0);
     expect(r.body.minutes[0].teacher_ms).toBeGreaterThan(0);

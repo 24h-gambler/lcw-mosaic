@@ -60,6 +60,8 @@ export interface WorldHandle {
   listNpcs?(): NpcRef[];
   /** Small "수업 중" tag on the HUD (docs/08 8.1). */
   setLessonBadge?(on: boolean): void;
+  /** Coin balance from the server ledger (dialog `coinsTotal`, lesson sync); null hides it. */
+  setCoins?(total: number | null): void;
   /** Linked child's nickname shown over the player (null = guest, no plate). The guide greets them by name once. */
   setPlayerName?(name: string | null): void;
   /** Performance and position read-out (headless checks, tier auto-detect). */

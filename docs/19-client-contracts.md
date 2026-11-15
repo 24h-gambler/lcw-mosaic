@@ -32,6 +32,7 @@ export interface WorldHandle {
   getScene?(): SceneId;
   listNpcs?(): NpcRef[];
   setLessonBadge?(on: boolean): void;               // 장면 이름 옆 '수업 중'
+  setCoins?(total: number | null): void;           // 별 옆 코인 칩(서버 장부 잔액), null 이면 숨김
   getStats?(): WorldStats;                          // fps·draw call·삼각형·청크 수(검증용)
 }
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
@@ -104,10 +105,16 @@ export interface DialogPanelProps {
 
 - 대화: `apps/client/src/dialog/DialogPanel.tsx`의 이름 있는 내보내기 `DialogPanel`(3장 props)과, 수업이 아닐 때 쓸 `createSoloSubmit(npc: NpcRef)`.
   - NPC에게 말을 걸면(`onNpcInteract`) 수업 중이 아닐 때 앱이 `DialogPanel`을 엽니다. 열리면 `setPaused(true)`, 닫히면 `setPaused(false)`.
-  - `onDone(r)`: 앱이 `celebrate(r.stars)`(실패면 0)와 `giveItem(r.itemKey ?? 장면 기본값)`을 부릅니다(cafe → `honey_tea`). `DialogPanel`은 `celebrate`·`giveItem`을 직접 부르지 않습니다. `DialogResult.itemKey?`는 선택 필드입니다.
+  - `onDone(r)`: 앱(`createResultPlayer`)이 결과를 월드에 틉니다. `DialogPanel`은 `celebrate`·`giveItem`을 직접 부르지 않습니다.
+    - 아이템은 `r.itemKey`가 **있을 때만** 손에 줍니다. 장면 기본값은 없습니다. 수업이든 혼자든 같고, `practice`(게스트 연습)면 주지 않습니다. 한 창에서 한 번만 줍니다.
+    - 별은 그 창에서 보여 준 것보다 높을 때만 축하합니다. 실패의 '다시 해 봐요'(0)는 아직 통과 전일 때만 보여 줍니다. ✕·Esc 로 닫을 때 최고 결과로 `onDone`이 다시 와도 두 번 축하하지 않습니다.
+    - `r.coinsTotal`(서버 장부 잔액)이 오면 `setCoins?(n)`으로 HUD 의 별 옆 코인 칩에 보여 줍니다. 장부는 서버 하나이고, 수업 도메인이 맞춘 잔액을 `world.setCoins?.(n)`으로 직접 넣어도 됩니다.
+    - 혼자 대화: 안내인(`ctx:'guide'`)이 통과한 답의 `askedKey`가 장소(`'cafe'|'trade_shop'`, 장면 id 도 됨)면 창을 닫은 뒤 그 장면으로 걸어갑니다(`goToScene`). 수업 중에는 수업이 장면을 정하므로 걷지 않습니다.
 - 수업: `apps/client/src/lesson/LessonLayer.tsx`의 `LessonLayer`.
   - props: `{ world: WorldHandle; renderDialog: (cfg: DialogConfig) => ReactNode; onLessonActive?: (active: boolean) => void }`.
   - 수업이 시작되면 `onLessonActive(true)` → 앱이 `setLessonBadge(true)`, 혼자 대화 열기를 멈춥니다(대화는 수업이 `renderDialog`로 엶).
+  - `canRender3d`: 기기가 3D 를 감당하지 못하면 false 입니다. 해상도가 이미 등급 하한(`tiers.ts` minScale)인데 15초 준비 뒤 10초 연속 12fps 미만이면(`FrameFloorWatch`) false 가 됩니다. 그러면 수업은 같은 세션 그대로 `/join` 단어 카드로 옮깁니다. 낮음 등급이라는 이유만으로는 3D 를 끄지 않습니다. 낮음 등급은 해상도·시야를 줄여 3D 를 유지합니다(swiftshader 휴대폰 크기 55~60fps 실측). WebGL 이 없거나 시작에 실패하면 앱이 처음부터 `/join` 안내 화면을 냅니다.
+  - 장면 이동 중에 `setPaused(true)`가 와도(수업 단계 전환과 대화창 열림이 같은 틱) `goToScene`은 위치로 도착을 판정합니다. 도착하지 못했으면 페이드로 목표 장면에 옮기고 가장 가까운 NPC 로 대화 구도를 다시 잡습니다.
 - 누가 하나(`world/identity.ts`): ① 주소에 `?code=123456`(6자리)이 있으면 **수업**(`{kind:'lesson', code}`, 기기 확인 요청도 안 함) ② 아니면 `localStorage['lcw.deviceToken']`(보호자 `/link`가 저장)을 `GET /v1/device/me`(Bearer)로 확인해 **연결된 아이**(`{kind:'child', token, nickname, level, voiceStore, offline}`) — 401이면 토큰을 지우고 게스트, 네트워크 오류면 저장된 `lcw.deviceNickname`으로 오프라인 아이 ③ 둘 다 아니면 **게스트**. 저장소 접근이 막혀도 게스트로 시작합니다.
   - 앱은 `LessonLayer`에 `identity`를 넘기고, 혼자 대화에는 `createSoloSubmit(npc, { deviceToken, nickname, level })`(게스트면 둘째 인자 없음)와 `cfg.level`을 넘깁니다. 월드는 `setPlayerName?(nickname)`으로 머리 위 이름표를 달고 안내인이 이름으로 한 번 인사합니다.
 - 화면 주소: `/game/?scene=<SceneId>`(시작 장면), `?tier=low|mid|high`(사양 강제), `?fps=1`(fps 표시). 디버그·검증용으로 `window.__lcwWorld`에 핸들을 둡니다.

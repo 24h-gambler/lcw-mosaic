@@ -12,6 +12,7 @@ import {
   type VoiceBlobStore
 } from './voice.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
+import { buildPushAdminApp, deliverPush, enqueueGuardianNotices, vapidKeys, webPushSender, type PushSender } from './push.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
@@ -391,6 +392,26 @@ export class PlatformDO {
     }
   }
 
+  async pushSender(): Promise<PushSender> {
+    return webPushSender(await vapidKeys(this.sql), (i, init) => fetch(i, init), () => Date.now());
+  }
+
+  /** Hourly guardian push notices (push.ts): queue fresh seat/refund notices, send them if sending is on. */
+  async runPushCron(cron: string, now: number): Promise<unknown> {
+    if (cron !== '0 * * * *') return null;
+    try {
+      const queued = enqueueGuardianNotices(this.sql, (n) => crypto.getRandomValues(new Uint8Array(n)), now);
+      const r = await deliverPush(this.sql, await this.pushSender(), now);
+      const detail = { queued, ...r };
+      this.recordRun('hourly_push', r.failed === 0, detail);
+      return detail;
+    } catch (err) {
+      const detail = { error: err instanceof Error ? err.message : String(err) };
+      this.recordRun('hourly_push', false, detail);
+      return detail;
+    }
+  }
+
   /** Hourly seat notices (docs/09 시간별 "좌석 만료 안내"), recorded as their own ops run. */
   runSeatNotices(now: number): number | { error: string } {
     try {
@@ -517,7 +538,8 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const body = (await c.req.json()) as { cron: string };
     const r = platform.runCron(body.cron);
     const voice = await platform.runVoiceCron(body.cron, Date.now());
-    return c.json({ ...r, voice });
+    const push = await platform.runPushCron(body.cron, Date.now());
+    return c.json({ ...r, voice, push });
   });
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
   // or outside a lesson with their linked device token. Who, which world and which level come from the token and
@@ -723,9 +745,11 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     randomBytes: (n: number) => crypto.getRandomValues(new Uint8Array(n)),
     sha256Hex,
     voiceStore: () => platform.voiceStore(),
+    pushSender: async () => platform.pushSender(),
     realtime: () => realtime
   };
   app.route('/', buildFamilyApp(familyDeps));
+  app.route('/', buildPushAdminApp(familyDeps));
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));

@@ -8,6 +8,7 @@ import { answerListening, closeListeners, lessonAudioState, listenerOf, startLis
 import { buildDashboard } from './dashboard.js';
 import { mountSeatRoutes, playAllowed } from './seats.js';
 import { drainVoicePurge, reportClips, type VoiceBlobStore } from './voice.js';
+import { SubscribeSchema, deliverPush, enqueueTest, familyPushState, subscribe, unsubscribe, vapidKeys, type PushSender } from './push.js';
 
 /**
  * Guardian domain (WP-301, docs/16 §3, docs/10 §5): family account, child profiles, separate consents, device link
@@ -44,6 +45,8 @@ export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['DELETE', /^\/v1\/family\/children\/[^/]+\/lesson-window\/audio\/[0-9a-f]{24}$/],
   ['GET', /^\/v1\/family\/children\/[^/]+\/dashboard$/],
   ['GET', /^\/v1\/family\/seats$/],
+  ['GET', /^\/v1\/family\/push$/],
+  ['POST', /^\/v1\/family\/push\/(subscribe|unsubscribe|test)$/],
   ['POST', /^\/v1\/family\/seats\/[^/]+\/refund-request$/],
   ['POST', /^\/v1\/device\/link$/],
   ['GET', /^\/v1\/device\/me$/]
@@ -75,6 +78,8 @@ export interface FamilyDeps {
   sha256Hex: (s: string) => Promise<string>;
   /** Voice clip storage (R2); absent in tests that do not touch voice, null while the binding is missing. */
   voiceStore?: () => VoiceBlobStore | null;
+  /** Web Push sender (push.ts); absent → notices stay queued. */
+  pushSender?: () => Promise<PushSender | null>;
   /** Cloudflare Realtime SFU (lesson-audio.ts); absent or null → the window is text only. */
   realtime?: () => RealtimeClient | null;
 }
@@ -413,6 +418,43 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     if (!kid) return c.json({ error: 'child_not_found' }, 404);
     c.header('cache-control', 'private, no-store');
     return c.json(buildDashboard(d.sql, d.db, kid.id, d.nowMs()));
+  });
+
+  /* ---------- Web Push notices on this guardian's devices (push.ts, docs/09 §12) ---------- */
+
+  app.get('/v1/family/push', async (c) => {
+    const g = await withGuardian(c, false);
+    if (g instanceof Response) return g;
+    c.header('cache-control', 'private, no-store');
+    const keys = await vapidKeys(d.sql);
+    return c.json({ public_key: keys.publicKey, ...familyPushState(d.sql, g.family_id, c.req.query('endpoint') ?? null) });
+  });
+
+  app.post('/v1/family/push/subscribe', async (c) => {
+    const g = await withGuardian(c, false);
+    if (g instanceof Response) return g;
+    const p = SubscribeSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!p.success) return c.json({ error: 'invalid' }, 400);
+    const r = subscribe(d.sql, d.randomBytes, g, p.data, d.nowMs());
+    return r.ok ? c.json({ id: r.id }, 201) : c.json({ error: r.error }, r.status);
+  });
+
+  app.post('/v1/family/push/unsubscribe', async (c) => {
+    const g = await withGuardian(c, false);
+    if (g instanceof Response) return g;
+    const body = (await c.req.json().catch(() => ({}))) as { endpoint?: unknown };
+    if (typeof body.endpoint !== 'string') return c.json({ error: 'invalid' }, 400);
+    return c.json({ ok: unsubscribe(d.sql, g.family_id, body.endpoint, d.nowMs()) });
+  });
+
+  // The guardian checks their own device. Held like every notice until the operator turns sending on.
+  app.post('/v1/family/push/test', async (c) => {
+    const g = await withGuardian(c, false);
+    if (g instanceof Response) return g;
+    const queued = enqueueTest(d.sql, d.randomBytes, g.family_id, d.nowMs());
+    if (!queued) return c.json({ error: 'too_soon' }, 429);
+    const r = await deliverPush(d.sql, d.pushSender ? await d.pushSender() : null, d.nowMs(), 10);
+    return c.json({ sending: r.sending, sent: r.sent > 0 });
   });
 
   /* ---------- WP-307 lesson window: text status, density band, captions; listen-only (no guardian mic) ---------- */

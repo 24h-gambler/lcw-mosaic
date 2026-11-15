@@ -503,6 +503,8 @@ export function App(): React.ReactElement {
     onDone: (r) => {
       const step = r.errand;
       if (step) setErrand((prev) => (prev && prev.state !== step.state ? { ...prev, state: step.state } : prev));
+      // handed over: the server already moved the drink out of the bag (given); the hand and slot follow
+      if (step?.state === 'done' && errand && typeof errand.item_key === 'string') world?.takeItem?.(errand.item_key);
     }
   };
   const FirstVisit = firstVisitMod?.FirstVisitGuide;

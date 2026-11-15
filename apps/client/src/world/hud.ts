@@ -16,6 +16,7 @@ function css(): string {
 .lw-card{background:${C['paper-50']};border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusCardPx}px;box-shadow:${S.shadowDefault}}
 .lw-goal{position:absolute;top:12px;left:50%;transform:translate(-50%,-140%);max-width:min(720px,calc(100% - 32px));padding:8px 16px;display:flex;flex-direction:column;align-items:center;gap:2px;transition:transform ${M.slowMs}ms ease-out;text-align:center}
 .lw-goal.on{transform:translate(-50%,0)}
+.lw-hud.dlg .lw-goal{opacity:0;transition:opacity ${M.slowMs}ms ease-out}
 .lw-goal .k{font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px;font-weight:700;color:${C['brand-d']}}
 .lw-goal .g{font-size:${T.scale['body-l'].sizePx}px;line-height:${T.scale['body-l'].lineHeightPx}px;font-weight:700}
 .lw-goal .t{font-family:${T.fonts.target};font-size:${T.scale.h3.sizePx}px;line-height:${T.scale.h3.lineHeightPx}px;font-weight:700;color:${C['sky-d']}}
@@ -403,6 +404,11 @@ export class WorldHud {
   setLoading(fraction: number, done: boolean): void {
     this.loadBar.style.width = `${Math.round(Math.min(1, fraction) * 100)}%`;
     if (done) this.load.classList.add('done');
+  }
+
+  /** A panel covers the bottom (dialog window): the goal card steps aside so the NPC's face shows in the strip. */
+  setDialogOpen(on: boolean): void {
+    this.root.classList.toggle('dlg', on);
   }
 
   setGoal(goalKo: string, targetEn?: string): void {

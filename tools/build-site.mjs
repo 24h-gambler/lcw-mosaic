@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { siteHeadersFile } from './site-headers.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'apps/edge/public');
@@ -20,25 +21,6 @@ try {
   // not a git checkout — keep 'dev'
 }
 writeFileSync(join(out, 'version.json'), JSON.stringify({ sha, built_at: new Date().toISOString() }));
-writeFileSync(
-  join(out, '_headers'),
-  [
-    '/*',
-    '  X-Content-Type-Options: nosniff',
-    '  Referrer-Policy: strict-origin-when-cross-origin',
-    '  Permissions-Policy: microphone=(self), camera=()',
-    // Content-hashed files (Vite assets, site captures) never change under one name: cache them for a year instead
-    // of revalidating on every visit (production served them with max-age=0).
-    '/assets/*',
-    '  Cache-Control: public, max-age=31536000, immutable',
-    '/game/assets/*',
-    '  Cache-Control: public, max-age=31536000, immutable',
-    '/media/*',
-    '  Cache-Control: public, max-age=31536000, immutable',
-    // Share pictures keep stable names (previewers cache by URL); a day is enough to pick up a re-capture.
-    '/og/*',
-    '  Cache-Control: public, max-age=86400',
-    ''
-  ].join('\n')
-);
+// Security headers, cache lifetimes and the HTML-only no-transform (keeps Cloudflare's analytics beacon out): site-headers.mjs.
+writeFileSync(join(out, '_headers'), siteHeadersFile());
 console.log(`site assembled at ${out} (sha ${sha})`);

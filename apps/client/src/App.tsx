@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Level } from '@lcw/schemas';
 import { canRunWorld, createWorld, SCENE_IDS, type NpcRef, type SceneId, type WorldHandle, type WorldTier } from './world/api.js';
 import { WORLD_STRINGS as W } from './world/strings.js';
+import { browserStore, resolveIdentity, type PlayerIdentity } from './world/identity.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
@@ -33,12 +34,27 @@ export interface LessonLayerProps {
   world: WorldHandle | null;
   renderDialog: (npc: NpcRef, cfg: DialogConfig) => React.ReactNode;
   onLessonActive?: (active: boolean) => void;
+  /** Who is playing: `lesson` when the address has ?code=, `child` for a linked device, else `guest` (docs/19 5장). */
+  identity?: PlayerIdentity;
+}
+
+/** What solo play knows about the player: a linked child device sends its token, a guest sends nothing. */
+export interface SoloPlayer {
+  deviceToken?: string;
+  nickname?: string;
+  level?: Level;
+}
+
+export function soloPlayerOf(id: PlayerIdentity | null): SoloPlayer | undefined {
+  if (!id || id.kind !== 'child') return undefined;
+  return { deviceToken: id.token, nickname: id.nickname || undefined, level: id.level };
 }
 
 type AnyComponent = React.ComponentType<Record<string, unknown>>;
 interface DialogModule {
   DialogPanel?: AnyComponent;
-  createSoloSubmit?: (npc: NpcRef) => (u: unknown) => Promise<DialogResultLike>;
+  /** Second argument: the linked child's device token and level, when there is one (guest otherwise). */
+  createSoloSubmit?: (npc: NpcRef, player?: SoloPlayer) => (u: unknown) => Promise<DialogResultLike>;
 }
 interface LessonModule {
   LessonLayer?: React.ComponentType<LessonLayerProps>;
@@ -129,8 +145,24 @@ export function App(): React.ReactElement {
   const [lessonMod, setLessonMod] = useState<LessonModule | null>(null);
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
   const [failed, setFailed] = useState(false);
+  const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
+
+  // Lesson code first, then a linked child device (guardian /link), else guest.
+  useEffect(() => {
+    let live = true;
+    void resolveIdentity(location.search, browserStore(), (i, init) => globalThis.fetch(i, init)).then((id) => {
+      if (live) setIdentity(id);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (world && identity?.kind === 'child' && identity.nickname) world.setPlayerName?.(identity.nickname);
+  }, [world, identity]);
 
   useEffect(() => {
     for (const load of Object.values(dialogLoaders)) void load().then(setDialogMod);
@@ -176,17 +208,18 @@ export function App(): React.ReactElement {
     (npc: NpcRef, cfg: DialogConfig): React.ReactNode => {
       const Panel = dialogMod?.DialogPanel;
       if (!Panel || !world) return null;
-      const submit = cfg.submit ?? dialogMod?.createSoloSubmit?.(npc);
+      const submit = cfg.submit ?? dialogMod?.createSoloSubmit?.(npc, soloPlayerOf(identity));
       if (!submit) return null;
       return <DialogHost key={npc.id} Panel={Panel} world={world} npc={npc} cfg={cfg} submit={submit} onClose={() => undefined} />;
     },
-    [dialogMod, world]
+    [dialogMod, world, identity]
   );
 
   if (!ok || failed) return <NoWorld />;
   const Lesson = lessonMod?.LessonLayer;
   const SoloPanel = dialogMod?.DialogPanel;
-  const soloSubmit = soloNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(soloNpc) : null;
+  const soloSubmit = soloNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(soloNpc, soloPlayerOf(identity)) : null;
+  const soloLevel = identity?.kind === 'child' ? identity.level : undefined;
   return (
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: C['paper-50'], touchAction: 'none' }}>
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
@@ -196,6 +229,7 @@ export function App(): React.ReactElement {
           {Lesson ? (
             <Lesson
               world={world}
+              identity={identity ?? undefined}
               renderDialog={renderDialog}
               onLessonActive={(a: boolean) => {
                 lessonActive.current = a;
@@ -204,7 +238,7 @@ export function App(): React.ReactElement {
             />
           ) : null}
           {world && SoloPanel && soloNpc && soloSubmit ? (
-            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={{}} submit={soloSubmit} onClose={() => setSoloNpc(null)} />
+            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloLevel ? { level: soloLevel } : {}} submit={soloSubmit} onClose={() => setSoloNpc(null)} />
           ) : null}
         </div>
       </div>

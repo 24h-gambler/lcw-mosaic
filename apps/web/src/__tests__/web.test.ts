@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
-import { App, CONSENT_SCOPE_LABELS, DEFAULT_PARENT_REPORT_STATE, DIRECTOR_EVENTS } from '../App.js';
+import { App, CONSENT_SCOPE_LABELS, DEFAULT_PARENT_REPORT_STATE, DIRECTOR_EVENTS, ParentDashboardView } from '../App.js';
 
 describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
   it('enforces zero payment/price/deadline copy on child /play and /try routes (AGENTS.md 4.9)', () => {
@@ -19,9 +19,8 @@ describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
   });
 
   it('renders parent dashboard with AccessibleChartWithTable table toggle and granular consents (no agree-all button)', () => {
-    const chartHtml = renderToStaticMarkup(
-      React.createElement(App, { initialRoute: '/dashboard', initialShowChartTables: false })
-    );
+    // /dashboard is the real guardian dashboard now (WP-309, dashboard.test.ts); the sample view is tested directly.
+    const chartHtml = renderToStaticMarkup(React.createElement(ParentDashboardView, { initialShowTables: false }));
     expect(chartHtml).toContain('표 보기');
     expect(chartHtml).not.toContain('전체 동의');
     expect(chartHtml).not.toContain('모두 동의');
@@ -30,9 +29,7 @@ describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
       expect(chartHtml).toContain(consent.title);
     }
 
-    const tableHtml = renderToStaticMarkup(
-      React.createElement(App, { initialRoute: '/dashboard', initialShowChartTables: true })
-    );
+    const tableHtml = renderToStaticMarkup(React.createElement(ParentDashboardView, { initialShowTables: true }));
     expect(tableHtml).toContain('<table');
     expect(tableHtml).toContain('그래프 보기');
     expect(tableHtml).toContain('42');

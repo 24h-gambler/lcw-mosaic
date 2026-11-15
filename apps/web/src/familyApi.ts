@@ -57,6 +57,53 @@ export interface LessonWindowPayload {
   poll_ms: number;
   server_now: number;
 }
+export interface DashboardWeek {
+  week_start: number;
+  free_words: number;
+  speaking_min: number;
+  free_utterances: number;
+  speech_wpm: number | null;
+  response_sec: number | null;
+  mean_words: number | null;
+  connectors_per_100: number | null;
+  think_speak: number | null;
+  think_speak_4w: number | null;
+  modes: Record<'lesson' | 'solo', { free: number; guided: number; read: number; recall: number }>;
+  lesson_days: number;
+  play_days: number;
+  cum_free_words: number;
+  cum_vocab: number;
+  cum_mastered: number;
+}
+export interface DashboardPayload {
+  child: { nickname: string; level: string };
+  series: {
+    weeks: DashboardWeek[];
+    projection: Record<'cum_free_words' | 'cum_vocab' | 'cum_mastered', Array<{ week_start: number; value: number }>>;
+    calendar: Array<{ day: string; free_words: number }>;
+    connectors: Array<{ expr: string; count: number }>;
+    has_data: boolean;
+  };
+  week_line: { text: string; words: number; at: number } | null;
+  review: Array<{ text: string; due_at: number }>;
+  lessons: Array<{
+    id: string;
+    started_at: number;
+    ended_at: number | null;
+    duration_min: number;
+    student_min: number;
+    teacher_min: number;
+    student_share: number | null;
+    utterances: number;
+    passes: number;
+    report_path: string | null;
+  }>;
+  next_lesson_at: string | null;
+  lesson_live: boolean;
+  lesson_window_on: boolean;
+  voice_store_on: boolean;
+  server_now: number;
+}
 export interface FamilyMe {
   service_consented: boolean;
   children: FamilyChild[];
@@ -110,6 +157,7 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
       request<{ ok: boolean }>('POST', `/v1/family/reports/${enc(sharePath.replace(/^\/r\//, ''))}/revoke`, g, {}),
     linkDevice: (code: string, label: string) =>
       request<{ device_token: string; nickname: string; level: string }>('POST', '/v1/device/link', null, { code, label }),
+    dashboard: (g: string, playerId: string) => request<DashboardPayload>('GET', `/v1/family/children/${enc(playerId)}/dashboard`, g),
     lessonWindow: (g: string, playerId: string, after = 0) =>
       request<LessonWindowPayload>('GET', `/v1/family/children/${enc(playerId)}/lesson-window${after > 0 ? `?after=${after}` : ''}`, g),
     deviceMe: (d: string) => request<{ nickname: string; level: string; voice_store: boolean }>('GET', '/v1/device/me', d)

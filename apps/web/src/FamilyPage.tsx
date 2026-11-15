@@ -215,6 +215,13 @@ function ChildCard({
       <div style={{ display: 'grid', gap: sp(0), marginBottom: sp(3) }}>
         <h2 style={{ margin: 0, fontSize: px(T.scale.h2.sizePx), lineHeight: px(T.scale.h2.lineHeightPx) }}>{child.nickname}</h2>
         <span style={small}>{F.childMeta(child.level, child.birth_year, child.lessons)}</span>
+        <a
+          href={`/dashboard?child=${encodeURIComponent(child.player_id)}`}
+          data-testid={`open-dashboard-${child.player_id}`}
+          style={{ marginTop: sp(2), fontWeight: 700, color: C['sky-d'] }}
+        >
+          {PARENT_STRINGS_KO.dashboard.titlePlain}
+        </a>
         {child.consents.lesson_window ? (
           <a
             href={`/window?child=${encodeURIComponent(child.player_id)}`}

@@ -195,6 +195,51 @@ describe('town build (all through setBlock)', () => {
     }
   });
 
+  it('arriving in any scene, E reaches that scene NPC (within 2.5 m) and no one else; the errand too (coordinator 11-16)', () => {
+    // where everyone stands while the player is in scene `id`: its NPC on the scene spot, the rest at home
+    const at = (npcId: string, scene: string): Spot | undefined => {
+      const s = SCENES[scene as keyof typeof SCENES];
+      if (s.npc?.id === npcId) return s.npc.spot;
+      const d = NPCS.find((n) => n.id === npcId)!;
+      return d.spot ?? (SCENES[d.home].npc?.id === npcId ? SCENES[d.home].npc!.spot : undefined);
+    };
+    // the engine's rule (frame loop): nearest NPC closer than TALK_RANGE, feet within 2.5 m height
+    const eTarget = (px: number, pz: number, fromY: number, scene: string, lesson: boolean): { id: string; d: number } | null => {
+      const py = standHeight(world, px, pz, Math.ceil(fromY) + 1);
+      let best: { id: string; d: number } | null = null;
+      for (const n of NPCS) {
+        if (!npcTalkable(n, lesson)) continue;
+        const spot = at(n.id, scene);
+        if (!spot) continue;
+        const d = Math.hypot(spot.x - px, spot.z - pz);
+        const ny = standHeight(world, spot.x, spot.z, Math.ceil(spot.y) + 1);
+        if (d < TALK_RANGE && Math.abs(py - ny) < 2.5 && (!best || d < best.d)) best = { id: n.id, d };
+      }
+      return best;
+    };
+    for (const id of SCENE_IDS) {
+      const s = SCENES[id];
+      if (!s.npc) continue;
+      for (const lesson of [false, true]) {
+        const t = eTarget(s.player.x, s.player.z, s.player.y, id, lesson);
+        expect(t?.id, `${id} lesson=${lesson}`).toBe(s.npc.id);
+        expect(t!.d, id).toBeLessThanOrEqual(2.5);
+      }
+      // the walk ends on the spot, and the spot faces the NPC (within 60°)
+      const last = s.path[s.path.length - 1]!;
+      expect(Math.hypot(last[0] - s.player.x, last[1] - s.player.z), id).toBeLessThan(0.01);
+      const face = Math.atan2(s.npc.spot.x - s.player.x, s.npc.spot.z - s.player.z);
+      expect(Math.abs(Math.atan2(Math.sin(face - s.player.yaw), Math.cos(face - s.player.yaw))), id).toBeLessThan(Math.PI / 3);
+    }
+    // the errand: walkToNpc stands in front of 미나, and she is the one E reaches
+    const mina = NPCS.find((n) => n.id === 'errand_neighbor')!;
+    const ms = mina.spot!;
+    const spot = talkSpotFor(world, { ...ms, y: standHeight(world, ms.x, ms.z, Math.ceil(ms.y) + 1) })!;
+    const t = eTarget(spot.x, spot.z, ms.y, mina.home, false);
+    expect(t?.id).toBe('errand_neighbor');
+    expect(t!.d).toBeLessThanOrEqual(2.5);
+  });
+
   it('finds a talk spot in front of every fixed-place NPC, inside the talk range and reachable from its scene (walkToNpc)', () => {
     // counter NPCs are reached by their scene walk (paths tested below); fixed places need their own spot
     const fixed = NPCS.filter((n) => n.spot);

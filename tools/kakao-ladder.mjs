@@ -43,8 +43,18 @@ await ctx.addInitScript(([t]) => {
     src.buffer = audio;
     const dest = ac.createMediaStreamDestination();
     src.connect(dest);
-    src.start();
+    // the clip starts once the recorder runs (a busy machine can start MediaRecorder after a clip that began at once)
+    window.__pendingClip = src;
+    setTimeout(() => window.__pendingClip === src && (window.__pendingClip = null, src.start()), 4000);
     return dest.stream;
+  };
+  const start = MediaRecorder.prototype.start;
+  MediaRecorder.prototype.start = function (...a) {
+    const r = start.apply(this, a);
+    const src = window.__pendingClip;
+    window.__pendingClip = null;
+    if (src) setTimeout(() => src.start(), 200);
+    return r;
   };
 }, [dev.device_token]);
 const page = await ctx.newPage();

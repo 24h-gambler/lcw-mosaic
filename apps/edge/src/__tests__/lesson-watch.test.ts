@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 // The live-lesson watch tool (tools/lesson-watch.mjs): importing it touches no token and no disk.
 import {
   LESSON_CARD_IMPORTANCE,
+  LESSON_SETTLE,
   SUMMARY_IMPORTANCE,
+  SUMMARY_SETTLE,
   TEST_CARD_IMPORTANCE,
   WATCH_LIMITS,
   checkLesson,
@@ -11,6 +13,7 @@ import {
   planTick,
   planWindowEnd,
   scopeRef,
+  settleImportance,
   tailVerdict
 } from '../../../../tools/lesson-watch.mjs';
 
@@ -129,5 +132,85 @@ describe('live-lesson watch (tools/lesson-watch.mjs)', () => {
     expect(maskUrl('https://lcw.worldwidesomething.com/r/abcdefghijklmnopqrstuvwxyz0123')).toBe('https://lcw.worldwidesomething.com/r/***');
     expect(maskUrl('https://x/game/?code=123456&scene=plaza')).toBe('https://x/game/?code=***&scene=plaza');
     expect(maskUrl('/v1/lesson/state?cursor=3')).toBe('/v1/lesson/state?cursor=3');
+  });
+
+  // A fake spine that adds the source correction the way danos proposals.add does: muted -> 0, else clamp(asked + delta, 0, 3).
+  const fakeSpine = (delta: number | 'mute', o: { failPost?: number; deltaAfterFirst?: number } = {}) => {
+    const landed: number[] = [];
+    let posts = 0;
+    let state = 'open';
+    let imp = 0;
+    return {
+      landed,
+      get posts() {
+        return posts;
+      },
+      post: async (importance: number) => {
+        posts++;
+        if (o.failPost === posts) return { status: 503, body: null };
+        const d = posts > 1 && o.deltaAfterFirst !== undefined ? o.deltaAfterFirst : delta;
+        imp = d === 'mute' ? 0 : Math.max(0, Math.min(3, importance + d));
+        state = 'open';
+        landed.push(imp);
+        return { status: 201, body: { id: 'p_1' } };
+      },
+      read: async () => ({ state, importance: imp }),
+      close: async () => {
+        state = 'closed';
+        return { status: 200 };
+      }
+    };
+  };
+
+  it('lesson cards walk up from 0: never land at the ring line (2) on the way, end at 1 for corrections -2..+1', async () => {
+    for (const delta of [-2, -1, 0, 1]) {
+      const sp = fakeSpine(delta);
+      const out = await settleImportance({ ...LESSON_SETTLE, target: LESSON_CARD_IMPORTANCE, ...sp });
+      expect(Math.max(...sp.landed), `delta ${delta}`).toBeLessThanOrEqual(1);
+      expect(out.rb).toEqual({ state: 'open', importance: 1 });
+      expect(out.tooHigh).toBe(false);
+    }
+  });
+
+  it('a failed raise leaves a lesson card lower (hidden), never higher', async () => {
+    for (const delta of [-2, -1, 0]) {
+      const sp = fakeSpine(delta, { failPost: 2 });
+      const out = await settleImportance({ ...LESSON_SETTLE, target: 1, ...sp });
+      expect(Math.max(...sp.landed)).toBeLessThanOrEqual(1);
+      expect(out.rb?.importance).toBe(0);
+    }
+  });
+
+  it('a correction of +2 lifts even the lowest ask to 2: the card is closed at once, not left to ring', async () => {
+    const sp = fakeSpine(2);
+    const rows: Array<Record<string, unknown>> = [];
+    const out = await settleImportance({ ...LESSON_SETTLE, target: 1, ...sp, log: (r) => rows.push(r) });
+    expect(sp.posts).toBe(1);
+    expect(out.tooHigh).toBe(true);
+    expect(out.rb?.state).toBe('closed');
+    expect(rows.map((r) => r.key)).toEqual(['card_too_high']);
+  });
+
+  it('a muted source stays 0: stops at the edge without looping', async () => {
+    const sp = fakeSpine('mute');
+    const out = await settleImportance({ ...LESSON_SETTLE, target: 1, ...sp });
+    expect(sp.posts).toBeLessThanOrEqual(LESSON_SETTLE.tries + 1);
+    expect(Math.max(...sp.landed)).toBe(0);
+    expect(out.rb?.importance).toBe(0);
+  });
+
+  it('the correction rising between posts is brought back down', async () => {
+    const sp = fakeSpine(0, { deltaAfterFirst: 1 });
+    const out = await settleImportance({ ...LESSON_SETTLE, target: 1, ...sp });
+    expect(out.rb?.importance).toBe(1);
+  });
+
+  it('the summary is asked at its own importance and lands at 2 for corrections -1..+1', async () => {
+    for (const delta of [-1, 0, 1]) {
+      const sp = fakeSpine(delta);
+      const out = await settleImportance({ ...SUMMARY_SETTLE, target: SUMMARY_IMPORTANCE, ...sp });
+      expect(sp.landed[0], `delta ${delta}`).toBe(Math.max(0, Math.min(3, SUMMARY_IMPORTANCE + delta)));
+      expect(out.rb?.importance).toBe(2);
+    }
   });
 });

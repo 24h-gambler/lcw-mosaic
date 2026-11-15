@@ -49,6 +49,7 @@ export interface CardState {
   posted: Record<string, { id: string; sig: string; at: string; state?: string | null; closed?: string }>;
   lastTick: string[];
   summary: { id: string; at: string } | null;
+  lessonCardsOff?: string;
 }
 export declare const CARD_SOURCE: string;
 export declare const LESSON_CARD_IMPORTANCE: number;
@@ -64,3 +65,28 @@ export declare function planWindowEnd(
   st: CardState,
   o: { base: string; from: string; to: string; out: string }
 ): { summary: WatchCard | null; closeRefs: string[]; standing: number; cleared: number };
+export interface SettleHow {
+  start?: number;
+  max: number;
+  tries: number;
+  up?: boolean;
+}
+export declare const LESSON_SETTLE: SettleHow;
+export declare const SUMMARY_SETTLE: SettleHow;
+export interface SpineReply {
+  status: number;
+  body: any;
+}
+export interface ReadBack {
+  state: string | null;
+  importance: number | null;
+}
+export declare function settleImportance(
+  o: SettleHow & {
+    target: number;
+    post: (importance: number) => Promise<SpineReply>;
+    read: (id: string) => Promise<ReadBack>;
+    close?: () => Promise<{ status: number }>;
+    log?: (row: Record<string, unknown>) => void;
+  }
+): Promise<{ r: SpineReply; rb: ReadBack | null; asked: number; landed: Array<number | null>; tooHigh: boolean }>;

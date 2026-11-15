@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { FAQ, LEARN_PAGES, PARENTS, PRICING, SITUATIONS } from '../copy.js';
+import { FAQ, LEARN_PAGES, MEDIA, PARENTS, PRICING, SITUATIONS } from '../copy.js';
+import { GameShot } from '../GameMedia.js';
 import { SLink } from '../SiteShell.js';
 import { FaqList, ListenButton, OfferList, SampleDashboard } from '../widgets.js';
 import { VoxelSvg, character, merge, placeAt, box } from '../voxel.js';
@@ -138,6 +139,7 @@ export function ParentsPage(): React.ReactElement {
           <div className="s-stack">
             <h2 className="s-h2">{PARENTS.methodTitle}</h2>
             <p className="s-lead">{PARENTS.methodBody}</p>
+            <GameShot still="cafe-stars" alt={MEDIA.cafeStars} />
           </div>
           <Situations />
         </div>

@@ -204,6 +204,8 @@ export class WorldHud {
   starTotal = 0;
   /** Set by setStars: an outside count owns the chip (a lesson), celebrate() only plays the burst. */
   private starsExternal = false;
+  /** The world's own count (celebrate), kept while a lesson shows its own, so the chip can go back to it. */
+  private ownStars = 0;
   private selected = 0;
 
   constructor(parent: HTMLElement, private h: HudHandlers) {
@@ -412,7 +414,10 @@ export class WorldHud {
   /** Outside star count (a lesson's stars): the chip shows it, celebrate() stops adding. null = back to celebrate(). */
   setStars(total: number | null): void {
     if (total === null || !Number.isFinite(total)) {
+      if (!this.starsExternal) return;
       this.starsExternal = false;
+      this.starTotal = this.ownStars;
+      this.starsN.textContent = String(this.ownStars);
       return;
     }
     this.starsExternal = true;
@@ -501,6 +506,8 @@ export class WorldHud {
     }, 2400);
     if (stars > 0 && !this.starsExternal) {
       window.setTimeout(() => {
+        this.ownStars += stars;
+        if (this.starsExternal) return;
         this.starTotal += stars;
         this.starsN.textContent = String(this.starTotal);
         this.starsEl.classList.remove('pop');
@@ -510,11 +517,12 @@ export class WorldHud {
     }
   }
 
-  async fadeTo(titleKo: string, mid: () => void): Promise<void> {
+  /** Fade out, run `mid` (it may wait, e.g. for the ground at the new spot; the card stays up meanwhile), fade in. */
+  async fadeTo(titleKo: string, mid: () => void | Promise<void>): Promise<void> {
     this.fadeTitle.textContent = titleKo;
     this.fade.classList.add('on');
     await wait(360);
-    mid();
+    await mid();
     await wait(420);
     this.fade.classList.remove('on');
     await wait(340);

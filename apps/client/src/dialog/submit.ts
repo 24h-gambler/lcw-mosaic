@@ -11,7 +11,8 @@ import type { DialogResult, NpcRef, UtteranceSubmit } from './types.js';
 
 export class SubmitError extends Error {
   constructor(
-    readonly kind: 'network' | 'auth' | 'server' | 'invalid',
+    /** queued: no connection, but the answer is kept on the device and sent when it is back (lesson outbox). */
+    readonly kind: 'network' | 'auth' | 'server' | 'invalid' | 'queued',
     message: string
   ) {
     super(message);

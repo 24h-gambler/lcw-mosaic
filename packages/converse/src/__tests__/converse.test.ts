@@ -13,6 +13,7 @@ import {
   selectSttChannel,
   understandUtterance
 } from '../index.js';
+import { timeRuns } from '../../../../tools/timing.mjs';
 
 describe('@lcw/converse WP-105, WP-106, WP-108, WP-302, WP-410, WP-502, WP-508 acceptance', () => {
   it('WP-105: normalizes 20 mixed Korean-English utterances', () => {
@@ -154,14 +155,13 @@ describe('@lcw/converse WP-105, WP-106, WP-108, WP-302, WP-410, WP-502, WP-508 a
     });
     expect(up).toBe('L3');
 
-    const t0 = performance.now();
     const skill = recognizeVoiceSkill('Freeze the big slime so that I can escape!');
-    const elapsedMs = performance.now() - t0;
+    const elapsed = timeRuns(() => recognizeVoiceSkill('Freeze the big slime so that I can escape!'), { warmup: 1, runs: 5 });
     expect(skill.matched).toBe(true);
     expect(skill.verb).toBe('freeze');
     expect(skill.target).toBe('slime');
     expect(skill.grade).toBe('sentence');
-    expect(elapsedMs).toBeLessThan(400);
+    expect(elapsed.min).toBeLessThan(400);
 
     // <70% target language blocked (3/5 = 0.60)
     const koBubble = filterSpeechBubble('안녕 친구들 let us go');

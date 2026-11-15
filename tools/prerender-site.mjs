@@ -31,13 +31,12 @@ const origin = mod.SITE_ORIGIN;
 writeFileSync(
   join(dist, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages
-    .filter((p) => !['/pass'].includes(p.path))
+    .filter((p) => p.index)
     .map((p) => `  <url><loc>${origin}${p.path}</loc></url>`)
     .join('\n')}\n</urlset>\n`
 );
-// Lesson, family, report and game screens stay out of search; public pages are open.
-writeFileSync(
-  join(dist, 'robots.txt'),
-  ['User-agent: *', 'Disallow: /r/', 'Disallow: /s/', 'Disallow: /join', 'Disallow: /director', 'Disallow: /family', 'Disallow: /link', 'Disallow: /game/', 'Disallow: /v1/', `Sitemap: ${origin}/sitemap.xml`, ''].join('\n')
-);
+// Lesson, family and game screens stay out of search; public pages are open. Report (/r/) and showroom (/s/) links are
+// NOT disallowed: link previewers such as KakaoTalk honour robots.txt, and a blocked page previews as a bare link. They
+// stay out of search through their own noindex (meta + X-Robots-Tag: apps/edge/src/report-page.ts, showroom-page.ts).
+writeFileSync(join(dist, 'robots.txt'), mod.robotsTxt(origin));
 console.log(`pre-rendered ${pages.length} pages into ${dist}`);

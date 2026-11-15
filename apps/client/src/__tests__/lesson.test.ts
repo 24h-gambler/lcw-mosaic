@@ -5,10 +5,11 @@ import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
-import { LESSON_BANNER_MS, LESSON_POLL_MS, LessonController, goalTargetEn, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
+import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LessonController, goalTargetEn, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
-import { LessonLayer, goToSceneChecked } from '../lesson/LessonLayer.js';
+import { LessonLayer, goToSceneChecked, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
+import { SubmitError } from '../dialog/submit.js';
 
 // App mounts the layer through import.meta.glob (no compile-time check there): pin the docs/19 §5 contract here.
 const _slot: React.ComponentType<AppLessonSlotProps> = LessonLayer;
@@ -315,6 +316,108 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(calls).toBe(3); // arrived: no extra walk
   });
 
+  it("the dialog's first line: the teacher's newest line as this stage's NPC, else the stage script", () => {
+    const bubble = (id: string, npcId: string, text: string, at: number, possessed = true) => ({ id, npcId, npcNameKo: npcId, text, possessed, at });
+    const base = { npcId: 'guide', npcLineEn: 'Hi! What is your name?', stageStartedAt: 1000 };
+    expect(openingLine({ ...base, bubbles: [] })).toBe('Hi! What is your name?');
+    // a line from the last stage or another NPC does not count
+    expect(openingLine({ ...base, bubbles: [bubble('a', 'guide', 'Old stage line', 900), bubble('b', 'cafe_owner', 'Welcome!', 1200)] })).toBe('Hi! What is your name?');
+    // the follow-up the teacher just sent is what the window opens with after an answer
+    expect(openingLine({ ...base, bubbles: [bubble('c', 'guide', 'Hi! What is your name?', 1100), bubble('d', 'guide', 'How old are you?', 1500)] })).toBe('How old are you?');
+  });
+  it('an open dialog window keeps its first line when a teacher line arrives (no swap or read-aloud over the mic)', () => {
+    const bubble = (id: string, npcId: string, text: string, at: number) => ({ id, npcId, npcNameKo: '', text, possessed: true, at });
+    const base = { npcId: 'guide', npcLineEn: 'Hi! What is your name?', stageStartedAt: 1000, bubbles: [] as ReturnType<typeof bubble>[] };
+    const open = pinOpeningLine(null, '1:a:0:open', base);
+    expect(open.line).toBe('Hi! What is your name?');
+    const later = { ...base, bubbles: [bubble('x', 'guide', 'How old are you?', 1500)] };
+    // the same window (recording, scoring, result): unchanged
+    expect(pinOpeningLine(open, '1:a:0:open', later)).toBe(open);
+    // after "완료" (doneSeq) or reopening after ✕, the new window says the teacher's newest line
+    expect(pinOpeningLine(open, '1:a:1:open', later).line).toBe('How old are you?');
+    expect(pinOpeningLine(open, '1:a:0:folded', later).line).toBe('How old are you?');
+  });
+
+  it('the star chip takes the server sum from the answer, so a poll in between cannot count a star twice', async () => {
+    const calls: string[] = [];
+    const world = { ...fakeWorld().world, setStars: (n: number | null) => void calls.push(`stars:${n}`) };
+    const state = (lesson_stars: number) => ({
+      lesson_id: 'l', stage_id: 'cafe_order', stage_goal_ko: 'g', mode: 'guided', scene_id: 'honey_cafe', npc_id: 'cafe_owner', hint: 'full',
+      targets: ['Can I have a warm honey tea?'], offers: [{ stars: 2, text: 'Can I have a warm honey tea?', hintTags: ['can i have'] }],
+      possessed_npc_id: null, npc_lines: [], events: [], cursor: 1, ended: false, lesson_stars, server_now: 1
+    });
+    const api = {
+      join: async () => ({ student_token: 't'.repeat(48), lesson_id: 'l', player_id: 'p', nickname: 'n', level: 'L1' }),
+      state: async () => state(2),
+      utterance: async () => ({ pass: true, score: 1, stars: 2, feedback_ko: 'ok', coins_total: 220, lesson_stars: 2, utterances_today: 1 })
+    } as unknown as ConstructorParameters<typeof LessonController>[0]['api'];
+    const ctl = new LessonController({ api, world, store: memStore(), timers: fakeTimers({ now: 0 }) });
+    await ctl.start('123456');
+    // the poll already counted this answer (stored before the poll was read): the answer must not add it again
+    ctl.apply(state(2) as never);
+    await ctl.submit({ target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, hint_level: 'full', latency_ms: 1, dur_ms: 1, stt_source: 'keyboard', confidence: 1 });
+    expect(ctl.state.lessonStars).toBe(2);
+    expect(calls.filter((c) => c.startsWith('stars:'))).toEqual(['stars:2']);
+  });
+
+  it('after a reload the window opens with the stage line the server names (older than the bubbles)', () => {
+    const base = { npcId: 'cafe_owner', npcLineEn: 'Welcome to the honey cafe!', stageStartedAt: 1000, bubbles: [] };
+    expect(openingLine({ ...base, stageLastLineEn: 'Anything else?' })).toBe('Anything else?');
+    expect(openingLine({ ...base, stageLastLineEn: '' })).toBe('Welcome to the honey cafe!');
+  });
+
+  it('A → B → A between two polls is a new stage start (fresh window), and a late answer after leaving moves no chip', async () => {
+    const state = (stage_started_at: number) => ({
+      lesson_id: 'l', stage_id: 'cafe_order', stage_goal_ko: 'g', mode: 'guided', scene_id: 'honey_cafe', npc_id: 'cafe_owner', hint: 'full',
+      targets: ['Can I have a warm honey tea?'], offers: [{ stars: 2, text: 'Can I have a warm honey tea?', hintTags: [] }],
+      possessed_npc_id: null, npc_lines: [], events: [], cursor: 1, ended: false, lesson_stars: 0, stage_started_at, server_now: stage_started_at
+    });
+    let release: (v: unknown) => void = () => undefined;
+    const api = {
+      join: async () => ({ student_token: 't'.repeat(48), lesson_id: 'l', player_id: 'p', nickname: 'n', level: 'L1' }),
+      state: async () => state(1000),
+      utterance: () => new Promise((r) => (release = r))
+    } as unknown as ConstructorParameters<typeof LessonController>[0]['api'];
+    const calls: string[] = [];
+    const world = { ...fakeWorld().world, setStars: (n: number | null) => void calls.push(`stars:${n}`), setCoins: (n: number | null) => void calls.push(`coins:${n}`) };
+    const ctl = new LessonController({ api, world, store: memStore(), timers: fakeTimers({ now: 0 }) });
+    await ctl.start('123456');
+    const seq = ctl.state.stageSeq;
+    ctl.apply(state(1000) as never);
+    expect(ctl.state.stageSeq).toBe(seq);
+    ctl.apply(state(5000) as never);
+    expect(ctl.state.stageSeq).toBe(seq + 1);
+    expect(ctl.state.stageStartedAt).toBe(5000);
+
+    calls.length = 0;
+    const pending = ctl.submit({ target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, hint_level: 'full', latency_ms: 1, dur_ms: 1, stt_source: 'keyboard', confidence: 1 });
+    ctl.leave();
+    release({ pass: true, score: 1, stars: 2, feedback_ko: 'ok', coins_total: 220, lesson_stars: 2, utterances_today: 1 });
+    expect((await pending).stars).toBe(2);
+    expect(calls).toEqual([]);
+    expect(ctl.state.lessonStars).toBe(0);
+  });
+
+  it('a new code in the same tab (another lesson) starts the star chip from 0', async () => {
+    let lesson = 'l1';
+    const state = (lesson_stars: number) => ({
+      lesson_id: lesson, stage_id: 'warmup', stage_goal_ko: 'g', mode: 'guided', scene_id: 'plaza', npc_id: 'guide', hint: 'full',
+      targets: [], offers: [], possessed_npc_id: null, npc_lines: [], events: [], cursor: 1, ended: false, lesson_stars, server_now: 1
+    });
+    let stars = 5;
+    const api = {
+      join: async () => ({ student_token: 't'.repeat(48), lesson_id: lesson, player_id: 'p', nickname: 'n', level: 'L1' }),
+      state: async () => state(stars)
+    } as unknown as ConstructorParameters<typeof LessonController>[0]['api'];
+    const ctl = new LessonController({ api, world: fakeWorld().world, store: memStore(), timers: fakeTimers({ now: 0 }) });
+    await ctl.start('123456');
+    expect(ctl.state.lessonStars).toBe(5);
+    lesson = 'l2';
+    stars = 1;
+    await ctl.join('654321');
+    expect(ctl.state.lessonStars).toBe(1);
+  });
+
   it('the HUD goal shows the English sentence only with the full hint (recall must not give it away)', () => {
     const offers = [{ text: 'Can I have a warm honey tea?' }];
     expect(goalTargetEn('full', offers)).toBe('Can I have a warm honey tea?');
@@ -325,7 +428,7 @@ describe('client lesson module (docs/19 §4)', () => {
   it('hints follow the stage ladder and the layer draws nothing outside a lesson', () => {
     expect(maskTarget('Can I have a warm honey tea?', 'full')).toBe('Can I have a warm honey tea?');
     expect(maskTarget('I want to trade my blue stone', 'keyword', ['i want'])).toBe('I want __ _____ __ ____ _____');
-    expect(maskTarget('Can I have a warm honey tea?', 'initial')).toBe('Can …');
+    expect(maskTarget('Can I have a warm honey tea?', 'initial')).toBe('C__ I_ h___ a_ w___ h____ t__?');
     expect(maskTarget('anything', 'none')).toBe('');
     expect(codeFromSearch('?code=042117')).toBe('042117');
     expect(codeFromSearch('?code=42117')).toBeNull();
@@ -335,5 +438,90 @@ describe('client lesson module (docs/19 §4)', () => {
     const all = JSON.stringify(LESSON_STRINGS_KO);
     for (const bad of FORBIDDEN_PLAYER_UI_PATTERNS) expect(all).not.toContain(bad);
     expect(all).not.toMatch(/원|결제|구매|가격/);
+  });
+});
+
+describe('disconnect recovery: answers kept on the device (lesson outbox)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('an answer said offline is kept, said once, and reaches the teacher after the next good poll; a lost response is not counted twice', async () => {
+    const clock = { now: Date.parse('2026-11-16T15:00:00+09:00') };
+    const { fetch, admin } = server(clock);
+    const { lesson_id, join_code } = await openLesson(admin);
+    await admin('POST', `/v1/admin/lessons/${lesson_id}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    let mode: 'up' | 'down' | 'lose-response' = 'up';
+    const net = async (input: string, init?: RequestInit) => {
+      if (mode === 'down') throw new TypeError('Failed to fetch');
+      const res = await fetch(input, init);
+      if (mode === 'lose-response' && input.startsWith('/v1/lesson/utterance')) throw new TypeError('connection reset');
+      return res;
+    };
+    const store = memStore();
+    const timers = fakeTimers(clock);
+    const { world, calls } = fakeWorld();
+    const ctl = new LessonController({ api: createStudentLessonApi({ fetch: net }), world, store, timers });
+    await ctl.start(join_code);
+    const say = (transcript: string) =>
+      ctl.submit({ target_text: 'Can I have a warm honey tea?', transcript, chosen_stars: 2, hint_level: 'full', latency_ms: 1, dur_ms: 1500, stt_source: 'browser', confidence: 0.9 });
+
+    // wifi drops; the child answers: kept, the panel hears "queued" (no retry button)
+    mode = 'down';
+    const err = await say('can I have a warm honey tea').catch((e) => e);
+    expect(err).toBeInstanceOf(SubmitError);
+    expect(err.kind).toBe('queued');
+    expect(ctl.state.outbox).toBe(1);
+    expect(ctl.state.connection).toBe('retrying');
+    // the teacher moves on meanwhile (this screen still shows the cafe: no poll got through)
+    await admin('POST', `/v1/admin/lessons/${lesson_id}/stage`, { stage_id: 'open_question', targets: [] });
+    // the answer reached the server but its response was lost: kept too
+    mode = 'lose-response';
+    await say('can I have a warm honey tea please').catch(() => undefined);
+    expect(ctl.state.outbox).toBe(2);
+    // back online: the next poll sends both, in order; the second is the same answer, not a new one
+    mode = 'up';
+    await timers.run(LESSON_RETRY_MAX_MS + 100);
+    expect(ctl.state.outbox).toBe(0);
+    expect(ctl.state.connection).toBe('ok');
+    expect(ctl.state.stageId).toBe('open_question');
+    const feed = await admin('GET', `/v1/admin/lessons/${lesson_id}/feed`);
+    // both scored as the cafe answers the child gave (not as the new free-talk stage), the lost-response one once
+    expect(feed.utterances.map((u: any) => [u.transcript, u.mode]).sort()).toEqual([
+      ['can I have a warm honey tea please', 'guided'],
+      ['can I have a warm honey tea', 'guided']
+    ]);
+    // HUD from the server: the stars of both answers, coins credited once each
+    expect(ctl.state.lessonStars).toBe(feed.utterances.reduce((n: number, u: any) => n + Number(u.stars), 0));
+    expect(calls.some((c) => c.startsWith('coins:'))).toBe(true);
+    expect(store.data.has(`lcw.lesson.outbox:${lesson_id}`)).toBe(false);
+  });
+
+  it('a refresh keeps the answers: a new controller on the same tab (session storage) sends them', async () => {
+    const clock = { now: Date.parse('2026-11-16T15:00:00+09:00') };
+    const { fetch, admin } = server(clock);
+    const { lesson_id, join_code } = await openLesson(admin);
+    await admin('POST', `/v1/admin/lessons/${lesson_id}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    let down = false;
+    const net = async (input: string, init?: RequestInit) => {
+      if (down) throw new TypeError('Failed to fetch');
+      return fetch(input, init);
+    };
+    const store = memStore();
+    const first = new LessonController({ api: createStudentLessonApi({ fetch: net }), world: fakeWorld().world, store, timers: fakeTimers(clock) });
+    await first.start(join_code);
+    down = true;
+    await first
+      .submit({ target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, hint_level: 'full', latency_ms: 1, dur_ms: 1, stt_source: 'browser', confidence: 0.9 })
+      .catch(() => undefined);
+    first.stop();
+    // the tab reloads (same session storage) once the wifi is back
+    down = false;
+    const again = new LessonController({ api: createStudentLessonApi({ fetch: net }), world: fakeWorld().world, store, timers: fakeTimers(clock) });
+    await again.start(null);
+    await again.flushOutbox();
+    expect(again.state.stageId).toBe('cafe_order');
+    expect(again.state.outbox).toBe(0);
+    const feed = await admin('GET', `/v1/admin/lessons/${lesson_id}/feed`);
+    expect(feed.utterances).toHaveLength(1);
+    expect(again.state.lessonStars).toBe(2);
   });
 });

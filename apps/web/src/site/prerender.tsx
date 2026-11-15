@@ -5,7 +5,7 @@
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { SiteRoot } from './SiteRoot.js';
-import { metaFor, parseSitePath, prerenderPaths } from './routes.js';
+import { SHARE_IMAGE_SIZE, indexable, metaFor, parseSitePath, prerenderPaths, shareImageFor, type ShareImage } from './routes.js';
 
 /** Production host (apps/edge/wrangler.toml routes). */
 export const SITE_ORIGIN = 'https://lcw.worldwidesomething.com';
@@ -15,13 +15,17 @@ export interface PrerenderedPage {
   title: string;
   description: string;
   body: string;
+  image: ShareImage;
+  index: boolean;
 }
+
+export const SITE_NAME = 'LCW 말하면 생기는 세계';
 
 export function prerenderPage(path: string): PrerenderedPage {
   const loc = parseSitePath(path);
   if (!loc) throw new Error(`not a site path: ${path}`);
   const meta = metaFor(loc);
-  return { path: loc.path, ...meta, body: renderToString(<SiteRoot initialPath={loc.path} />) };
+  return { path: loc.path, ...meta, image: shareImageFor(loc), index: indexable(loc), body: renderToString(<SiteRoot initialPath={loc.path} />) };
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -40,7 +44,14 @@ export function fillShell(shell: string, page: PrerenderedPage, origin = SITE_OR
     `<meta property="og:title" content="${esc(page.title)}" />`,
     `<meta property="og:description" content="${esc(page.description)}" />`,
     `<meta property="og:url" content="${esc(url)}" />`,
-    `<meta property="og:locale" content="ko_KR" />`
+    `<meta property="og:locale" content="ko_KR" />`,
+    `<meta property="og:site_name" content="${esc(SITE_NAME)}" />`,
+    `<meta property="og:image" content="${esc(`${origin}/og/${page.image}.jpg`)}" />`,
+    `<meta property="og:image:width" content="${SHARE_IMAGE_SIZE.width}" />`,
+    `<meta property="og:image:height" content="${SHARE_IMAGE_SIZE.height}" />`,
+    `<meta property="og:image:alt" content="${esc(page.title)} — 실제 게임 화면" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
+    ...(page.index ? [] : ['<meta name="robots" content="noindex" />'])
   ].join('\n    ');
   const guard = `<script>(function(){var p=location.pathname.replace(/\\/+$/,'')||'/';if(p!==${JSON.stringify(page.path)}){var r=document.getElementById('root');if(r)r.innerHTML='';}})();</script>`;
   let out = shell.replace(/<title>[\s\S]*?<\/title>/, '').replace(/\s*<meta name="description"[^>]*>/, '');
@@ -51,4 +62,9 @@ export function fillShell(shell: string, page: PrerenderedPage, origin = SITE_OR
 
 export function allPages(): PrerenderedPage[] {
   return prerenderPaths().map(prerenderPage);
+}
+
+/** robots.txt for the whole host (tools/prerender-site.mjs). /r/ and /s/ stay crawlable for link previews, see there. */
+export function robotsTxt(origin = SITE_ORIGIN): string {
+  return ['User-agent: *', 'Disallow: /join', 'Disallow: /director', 'Disallow: /family', 'Disallow: /link', 'Disallow: /seats', 'Disallow: /window', 'Disallow: /report', 'Disallow: /dashboard', 'Disallow: /claim', 'Disallow: /guest-end', 'Disallow: /game/', 'Disallow: /v1/', `Sitemap: ${origin}/sitemap.xml`, ''].join('\n');
 }

@@ -2,7 +2,7 @@
  * Pure rules shared by the lesson-mode screens (docs/18): director stage pushes, F1/F2 pins, feed merging, the
  * student join state machine, recall hints and report fact rows. No DOM, no clocks — time and randomness are inputs.
  */
-import { LESSON_PLANS, type LessonPlan, type LessonStage, type LessonUtteranceMode } from '@lcw/content';
+import { LESSON_PLANS, maskInitials, type LessonPlan, type LessonStage, type LessonUtteranceMode } from '@lcw/content';
 import { DIRECTOR_BOOKMARK_KEYS } from './director.js';
 import type {
   DirectorLessonRecord,
@@ -363,10 +363,9 @@ export function targetCards(targets: readonly string[]): TargetCard[] {
   return targets.map((text, i) => ({ text, stars: known.get(text) ?? ((Math.min(3, i + 1) as 1 | 2 | 3)) }));
 }
 
-/** Recall stage shows only the first word (docs/18 §4 ⑤). */
+/** Recall stage shows each word's first letter (docs/18 §4 ⑤), the same as the 3D dialog window. */
 export function recallHint(text: string): string {
-  const first = text.trim().split(/\s+/)[0] ?? '';
-  return first ? `${first} …` : '…';
+  return maskInitials(text.trim()) || '…';
 }
 
 export function hintLevelFor(mode: LessonUtteranceMode | undefined): HintLevel {

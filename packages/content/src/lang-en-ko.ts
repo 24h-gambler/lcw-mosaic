@@ -1195,6 +1195,7 @@ export const UI_STRINGS_KO = {
     openExternal: '다른 브라우저로 열기',
     noSpeech: '잘 안 들렸어요. 마이크 가까이에서 다시 말해 볼까요?',
     networkError: '연결이 잠깐 끊겼어요. 한 번 더 눌러 볼까요?',
+    savedOffline: '인터넷이 잠깐 끊겼어요. 말한 건 저장해 두었다가 연결되면 선생님께 보낼게요.',
     submitError: '잠깐 문제가 생겼어요. 한 번 더 해 볼까요?',
     sessionEnded: '수업 시간이 끝나서 저장하지 못했어요. 선생님께 알려 주세요.',
     practiceNote: '연습 중이라 코인과 물건은 없어요. 보호자와 기기를 연결하면 모을 수 있어요.',

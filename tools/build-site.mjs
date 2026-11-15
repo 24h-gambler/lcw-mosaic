@@ -27,6 +27,17 @@ writeFileSync(
     '  X-Content-Type-Options: nosniff',
     '  Referrer-Policy: strict-origin-when-cross-origin',
     '  Permissions-Policy: microphone=(self), camera=()',
+    // Content-hashed files (Vite assets, site captures) never change under one name: cache them for a year instead
+    // of revalidating on every visit (production served them with max-age=0).
+    '/assets/*',
+    '  Cache-Control: public, max-age=31536000, immutable',
+    '/game/assets/*',
+    '  Cache-Control: public, max-age=31536000, immutable',
+    '/media/*',
+    '  Cache-Control: public, max-age=31536000, immutable',
+    // Share pictures keep stable names (previewers cache by URL); a day is enough to pick up a re-capture.
+    '/og/*',
+    '  Cache-Control: public, max-age=86400',
     ''
   ].join('\n')
 );

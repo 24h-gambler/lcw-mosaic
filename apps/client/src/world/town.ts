@@ -4,14 +4,14 @@
  * `VoxelWorld.setBlock` (AGENTS 4.1) with the system-generation actor; the builder is deterministic.
  */
 import type { NpcContext } from '@lcw/schemas';
-import { buildTown, terrainHeight, TOWN_CENTER, TERRAIN_MIN, TERRAIN_MAX, type VoxelWorld } from '@lcw/sim-core';
+import { buildTown, buildTownSteps, terrainHeight, TOWN_CENTER, TERRAIN_MIN, TERRAIN_MAX, type VoxelWorld } from '@lcw/sim-core';
 import { collideHeight } from './blocks.js';
 import { SCENE_TITLES_KO } from './strings.js';
 
 import type { SceneId } from './api.js';
 export type { SceneId };
 // The builder lives in sim-core so the WorldDO can start from the same town (server-side saves).
-export { buildTown, terrainHeight, TOWN_CENTER, TERRAIN_MIN, TERRAIN_MAX };
+export { buildTown, buildTownSteps, terrainHeight, TOWN_CENTER, TERRAIN_MIN, TERRAIN_MAX };
 
 export interface Spot {
   x: number;

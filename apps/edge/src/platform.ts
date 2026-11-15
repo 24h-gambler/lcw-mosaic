@@ -16,13 +16,15 @@ import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './l
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
+import { injectShowroomShareMeta, showroomTokenFromPath } from './showroom-page.js';
 import { createInitialPlayerState } from '@lcw/sim-core';
 import { z } from 'zod';
 import { FREE_TIER_LIMITS, type QuotaMeter } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
-import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaView, readQuotaSettings, rollupQuota } from './quota.js';
+import { handleServerStt } from './stt.js';
+import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaHealth, readQuotaSettings, rollupQuota } from './quota.js';
 import {
   createDurableSqliteExecutor,
   prefixedExecutor,
@@ -467,9 +469,7 @@ export class PlatformDO {
           utcDay(Date.now())
         ])?.used ?? 0,
       ai_daily_cap: AI_DAILY_CALL_CAP,
-      quota: (({ stage, neurons_used, neurons_limit, bank_only, lesson_reserve_active }) => ({ stage, neurons_used, neurons_limit, bank_only, lesson_reserve_active }))(
-        quotaView(this.sql, this.quota, Date.now()) as { stage: number; neurons_used: number; neurons_limit: number; bank_only: boolean; lesson_reserve_active: boolean }
-      )
+      quota: quotaHealth(this.sql, this.quota, Date.now())
     };
   }
 
@@ -625,6 +625,24 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (!body) return c.json({ error: 'invalid_review_request' }, 400);
     return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
   });
+  // Server speech recognition for the child's own dialog turn (docs/02 6장): lesson or device token only, through
+  // the quota meter, audio never kept (stt.ts).
+  app.post('/v1/converse/stt', async (c) => {
+    const drain = () => (c.req.raw.body && !c.req.raw.bodyUsed ? c.req.raw.body.cancel().catch(() => undefined) : undefined);
+    const student = await platform.studentFromRequest(c.req.raw);
+    const device = student ? null : await platform.deviceFromRequest(c.req.raw);
+    const playerId = student?.player_id ?? device?.player_id;
+    if (!playerId) {
+      await drain();
+      return c.json({ error: 'child_token_required' }, 401);
+    }
+    const blocked = device ? seatBlocked({ player_id: playerId, device: true }) : null;
+    if (blocked) {
+      await drain();
+      return blocked;
+    }
+    return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota: () => platform.quota, ai: env.AI, nowMs: () => Date.now() });
+  });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();
     if (!env.LCW_OPERATOR_TOKEN) return c.json({ error: 'operator_token_not_configured' }, 503);
@@ -661,6 +679,8 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     return c.json({ ok: true, id: p.data.id }, 201);
   });
   app.get('/v1/admin/health', (c) => c.json(platform.health()));
+  // Same body for the ops keeper (operator token): `quota.alert` / `quota.over_85` feed the hub card (docs/09 P9).
+  app.get('/v1/ops/health', (c) => c.json(platform.health()));
   app.route('/', buildQuotaAdminApp({ sql: platform.sql, meter: () => platform.quota, nowMs: () => Date.now(), onSettings: () => platform.applyQuotaSettings() }));
   // Public share link: strong tokens only, 30-day life, guardian revocation, allow-listed parent fields (family.ts).
   app.get('/v1/reports/:token', (c) => {
@@ -739,6 +759,14 @@ export const workerHandler = {
     if (env.ASSETS && url.pathname.startsWith('/r/')) {
       const shell = await env.ASSETS.fetch(new Request(new URL('/', url), { headers: request.headers }));
       return injectReportShareMeta(shell, url);
+    }
+    // Showroom share links get the world's own title as preview tags, and 404 once consent is gone (showroom-page.ts).
+    if (env.ASSETS && request.method === 'GET' && showroomTokenFromPath(url.pathname)) {
+      const shell = await env.ASSETS.fetch(new Request(new URL('/', url), { headers: request.headers }));
+      return injectShowroomShareMeta(shell, url, async (token) => {
+        const res = await platformStub(env).fetch(new Request(new URL(`/v1/showroom/${token}`, url)));
+        return res.ok ? ((await res.json()) as { title: string }) : null;
+      });
     }
     if (env.ASSETS) return env.ASSETS.fetch(request);
     return new Response('not found', { status: 404 });

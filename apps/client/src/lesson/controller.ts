@@ -3,7 +3,21 @@
  * world calls — scene change, goal line, possession sparkle, NPC bubbles, director events. Pure apart from the
  * injected api, world and timers, so it is tested without a browser.
  */
-import { LESSON_DIRECTOR_EVENTS, getLessonNpc, type LessonDirectorEventKind, type LessonHintLevel, type LessonSceneId } from '@lcw/content';
+import {
+  LESSON_DIRECTOR_EVENTS,
+  flushOutbox,
+  getLessonNpc,
+  isRetryableStatus,
+  newUtteranceClientId,
+  outboxSessionStore,
+  pushOutbox,
+  readOutbox,
+  type LessonDirectorEventKind,
+  type LessonHintLevel,
+  type LessonSceneId,
+  type OutboxStore
+} from '@lcw/content';
+import { SubmitError } from '../dialog/submit.js';
 import {
   LessonHttpError,
   loadStudentSession,
@@ -81,6 +95,12 @@ export interface LessonView {
   lessonStars: number;
   /** The stage NPC's opening line for the dialog window. */
   npcLineEn: string;
+  /** Server time this client saw the stage begin (lines before it belong to the last stage). */
+  stageStartedAt: number;
+  /** The teacher's newest line as the stage NPC in this stage, from the server (older than the bubbles kept). */
+  stageLastLineEn: string;
+  /** Answers kept on this device while the connection was down, sent after the next good poll. */
+  outbox: number;
   /** Bumps on every stage change so the dialog can reset. */
   stageSeq: number;
 }
@@ -127,6 +147,9 @@ export function initialLessonView(): LessonView {
     coins: null,
     lessonStars: 0,
     npcLineEn: '',
+    stageStartedAt: 0,
+    stageLastLineEn: '',
+    outbox: 0,
     stageSeq: 0
   };
 }
@@ -181,6 +204,13 @@ export class LessonController {
     try {
       const r = await this.opts.api.join(code);
       if (run !== this.run) return;
+      // Another lesson in the same tab (a new code without "나가기"): nothing of the last one carries over (stars,
+      // stage, lines, coins until the first poll).
+      if (this.session && this.session.lessonId !== r.lesson_id) {
+        this.view = initialLessonView();
+        this.seenLines.clear();
+        this.seenEvents.clear();
+      }
       this.session = { token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, level: r.level, voiceStore: r.voice_store === true };
       saveStudentSession(this.session, this.store());
       this.cursor = null;
@@ -196,13 +226,35 @@ export class LessonController {
   readonly submit = async (u: UtteranceSubmit | unknown): Promise<DialogResult> => {
     const s = this.session;
     if (!s) throw new LessonHttpError(401, 'student_only');
-    const r = await this.opts.api.utterance(s.token, readUtteranceSubmit(u));
+    const run = this.run;
+    // One id per answer, and the stage it answers: a lost response or a resend from the outbox is the same answer.
+    const body = {
+      ...readUtteranceSubmit(u),
+      client_id: newUtteranceClientId(this.timers.now()),
+      ...(this.view.stageId ? { stage_id: this.view.stageId } : {})
+    };
+    let r: Awaited<ReturnType<StudentLessonApi['utterance']>>;
+    try {
+      r = await this.opts.api.utterance(s.token, body);
+    } catch (e) {
+      // No connection (or a server hiccup): keep the answer on this device and send it after the next good poll.
+      if (e instanceof LessonHttpError && isRetryableStatus(e.status) && run === this.run && this.session === s) {
+        this.set({ outbox: pushOutbox(this.outboxStore(), s.lessonId, { body, queuedAt: this.timers.now() }), connection: 'retrying' });
+        this.schedulePoll(this.retryMs);
+        throw new SubmitError('queued', 'saved_on_device');
+      }
+      throw e;
+    }
     const result: DialogResult = { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, coinsTotal: r.coins_total };
+    // An answer that lands after "나가기", a new code or stop belongs to a lesson this screen no longer shows: the
+    // panel still gets its result, the HUD chips do not move.
+    if (run !== this.run || this.session !== s) return result;
     // No celebrate here: whoever shows the result plays it (App's DialogHost, or the layer's own panel), once.
     this.set({ lastResult: { ...result, utterancesToday: r.utterances_today } });
     this.showCoins(r.coins_total);
-    // The star chip moves with the answer, not when the child taps "done" (the server sum confirms on the next poll).
-    if (r.pass && r.stars > 0) this.showStars(this.view.lessonStars + r.stars);
+    // The star chip moves with the answer, not when the child taps "done": the server's sum after this answer, as is.
+    if (typeof r.lesson_stars === 'number') this.showStars(r.lesson_stars);
+    else if (r.pass && r.stars > 0) this.showStars(this.view.lessonStars + r.stars);
     return result;
   };
 
@@ -246,6 +298,8 @@ export class LessonController {
       this.retryMs = LESSON_POLL_MS;
       this.apply(st);
       if (this.view.connection !== 'ok' || this.view.errorCode) this.set({ connection: 'ok', errorCode: null });
+      // Back online: what the child said meanwhile goes now, in order.
+      void this.flushOutbox();
     } catch (e) {
       if (run !== this.run) return;
       if (e instanceof LessonHttpError && e.status === 401) {
@@ -261,8 +315,49 @@ export class LessonController {
       if (run === this.run) this.polling = false;
     }
     if (run !== this.run || this.view.phase === 'ended' || this.stopped || !this.session) return;
+    this.schedulePoll(this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+  }
+
+  private schedulePoll(ms: number): void {
+    if (this.stopped || !this.session) return;
     if (this.timer !== null) this.timers.clearTimeout(this.timer);
-    this.timer = this.timers.setTimeout(() => this.poll(), this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+    this.timer = this.timers.setTimeout(() => this.poll(), ms);
+  }
+
+  private flushing: Promise<void> | null = null;
+
+  /** Sends the answers kept offline (lesson outbox) in order; the HUD takes the server's numbers from each. */
+  flushOutbox(): Promise<void> {
+    // One send at a time: a second call (next poll) waits for the one already going.
+    if (!this.flushing) this.flushing = this.sendOutbox().finally(() => (this.flushing = null));
+    return this.flushing;
+  }
+
+  private async sendOutbox(): Promise<void> {
+    const s = this.session;
+    if (!s) return;
+    const store = this.outboxStore();
+    if (readOutbox(store, s.lessonId).length === 0) {
+      if (this.view.outbox !== 0) this.set({ outbox: 0 });
+      return;
+    }
+    const run = this.run;
+    const res = await flushOutbox({
+      store,
+      lessonId: s.lessonId,
+      send: (b) => this.opts.api.utterance(s.token, b as never),
+      statusOf: (e) => (e instanceof LessonHttpError ? e.status : null)
+    });
+    if (run !== this.run || this.session !== s) return;
+    for (const r of res.sent) {
+      this.showCoins(r.coins_total);
+      if (typeof r.lesson_stars === 'number') this.showStars(r.lesson_stars);
+    }
+    this.set({ outbox: res.left });
+  }
+
+  private outboxStore(): OutboxStore {
+    return this.opts.store ?? outboxSessionStore();
   }
 
   private showStars(n: number | undefined): void {
@@ -285,13 +380,20 @@ export class LessonController {
     this.showCoins(st.coins_balance);
     this.showStars(st.lesson_stars);
     if (typeof st.npc_line_en === 'string' && st.npc_line_en !== this.view.npcLineEn) this.set({ npcLineEn: st.npc_line_en });
+    const lastLine = st.stage_last_line_en ?? '';
+    if (lastLine !== this.view.stageLastLineEn) this.set({ stageLastLineEn: lastLine });
     const patch: Partial<LessonView> = {};
-    const stageChanged = st.stage_id !== this.view.stageId;
+    // A → B → A between two polls is a new stage start too (the stage log's time moved), not "nothing changed".
+    const stageChanged =
+      st.stage_id !== this.view.stageId ||
+      (typeof st.stage_started_at === 'number' && this.view.stageStartedAt > 0 && st.stage_started_at > this.view.stageStartedAt);
     const targetsChanged = JSON.stringify(st.offers) !== JSON.stringify(this.view.offers);
     if (stageChanged) {
       patch.stageId = st.stage_id;
       patch.sceneId = st.scene_id;
       patch.stageSeq = this.view.stageSeq + 1;
+      // server clock, the same one the NPC lines carry
+      patch.stageStartedAt = typeof st.stage_started_at === 'number' ? st.stage_started_at : st.server_now;
       patch.lastResult = null;
       if (w && st.scene_id !== this.view.sceneId) void w.goToScene(st.scene_id).catch(() => undefined);
     }

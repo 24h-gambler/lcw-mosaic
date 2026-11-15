@@ -78,6 +78,41 @@ export function quotaView(sql: SqliteExecutor, meter: QuotaMeter, nowMs: number)
   };
 }
 
+/**
+ * The quota block of the operator health (`/v1/admin/health`, `/v1/ops/health`), the fields the ops keeper reads:
+ * `alert` is the docs/09 P9 escalation (today reached stage 2+, i.e. 85% of the day's neurons, or the ladder is
+ * at bank only / outage now); `over_85` is the usage itself; `alert_today` = the hourly rollup already recorded it.
+ */
+export function quotaHealth(sql: SqliteExecutor, meter: QuotaMeter, nowMs: number): Record<string, unknown> {
+  const v = quotaView(sql, meter, nowMs) as {
+    day: string;
+    stage: number;
+    usage_ratio: number;
+    neurons_used: number;
+    neurons_limit: number;
+    bank_only: boolean;
+    lesson_reserve_active: boolean;
+    settings: QuotaSettings;
+    alert_days: Array<{ day: string; stage: number }>;
+  };
+  const recorded = v.alert_days.find((d) => d.day === v.day);
+  const over85 = v.neurons_limit > 0 ? v.neurons_used / v.neurons_limit >= 0.85 : false;
+  return {
+    day: v.day,
+    stage: v.stage,
+    usage_ratio: v.usage_ratio,
+    neurons_used: v.neurons_used,
+    neurons_limit: v.neurons_limit,
+    over_85: over85,
+    bank_only: v.bank_only,
+    outage: v.settings.outage,
+    lesson_reserve_active: v.lesson_reserve_active,
+    alert_today: Boolean(recorded),
+    max_stage_today: Math.max(v.stage, recorded?.stage ?? 0),
+    alert: v.stage >= 2 || Boolean(recorded)
+  };
+}
+
 /** Hourly rollup: remember the highest stage a day reached (stage 2+ = docs/09 "85% 초과한 날"). */
 export function rollupQuota(sql: SqliteExecutor, meter: QuotaMeter, nowMs: number): { stage: number; used: number; limit: number; alert: boolean } {
   meter.setScheduledLessons(activeLessonStarts(sql, nowMs));

@@ -18,6 +18,8 @@ export class VoxelWorld {
   readonly plot: PlotBounds;
   readonly roads = [46, 142, 238] as const;
   private lightSources = new Map<string, number>();
+  /** last chunk setBlock wrote to: town building writes long runs into the same chunk */
+  private lastChunk: CubicChunk | null = null;
 
   constructor(plot: PlotBounds = { x0: 100, x1: 132, z0: 156, z1: 188 }) {
     this.plot = plot;
@@ -100,28 +102,30 @@ export class VoxelWorld {
     blockId: number
   ): { ok: boolean; reason?: string } {
     if (!this.inBounds(x, y, z)) return { ok: false, reason: 'oob' };
-    const zone = this.getZone(x, y, z);
-    if (zone === 'core' && !actor.isSystemGen) {
-      return { ok: false, reason: '보호 구역이에요' };
-    }
-    if (zone === 'plot' && !actor.isOwner && !actor.permittedOnPlot && !actor.isSystemGen) {
-      return { ok: false, reason: '남의 부지예요' };
+    // zones only limit players; the town generator writes everywhere (and skips the zone walk: ~320k writes at start)
+    if (!actor.isSystemGen) {
+      const zone = this.getZone(x, y, z);
+      if (zone === 'core') return { ok: false, reason: '보호 구역이에요' };
+      if (zone === 'plot' && !actor.isOwner && !actor.permittedOnPlot) return { ok: false, reason: '남의 부지예요' };
     }
 
     const cx = Math.floor(x / CHUNK_SIZE);
     const cy = Math.floor(y / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
-    const chunk = this.getOrCreateChunk(cx, cy, cz);
-    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    const ly = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const last = this.lastChunk;
+    const chunk = last && last.cx === cx && last.cy === cy && last.cz === cz ? last : this.getOrCreateChunk(cx, cy, cz);
+    this.lastChunk = chunk;
+    const lx = x - cx * CHUNK_SIZE;
+    const ly = y - cy * CHUNK_SIZE;
+    const lz = z - cz * CHUNK_SIZE;
 
+    const prev = chunk.getVoxel(lx, ly, lz);
     chunk.setVoxelInternal(lx, ly, lz, blockId);
 
-    const posKey = `${x},${y},${z}`;
+    // the light registry changes only when a light block comes or goes (no key string for every plain block)
     const light = LIGHT_EMISSION_MAP.get(blockId) ?? 0;
-    if (light > 0) this.lightSources.set(posKey, light);
-    else this.lightSources.delete(posKey);
+    if (light > 0) this.lightSources.set(`${x},${y},${z}`, light);
+    else if ((LIGHT_EMISSION_MAP.get(prev) ?? 0) > 0) this.lightSources.delete(`${x},${y},${z}`);
 
     return { ok: true };
   }

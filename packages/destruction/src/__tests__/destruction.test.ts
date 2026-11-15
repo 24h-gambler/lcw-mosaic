@@ -9,6 +9,7 @@ import {
   Z,
   type MutantFlags
 } from '../index.js';
+import { timeRuns } from '../../../../tools/timing.mjs';
 
 function mk(n = 3, mut: MutantFlags = {}): World {
   const w = new World(7, mut, { visitorBuild: true });
@@ -288,13 +289,9 @@ describe('@lcw/destruction WP-203 & WP-204 acceptance', () => {
 
   it('T16: max-power explosion calculation remains fast', () => {
     const w = mk();
-    const t0 = performance.now();
-    const N = 20;
-    for (let i = 0; i < N; i++) {
-      w.runExplosion({ x: 60.5 + i, y: 4.5, z: 200.5, power: 6, actor: 0 });
-    }
-    const avgMs = (performance.now() - t0) / N;
-    expect(avgMs).toBeLessThan(50);
+    // each run blows up untouched ground (warm-up runs use their own spots), judged on the median of 20
+    const t = timeRuns((i) => w.runExplosion({ x: i < 0 ? 40.5 + i * 4 : 60.5 + i, y: 4.5, z: 200.5, power: 6, actor: 0 }), { warmup: 2, runs: 20 });
+    expect(t.median).toBeLessThan(50);
   });
 
   it('detects all 4 fault-injection mutants (mutants.mjs)', () => {

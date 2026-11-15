@@ -131,6 +131,20 @@ describe('the degrade ladder on the platform object (docs/02 5장)', () => {
     const v = (await (await call('/v1/admin/quota', { headers: op })).json()) as Record<string, any>;
     expect(v.alert_days).toEqual([{ day: p.quota.getDay(), stage: 2 }]);
     const health = (await (await call('/v1/admin/health', { headers: op })).json()) as Record<string, any>;
-    expect(health.quota).toMatchObject({ stage: 2, neurons_used: 8_600, bank_only: false });
+    expect(health.quota).toMatchObject({ stage: 2, neurons_used: 8_600, bank_only: false, over_85: true, alert: true, alert_today: true, max_stage_today: 2 });
+    // the ops keeper's route: same body, operator token only
+    const ops = (await (await call('/v1/ops/health', { headers: op })).json()) as Record<string, any>;
+    expect(ops.quota).toEqual(health.quota);
+    expect((await call('/v1/ops/health')).status).toBe(401);
+  });
+
+  it('health quota block before and without an alert', async () => {
+    const { p, call } = await setup();
+    const q0 = ((await (await call('/v1/ops/health', { headers: op })).json()) as Record<string, any>).quota;
+    expect(q0).toMatchObject({ stage: 0, over_85: false, alert: false, alert_today: false, bank_only: false, outage: false });
+    p.quota.consumeNeurons('x', 8_600, 'llm');
+    // not rolled up yet: the live stage alone raises the alert
+    const q1 = ((await (await call('/v1/ops/health', { headers: op })).json()) as Record<string, any>).quota;
+    expect(q1).toMatchObject({ stage: 2, over_85: true, alert: true, alert_today: false });
   });
 });

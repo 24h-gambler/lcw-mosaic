@@ -188,11 +188,11 @@ export class MicController {
     if (s) {
       this.finishing = true;
       const gen = this.gen;
-      const cancel = this.clock.every(STOP_GRACE_MS, () => {
+      const cancel = this.clock.every(this.engine.stopGraceMs ?? STOP_GRACE_MS, () => {
         cancel();
         if (gen !== this.gen || !this.finishing) return;
-        // Use what was heard live rather than nothing.
-        const said = this.interim.trim();
+        // Use what was heard live rather than nothing (only when the live text is words, not a level signal).
+        const said = this.engine.interimIsText === false ? '' : this.interim.trim();
         this.deliver(said ? { transcript: said, confidence: 0.5 } : null);
       });
       s.stop();

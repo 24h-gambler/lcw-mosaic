@@ -5,8 +5,10 @@
  */
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { createMediaClipRecorder, turnClipRecordingOff, uploadClip, type ClipRecorder } from '@lcw/audio';
+import { flushOutbox, isRetryableStatus, newUtteranceClientId, outboxSessionStore, pushOutbox, readOutbox } from '@lcw/content';
 import { Button, TOKENS } from '@lcw/ui';
 import {
+  LessonApiError,
   createLessonApi,
   errorCodeOf,
   loadStudentSession,
@@ -110,6 +112,11 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
     };
   }, [state.phase, state.code, api]);
 
+  // Answers kept on this device while the connection was down (packages/content lesson-outbox).
+  const lessonId = state.lessonId;
+  const [outboxN, setOutboxN] = useState(() => (lessonId ? readOutbox(outboxSessionStore(), lessonId).length : 0));
+  const flushing = useRef(false);
+
   // Lesson state polling (stops when the lesson ends).
   const polling = state.phase === 'lesson' && Boolean(state.token);
   const token = state.token;
@@ -120,6 +127,24 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
       try {
         const st = await api.lessonState(token);
         if (live) dispatch({ type: 'state', state: st });
+        // Back online: what the child said meanwhile goes now, in order.
+        if (live && lessonId && !flushing.current && readOutbox(outboxSessionStore(), lessonId).length > 0) {
+          flushing.current = true;
+          try {
+            const res = await flushOutbox({
+              store: outboxSessionStore(),
+              lessonId,
+              send: (b) => api.postUtterance(token, b as unknown as UtteranceInput),
+              statusOf: (e) => (e instanceof LessonApiError ? e.status : null)
+            });
+            if (live) {
+              for (const r of res.sent) dispatch({ type: 'utterance_result', result: r });
+              setOutboxN(res.left);
+            }
+          } finally {
+            flushing.current = false;
+          }
+        }
       } catch (e) {
         if (!live) return;
         const code = errorCodeOf(e);
@@ -133,7 +158,7 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
       live = false;
       clearInterval(id);
     };
-  }, [polling, token, api]);
+  }, [polling, token, api, lessonId]);
 
   const leave = () => {
     saveStudentSession(null);
@@ -165,6 +190,8 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
           recognition={props.recognition === undefined ? findRecognition() : props.recognition}
           isIosWebView={Boolean(detection.kind && detection.isIOS)}
           onResult={(result) => dispatch({ type: 'utterance_result', result })}
+          outboxN={outboxN}
+          onQueued={setOutboxN}
           onSessionGone={() => {
             saveStudentSession(null);
             dispatch({ type: 'state_failed', code: 'student_only' });
@@ -281,6 +308,9 @@ interface LessonPlayProps {
   onSessionGone: () => void;
   /** voice_store on (from /v1/join): a recorder for the spoken turn, else null. Test seam. */
   makeClipRecorder?: () => ClipRecorder | null;
+  /** Answers waiting on this device; onQueued gets the new count after one is kept. */
+  outboxN?: number;
+  onQueued?: (n: number) => void;
 }
 
 /** The guardian turned voice_store on for this lesson's child: record spoken turns for the guardian's replay. */
@@ -299,7 +329,9 @@ function LessonPlay({
   isIosWebView,
   onResult,
   onSessionGone,
-  makeClipRecorder = defaultClipRecorder
+  makeClipRecorder = defaultClipRecorder,
+  outboxN = 0,
+  onQueued
 }: LessonPlayProps): React.ReactElement {
   const lesson = state.lesson;
   const mode = lesson?.mode;
@@ -314,6 +346,7 @@ function LessonPlay({
   const [listening, setListening] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendFailed, setSendFailed] = useState(false);
+  const [savedOffline, setSavedOffline] = useState(false);
   const [notHeard, setNotHeard] = useState(false);
   const [heard, setHeard] = useState<{ text: string; target: string } | null>(null);
   const [resultKey, setResultKey] = useState(0);
@@ -343,8 +376,15 @@ function LessonPlay({
       pending.current = payload;
       setSending(true);
       setSendFailed(false);
+      setSavedOffline(false);
+      // One id per answer and the stage it answers: a lost response or a resend from the outbox is the same answer.
+      const body: UtteranceInput = {
+        ...payload,
+        client_id: payload.client_id ?? newUtteranceClientId(now()),
+        ...(state.lesson?.stage_id ? { stage_id: state.lesson.stage_id } : {})
+      };
       try {
-        const r = await api.postUtterance(token, payload);
+        const r = await api.postUtterance(token, body);
         // Only when the server asked (voice_store on); the child never waits for the upload.
         if (r.audio_upload && clip) void uploadClip(r.audio_upload, clip);
         onResult(r);
@@ -356,12 +396,17 @@ function LessonPlay({
         firstKeyAt.current = null;
       } catch (e) {
         if (errorCodeOf(e) === 'student_only') onSessionGone();
-        else setSendFailed(true);
+        else if (e instanceof LessonApiError && isRetryableStatus(e.status) && state.lessonId) {
+          // No connection: keep it on this device (sent after the next good poll), no "send again" (a second answer).
+          onQueued?.(pushOutbox(outboxSessionStore(), state.lessonId, { body: body as never, queuedAt: now() }));
+          pending.current = null;
+          setSavedOffline(true);
+        } else setSendFailed(true);
       } finally {
         setSending(false);
       }
     },
-    [api, token, onResult, onSessionGone, now]
+    [api, token, onResult, onSessionGone, now, state.lesson?.stage_id, state.lessonId, onQueued]
   );
 
   const startListening = () => {
@@ -544,6 +589,12 @@ function LessonPlay({
             <Notice kind="info" onRetry={() => pending.current && void send(pending.current)} retryLabel={S.send}>
               {S.sendFailed}
             </Notice>
+          ) : null}
+          {savedOffline ? <Notice kind="info">{S.savedOffline}</Notice> : null}
+          {outboxN > 0 ? (
+            <p data-testid="join-outbox" style={{ margin: 0, fontWeight: 700 }}>
+              {S.queued(outboxN)}
+            </p>
           ) : null}
           {notHeard ? <Notice kind="info">{S.notHeard}</Notice> : null}
           {showResult && last && heard ? <ResultPanel key={resultKey} result={last} heard={heard} mode={mode} /> : null}

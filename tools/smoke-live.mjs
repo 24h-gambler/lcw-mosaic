@@ -43,8 +43,19 @@ await check('health', async () => {
   expect(a.status === 200, `admin health ${a.status}`);
   const d = await a.json();
   expect(d.storage === 'durable-object-sqlite' && d.operator_token === true, 'admin health body');
-  return { build: d.build, counts: d.counts, last_runs: d.last_runs };
+  return { build: d.build, counts: d.counts, last_runs: d.last_runs, quota: d.quota };
 });
+// docs/09 P9: the day's quota ladder. Fails (so the keeper raises it) when today reached 85% / bank only.
+if (token) {
+  await check('quota ladder', async () => {
+    const a = await req('/v1/ops/health', {}, { auth: true });
+    expect(a.status === 200, `ops health ${a.status}`);
+    const q = (await a.json()).quota;
+    expect(q && typeof q.stage === 'number', 'no quota block');
+    expect(!q.alert, `quota stage ${q.stage} (max today ${q.max_stage_today}), ${Math.round(q.usage_ratio * 100)}% of ${q.neurons_limit}${q.bank_only ? ', bank only' : ''}`);
+    return q;
+  });
+}
 for (const page of ['/', '/try', '/parents', '/game/']) {
   await check(`page ${page}`, async () => {
     const r = await req(page, { headers: { accept: 'text/html' } });

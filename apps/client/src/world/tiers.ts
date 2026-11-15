@@ -58,3 +58,23 @@ export class ResolutionGovernor {
     return this.scale !== before;
   }
 }
+
+/**
+ * Last resort for a device that cannot carry 3D at all (docs/18: the lesson then moves to the /join word cards in the
+ * same session). Fed one sample a second; trips once the world has stayed below `slowFps` for `slowS` seconds in a
+ * row while the governor already sits at its resolution floor, after a warm-up. Once tripped it stays tripped.
+ */
+export class FrameFloorWatch {
+  private seconds = 0;
+  private slow = 0;
+  tripped = false;
+  constructor(private readonly opts: { warmupS: number; slowFps: number; slowS: number } = { warmupS: 15, slowFps: 12, slowS: 10 }) {}
+  sample(fps: number, atFloor: boolean): boolean {
+    if (this.tripped) return true;
+    this.seconds++;
+    if (this.seconds <= this.opts.warmupS) return false;
+    this.slow = fps < this.opts.slowFps && atFloor ? this.slow + 1 : 0;
+    if (this.slow >= this.opts.slowS) this.tripped = true;
+    return this.tripped;
+  }
+}

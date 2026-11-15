@@ -8,6 +8,7 @@ import type { Level } from '@lcw/schemas';
 import { canRunWorld, createWorld, SCENE_IDS, type NpcRef, type SceneId, type WorldHandle, type WorldTier } from './world/api.js';
 import { WORLD_STRINGS as W } from './world/strings.js';
 import { browserStore, resolveIdentity, type PlayerIdentity } from './world/identity.js';
+import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
@@ -25,8 +26,14 @@ export interface DialogResultLike {
   pass: boolean;
   stars: number;
   feedbackKo: string;
+  /** Server ledger balance after this answer (one ledger; the HUD shows it). */
   coinsTotal?: number;
+  /** What the server granted. Absent = nothing is given (docs/19 3장): the shell never invents an item. */
   itemKey?: string;
+  /** Price-0 sentences: the guide's place ('cafe' | 'trade_shop') or the trade shop good the child asked for. */
+  askedKey?: string;
+  /** Guest practice on the device: nothing granted. */
+  practice?: boolean;
 }
 
 /** Props the shell passes to the lesson layer (docs/19 5장). */
@@ -36,6 +43,9 @@ export interface LessonLayerProps {
   onLessonActive?: (active: boolean) => void;
   /** Who is playing: `lesson` when the address has ?code=, `child` for a linked device, else `guest` (docs/19 5장). */
   identity?: PlayerIdentity;
+  /** false when this device cannot carry the 3D world (no WebGL, start failure, or unusably slow at the lowest
+   *  resolution): the lesson moves to the /join word cards in the same session. */
+  canRender3d?: boolean;
 }
 
 /** What solo play knows about the player: a linked child device sends its token, a guest sends nothing. */
@@ -64,8 +74,39 @@ interface LessonModule {
 const dialogLoaders = import.meta.glob<DialogModule>('./dialog/DialogPanel.tsx');
 const lessonLoaders = import.meta.glob<LessonModule>('./lesson/LessonLayer.tsx');
 
-/** Item that appears in hand after a passed line when the server does not name one. */
-const DEFAULT_ITEM_BY_CTX: Partial<Record<NpcRef['ctx'], string>> = { cafe: 'honey_tea' };
+/** Guide answers name a place (`askedKey`); the solo world walks the child there after the window closes. */
+const PLACE_SCENES: Readonly<Record<string, SceneId>> = { cafe: 'honey_cafe', honey_cafe: 'honey_cafe', trade_shop: 'trade_shop', plaza: 'plaza', build_plot: 'build_plot', open_hill: 'open_hill' };
+
+export function guideDestination(npc: NpcRef, r: DialogResultLike): SceneId | null {
+  if (npc.ctx !== 'guide' || !r.pass || !r.askedKey) return null;
+  return PLACE_SCENES[r.askedKey] ?? null;
+}
+
+/**
+ * What the world plays for one dialog window's results. A window may report more than once (a retry, or closing
+ * with ✕/Esc after a pass reports the window's best): stars celebrate only when they beat what this window already
+ * showed, a fail shows "try again" only before any pass, and the server-named item lands in hand once.
+ */
+export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveItem'> & { setCoins?: WorldHandle['setCoins'] }): (r: DialogResultLike) => void {
+  let best = -1;
+  const given = new Set<string>();
+  return (r) => {
+    if (typeof r.coinsTotal === 'number') world.setCoins?.(r.coinsTotal);
+    if (r.pass) {
+      const stars = Math.max(1, Math.min(3, Math.round(r.stars))) as 1 | 2 | 3;
+      if (stars > best) {
+        best = stars;
+        world.celebrate(stars);
+      }
+      if (r.itemKey && !r.practice && !given.has(r.itemKey)) {
+        given.add(r.itemKey);
+        world.giveItem(r.itemKey);
+      }
+    } else if (best < 0) {
+      world.celebrate(0);
+    }
+  };
+}
 
 export function pickTier(search: string, nav: { deviceMemory?: number; hardwareConcurrency?: number }, coarse: boolean): WorldTier {
   const q = new URLSearchParams(search).get('tier');
@@ -99,29 +140,32 @@ function NoWorld(): React.ReactElement {
 }
 
 /** Wraps the dialog panel so opening pauses the world and the result plays the world's reward. */
-function DialogHost(props: { Panel: AnyComponent; world: WorldHandle; npc: NpcRef; cfg: DialogConfig; submit: NonNullable<DialogConfig['submit']>; onClose: () => void }): React.ReactElement {
+function DialogHost(props: {
+  Panel: AnyComponent;
+  world: WorldHandle;
+  npc: NpcRef;
+  cfg: DialogConfig;
+  submit: NonNullable<DialogConfig['submit']>;
+  onClose: (lastResult: DialogResultLike | null) => void;
+}): React.ReactElement {
   const { Panel, world, npc, cfg, submit, onClose } = props;
   useEffect(() => {
     world.setPaused(true);
     return () => world.setPaused(false);
   }, [world]);
+  const play = useMemo(() => createResultPlayer(world), [world]);
+  const last = useRef<DialogResultLike | null>(null);
   const onDone = useCallback(
     (r: DialogResultLike) => {
-      if (r.pass) {
-        const stars = Math.max(0, Math.min(3, Math.round(r.stars))) as 0 | 1 | 2 | 3;
-        world.celebrate(stars);
-        const item = r.itemKey ?? DEFAULT_ITEM_BY_CTX[npc.ctx];
-        if (item) world.giveItem(item);
-      } else {
-        world.celebrate(0);
-      }
+      last.current = r;
+      play(r);
       cfg.onDone?.(r);
     },
-    [world, npc, cfg]
+    [play, cfg]
   );
   const close = useCallback(() => {
     cfg.onClose?.();
-    onClose();
+    onClose(last.current);
   }, [cfg, onClose]);
   return (
     <Panel
@@ -146,6 +190,7 @@ export function App(): React.ReactElement {
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
   const [failed, setFailed] = useState(false);
   const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
+  const [tooSlow, setTooSlow] = useState(false);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
 
@@ -195,6 +240,33 @@ export function App(): React.ReactElement {
     };
   }, [ok]);
 
+  // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
+  useEffect(() => {
+    if (!world) return;
+    const watch = new FrameFloorWatch();
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      const s = world.getStats?.();
+      if (!s) return;
+      const floor = TIER_SETTINGS[s.tier ?? 'mid'].minScale;
+      if (watch.sample(s.fps, (s.renderScale ?? floor) <= floor + 0.001)) {
+        setTooSlow(true);
+        window.clearInterval(id);
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [world]);
+
+  // Solo play: after a guide names a place, walk there once the window is closed.
+  const closeSolo = useCallback(
+    (npc: NpcRef, last: DialogResultLike | null) => {
+      setSoloNpc(null);
+      const dest = last ? guideDestination(npc, last) : null;
+      if (dest && world && !lessonActive.current) void world.goToScene(dest);
+    },
+    [world]
+  );
+
   // Solo play: tapping an NPC opens the dialog panel when no lesson is running.
   useEffect(() => {
     if (!world) return;
@@ -230,6 +302,7 @@ export function App(): React.ReactElement {
             <Lesson
               world={world}
               identity={identity ?? undefined}
+              canRender3d={!tooSlow}
               renderDialog={renderDialog}
               onLessonActive={(a: boolean) => {
                 lessonActive.current = a;
@@ -238,7 +311,7 @@ export function App(): React.ReactElement {
             />
           ) : null}
           {world && SoloPanel && soloNpc && soloSubmit ? (
-            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloLevel ? { level: soloLevel } : {}} submit={soloSubmit} onClose={() => setSoloNpc(null)} />
+            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloLevel ? { level: soloLevel } : {}} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />
           ) : null}
         </div>
       </div>

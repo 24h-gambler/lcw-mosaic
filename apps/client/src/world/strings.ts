@@ -19,6 +19,7 @@ export const WORLD_STRINGS = {
   itemGot: (name: string): string => `${name}${objectParticle(name)} 받았어요`,
   hotbarEmpty: '빈 칸',
   lessonBadge: '수업 중',
+  coinsLabel: '코인',
   controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기',
   controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기'
 } as const;

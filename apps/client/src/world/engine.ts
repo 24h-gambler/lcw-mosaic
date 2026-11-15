@@ -901,6 +901,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     getScene: () => currentScene,
     listNpcs: () => [...npcs.values()].map((n) => n.ref),
     setLessonBadge: (on) => hud.setLessonBadge(on),
+    setCoins: (total) => hud.setCoins(total),
     setPlayerName(name) {
       const clean = name ? name.trim().slice(0, 16) : '';
       playerName = clean || null;

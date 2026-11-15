@@ -25,6 +25,10 @@ function css(): string {
 .lw-chip .l.on{display:inline-block}
 .lw-stars{position:absolute;top:12px;right:12px;background:${night};color:${C.sun};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-family:${T.fonts.pixel};font-size:24px;line-height:24px;display:flex;gap:6px;align-items:center}
 .lw-stars.pop{animation:lwpop ${M.popMs}ms ease-out}
+.lw-stars .cs,.lw-stars .ci,.lw-stars .cn{display:none}
+.lw-stars.coins .cs,.lw-stars.coins .ci,.lw-stars.coins .cn{display:inline-block}
+.lw-stars .cs{width:2px;height:20px;background:${C['paper-0']};opacity:.35;margin:0 4px}
+.lw-stars .ci{width:18px;height:18px;border-radius:50%;background:${C.sun};box-shadow:inset 0 -3px 0 ${C['sun-d']}}
 @keyframes lwpop{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}
 .lw-bub{position:absolute;left:0;top:0;transform:translate(-50%,-100%);max-width:min(360px,70vw);padding:8px 12px;font-family:${T.fonts.target};font-size:${T.scale.h3.sizePx}px;line-height:${T.scale.h3.lineHeightPx}px;font-weight:700;white-space:normal;opacity:0;transition:opacity ${M.baseMs}ms ease-out;will-change:transform}
 .lw-bub.on{opacity:1}
@@ -174,6 +178,8 @@ export class WorldHud {
   private lessonChip: HTMLSpanElement;
   private starsEl: HTMLDivElement;
   private starsN: HTMLSpanElement;
+  private coinsN: HTMLSpanElement;
+  private coinTotal: number | null = null;
   private prompt: HTMLDivElement;
   private plate: HTMLDivElement;
   private slots: HTMLDivElement[] = [];
@@ -226,6 +232,11 @@ export class WorldHud {
     si.textContent = '★';
     this.starsN = el('span', '', this.starsEl);
     this.starsN.textContent = '0';
+    // coin balance from the server ledger (hidden until a ledger total arrives)
+    el('span', 'cs', this.starsEl);
+    const ci = el('span', 'ci', this.starsEl);
+    ci.setAttribute('aria-label', W.coinsLabel);
+    this.coinsN = el('span', 'cn', this.starsEl);
 
     this.plate = el('div', 'lw-plate', this.root);
     this.prompt = el('div', 'lw-prompt', this.root);
@@ -394,6 +405,21 @@ export class WorldHud {
 
   setScene(titleKo: string): void {
     this.sceneChip.textContent = titleKo;
+  }
+
+  /** Server ledger balance (one ledger, docs/19): null hides the coin chip. */
+  setCoins(total: number | null): void {
+    const n = total === null || !Number.isFinite(total) ? null : Math.max(0, Math.round(total));
+    if (n === this.coinTotal) return;
+    const grew = n !== null && this.coinTotal !== null && n > this.coinTotal;
+    this.coinTotal = n;
+    this.starsEl.classList.toggle('coins', n !== null);
+    this.coinsN.textContent = n === null ? '' : String(n);
+    if (grew) {
+      this.starsEl.classList.remove('pop');
+      void this.starsEl.offsetWidth;
+      this.starsEl.classList.add('pop');
+    }
   }
 
   setLessonBadge(on: boolean): void {

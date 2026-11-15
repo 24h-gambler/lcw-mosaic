@@ -23,6 +23,7 @@ import { kstLabel } from './lessonFlow.js';
 import { Box, LessonStyle, Notice, border, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { lessonDayLabel } from './ParentReportPage.js';
 import { PARENT_STRINGS_KO } from './parentStrings.js';
+import { FamilySeats } from './SeatsPage.js';
 
 const F = PARENT_STRINGS_KO.family;
 const LK = PARENT_STRINGS_KO.link;
@@ -164,6 +165,7 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
             />
           ))
         : null}
+      {load.status === 'ok' && token ? <FamilySeats api={apiRef.current} token={token} /> : null}
       {load.status === 'ok' && load.me.service_consented ? (
         <AddChild
           disabled={busy}

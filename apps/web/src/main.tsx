@@ -21,7 +21,8 @@ const KNOWN_ROUTES: readonly AppRoute[] = [
   '/window',
   '/join',
   '/family',
-  '/link'
+  '/link',
+  '/seats'
 ];
 
 /** Deep links (e.g. a KakaoTalk share of /try) open the matching page instead of always the intro. */

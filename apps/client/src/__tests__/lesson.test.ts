@@ -8,6 +8,11 @@ import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToke
 import { LESSON_BANNER_MS, LESSON_POLL_MS, LessonController, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
 import { LessonLayer } from '../lesson/LessonLayer.js';
+import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
+
+// App mounts the layer through import.meta.glob (no compile-time check there): pin the docs/19 §5 contract here.
+const _slot: React.ComponentType<AppLessonSlotProps> = LessonLayer;
+void _slot;
 import { LESSON_STRINGS_KO } from '../lesson/strings.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
@@ -131,7 +136,8 @@ describe('client lesson module (docs/19 §4)', () => {
       confidence: 0.92
     });
     expect(r).toMatchObject({ pass: true, stars: 2, coinsTotal: 20 });
-    expect(calls.at(-1)).toBe('celebrate:2');
+    // the panel that shows the result celebrates (App's DialogHost or the layer's own), not the controller: no double stars
+    expect(calls.filter((c) => c.startsWith('celebrate:'))).toEqual([]);
     expect(ctl.state.lastResult?.utterancesToday).toBe(1);
 
     // the director sees the student's screen

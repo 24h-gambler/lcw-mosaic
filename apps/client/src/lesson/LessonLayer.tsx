@@ -1,11 +1,13 @@
 /**
- * Lesson layer of the 3D client (docs/19 §4). App mounts it always; it draws nothing unless there is a lesson
- * (`?code=` in the URL or a student session in this tab). It owns joining, the 3-second state poll, scene changes,
- * possession bubbles and director events, and hands the dialog panel a submit that goes to /v1/lesson/utterance.
- * Without a world (no WebGL yet, or before the world domain mounts it) it draws its own goal bar and bubbles.
+ * Lesson layer of the 3D client (docs/19 §4, props per §5). App mounts it always; it draws nothing unless there is a
+ * lesson (`?code=` in the URL or a student session in this tab). It owns joining, the 3-second state poll, scene
+ * changes, possession bubbles and director events, and hands the dialog panel a submit that goes to
+ * /v1/lesson/utterance. App only mounts it when the device runs the world (else App shows the /join card itself).
+ * Until the world handle arrives it draws its own goal bar and bubbles.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { getLessonNpc, type LessonDirectorEventKind, type LessonHintLevel, type LessonUtteranceMode } from '@lcw/content';
+import { getLessonNpc, type LessonDirectorEventKind, type LessonHintLevel, type LessonNpcContext, type LessonUtteranceMode } from '@lcw/content';
+import type { Level } from '@lcw/schemas';
 import { TOKENS } from '@lcw/ui';
 import { codeFromSearch, createStudentLessonApi, loadStudentSession, type DialogResult, type LessonOffer, type StudentLessonApi, type UtteranceSubmit } from './api.js';
 import { LessonController, initialLessonView, type LessonView, type LessonWorld } from './controller.js';
@@ -19,17 +21,18 @@ const SP = TOKENS.spacing;
 
 export interface LessonNpcRef {
   id: string;
-  ctx: string;
+  ctx: LessonNpcContext;
   nameKo: string;
   nameEn: string;
 }
 
 export interface LessonDialogConfig {
-  level: string;
+  level: Level;
   mode: LessonUtteranceMode;
   offers: LessonOffer[];
   hint: LessonHintLevel;
-  submit: (u: UtteranceSubmit) => Promise<DialogResult>;
+  /** Takes the dialog panel's UtteranceSubmit (unknown shape on purpose: see readUtteranceSubmit). */
+  submit: (u: unknown) => Promise<DialogResult>;
   onDone: (r: DialogResult) => void;
   onClose?: () => void;
 }
@@ -38,11 +41,16 @@ export interface LessonLayerProps {
   world: LessonWorld | null;
   /** The dialog domain's panel; returns null when it is not available, then the layer's own panel is used. */
   renderDialog?: (npc: LessonNpcRef, cfg: LessonDialogConfig) => React.ReactNode;
+  /** True while a lesson is live: App shows the "수업 중" badge and stops opening solo dialogs on NPC taps. */
+  onLessonActive?: (active: boolean) => void;
   api?: StudentLessonApi;
   search?: string;
   /** False when the device cannot run the 3D world: the lesson continues on the /join word-card screen. */
   canRender3d?: boolean;
 }
+
+/** World members the layer uses beyond the controller's (docs/19 §2): the child's own line as a bubble. */
+type LayerWorld = LessonWorld & { playerSay?(text: string): void };
 
 export function hasWebGL(): boolean {
   try {
@@ -62,12 +70,14 @@ export function isLessonPage(search: string): boolean {
 }
 
 export function LessonLayer(props: LessonLayerProps): React.ReactElement | null {
+  const onActive = useRef(props.onLessonActive);
+  onActive.current = props.onLessonActive;
   const search = props.search ?? (typeof location === 'undefined' ? '' : location.search);
   const code = codeFromSearch(search);
   const [active] = useState(() => Boolean(code ?? loadStudentSession()));
   const [view, setView] = useState<LessonView>(initialLessonView);
   const api = useMemo(() => props.api ?? createStudentLessonApi(), [props.api]);
-  const worldRef = useRef(props.world);
+  const worldRef = useRef<LayerWorld | null>(props.world);
   worldRef.current = props.world;
   const ctl = useMemo(
     () =>
@@ -91,9 +101,13 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     [api]
   );
 
-  // Probed once per page: re-probing on every 3-second render would make a WebGL context each time.
-  const [webgl] = useState(() => !active || props.canRender3d === false || hasWebGL());
-  const lowTier = props.canRender3d === false || !webgl;
+  // App decides WebGL once (canRunWorld) and never mounts the layer without it; no probing here on every render.
+  const lowTier = props.canRender3d === false;
+  const live = view.phase === 'live';
+  useEffect(() => {
+    onActive.current?.(live);
+  }, [live]);
+  useEffect(() => () => onActive.current?.(false), []);
   useEffect(() => {
     if (!active) return;
     const unlock = () => unlockLessonAudio();
@@ -138,7 +152,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   }
 
   const npc = getLessonNpc(view.npcId);
-  const npcRef: LessonNpcRef = { id: view.npcId, ctx: npc?.ctx ?? 'resident', nameKo: npc?.nameKo ?? view.npcId, nameEn: npc?.nameEn ?? view.npcId };
+  const npcRef: LessonNpcRef = { id: view.npcId, ctx: npc?.ctx ?? 'guide', nameKo: npc?.nameKo ?? view.npcId, nameEn: npc?.nameEn ?? view.npcId };
   const cfg: LessonDialogConfig = {
     level: view.level,
     mode: view.mode,
@@ -167,7 +181,18 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
         </div>
         <div style={{ display: 'flex', justifyContent: 'center', flex: '0 1 auto', minHeight: 0 }}>
           <div className="lcw-panel" style={{ width: '100%', maxWidth: 720, pointerEvents: 'auto', overflowY: 'auto', maxHeight: '100%' }}>
-            {external ?? <SpeakPanel key={panelKey} npc={npcRef} view={view} submit={ctl.submit} />}
+            {external ?? (
+            <SpeakPanel
+              key={panelKey}
+              npc={npcRef}
+              view={view}
+              submit={ctl.submit}
+              onSaid={(text) => worldRef.current?.playerSay?.(text)}
+              onResult={(r) => {
+                if (r.pass) worldRef.current?.celebrate(Math.min(3, Math.max(0, Math.round(r.stars))) as 0 | 1 | 2 | 3);
+              }}
+            />
+          )}
           </div>
         </div>
       </div>
@@ -407,7 +432,19 @@ function speechRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
 }
 
 /** The lesson's own speaking panel, used until the dialog domain's DialogPanel is mounted (docs/19 §3 same submit). */
-function SpeakPanel({ npc, view, submit }: { npc: LessonNpcRef; view: LessonView; submit: (u: UtteranceSubmit) => Promise<DialogResult> }) {
+function SpeakPanel({
+  npc,
+  view,
+  submit,
+  onSaid,
+  onResult
+}: {
+  npc: LessonNpcRef;
+  view: LessonView;
+  submit: (u: UtteranceSubmit) => Promise<DialogResult>;
+  onSaid?: (text: string) => void;
+  onResult?: (r: DialogResult) => void;
+}) {
   const offers = view.offers;
   const free = view.mode === 'free';
   const [pick, setPick] = useState(0);
@@ -442,6 +479,7 @@ function SpeakPanel({ npc, view, submit }: { npc: LessonNpcRef; view: LessonView
 
   const send = async (transcript: string, source: UtteranceSubmit['stt_source'], startedAt: number, confidence: number) => {
     if (!transcript.trim() || !alive.current) return;
+    onSaid?.(transcript.trim());
     setBusy(true);
     setFailed(false);
     try {
@@ -456,6 +494,7 @@ function SpeakPanel({ npc, view, submit }: { npc: LessonNpcRef; view: LessonView
         confidence
       });
       if (!alive.current) return;
+      onResult?.(r);
       setResult(r);
       if (r.pass) playLessonSfx('pass');
       shownAt.current = Date.now();

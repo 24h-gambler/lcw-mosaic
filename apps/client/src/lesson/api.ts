@@ -74,6 +74,32 @@ export interface UtteranceSubmit {
   confidence: number;
 }
 
+const STT_SOURCES: readonly SttSource[] = ['browser', 'keyboard', 'board', 'device', 'workers_ai'];
+const HINTS: readonly LessonHintLevel[] = ['full', 'keyword', 'initial', 'picture', 'none'];
+
+/**
+ * The dialog domain's panel hands `submit` its own UtteranceSubmit (docs/19 §3, may carry extra fields such as
+ * echo/attempt): keep the fields the lesson API takes, clamp numbers, default the rest. Throws on no transcript.
+ */
+export function readUtteranceSubmit(u: unknown): UtteranceSubmit {
+  const o = (u && typeof u === 'object' ? u : {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const transcript = str(o.transcript).trim();
+  if (!transcript) throw new LessonHttpError(400, 'empty_transcript');
+  const stars = Math.round(num(o.chosen_stars));
+  return {
+    target_text: str(o.target_text),
+    transcript,
+    chosen_stars: (stars === 2 || stars === 3 ? stars : 1) as 1 | 2 | 3,
+    hint_level: HINTS.includes(o.hint_level as LessonHintLevel) ? (o.hint_level as LessonHintLevel) : 'full',
+    latency_ms: Math.max(0, Math.round(num(o.latency_ms))),
+    dur_ms: Math.max(0, Math.round(num(o.dur_ms))),
+    stt_source: STT_SOURCES.includes(o.stt_source as SttSource) ? (o.stt_source as SttSource) : 'browser',
+    confidence: Math.min(1, Math.max(0, typeof o.confidence === 'number' ? o.confidence : 0.5))
+  };
+}
+
 export interface UtteranceResult {
   pass: boolean;
   score: number;

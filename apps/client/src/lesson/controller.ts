@@ -7,6 +7,7 @@ import { LESSON_DIRECTOR_EVENTS, getLessonNpc, type LessonDirectorEventKind, typ
 import {
   LessonHttpError,
   loadStudentSession,
+  readUtteranceSubmit,
   saveStudentSession,
   type DialogResult,
   type KeyValue,
@@ -171,21 +172,12 @@ export class LessonController {
   }
 
   /** The dialog panel's `submit` during a lesson: server scores, the world celebrates passes. */
-  readonly submit = async (u: UtteranceSubmit): Promise<DialogResult> => {
+  readonly submit = async (u: UtteranceSubmit | unknown): Promise<DialogResult> => {
     const s = this.session;
     if (!s) throw new LessonHttpError(401, 'student_only');
-    const r = await this.opts.api.utterance(s.token, {
-      target_text: u.target_text,
-      transcript: u.transcript,
-      chosen_stars: u.chosen_stars,
-      hint_level: u.hint_level,
-      latency_ms: Math.max(0, Math.round(u.latency_ms)),
-      dur_ms: Math.max(0, Math.round(u.dur_ms)),
-      stt_source: u.stt_source,
-      confidence: Math.min(1, Math.max(0, u.confidence))
-    });
+    const r = await this.opts.api.utterance(s.token, readUtteranceSubmit(u));
     const result: DialogResult = { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, coinsTotal: r.coins_total };
-    if (r.pass) this.opts.world?.celebrate(Math.min(3, Math.max(0, r.stars)) as 0 | 1 | 2 | 3);
+    // No celebrate here: whoever shows the result plays it (App's DialogHost, or the layer's own panel), once.
     this.set({ lastResult: { ...result, utterancesToday: r.utterances_today } });
     return result;
   };

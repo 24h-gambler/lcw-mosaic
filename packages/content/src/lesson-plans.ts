@@ -7,19 +7,22 @@ export type LessonUtteranceMode = 'free' | 'guided' | 'read' | 'recall';
 export type LessonSceneId = 'plaza' | 'honey_cafe' | 'trade_shop' | 'build_plot' | 'open_hill';
 export type LessonHintLevel = 'full' | 'keyword' | 'initial' | 'picture' | 'none';
 
+/** Subset of @lcw/schemas NpcContext the lesson NPCs use (content does not depend on schemas). */
+export type LessonNpcContext = 'guide' | 'cafe' | 'trade_shop' | 'resident' | 'exchange';
+
 /** NPCs the teacher can possess in lesson scenes (docs/19 §4). The world domain spawns them under these ids. */
 export interface LessonNpc {
   id: string;
   nameKo: string;
   nameEn: string;
   /** Conversation-bank context the dialog panel falls back to (docs/04 ctx). */
-  ctx: string;
+  ctx: LessonNpcContext;
 }
 
 export const LESSON_NPCS: readonly LessonNpc[] = [
-  { id: 'guide', nameKo: '안내인 선생님', nameEn: 'Guide', ctx: 'resident' },
+  { id: 'guide', nameKo: '안내인 선생님', nameEn: 'Guide', ctx: 'guide' },
   { id: 'cafe_owner', nameKo: '카페 주인', nameEn: 'Cafe owner', ctx: 'cafe' },
-  { id: 'shop_owner', nameKo: '상점 주인', nameEn: 'Shop owner', ctx: 'exchange' }
+  { id: 'shop_owner', nameKo: '상점 주인', nameEn: 'Shop owner', ctx: 'trade_shop' }
 ];
 
 export function getLessonNpc(id: string | null | undefined): LessonNpc | undefined {

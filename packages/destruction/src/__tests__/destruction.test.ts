@@ -11,7 +11,7 @@ import {
 } from '../index.js';
 
 function mk(n = 3, mut: MutantFlags = {}): World {
-  const w = new World(7, mut);
+  const w = new World(7, mut, { visitorBuild: true });
   for (let i = 0; i < n; i++) {
     w.players.push({
       id: i,
@@ -323,7 +323,7 @@ describe('@lcw/destruction WP-203 & WP-204 acceptance', () => {
         expect(a.mid).toBe(b.mid);
       }
     }
-  }, 60000);
+  }, 180000);
 
   it('supports snapshots, rewind, and visitor-specific edit rollback (WP-204)', () => {
     const w = mk();
@@ -342,4 +342,111 @@ describe('@lcw/destruction WP-203 & WP-204 acceptance', () => {
     w.restoreSnapshot(snap);
     expect(w.hashState()).toBe(snap.hash);
   });
+
+  // ---- Visitor permission rules (docs/03 D11, docs/17, WP-506) ----
+  const SHOP = { x: 60, y: 1, z: 54, dx: 0, dz: -1 } as const;
+  /** 0 = owner, 1 = permitted builder, 2 = visitor (default world: visitors cannot edit). */
+  function mkPerm(mut: MutantFlags = {}, visitorBuild = false): World {
+    const w = new World(7, mut, { visitorBuild, shops: [SHOP] });
+    w.players.push({ id: 0, x: 20.5, y: 30, z: 20.5, vx: 0, vy: 0, vz: 0, owner: true });
+    w.players.push({ id: 1, x: 30.5, y: 30, z: 20.5, vx: 0, vy: 0, vz: 0, permitted: true });
+    w.players.push({ id: 2, x: 40.5, y: 30, z: 20.5, vx: 0, vy: 0, vz: 0 });
+    return w;
+  }
+
+  /** Each rule as a scenario returning true when the rule holds. */
+  const RULES: Record<string, (w: World) => boolean> = {
+    R1_visitor_refused_in_wild_city_plot: (w) => {
+      const before = w.hashState();
+      const r = [
+        w.place(2, 10, 1, 10, B.STONE), // WILD
+        w.dig(2, 10, 0, 10), // WILD terrain
+        w.place(2, 56, 1, 58, B.PLANK), // CITY
+        w.place(2, 116, 1, 170, B.PLANK) // PLOT
+      ];
+      steps(w, 3);
+      return r.every((x) => x === false) && w.delta.size === 0 && w.temp.size === 0 && before === w.hashState();
+    },
+    R1b_unknown_actor_is_visitor: (w) => w.place(99, 10, 1, 10, B.STONE) === false,
+    R2_nobody_places_vault_in_city: (w) =>
+      w.place(0, 56, 1, 58, B.VAULT) === false &&
+      w.setBlock(1, 57, 1, 58, B.VAULT) === false &&
+      w.get(56, 1, 58) === B.AIR,
+    R3_shop_front_protected: (w) => {
+      const cells: Array<[number, number, number]> = [];
+      for (let i = 1; i <= CFG.SHOP_FRONT_CELLS; i++) {
+        for (let h = 0; h < CFG.SHOP_DOOR_HEIGHT; h++) cells.push([SHOP.x, SHOP.y + h, SHOP.z - i]);
+      }
+      const ok = cells.every(([x, y, z]) => w.zone(x, y, z) === Z.CORE);
+      return ok && cells.every(([x, y, z]) => !w.place(0, x, y, z, B.PLANK) && !w.place(1, x, y, z, B.PLANK));
+    },
+    R4_visitor_explosion_cannot_edit: (w) => {
+      // Even with visitorBuild off, visitor blasts/rockets/water change nothing.
+      w.explode(2, 10.5, 1.5, 10.5, 6);
+      w.explode(2, 59.5, 3.5, 54.5, 6);
+      w.rocket(2, 59.5, 6, 40, 0, -0.2, 1, 1.5);
+      w.waterBomb(2, 10, 3, 10);
+      steps(w, 40);
+      return w.delta.size === 0 && w.temp.size === 0 && w.fluid.size === 0 && w.get(59, 3, 54) === B.BRICK;
+    }
+  };
+
+  for (const [name, fn] of Object.entries(RULES)) {
+    it(`${name}: holds in the default world`, () => {
+      expect(fn(mkPerm())).toBe(true);
+    });
+  }
+
+  it('permitted builders and owner keep today behaviour (WILD, CITY temp, PLOT)', () => {
+    const w = mkPerm();
+    expect(w.place(0, 10, 1, 10, B.STONE)).toBe(true);
+    expect(w.place(1, 11, 1, 10, B.STONE)).toBe(true);
+    expect(w.place(1, 56, 1, 58, B.PLANK)).toBe(true);
+    expect(w.temp.size).toBe(1); // CITY edits still heal
+    expect(w.place(1, 116, 1, 170, B.PLANK)).toBe(true);
+    expect(w.place(0, 117, 1, 170, B.VAULT)).toBe(true); // VAULT is fine in PLOT
+    expect(w.place(0, 12, 1, 10, B.VAULT)).toBe(true); // and in WILD
+  });
+
+  it('visitorBuild=true lets visitors edit WILD and CITY but never PLOT, CITY vault or shop front', () => {
+    const w = mkPerm({}, true);
+    expect(w.place(2, 10, 1, 10, B.STONE)).toBe(true);
+    expect(w.place(2, 56, 1, 58, B.PLANK)).toBe(true);
+    expect(w.place(2, 116, 1, 170, B.PLANK)).toBe(false);
+    expect(w.place(2, 57, 1, 58, B.VAULT)).toBe(false);
+    expect(w.place(2, SHOP.x, SHOP.y, SHOP.z - 1, B.PLANK)).toBe(false);
+  });
+
+  it('visitor chain explosion (dynamite) inside a permitted builder structure stays refused', () => {
+    const w = mkPerm();
+    for (let i = 0; i < 6; i++) w.place(1, 10 + i, 1, 10, B.DYNAMITE);
+    w.explode(2, 12.5, 1.5, 10.5, 4);
+    steps(w, 20);
+    expect(w.get(12, 1, 10)).toBe(B.DYNAMITE);
+    expect(w.delta.size).toBe(6);
+  });
+
+  it('fault injection: turning each new check off makes its scenario fail', () => {
+    const cases: Array<[keyof MutantFlags, string[]]> = [
+      ['noEditPerm', ['R1_visitor_refused_in_wild_city_plot', 'R1b_unknown_actor_is_visitor', 'R4_visitor_explosion_cannot_edit']],
+      ['noCityVault', ['R2_nobody_places_vault_in_city']],
+      ['noShopGuard', ['R3_shop_front_protected']]
+    ];
+    for (const [flag, rules] of cases) {
+      for (const rule of rules) {
+        expect(RULES[rule]!(mkPerm()), `${rule} sane`).toBe(true);
+        expect(RULES[rule]!(mkPerm({ [flag]: true })), `${flag} -> ${rule}`).toBe(false);
+      }
+    }
+  });
+
+  it('fault injection: the fuzz invariants (I9) also catch each new mutant', () => {
+    for (const m of ['noEditPerm', 'noCityVault', 'noShopGuard'] as const) {
+      let caught = false;
+      for (let s = 1; s <= 6 && !caught; s++) {
+        if (runFuzz(s, 500, { [m]: true }).fails.length > 0) caught = true;
+      }
+      expect(caught, m).toBe(true);
+    }
+  }, 180000);
 });

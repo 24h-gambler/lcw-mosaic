@@ -53,7 +53,10 @@ export const DEFAULT_CFG = {
   MAX_TEMP: 8192,
   ACTOR_EXPLOSIONS_PER_SEC: 4,
   HEAL_TICKS: 100,
-  FLUID_TTL_TICKS: 160
+  FLUID_TTL_TICKS: 160,
+  // Cells in front of a shop entrance that are protected like Z.CORE, and the protected height.
+  SHOP_FRONT_CELLS: 2,
+  SHOP_DOOR_HEIGHT: 3
 };
 
 export const CFG = { ...DEFAULT_CFG };
@@ -78,6 +81,33 @@ export interface MutantFlags {
   noFluidCaps?: boolean;
   noQueueCap?: boolean;
   noSanitize?: boolean;
+  /** Fault injection: skip the role/permission check in canEdit. */
+  noEditPerm?: boolean;
+  /** Fault injection: allow B.VAULT in Z.CITY. */
+  noCityVault?: boolean;
+  /** Fault injection: shop-front cells are no longer protected. */
+  noShopGuard?: boolean;
+}
+
+/**
+ * World-level settings (docs/03 D11, docs/17).
+ * visitorBuild=false (default, safe): a player who is neither owner nor permitted
+ * cannot change blocks anywhere (PLOT, WILD, CITY). true: such visitors may edit
+ * WILD and (temp-healing) CITY, but never PLOT.
+ */
+export interface WorldSettings {
+  visitorBuild?: boolean;
+  /** Shop entrances; the cells in front of each are protected like Z.CORE. */
+  shops?: ReadonlyArray<ShopEntrance>;
+}
+
+/** Door cell (x,y,z) and the outward unit direction (dx,dz), one of them 0, the other +-1. */
+export interface ShopEntrance {
+  x: number;
+  y: number;
+  z: number;
+  dx: number;
+  dz: number;
 }
 
 export interface DestructionPlayer {
@@ -89,6 +119,8 @@ export interface DestructionPlayer {
   vy: number;
   vz: number;
   owner?: boolean;
+  /** Owner-granted build permission (docs/17 `permitted`). */
+  permitted?: boolean;
 }
 
 export interface PendingExplosion {
@@ -140,6 +172,8 @@ const isRoadStrip = (v: number): boolean =>
 export class World {
   readonly seed: number;
   readonly mut: MutantFlags;
+  readonly settings: Required<Pick<WorldSettings, 'visitorBuild'>> & { shops: ShopEntrance[] };
+  private readonly shopFront = new Set<number>();
   tick = 0;
   players: DestructionPlayer[] = [];
   readonly delta = new Map<number, number>();
@@ -160,9 +194,20 @@ export class World {
     maxPower: 0
   };
 
-  constructor(seed = 1, mut: MutantFlags = {}) {
+  constructor(seed = 1, mut: MutantFlags = {}, settings: WorldSettings = {}) {
     this.seed = seed;
     this.mut = mut;
+    this.settings = { visitorBuild: settings.visitorBuild ?? false, shops: [...(settings.shops ?? [])] };
+    for (const sh of this.settings.shops) {
+      for (let i = 1; i <= CFG.SHOP_FRONT_CELLS; i++) {
+        for (let h = 0; h < CFG.SHOP_DOOR_HEIGHT; h++) {
+          const x = sh.x + sh.dx * i;
+          const y = sh.y + h;
+          const z = sh.z + sh.dz * i;
+          if (this.inBounds(x, y, z)) this.shopFront.add(this.key(x, y, z));
+        }
+      }
+    }
   }
 
   private inBounds(x: number, y: number, z: number): boolean {
@@ -195,6 +240,7 @@ export class World {
   zone(x: number, y: number, z: number): number {
     if (!this.inBounds(x, y, z)) return Z.OOB;
     if (y === CFG.YMIN) return Z.CORE;
+    if (!this.mut.noShopGuard && this.isShopFront(x, y, z)) return Z.CORE;
     if ((isRoadStrip(x) || isRoadStrip(z)) && y >= -2 && y < 5) return Z.CORE;
     if (x >= 128 && x < 160 && z >= 128 && z < 160 && y >= -4 && y < 24) return Z.CORE;
     if (x >= PLOT.x0 && x < PLOT.x1 && z >= PLOT.z0 && z < PLOT.z1 && y > CFG.YMIN) {
@@ -230,18 +276,48 @@ export class World {
     return this.base(x, y, z);
   }
 
+  /** True for cells in front of a declared shop entrance (independent of fault flags). */
+  isShopFront(x: number, y: number, z: number): boolean {
+    if (this.shopFront.size === 0) return false;
+    return this.inBounds(x, y, z) && this.shopFront.has(this.key(x, y, z));
+  }
+
+  isAllowed(actor: number): boolean {
+    const p = this.players.find((pl) => pl.id === actor);
+    return !!p && (p.owner === true || p.permitted === true);
+  }
+
+  /**
+   * Single permission entry point for every block change (place/dig/setBlock,
+   * explosion gathering, queued ops, water). Returns the zone when the actor may
+   * edit the cell, else 0. CORE and OOB are never editable.
+   */
+  canEdit(
+    actor: number,
+    x: number,
+    y: number,
+    z: number,
+    blockId: number = B.AIR,
+    allowedHint?: boolean
+  ): number {
+    if (!this.inBounds(x, y, z)) return 0;
+    const zn = this.zone(x, y, z);
+    if (zn === Z.OOB) return 0;
+    if (zn === Z.CORE && !this.mut.noCoreGuard) return 0;
+    if (blockId === B.VAULT && zn === Z.CITY && !this.mut.noCityVault) return 0;
+    if (this.mut.noEditPerm) return zn;
+    const allowed = allowedHint ?? this.isAllowed(actor);
+    if (zn === Z.PLOT) return allowed || this.mut.noCoreGuard ? zn : 0;
+    return allowed || this.settings.visitorBuild ? zn : 0;
+  }
+
   private writeDeltaOrTemp(x: number, y: number, z: number, blockId: number, actor: number, forceTemp = false): boolean {
     if (!this.inBounds(x, y, z)) return false;
-    const zKind = this.zone(x, y, z);
-    if (zKind === Z.OOB) return false;
-    if (zKind === Z.CORE && !this.mut.noCoreGuard) return false;
+    const zKind = this.canEdit(actor, x, y, z, blockId);
+    if (zKind === 0) return false;
     if (zKind === Z.CITY && forceTemp === false) {
       // Direct permanent edits inside CITY become temp heals or rejected for visitors
       forceTemp = true;
-    }
-    if (zKind === Z.PLOT) {
-      const p = this.players.find((pl) => pl.id === actor);
-      if (!p?.owner && !this.mut.noCoreGuard) return false;
     }
     const cur = this.get(x, y, z);
     if (cur === B.BEDROCK) return false;
@@ -361,6 +437,7 @@ export class World {
     const cy = Math.floor(params.y);
     const cz = Math.floor(params.z);
 
+    const allowedActor = this.isAllowed(params.actor);
     let gathered = 0;
     const maxExp = CFG.MAX_BLOCKS_PER_EXPLOSION;
     for (let dy = -r; dy <= r; dy++) {
@@ -371,12 +448,7 @@ export class World {
           const by = cy + dy;
           const bz = cz + dz;
           if (!this.inBounds(bx, by, bz)) continue;
-          const zKind = this.zone(bx, by, bz);
-          if (zKind === Z.CORE && !this.mut.noCoreGuard) continue;
-          if (zKind === Z.PLOT) {
-            const pl = this.players.find((pl0) => pl0.id === params.actor);
-            if (!pl?.owner && !this.mut.noCoreGuard) continue;
-          }
+          if (this.canEdit(params.actor, bx, by, bz, B.AIR, allowedActor) === 0) continue;
           const blockId = this.get(bx, by, bz);
           if (blockId === B.AIR || blockId === B.BEDROCK || blockId === B.VAULT) continue;
           if (!this.mut.noQueueCap && gathered >= maxExp) break;
@@ -438,6 +510,7 @@ export class World {
     const bx = Math.floor(x);
     const by = Math.floor(y);
     const bz = Math.floor(z);
+    const allowedActor = this.isAllowed(actor);
     const rx = this.mut.noFluidCaps ? 8 : 2;
     const ry = this.mut.noFluidCaps ? 5 : 1;
     for (let dx = -rx; dx <= rx; dx++) {
@@ -447,7 +520,7 @@ export class World {
           const ty = by + dy;
           const tz = bz + dz;
           if (!this.inBounds(tx, ty, tz)) continue;
-          if (this.zone(tx, ty, tz) === Z.CORE && !this.mut.noCoreGuard) continue;
+          if (this.canEdit(actor, tx, ty, tz, B.AIR, allowedActor) === 0) continue;
           if (this.get(tx, ty, tz) !== B.AIR) continue;
           if (!this.mut.noFluidCaps && this.fluid.size >= CFG.MAX_FLUID) {
             this.stats.maxFluid = Math.max(this.stats.maxFluid, this.fluid.size);
@@ -462,7 +535,6 @@ export class World {
         }
       }
     }
-    void actor;
     return true;
   }
 

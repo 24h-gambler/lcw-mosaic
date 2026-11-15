@@ -4,8 +4,6 @@ import {
   BilateralTradePanel,
   Button,
   Card,
-  GuestPassEndModal,
-  Panel,
   TOKENS,
   TeacherScriptBanner
 } from '@lcw/ui';
@@ -26,8 +24,7 @@ import {
   GuestClaimCard,
   GuestPassEndScreen,
   ParentLessonWindowView,
-  PossessionPanel,
-  TryExperience
+  PossessionPanel
 } from './WebUx.js';
 import { handleDirectorKeydown } from './director.js';
 import { WEB_UX_STRINGS_KO as UX } from './strings.js';
@@ -36,28 +33,8 @@ import { StudentJoin } from './StudentJoin.js';
 import { ParentReportPage } from './ParentReportPage.js';
 import { DeviceLinkPage, FamilyPage } from './FamilyPage.js';
 import { reportTokenFromPath } from './lessonFlow.js';
-
-/** Public site menu (docs/14 §2). Signed-in screens (dashboard, report, window, director, claim) are reached by link, not listed. */
-export const PUBLIC_NAV: ReadonlyArray<{ route: AppRoute; label: string }> = [
-  { route: '/', label: UX.site.nav.home },
-  { route: '/try', label: UX.site.nav.try },
-  { route: '/parents', label: UX.site.nav.parents },
-  { route: '/teachers', label: UX.site.nav.teachers },
-  { route: '/safety', label: UX.site.nav.safety },
-  { route: '/worlds', label: UX.site.nav.worlds }
-];
-
-function shareToParent(): void {
-  const url = typeof window !== 'undefined' ? `${window.location.origin}/parents` : '/parents';
-  const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & { share?: (d: { url: string; title?: string }) => Promise<void> }) : undefined;
-  if (nav?.share) {
-    void nav.share({ url, title: 'LCW' }).catch(() => undefined);
-    return;
-  }
-  void nav?.clipboard?.writeText(url).then(() => {
-    if (typeof window !== 'undefined') window.alert(UX.site.linkCopied);
-  });
-}
+import { SiteRoot } from './site/SiteRoot.js';
+import { isSitePath } from './site/routes.js';
 
 export interface ParentReportState {
   reportId: string;
@@ -102,7 +79,15 @@ export type AppRoute =
   | '/join'
   | '/r'
   | '/family'
-  | '/link';
+  | '/link'
+  // public site (apps/web/src/site, docs/14)
+  | '/pricing'
+  | '/tutoring'
+  | '/terms'
+  | '/privacy'
+  | '/learn'
+  | `/learn/${string}`
+  | `/s/${string}`;
 
 export type ConsentScope = 'voice_store' | 'ai_report_draft' | 'peer_multiplayer' | 'clip_share';
 
@@ -164,38 +149,6 @@ const SAMPLE_CHART_POINTS = [
   { label: '2주', value: 34, note: '기준선 달성' },
   { label: '3주', value: 42, note: '카페·건축 주문 확대' }
 ];
-
-export function ChildPlayPortal(): React.ReactElement {
-  return React.createElement(
-    'section',
-    { 'data-testid': 'child-play-portal', style: { display: 'grid', gap: `${TOKENS.spacing[2]}px` } },
-    React.createElement(
-      Card,
-      { title: '모험 시작하기' },
-      React.createElement(
-        'p',
-        { style: { marginBottom: `${TOKENS.spacing[2]}px` } },
-        '영어로 말해서 꿀차를 주문하고 내 부지에 집을 지어 보세요.'
-      ),
-      React.createElement(
-        'div',
-        { style: { display: 'flex', flexWrap: 'wrap', gap: `${TOKENS.spacing[2]}px` } },
-        React.createElement(
-          Button,
-          {
-            variant: 'brand',
-
-            onClick: () => {
-              if (typeof window !== 'undefined') window.location.assign('/game/');
-            }
-          },
-          UX.site.openGame
-        ),
-        React.createElement(Button, { variant: 'paper', onClick: shareToParent }, UX.site.sendToParent)
-      )
-    )
-  );
-}
 
 export function ParentDashboardView({
   initialShowTables = false
@@ -981,7 +934,6 @@ export function App({
 }: AppProps): React.ReactElement {
   const [route, setRouteState] = useState<AppRoute>(initialRoute);
   const [reportToken, setReportToken] = useState<string | null>(initialReportToken);
-  const [tryPassed, setTryPassed] = useState(false);
   const setRoute = (r: AppRoute) => {
     setRouteState(r);
     if (typeof window !== 'undefined' && window.location.pathname !== r) window.history.pushState(null, '', r);
@@ -1001,9 +953,6 @@ export function App({
     initialReportState ?? DEFAULT_PARENT_REPORT_STATE
   );
 
-  const isPublic = PUBLIC_NAV.some((n) => n.route === route);
-  const navItems = PUBLIC_NAV;
-
   const handleMarkReportOpened = () => {
     setReportState((prev) => ({
       ...prev,
@@ -1012,6 +961,9 @@ export function App({
       nextTargetsUpdated: true
     }));
   };
+
+  // Every public page (docs/14 W01–W09) is owned by the site module; the rest are signed-in or lesson screens.
+  if (isSitePath(route)) return React.createElement(SiteRoot, { initialPath: route });
 
   return React.createElement(
     'div',
@@ -1024,7 +976,7 @@ export function App({
         padding: `${TOKENS.spacing[3]}px`
       }
     },
-    route !== '/play' && route !== '/try' && route !== '/guest-end' && route !== '/join' && route !== '/r'
+    route !== '/guest-end' && route !== '/join' && route !== '/r'
       ? React.createElement(
           'nav',
           {
@@ -1036,22 +988,9 @@ export function App({
               marginBottom: `${TOKENS.spacing[3]}px`
             }
           },
-          isPublic
-            ? navItems.map((item) =>
-                React.createElement(
-                  Button,
-                  {
-                    key: item.route,
-                    variant: route === item.route ? 'brand' : 'paper',
-                    onClick: () => setRoute(item.route)
-                  },
-                  item.label
-                )
-              )
-            : React.createElement(Button, { variant: 'paper', onClick: () => setRoute('/') }, UX.site.backHome)
+          React.createElement(Button, { variant: 'paper', onClick: () => setRoute('/') }, UX.site.backHome)
         )
       : null,
-    route === '/play' && React.createElement(ChildPlayPortal),
     route === '/join' && React.createElement(StudentJoin, null),
     route === '/family' && React.createElement(FamilyPage, null),
     route === '/link' && React.createElement(DeviceLinkPage, null),
@@ -1062,70 +1001,9 @@ export function App({
             token: '',
             initial: { status: 'not_found' }
           })),
-    route === '/try' &&
-      React.createElement(
-        Panel,
-        null,
-        React.createElement('h1', null, '가입 없이 5분 브라우저 체험'),
-        React.createElement('p', null, '찻집에서 영어로 주문하고 내 부지에 집을 지어 보세요.'),
-        React.createElement(TryExperience, { onPassed: () => setTryPassed(true) }),
-        tryPassed ? React.createElement(GuestPassEndModal, { shareUrl: '/parents' }) : null
-      ),
     route === '/guest-end' && React.createElement(GuestPassEndScreen, null),
     route === '/claim' && React.createElement(GuestClaimCard, null),
     route === '/window' && React.createElement(ParentLessonWindowView, null),
-    route === '/parents' &&
-      React.createElement(
-        Card,
-        { title: 'W04 부모·가족 요금 및 7일 환불 정책' },
-        React.createElement(
-          'ul',
-          null,
-          React.createElement('li', null, 'Solo (1좌석): 월 14,900원 / 연 119,000원 (언제든 마이페이지에서 즉시 해지 가능)'),
-          React.createElement(
-            'li',
-            null,
-            'Duo (2좌석): 월 19,900원 / 연 159,000원 (좌석 추가: 월 7,000원 / 연 59,000원)'
-          ),
-          React.createElement('li', null, '결제 후 7일 이내 전액 환불 및 연간 갱신 7일 전 사전 알림')
-        )
-      ),
-    route === '/safety' &&
-      React.createElement(
-        Card,
-        { title: 'W05 5중 안전 장치 및 아동 개인정보 보호' },
-        React.createElement(
-          'p',
-          null,
-          '모든 AI 생성 규칙은 G1-G5 검문과 격자 경계를 통과하며, 아이의 음성은 개별 동의 없이 저장되거나 모델 학습에 쓰이지 않습니다.'
-        )
-      ),
-    route === '/teachers' &&
-      React.createElement(
-        Card,
-        { title: 'W06 선생님 디렉터 좌석 안내' },
-        React.createElement(
-          'p',
-          null,
-          '튜터 좌석은 월 25,000원 정액이며, 선생님이 직접 학생과 진행하는 수업료 수수료는 0%입니다.'
-        )
-      ),
-    route === '/worlds' &&
-      React.createElement(
-        Card,
-        { title: 'W07 정적 쇼룸 월드 둘러보기' },
-        React.createElement(
-          'p',
-          null,
-          '차분한 파스텔 블록 건축 샘플과 잉글리시 코어 광장 건축물을 살펴볼 수 있습니다.'
-        )
-      ),
-    route === '/pass' &&
-      React.createElement(
-        Card,
-        { title: 'W08 친구 게스트 패스 (60분)' },
-        React.createElement('p', null, '승인된 친구 월드로 안전하게 입장합니다.')
-      ),
     route === '/report' &&
       React.createElement(ParentReportView, {
         report: reportState,
@@ -1161,34 +1039,6 @@ export function App({
         },
         onOpenParentReportView: () => setRoute('/report')
         })
-      }),
-    route === '/' &&
-      React.createElement(
-        Panel,
-        null,
-        React.createElement('h1', null, UX.site.heroTitle),
-        React.createElement('p', { style: { marginBottom: `${TOKENS.spacing[3]}px` } }, UX.site.heroBody),
-        React.createElement(
-          'div',
-          { style: { display: 'flex', flexWrap: 'wrap', gap: `${TOKENS.spacing[2]}px`, marginBottom: `${TOKENS.spacing[3]}px` } },
-          React.createElement(Button, { variant: 'brand', onClick: () => setRoute('/parents') }, UX.site.forParents),
-          React.createElement(Button, { variant: 'sky', onClick: () => setRoute('/play') }, UX.site.forPlayers)
-        ),
-        React.createElement(
-          'div',
-          {
-            style: {
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-              gap: `${TOKENS.spacing[2]}px`,
-              marginBottom: `${TOKENS.spacing[3]}px`
-            }
-          },
-          UX.site.steps.map((st) =>
-            React.createElement(Card, { key: st.title, title: st.title }, React.createElement('p', { lang: 'en' }, st.body))
-          )
-        ),
-        React.createElement(Button, { variant: 'leaf', onClick: () => setRoute('/try') }, UX.site.tryCta)
-      )
+      })
   );
 }

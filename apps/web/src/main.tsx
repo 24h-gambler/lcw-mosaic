@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App, type AppRoute } from './App.js';
 import { reportTokenFromPath } from './lessonFlow.js';
+import { isSitePath } from './site/routes.js';
 
 const KNOWN_ROUTES: readonly AppRoute[] = [
   '/',
@@ -27,7 +28,9 @@ const KNOWN_ROUTES: readonly AppRoute[] = [
 export function routeFromPath(pathname: string): AppRoute {
   if (reportTokenFromPath(pathname)) return '/r';
   const clean = (pathname.replace(/\/+$/, '') || '/') as AppRoute;
-  return KNOWN_ROUTES.includes(clean) ? clean : '/';
+  if (KNOWN_ROUTES.includes(clean)) return clean;
+  // Public site paths, including /learn/<slug>, /s/<token> and old aliases (/teachers).
+  return isSitePath(clean) ? clean : '/';
 }
 
 if (typeof document !== 'undefined') {

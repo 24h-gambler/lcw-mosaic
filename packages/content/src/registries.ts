@@ -275,7 +275,34 @@ export const BLOCK_PALETTE: readonly BlockDef[] = [
   { id: 41, key: 'scaffold', category: 'special', blastResistance: 0.1, lightLevel: 0, priceCoins: 2 },
   { id: 42, key: 'nameplate', category: 'special', blastResistance: 2, lightLevel: 0, priceCoins: 10 },
   { id: 43, key: 'carpet', category: 'sector', blastResistance: 0.5, lightLevel: 0, priceCoins: 4 },
-  { id: 44, key: 'flower_pot_block', category: 'sector', blastResistance: 0.5, lightLevel: 0, priceCoins: 5 }
+  { id: 44, key: 'flower_pot_block', category: 'sector', blastResistance: 0.5, lightLevel: 0, priceCoins: 5 },
+  // Town scenery and decoration (world domain, docs/03 D13 "장식"·"흙·모래"·"나무" rows, docs/08 6.1).
+  { id: 45, key: 'leaves', category: 'wood', blastResistance: 0.2, lightLevel: 0, priceCoins: 2 },
+  { id: 46, key: 'water', category: 'special', blastResistance: 100, lightLevel: 0, priceCoins: 0 },
+  { id: 47, key: 'flower_red', category: 'sector', blastResistance: 0, lightLevel: 0, priceCoins: 2 },
+  { id: 48, key: 'flower_yellow', category: 'sector', blastResistance: 0, lightLevel: 0, priceCoins: 2 },
+  { id: 49, key: 'tall_grass', category: 'earth_sand', blastResistance: 0, lightLevel: 0, priceCoins: 1 },
+  { id: 50, key: 'honeycomb', category: 'sector', blastResistance: 1, lightLevel: 0, priceCoins: 6 },
+  { id: 51, key: 'wool_white', category: 'sector', blastResistance: 0.8, lightLevel: 0, priceCoins: 3 },
+  { id: 52, key: 'wool_red', category: 'sector', blastResistance: 0.8, lightLevel: 0, priceCoins: 3 },
+  { id: 53, key: 'wool_yellow', category: 'sector', blastResistance: 0.8, lightLevel: 0, priceCoins: 3 },
+  { id: 54, key: 'wool_blue', category: 'sector', blastResistance: 0.8, lightLevel: 0, priceCoins: 3 },
+  { id: 55, key: 'wool_green', category: 'sector', blastResistance: 0.8, lightLevel: 0, priceCoins: 3 },
+  { id: 56, key: 'wool_orange', category: 'sector', blastResistance: 0.8, lightLevel: 0, priceCoins: 3 },
+  { id: 57, key: 'crate', category: 'wood', blastResistance: 2.5, lightLevel: 0, priceCoins: 4 },
+  { id: 58, key: 'barrel', category: 'wood', blastResistance: 2.5, lightLevel: 0, priceCoins: 5 },
+  { id: 59, key: 'hay_bale', category: 'earth_sand', blastResistance: 0.5, lightLevel: 0, priceCoins: 3 },
+  { id: 60, key: 'cobblestone', category: 'stone', blastResistance: 6, lightLevel: 0, priceCoins: 2 },
+  { id: 61, key: 'bookshelf', category: 'wood', blastResistance: 1.5, lightLevel: 0, priceCoins: 8 },
+  { id: 62, key: 'dark_plank', category: 'wood', blastResistance: 3, lightLevel: 0, priceCoins: 3 },
+  { id: 63, key: 'storage_chest', category: 'special', blastResistance: 2.5, lightLevel: 0, priceCoins: 12 },
+  { id: 64, key: 'dirt_path', category: 'earth_sand', blastResistance: 0.6, lightLevel: 0, priceCoins: 2 },
+  { id: 65, key: 'wool_pink', category: 'sector', blastResistance: 0.8, lightLevel: 0, priceCoins: 3 },
+  { id: 66, key: 'wool_purple', category: 'sector', blastResistance: 0.8, lightLevel: 0, priceCoins: 3 },
+  { id: 67, key: 'terracotta_honey', category: 'stone', blastResistance: 4, lightLevel: 0, priceCoins: 5 },
+  { id: 68, key: 'flower_blue', category: 'sector', blastResistance: 0, lightLevel: 0, priceCoins: 2 },
+  { id: 69, key: 'chalkboard', category: 'sector', blastResistance: 2, lightLevel: 0, priceCoins: 6 },
+  { id: 70, key: 'stone_brick', category: 'stone', blastResistance: 6, lightLevel: 0, priceCoins: 4 }
 ];
 
 export interface PartDef {

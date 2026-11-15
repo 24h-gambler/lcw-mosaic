@@ -425,6 +425,19 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     camDist = s.camDist ?? CAM_DIST_DEFAULT;
   }
 
+  /** A lesson can pause the world without a tap on an NPC: frame whoever stands closest (counters are ~4 m wide). */
+  function focusNearest(): void {
+    if (focusNpc) return;
+    let best = 6;
+    for (const n of npcs.values()) {
+      const d = Math.hypot(n.pos.x - body.x, n.pos.z - body.z);
+      if (d < best) {
+        best = d;
+        focusNpc = n;
+      }
+    }
+  }
+
   let travel: Promise<void> | null = null;
   async function goToScene(target: SceneId): Promise<void> {
     if (disposed) return;
@@ -442,16 +455,24 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         autoStuck = 0;
         autoTime = 0;
         lastAutoPos.set(body.x, body.y, body.z);
-        while (autopilot.length > 0 && !disposed) {
+        while (autopilot.length > 0 && !disposed && !paused) {
           await wait(50);
           if (autoStuck > 0.9 || autoTime > 9) break;
         }
-        if (autopilot.length > 0) {
-          autopilot = [];
+        autopilot = [];
+        // Arrival is judged by position, not by the path running out: a pause (a dialog opening in the same tick as
+        // a lesson step, setPaused clears the walk) or a stuck walk must still end in the target scene.
+        const spot = SCENES[target].player;
+        if (Math.hypot(body.x - spot.x, body.z - spot.z) > 1.5) {
           sfx.play('wld.door');
           await hud.fadeTo(SCENE_TITLES_KO[target], () => {
             snapToScene(target);
             placeNpcForScene(target, false);
+            chunks.update(body.x, body.z, tier.viewChunks, 32);
+            if (paused) {
+              focusNpc = null;
+              focusNearest();
+            }
           });
         } else {
           // settle on the exact spot and facing
@@ -466,6 +487,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
           snapToScene(target);
           placeNpcForScene(target, false);
           chunks.update(body.x, body.z, tier.viewChunks, 32);
+          if (paused) {
+            focusNpc = null;
+            focusNearest();
+          }
         });
       }
       currentScene = target;
@@ -538,9 +563,15 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   camPos.set(body.x - Math.sin(camYaw) * camDist, body.y + 3, body.z - Math.cos(camYaw) * camDist);
 
   // ---- Resize.
+  // CSS size of the canvas, cached here: reading clientWidth every frame after the HUD wrote to the DOM forced a
+  // layout per frame (the largest main-thread cost in a profile on a fast GPU).
+  let viewW = window.innerWidth;
+  let viewH = window.innerHeight;
   const resize = (): void => {
     const w = canvas.clientWidth || hudParent.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || hudParent.clientHeight || window.innerHeight;
+    viewW = w;
+    viewH = h;
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(1, h);
     camera.fov = camera.aspect < 0.8 ? 80 : 70;
@@ -548,14 +579,15 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   };
   resize();
   window.addEventListener('resize', resize);
+  // the canvas can also change size without a window resize (panels, rotation on some tablets)
+  const resizeObs = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null;
+  resizeObs?.observe(canvas);
 
   // ---- Frame loop.
   const tmp = new THREE.Vector3();
   const project = (x: number, y: number, z: number): { sx: number; sy: number; vis: boolean } => {
     tmp.set(x, y, z).project(camera);
-    const w = canvas.clientWidth || window.innerWidth;
-    const h = canvas.clientHeight || window.innerHeight;
-    return { sx: (tmp.x * 0.5 + 0.5) * w, sy: (-tmp.y * 0.5 + 0.5) * h, vis: tmp.z < 1 && tmp.z > -1 };
+    return { sx: (tmp.x * 0.5 + 0.5) * viewW, sy: (-tmp.y * 0.5 + 0.5) * viewH, vis: tmp.z < 1 && tmp.z > -1 };
   };
   const forward = new THREE.Vector3();
   let last = performance.now();
@@ -805,17 +837,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         body.vx = 0;
         body.vz = 0;
         if (!focusNpc && nearNpc) focusNpc = nearNpc;
-        if (!focusNpc) {
-          // A lesson can pause the world without a tap on an NPC: frame whoever stands closest (counters are ~4 m wide).
-          let best = 6;
-          for (const n of npcs.values()) {
-            const d = Math.hypot(n.pos.x - body.x, n.pos.z - body.z);
-            if (d < best) {
-              best = d;
-              focusNpc = n;
-            }
-          }
-        }
+        focusNearest();
       } else {
         focusNpc = null;
         camYaw = playerYaw;
@@ -831,6 +853,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       window.removeEventListener('pointermove', pointerMove);
       window.removeEventListener('pointerup', pointerUp);
       window.removeEventListener('resize', resize);
+      resizeObs?.disconnect();
       canvas.removeEventListener('pointerdown', pointerDown);
       canvas.removeEventListener('wheel', wheel);
       chunks.dispose();

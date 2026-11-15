@@ -25,46 +25,72 @@ function rgb(hex: number, mul = 1): string {
   return `rgb(${r},${g},${b})`;
 }
 
-// Face canvas: 64 x 64. The face fills [0, 48) x [0, 48); the white texel block at (56..64) colours every other face.
+// Face sheet: every mouth x blink state is painted once into a 4 x 3 grid of 64 px cells, and changing the face only
+// moves the texture window (no canvas redraw and no texture upload while NPCs talk and blink). In each cell the face
+// fills [0, 48) x [0, 48) and the white texel block at (52..64) colours every other face. Cells are pre-filled with
+// skin so linear filtering at a cell edge never bleeds a dark seam.
 const FACE_PX = 64;
 const FACE_W = 48;
 const WHITE_UV = (60 / FACE_PX);
+const MOUTHS: readonly Mouth[] = ['closed', 'small', 'big', 'wide', 'o', 'smile'];
+const SHEET_COLS = 4;
+const SHEET_ROWS = 3;
+
+/** Grid cell (column, row from the top) that holds a face state. */
+export function faceCell(mouth: Mouth, blink: boolean): { col: number; row: number } {
+  const i = MOUTHS.indexOf(mouth) * 2 + (blink ? 1 : 0);
+  return { col: i % SHEET_COLS, row: Math.floor(i / SHEET_COLS) };
+}
 
 class FacePainter {
   readonly texture: THREE.Texture;
-  private ctx: CanvasRenderingContext2D | null;
   private last = '';
 
   constructor(private look: NpcLook) {
     if (typeof document !== 'undefined') {
       const canvas = document.createElement('canvas');
-      canvas.width = FACE_PX;
-      canvas.height = FACE_PX;
-      this.ctx = canvas.getContext('2d');
+      canvas.width = FACE_PX * SHEET_COLS;
+      canvas.height = FACE_PX * SHEET_ROWS;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        for (const m of MOUTHS) {
+          for (const blink of [false, true]) {
+            const { col, row } = faceCell(m, blink);
+            ctx.save();
+            ctx.translate(col * FACE_PX, row * FACE_PX);
+            this.paint(ctx, m, blink);
+            ctx.restore();
+          }
+        }
+      }
       this.texture = new THREE.CanvasTexture(canvas);
     } else {
-      this.ctx = null;
       this.texture = new THREE.Texture();
     }
     this.texture.magFilter = THREE.LinearFilter;
     this.texture.minFilter = THREE.LinearFilter;
     this.texture.generateMipmaps = false;
     this.texture.colorSpace = THREE.SRGBColorSpace;
+    this.texture.repeat.set(1 / SHEET_COLS, 1 / SHEET_ROWS);
     this.draw('smile', false);
   }
 
+  /** Show a face state by moving the texture window onto its cell (flipY: v grows upward). */
   draw(mouth: Mouth, blink: boolean): void {
     const key = `${mouth}:${blink}`;
-    if (key === this.last || !this.ctx) return;
+    if (key === this.last) return;
     this.last = key;
-    const c = this.ctx;
+    const { col, row } = faceCell(mouth, blink);
+    this.texture.offset.set(col / SHEET_COLS, (SHEET_ROWS - 1 - row) / SHEET_ROWS);
+  }
+
+  private paint(c: CanvasRenderingContext2D, mouth: Mouth, blink: boolean): void {
     const L = this.look;
     const W = FACE_W;
-    c.clearRect(0, 0, FACE_PX, FACE_PX);
+    c.fillStyle = rgb(L.skin);
+    c.fillRect(0, 0, FACE_PX, FACE_PX);
     c.fillStyle = '#ffffff';
     c.fillRect(52, 52, 12, 12);
-    c.fillStyle = rgb(L.skin);
-    c.fillRect(0, 0, W, W);
     // soft vertical shading: lighter forehead
     const g = c.createLinearGradient(0, 0, 0, W);
     g.addColorStop(0, 'rgba(255,255,255,0.10)');
@@ -149,7 +175,6 @@ class FacePainter {
         c.stroke();
         break;
     }
-    this.texture.needsUpdate = true;
   }
 }
 

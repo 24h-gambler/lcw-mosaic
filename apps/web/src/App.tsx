@@ -20,6 +20,16 @@ import {
   calculateTradeSettlement,
   evaluateMentorDungeonGate
 } from '@lcw/sim-core';
+import type { LessonBookmark } from '@lcw/metrics';
+import {
+  DirectorBookmarkPanel,
+  GuestClaimCard,
+  GuestPassEndScreen,
+  ParentLessonWindowView,
+  PossessionPanel,
+  TryExperience
+} from './WebUx.js';
+import { handleDirectorKeydown } from './director.js';
 
 export interface ParentReportState {
   reportId: string;
@@ -57,7 +67,10 @@ export type AppRoute =
   | '/pass'
   | '/report'
   | '/dashboard'
-  | '/director';
+  | '/director'
+  | '/guest-end'
+  | '/claim'
+  | '/window';
 
 export type ConsentScope = 'voice_store' | 'ai_report_draft' | 'peer_multiplayer' | 'clip_share';
 
@@ -406,6 +419,14 @@ export function ParentReportView({
   );
 }
 
+type NpcId = 'cafe' | 'boutique' | 'makers_lab';
+const NPC_IDS: readonly NpcId[] = ['cafe', 'boutique', 'makers_lab'];
+const NPC_LABELS: Readonly<Record<string, string>> = {
+  cafe: '카페 주인',
+  boutique: '옷가게 주인',
+  makers_lab: '메이커스 랩 주인'
+};
+
 export interface TeacherDirectorViewProps {
   reportState?: ParentReportState;
   onSendReportToParent?: (params: {
@@ -424,7 +445,18 @@ export function TeacherDirectorView({
   onTriggerReminder,
   onOpenParentReportView
 }: TeacherDirectorViewProps): React.ReactElement {
-  const [possessedNpc, setPossessedNpc] = useState<'cafe' | 'boutique' | 'makers_lab'>('cafe');
+  const [possessedNpc, setPossessedNpc] = useState<NpcId | null>('cafe');
+  const [bookmarks, setBookmarks] = useState<LessonBookmark[]>([]);
+  const lessonStartRef = useRef<number>(Date.now());
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      handleDirectorKeydown(e, Date.now() - lessonStartRef.current, (b) =>
+        setBookmarks((prev) => [...prev, b])
+      );
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const trackerRef = useRef<LessonProgressionTracker | null>(null);
   if (!trackerRef.current) {
     trackerRef.current = new LessonProgressionTracker();
@@ -478,7 +510,7 @@ export function TeacherDirectorView({
   const arcStages = tracker.getAllProgress();
 
   const handleCompleteStage = () => {
-    tracker.completeCurrentStage(`NPC=${possessedNpc} 확인 완료`);
+    tracker.completeCurrentStage(`NPC=${possessedNpc ?? 'none'} 확인 완료`);
     setStageScriptSpoken(false);
     setTrackerTick((n) => n + 1);
   };
@@ -598,7 +630,7 @@ export function TeacherDirectorView({
       React.createElement(
         'div',
         { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap', marginBottom: `${TOKENS.spacing[2]}px` } },
-        (['cafe', 'boutique', 'makers_lab'] as const).map((ctx) =>
+        NPC_IDS.map((ctx) =>
           React.createElement(
             Button,
             {
@@ -610,6 +642,13 @@ export function TeacherDirectorView({
           )
         )
       ),
+      React.createElement(PossessionPanel, {
+        possessedNpc,
+        npcIds: NPC_IDS,
+        npcLabels: NPC_LABELS,
+        onRelease: () => setPossessedNpc(null)
+      }),
+      React.createElement(DirectorBookmarkPanel, { bookmarks }),
       React.createElement(
         'div',
         {
@@ -905,6 +944,8 @@ export function App({
     { route: '/worlds', label: '월드 구경 (W07)' },
     { route: '/report', label: '수업 리포트 (W09)' },
     { route: '/dashboard', label: '부모 대시보드 (P01)' },
+    { route: '/window', label: '수업 창문 (P04)' },
+    { route: '/claim', label: '게스트 보관함 이어받기' },
     { route: '/director', label: '디렉터 콘솔 (T02)' }
   ];
 
@@ -928,7 +969,7 @@ export function App({
         padding: `${TOKENS.spacing[3]}px`
       }
     },
-    route !== '/play' && route !== '/try'
+    route !== '/play' && route !== '/try' && route !== '/guest-end'
       ? React.createElement(
           'nav',
           {
@@ -960,8 +1001,12 @@ export function App({
         null,
         React.createElement('h1', null, '가입 없이 5분 브라우저 체험'),
         React.createElement('p', null, '찻집에서 영어로 주문하고 내 부지에 집을 지어 보세요.'),
+        React.createElement(TryExperience, null),
         React.createElement(GuestPassEndModal, { shareUrl: '/report' })
       ),
+    route === '/guest-end' && React.createElement(GuestPassEndScreen, null),
+    route === '/claim' && React.createElement(GuestClaimCard, null),
+    route === '/window' && React.createElement(ParentLessonWindowView, null),
     route === '/parents' &&
       React.createElement(
         Card,

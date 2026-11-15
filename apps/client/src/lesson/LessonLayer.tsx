@@ -60,9 +60,9 @@ export interface LessonLayerProps {
 type LayerWorld = LessonWorld & { playerSay?(text: string): void; getScene?(): string };
 
 /**
- * Walks the world to the stage's scene and checks it arrived. A travel can end early without moving (the dialog
- * window pausing the world at the same moment clears the walk), so one more try settles it; the next poll's
- * resync covers anything after that.
+ * Walks the world to the stage's scene and checks it arrived. The world judges arrival by position and fades in when
+ * a pause (the dialog window remounting on the stage change) cut the walk short; this second try only guards a world
+ * that ends a travel without getting there.
  */
 export async function goToSceneChecked(w: LayerWorld | null, id: LessonSceneId): Promise<void> {
   if (!w) return;
@@ -186,7 +186,9 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     // ✕ on the dialog window folds it away so the child can look at the world; "말하기" brings it back.
     onClose: () => setFoldedKey(panelKey)
   };
-  const external = props.renderDialog?.(npcRef, cfg) ?? null;
+  // No sentences yet (before the first poll, a stage without targets): the dialog window would fill in its own solo
+  // bank and send those lines as lesson answers, so our panel (free talk, the teacher's goal) stands in until they come.
+  const external = view.offers.length > 0 ? (props.renderDialog?.(npcRef, cfg) ?? null) : null;
 
   if (external) {
     // The dialog window is a full-screen modal (dim backdrop, z 40): our banner and status go on a layer above it,

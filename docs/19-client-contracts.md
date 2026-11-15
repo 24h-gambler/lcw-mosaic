@@ -83,6 +83,8 @@ export interface DialogPanelProps {
 - `DialogPanelProps`에 선택 필드 `npcLine?`(NPC 첫 질문, 없으면 맥락별 기본 대사), `fontScale?`(1~1.5), `speech?`(시험·미리보기용 음성 엔진).
 - `DialogPanel.tsx`는 `DialogPanel`과 함께 `createSoloSubmit(npc)`(학생 토큰으로 `/v1/converse/score`), `createLessonSubmit({token})`을 내보냅니다. 혼자 경로에서 서버는 토큰에서 학생·집 월드(`home-<player>`, 처음에 시작 코인 1회)·레벨을 정하고, 별·가격·아이템을 문장 뱅크에서 정합니다(요청의 `price`·`item_id`는 무시).
 - 입력 사다리: 브라우저 음성 인식(en-US) → 안 되면(카카오톡 등 인앱 브라우저, 미지원, 권한 거부, 2회 연속 못 들음) 단어 카드 조합판 → 글자 입력. 카드·글자 입력은 별 2개까지(`04` 4.1). 기기 내·서버 Whisper는 같은 `SpeechEngine` 인터페이스로 붙습니다.
+  - 서버 Whisper(`dialog/server-stt.ts`, `createDialogSpeechEngine`이 기본값): 브라우저 인식이 없고 아이 토큰(수업 학생 토큰 또는 기기 토큰)이 있으면 한 턴을 MediaRecorder Opus 16kbps로 녹음해 `POST /v1/converse/stt`(본문 = 오디오, `x-lcw-audio-ms`)에 한 번 보냅니다. 실시간 자막이 없으므로 마이크 음량(RMS 0.02 이상)이 "말하는 중" 신호이고(`interimIsText: false`, 점만 보임), 멈춘 뒤 9초까지 결과를 기다립니다. 소리가 없었으면 올리지 않습니다(한도도 안 씀).
+  - 서버(`apps/edge/src/stt.ts`): 아이 토큰만, 좌석 멈춤이면 403, 15초·160KB 넘으면 413. 한도 계기(`canUseServerStt`: 강등 사다리 + 좌석 하루 40분)가 거절하면 429 → 클라이언트는 `unsupported`로 받아 단어 카드로. 길이(주장값과 16kbps 크기 추정 중 큰 값)로 뉴런을 먼저 차감한 뒤 Workers AI `@cf/openai/whisper-large-v3-turbo`(`language:'en'`)를 부릅니다. 모델에는 오디오와 언어만 가고 누가 말했는지는 가지 않으며, 오디오는 저장·기록하지 않습니다(AGENTS 4장 5·6·8). 채점은 그대로 `/v1/converse/score`(`stt_source:'workers_ai'`).
 - NPC 맥락: 카페 주인 `cafe`, 물물교환 상점 주인 `trade_shop`(상점 거래 뱅크, 가격 0), 광장 안내인 `guide`(길 묻기 뱅크 — 카페·교환 상점, 가격 0).
 - 기억 카드·복습(WP-310·406, `03` D8, `09` P4, 2026-11-16):
   - 혼자 경로에서 2성 이상으로 통과하고 무언가를 얻은 문장(산 아이템, 가격 0 문장이면 말한 대상)은 `memory_cards` 한 줄이 됩니다(`mc-<dialog_id>`, 한 창에 하나 — "별 하나 더"는 같은 카드를 더 좋은 문장으로 바꿈). 첫 복습은 20분 뒤이고 응답의 `memory_card.next_review_at`이 그 시각입니다. 코인이 모자라 아무것도 못 샀으면 카드도 없습니다. 산 아이템 행(`items.card_id`)에 카드가 붙습니다.

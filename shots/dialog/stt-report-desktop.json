@@ -1,0 +1,24 @@
+{
+ "view": "desktop",
+ "engine": {
+  "sr": false,
+  "mr": "function"
+ },
+ "stt": [
+  {
+   "status": 200,
+   "type": "audio/webm;codecs=opus",
+   "audio_ms": "5801",
+   "bytes": 0,
+   "body": {
+    "transcript": "Cold water, please.",
+    "confidence": 0.592,
+    "stt_sec": 5.8,
+    "source": "workers_ai"
+   }
+  }
+ ],
+ "result": "★ ★ ★ Coldwater,please. 통과! 다음엔 별 하나 더 도전해 볼까요? 🪙 184 코인 별 하나 더 도전 좋아요!",
+ "mic_to_result_ms": 10897,
+ "errs": []
+}

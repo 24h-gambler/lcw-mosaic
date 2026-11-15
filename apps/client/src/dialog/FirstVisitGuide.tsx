@@ -5,7 +5,8 @@ import type { WorldHandle } from '../world/api.js';
 import { errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
 import { MicController, type MicView } from './mic-controller.js';
 import { micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
-import { createBrowserSpeechEngine, type SpeechEngine } from './speech.js';
+import type { SpeechEngine } from './speech.js';
+import { createDialogSpeechEngine } from './server-stt.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 
 /**
@@ -177,7 +178,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
 
 /** The first screen: headset tip, volume with a guardian, and a short "Hello!" mic check (skippable). */
 function IntroCard(props: { speech?: SpeechEngine; onDone: () => void }): React.ReactElement {
-  const engine = useMemo(() => props.speech ?? createBrowserSpeechEngine(), [props.speech]);
+  const engine = useMemo(() => props.speech ?? createDialogSpeechEngine(), [props.speech]);
   const ok = useMemo(() => engine.availability().ok, [engine]);
   const [mic, setMic] = useState<MicView>({ recording: false, interim: '', hangover: false, level: 0 });
   const [note, setNote] = useState<string | null>(ok ? null : F.micNone);

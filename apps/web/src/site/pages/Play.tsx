@@ -20,7 +20,9 @@ import {
   type Vox
 } from '../voxel.js';
 
-const BUILD_STEP_MS = 60;
+/** About 40 frames per build at 7 fps: reads as block-by-block without re-drawing the scene 16 times a second. */
+const BUILD_STEP_MS = 140;
+const BUILD_FRAMES = 40;
 
 /** Empty plot → three-storey house, one block at a time, while the montage is on screen. */
 export function BuildMontage({ unit = 7 }: { unit?: number }): React.ReactElement {
@@ -41,8 +43,11 @@ export function BuildMontage({ unit = 7 }: { unit?: number }): React.ReactElemen
   useEffect(() => {
     if (!visible) return undefined;
     setN(0);
-    const per = Math.max(1, Math.ceil(order.length / 70));
-    const id = setInterval(() => setN((v) => (v >= order.length + per * 20 ? 0 : v + per)), BUILD_STEP_MS);
+    const per = Math.max(1, Math.ceil(order.length / BUILD_FRAMES));
+    const id = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      setN((v) => (v >= order.length + per * 10 ? 0 : v + per));
+    }, BUILD_STEP_MS);
     return () => clearInterval(id);
   }, [visible, order.length]);
   const shown = n >= order.length;

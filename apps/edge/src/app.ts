@@ -22,6 +22,9 @@ import {
 } from '@lcw/metrics';
 import { inspectSpecG1ToG5 } from '@lcw/guard';
 import type { ConsentScope, EdgePlatformDb, LessonDO, WorldDO } from './storage.js';
+import { indexedPrice } from './economy.js';
+import { claimReadAloud, isFurnitureKind, priceWithReadAloud, readAloudStatus } from './furniture.js';
+import { attemptReview, createMemoryCard, listMemoryCards, listReviewSigns, memoryCardId } from './review.js';
 
 export interface EdgeRuntimeDeps {
   db: EdgePlatformDb;
@@ -30,6 +33,8 @@ export interface EdgeRuntimeDeps {
   quota: QuotaMeter;
   nowMs: () => number;
   runWorkersAi?: (model: string, input: LlmConverseInput) => Promise<unknown>;
+  /** docs/09 P7: the world's weekly price index (1 when absent). Multiplies that world's shop prices. */
+  priceIndex?: (worldId: string) => number;
 }
 
 const ConsentUpdateBodySchema = z
@@ -146,6 +151,33 @@ const ScoreExtendedRequestSchema = ScoreRequestSchema.extend({
   confidence: z.number().finite().min(0).max(1).default(0.95)
 }).strict();
 
+const ReadAloudBodySchema = z
+  .object({
+    player_id: z.string().min(1),
+    world_id: z.string().min(1),
+    level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).default('L1'),
+    kind: z.string().min(1).max(20),
+    transcript: z.string().max(400),
+    stt_source: z.enum(['device', 'workers_ai', 'browser', 'keyboard', 'board']).default('browser'),
+    confidence: z.number().finite().min(0).max(1).default(0.9),
+    dur_ms: z.number().int().min(0).max(60_000).default(3000)
+  })
+  .strict();
+
+const ReviewAttemptBodySchema = z
+  .object({
+    player_id: z.string().min(1),
+    world_id: z.string().min(1),
+    level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).default('L1'),
+    card_id: z.string().min(1).max(120),
+    transcript: z.string().max(400),
+    stt_source: z.enum(['device', 'workers_ai', 'browser', 'keyboard', 'board']).default('browser'),
+    confidence: z.number().finite().min(0).max(1).default(0.9),
+    dur_ms: z.number().int().min(0).max(60_000).default(3000),
+    latency_ms: z.number().int().min(0).max(600_000).default(1500)
+  })
+  .strict();
+
 /**
  * Strips all player identifiers and raw voice fields before passing context to Workers AI (AGENTS.md 4.6).
  */
@@ -242,6 +274,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     let grantedItem: string | null = null;
     let askedKey: string | undefined;
     let shortOfCoins = false;
+    let readAloudPct = 0;
     let coinsTotal: number | undefined;
     const worldDo = deps.worlds.get(req.world_id);
     if (decision.stars > 0 && decision.bank) {
@@ -257,10 +290,24 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         );
         const alreadyBought = Number(paidRow?.n ?? 0) > 0;
         const paid = Number(paidRow?.paid ?? 0);
-        const price = decision.priceCoins;
+        // The world's own weekly price index (docs/09 P7), then for furniture today's read-aloud discount of its kind (docs/03 D13), bound to this purchase.
+        const listedPrice = indexedPrice(decision.priceCoins, deps.priceIndex?.(req.world_id) ?? 1);
+        const priced = priceWithReadAloud(deps.db, {
+          playerId: req.player_id,
+          itemKey,
+          price: listedPrice,
+          ref,
+          nowMs,
+          commit: false
+        });
+        const price = priced.price;
+        readAloudPct = priced.discountPct;
         const reason = `purchase:${req.npc_ctx}:${itemKey}:${decision.stars}`;
         if (!alreadyBought) {
           if (worldDo.getPlayerBalance(req.player_id) >= price) {
+            if (priced.discountPct > 0) {
+              priceWithReadAloud(deps.db, { playerId: req.player_id, itemKey, price: listedPrice, ref, nowMs, commit: true });
+            }
             coinsDelta = -price;
             worldDo.appendLedger(req.player_id, coinsDelta, reason, ref, nowMs);
             grantedItem = itemKey;
@@ -319,6 +366,27 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       deps.db.recordSoloExpressionReuse(req.player_id, req.transcript, nowMs);
     }
 
+    // docs/03 D8: a 2+ star sentence becomes a memory card bound to what it got (the bought item, or for price-0
+    // sentences the thing it named). Nothing bought (short of coins) → nothing to wear out → no card.
+    const cardItemId = grantedItem
+      ? `buy-${req.dialog_id}|${grantedItem}`
+      : askedKey
+        ? `ask-${req.dialog_id}|${askedKey}`
+        : null;
+    const card =
+      decision.pass && cardItemId && req.session_kind !== 'lesson'
+        ? createMemoryCard(deps.db, {
+            cardId: memoryCardId(req.dialog_id),
+            playerId: req.player_id,
+            utteranceId: uttId,
+            itemId: cardItemId,
+            origin: 'solo',
+            stars: decision.stars,
+            nowMs,
+            world: worldDo
+          })
+        : null;
+
     const out = ScoreResponseSchema.parse({
       pass: decision.pass,
       score: decision.score,
@@ -335,16 +403,69 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       feedback_ko: converseFeedbackKo({ ...decision, inputSource: req.stt_source, shortOfCoins }),
       coins_total: coinsTotal,
       asked_key: askedKey,
+      read_aloud_discount_pct: grantedItem && readAloudPct > 0 ? readAloudPct : undefined,
       target_text: decision.targetText !== req.target_text ? decision.targetText : undefined,
-      memory_card: decision.pass
-        ? {
-            id: `card-${req.dialog_id}`,
-            next_review_at: new Date(nowMs + 86_400_000).toISOString()
-          }
-        : null
+      memory_card: card ? { id: card.id, next_review_at: new Date(card.next_review_at).toISOString() } : null
     });
 
     return c.json(out);
+  });
+
+  // Review signs (docs/09 P4) and review attempts (docs/03 D8). The platform fills player_id/world_id from the
+  // student or device token; with the operator token they are read from the request.
+  app.get('/v1/review/due', (c) => {
+    const playerId = c.req.query('player_id') ?? '';
+    const worldId = c.req.query('world_id') ?? '';
+    if (!playerId) return c.json({ error: 'player_id_required' }, 400);
+    return c.json(listReviewSigns(deps.db, deps.worlds.get(worldId), playerId, deps.nowMs()));
+  });
+
+  // Read-aloud furniture discount (docs/03 D13): the build screen sends what the child read for one missing kind.
+  app.post('/v1/furniture/read-aloud', async (c) => {
+    const parsed = ReadAloudBodySchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: 'invalid_read_aloud_request', issues: parsed.error.issues }, 400);
+    const b = parsed.data;
+    if (!isFurnitureKind(b.kind)) return c.json({ error: 'not_a_furniture_kind' }, 400);
+    return c.json(
+      claimReadAloud(deps.db, {
+        playerId: b.player_id,
+        worldId: b.world_id,
+        kind: b.kind,
+        transcript: b.transcript,
+        sttSource: b.stt_source,
+        confidence: b.confidence,
+        durMs: b.dur_ms,
+        level: b.level,
+        nowMs: deps.nowMs()
+      })
+    );
+  });
+
+  app.get('/v1/furniture/discounts', (c) => {
+    const playerId = c.req.query('player_id') ?? '';
+    if (!playerId) return c.json({ error: 'player_id_required' }, 400);
+    return c.json(readAloudStatus(deps.db, playerId, deps.nowMs()));
+  });
+
+  app.post('/v1/review/attempt', async (c) => {
+    const parsed = ReviewAttemptBodySchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: 'invalid_review_request', issues: parsed.error.issues }, 400);
+    const b = parsed.data;
+    const r = attemptReview(deps.db, deps.worlds.get(b.world_id), {
+      playerId: b.player_id,
+      worldId: b.world_id,
+      cardId: b.card_id,
+      transcript: b.transcript,
+      sttSource: b.stt_source,
+      confidence: b.confidence,
+      durMs: b.dur_ms,
+      latencyMs: b.latency_ms,
+      level: b.level,
+      nowMs: deps.nowMs()
+    });
+    if (!r.ok) return c.json({ error: r.error }, r.status);
+    const { ok: _ok, ...body } = r;
+    return c.json(body);
   });
 
   app.post('/v1/consents', async (c) => {
@@ -666,7 +787,20 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         reuse_solo: e.reuse_solo,
         last_used_at: e.last_used_at
       })),
-      [],
+      // Lesson-born memory cards feed the 35-day retention rate (WP-310).
+      listMemoryCards(deps.db, req.player_id).map((m) => ({
+        id: m.id,
+        player_id: m.player_id,
+        origin: m.origin,
+        lesson_id: null,
+        box: Number(m.box),
+        next_review_at: Number(m.next_review_at),
+        lapses: Number(m.lapses),
+        created_at: Number(
+          deps.db.sql.get<{ at: number }>('select created_at as at from utterances where id = ?', [m.utterance_id])?.at ?? 0
+        ),
+        mastered_at: m.mastered_at === null ? null : Number(m.mastered_at)
+      })),
       nowMs
     );
 

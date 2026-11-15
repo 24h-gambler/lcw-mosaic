@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { FREE_TIER_LIMITS, QuotaMeter } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
+import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
 import {
   createDurableSqliteExecutor,
   prefixedExecutor,
@@ -207,7 +208,8 @@ export class PlatformDO {
       nowMs: () => Date.now(),
       // The understand route awaits the model but does not use its answer yet, so calling it would only burn the
       // daily Workers AI budget. Wire runAiCapped back in when the LLM reply is consumed (docs/04 §4.4).
-      runWorkersAi: undefined
+      runWorkersAi: undefined,
+      priceIndex: (worldId) => priceIndexOf(this.sql, worldId)
     });
     return buildGatedApp(inner, this.env, this);
   }
@@ -332,7 +334,9 @@ export class PlatformDO {
           'select distinct player_id from utterances where created_at >= ?',
           [now - 7 * 86_400_000]
         );
-        detail = { players_with_speech: players.length };
+        // docs/09 P7: each world's price index from its own income vs spend (never server-wide).
+        const prices = runWeeklyPriceIndexes(this.sql, now);
+        detail = { players_with_speech: players.length, price_index: prices };
       } else {
         const r = this.db.processPendingReportReminders(now);
         detail = { reminded: r.remindedCount, seat_notices: sweepSeatNotices(this.sql, now) };
@@ -415,35 +419,88 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
   // or outside a lesson with their linked device token. Who, which world and which level come from the token and
   // the server, never from the body (AGENTS 4.7).
-  app.post('/v1/converse/score', async (c, next) => {
-    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
-    const student = await platform.studentFromRequest(c.req.raw);
-    const device = student ? null : await platform.deviceFromRequest(c.req.raw);
-    const s = student
-      ? { player_id: student.player_id, session_id: `solo-${student.lesson_id}` }
-      : device
-        ? { player_id: device.player_id, session_id: `solo-${device.device_id}` }
-        : null;
-    if (!s) return next();
-    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ error: 'invalid_score_request' }, 400);
-    const forwarded = {
-      ...body,
-      strict_bank: true,
+  const soloPlayer = async (req: Request): Promise<{ player_id: string; session_id: string } | null> => {
+    const student = await platform.studentFromRequest(req);
+    if (student) return { player_id: student.player_id, session_id: `solo-${student.lesson_id}` };
+    const device = await platform.deviceFromRequest(req);
+    return device ? { player_id: device.player_id, session_id: `solo-${device.device_id}` } : null;
+  };
+  /** Forwards a child's own request to the inner app with who/which world/level filled in by the server. */
+  const forwardSolo = (
+    url: string,
+    s: { player_id: string; session_id: string },
+    body: Record<string, unknown> | null,
+    extra: (p: { player_id: string; world_id: string; level: string; session_id: string }) => Record<string, unknown>
+  ): Promise<Response> => {
+    const ids = {
       player_id: s.player_id,
       world_id: platform.ensureHomeWorld(s.player_id),
-      session_kind: 'solo',
-      session_id: s.session_id,
       level: platform.playerLevel(s.player_id),
-      interlocutor: 'npc'
+      session_id: s.session_id
     };
-    return inner.fetch(
-      new Request(c.req.url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(forwarded)
-      })
+    if (body === null) {
+      const u = new URL(url);
+      for (const [k, v] of Object.entries(extra(ids))) u.searchParams.set(k, String(v));
+      return Promise.resolve(inner.fetch(new Request(u.toString(), { method: 'GET' })));
+    }
+    return Promise.resolve(
+      inner.fetch(
+        new Request(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...body, ...extra(ids) })
+        })
+      )
     );
+  };
+  const readBody = async (c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown> | null> => {
+    const body = (await c.req.json().catch(() => null)) as unknown;
+    return body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+  };
+  app.post('/v1/converse/score', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const body = await readBody(c);
+    if (!body) return c.json({ error: 'invalid_score_request' }, 400);
+    return forwardSolo(c.req.url, s, body, (p) => ({
+      strict_bank: true,
+      player_id: p.player_id,
+      world_id: p.world_id,
+      session_kind: 'solo',
+      session_id: p.session_id,
+      level: p.level,
+      interlocutor: 'npc'
+    }));
+  });
+  // Memory-card reviews (docs/03 D8): the same tokens, the child's own cards only.
+  app.get('/v1/review/due', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+  });
+  app.post('/v1/furniture/read-aloud', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const body = await readBody(c);
+    if (!body) return c.json({ error: 'invalid_read_aloud_request' }, 400);
+    return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
+  });
+  app.get('/v1/furniture/discounts', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id }));
+  });
+  app.post('/v1/review/attempt', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const body = await readBody(c);
+    if (!body) return c.json({ error: 'invalid_review_request' }, 400);
+    return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
   });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();

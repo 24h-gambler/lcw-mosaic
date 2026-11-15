@@ -1,0 +1,68 @@
+[
+ {
+  "view": "desktop",
+  "waitedMs": 124059,
+  "errs": [],
+  "dock": {
+   "top": 60,
+   "bottom": 152,
+   "left": 968,
+   "right": 1268
+  },
+  "coarse": false,
+  "overlaps": [
+   {
+    "tag": "DIV",
+    "cls": "lw-hud",
+    "text": "지금 할 일\n꿀 카페\n★\n0\nJuno\n1\n2\n3\n4\n5",
+    "top": 0,
+    "bottom": 800
+   }
+  ],
+  "loading": true
+ },
+ {
+  "view": "tablet",
+  "waitedMs": 130367,
+  "errs": [],
+  "dock": {
+   "top": 128,
+   "bottom": 220,
+   "left": 712,
+   "right": 1012
+  },
+  "coarse": true,
+  "overlaps": [
+   {
+    "tag": "DIV",
+    "cls": "lw-hud",
+    "text": "지금 할 일\n꿀 카페\n★\n0\nJuno\n1\n2\n3\n4\n5",
+    "top": 0,
+    "bottom": 768
+   }
+  ],
+  "loading": true
+ },
+ {
+  "view": "phone",
+  "waitedMs": 125074,
+  "errs": [],
+  "dock": {
+   "top": 128,
+   "bottom": 220,
+   "left": 78,
+   "right": 378
+  },
+  "coarse": true,
+  "overlaps": [
+   {
+    "tag": "DIV",
+    "cls": "lw-hud",
+    "text": "지금 할 일\n꿀 카페\n★\n0\nJuno\n1\n2\n3\n4\n5",
+    "top": 0,
+    "bottom": 844
+   }
+  ],
+  "loading": true
+ }
+]

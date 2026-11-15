@@ -504,6 +504,89 @@ for (const level of ['L1', 'L2', 'L3'] as const) {
 }
 
 /**
+ * Furniture at the trade shop (docs/03 D13 "가구는 상점에서 삽니다", world plan: Toby's shop sells it). Unlike the
+ * barter goods these cost coins at the star prices of docs/04 4.2. `role` is the furniture kind of the room check
+ * (light / rest / flat): reading the room's missing-condition sentence aloud gives 10% off that kind once a day
+ * (`claimReadAloudDiscount`, applied by the server on purchase). Listed after the barter goods so the shop's default
+ * offers stay the barter lines of the first lesson.
+ */
+export interface FurnitureGoodDef {
+  key: string;
+  role: 'light' | 'rest' | 'flat';
+  label: string;
+  adj: string;
+  nameKo: string;
+  emoji: string;
+  basePrice: number;
+}
+
+export const FURNITURE_SHOP_GOODS: readonly FurnitureGoodDef[] = [
+  { key: 'furn_lamp_table', role: 'light', label: 'table lamp', adj: 'yellow', nameKo: '노란 탁상 램프', emoji: '💡', basePrice: 60 },
+  { key: 'furn_lamp_floor', role: 'light', label: 'floor lamp', adj: 'tall', nameKo: '키 큰 스탠드', emoji: '🪔', basePrice: 80 },
+  { key: 'furn_lantern_wall', role: 'light', label: 'wall lantern', adj: 'small', nameKo: '작은 벽 랜턴', emoji: '🏮', basePrice: 50 },
+  { key: 'furn_bed_single', role: 'rest', label: 'bed', adj: 'blue', nameKo: '파란 침대', emoji: '🛏️', basePrice: 120 },
+  { key: 'furn_chair_wood', role: 'rest', label: 'chair', adj: 'wooden', nameKo: '나무 의자', emoji: '🪑', basePrice: 40 },
+  { key: 'furn_sofa_cozy', role: 'rest', label: 'sofa', adj: 'soft', nameKo: '푹신한 소파', emoji: '🛋️', basePrice: 110 },
+  { key: 'furn_table_dining', role: 'flat', label: 'table', adj: 'round', nameKo: '둥근 탁자', emoji: '🍽️', basePrice: 90 },
+  { key: 'furn_desk_study', role: 'flat', label: 'desk', adj: 'small', nameKo: '작은 책상', emoji: '🗄️', basePrice: 70 },
+  { key: 'furn_workbench', role: 'flat', label: 'workbench', adj: 'big', nameKo: '큰 작업대', emoji: '🧰', basePrice: 100 }
+];
+
+const FURNITURE_REASON: Record<FurnitureGoodDef['role'], { why: string; so: string }> = {
+  light: { why: 'my room is dark', so: 'my room is bright' },
+  rest: { why: 'I need a place to rest', so: 'I can rest at home' },
+  flat: { why: 'I need a place to eat', so: 'I can eat at home' }
+};
+
+function buildFurnitureOffers(g: FurnitureGoodDef, level: LangLevel): [PhraseOffer, PhraseOffer, PhraseOffer] {
+  const p = (s: 1 | 2 | 3) => starPrice(g.basePrice, s);
+  const r = FURNITURE_REASON[g.role];
+  if (level === 'L1') {
+    return [
+      { stars: 1, text: `A ${g.label}, please.`, price: p(1), bonus: null },
+      { stars: 2, text: `A ${g.adj} ${g.label}, please.`, price: p(2), bonus: null },
+      { stars: 3, text: `Can I have a ${g.adj} ${g.label}, please?`, price: p(3), bonus: null }
+    ];
+  }
+  if (level === 'L2') {
+    return [
+      { stars: 1, text: `I want a ${g.adj} ${g.label}.`, price: p(1), bonus: null },
+      { stars: 2, text: `Can I get a ${g.adj} ${g.label}?`, price: p(2), bonus: null },
+      { stars: 3, text: `Can I get a ${g.adj} ${g.label} because ${r.why}?`, price: p(3), bonus: null }
+    ];
+  }
+  return [
+    { stars: 1, text: `I'd like a ${g.adj} ${g.label}, please.`, price: p(1), bonus: null },
+    { stars: 2, text: `Could you sell me a ${g.adj} ${g.label} for my room?`, price: p(2), bonus: null },
+    { stars: 3, text: `Could you sell me a ${g.adj} ${g.label} so that ${r.so}?`, price: p(3), bonus: null }
+  ];
+}
+
+const GENERATED_FURNITURE_BANK: PhraseBankEntry[] = [];
+for (const level of ['L1', 'L2', 'L3'] as const) {
+  for (const g of FURNITURE_SHOP_GOODS) {
+    GENERATED_FURNITURE_BANK.push({
+      id: `trade_shop_${level}_${g.key}`,
+      lang: 'en',
+      ctx: 'trade_shop',
+      intent: 'buy_furniture',
+      slotsKey: `item=${g.key}|mod=${g.adj}`,
+      level,
+      offers: buildFurnitureOffers(g, level),
+      hintTags:
+        level === 'L1' ? [g.label, 'can I have', 'please'] : level === 'L2' ? [g.label, 'can I get', 'because'] : [g.label, 'could you', 'so that'],
+      baseMesh: 'item_crate_01',
+      socket: 'RightHand_Socket'
+    });
+  }
+}
+
+/** Furniture kind (room-check role) of a shop item key, or null when the item is not furniture. */
+export function furnitureKindOf(itemKey: string): FurnitureGoodDef['role'] | null {
+  return FURNITURE_SHOP_GOODS.find((g) => g.key === itemKey)?.role ?? null;
+}
+
+/**
  * Plaza guide (docs/19 guide NPC, WP-111 first visit): asking the way. Nothing is sold (price 0, no item); the
  * server answers with the place key so the world can point the way.
  */
@@ -748,6 +831,7 @@ export const PHRASE_BANK: readonly PhraseBankEntry[] = [
   ...GENERATED_CAFE_BANK,
   ...GENERATED_SHOP_BANK,
   ...GENERATED_GUIDE_BANK,
+  ...GENERATED_FURNITURE_BANK,
   ...DOMAIN_BANK_ENTRIES
 ];
 
@@ -1061,6 +1145,37 @@ export const UI_STRINGS_KO = {
       picture: '그림',
       none: '스스로'
     }
+  },
+  /** Read-aloud furniture discount on the build screen (docs/03 D13, docs/08 8.3 "[소리 내어 읽기]"). */
+  readAloud: {
+    cta: '소리 내어 읽기',
+    listening: '듣고 있어요… 다 읽으면 한 번 더 눌러요',
+    got: '잘 읽었어요! 오늘 {kind} 가구를 {pct}% 싸게 살 수 있어요.',
+    already: '잘 읽었어요! {kind} 할인은 오늘 이미 받았어요. 내일 또 받을 수 있어요.',
+    again: '조금만 더 또박또박 읽어 볼까요?',
+    voiceOnly: '할인은 목소리로 읽을 때만 받을 수 있어요.',
+    hint: '이 문장을 소리 내어 읽으면 {kind} 가구 10% 할인!',
+    where: '교환 상점 토비에게 주문할 때 할인돼요.',
+    kind: { light: '조명', rest: '쉴 곳', flat: '탁자' } as Record<string, string>
+  },
+  /** Memory-card review (docs/03 D8, docs/08 6장 "복습 징후": a small lightning mark, never a scolding). */
+  review: {
+    dockTitle: '고칠 물건',
+    signLine: '{item}에 번개 표시가 떴어요',
+    fixCta: '말해서 고치기',
+    npcLine: 'Oh no, it is acting up! Can you say it again?',
+    fixed: '고쳤어요! 다음 점검은 {when}이에요.',
+    mastered: '마스터 도안이 됐어요! 이제 고장 나지 않아요. 보너스 코인 {n}개!',
+    again: '조금만 더! 한 번 더 말하면 고칠 수 있어요.',
+    notDue: '아직 멀쩡해요. 나중에 다시 와요.',
+    stage: {
+      0: '20분 점검',
+      1: '1일 점검',
+      2: '3일 점검',
+      3: '7일 점검',
+      4: '16일 점검',
+      5: '35일 점검'
+    } as Record<number, string>
   },
   guardian: {
     noData: '첫 플레이를 기다리는 중입니다.',

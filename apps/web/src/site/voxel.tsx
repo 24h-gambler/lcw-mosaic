@@ -39,6 +39,21 @@ export function merge(...lists: Vox[][]): Vox[] {
   return [...m.values()];
 }
 
+/** Cells claimed by more than one part: merge() silently keeps the last, so a prop inside a character goes unnoticed. */
+export function collisions(...parts: readonly (readonly Vox[])[]): number {
+  const owner = new Map<string, number>();
+  let n = 0;
+  parts.forEach((part, i) => {
+    for (const v of part) {
+      const k = `${v.x},${v.y},${v.z}`;
+      const prev = owner.get(k);
+      if (prev !== undefined && prev !== i) n++;
+      else owner.set(k, i);
+    }
+  });
+  return n;
+}
+
 export function shift(list: Vox[], dx: number, dy: number, dz: number): Vox[] {
   return list.map((v) => ({ ...v, x: v.x + dx, y: v.y + dy, z: v.z + dz }));
 }
@@ -125,6 +140,44 @@ export interface VoxelSvgProps {
   hideParts?: readonly string[];
 }
 
+/**
+ * Draws projected faces in painter order, joining consecutive faces of the same color (and part class) into one
+ * <path>. Order is kept, so the picture is identical, but a 600-block scene becomes tens of nodes instead of
+ * thousands, which keeps animated scenes (hero loop, build montage) cheap to re-render.
+ */
+function facePaths(polys: readonly { key: string; fill: string; part?: string; points: string }[], partClass?: Readonly<Record<string, string>>): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let cls: string | undefined;
+  let items: React.ReactNode[] = [];
+  let fill = '';
+  let d: string[] = [];
+  let key = '';
+  const flushPath = () => {
+    if (d.length) items.push(<path key={key} d={d.join('')} fill={fill} />);
+    d = [];
+  };
+  const flushGroup = () => {
+    flushPath();
+    if (items.length) nodes.push(cls ? <g key={`g${nodes.length}`} className={cls}>{items}</g> : <React.Fragment key={`g${nodes.length}`}>{items}</React.Fragment>);
+    items = [];
+  };
+  for (const p of polys) {
+    const c = p.part ? partClass?.[p.part] : undefined;
+    if (c !== cls) {
+      flushGroup();
+      cls = c;
+    }
+    if (p.fill !== fill) {
+      flushPath();
+      fill = p.fill;
+      key = p.key;
+    }
+    d.push(`M${p.points.replace(/ /g, 'L')}Z`);
+  }
+  flushGroup();
+  return nodes;
+}
+
 export function VoxelSvg({
   voxels,
   unit = 10,
@@ -139,25 +192,7 @@ export function VoxelSvg({
   const iso = React.useMemo(() => projectIso(shown, unit), [shown, unit]);
   const pad = unit;
   const vb = viewBox ?? { x: iso.minX - pad, y: iso.minY - pad, w: iso.width + pad * 2, h: iso.height + pad * 2 };
-  const groups: React.ReactNode[] = [];
-  let current: { cls: string | undefined; items: React.ReactNode[] } | null = null;
-  const flush = () => {
-    if (!current) return;
-    groups.push(
-      current.cls
-        ? <g key={`g${groups.length}`} className={current.cls}>{current.items}</g>
-        : <React.Fragment key={`g${groups.length}`}>{current.items}</React.Fragment>
-    );
-  };
-  for (const p of iso.polys) {
-    const cls = p.part ? partClass?.[p.part] : undefined;
-    if (!current || current.cls !== cls) {
-      flush();
-      current = { cls, items: [] };
-    }
-    current.items.push(<polygon key={p.key} points={p.points} fill={p.fill} />);
-  }
-  flush();
+  const groups = facePaths(iso.polys, partClass);
   return (
     <svg
       viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
@@ -194,23 +229,7 @@ export function IsoGroup({
     [voxels, hideParts]
   );
   const iso = React.useMemo(() => projectIso(shown, unit), [shown, unit]);
-  const nodes: React.ReactNode[] = [];
-  let cls: string | undefined;
-  let items: React.ReactNode[] = [];
-  const flush = () => {
-    if (items.length === 0) return;
-    nodes.push(cls ? <g key={nodes.length} className={cls}>{items}</g> : <g key={nodes.length}>{items}</g>);
-    items = [];
-  };
-  for (const p of iso.polys) {
-    const c = p.part ? partClass?.[p.part] : undefined;
-    if (c !== cls) {
-      flush();
-      cls = c;
-    }
-    items.push(<polygon key={p.key} points={p.points} fill={p.fill} />);
-  }
-  flush();
+  const nodes = facePaths(iso.polys, partClass);
   return (
     <g className={className} transform={transform}>
       {nodes}

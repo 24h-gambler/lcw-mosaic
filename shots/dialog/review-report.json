@@ -1,0 +1,62 @@
+[
+  {
+    "view": "desktop",
+    "errs": [],
+    "steps": [
+      {
+        "dock": "⚡ 고칠 물건 2 🥤 ⚡ 스무디에 번개 표시가 떴어요 20분 점검 · 말해서 고치기 💧 ⚡ 물에 번개 표시가 떴어요 20분 점검 · 말해서 고치기"
+      },
+      {
+        "place": {
+          "top": 60,
+          "right": 12,
+          "coarse": false
+        }
+      }
+    ]
+  },
+  {
+    "view": "tablet",
+    "errs": [],
+    "steps": [
+      {
+        "dock": "⚡ 고칠 물건 2 🥤 ⚡ 스무디에 번개 표시가 떴어요 20분 점검 · 말해서 고치기 💧 ⚡ 물에 번개 표시가 떴어요 20분 점검 · 말해서 고치기"
+      },
+      {
+        "place": {
+          "top": 128,
+          "right": 12,
+          "coarse": true
+        }
+      },
+      {
+        "open": "말하고 싶은 문장을 골라요 ✕ ★★★ Can I get a cold smoothie because I am thirsty? 🔊 🎤 눌러서 말하기 🧩 단어 카드 ⌨️ 글자로 쓰기"
+      },
+      {
+        "result": "★ ★ ★ CanIgetacoldsmoothiebecauseIamthirsty? 고쳤어요! 다음 점검은 내일이에요. 🪙 159 코인 좋아요!"
+      },
+      {
+        "after": "⚡ 고칠 물건 1 💧 ⚡ 물에 번개 표시가 떴어요 20분 점검 · 말해서 고치기"
+      }
+    ]
+  },
+  {
+    "view": "phone",
+    "errs": [],
+    "steps": [
+      {
+        "dock": "⚡ 고칠 물건 1 💧 ⚡ 물에 번개 표시가 떴어요 20분 점검 · 말해서 고치기"
+      },
+      {
+        "place": {
+          "top": 128,
+          "right": 12,
+          "coarse": true
+        }
+      },
+      {
+        "open": "말하고 싶은 문장을 골라요 ✕ ★★ Can I get some cold water? 🔊 🎤 눌러서 말하기 🧩 단어 카드 ⌨️ 글자로 쓰기"
+      }
+    ]
+  }
+]

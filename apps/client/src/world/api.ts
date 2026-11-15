@@ -36,6 +36,8 @@ export interface WorldStats {
   renderScale?: number;
   /** tier the world runs at */
   tier?: WorldTier;
+  /** start-up phases in ms since createWorld (town, atlas, characters, mesh, firstFrame) */
+  startup?: Record<string, number>;
 }
 
 export interface WorldHandle {
@@ -64,6 +66,11 @@ export interface WorldHandle {
   setCoins?(total: number | null): void;
   /** Linked child's nickname shown over the player (null = guest, no plate). The guide greets them by name once. */
   setPlayerName?(name: string | null): void;
+  /**
+   * Build screen room check (docs/03 D13, docs/08 8.3): what the room still misses, as furniture kinds, and the English
+   * sentence shown for it. The dialog domain puts its read-aloud discount line under it. Returns an unsubscribe.
+   */
+  onRoomCheck?(cb: (r: { missing: Array<'light' | 'rest' | 'flat'>; sentence: string }) => void): () => void;
   /** Performance and position read-out (headless checks, tier auto-detect). */
   getStats?(): WorldStats;
 }

@@ -404,7 +404,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const higherExists = !!result?.pass && offers.some((o) => o.stars > (result?.stars ?? 3));
   const resultWords = lastTarget ? splitWords(lastTarget) : [];
   const resultMask = lastTarget ? heardMask(lastTarget, lastSpoken) : [];
-  const listenOk = listenAllowed(hint);
+  // A review card from the 1-day box on shows the sentence without its voice (docs/03 D8).
+  const listenOk = listenAllowed(hint) && props.listen !== false;
   const extUrl = typeof location !== 'undefined' ? kakaoOpenExternalUrl(location.href) : '#';
   const style = { ['--fs' as string]: String(fontScale) } as React.CSSProperties;
   const pictures = offer ? picturesFor(offer.text) : ['💬'];

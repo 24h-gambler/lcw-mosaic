@@ -1,0 +1,77 @@
+[
+ {
+  "view": "desktop",
+  "errs": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "steps": [
+   {
+    "box": {
+     "x": 401.46875,
+     "y": 826.5,
+     "width": 637.046875,
+     "height": 73.5
+    },
+    "fontPx": "22px"
+   },
+   {
+    "after": "“This room needs a bed or a chair.” 잘 읽었어요! 오늘 쉴 곳 가구를 10% 싸게 살 수 있어요. 교환 상점 토비에게 주문할 때 할인돼요. 🎤 소리 내어 읽기"
+   }
+  ]
+ },
+ {
+  "view": "tablet",
+  "errs": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "steps": [
+   {
+    "box": {
+     "x": 193.46875,
+     "y": 694.5,
+     "width": 637.046875,
+     "height": 73.5
+    },
+    "fontPx": "22px"
+   },
+   {
+    "after": "“This room needs a bed or a chair.” 잘 읽었어요! 쉴 곳 할인은 오늘 이미 받았어요. 내일 또 받을 수 있어요. 🎤 소리 내어 읽기"
+   }
+  ]
+ },
+ {
+  "view": "phone",
+  "errs": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "steps": [
+   {
+    "box": {
+     "x": 12,
+     "y": 687,
+     "width": 366,
+     "height": 157
+    },
+    "fontPx": "22px"
+   },
+   {
+    "after": "“This room needs a bed or a chair.” 잘 읽었어요! 쉴 곳 할인은 오늘 이미 받았어요. 내일 또 받을 수 있어요. 🎤 소리 내어 읽기"
+   }
+  ]
+ },
+ {
+  "view": "buy-lamp-1",
+  "errs": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "text": "🧙 물물교환 상점 주인 · Pip Hello! What would you like to trade today? 🔊 💡 꼬리표를 꾹 누르면 뜻이 보여요 table lamp can I get 내 말: “Can I get a yellow table lamp?” 말하고 싶은 문장을 골라요 ✕ ★ ★ ★ CanIgetayellowtablelamp? 통과! 다음엔 별 하나 더 도전해 볼까요? 🪙 116 코인 별 하나 더 도전 좋아요!"
+ },
+ {
+  "view": "buy-lamp-2",
+  "errs": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "text": "🧙 물물교환 상점 주인 · Pip Hello! What would you like to trade today? 🔊 💡 꼬리표를 꾹 누르면 뜻이 보여요 table lamp can I get 내 말: “Can I get a yellow table lamp?” 말하고 싶은 문장을 골라요 ✕ ★ ★ ★ CanIgetayellowtablelamp? 통과! 다음엔 별 하나 더 도전해 볼까요? 🪙 68 코인 별 하나 더 도전 좋아요!"
+ }
+]

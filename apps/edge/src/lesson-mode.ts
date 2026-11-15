@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LESSON_DIRECTOR_EVENTS, LESSON_NPCS, LESSON_PLANS, getLessonPlan, type LessonPlan } from '@lcw/content';
+import { LESSON_DIRECTOR_EVENTS, LESSON_NPCS, LESSON_PLANS, bankTextKey, getLessonPlan, type LessonPlan } from '@lcw/content';
 import { scoreUtterance } from '@lcw/converse';
 import {
   computeLessonMetrics,
@@ -12,6 +12,7 @@ import {
 } from '@lcw/metrics';
 import { LessonDO, type DirectorEventKind, type EdgePlatformDb, type SqliteExecutor } from './storage.js';
 import { buildLessonParentFacts } from './parent-report.js';
+import { createMemoryCard } from './review.js';
 
 /**
  * Lesson mode (docs/18): a real lesson without the 3D world. The teacher (operator token) starts a lesson and gets a
@@ -924,6 +925,19 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       ? d.coins.credit(s.player_id, stars * COINS_PER_STAR, `lesson:${uttId}`, now)
       : Number(d.sql.get<{ s: number }>('select coalesce(sum(stars), 0) as s from utterances where player_id = ?', [s.player_id])?.s ?? 0) *
         COINS_PER_STAR;
+    // WP-310: a lesson line passed with 2+ stars becomes a memory card (one per lesson and sentence), reviewed later
+    // in solo play like any other card (dialog domain, review.ts).
+    if (pass && u.target_text) {
+      createMemoryCard(d.db, {
+        cardId: `mc-${s.lesson_id}-${bankTextKey(u.target_text).replace(/[^a-z0-9]+/g, '-').slice(0, 60)}`,
+        playerId: s.player_id,
+        utteranceId: uttId,
+        itemId: `lesson-${uttId}|${stage?.id ?? 'lesson'}`,
+        origin: 'lesson',
+        stars,
+        nowMs: now
+      });
+    }
     const from = kstDayStartMs(kstDay(now));
     const today = d.sql.get<{ n: number }>('select count(*) as n from utterances where player_id = ? and created_at >= ?', [
       s.player_id,

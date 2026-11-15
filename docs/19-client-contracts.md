@@ -82,6 +82,19 @@ export interface DialogPanelProps {
 - `DialogPanel.tsx`는 `DialogPanel`과 함께 `createSoloSubmit(npc)`(학생 토큰으로 `/v1/converse/score`), `createLessonSubmit({token})`을 내보냅니다. 혼자 경로에서 서버는 토큰에서 학생·집 월드(`home-<player>`, 처음에 시작 코인 1회)·레벨을 정하고, 별·가격·아이템을 문장 뱅크에서 정합니다(요청의 `price`·`item_id`는 무시).
 - 입력 사다리: 브라우저 음성 인식(en-US) → 안 되면(카카오톡 등 인앱 브라우저, 미지원, 권한 거부, 2회 연속 못 들음) 단어 카드 조합판 → 글자 입력. 카드·글자 입력은 별 2개까지(`04` 4.1). 기기 내·서버 Whisper는 같은 `SpeechEngine` 인터페이스로 붙습니다.
 - NPC 맥락: 카페 주인 `cafe`, 물물교환 상점 주인 `trade_shop`(상점 거래 뱅크, 가격 0), 광장 안내인 `guide`(길 묻기 뱅크 — 카페·교환 상점, 가격 0).
+- 기억 카드·복습(WP-310·406, `03` D8, `09` P4, 2026-11-16):
+  - 혼자 경로에서 2성 이상으로 통과하고 무언가를 얻은 문장(산 아이템, 가격 0 문장이면 말한 대상)은 `memory_cards` 한 줄이 됩니다(`mc-<dialog_id>`, 한 창에 하나 — "별 하나 더"는 같은 카드를 더 좋은 문장으로 바꿈). 첫 복습은 20분 뒤이고 응답의 `memory_card.next_review_at`이 그 시각입니다. 코인이 모자라 아무것도 못 샀으면 카드도 없습니다. 산 아이템 행(`items.card_id`)에 카드가 붙습니다.
+  - `GET /v1/review/due`(학생·기기 토큰): `{signs, next_due_at, cards_total, mastered}`. `signs`는 서버가 고른 최대 3건(`selectReviewSigns`: 장착 중이거나 7일 안에 쓴 장비 우선, `10 + 밀린 일수` 순, 창고 장비는 제외)이고 각 항목은 `card_id·item_key·item_name_ko·emoji·ctx·text·hint_tags·hint·listen·box·stars·label_ko`입니다. 힌트는 칸(box)이 정합니다: 20분·1일 전체 문장(1일부터 음성 없음 `listen=false`), 3일 키워드, 7일 첫 글자, 16일 그림, 35일 없음.
+  - `POST /v1/review/attempt` `{card_id, transcript, stt_source, confidence, dur_ms, latency_ms}`: 서버가 그 카드 자기 문장과 그 칸의 통과선(`TUNING.memory.reviewPassThreshold` 0.70/0.70/0.70/0.65/0.60/0.60)으로 채점하고 칸을 옮깁니다(실패는 한 칸만 후퇴). 16일 칸은 같은 물건의 다른 뱅크 문장도 인정(`matched_text`). 아직 때가 안 된 카드·남의 카드·마스터한 카드는 409/404. 35일을 통과하면 마스터 도안이 되고 보너스 코인이 **장부**(`ledger`, reason `memory_master`)에 한 번만 들어갑니다. 복습 발화는 `utterances`에 남고(3일 칸부터 `recall`), 통과하면 그 장비의 사용 시각과 수업 유래 표현의 혼자 재사용(`expressions.reuse_solo`)이 갱신됩니다.
+  - 화면: `apps/client/src/dialog/ReviewDock.tsx`의 `ReviewDock({world, player, hidden})` — 오른쪽 위(별·코인 칩 아래, top 112px) 번개 표시 카드 최대 3장, 새 징후가 뜨면 `mem.warn`, 누르면 그 카드 문장 한 개로 대화창(`mode` read/recall, 칸의 `hint`, `listen`)을 열고 통과하면 `mem.fix` + `celebrate`. 다음 복습 시각에 맞춰 다시 묻습니다(같은 세션의 20분 복습). 게스트는 카드가 없어 비어 있습니다.
+  - 수업 발화로 생기는 카드는 같은 입구 `createMemoryCard(db, {origin: 'lesson', itemId: 'lesson-<utt>|<대상>'})`(`apps/edge/src/review.ts`)를 씁니다. 수업 리포트의 35일 유지율은 이 카드들로 계산합니다.
+
+- 소리 내어 읽기 가구 할인(`03` D13, WP-405, 2026-11-16):
+  - 월드의 건축 화면이 방 판정을 내면 `WorldHandle.onRoomCheck?(cb)`로 `{missing: ('light'|'rest'|'flat')[], sentence}`를 알립니다(문장은 `sim-core`의 `ROOM_MISSING_SENTENCES` 한 표). 앱은 그 아래(화면 아래 가운데, 단축 칸 위)에 `apps/client/src/dialog/ReadAloudPrompt.tsx`의 `ReadAloudPrompt({kind, sentence, player})`를 붙입니다 — 영어 문장(22px 이상) + [소리 내어 읽기].
+  - `POST /v1/furniture/read-aloud` `{kind, transcript, stt_source, confidence, dur_ms}`(학생·기기 토큰): 서버가 그 종류의 문장과 맞춰 채점(목소리만 — 글자·카드 입력은 할인 없음)하고 `claimReadAloudDiscount`로 **가구 종류당 한국 시간 하루 1회, 플레이어마다** 10%를 줍니다. 같은 날 다시 읽으면 `already_claimed`. `GET /v1/furniture/discounts`는 오늘 받은 할인과 사용 여부.
+  - 할인은 다음 그 종류 가구 구매에서 서버가 씁니다: 교환 상점(`trade_shop`, 토비)이 가구 9종(`FURNITURE_SHOP_GOODS`, 조명·쉴 곳·탁자, 코인 가격 = 별 가격)을 팔고, `/v1/converse/score`가 오늘 할인을 그 구매(`dialog_id`)에 묶어 가격을 깎습니다(`read_aloud_discount_pct`). 같은 창의 "별 하나 더"도 할인 유지, 같은 날 두 번째 구매는 정가. 교환 상점의 기본 제안은 그대로 물물교환 문장입니다(첫 수업 장면 그대로).
+  - 혼자 놀이에서 방에 그 종류가 없다고 나왔거나(방 판정) 아이가 그 문장을 읽었으면, 앱이 토비 대화창에 그 종류 가구 문장(`furnitureOffersFor(kind, level)`, `ReadAloudPrompt.tsx`가 함께 내보냄)을 `cfg.offers`로 넘깁니다. 그 밖에는 물물교환 문장 그대로입니다.
+- 월드 시세 지수(`09` P7, WP-405, 2026-11-16): 서버 가격 = 별 가격 × 그 월드 시세 지수(반올림, 최소 1) × 읽기 할인. 지수는 주간 크론(`0 6 * * 1`)이 `apps/edge/src/economy.ts`의 `runWeeklyPriceIndexes`로 **그 월드 원장의 지난 7일 수입·지출만** 보고 주당 ±5%, 0.8~1.25 안에서 움직입니다(시작 지갑·"별 하나 더" 차액 환불은 수입이 아님). 같은 주 재실행은 건너뛰고(`price_index_history` 주 키), 한계에 닿은 월드는 크론 기록(`ops_runs`)의 `price_index.at_limit`에 남습니다. 클라이언트는 가격을 계산하지 않고 `/v1/converse/score`의 `coins_delta`만 씁니다.
 
 ## 4. 수업 → 다른 도메인 (`apps/client/src/lesson/`)
 
@@ -110,6 +123,7 @@ export interface DialogPanelProps {
     - 별은 그 창에서 보여 준 것보다 높을 때만 축하합니다. 실패의 '다시 해 봐요'(0)는 아직 통과 전일 때만 보여 줍니다. ✕·Esc 로 닫을 때 최고 결과로 `onDone`이 다시 와도 두 번 축하하지 않습니다.
     - `r.coinsTotal`(서버 장부 잔액)이 오면 `setCoins?(n)`으로 HUD 의 별 옆 코인 칩에 보여 줍니다. 장부는 서버 하나이고, 수업 도메인이 맞춘 잔액을 `world.setCoins?.(n)`으로 직접 넣어도 됩니다.
     - 혼자 대화: 안내인(`ctx:'guide'`)이 통과한 답의 `askedKey`가 장소(`'cafe'|'trade_shop'`, 장면 id 도 됨)면 창을 닫은 뒤 그 장면으로 걸어갑니다(`goToScene`). 수업 중에는 수업이 장면을 정하므로 걷지 않습니다.
+- 복습: `apps/client/src/dialog/ReviewDock.tsx`의 `ReviewDock`(게스트가 아닐 때, 수업 중이거나 혼자 대화창이 열려 있으면 `hidden`). 자리는 오른쪽 위 별·코인 칩 아래: 터치(`pointer: coarse`)면 시점 버튼(약 60~116px) 아래 `top:128px`, 아니면 `top:60px`.
 - 수업: `apps/client/src/lesson/LessonLayer.tsx`의 `LessonLayer`.
   - props: `{ world: WorldHandle; renderDialog: (cfg: DialogConfig) => ReactNode; onLessonActive?: (active: boolean) => void }`.
   - 수업이 시작되면 `onLessonActive(true)` → 앱이 `setLessonBadge(true)`, 혼자 대화 열기를 멈춥니다(대화는 수업이 `renderDialog`로 엶).
@@ -117,6 +131,8 @@ export interface DialogPanelProps {
   - 장면 이동 중에 `setPaused(true)`가 와도(수업 단계 전환과 대화창 열림이 같은 틱) `goToScene`은 위치로 도착을 판정합니다. 도착하지 못했으면 페이드로 목표 장면에 옮기고 가장 가까운 NPC 로 대화 구도를 다시 잡습니다.
 - 누가 하나(`world/identity.ts`): ① 주소에 `?code=123456`(6자리)이 있으면 **수업**(`{kind:'lesson', code}`, 기기 확인 요청도 안 함) ② 아니면 `localStorage['lcw.deviceToken']`(보호자 `/link`가 저장)을 `GET /v1/device/me`(Bearer)로 확인해 **연결된 아이**(`{kind:'child', token, nickname, level, voiceStore, offline}`) — 401이면 토큰을 지우고 게스트, 네트워크 오류면 저장된 `lcw.deviceNickname`으로 오프라인 아이 ③ 둘 다 아니면 **게스트**. 저장소 접근이 막혀도 게스트로 시작합니다.
   - 앱은 `LessonLayer`에 `identity`를 넘기고, 혼자 대화에는 `createSoloSubmit(npc, { deviceToken, nickname, level })`(게스트면 둘째 인자 없음)와 `cfg.level`을 넘깁니다. 월드는 `setPlayerName?(nickname)`으로 머리 위 이름표를 달고 안내인이 이름으로 한 번 인사합니다.
+- 좌석(6장): `identity.ts`가 `play_allowed`·`seat`를 읽어 연결된 아이에 `playAllowed`·`seat`(`{state, endsAt}`|null)로 둡니다. `play_allowed`가 **명시적으로 false**일 때만 혼자 놀기를 멈춥니다(필드가 없는 옛 서버·`seat:null`은 그대로 놉니다). 마지막 온라인 답은 `lcw.devicePlayBlocked`('1')로 남겨 오프라인 시작에도 지킵니다. 멈추면 월드는 걸어 다니며 둘러보기만 되고, NPC 에게 말을 걸면 대화창 대신 안내 카드(`world/SeatNotice.tsx`: "지금은 혼자 놀기가 쉬는 중이에요 … 보호자에게 말해 주세요", 가격·결제 낱말 없음)가 뜹니다. 왼쪽 위 '둘러보기만' 칩으로 다시 열 수 있습니다. 수업(`?code=`)은 기기 확인 자체를 하지 않으므로 좌석과 상관없이 들어옵니다.
+- 첫 화면(3초 예산): `index.html`의 스플래시(토큰 색 큐브)가 첫 페인트에 바로 뜨고 글꼴은 첫 페인트를 막지 않습니다. 월드는 시작 지점 둘레 `FIRST_RING`(2청크) 안만 메시한 뒤(최대 `FIRST_SCREEN_CAP_MS` 2초) 보여 주고, 나머지 시야는 첫 프레임 뒤에 이어서 메시합니다. 단계별 시간은 `getStats().startup`(`town`·`atlas`·`characters`·`mesh`·`firstFrame`, createWorld 기준 ms)입니다.
 - 화면 주소: `/game/?scene=<SceneId>`(시작 장면), `?tier=low|mid|high`(사양 강제), `?fps=1`(fps 표시). 디버그·검증용으로 `window.__lcwWorld`에 핸들을 둡니다.
 - 검증: `node tools/world-shots.mjs <url> <out> [desktop|tablet|phone|flow]` — 헤드리스 Chrome(swiftshader)으로 장면 5개 × 3 화면 크기 스크린샷, fps, 콘솔 오류, 흐름(목표·말풍선·걷기·멈춤·별·아이템·빙의·눈·키보드·E 키)을 `report.json`에.
 

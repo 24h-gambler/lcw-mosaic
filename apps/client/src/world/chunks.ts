@@ -41,32 +41,29 @@ interface Region {
 
 export function extractPadded(world: VoxelWorld, cx: number, cy: number, cz: number): Uint16Array {
   const out = new Uint16Array(PAD * PAD * PAD);
-  const x0 = cx * CHUNK_SIZE - 1;
-  const y0 = cy * CHUNK_SIZE - 1;
-  const z0 = cz * CHUNK_SIZE - 1;
-  // Cache the up to 27 source chunks so each cell is one array read.
-  const cache = new Map<string, ReturnType<VoxelWorld['chunks']['get']>>();
   const S = CHUNK_SIZE;
+  // The padded grid touches at most 3 x 3 x 3 source chunks: look them up once (27 map reads instead of one string
+  // key per voxel), then index by the per-axis neighbour slot (0 = previous chunk, 1 = this one, 2 = next).
+  type Src = ReturnType<VoxelWorld['chunks']['get']>;
+  const src: Src[] = new Array<Src>(27);
+  for (let dy = 0; dy < 3; dy++) {
+    for (let dz = 0; dz < 3; dz++) {
+      for (let dx = 0; dx < 3; dx++) src[dy * 9 + dz * 3 + dx] = world.chunks.get(`${cx + dx - 1},${cy + dy - 1},${cz + dz - 1}`);
+    }
+  }
+  // padded index p (0..PAD-1) maps to local coordinate p - 1 in this chunk: slot 0 for p = 0, slot 2 for p = S + 1
+  const slot = (p: number): number => (p === 0 ? 0 : p === PAD - 1 ? 2 : 1);
+  const local = (p: number): number => (p === 0 ? S - 1 : p === PAD - 1 ? 0 : p - 1);
   let i = 0;
   for (let py = 0; py < PAD; py++) {
-    const wy = y0 + py;
-    const ccy = Math.floor(wy / S);
-    const ly = wy - ccy * S;
+    const sy = slot(py) * 9;
+    const ly = local(py);
     for (let pz = 0; pz < PAD; pz++) {
-      const wz = z0 + pz;
-      const ccz = Math.floor(wz / S);
-      const lz = wz - ccz * S;
+      const syz = sy + slot(pz) * 3;
+      const lz = local(pz);
       for (let px = 0; px < PAD; px++) {
-        const wx = x0 + px;
-        const ccx = Math.floor(wx / S);
-        const lx = wx - ccx * S;
-        const key = `${ccx},${ccy},${ccz}`;
-        let ch = cache.get(key);
-        if (ch === undefined && !cache.has(key)) {
-          ch = world.chunks.get(key);
-          cache.set(key, ch);
-        }
-        out[i++] = ch ? ch.getVoxel(lx, ly, lz) : 0;
+        const ch = src[syz + slot(px)];
+        out[i++] = ch ? ch.getVoxel(local(px), ly, lz) : 0;
       }
     }
   }
@@ -304,8 +301,9 @@ export class ChunkRenderer {
     let merges = 0;
     for (const r of dirty) {
       if (merges >= 2) break;
-      // A region that shows nothing yet waits until its chunks are all meshed (one merge instead of many).
-      if (!r.opaque && !r.translucent && this.regionPending(r)) continue;
+      // A region merges once every chunk of it that is in range is meshed (one merge instead of one per chunk).
+      // Chunks outside the range never hold it back: they are not scheduled, and merge later when they come in range.
+      if (this.regionPending(r, pcx, pcz, radius)) continue;
       this.rebuild(r);
       merges++;
     }
@@ -333,8 +331,11 @@ export class ChunkRenderer {
     return Math.max(dx, dz);
   }
 
-  private regionPending(r: Region): boolean {
-    for (const e of r.chunks) if (e.inFlight || e.meshedVersion < e.version) return true;
+  private regionPending(r: Region, pcx: number, pcz: number, radius: number): boolean {
+    for (const e of r.chunks) {
+      if (Math.max(Math.abs(e.cx - pcx), Math.abs(e.cz - pcz)) > radius) continue;
+      if (e.inFlight || e.meshedVersion < e.version) return true;
+    }
     return false;
   }
 

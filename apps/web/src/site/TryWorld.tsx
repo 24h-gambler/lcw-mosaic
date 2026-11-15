@@ -15,6 +15,8 @@ export type TryWorldStatus = 'off' | 'loading' | 'checking' | 'ready' | 'failed'
 
 /** Give up on the 3D town after this long and stay on the 2D stage (the child should not wait on a spinner). */
 export const TRY_WORLD_LOAD_MS = 9_000;
+/** Longest wait for an idle moment before the town starts loading anyway. */
+export const TRY_WORLD_IDLE_MS = 1_500;
 export const TRY_CAFE_NPC = 'cafe_owner';
 export const TRY_ITEM = 'honey_tea';
 /** Below this frame rate on the start screen, /try keeps the 2D stage (a choppy town is worse than a flat one). */
@@ -106,13 +108,15 @@ export function TryWorldStage({ tier, label, onStatus, onWorld }: TryWorldStageP
     let alive = true;
     let handle: WorldHandle | null = null;
     cbs.current.onStatus('loading');
-    const timer = setTimeout(() => {
-      if (alive && !handle) {
-        alive = false;
-        cbs.current.onStatus('failed');
-      }
-    }, TRY_WORLD_LOAD_MS);
-    (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      if (!alive) return;
+      timer = setTimeout(() => {
+        if (alive && !handle) {
+          alive = false;
+          cbs.current.onStatus('failed');
+        }
+      }, TRY_WORLD_LOAD_MS);
       try {
         const api = await import('../../../client/src/world/api.js');
         if (!alive || !canvasRef.current) return;
@@ -132,10 +136,16 @@ export function TryWorldStage({ tier, label, onStatus, onWorld }: TryWorldStageP
           cbs.current.onStatus('failed');
         }
       }
-    })();
+    };
+    // Let the start screen paint and answer taps first; the town builds in the next idle moment.
+    const win = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+    const idle = win.requestIdleCallback ? win.requestIdleCallback(() => void load(), { timeout: TRY_WORLD_IDLE_MS }) : undefined;
+    const fallback = idle === undefined ? setTimeout(() => void load(), 300) : undefined;
     return () => {
       alive = false;
-      clearTimeout(timer);
+      if (idle !== undefined) win.cancelIdleCallback?.(idle);
+      if (fallback) clearTimeout(fallback);
+      if (timer) clearTimeout(timer);
       cbs.current.onWorld(null);
       handle?.dispose();
     };

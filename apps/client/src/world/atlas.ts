@@ -465,17 +465,33 @@ const PAINT: Record<TileName, (p: Painter, seed: number) => void> = {
   },
   cobblestone: (p, s) => pebbles(p, s, shade(C.stone, 0.85), [C.stone, shade(C.stone, 1.08), soft(0xa7b4c6, 0.2)], 11, 4, 6),
   jar_shelf: (p) => {
-    // honey-jar shelf: two shelves of round jars (LCW cafe prop)
-    base(p, C.woodDark, 0.04);
-    for (const y0 of [0, 16]) {
-      p.rrect(1, y0 + 13, 31, y0 + 16, 1, C.woodLight);
-      for (let k = 0; k < 3; k++) {
-        const x = 6 + k * 10;
-        p.rrect(x - 3.5, y0 + 3.5, x + 3.5, y0 + 13, 3, k === 1 ? C.sky : C.honey);
-        p.rrect(x - 3, y0 + 2, x + 3, y0 + 4.5, 1, k === 1 ? C.cream : C.coral);
-        p.circle(x - 1.5, y0 + 8, 1.2, C.white, 0.6);
-      }
-    }
+    // LCW honey-cafe display shelf: one open cubby on a cream polka-dot wall, a single thick board with brackets, and
+    // two different things standing on it - a big round honey jar under a coral cloth cap and a sky mug with steam.
+    // One board and two unlike objects per block, so a row reads as a cafe display, never as rows of thin spines.
+    const wall = mix(C.cream, PAPER, 0.35);
+    base(p, wall, 0.02);
+    for (let y = 3; y < 22; y += 6) for (let x = (y % 12 === 3 ? 2 : 5); x < 32; x += 6) p.circle(x, y, 0.9, C.honey, 0.35);
+    p.rrect(0, 0, 32, 2.5, 0, C.woodLight); // top trim
+    // board, its shadow on the wall and two little brackets
+    p.rrect(0, 21, 32, 26, 1.5, C.wood);
+    p.rrect(0, 21, 32, 22.2, 0, shade(C.wood, 1.18));
+    p.rrect(0, 26, 32, 27.5, 0, shade(wall, 0.82));
+    for (const x of [4, 27]) p.rrect(x, 26, x + 2, 30, 1, C.woodDark);
+    p.rrect(0, 30, 32, 32, 0, C.woodLight); // bottom trim
+    // honey jar: round body, shine, label with a tiny bee dot, cloth cap tied with a string
+    p.rrect(3, 10, 16, 21.5, 5, C.honey);
+    p.rrect(4.5, 11.5, 7, 17, 1.2, shade(C.honey, 1.25), 0.8);
+    p.circle(10.2, 16.2, 3.1, PAPER);
+    p.circle(10.2, 16.2, 1.3, C.honeyDeep);
+    p.rrect(2, 6.5, 17, 10.5, 2, C.coral);
+    for (const x of [4.5, 8.5, 12.5]) p.circle(x, 8.5, 0.9, PAPER, 0.85);
+    p.rrect(3.5, 10, 15.5, 11, 0, C.coralDeep);
+    // mug with a handle and two puffs of steam
+    p.rrect(19.5, 14.5, 26.5, 21.5, 2, C.sky);
+    p.rrect(20.5, 15.5, 22, 20, 0.8, shade(C.sky, 1.3), 0.7);
+    p.ring(27.6, 18, 2, 1.4, C.sky);
+    p.circle(22.5, 11, 1.5, PAPER, 0.75);
+    p.circle(24, 7.8, 1.2, PAPER, 0.6);
   },
   dark_plank: (p, s) => boards(p, s, C.woodDark),
   chest_side: (p) => {

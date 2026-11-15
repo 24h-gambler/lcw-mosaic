@@ -21,6 +21,7 @@ import { LessonController, goalTargetEn, initialLessonView, type LessonView, typ
 import { MIC_BLOCKING_ERRORS, maskTarget, micUnreliable, pickHeard, type HeardAlternative } from './hint.js';
 import { LESSON_STRINGS_KO as S } from './strings.js';
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
+import { SubmitError } from '../dialog/submit.js';
 
 const C = TOKENS.colors;
 const T = TOKENS.typography;
@@ -257,9 +258,14 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
           </div>
         )}
         <div style={{ position: 'absolute', inset: 0, zIndex: 45, pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: SP[2] }}>
-          {view.connection !== 'ok' ? (
-            <div role="status" style={{ ...card, marginTop: 56, padding: `${SP[1]}px ${SP[3]}px`, background: C.sun, fontWeight: 700, fontSize: T.scale.small.sizePx }}>
-              <span className="lcw-blink">●</span> {S.status.retrying}
+          {view.connection !== 'ok' || view.outbox > 0 ? (
+            <div
+              role="status"
+              data-testid="lesson-connection"
+              style={{ ...card, marginTop: 56, padding: `${SP[1]}px ${SP[3]}px`, background: C.sun, fontWeight: 700, fontSize: T.scale.small.sizePx }}
+            >
+              <span className="lcw-blink">●</span> {view.connection !== 'ok' ? S.status.retrying : ''}
+              {view.outbox > 0 ? ` ${S.status.queued(view.outbox)}` : ''}
             </div>
           ) : null}
           {/* The teacher's newest line stays readable above the dim backdrop (the NPC's own bubble is behind it). */}
@@ -454,7 +460,7 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
         }}
       >
         <span className={ok ? '' : 'lcw-blink'} style={{ width: 10, height: 10, borderRadius: 5, background: ok ? C.leaf : C.sun, display: 'inline-block' }} />
-        {ok ? S.status.ok(view.nickname) : S.status.retrying}
+        {view.outbox > 0 ? S.status.queued(view.outbox) : ok ? S.status.ok(view.nickname) : S.status.retrying}
       </span>
       <button type="button" onClick={() => setAsking(true)} style={small}>
         {S.status.leave}
@@ -626,6 +632,7 @@ function SpeakPanel({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DialogResult | null>(null);
   const [failed, setFailed] = useState(false);
+  const [queued, setQueued] = useState(false);
   const [micNote, setMicNote] = useState<'not_heard' | 'blocked' | null>(null);
   const shownAt = useRef(Date.now());
   const recRef = useRef<SpeechRecognitionLike | null>(null);
@@ -669,8 +676,12 @@ function SpeakPanel({
       setResult(r);
       if (r.pass) playLessonSfx('pass');
       shownAt.current = Date.now();
-    } catch {
-      if (alive.current) setFailed(true);
+      setQueued(false);
+    } catch (e) {
+      if (!alive.current) return;
+      // Kept on the device (lesson outbox): say so instead of asking for a second send (that would be a second answer).
+      if (e instanceof SubmitError && e.kind === 'queued') setQueued(true);
+      else setFailed(true);
     } finally {
       if (alive.current) setBusy(false);
     }
@@ -816,6 +827,11 @@ function SpeakPanel({
         </div>
       ) : null}
       {failed ? <p role="alert" style={{ ...bodyL, color: C['danger-d'], marginBottom: SP[2] }}>{S.speak.failed}</p> : null}
+      {queued ? (
+        <p role="status" data-testid="lesson-queued" style={{ ...bodyL, marginBottom: SP[2] }}>
+          {S.speak.queued}
+        </p>
+      ) : null}
       {micNote ? (
         <p role="status" style={{ ...bodyL, color: C['ink-700'], marginBottom: SP[2] }}>
           {micNote === 'blocked' ? S.speak.micBlocked : S.speak.notHeard}

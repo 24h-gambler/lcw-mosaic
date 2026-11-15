@@ -3,7 +3,21 @@
  * world calls — scene change, goal line, possession sparkle, NPC bubbles, director events. Pure apart from the
  * injected api, world and timers, so it is tested without a browser.
  */
-import { LESSON_DIRECTOR_EVENTS, getLessonNpc, type LessonDirectorEventKind, type LessonHintLevel, type LessonSceneId } from '@lcw/content';
+import {
+  LESSON_DIRECTOR_EVENTS,
+  flushOutbox,
+  getLessonNpc,
+  isRetryableStatus,
+  newUtteranceClientId,
+  outboxSessionStore,
+  pushOutbox,
+  readOutbox,
+  type LessonDirectorEventKind,
+  type LessonHintLevel,
+  type LessonSceneId,
+  type OutboxStore
+} from '@lcw/content';
+import { SubmitError } from '../dialog/submit.js';
 import {
   LessonHttpError,
   loadStudentSession,
@@ -85,6 +99,8 @@ export interface LessonView {
   stageStartedAt: number;
   /** The teacher's newest line as the stage NPC in this stage, from the server (older than the bubbles kept). */
   stageLastLineEn: string;
+  /** Answers kept on this device while the connection was down, sent after the next good poll. */
+  outbox: number;
   /** Bumps on every stage change so the dialog can reset. */
   stageSeq: number;
 }
@@ -133,6 +149,7 @@ export function initialLessonView(): LessonView {
     npcLineEn: '',
     stageStartedAt: 0,
     stageLastLineEn: '',
+    outbox: 0,
     stageSeq: 0
   };
 }
@@ -210,7 +227,24 @@ export class LessonController {
     const s = this.session;
     if (!s) throw new LessonHttpError(401, 'student_only');
     const run = this.run;
-    const r = await this.opts.api.utterance(s.token, readUtteranceSubmit(u));
+    // One id per answer, and the stage it answers: a lost response or a resend from the outbox is the same answer.
+    const body = {
+      ...readUtteranceSubmit(u),
+      client_id: newUtteranceClientId(this.timers.now()),
+      ...(this.view.stageId ? { stage_id: this.view.stageId } : {})
+    };
+    let r: Awaited<ReturnType<StudentLessonApi['utterance']>>;
+    try {
+      r = await this.opts.api.utterance(s.token, body);
+    } catch (e) {
+      // No connection (or a server hiccup): keep the answer on this device and send it after the next good poll.
+      if (e instanceof LessonHttpError && isRetryableStatus(e.status) && run === this.run && this.session === s) {
+        this.set({ outbox: pushOutbox(this.outboxStore(), s.lessonId, { body, queuedAt: this.timers.now() }), connection: 'retrying' });
+        this.schedulePoll(this.retryMs);
+        throw new SubmitError('queued', 'saved_on_device');
+      }
+      throw e;
+    }
     const result: DialogResult = { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, coinsTotal: r.coins_total };
     // An answer that lands after "나가기", a new code or stop belongs to a lesson this screen no longer shows: the
     // panel still gets its result, the HUD chips do not move.
@@ -264,6 +298,8 @@ export class LessonController {
       this.retryMs = LESSON_POLL_MS;
       this.apply(st);
       if (this.view.connection !== 'ok' || this.view.errorCode) this.set({ connection: 'ok', errorCode: null });
+      // Back online: what the child said meanwhile goes now, in order.
+      void this.flushOutbox();
     } catch (e) {
       if (run !== this.run) return;
       if (e instanceof LessonHttpError && e.status === 401) {
@@ -279,8 +315,49 @@ export class LessonController {
       if (run === this.run) this.polling = false;
     }
     if (run !== this.run || this.view.phase === 'ended' || this.stopped || !this.session) return;
+    this.schedulePoll(this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+  }
+
+  private schedulePoll(ms: number): void {
+    if (this.stopped || !this.session) return;
     if (this.timer !== null) this.timers.clearTimeout(this.timer);
-    this.timer = this.timers.setTimeout(() => this.poll(), this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+    this.timer = this.timers.setTimeout(() => this.poll(), ms);
+  }
+
+  private flushing: Promise<void> | null = null;
+
+  /** Sends the answers kept offline (lesson outbox) in order; the HUD takes the server's numbers from each. */
+  flushOutbox(): Promise<void> {
+    // One send at a time: a second call (next poll) waits for the one already going.
+    if (!this.flushing) this.flushing = this.sendOutbox().finally(() => (this.flushing = null));
+    return this.flushing;
+  }
+
+  private async sendOutbox(): Promise<void> {
+    const s = this.session;
+    if (!s) return;
+    const store = this.outboxStore();
+    if (readOutbox(store, s.lessonId).length === 0) {
+      if (this.view.outbox !== 0) this.set({ outbox: 0 });
+      return;
+    }
+    const run = this.run;
+    const res = await flushOutbox({
+      store,
+      lessonId: s.lessonId,
+      send: (b) => this.opts.api.utterance(s.token, b as never),
+      statusOf: (e) => (e instanceof LessonHttpError ? e.status : null)
+    });
+    if (run !== this.run || this.session !== s) return;
+    for (const r of res.sent) {
+      this.showCoins(r.coins_total);
+      if (typeof r.lesson_stars === 'number') this.showStars(r.lesson_stars);
+    }
+    this.set({ outbox: res.left });
+  }
+
+  private outboxStore(): OutboxStore {
+    return this.opts.store ?? outboxSessionStore();
   }
 
   private showStars(n: number | undefined): void {

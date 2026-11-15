@@ -3,7 +3,7 @@
  * /join fallback screen uses (apps/web/src/lessonApi.ts), so a child moved between /game/ and /join keeps one session.
  * Scores, stars and coins are always the server's (AGENTS 4.7).
  */
-import type { LessonDirectorEventKind, LessonHintLevel, LessonSceneId, LessonUtteranceMode } from '@lcw/content';
+import { UTTERANCE_CLIENT_ID_RE, type LessonDirectorEventKind, type LessonHintLevel, type LessonSceneId, type LessonUtteranceMode } from '@lcw/content';
 import type { DialogOffer, DialogResult, SttSource, UtteranceSubmit } from '../dialog/types.js';
 
 // The dialog domain's types are the contract (docs/19 §3); the lesson layer uses them as they are.
@@ -11,7 +11,12 @@ export type { DialogOffer, DialogResult, SttSource, UtteranceSubmit };
 /** A sentence card of the current stage: the dialog's DialogOffer. */
 export type LessonOffer = DialogOffer;
 /** POST /v1/lesson/utterance body: UtteranceSubmit without the solo-route meta (the lesson body is strict). */
-export type LessonUtteranceBody = Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId' | 'clip'>;
+export type LessonUtteranceBody = Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId' | 'clip'> & {
+  /** One id per answer (packages/content lesson-outbox): a resend is the same answer on the server. */
+  client_id?: string;
+  /** The stage the child answered in (an answer kept offline may arrive after the teacher moved on). */
+  stage_id?: string;
+};
 
 export const STUDENT_TOKEN_KEY = 'lcw.studentToken';
 export const STUDENT_LESSON_KEY = 'lcw.studentLessonId';
@@ -99,7 +104,9 @@ export function readUtteranceSubmit(u: UtteranceSubmit | unknown): LessonUtteran
     latency_ms: Math.max(0, Math.round(num(o.latency_ms))),
     dur_ms: Math.max(0, Math.round(num(o.dur_ms))),
     stt_source: STT_SOURCES.includes(o.stt_source as SttSource) ? (o.stt_source as SttSource) : 'browser',
-    confidence: Math.min(1, Math.max(0, typeof o.confidence === 'number' ? o.confidence : 0.5))
+    confidence: Math.min(1, Math.max(0, typeof o.confidence === 'number' ? o.confidence : 0.5)),
+    ...(typeof o.client_id === 'string' && UTTERANCE_CLIENT_ID_RE.test(o.client_id) ? { client_id: o.client_id } : {}),
+    ...(typeof o.stage_id === 'string' && o.stage_id.length > 0 && o.stage_id.length <= 64 ? { stage_id: o.stage_id } : {})
   };
 }
 

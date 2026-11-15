@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LESSON_DIRECTOR_EVENTS, LESSON_NPCS, LESSON_PLANS, bankTextKey, getLessonPlan, type LessonPlan } from '@lcw/content';
+import { LESSON_DIRECTOR_EVENTS, LESSON_NPCS, LESSON_PLANS, UTTERANCE_CLIENT_ID_RE, bankTextKey, getLessonPlan, type LessonPlan } from '@lcw/content';
 import { scoreUtterance } from '@lcw/converse';
 import {
   computeLessonMetrics,
@@ -43,6 +43,8 @@ export const TEACHER_MS_PER_WORD = 400;
 export const STUDENT_MS_PER_WORD = 500;
 export const LESSON_MINUTES_MAX = 240;
 export const TYPED_INPUT_MAX_STARS = 2;
+/** A resend claim with no stored answer after this long is a request that died midway: the resend is processed. */
+export const UTTERANCE_CLAIM_STALE_MS = 60_000;
 const TYPED_INPUT_SOURCES: ReadonlySet<string> = new Set(['keyboard', 'board']);
 
 export const LESSON_MODE_SCHEMA = `
@@ -59,7 +61,8 @@ create index if not exists pins_by_lesson on pins (lesson_id, at_ms);
 create table if not exists lesson_stage_log (id integer primary key autoincrement, lesson_id text not null, at integer not null, stage_id text not null);
 create index if not exists lesson_stage_log_by_lesson on lesson_stage_log (lesson_id, at);
 create table if not exists lesson_director (lesson_id text primary key, possessed_npc_id text, updated_at integer not null);
-create table if not exists lesson_presence (lesson_id text primary key, last_seen_at integer not null, scene_id text, ui text)
+create table if not exists lesson_presence (lesson_id text primary key, last_seen_at integer not null, scene_id text, ui text);
+create table if not exists lesson_utterance_clients (lesson_id text not null, client_id text not null, response text not null, at integer not null, primary key (lesson_id, client_id))
 `;
 
 export interface LessonModeDeps {
@@ -168,7 +171,12 @@ const UtteranceSchema = z
     latency_ms: z.number().int().min(0).max(600_000).default(0),
     dur_ms: z.number().int().min(0).max(600_000).default(0),
     stt_source: z.enum(['browser', 'keyboard', 'board', 'device', 'workers_ai']).default('browser'),
-    confidence: z.number().min(0).max(1).default(1)
+    confidence: z.number().min(0).max(1).default(1),
+    // Disconnect recovery (packages/content lesson-outbox): one id per answer, so a resend is the same answer; the stage
+    // the child answered in (an answer queued offline may arrive after the teacher moved on). It is stored at arrival
+    // time: the console feed reads rows newer than its last look, and a back-dated row would never reach it.
+    client_id: z.string().regex(UTTERANCE_CLIENT_ID_RE).optional(),
+    stage_id: z.string().max(64).optional()
   })
   .strict();
 
@@ -891,9 +899,43 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     const u = p.data;
     const now = d.nowMs();
+    // A resend of an answer already stored (its response was lost, or it waited in the device outbox): the same
+    // result again, never a second utterance or coin credit. The balance and star sum are today's.
+    if (u.client_id) {
+      const seen = d.sql.get<{ response: string; at: number }>(
+        'select response, at from lesson_utterance_clients where lesson_id = ? and client_id = ?',
+        [s.lesson_id, u.client_id]
+      );
+      // The first copy is still being stored (the voice upload offer awaits): this resend is not a second answer.
+      if (seen && !seen.response && now - seen.at < UTTERANCE_CLAIM_STALE_MS) return c.json({ error: 'in_progress' }, 409);
+      if (seen && seen.response) {
+        const first = JSON.parse(seen.response) as Record<string, unknown>;
+        return c.json({
+          ...first,
+          ...(d.coins ? { coins_total: d.coins.balance(s.player_id) } : {}),
+          lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
+          replayed: true
+        });
+      }
+      // Claimed before anything awaits, so two copies arriving together are stored once.
+      d.sql.run('insert or replace into lesson_utterance_clients (lesson_id, client_id, response, at) values (?, ?, ?, ?)', [
+        s.lesson_id,
+        u.client_id,
+        '',
+        now
+      ]);
+    }
     const st = stateOf(s.lesson_id);
     const plan = getLessonPlan(st?.plan_id);
-    const stage = st ? planStage(plan, st.stage_id) : undefined;
+    // The stage the child answered in, if the teacher really opened it in this lesson; else the current one.
+    const answered =
+      u.stage_id && u.stage_id !== st?.stage_id
+        ? d.sql.get<{ n: number }>('select count(*) as n from lesson_stage_log where lesson_id = ? and stage_id = ?', [s.lesson_id, u.stage_id])
+            ?.n
+          ? planStage(plan, u.stage_id)
+          : undefined
+        : undefined;
+    const stage = answered ?? (st ? planStage(plan, st.stage_id) : undefined);
     const mode = stage?.mode ?? 'guided';
     const level = (d.sql.get<{ level: string }>('select level from players where id = ?', [s.player_id])?.level ?? 'L1') as
       | 'L1'
@@ -983,7 +1025,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       s.player_id,
       from
     ]);
-    return c.json({
+    const answer = {
       pass,
       score: Math.round(score * 1000) / 1000,
       stars,
@@ -992,9 +1034,17 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       // This lesson's star sum right after this answer was stored: the HUD chip takes it as is (adding the answer's
       // stars to its own count could count one twice when a poll lands between the store and this answer).
       lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
-      utterances_today: Number(today?.n ?? 0),
-      ...(audioUpload ? { audio_upload: audioUpload } : {})
-    });
+      utterances_today: Number(today?.n ?? 0)
+    };
+    if (u.client_id) {
+      // The stored answer for a resend; the voice upload ticket is for this request only.
+      d.sql.run('update lesson_utterance_clients set response = ? where lesson_id = ? and client_id = ?', [
+        JSON.stringify(answer),
+        s.lesson_id,
+        u.client_id
+      ]);
+    }
+    return c.json({ ...answer, ...(audioUpload ? { audio_upload: audioUpload } : {}) });
   });
 
   return app;

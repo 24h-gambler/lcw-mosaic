@@ -420,7 +420,8 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
 export const LESSON_PLANS: readonly LessonPlan[] = [FIRST_LESSON_PLAN, SECOND_LESSON_PLAN];
 
 /**
- * Recall (hint 'initial'): every word keeps its first letter, the rest are blanks (at least one, as dialog/hints maskWord: "C__ I_ h___ …"). The
+ * Recall (hint 'initial'): every word keeps its first letter, the rest are blanks of its length ("C__ I h___ a w___ …"; a
+ * one-letter word shows as itself, since "I_" would read as a two-letter word). The
  * one rule for the 3D dialog window (dialog/hints maskWord), the lesson layer's own panel and the /join cards.
  */
 export function maskInitials(text: string): string {
@@ -432,7 +433,7 @@ export function maskInitials(text: string): string {
       const m = /^([^A-Za-z0-9']*)(.*?)([^A-Za-z0-9']*)$/.exec(w);
       if (!m || !m[2]) return w;
       const [, pre, core, post] = m;
-      return `${pre}${core![0]}${'_'.repeat(Math.max(1, core!.length - 1))}${post}`;
+      return `${pre}${core![0]}${'_'.repeat(core!.length - 1)}${post}`;
     })
     .join(' ');
 }

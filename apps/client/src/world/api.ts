@@ -60,7 +60,8 @@ export interface WorldHandle {
    * hand too. False when no slot held it. Shells call it after the server already moved the item.
    */
   takeItem?(itemKey: string): boolean;
-  celebrate(stars: 0 | 1 | 2 | 3): void; // 별 연출·효과음
+  /** 별 연출·효과음. `add` = how many stars the HUD chip gains (default `stars`; a retry that beats 1 star with 2 adds 1). */
+  celebrate(stars: 0 | 1 | 2 | 3, opts?: { add?: number }): void;
   setGoal(goalKo: string, targetEn?: string): void; // 화면 맨 위 목표 한 줄
   setPaused(paused: boolean): void; // 대화창이 열리면 이동 멈춤
   dispose(): void;
@@ -85,6 +86,11 @@ export interface WorldHandle {
   setStars?(total: number | null): void;
   /** Linked child's nickname shown over the player (null = guest, no plate). The guide greets them by name once. */
   setPlayerName?(name: string | null): void;
+  /**
+   * Pixels at the bottom of the canvas covered by a panel (the dialog window, ~70% of a phone screen). While a
+   * dialog frames the NPC the shot is centred in the strip above it; 0 = nothing covers the world.
+   */
+  setViewInset?(bottomPx: number): void;
   /**
    * Who may build on my plot and where it is saved (docs/03 D13, WP-207). Default `local`: a guest builds on this
    * device only. `saved`: the linked child's device token; the server re-judges and keeps every edit. `paused`: the

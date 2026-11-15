@@ -434,8 +434,8 @@ describe('student join state machine', () => {
 
 describe('recall hint and target cards', () => {
   it('recall shows the first letter of each word (same as the dialog window)', () => {
-    expect(recallHint('Can I have a warm honey tea?')).toBe('C__ I_ h___ a_ w___ h____ t__?');
-    expect(displayTarget('Can I have a warm honey tea?', 'recall')).toBe('C__ I_ h___ a_ w___ h____ t__?');
+    expect(recallHint('Can I have a warm honey tea?')).toBe('C__ I h___ a w___ h____ t__?');
+    expect(displayTarget('Can I have a warm honey tea?', 'recall')).toBe('C__ I h___ a w___ h____ t__?');
     expect(displayTarget('Can I have a warm honey tea?', 'guided')).toBe('Can I have a warm honey tea?');
     expect(hintLevelFor('recall')).toBe('initial');
     expect(hintLevelFor('guided')).toBe('full');
@@ -467,8 +467,8 @@ describe('recall hint and target cards', () => {
       }
     };
     const html = renderToStaticMarkup(React.createElement(StudentJoin, { initialState: state, recognition: null, userAgent: 'Chrome' }));
-    expect(html).toContain('C__ I_ h___ a_ w___ h____ t__?');
-    expect(html).toContain('I_ w___ t_ t____ m_ b___ s____');
+    expect(html).toContain('C__ I h___ a w___ h____ t__?');
+    expect(html).toContain('I w___ t_ t____ m_ b___ s____');
     expect(html).not.toContain('warm honey tea');
     expect(html).not.toContain('blue stone');
     expect(html).toContain(LESSON_STRINGS_KO.join.recallNote);

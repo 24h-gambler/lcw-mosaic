@@ -531,7 +531,7 @@ export class WorldHud {
     return this.selected;
   }
 
-  celebrate(stars: 0 | 1 | 2 | 3, reduceMotion: boolean): void {
+  celebrate(stars: 0 | 1 | 2 | 3, reduceMotion: boolean, add: number = stars): void {
     this.cele.innerHTML = '';
     this.cele.classList.remove('out');
     const row = el('div', 'row', this.cele);
@@ -547,11 +547,11 @@ export class WorldHud {
     window.setTimeout(() => {
       if (this.cele.classList.contains('out')) this.cele.innerHTML = '';
     }, 2400);
-    if (stars > 0 && !this.starsExternal) {
+    if (stars > 0 && add > 0 && !this.starsExternal) {
       window.setTimeout(() => {
-        this.ownStars += stars;
+        this.ownStars += add;
         if (this.starsExternal) return;
-        this.starTotal += stars;
+        this.starTotal += add;
         this.starsN.textContent = String(this.starTotal);
         this.starsEl.classList.remove('pop');
         void this.starsEl.offsetWidth;

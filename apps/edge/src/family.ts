@@ -4,6 +4,7 @@ import { filterSpeechBubble } from '@lcw/converse';
 import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
 import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicReportView } from './parent-report.js';
 import { buildLessonWindow } from './lesson-window.js';
+import { buildDashboard } from './dashboard.js';
 
 /**
  * Guardian domain (WP-301, docs/16 §3, docs/10 §5): family account, child profiles, separate consents, device link
@@ -34,6 +35,7 @@ export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['DELETE', /^\/v1\/family\/devices\/[^/]+$/],
   ['POST', /^\/v1\/family\/reports\/[^/]+\/revoke$/],
   ['GET', /^\/v1\/family\/children\/[^/]+\/lesson-window$/],
+  ['GET', /^\/v1\/family\/children\/[^/]+\/dashboard$/],
   ['POST', /^\/v1\/device\/link$/],
   ['GET', /^\/v1\/device\/me$/]
 ];
@@ -378,6 +380,17 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
   });
 
   /** docs/16 §2-18: the guardian can kill a report link at once (e.g. forwarded by mistake). */
+  /* ---------- WP-309 dashboard: growth series, home cards, lessons — own child only, never public ---------- */
+
+  app.get('/v1/family/children/:pid/dashboard', async (c) => {
+    const g = await withGuardian(c, true);
+    if (g instanceof Response) return g;
+    const kid = childOf(g, c.req.param('pid'));
+    if (!kid) return c.json({ error: 'child_not_found' }, 404);
+    c.header('cache-control', 'private, no-store');
+    return c.json(buildDashboard(d.sql, d.db, kid.id, d.nowMs()));
+  });
+
   /* ---------- WP-307 lesson window: text status, density band, captions; listen-only (no guardian mic) ---------- */
 
   app.get('/v1/family/children/:pid/lesson-window', async (c) => {

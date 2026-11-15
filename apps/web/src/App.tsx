@@ -32,6 +32,7 @@ import { StudentJoin } from './StudentJoin.js';
 import { ParentReportPage } from './ParentReportPage.js';
 import { DeviceLinkPage, FamilyPage } from './FamilyPage.js';
 import { LessonWindowPage } from './LessonWindowPage.js';
+import { DashboardPage } from './DashboardPage.js';
 import { reportTokenFromPath } from './lessonFlow.js';
 import { SiteRoot } from './site/SiteRoot.js';
 import { isSitePath } from './site/routes.js';
@@ -1010,8 +1011,7 @@ export function App({
         onMarkOpened: handleMarkReportOpened,
         onBackToDirector: () => setRoute('/director')
       }),
-    route === '/dashboard' &&
-      React.createElement(ParentDashboardView, { initialShowTables: initialShowChartTables }),
+    route === '/dashboard' && React.createElement(DashboardPage, null),
     route === '/director' &&
       React.createElement(LessonDirectorConsole, {
         demo: React.createElement(TeacherDirectorView, {

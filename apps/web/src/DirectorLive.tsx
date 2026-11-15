@@ -52,6 +52,7 @@ export function HelpsStrip(p: { utterances: number; pins: number; minutes: numbe
 
 /* ---------- student screen summary ---------- */
 
+/** `startedAt` is the lesson start on the server clock: the last utterance's `at` is server-stamped. */
 export function StudentScreenBox(p: { live: DirectorLiveView; localNow: number; startedAt: number }): React.ReactElement {
   const v = p.live.studentView;
   const serverNow = p.localNow + p.live.clockSkewMs;
@@ -228,9 +229,10 @@ export function PossessBox(p: {
       >
         <input
           ref={inputRef}
-          // Enter that only finishes Korean/Japanese composition (Safari sends it) must not send a half line.
+          // Enter that only finishes Korean composition must not send a half line. Only isComposing: Android Gboard
+          // reports keyCode 229 for English too, and blocking that would leave a tablet with no Enter at all.
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault();
+            if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault();
           }}
           data-testid="npc-say-input"
           lang="en"

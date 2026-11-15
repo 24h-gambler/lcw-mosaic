@@ -613,6 +613,8 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
   // Moved onto this console's clock (the record and `clock` are local), so a device clock that is off does not shift
   // elapsed time or pin at_ms.
   const startedAt = (serverLesson?.started_at ? serverLesson.started_at - liveX.clockSkewMs : 0) || lesson.started_at || clock;
+  // Server-stamped times (utterances, the student's last line) subtract the start on the server's own clock.
+  const serverStartedAt = serverLesson?.started_at || startedAt;
 
   useEffect(() => {
     const id = setInterval(() => setClock(now()), 1000);
@@ -773,7 +775,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
           />
         </div>
         <div style={{ display: 'grid', gap: sp(4), minWidth: 0 }}>
-          <StudentScreenBox live={liveX} localNow={clock} startedAt={startedAt} />
+          <StudentScreenBox live={liveX} localNow={clock} startedAt={serverStartedAt} />
           <Box title={S.liveTitle} testId="director-counters">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
               <Stat label={S.countSaid} value={live.utterances} testId="count-said" />
@@ -840,7 +842,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
                   }}
                 >
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center', marginBottom: sp(1) }}>
-                    <span style={{ fontVariantNumeric: 'tabular-nums', color: C['ink-700'] }}>{formatClock(u.at - startedAt)}</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums', color: C['ink-700'] }}>{formatClock(u.at - serverStartedAt)}</span>
                     <span style={{ color: C['sun-d'], fontWeight: 700, letterSpacing: '2px' }}>{starsText(u.stars)}</span>
                     <span
                       style={{

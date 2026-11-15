@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { FREE_TIER_LIMITS, QuotaMeter } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
+import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
 import {
   createDurableSqliteExecutor,
   prefixedExecutor,
@@ -207,7 +208,8 @@ export class PlatformDO {
       nowMs: () => Date.now(),
       // The understand route awaits the model but does not use its answer yet, so calling it would only burn the
       // daily Workers AI budget. Wire runAiCapped back in when the LLM reply is consumed (docs/04 §4.4).
-      runWorkersAi: undefined
+      runWorkersAi: undefined,
+      priceIndex: (worldId) => priceIndexOf(this.sql, worldId)
     });
     return buildGatedApp(inner, this.env, this);
   }
@@ -332,7 +334,9 @@ export class PlatformDO {
           'select distinct player_id from utterances where created_at >= ?',
           [now - 7 * 86_400_000]
         );
-        detail = { players_with_speech: players.length };
+        // docs/09 P7: each world's price index from its own income vs spend (never server-wide).
+        const prices = runWeeklyPriceIndexes(this.sql, now);
+        detail = { players_with_speech: players.length, price_index: prices };
       } else {
         const r = this.db.processPendingReportReminders(now);
         detail = { reminded: r.remindedCount, seat_notices: sweepSeatNotices(this.sql, now) };
@@ -475,6 +479,20 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const s = await soloPlayer(c.req.raw);
     if (!s) return next();
     return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+  });
+  app.post('/v1/furniture/read-aloud', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const body = await readBody(c);
+    if (!body) return c.json({ error: 'invalid_read_aloud_request' }, 400);
+    return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
+  });
+  app.get('/v1/furniture/discounts', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id }));
   });
   app.post('/v1/review/attempt', async (c, next) => {
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();

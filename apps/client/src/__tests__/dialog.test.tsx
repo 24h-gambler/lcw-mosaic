@@ -132,7 +132,9 @@ describe('cafe bank never teaches clashing drinks (WP-107)', () => {
         }
     const honey = CAFE_MENU.find((d) => d.key === 'honey_tea')!;
     expect(lookupPhraseBank({ ctx: 'cafe', level: 'L1', item: honey.key, modifiers: ['warm'] })!.offers[1].text).toBe('Warm honey tea, please.');
-    expect(PHRASE_BANK.filter((e) => e.ctx === 'trade_shop')).toHaveLength(24);
+    expect(PHRASE_BANK.filter((e) => e.ctx === 'trade_shop' && e.intent !== 'buy_furniture')).toHaveLength(24);
+    // docs/03 D13: Toby also sells 9 furniture goods at each of 3 levels.
+    expect(PHRASE_BANK.filter((e) => e.ctx === 'trade_shop' && e.intent === 'buy_furniture')).toHaveLength(27);
   });
 });
 

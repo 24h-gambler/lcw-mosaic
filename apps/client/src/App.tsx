@@ -7,7 +7,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Level } from '@lcw/schemas';
 import { canRunWorld, createWorld, SCENE_IDS, type NpcRef, type SceneId, type WorldHandle, type WorldTier } from './world/api.js';
 import { WORLD_STRINGS as W } from './world/strings.js';
-import { browserStore, resolveIdentity, type PlayerIdentity } from './world/identity.js';
+import { DEVICE_TOKEN_KEY, browserStore, resolveIdentity, type PlayerIdentity } from './world/identity.js';
+import { onSeatInactive } from './world/seat.js';
+import type { BuildAccess } from './world/api.js';
 import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
@@ -109,6 +111,22 @@ function sessionStoreOrNull(): Pick<Storage, 'getItem'> | null {
   }
 }
 
+/**
+ * Who builds on my plot and where it is saved (docs/03 D13, WP-207): a linked child saves on the server, a paused
+ * seat looks only, a lesson saves to the linked device's plot when this device has one (never gated: a paused seat
+ * falls back to unsaved building), a guest builds on the device only.
+ */
+export function buildAccessOf(id: PlayerIdentity | null, storedDeviceToken: string | null): BuildAccess {
+  if (id?.kind === 'child') return id.playAllowed ? { kind: 'saved', token: id.token } : { kind: 'paused' };
+  if (id?.kind === 'lesson' && storedDeviceToken && storedDeviceToken.length >= 32) return { kind: 'saved', token: storedDeviceToken, pausedFallback: 'local' };
+  return { kind: 'local' };
+}
+
+/** A solo write came back 403 seat_inactive: the same identity as play_allowed=false (lessons are never gated). */
+export function withSeatStopped(id: PlayerIdentity | null): PlayerIdentity | null {
+  return id?.kind === 'child' ? { ...id, playAllowed: false } : id;
+}
+
 export function soloPlayerOf(id: PlayerIdentity | null): SoloPlayer | undefined {
   if (!id || id.kind !== 'child') return undefined;
   return { deviceToken: id.token, nickname: id.nickname || undefined, level: id.level };
@@ -167,8 +185,9 @@ export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveI
     if (r.pass) {
       const stars = Math.max(1, Math.min(3, Math.round(r.stars))) as 1 | 2 | 3;
       if (stars > best) {
+        // the chip gains only what beats this window's last pass (1 star, then 2 on a retry → +1)
+        world.celebrate(stars, { add: stars - Math.max(0, best) });
         best = stars;
-        world.celebrate(stars);
       }
       if (r.itemKey && !r.practice && !given.has(r.itemKey)) {
         given.add(r.itemKey);
@@ -243,6 +262,38 @@ function DialogHost(props: {
     cfg.onClose?.();
     onClose(last.current);
   }, [cfg, onClose]);
+  // The world frames the NPC in the strip above the dialog window (it covers ~70% of a phone screen).
+  useEffect(() => {
+    if (!world.setViewInset) return;
+    let obs: ResizeObserver | null = null;
+    let raf = 0;
+    const measure = () => {
+      const el = document.querySelector('.lcw-dlg');
+      if (!el) return false;
+      world.setViewInset?.(Math.max(0, window.innerHeight - el.getBoundingClientRect().top));
+      return true;
+    };
+    const attach = () => {
+      const el = document.querySelector('.lcw-dlg');
+      if (!el) {
+        raf = requestAnimationFrame(attach);
+        return;
+      }
+      measure();
+      if (typeof ResizeObserver !== 'undefined') {
+        obs = new ResizeObserver(() => measure());
+        obs.observe(el);
+      }
+    };
+    attach();
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(raf);
+      obs?.disconnect();
+      window.removeEventListener('resize', measure);
+      world.setViewInset?.(0);
+    };
+  }, [world]);
   return (
     <Panel
       npc={npc}
@@ -253,6 +304,7 @@ function DialogHost(props: {
       {...(cfg.npcLine ? { npcLine: cfg.npcLine } : {})}
       submit={submit}
       onDone={onDone}
+      onResult={play}
       onClose={close}
       recordClip={props.recordClip === true}
     />
@@ -298,6 +350,29 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (world && identity?.kind === 'child' && identity.nickname) world.setPlayerName?.(identity.nickname);
   }, [world, identity]);
+
+  // Building on my plot: saved for a linked child, look-only while the seat is paused, device-only for a guest.
+  useEffect(() => {
+    if (!world?.setBuildAccess || !identity) return;
+    let stored: string | null = null;
+    try {
+      stored = browserStore()?.getItem(DEVICE_TOKEN_KEY) ?? null;
+    } catch {
+      stored = null;
+    }
+    world.setBuildAccess(buildAccessOf(identity, stored));
+  }, [world, identity]);
+
+  // A solo write answered 403 seat_inactive (seat stopped mid-play): same card as play_allowed=false, not an error.
+  useEffect(
+    () =>
+      onSeatInactive(() => {
+        setIdentity((id) => withSeatStopped(id));
+        setSoloNpc(null);
+        setSeatCard(true);
+      }),
+    []
+  );
 
   useEffect(() => {
     for (const load of Object.values(dialogLoaders)) void load().then(setDialogMod);

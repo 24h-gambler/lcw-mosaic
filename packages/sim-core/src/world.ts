@@ -60,11 +60,11 @@ export class VoxelWorld {
   getZone(x: number, y: number, z: number): ZoneKind {
     if (!this.inBounds(x, y, z)) return 'oob';
     if (y === TUNING.world.yMin) return 'core';
+    // The plot comes before the plaza square: their corners overlap (x 128..131, z 156..159) and every cell inside
+    // the fence must be the owner's, or the aim shows green where the place is then refused.
+    if (x >= this.plot.x0 && x < this.plot.x1 && z >= this.plot.z0 && z < this.plot.z1) return 'plot';
     if ((this.isRoadCoord(x) || this.isRoadCoord(z)) && y >= -2 && y < 5) return 'core';
     if (x >= 128 && x < 160 && z >= 128 && z < 160 && y >= -4 && y < 24) return 'core';
-    if (x >= this.plot.x0 && x < this.plot.x1 && z >= this.plot.z0 && z < this.plot.z1 && y > TUNING.world.yMin) {
-      return 'plot';
-    }
     // Check city prefab zones in each sector center
     for (const cx of [48, 144, 240]) {
       for (const cz of [48, 144, 240]) {

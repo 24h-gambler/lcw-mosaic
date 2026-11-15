@@ -1,13 +1,12 @@
 import {
-  FURNITURE_REGISTRY,
   LESSON_ARC_STAGE_GUIDES,
-  RESIDENT_REGISTRY,
   type LessonArcStageGuide,
   type ResidentDef
 } from '@lcw/content';
 import { mulberry32 } from '@lcw/destruction';
 import { TUNING } from './tuning.js';
 import { VoxelWorld } from './world.js';
+import { checkRoomFrom } from './plot.js';
 
 export interface LedgerEntry {
   seq: number;
@@ -366,133 +365,34 @@ export interface RoomCheckResult {
   eligibleResident: ResidentDef | null;
 }
 
-/**
- * docs/03 D13: the room check names what is missing in the target language. One table for the world (build screen)
- * and the server (read-aloud discount checks the child read exactly this sentence).
- */
-export const ROOM_MISSING_SENTENCES = {
-  too_small: 'This room needs more space.',
-  low_ceiling: 'This room needs a higher ceiling.',
-  door: 'This room needs a door.',
-  light: 'This room needs a light source.',
-  rest: 'This room needs a bed or a chair.',
-  flat: 'This room needs a table or workbench.'
-} as const;
-
 /** Missing conditions that a furniture kind fixes (the read-aloud discount applies to these kinds only). */
 export const FURNITURE_KINDS = ['light', 'rest', 'flat'] as const;
 export type FurnitureKind = (typeof FURNITURE_KINDS)[number];
 
-const FURNITURE_ROLE_MAP = new Map(FURNITURE_REGISTRY.map((f) => [f.id, f.role]));
-
 /**
- * Flood-fills enclosed room from nameplate interior up to 400 blocks (WP-607).
+ * Flood-fills the enclosed room from an inside air cell, up to 400 cells (WP-607). The rule itself lives in
+ * plot.ts `checkRoomFrom` (the one the plot and the server run); this keeps the older call shape.
  */
+const LEGACY_NEED: Readonly<Record<string, string>> = { closed: 'not_enclosed_or_too_large', size: 'too_small', ceiling: 'low_ceiling' };
+
 export function evaluateRoom(
   world: VoxelWorld,
   startAir: { x: number; y: number; z: number },
   furniture: PlacedFurniture[]
 ): RoomCheckResult {
-  const seen = new Set<string>();
-  const queue: Array<[number, number, number]> = [[startAir.x, startAir.y, startAir.z]];
-  const key = (x: number, y: number, z: number): string => `${x},${y},${z}`;
-  seen.add(key(startAir.x, startAir.y, startAir.z));
-
-  let minY = startAir.y;
-  let maxY = startAir.y;
-  let hasDoor = false;
-  let hasLightBlock = false;
-  let overflowed = false;
-
-  const isPassable = (b: number): boolean => b === 0 || b === 26 || b === 27 || b === 42;
-
-  while (queue.length > 0) {
-    const [cx, cy, cz] = queue.shift()!;
-    minY = Math.min(minY, cy);
-    maxY = Math.max(maxY, cy);
-
-    for (const [dx, dy, dz] of [
-      [1, 0, 0],
-      [-1, 0, 0],
-      [0, 1, 0],
-      [0, -1, 0],
-      [0, 0, 1],
-      [0, 0, -1]
-    ] as const) {
-      const nx = cx + dx;
-      const ny = cy + dy;
-      const nz = cz + dz;
-      const blk = world.getBlock(nx, ny, nz);
-      if (blk === 23) hasDoor = true;
-      if (blk === 26 || blk === 27) hasLightBlock = true;
-
-      if (isPassable(blk)) {
-        const nk = key(nx, ny, nz);
-        if (!seen.has(nk)) {
-          seen.add(nk);
-          if (seen.size > TUNING.building.roomMaxVolume) {
-            overflowed = true;
-            break;
-          }
-          queue.push([nx, ny, nz]);
-        }
-      }
-    }
-    if (overflowed) break;
-  }
-
-  if (overflowed) {
-    return {
-      valid: false,
-      volume: seen.size,
-      missingConditions: ['not_enclosed_or_too_large'],
-      promptSentence: 'This room is too big or not enclosed.',
-      eligibleResident: null
-    };
-  }
-
-  const insideFurniture = furniture.filter((f) => seen.has(key(f.x, f.y, f.z)));
-  const roles = new Set(insideFurniture.map((f) => FURNITURE_ROLE_MAP.get(f.id) ?? 'decor'));
-  const hasLight = hasLightBlock || roles.has('light');
-  const hasRest = roles.has('rest');
-  const hasFlat = roles.has('flat');
-  const ceilingHeight = maxY - minY + 1;
-
-  const missing: string[] = [];
-  let promptSentence = 'This room is ready for a resident!';
-
-  if (seen.size < TUNING.building.roomMinVolume) {
-    missing.push('too_small');
-    promptSentence = ROOM_MISSING_SENTENCES.too_small;
-  } else if (ceilingHeight < TUNING.building.roomMinCeiling) {
-    missing.push('low_ceiling');
-    promptSentence = ROOM_MISSING_SENTENCES.low_ceiling;
-  } else if (!hasDoor) {
-    missing.push('door');
-    promptSentence = ROOM_MISSING_SENTENCES.door;
-  } else if (!hasLight) {
-    missing.push('light');
-    promptSentence = ROOM_MISSING_SENTENCES.light;
-  } else if (!hasRest) {
-    missing.push('rest');
-    promptSentence = ROOM_MISSING_SENTENCES.rest;
-  } else if (!hasFlat) {
-    missing.push('flat');
-    promptSentence = ROOM_MISSING_SENTENCES.flat;
-  }
-
-  const jobFurniture = insideFurniture.find((f) => FURNITURE_ROLE_MAP.get(f.id) === 'job');
-  const eligibleResident =
-    missing.length === 0 && jobFurniture
-      ? (RESIDENT_REGISTRY.find((r) => r.jobFurnitureId === jobFurniture.id) ?? null)
-      : null;
-
+  const at = new Map(furniture.map((f) => [`${f.x},${f.y},${f.z}`, { key: f.id, rot: 0 }]));
+  const r = checkRoomFrom(
+    (x, y, z) => world.getBlock(x, y, z),
+    (x, y, z) => at.get(`${x},${y},${z}`),
+    [[startAir.x, startAir.y, startAir.z]]
+  );
   return {
-    valid: missing.length === 0,
-    volume: seen.size,
-    missingConditions: missing,
-    promptSentence,
-    eligibleResident
+    valid: r.ok,
+    volume: r.cells,
+    // the names this function always used (talk domain reads them)
+    missingConditions: [...r.structure.map((k) => LEGACY_NEED[k] ?? k), ...r.missing],
+    promptSentence: r.sentence,
+    eligibleResident: r.resident
   };
 }
 

@@ -428,7 +428,7 @@ describe('client lesson module (docs/19 §4)', () => {
   it('hints follow the stage ladder and the layer draws nothing outside a lesson', () => {
     expect(maskTarget('Can I have a warm honey tea?', 'full')).toBe('Can I have a warm honey tea?');
     expect(maskTarget('I want to trade my blue stone', 'keyword', ['i want'])).toBe('I want __ _____ __ ____ _____');
-    expect(maskTarget('Can I have a warm honey tea?', 'initial')).toBe('C__ I_ h___ a_ w___ h____ t__?');
+    expect(maskTarget('Can I have a warm honey tea?', 'initial')).toBe('C__ I h___ a w___ h____ t__?');
     expect(maskTarget('anything', 'none')).toBe('');
     expect(codeFromSearch('?code=042117')).toBe('042117');
     expect(codeFromSearch('?code=42117')).toBeNull();

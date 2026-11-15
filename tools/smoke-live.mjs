@@ -56,17 +56,25 @@ if (token) {
     return q;
   });
 }
+const BROWSER_UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
 for (const page of ['/', '/try', '/parents', '/game/']) {
   await check(`page ${page}`, async () => {
-    const r = await req(page, { headers: { accept: 'text/html' } });
+    const r = await req(page, { headers: { accept: 'text/html', 'user-agent': BROWSER_UA } });
     expect(r.status === 200, `status ${r.status}`);
     const html = await r.text();
     expect(html.includes('<div id="root"'), 'no app root in html');
+    // docs/14 §11: no third-party script. Cloudflare's zone analytics injects one unless HTML says no-transform
+    // (tools/site-headers.mjs, apps/edge/src/html-cache.ts).
+    const cacheControl = r.headers.get('cache-control') ?? '';
+    expect(/no-transform/.test(cacheControl), `html cache-control "${cacheControl}" lacks no-transform`);
+    expect(!/cloudflareinsights|beacon\.min\.js/.test(html), 'Cloudflare analytics beacon injected into the page');
     const asset = html.match(/src="([^"]+\.js)"/)?.[1];
     expect(asset, 'no script tag');
     const a = await fetch(new URL(asset, base + page));
     expect(a.status === 200, `asset ${asset} → ${a.status}`);
-    return { asset };
+    const assetCache = a.headers.get('cache-control') ?? '';
+    expect(/max-age=31536000/.test(assetCache) && !/no-transform|max-age=0/.test(assetCache), `asset cache-control "${assetCache}"`);
+    return { asset, cacheControl };
   });
 }
 await check('version.json', async () => {
@@ -153,6 +161,59 @@ if (token) {
     expect(r.status === 200, `status ${r.status}`);
     const j = await r.json();
     return { kind: j.kind ?? j.report?.kind ?? 'ok' };
+  });
+  // Showroom share link as KakaoTalk's scraper sees it (WP-703, src/showroom-page.ts): a consenting test family
+  // publishes a small world, the link previews with the world's own title and the showroom picture, then the consent
+  // is withdrawn and the same link must be gone (404). One fixed test child, so reruns update one row.
+  await check('operator: showroom share preview', async () => {
+    const sp = 'smoke-show';
+    const title = 'Smoke Showroom';
+    const created = await req(
+      '/v1/admin/players',
+      { method: 'POST', body: JSON.stringify({ family_id: 'smoke-show-fam', guardian_id: 'smoke-show-g', player_id: sp, nickname: 'Smoke' }) },
+      { auth: true }
+    );
+    expect(created.status === 201, `player ${created.status}`);
+    const inv = await req('/v1/admin/family-invites', { method: 'POST', body: JSON.stringify({ player_id: sp }) }, { auth: true });
+    expect(inv.status === 201, `invite ${inv.status}`);
+    const code = (await inv.json()).invite_path.split('#k=')[1];
+    const session = await req('/v1/family/session', { method: 'POST', body: JSON.stringify({ invite: code }) });
+    expect(session.status === 200, `guardian session ${session.status}`);
+    const g = { authorization: `Bearer ${(await session.json()).guardian_token}` };
+    const consent = (granted) =>
+      req(`/v1/family/children/${sp}/consents/showroom_public`, { method: 'PUT', headers: g, body: JSON.stringify({ granted }) });
+    try {
+      expect((await req('/v1/family/service-consent', { method: 'POST', headers: g, body: JSON.stringify({ granted: true }) })).status === 200, 'service consent');
+      expect((await consent(true)).status === 200, 'showroom consent');
+      const blocks = [];
+      for (let x = 0; x < 6; x++) for (let y = 0; y < 6; y++) blocks.push([x, y, 0, 'leaf']);
+      for (let z = 1; z <= 3; z++) blocks.push([2, 2, z, 'brand'], [3, 2, z, 'brand']);
+      const pub = await req(
+        '/v1/showroom',
+        { method: 'POST', body: JSON.stringify({ player_id: sp, snapshot: { v: 1, title, blocks, avatar: { shirt: 'brand', pants: 'sky-d', hair: 'ink-700' } } }) },
+        { auth: true }
+      );
+      expect(pub.status === 200 || pub.status === 201, `publish ${pub.status} ${(await pub.clone().text()).slice(0, 120)}`);
+      const path = (await pub.json()).path;
+      const kakao = { 'user-agent': 'facebookexternalhit/1.1; kakaotalk-scrap/1.0', accept: 'text/html' };
+      const page = await fetch(base + path, { headers: kakao });
+      const html = await page.text();
+      expect(page.status === 200, `share page ${page.status}`);
+      const meta = (prop) => html.match(new RegExp(`<meta[^>]+(?:property|name)="${prop}"[^>]+content="([^"]*)"`))?.[1] ?? null;
+      expect(meta('og:title')?.includes(title) && meta('og:title')?.includes('쇼룸'), `og:title ${meta('og:title')}`);
+      expect(meta('og:image')?.endsWith('/og/showroom.jpg'), `og:image ${meta('og:image')}`);
+      expect(/noindex/.test(meta('robots') ?? ''), `robots ${meta('robots')}`);
+      expect(!html.includes(path.slice(3)), 'share token leaked into the page');
+      expect(/no-transform/.test(page.headers.get('cache-control') ?? ''), `cache-control ${page.headers.get('cache-control')}`);
+      expect((await fetch(new URL(meta('og:image'), base))).status === 200, 'showroom share picture missing');
+      expect((await consent(false)).status === 200, 'withdraw consent');
+      const gone = await fetch(base + path, { headers: kakao });
+      expect(gone.status === 404, `link after withdrawal ${gone.status}`);
+      return { og_title: meta('og:title'), withdrawn: gone.status };
+    } finally {
+      await consent(false).catch(() => null);
+      await req('/v1/family/logout', { method: 'POST', headers: g }).catch(() => null);
+    }
   });
 }
 

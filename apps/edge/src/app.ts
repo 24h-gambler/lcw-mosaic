@@ -27,6 +27,8 @@ import { indexedPrice } from './economy.js';
 import { claimReadAloud, isFurnitureKind, priceWithReadAloud, readAloudStatus } from './furniture.js';
 import { attemptReview, createMemoryCard, listMemoryCards, listReviewSigns, memoryCardId } from './review.js';
 import { applyErrandStep, getErrand } from './errand.js';
+import { plotStoreFor } from './plot.js';
+import { OPS_PER_REQUEST_MAX } from '@lcw/sim-core';
 
 export interface EdgeRuntimeDeps {
   db: EdgePlatformDb;
@@ -474,6 +476,26 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const playerId = c.req.query('player_id') ?? '';
     if (!playerId) return c.json({ error: 'player_id_required' }, 400);
     return c.json(readAloudStatus(deps.db, playerId, deps.nowMs()));
+  });
+
+  // My plot (WP-201/205/207, docs/03 D13): the platform fills player_id/world_id from the child's token. The ops are
+  // re-judged here by the same sim-core rules; the reply carries the authoritative inventory and a result per op.
+  app.get('/v1/plot', (c) => {
+    const playerId = c.req.query('player_id') ?? '';
+    const world = deps.worlds.get(c.req.query('world_id') ?? '');
+    if (!playerId || !world) return c.json({ error: 'plot_not_found' }, 404);
+    return c.json(plotStoreFor(world, world.sql, playerId, deps.nowMs()).snapshot());
+  });
+  app.post('/v1/plot/ops', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { player_id?: unknown; world_id?: unknown; ops?: unknown; batch?: unknown } | null;
+    const playerId = typeof body?.player_id === 'string' ? body.player_id : '';
+    const world = deps.worlds.get(typeof body?.world_id === 'string' ? body.world_id : '');
+    if (!playerId || !world) return c.json({ error: 'plot_not_found' }, 404);
+    if (!Array.isArray(body?.ops) || body.ops.length === 0 || body.ops.length > OPS_PER_REQUEST_MAX) {
+      return c.json({ error: 'invalid_plot_ops' }, 400);
+    }
+    const batch = typeof body.batch === 'string' ? body.batch : undefined;
+    return c.json(plotStoreFor(world, world.sql, playerId, deps.nowMs()).applyOps(body.ops, deps.nowMs(), { batch }));
   });
 
   app.post('/v1/review/attempt', async (c) => {

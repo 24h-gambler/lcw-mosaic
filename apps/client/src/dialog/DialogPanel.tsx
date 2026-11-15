@@ -12,6 +12,7 @@ import {
   picturesFor,
   renderHintTokens,
   splitWords,
+  spokenOffer,
   type MixedSpeech
 } from './hints.js';
 import { createMediaClipRecorder } from '@lcw/audio';
@@ -111,6 +112,8 @@ function HintTag(props: { tag: string }) {
 
 export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const { npc, level, mode, hint, submit, onDone, onClose } = props;
+  const onResultRef = useRef(props.onResult);
+  onResultRef.current = props.onResult;
   const fontScale = Math.max(1, Math.min(1.5, props.fontScale ?? 1));
   const engine: SpeechEngine = useMemo(() => props.speech ?? createDialogSpeechEngine(), [props.speech]);
   const availability = useMemo(() => engine.availability(), [engine]);
@@ -179,6 +182,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       try {
         const r = await submit({ ...u, dialogId: dialogId.current });
         setResult(r);
+        onResultRef.current?.(r);
         setLastTarget(r.matchedText ?? u.target_text);
         setLastSpoken(u.transcript);
         setPending(null);
@@ -279,20 +283,24 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         playSfx('word.hit', 4);
         return;
       }
+      // Voice picks the sentence too: a child who reads another sentence on screen is scored on that one.
+      const picked = freeTalk || source === 'board' ? offer : spokenOffer(offers, selected, transcript, level, hint);
+      const stars = (picked?.stars ?? selected) as 1 | 2 | 3;
+      if (!freeTalk && picked && stars !== selected) setSelected(stars);
       void doSubmit({
-        target_text: freeTalk ? '' : offer?.text ?? '',
+        target_text: freeTalk ? '' : picked?.text ?? '',
         transcript,
-        chosen_stars: freeTalk ? 1 : selected,
+        chosen_stars: freeTalk ? 1 : stars,
         hint_level: hint,
         latency_ms: Math.max(0, Math.round(micStartAt.current - readyAt.current)),
         dur_ms: durMs,
         stt_source: source,
         confidence,
         ...(clip ? { clip } : {}),
-        attempt: (misses[selected] ?? 0) + 1
+        attempt: (misses[stars] ?? 0) + 1
       });
     },
-    [doSubmit, freeTalk, hint, lastTarget, level, misses, needsUnderstand, npc.ctx, offer, selected]
+    [doSubmit, freeTalk, hint, lastTarget, level, misses, needsUnderstand, npc.ctx, offer, offers, selected]
   );
 
   // Mic controller lives for the panel's lifetime; it reaches the latest sendSpoken through this ref.
@@ -447,7 +455,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const extUrl = typeof location !== 'undefined' ? kakaoOpenExternalUrl(location.href) : '#';
   const style = { ['--fs' as string]: String(fontScale) } as React.CSSProperties;
   const pictures = offer ? picturesFor(offer.text) : ['💬'];
-  const showTags = offer && (hint === 'full' || hint === 'keyword' || hint === 'initial');
+  // Recall ('initial') hides the chips: a tag like "can i have" would give the masked sentence away.
+  const showTags = offer && (hint === 'full' || hint === 'keyword');
 
   return (
     <div className="lcw-dlg" style={style} role="dialog" aria-modal="true" aria-label={`${npc.nameKo} ${S.chooseTitle}`}>

@@ -45,6 +45,8 @@ export interface WorldStats {
   ground?: { near: number; view: number };
   /** the last scene jump: how long the fade card waited for the ground at the new spot */
   arrival?: { scene: SceneId; groundMs: number };
+  /** building on my plot (headless checks): mode, carried stacks, sync queue, current aim, last room check */
+  build?: Record<string, unknown>;
 }
 
 export interface WorldHandle {
@@ -53,7 +55,13 @@ export interface WorldHandle {
   npcSay(npcId: string, text: string, opts?: { possessed?: boolean }): void; // 말풍선(빙의 중엔 반짝임)
   playerSay(text: string): void;
   giveItem(itemKey: string): void; // 주문한 음료·교환한 물건이 손/슬롯에
-  celebrate(stars: 0 | 1 | 2 | 3): void; // 별 연출·효과음
+  /**
+   * The item left the child (handed to an NPC, e.g. the errand water): its slot empties and, if it was in hand, the
+   * hand too. False when no slot held it. Shells call it after the server already moved the item.
+   */
+  takeItem?(itemKey: string): boolean;
+  /** 별 연출·효과음. `add` = how many stars the HUD chip gains (default `stars`; a retry that beats 1 star with 2 adds 1). */
+  celebrate(stars: 0 | 1 | 2 | 3, opts?: { add?: number }): void;
   setGoal(goalKo: string, targetEn?: string): void; // 화면 맨 위 목표 한 줄
   setPaused(paused: boolean): void; // 대화창이 열리면 이동 멈춤
   dispose(): void;
@@ -79,12 +87,40 @@ export interface WorldHandle {
   /** Linked child's nickname shown over the player (null = guest, no plate). The guide greets them by name once. */
   setPlayerName?(name: string | null): void;
   /**
-   * Build screen room check (docs/03 D13, docs/08 8.3): what the room still misses, as furniture kinds, and the English
-   * sentence shown for it. The dialog domain puts its read-aloud discount line under it. Returns an unsubscribe.
+   * Pixels at the bottom of the canvas covered by a panel (the dialog window, ~70% of a phone screen). While a
+   * dialog frames the NPC the shot is centred in the strip above it; 0 = nothing covers the world.
    */
-  onRoomCheck?(cb: (r: { missing: Array<'light' | 'rest' | 'flat'>; sentence: string }) => void): () => void;
+  setViewInset?(bottomPx: number): void;
+  /**
+   * Who may build on my plot and where it is saved (docs/03 D13, WP-207). Default `local`: a guest builds on this
+   * device only. `saved`: the linked child's device token; the server re-judges and keeps every edit. `paused`: the
+   * seat stopped solo play (look, don't build).
+   */
+  setBuildAccess?(access: BuildAccess): void;
+  /**
+   * Build screen room check (docs/03 D13, docs/08 8.3): on placing a nameplate and 1 s after the room changes. What
+   * the room still misses as furniture kinds, and the English sentence shown for it; the dialog domain puts its
+   * read-aloud discount line under it. Returns an unsubscribe.
+   */
+  onRoomCheck?(cb: (r: RoomCheckInfo) => void): () => void;
   /** Performance and position read-out (headless checks, tier auto-detect). */
   getStats?(): WorldStats;
+}
+
+export type BuildAccess =
+  | { kind: 'local' }
+  | { kind: 'paused' }
+  /** `pausedFallback: 'local'` keeps building unsaved when the seat is paused (a lesson is never gated). */
+  | { kind: 'saved'; token: string; base?: string; pausedFallback?: 'local' };
+
+export interface RoomCheckInfo {
+  /** furniture kinds the room still needs (empty when only the shape is wrong, or the room is complete) */
+  missing: Array<'light' | 'rest' | 'flat'>;
+  /** target-language sentence for the first need, or the "ready" line */
+  sentence: string;
+  ok: boolean;
+  /** resident who may move in (English name), when the room is complete with job furniture */
+  resident: string | null;
 }
 
 export interface CreateWorldOptions {

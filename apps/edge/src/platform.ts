@@ -17,6 +17,7 @@ import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './l
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
+import { htmlNoTransform } from './html-cache.js';
 import { injectShowroomShareMeta, showroomTokenFromPath } from './showroom-page.js';
 import { createInitialPlayerState } from '@lcw/sim-core';
 import { z } from 'zod';
@@ -665,6 +666,25 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     }
     return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota: () => platform.quota, ai: env.AI, nowMs: () => Date.now() });
   });
+  // My plot (WP-207): the child's own home world, from the same tokens. Building alone is solo play, so a linked
+  // device whose seat has paused play may still look (GET) but not build (docs/01 §4; the client shows the notice).
+  // A lesson token always may: the lesson is the teacher's time.
+  app.get('/v1/plot', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+  });
+  app.post('/v1/plot/ops', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const blocked = seatBlocked(s);
+    if (blocked) return blocked;
+    const body = await readBody(c);
+    if (!body) return c.json({ error: 'invalid_plot_ops' }, 400);
+    return forwardSolo(c.req.url, s, { ops: body.ops, batch: body.batch }, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+  });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();
     if (!env.LCW_OPERATOR_TOKEN) return c.json({ error: 'operator_token_not_configured' }, 503);
@@ -773,27 +793,32 @@ function platformStub(env: LcwEnv): DoStub {
   return env.PLATFORM.get(env.PLATFORM.idFromName('main'));
 }
 
+async function routeWorkerRequest(request: Request, env: LcwEnv): Promise<Response> {
+  const url = new URL(request.url);
+  if (url.pathname === '/health' || url.pathname.startsWith('/v1/')) {
+    return platformStub(env).fetch(request);
+  }
+  // Report share links get name-free preview tags and no-referrer/noindex (docs/16 §2-18), see report-page.ts.
+  if (env.ASSETS && url.pathname.startsWith('/r/')) {
+    const shell = await env.ASSETS.fetch(new Request(new URL('/', url), { headers: request.headers }));
+    return injectReportShareMeta(shell, url);
+  }
+  // Showroom share links get the world's own title as preview tags, and 404 once consent is gone (showroom-page.ts).
+  if (env.ASSETS && request.method === 'GET' && showroomTokenFromPath(url.pathname)) {
+    const shell = await env.ASSETS.fetch(new Request(new URL('/', url), { headers: request.headers }));
+    return injectShowroomShareMeta(shell, url, async (token) => {
+      const res = await platformStub(env).fetch(new Request(new URL(`/v1/showroom/${token}`, url)));
+      return res.ok ? ((await res.json()) as { title: string }) : null;
+    });
+  }
+  if (env.ASSETS) return env.ASSETS.fetch(request);
+  return new Response('not found', { status: 404 });
+}
+
 export const workerHandler = {
+  // Every HTML response leaves with `no-transform` so Cloudflare does not inject its analytics beacon (html-cache.ts).
   async fetch(request: Request, env: LcwEnv): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.pathname === '/health' || url.pathname.startsWith('/v1/')) {
-      return platformStub(env).fetch(request);
-    }
-    // Report share links get name-free preview tags and no-referrer/noindex (docs/16 §2-18), see report-page.ts.
-    if (env.ASSETS && url.pathname.startsWith('/r/')) {
-      const shell = await env.ASSETS.fetch(new Request(new URL('/', url), { headers: request.headers }));
-      return injectReportShareMeta(shell, url);
-    }
-    // Showroom share links get the world's own title as preview tags, and 404 once consent is gone (showroom-page.ts).
-    if (env.ASSETS && request.method === 'GET' && showroomTokenFromPath(url.pathname)) {
-      const shell = await env.ASSETS.fetch(new Request(new URL('/', url), { headers: request.headers }));
-      return injectShowroomShareMeta(shell, url, async (token) => {
-        const res = await platformStub(env).fetch(new Request(new URL(`/v1/showroom/${token}`, url)));
-        return res.ok ? ((await res.json()) as { title: string }) : null;
-      });
-    }
-    if (env.ASSETS) return env.ASSETS.fetch(request);
-    return new Response('not found', { status: 404 });
+    return htmlNoTransform(await routeWorkerRequest(request, env));
   },
   async scheduled(event: { cron: string }, env: LcwEnv): Promise<void> {
     const res = await platformStub(env).fetch('https://platform/internal/cron', {

@@ -34,7 +34,7 @@ describe('world api contract (docs/19 §2)', () => {
 
   it('gives every NPC a ctx the dialog schema accepts', () => {
     const ids = NPCS.map((n) => n.id).sort();
-    expect(ids).toEqual(['cafe_owner', 'guide', 'shop_owner']);
+    expect(ids).toEqual(['cafe_owner', 'errand_neighbor', 'guide', 'shop_owner']);
     for (const n of NPCS) {
       expect(NpcContextSchema.safeParse(n.ctx).success).toBe(true);
       expect(n.nameKo.length).toBeGreaterThan(0);
@@ -124,6 +124,27 @@ describe('town build (all through setBlock)', () => {
         expect(collideHeight(world.getBlock(Math.floor(spot.x), by, Math.floor(spot.z)))).toBe(0);
         expect(collideHeight(world.getBlock(Math.floor(spot.x), by + 1, Math.floor(spot.z)))).toBe(0);
       }
+    }
+  });
+
+  it('stands the errand neighbour by the honey cafe door, off the walk to the counter (docs/03 D1)', () => {
+    const n = NPCS.find((d) => d.ctx === 'errand')!;
+    expect(n.spot).toBeDefined();
+    const spot = n.spot!;
+    const y = standHeight(world, spot.x, spot.z, Math.ceil(spot.y) + 1);
+    expect(Math.abs(y - spot.y)).toBeLessThan(1.01);
+    const by = Math.ceil(y - 0.01);
+    expect(collideHeight(world.getBlock(Math.floor(spot.x), by, Math.floor(spot.z)))).toBe(0);
+    expect(collideHeight(world.getBlock(Math.floor(spot.x), by + 1, Math.floor(spot.z)))).toBe(0);
+    // the cafe door is the opening in the west wall at (166, 1..2, 138)
+    expect(world.getBlock(166, 1, 138)).toBe(0);
+    expect(Math.hypot(spot.x - 166, spot.z - 138)).toBeLessThan(6);
+    // at least 2 m from every point of the cafe walk and from the counter spot, so the two-shot stays clear
+    const walk = [...(SCENES.honey_cafe.path ?? []), [SCENES.honey_cafe.player.x, SCENES.honey_cafe.player.z]] as Array<[number, number]>;
+    for (let i = 1; i < walk.length; i++) {
+      const [ax, az] = walk[i - 1]!;
+      const [bx, bz] = walk[i]!;
+      for (let t = 0; t <= 1; t += 0.05) expect(Math.hypot(ax + (bx - ax) * t - spot.x, az + (bz - az) * t - spot.z)).toBeGreaterThanOrEqual(2);
     }
   });
 

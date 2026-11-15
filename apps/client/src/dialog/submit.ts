@@ -2,6 +2,7 @@ import { converseFeedbackKo, decideConverseReward } from '@lcw/converse';
 import type { Level } from '@lcw/schemas';
 import { uploadClip } from '@lcw/audio';
 import type { DialogResult, NpcRef, UtteranceSubmit } from './types.js';
+import { noteSeatResponse } from '../world/seat.js';
 
 /**
  * The two `submit` paths of docs/19 3. Both are server-scored; the client never computes stars or coins.
@@ -32,6 +33,8 @@ async function postJson(fetchImpl: Fetch, url: string, token: string, body: unkn
   } catch (err) {
     throw new SubmitError('network', err instanceof Error ? err.message : String(err));
   }
+  // a paused seat is not an error: the shell shows the seat card (world/seat.ts)
+  if (res.status === 403 && (await noteSeatResponse(res))) throw new SubmitError('auth', 'seat_inactive');
   if (res.status === 401 || res.status === 403) throw new SubmitError('auth', `status ${res.status}`);
   if (res.status === 400) throw new SubmitError('invalid', `status ${res.status}`);
   if (!res.ok) throw new SubmitError('server', `status ${res.status}`);

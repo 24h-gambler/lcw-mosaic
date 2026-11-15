@@ -8,7 +8,11 @@ function fakeWorld() {
   const log: string[] = [];
   return {
     log,
-    celebrate: (s: 0 | 1 | 2 | 3) => log.push(`stars:${s}`),
+    adds: [] as number[],
+    celebrate(s: 0 | 1 | 2 | 3, opts?: { add?: number }) {
+      log.push(`stars:${s}`);
+      if (s > 0) this.adds.push(opts?.add ?? s);
+    },
     giveItem: (k: string) => log.push(`item:${k}`),
     setCoins: (n: number | null) => log.push(`coins:${n}`)
   };
@@ -42,6 +46,17 @@ describe('dialog result player', () => {
     play({ pass: true, stars: 3, feedbackKo: '' });
     play({ pass: true, stars: 2, feedbackKo: '' });
     expect(w.log).toEqual(['stars:0', 'stars:1', 'stars:3']);
+    // the HUD chip gains 1, then only the 2 that beat it: 3 stars for the window, not 4
+    expect(w.adds).toEqual([1, 2]);
+  });
+
+  it('plays each result as it shows; the best reported again on 좋아요 adds nothing', () => {
+    const w = fakeWorld();
+    const play = createResultPlayer(w);
+    play({ pass: true, stars: 2, feedbackKo: '', coinsTotal: 30 }); // onResult: the result screen
+    play({ pass: true, stars: 2, feedbackKo: '', coinsTotal: 30 }); // onDone: 좋아요
+    expect(w.log.filter((l) => l.startsWith('stars'))).toEqual(['stars:2']);
+    expect(w.adds).toEqual([2]);
   });
 
   it('guest practice never grants an item', () => {

@@ -50,6 +50,8 @@ function css(): string {
 .lw-slot .i{font-family:${T.fonts.pixel};font-size:12px;position:absolute;left:3px;top:2px;color:${C.silver}}
 .lw-slot img{width:36px;height:36px;image-rendering:pixelated}
 .lw-slot.pop{animation:lwpop ${M.popMs}ms ease-out}
+.lw-slot .c{position:absolute;right:3px;bottom:1px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};text-shadow:1px 1px 0 ${C['ink-900']}}
+.lw-slot.build img{width:40px;height:40px;image-rendering:auto}
 .lw-toast{position:absolute;bottom:84px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;padding:8px 16px;font-weight:700;transition:all ${M.baseMs}ms ease-out;display:flex;gap:8px;align-items:center}
 .lw-toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .lw-toast img{width:28px;height:28px;image-rendering:pixelated}
@@ -97,7 +99,8 @@ function css(): string {
 @keyframes lwsnow{from{background-position:0 0,0 0}to{background-position:-48px 96px,32px 128px}}
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
-@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot img{width:28px;height:28px}.lw-goal .t{font-size:${T.scale.h3.sizePx}px}.lw-chip .s{font-size:${T.scale.micro.sizePx}px}}
+@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot img{width:28px;height:28px}.lw-goal .t{font-size:${T.scale.h3.sizePx}px}.lw-chip .s{font-size:${T.scale.micro.sizePx}px}
+.lw-goal{top:60px;left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}}
 @media (prefers-reduced-motion:reduce){.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
 }
@@ -183,6 +186,9 @@ export class WorldHud {
   private prompt: HTMLDivElement;
   private plate: HTMLDivElement;
   private slots: HTMLDivElement[] = [];
+  /** item slot contents, kept while the hotbar shows build stacks */
+  private itemSlots: Array<{ src: string; title: string } | null> = [null, null, null, null, null];
+  private buildSlotsOn = false;
   private toast: HTMLDivElement;
   private toastTimer = 0;
   private cele: HTMLDivElement;
@@ -460,12 +466,9 @@ export class WorldHud {
   putItem(slot: number, key: string): void {
     const s = this.slots[slot];
     if (!s) return;
-    s.querySelector('img')?.remove();
-    const img = document.createElement('img');
-    img.alt = itemNameKo(key);
-    img.src = itemIconDataUrl(key);
-    s.appendChild(img);
-    s.title = itemNameKo(key);
+    this.itemSlots[slot] = { src: itemIconDataUrl(key), title: itemNameKo(key) };
+    if (!this.buildSlotsOn) this.drawSlot(slot, this.itemSlots[slot], null);
+    const img = { src: this.itemSlots[slot]!.src };
     s.classList.remove('pop');
     void s.offsetWidth;
     s.classList.add('pop');
@@ -484,11 +487,51 @@ export class WorldHud {
     this.toastTimer = window.setTimeout(() => this.toast.classList.remove('on'), 2600);
   }
 
+  /** Empty an item slot (the item was handed over); the build bar keeps drawing while building is on. */
+  clearItem(slot: number): void {
+    if (!this.slots[slot]) return;
+    this.itemSlots[slot] = null;
+    if (!this.buildSlotsOn) this.drawSlot(slot, null, null);
+  }
+
+  private drawSlot(i: number, c: { src: string; title: string } | null, count: number | null): void {
+    const s = this.slots[i];
+    if (!s) return;
+    s.querySelector('img')?.remove();
+    s.querySelector('.c')?.remove();
+    s.title = c?.title ?? '';
+    s.classList.toggle('build', this.buildSlotsOn);
+    if (!c) return;
+    const img = document.createElement('img');
+    img.alt = c.title;
+    img.src = c.src;
+    s.appendChild(img);
+    if (count !== null) el('span', 'c', s).textContent = String(count);
+  }
+
+  /**
+   * On my plot the hotbar shows the five carried build stacks (icon + count, docs/03 D13); null puts the item
+   * slots back. Only changed slots are redrawn.
+   */
+  setBuildSlots(slots: Array<{ icon: string; count: number; name: string } | null> | null): void {
+    const key = slots ? JSON.stringify(slots.map((x) => (x ? [x.name, x.count] : null))) : '';
+    if (key === this.buildKey && (slots !== null) === this.buildSlotsOn) return;
+    this.buildKey = key;
+    this.buildSlotsOn = slots !== null;
+    for (let i = 0; i < this.slots.length; i++) {
+      if (slots) {
+        const b = slots[i] ?? null;
+        this.drawSlot(i, b ? { src: b.icon, title: b.name } : null, b ? b.count : null);
+      } else this.drawSlot(i, this.itemSlots[i] ?? null, null);
+    }
+  }
+  private buildKey = '';
+
   get selectedSlot(): number {
     return this.selected;
   }
 
-  celebrate(stars: 0 | 1 | 2 | 3, reduceMotion: boolean): void {
+  celebrate(stars: 0 | 1 | 2 | 3, reduceMotion: boolean, add: number = stars): void {
     this.cele.innerHTML = '';
     this.cele.classList.remove('out');
     const row = el('div', 'row', this.cele);
@@ -504,11 +547,11 @@ export class WorldHud {
     window.setTimeout(() => {
       if (this.cele.classList.contains('out')) this.cele.innerHTML = '';
     }, 2400);
-    if (stars > 0 && !this.starsExternal) {
+    if (stars > 0 && add > 0 && !this.starsExternal) {
       window.setTimeout(() => {
-        this.ownStars += stars;
+        this.ownStars += add;
         if (this.starsExternal) return;
-        this.starTotal += stars;
+        this.starTotal += add;
         this.starsN.textContent = String(this.starTotal);
         this.starsEl.classList.remove('pop');
         void this.starsEl.offsetWidth;

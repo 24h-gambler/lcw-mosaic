@@ -26,8 +26,108 @@ export const WORLD_STRINGS = {
   seatPausedOk: '알겠어요',
   seatPausedChip: '둘러보기만',
   controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기',
-  controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기'
+  controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기',
+  // Building on my plot (docs/03 D13).
+  buildHelpDesktop: '내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · Z 되돌리기 · R 돌리기',
+  buildHelpTouch: '내 부지예요! 톡 누르면 놓기 · 부수기를 고르고 길게 누르기',
+  toolPlace: '놓기',
+  toolBreak: '부수기',
+  chest: '상자',
+  undo: '되돌리기',
+  rotate: '돌리기',
+  chestTitle: '보관 상자',
+  chestHint: '고르면 선택한 칸으로 와요. 손에 든 건 5칸까지예요.',
+  chestHand: '손에 든 것',
+  chestStore: '넣기',
+  chestEmpty: '상자가 비었어요',
+  close: '닫기',
+  syncSaved: '저장됨',
+  syncSaving: '저장 중…',
+  syncOffline: '인터넷이 끊겨서 기기에 모아 두는 중',
+  syncLocal: '연습 중 · 저장 안 돼요',
+  syncLoading: '내 부지를 불러오는 중…',
+  roomTitle: '방 검사',
+  roomOk: '확인',
+  buildCount: (n: number): string => `${n}개`,
+  // 쇼룸 공개 (docs/19 7장): only the build's shape and colours go up — say so on the card.
+  showroomBtn: '쇼룸 공개',
+  showroomTitle: '내 부지를 쇼룸에 올려요',
+  showroomHint: '블록 모양과 색만 올라가요. 내 이름이나 위치는 올라가지 않아요.',
+  showroomName: '쇼룸 이름',
+  showroomDefault: '나의 꿀벌 집',
+  showroomGo: '공개하기',
+  showroomBusyNow: '올리는 중…',
+  showroomDone: '올렸어요! 이 주소를 가족에게 보여 주세요',
+  showroomCopy: '주소 복사',
+  showroomCopied: '복사했어요'
 } as const;
+
+/** Why the showroom did not go up (no prices, no blame: what to do next). */
+export const SHOWROOM_REASONS_KO: Readonly<Record<string, string>> = {
+  consent: '보호자가 쇼룸 공개를 허락해야 해요. 보호자에게 말해 주세요.',
+  title: '다른 이름으로 해 볼까요?',
+  busy: '조금 뒤에 다시 해요',
+  offline: '인터넷이 연결되면 다시 해요',
+  unlinked: '보호자와 연결된 기기에서만 올릴 수 있어요',
+  seat: '지금은 혼자 놀기가 쉬는 중이에요',
+  server: '지금은 안 돼요. 조금 뒤에 다시 해요'
+};
+
+/** Why an edit did not happen (docs/03 D13 "빨강=불가+이유"). */
+export const BUILD_REASONS_KO: Readonly<Record<string, string>> = {
+  not_my_plot: '내 부지 안에서만 지을 수 있어요',
+  fence: '울타리와 문은 그대로 둬요',
+  too_low: '더 깊이는 못 파요',
+  too_high: '더 높이는 못 쌓아요',
+  chest: '보관 상자 자리예요',
+  empty_slot: '손에 든 게 없어요 · 상자에서 꺼내요',
+  occupied: '이미 뭔가 있어요',
+  no_block: '여기엔 부술 게 없어요',
+  unbreakable: '이건 부술 수 없어요',
+  not_buildable: '이건 놓을 수 없어요',
+  no_support: '가구는 바닥 위에 놓아요',
+  bag_full: '손이 가득 찼어요',
+  bad_op: '다시 해 볼까요?',
+  rate: '천천히 하나씩!',
+  far: '너무 멀어요 · 가까이 가요',
+  self: '내가 서 있는 자리예요',
+  paused: '지금은 혼자 놀기가 쉬는 중이에요',
+  loading: '내 부지를 불러오는 중이에요'
+};
+
+/** Korean gloss under the English room sentence (the English line is the one to read aloud). */
+export const ROOM_GLOSS_KO: Readonly<Record<string, string>> = {
+  closed: '방이 막혀 있지 않거나 너무 커요',
+  size: '방이 너무 좁아요',
+  ceiling: '천장이 두 칸은 높아야 해요',
+  door: '문이 필요해요',
+  light: '불빛이 필요해요',
+  rest: '침대나 의자가 필요해요',
+  flat: '탁자나 작업대가 필요해요',
+  ok: '멋진 방이에요!',
+  resident: '주민이 이사 올 수 있어요!'
+};
+
+/** Names of the 40 build blocks (content BLOCK_PALETTE keys). */
+export const BLOCK_NAMES_KO: Readonly<Record<string, string>> = {
+  grass: '잔디', dirt: '흙', sand: '모래', gravel: '자갈', stone: '돌', cobblestone: '조약돌', stone_brick: '돌벽돌',
+  brick: '벽돌', granite: '화강암', marble: '대리석', stone_slab: '돌 반 블록', stone_stair: '돌 계단', oak_plank: '참나무 판자',
+  birch_plank: '자작나무 판자', pine_plank: '소나무 판자', dark_plank: '짙은 판자', plank: '판자', log: '통나무', fence: '울타리',
+  door: '문', glass: '유리', stained_glass: '색유리', torch: '횃불', lantern: '등불', roof_tile_red: '빨간 지붕',
+  roof_tile_blue: '파란 지붕', roof_slate: '석판 지붕', thatch: '초가 지붕', wool_white: '흰 양털', wool_red: '빨간 양털',
+  wool_yellow: '노란 양털', wool_blue: '파란 양털', wool_green: '초록 양털', carpet: '카펫', flower_pot_block: '화분',
+  leaves: '나뭇잎', hay_bale: '건초', jar_shelf: '꿀단지 선반', scaffold: '발판', nameplate: '문패'
+};
+
+/** Names of shop furniture (content FURNITURE_REGISTRY ids); others read as "가구". */
+export const FURNITURE_NAMES_KO: Readonly<Record<string, string>> = {
+  furn_lamp_table: '탁자 등', furn_lamp_floor: '스탠드', furn_chandelier: '샹들리에', furn_lantern_wall: '벽등',
+  furn_bed_single: '침대', furn_bed_bunk: '이층 침대', furn_chair_wood: '나무 의자', furn_sofa_cozy: '소파', furn_armchair: '안락의자',
+  furn_table_dining: '식탁', furn_desk_study: '책상', furn_workbench: '작업대', furn_counter_kitchen: '부엌 조리대',
+  job_stove: '화덕', job_sewing_machine: '재봉틀', job_stone_bench: '석재 작업대', job_saw_bench: '톱 작업대', job_anvil: '모루',
+  job_flower_shelf: '화분 선반', job_display_stand: '진열대', job_mailbox: '우편함', job_easel: '이젤', job_map_table: '지도 탁자',
+  job_instrument: '피아노', job_lab_desk: '실험대'
+};
 
 export const SCENE_TITLES_KO = {
   plaza: '중앙 광장',

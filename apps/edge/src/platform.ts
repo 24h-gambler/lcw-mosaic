@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { buildLessonModeApp } from './lesson-mode.js';
 import { z } from 'zod';
 import { FREE_TIER_LIMITS, QuotaMeter } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
@@ -59,6 +60,9 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (method === 'GET' && path === '/v1/trades/scenarios') return true;
   if (method === 'GET' && /^\/v1\/reports\/[^/]+$/.test(path) && path !== '/v1/reports/weekly') return true;
   if (method === 'POST' && path === '/v1/converse/understand') return true;
+  // Lesson mode (docs/18): the join code exchange is public; /v1/lesson/* checks its own student token.
+  if (method === 'POST' && path === '/v1/join') return true;
+  if (path.startsWith('/v1/lesson/')) return true;
   return false;
 }
 
@@ -310,6 +314,11 @@ export class PlatformDO {
   }
 }
 
+async function sha256Hex(s: string): Promise<string> {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 function utcDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
@@ -388,6 +397,26 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   });
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))
+  );
+  app.route(
+    '/',
+    buildLessonModeApp({
+      sql: platform.sql,
+      db: platform.db,
+      nowMs: () => Date.now(),
+      randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
+      sha256Hex,
+      completeLesson: (lessonId, body) =>
+        Promise.resolve(
+          inner.fetch(
+            new Request(`https://lcw.internal/v1/lessons/${encodeURIComponent(lessonId)}/complete-and-send-report`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body)
+            })
+          )
+        )
+    })
   );
   app.route('/', inner);
   return app;

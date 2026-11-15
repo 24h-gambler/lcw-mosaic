@@ -7,7 +7,10 @@ export type LessonUtteranceMode = 'free' | 'guided' | 'read' | 'recall';
 export interface LessonTarget {
   stars: 1 | 2 | 3;
   text: string;
-  /** Core-pattern phrases scored at 45% (docs/04 §4.6). */
+  /**
+   * Core-pattern phrases scored at 45% (docs/04 §4.6). For a 3-star target list only the connector that makes it
+   * 3-star: the star cap applies when none of the core tokens is said, so a shared opener would hide a missing connector.
+   */
   hintTags: string[];
 }
 
@@ -66,7 +69,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       targets: [
         { stars: 1, text: 'Honey tea, please.', hintTags: ['please'] },
         { stars: 2, text: 'Can I have a warm honey tea?', hintTags: ['can i have'] },
-        { stars: 3, text: 'Can I have a warm honey tea so that I stay warm?', hintTags: ['can i have', 'so that'] }
+        { stars: 3, text: 'Can I have a warm honey tea so that I stay warm?', hintTags: ['so that'] }
       ]
     },
     {

@@ -75,9 +75,19 @@ export function tidyQuote(t: string): string {
 
 const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9' ]+/g, '').replace(/\s+/g, ' ').trim();
 
-/** Sentences safe to quote on a public page: passed, heard clearly, English, no PII/profanity (docs/16 §1). */
-function quotable(u: UttRow): boolean {
+/**
+ * Self-introductions name the child, the school or where they live ("My name is Jiwoo", "I live in Mapo"): never
+ * quoted on a link that can be forwarded (docs/16 §1 "실명 없음").
+ */
+export const SELF_IDENTIFYING_PATTERN =
+  /(?:name(?:'s| is)|call me|i live|i'm from|i am from|my school|my teacher is|my address|years old)/i;
+
+/** Sentences safe to quote on a public page: passed, heard clearly, English, no PII/profanity/names (docs/16 §1). */
+function quotable(u: UttRow, names: string[]): boolean {
   if (u.stars <= 0 || u.confidence < MIN_QUOTE_CONFIDENCE || u.words < 2) return false;
+  if (SELF_IDENTIFYING_PATTERN.test(u.final_text)) return false;
+  const lower = ` ${norm(u.final_text)} `;
+  if (names.some((n) => n.length >= 2 && lower.includes(` ${n} `))) return false;
   if (/[가-힣]/.test(u.final_text) || u.final_text.includes('___')) return false;
   const f = filterSpeechBubble(u.final_text);
   return f.allowed && !f.substituted;
@@ -89,10 +99,11 @@ function quoteScore(u: UttRow): number {
 }
 
 /** Up to 3 different sentences: best per stage first (so the quotes tell the lesson's story), then the next best. */
-export function pickQuotes(rows: UttRow[], stageTitle: (id: string) => string): LessonParentQuote[] {
+export function pickQuotes(rows: UttRow[], stageTitle: (id: string) => string, names: string[] = []): LessonParentQuote[] {
   const seen = new Set<string>();
+  const nameKeys = names.map(norm).filter(Boolean);
   const ranked = rows
-    .filter(quotable)
+    .filter((u) => quotable(u, nameKeys))
     .sort((a, b) => quoteScore(b) - quoteScore(a) || a.created_at - b.created_at)
     .filter((u) => {
       const k = norm(u.final_text);
@@ -133,6 +144,12 @@ export function lessonSummaryKo(f: Pick<LessonParentFacts, 'utterances' | 'passe
   return `이번 수업에서 영어로 ${f.utterances}번 말했고 그중 ${f.passes}번 통과했습니다. 직접 말한 시간은 ${time}입니다.${free}`;
 }
 
+/** The child's nickname and each of its words: none of them may appear in a public quote. */
+function childNames(sql: SqliteExecutor, playerId: string): string[] {
+  const nick = sql.get<{ nickname: string }>('select nickname from players where id = ?', [playerId])?.nickname ?? '';
+  return [nick, ...nick.split(/\s+/)].filter((x) => x.trim().length >= 2);
+}
+
 export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, nowMs: number): LessonParentFacts | null {
   const lesson = sql.get<{ player_id: string; started_at: number; ended_at: number | null; plan: string }>(
     'select player_id, started_at, ended_at, plan from lessons where id = ?',
@@ -158,7 +175,7 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
   const expressions: string[] = [];
   for (const p of pins) {
     const note = p.note.trim();
-    if (p.kind !== 'expression' || !note || /[가-힣]/.test(note)) continue;
+    if (p.kind !== 'expression' || !note || /[가-힣]/.test(note) || SELF_IDENTIFYING_PATTERN.test(note)) continue;
     if (!filterSpeechBubble(note).allowed) continue;
     const k = note.toLowerCase();
     if (exprSeen.has(k)) continue;
@@ -191,7 +208,7 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
     ),
     speaking_sec: Math.round(sum(rows, (u) => u.dur_ms) / 1000),
     longest_words: rows.reduce((m, u) => Math.max(m, u.stars > 0 ? u.words : 0), 0),
-    quotes: pickQuotes(rows, titleOf),
+    quotes: pickQuotes(rows, titleOf, childNames(sql, lesson.player_id)),
     expressions,
     coaching_moments: pins.filter((p) => p.kind === 'coaching').length,
     stages

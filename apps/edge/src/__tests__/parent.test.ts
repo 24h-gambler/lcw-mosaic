@@ -32,6 +32,8 @@ async function runLesson(p: PlatformDO) {
   const say = (body: Record<string, unknown>) => call(p, 'POST', '/v1/lesson/utterance', body, st);
   // warmup (free)
   await say({ transcript: 'i like playing soccer with my dad on sunday', dur_ms: 4200 });
+  await say({ transcript: 'my name is juno and i am nine years old', dur_ms: 0 }); // names the child → never quoted
+  await say({ transcript: 'juno loves big red fire trucks and cars', dur_ms: 0 }); // nickname inside → never quoted
   await say({ transcript: 'hi', dur_ms: 600 }); // too short → not passed
   await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
   await say({ target_text: 'Can I have a warm honey tea?', transcript: 'can i have a warm honey tea', chosen_stars: 2, dur_ms: 2500 });
@@ -59,8 +61,8 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
     const r = await call(p, 'GET', `/v1/reports/${token}`, undefined, {});
     expect(r.status).toBe(200);
     const L = r.body.facts.lesson;
-    expect(L.utterances).toBe(8);
-    expect(L.passes).toBe(5); // soccer, honey tea ×2, jetpack, phone line (free talk passes by length)
+    expect(L.utterances).toBe(10);
+    expect(L.passes).toBe(7); // two self-intro lines, soccer, honey tea ×2, jetpack, phone line (free talk passes by length)
     expect(L.speaking_sec).toBe(18); // 4.2+0.6+2.5+2.4+0.9+1.5+3.9+2.0 = 18.0 s
     // Three different sentences, in lesson order, none Korean, none with PII, duplicate collapsed
     expect(L.quotes.map((q: any) => q.text)).toEqual([
@@ -134,6 +136,15 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
     const after = await call(p, 'GET', `/v1/reports/${token}`, undefined, {});
     expect(after.status).toBe(410);
     expect(after.body.error).toBe('report_revoked');
+  });
+
+  it('never quotes a sentence carrying the child name or a self-introduction', async () => {
+    const p = platform();
+    const { token } = await runLesson(p);
+    const r = await call(p, 'GET', `/v1/reports/${token}`, undefined, {});
+    const s = JSON.stringify(r.body).toLowerCase();
+    expect(s).not.toContain('juno');
+    expect(s).not.toContain('my name is');
   });
 
   it('quote picking: per-stage best first, dedupe, tidy casing only', () => {

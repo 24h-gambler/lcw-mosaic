@@ -126,7 +126,19 @@ POST /v1/converse/understand
     { "stars": 3, "text": "I'm looking for a fuel-efficient red jetpack so that I can fly to the space station.", "price": 1000, "bonus": "fuel_x2" }
   ],
   "hint_tags": ["fuel-efficient", "so that", "space station"],
-  "item_spec_preview": { "base_mesh": "item_jetpack_01", "socket": "Back_Socket", "shader_params": { "primary_color": "#C0392B" } },
+  "item_spec_preview": {
+    "kind": "item", "v": 2,
+    "name": "Red Jetpack",
+    "socket": "Back_Socket",
+    "parts": [
+      { "id": "barrel_tube", "pos": [-0.2, 0, 0], "color": "#C0392B" },
+      { "id": "barrel_tube", "pos": [0.2, 0, 0], "color": "#C0392B" },
+      { "id": "nozzle_flare", "pos": [0, -0.5, 0], "color": "#F5B041", "glow": 0.2 }
+    ],
+    "tags": ["flight_jetpack"],
+    "tier": 2,
+    "power": { "limit": 10, "used": 5 }
+  },
   "source": "bank"
 }
 ```
@@ -165,7 +177,7 @@ POST /v1/converse/score
   2. 어휘: 레벨별 허용 목록 + 확장 단어 최대 2개
   3. 의미 보존: 유저가 말한 슬롯이 세 문장 모두에 남아 있는가
   4. 안전: 금칙어·부적절 주제 필터, 개인 정보 패턴 차단
-  5. 아이템: `base_mesh` 존재 여부, 셰이더 값 범위, 파워 예산
+  5. 아이템: `parts[].id`가 부품 레지스트리에 있는지, 수치 범위(위치·크기·`glow`), `tags` 허용 목록, 파워 예산(`power.used ≤ power.limit`)
 - **캐시 승격**: `후보 → 검증됨(검증기 통과 + 서로 다른 유저 3명이 선택 후 통과) → 전역`. 문법 정밀 검사는 야간 배치에서 한 번 더 돌리고, 탈락하면 캐시에서 내립니다.
 
 ### 4.8 음성 출력

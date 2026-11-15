@@ -22,6 +22,7 @@ import {
 } from '@lcw/metrics';
 import { inspectSpecG1ToG5 } from '@lcw/guard';
 import type { ConsentScope, EdgePlatformDb, LessonDO, WorldDO } from './storage.js';
+import { indexedPrice } from './economy.js';
 import { claimReadAloud, isFurnitureKind, priceWithReadAloud, readAloudStatus } from './furniture.js';
 import { attemptReview, createMemoryCard, listMemoryCards, listReviewSigns, memoryCardId } from './review.js';
 
@@ -32,6 +33,8 @@ export interface EdgeRuntimeDeps {
   quota: QuotaMeter;
   nowMs: () => number;
   runWorkersAi?: (model: string, input: LlmConverseInput) => Promise<unknown>;
+  /** docs/09 P7: the world's weekly price index (1 when absent). Multiplies that world's shop prices. */
+  priceIndex?: (worldId: string) => number;
 }
 
 const ConsentUpdateBodySchema = z
@@ -287,11 +290,12 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         );
         const alreadyBought = Number(paidRow?.n ?? 0) > 0;
         const paid = Number(paidRow?.paid ?? 0);
-        // Furniture: today's read-aloud discount of its kind (docs/03 D13), bound to this purchase.
+        // The world's own weekly price index (docs/09 P7), then for furniture today's read-aloud discount of its kind (docs/03 D13), bound to this purchase.
+        const listedPrice = indexedPrice(decision.priceCoins, deps.priceIndex?.(req.world_id) ?? 1);
         const priced = priceWithReadAloud(deps.db, {
           playerId: req.player_id,
           itemKey,
-          price: decision.priceCoins,
+          price: listedPrice,
           ref,
           nowMs,
           commit: false
@@ -302,7 +306,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         if (!alreadyBought) {
           if (worldDo.getPlayerBalance(req.player_id) >= price) {
             if (priced.discountPct > 0) {
-              priceWithReadAloud(deps.db, { playerId: req.player_id, itemKey, price: decision.priceCoins, ref, nowMs, commit: true });
+              priceWithReadAloud(deps.db, { playerId: req.player_id, itemKey, price: listedPrice, ref, nowMs, commit: true });
             }
             coinsDelta = -price;
             worldDo.appendLedger(req.player_id, coinsDelta, reason, ref, nowMs);

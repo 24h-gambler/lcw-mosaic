@@ -1062,6 +1062,25 @@ export const UI_STRINGS_KO = {
       none: '스스로'
     }
   },
+  /** Memory-card review (docs/03 D8, docs/08 6장 "복습 징후": a small lightning mark, never a scolding). */
+  review: {
+    dockTitle: '고칠 물건',
+    signLine: '{item}에 번개 표시가 떴어요',
+    fixCta: '말해서 고치기',
+    npcLine: 'Oh no, it is acting up! Can you say it again?',
+    fixed: '고쳤어요! 다음 점검은 {when}이에요.',
+    mastered: '마스터 도안이 됐어요! 이제 고장 나지 않아요. 보너스 코인 {n}개!',
+    again: '조금만 더! 한 번 더 말하면 고칠 수 있어요.',
+    notDue: '아직 멀쩡해요. 나중에 다시 와요.',
+    stage: {
+      0: '20분 점검',
+      1: '1일 점검',
+      2: '3일 점검',
+      3: '7일 점검',
+      4: '16일 점검',
+      5: '35일 점검'
+    } as Record<number, string>
+  },
   guardian: {
     noData: '첫 플레이를 기다리는 중입니다.',
     insufficientSample: '이번 주는 자유 발화가 적어 지수를 계산하지 않았습니다.',

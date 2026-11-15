@@ -66,6 +66,10 @@ interface DialogModule {
   /** Second argument: the linked child's device token and level, when there is one (guest otherwise). */
   createSoloSubmit?: (npc: NpcRef, player?: SoloPlayer) => (u: unknown) => Promise<DialogResultLike>;
 }
+interface ReviewModule {
+  /** Review signs of the child's memory cards (dialog domain, docs/03 D8). */
+  ReviewDock?: React.ComponentType<{ world: WorldHandle | null; player?: SoloPlayer; hidden?: boolean }>;
+}
 interface LessonModule {
   LessonLayer?: React.ComponentType<LessonLayerProps>;
 }
@@ -73,6 +77,7 @@ interface LessonModule {
 // Optional slots: an empty record when the other domain has not merged its file yet.
 const dialogLoaders = import.meta.glob<DialogModule>('./dialog/DialogPanel.tsx');
 const lessonLoaders = import.meta.glob<LessonModule>('./lesson/LessonLayer.tsx');
+const reviewLoaders = import.meta.glob<ReviewModule>('./dialog/ReviewDock.tsx');
 
 /** Guide answers name a place (`askedKey`); the solo world walks the child there after the window closes. */
 const PLACE_SCENES: Readonly<Record<string, SceneId>> = { cafe: 'honey_cafe', honey_cafe: 'honey_cafe', trade_shop: 'trade_shop', plaza: 'plaza', build_plot: 'build_plot', open_hill: 'open_hill' };
@@ -187,6 +192,8 @@ export function App(): React.ReactElement {
   const [world, setWorld] = useState<WorldHandle | null>(null);
   const [dialogMod, setDialogMod] = useState<DialogModule | null>(null);
   const [lessonMod, setLessonMod] = useState<LessonModule | null>(null);
+  const [reviewMod, setReviewMod] = useState<ReviewModule | null>(null);
+  const [lessonOn, setLessonOn] = useState(false);
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
   const [failed, setFailed] = useState(false);
   const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
@@ -212,6 +219,7 @@ export function App(): React.ReactElement {
   useEffect(() => {
     for (const load of Object.values(dialogLoaders)) void load().then(setDialogMod);
     for (const load of Object.values(lessonLoaders)) void load().then(setLessonMod);
+    for (const load of Object.values(reviewLoaders)) void load().then(setReviewMod);
   }, []);
 
   useEffect(() => {
@@ -292,6 +300,7 @@ export function App(): React.ReactElement {
   const SoloPanel = dialogMod?.DialogPanel;
   const soloSubmit = soloNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(soloNpc, soloPlayerOf(identity)) : null;
   const soloLevel = identity?.kind === 'child' ? identity.level : undefined;
+  const Review = reviewMod?.ReviewDock;
   return (
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: C['paper-50'], touchAction: 'none' }}>
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
@@ -306,9 +315,13 @@ export function App(): React.ReactElement {
               renderDialog={renderDialog}
               onLessonActive={(a: boolean) => {
                 lessonActive.current = a;
+                setLessonOn(a);
                 world?.setLessonBadge?.(a);
               }}
             />
+          ) : null}
+          {Review && identity && identity.kind !== 'guest' ? (
+            <Review world={world} player={soloPlayerOf(identity)} hidden={lessonOn || soloNpc !== null} />
           ) : null}
           {world && SoloPanel && soloNpc && soloSubmit ? (
             <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloLevel ? { level: soloLevel } : {}} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />

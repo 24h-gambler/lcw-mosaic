@@ -71,6 +71,8 @@ export interface DialogPanelProps {
   /** Optional extras (not in the docs/19 minimum): the NPC's question and accessibility font scale (1~1.5). */
   npcLine?: string;
   fontScale?: number;
+  /** false hides the sentence voice buttons (memory-card reviews from the 1-day box on, docs/03 D8). */
+  listen?: boolean;
   /** Test/preview seam: replaces the browser speech engine. */
   speech?: import('./speech.js').SpeechEngine;
 }

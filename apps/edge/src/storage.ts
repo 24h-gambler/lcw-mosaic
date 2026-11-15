@@ -106,6 +106,7 @@ create table if not exists report_deliveries (report_id text primary key, player
 create table if not exists phrase_bank (id text primary key, lang text not null, ctx text not null, intent text not null, slots_key text not null, level text not null, offers text not null, tts text, status text not null);
 create table if not exists cache_entries (key_hash text primary key, lang text not null, offers text not null, status text not null, distinct_users integer not null default 0, created_at integer not null);
 create table if not exists quota_daily (day text not null, k text not null, used integer not null, primary key (day, k));
+create table if not exists item_uses (player_id text not null, item_id text not null, at integer not null, primary key (player_id, item_id));
 `;
 
 /**

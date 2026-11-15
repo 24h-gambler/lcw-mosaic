@@ -133,7 +133,16 @@ export const TUNING = {
     /** docs/09 P4: gear equipped/socketed or used within this window gets review signs first. */
     activeGearWindowMs: 7 * 24 * 60 * 60 * 1000,
     activeGearPriorityBonus: 10,
-    masterBonusCoins: 200
+    masterBonusCoins: 200,
+    /**
+     * docs/03 D8 table, by the box being reviewed (20 min, 1 d, 3 d, 7 d, 16 d, 35 d): pass line of the review.
+     * The 16-day review also accepts another bank sentence for the same thing (same meaning, other words).
+     */
+    reviewPassThreshold: [0.7, 0.7, 0.7, 0.65, 0.6, 0.6] as const,
+    /** docs/03 D8: the 20-minute review may play the sentence; from the 1-day review on it is shown without voice. */
+    reviewListenMaxBox: 0,
+    /** docs/03 D8: only sentences passed with at least this many stars become memory cards. */
+    cardMinStars: 2
   },
   combat: {
     playerMaxHp: 20,

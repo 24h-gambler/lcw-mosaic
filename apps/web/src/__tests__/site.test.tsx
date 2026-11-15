@@ -21,7 +21,8 @@ import { TRY_INITIAL, TRY_OFFERS, TRY_PRICES, TRY_WALK_STEPS, TRY_WALLET, tryRed
 import { eventPayload } from '../site/track.js';
 import { validateConsult } from '../site/pages/Tutoring.js';
 import { normalizePassCode } from '../site/pages/Info.js';
-import { projectIso, rotateQuarter, box } from '../site/voxel.js';
+import { VoxelSvg, collisions, projectIso, rotateQuarter, box } from '../site/voxel.js';
+import { LEARN_ART_PARTS } from '../site/pages/Learn.js';
 import { movingAverage } from '../site/widgets.js';
 
 const PRICE_RE = /[0-9,]+\s*원|결제|할인|구독|만료|기한|남은 수량|품절/;
@@ -335,6 +336,20 @@ describe('forms, counters and helpers', () => {
     // 2x2x2: 4 top + 4 right + 4 left faces visible, inner faces culled
     expect(projectIso(cube).polys).toHaveLength(12);
     expect(rotateQuarter(rotateQuarter(cube, 2), 2)).toEqual(cube);
+  });
+
+  it('joins same-colour faces into one path but keeps paint order', () => {
+    const scene = [...box(0, 0, 0, 3, 3, 3, 'brand'), ...box(4, 0, 0, 2, 2, 2, 'sky')];
+    const html = renderToStaticMarkup(<VoxelSvg voxels={scene} unit={10} />);
+    const fills = [...html.matchAll(/<path d="[^"]+" fill="([^"]+)"/g)].map((m) => m[1]);
+    const runs = projectIso(scene, 10).polys.map((p) => p.fill).filter((f, i, a) => i === 0 || a[i - 1] !== f);
+    expect(fills).toEqual(runs);
+    expect(fills.length).toBeLessThan(projectIso(scene, 10).polys.length);
+    expect(html).not.toContain('<polygon');
+  });
+
+  it('never hides a prop inside a character on the expression pages', () => {
+    for (const [scene, parts] of Object.entries(LEARN_ART_PARTS)) expect([scene, collisions(...parts)]).toEqual([scene, 0]);
   });
 
   it('honours reduced motion and uses no blur or glass (08 §1, §5)', () => {

@@ -5,14 +5,18 @@
  * Weeks are KST weeks starting Monday 00:00. Utterances under the STT confidence floor are excluded everywhere.
  */
 import {
+  THINK_SPEAK_MIN_FREE_UTTERANCES,
   computeThinkAndSpeakIndex,
   computeTwoWeekBaseline,
   computeWeeklyMetrics,
   extractUniqueTokens,
   filterValidUtterances,
-  type UtteranceMetricInput,
-  type WeeklyGrowthMetrics
+  type ThinkSpeakBaseline,
+  type UtteranceMetricInput
 } from './index.js';
+import { countConnectors } from './connectors.js';
+
+export { CONNECTOR_EXPRESSIONS, countConnectors } from './connectors.js';
 
 const DAY = 86_400_000;
 const WEEK = 7 * DAY;
@@ -23,9 +27,6 @@ export const DASHBOARD_CALENDAR_DAYS = 84;
 export const DASHBOARD_PROJECTION_WEEKS = 12;
 /** Projection uses the average weekly increase of the last 8 weeks with data (docs/07 §3). */
 export const DASHBOARD_TREND_WEEKS = 8;
-
-/** docs/07 §2 connector list (language pack, English): counted in `free` utterances. Longest phrases first. */
-export const CONNECTOR_EXPRESSIONS = ['so that', 'instead of', 'because', 'although', 'when', 'if', 'so', 'but', 'that', 'after', 'before'] as const;
 
 export type ModeCounts = { free: number; guided: number; read: number; recall: number };
 
@@ -43,10 +44,18 @@ export interface DashboardWeek {
   mean_words: number | null;
   /** Connectors per 100 free words; null without free words. */
   connectors_per_100: number | null;
-  /** Weekly think-and-speak index (dot); null = sample too small. */
+  /** Mean preparation time per word over free sentences (ms); null when not recorded (docs/07 §2.1 component). */
+  prep_per_word_ms: number | null;
+  /** Target-language words ÷ all words (0..1); null without speech. */
+  target_lang_ratio: number | null;
+  /** Of passed sentences, the share said without a script (free/recall), 0..1; null without passes. */
+  hint_free_ratio: number | null;
+  /** Weekly think-and-speak index (dot); null = sample too small or no baseline yet (see think_status). */
   think_speak: number | null;
-  /** 4-week window index (line); null = sample too small. */
+  /** 4-week window index (line); null = sample too small or no baseline yet. */
   think_speak_4w: number | null;
+  /** Why the dot is (not) there: 'short' = under 30 free sentences, 'baseline' = the start is still being collected. */
+  think_status: 'ready' | 'short' | 'baseline';
   modes: { lesson: ModeCounts; solo: ModeCounts };
   lesson_days: number;
   play_days: number;
@@ -60,8 +69,15 @@ export interface ProjectionPoint {
   value: number;
 }
 
+/** The child's start (docs/07 §2.1): the two weeks it came from and each component's value there. */
+export interface DashboardBaseline extends Omit<ThinkSpeakBaseline, 'weeks'> {
+  week_starts: number[];
+}
+
 export interface DashboardSeries {
   weeks: DashboardWeek[];
+  /** null until two weeks have reached the 30-free-sentence sample. */
+  baseline: DashboardBaseline | null;
   /** Dashed "추정" continuation of the three cumulative curves; empty with fewer than 2 weeks of data. */
   projection: { cum_free_words: ProjectionPoint[]; cum_vocab: ProjectionPoint[]; cum_mastered: ProjectionPoint[] };
   calendar: Array<{ day: string; free_words: number }>;
@@ -93,25 +109,8 @@ function median(xs: number[]): number | null {
   return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 }
 
-/** Occurrences of each connector in one text; "so that" is not also counted as "so" or "that". */
-export function countConnectors(text: string): Map<string, number> {
-  let t = ` ${text.toLowerCase().replace(/[^a-z']+/g, ' ')} `;
-  const out = new Map<string, number>();
-  for (const expr of CONNECTOR_EXPRESSIONS) {
-    const needle = ` ${expr} `;
-    let n = 0;
-    let i = t.indexOf(needle);
-    while (i >= 0) {
-      n++;
-      t = `${t.slice(0, i)} ${'#'.repeat(expr.length)} ${t.slice(i + needle.length)}`;
-      i = t.indexOf(needle);
-    }
-    if (n > 0) out.set(expr, n);
-  }
-  return out;
-}
-
-const indexOf = (rows: readonly UtteranceMetricInput[], baseline: ReturnType<typeof computeTwoWeekBaseline>) => {
+const indexOf = (rows: readonly UtteranceMetricInput[], baseline: ThinkSpeakBaseline | null) => {
+  if (!baseline) return null;
   const r = computeThinkAndSpeakIndex(rows, baseline);
   return r.status === 'ready' && r.index !== null ? Math.round(r.index) : null;
 };
@@ -131,7 +130,8 @@ export function buildDashboardSeries(input: {
   const thisWeek = kstWeekStart(input.nowMs);
   const firstWeek = thisWeek - (nWeeks - 1) * WEEK;
 
-  // Baseline: the first two weeks that have any valid speech (docs/07 §2.1), from the whole history.
+  // Baseline (docs/07 §2.1 "첫 2주"): the first two weeks, from the whole history, that reached the 30-free-sentence
+  // sample the index itself needs. A short trial week (a 5-minute /try visit) would otherwise become the child's 100.
   const byWeek = new Map<number, UtteranceMetricInput[]>();
   for (const u of sorted) {
     const w = kstWeekStart(u.created_at);
@@ -140,7 +140,11 @@ export function buildDashboardSeries(input: {
     byWeek.set(w, list);
   }
   const dataWeeks = [...byWeek.keys()].sort((a, b) => a - b);
-  const baseline = computeTwoWeekBaseline(dataWeeks.slice(0, 2).map((w) => computeWeeklyMetrics(byWeek.get(w)!)) as WeeklyGrowthMetrics[]);
+  const sampleWeeks = dataWeeks
+    .map((w) => ({ w, m: computeWeeklyMetrics(byWeek.get(w)!) }))
+    .filter((x) => x.m.free_utterance_count >= THINK_SPEAK_MIN_FREE_UTTERANCES)
+    .slice(0, 2);
+  const baseline = sampleWeeks.length === 2 ? computeTwoWeekBaseline(sampleWeeks.map((x) => x.m)) : null;
 
   // Cumulative vocabulary: a token counts once used outside `read` on two different KST days.
   const tokenDays = new Map<string, Set<string>>();
@@ -181,6 +185,9 @@ export function buildDashboardSeries(input: {
       if (u.mode in m) m[u.mode as keyof ModeCounts] += 1;
     }
     const window4 = sorted.filter((u) => u.created_at >= we - 4 * WEEK && u.created_at < we);
+    const wm = computeWeeklyMetrics(rows);
+    const prepRows = free.filter((u) => u.latency_ms > 0);
+    const passed = rows.filter((u) => u.stars >= 1 || u.score >= 0.6);
     weeks.push({
       week_start: ws,
       free_words: freeWords,
@@ -190,8 +197,12 @@ export function buildDashboardSeries(input: {
       response_sec: latencies.length ? r1(median(latencies)! / 1000) : null,
       mean_words: free.length ? r1(freeWords / free.length) : null,
       connectors_per_100: freeWords > 0 ? r1((connectors / freeWords) * 100) : null,
+      prep_per_word_ms: prepRows.length ? wm.free_latency_per_word_ms : null,
+      target_lang_ratio: rows.length ? wm.target_lang_ratio : null,
+      hint_free_ratio: passed.length ? wm.hint_free_ratio : null,
       think_speak: indexOf(rows, baseline),
       think_speak_4w: indexOf(window4, baseline),
+      think_status: free.length < THINK_SPEAK_MIN_FREE_UTTERANCES ? 'short' : baseline ? 'ready' : 'baseline',
       modes,
       lesson_days: new Set(input.lessonStarts.filter((t) => t >= ws && t < we).map(kstDay)).size,
       play_days: new Set(rows.map((u) => kstDay(u.created_at))).size,
@@ -239,6 +250,17 @@ export function buildDashboardSeries(input: {
 
   return {
     weeks,
+    baseline: baseline
+      ? {
+          week_starts: sampleWeeks.map((x) => x.w),
+          mean_words: baseline.mean_words,
+          speech_wpm: baseline.speech_wpm,
+          latency_per_word_ms: baseline.latency_per_word_ms,
+          connectors_per_100: baseline.connectors_per_100,
+          target_lang_ratio: baseline.target_lang_ratio,
+          hint_free_ratio: baseline.hint_free_ratio
+        }
+      : null,
     projection: { cum_free_words: project('cum_free_words'), cum_vocab: project('cum_vocab'), cum_mastered: project('cum_mastered') },
     calendar,
     connectors,

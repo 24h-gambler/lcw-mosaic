@@ -11,6 +11,7 @@ import {
 } from '../index.js';
 
 const DAY = 86_400_000;
+const WEEK = 7 * DAY;
 // 2026-11-19 (Thu) 15:00 KST
 const NOW = Date.parse('2026-11-19T06:00:00Z');
 let n = 0;
@@ -103,14 +104,20 @@ describe('dashboard series (WP-309, docs/07 §2–4)', () => {
     expect(ws[ws.length - 2]!.cum_mastered).toBe(1);
   });
 
-  it('think-and-speak index appears once a week has 30 free utterances', () => {
+  it('think-and-speak index: needs 30 free sentences in the week and a start made of two such weeks', () => {
     const w = kstWeekStart(NOW);
-    const rows = Array.from({ length: 30 }, (_, i) => u(w + i * 1000, 'i like it because it is good'));
-    const s = buildDashboardSeries({ utterances: rows, masteredAt: [], lessonStarts: [], nowMs: NOW });
-    // computed by computeThinkAndSpeakIndex (packages/metrics) — a number once the sample is large enough
-    expect(typeof s.weeks[DASHBOARD_WEEKS - 1]!.think_speak).toBe('number');
-    expect(s.weeks[DASHBOARD_WEEKS - 1]!.think_speak_4w).toBe(s.weeks[DASHBOARD_WEEKS - 1]!.think_speak);
-    expect(s.weeks[DASHBOARD_WEEKS - 2]!.think_speak).toBeNull();
+    const week = (ws: number, n: number) => Array.from({ length: n }, (_, i) => u(ws + i * 1000, 'i like it because it is good'));
+    // one full week only → the start is still being collected
+    let s = buildDashboardSeries({ utterances: week(w, 30), masteredAt: [], lessonStarts: [], nowMs: NOW });
+    expect(s.baseline).toBeNull();
+    expect(s.weeks[DASHBOARD_WEEKS - 1]).toMatchObject({ think_speak: null, think_status: 'baseline' });
+    expect(s.weeks[DASHBOARD_WEEKS - 2]).toMatchObject({ think_speak: null, think_status: 'short' });
+    // a 5-sentence trial week, then two full weeks: the trial is not the start; the two full weeks score 100
+    const rows = [...week(w - 3 * WEEK, 5), ...week(w - WEEK, 30), ...week(w, 30)];
+    s = buildDashboardSeries({ utterances: rows, masteredAt: [], lessonStarts: [], nowMs: NOW });
+    expect(s.baseline?.week_starts).toEqual([w - WEEK, w]);
+    expect(s.weeks[DASHBOARD_WEEKS - 1]).toMatchObject({ think_speak: 100, think_status: 'ready' });
+    expect(s.weeks[DASHBOARD_WEEKS - 4]).toMatchObject({ think_speak: null, think_status: 'short' });
   });
 
   it('projection: 12 dashed weeks from the last 8 weeks trend, only with 2+ weeks of speech; calendar is 84 KST days', () => {

@@ -3,6 +3,7 @@
  * localStorage behind try/catch: a private window simply asks for the invite link again.
  */
 import type { LessonWindowStatus } from '@lcw/schemas';
+import type { DashboardSeries } from '@lcw/metrics';
 import { LessonApiError, NETWORK_ERROR_CODE, localStore, readKey, writeKey, type FetchLike, type KeyValue } from './lessonApi.js';
 
 export const GUARDIAN_TOKEN_KEY = 'lcw.guardianToken';
@@ -78,33 +79,11 @@ export interface LessonWindowPayload {
   poll_ms: number;
   server_now: number;
 }
-export interface DashboardWeek {
-  week_start: number;
-  free_words: number;
-  speaking_min: number;
-  free_utterances: number;
-  speech_wpm: number | null;
-  response_sec: number | null;
-  mean_words: number | null;
-  connectors_per_100: number | null;
-  think_speak: number | null;
-  think_speak_4w: number | null;
-  modes: Record<'lesson' | 'solo', { free: number; guided: number; read: number; recall: number }>;
-  lesson_days: number;
-  play_days: number;
-  cum_free_words: number;
-  cum_vocab: number;
-  cum_mastered: number;
-}
+/** The dashboard series type comes from where it is computed (packages/metrics), so the screen cannot drift. */
+export type { DashboardWeek, DashboardSeries, DashboardBaseline } from '@lcw/metrics';
 export interface DashboardPayload {
   child: { nickname: string; level: string };
-  series: {
-    weeks: DashboardWeek[];
-    projection: Record<'cum_free_words' | 'cum_vocab' | 'cum_mastered', Array<{ week_start: number; value: number }>>;
-    calendar: Array<{ day: string; free_words: number }>;
-    connectors: Array<{ expr: string; count: number }>;
-    has_data: boolean;
-  };
+  series: DashboardSeries;
   week_line: { text: string; words: number; at: number } | null;
   review: Array<{ text: string; due_at: number }>;
   lessons: Array<{

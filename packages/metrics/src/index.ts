@@ -1,4 +1,5 @@
 import type { HintLevel, Interlocutor, SessionKind, UtteranceMode } from '@lcw/schemas';
+import { countConnectors } from './connectors.js';
 
 export const METRICS_MIN_STT_CONFIDENCE = 0.5;
 export const THINK_SPEAK_MIN_FREE_UTTERANCES = 30;
@@ -93,15 +94,65 @@ export interface WeeklyGrowthMetrics {
   repair_success_rate: number;
   hint_independence_rate: number;
   active_speaking_minutes: number;
+  /* docs/07 §2.1 index components, all from `free` sentences unless noted (0 when there is nothing to measure). */
+  /** Mean words per free sentence (발화 길이). */
+  free_mean_words: number;
+  /** Free words ÷ free speaking minutes (말 속도). */
+  free_wpm: number;
+  /** Mean of latency ÷ max(1, words) over free sentences with a latency (단어당 준비 시간). */
+  free_latency_per_word_ms: number;
+  /** Connectors per 100 free words (접속 표현 사용률). */
+  connectors_per_100: number;
+  /** Target-language words ÷ (target + L1 words), all valid sentences (목표 언어 비율). */
+  target_lang_ratio: number;
+  /** Of passed sentences, the share that were `free` or `recall` (힌트 없는 발화 비율). */
+  hint_free_ratio: number;
 }
 
+/** docs/07 §2.1: the child's own start, the median of each component over the first two weeks. */
 export interface ThinkSpeakBaseline {
-  free_ratio: number;
   mean_words: number;
-  lexical_diversity: number;
-  mean_latency_ms: number;
-  /** Baseline preparation time per word. Derived from mean_latency_ms / mean_words when absent. */
-  mean_latency_per_word_ms?: number;
+  speech_wpm: number;
+  latency_per_word_ms: number;
+  connectors_per_100: number;
+  target_lang_ratio: number;
+  hint_free_ratio: number;
+  /** How many weeks it came from: 0 = no weeks yet (callers without history get neutral defaults). */
+  weeks: number;
+}
+
+export type ThinkSpeakComponentKey = 'words' | 'speed' | 'prep' | 'connectors' | 'target_lang' | 'hint_free';
+
+/** docs/07 §2.1 weights: 0.30 length, 0.20 speed, 0.15 prep (inverse), 0.15 connectors, 0.10 target language, 0.10 no hint. */
+export const THINK_SPEAK_WEIGHTS: Readonly<Record<ThinkSpeakComponentKey, number>> = {
+  words: 0.3,
+  speed: 0.2,
+  prep: 0.15,
+  connectors: 0.15,
+  target_lang: 0.1,
+  hint_free: 0.1
+};
+
+/**
+ * Floors per component: when both the baseline and now sit at or under the floor (no connectors yet, say) the ratio
+ * is 1, not 0/0; a first connector after a baseline of none counts against the floor, not against zero.
+ */
+export const THINK_SPEAK_FLOORS: Readonly<Record<ThinkSpeakComponentKey, number>> = {
+  words: 1,
+  speed: 10,
+  prep: THINK_SPEAK_MIN_LATENCY_PER_WORD_MS,
+  connectors: 1,
+  target_lang: 0.05,
+  hint_free: 0.05
+};
+
+export interface ThinkSpeakComponent {
+  /** This period's value (unit of the metric). */
+  value: number;
+  /** The baseline value. */
+  base: number;
+  /** Clamped ratio (inverse for prep time). */
+  ratio: number;
 }
 
 export interface ThinkAndSpeakResult {
@@ -109,12 +160,7 @@ export interface ThinkAndSpeakResult {
   index: number | null;
   freeCount: number;
   requiredFreeCount: number;
-  components: {
-    freeRatioClamped: number;
-    wordsClamped: number;
-    lexicalClamped: number;
-    latencyClamped: number;
-  } | null;
+  components: Record<ThinkSpeakComponentKey, ThinkSpeakComponent> | null;
 }
 
 export interface LessonMetrics {
@@ -211,7 +257,13 @@ export function computeWeeklyMetrics(
       peer_dialogue_count: 0,
       repair_success_rate: 0,
       hint_independence_rate: 0,
-      active_speaking_minutes: 0
+      active_speaking_minutes: 0,
+      free_mean_words: 0,
+      free_wpm: 0,
+      free_latency_per_word_ms: 0,
+      connectors_per_100: 0,
+      target_lang_ratio: 0,
+      hint_free_ratio: 0
     };
   }
 
@@ -273,6 +325,14 @@ export function computeWeeklyMetrics(
     }
   }
 
+  // docs/07 §2.1 components (free sentences unless noted).
+  const freeRows = valid.filter((u) => u.mode === 'free');
+  const freeWords = freeRows.reduce((a, u) => a + Math.max(0, u.words), 0);
+  const freeDurMs = freeRows.reduce((a, u) => a + Math.max(0, u.dur_ms), 0);
+  const prepRows = freeRows.filter((u) => u.latency_ms > 0);
+  const connectorCount = freeRows.reduce((a, u) => a + [...countConnectors(u.final_text).values()].reduce((x, y) => x + y, 0), 0);
+  const passed = valid.filter((u) => u.stars >= 1 || u.score >= 0.6);
+
   // Incorporate card review retention when recall utterances aren't recorded separately
   let recallRate = recallTotal > 0 ? recallPass / recallTotal : 0;
   if (recallTotal === 0 && cards.length > 0) {
@@ -297,41 +357,55 @@ export function computeWeeklyMetrics(
     peer_dialogue_count: peerCount,
     repair_success_rate: retryTotal > 0 ? roundTo(retrySuccess / retryTotal, 4) : 0,
     hint_independence_rate: roundTo(independentCount / total, 4),
-    active_speaking_minutes: roundTo(sumDur / 60_000, 2)
+    active_speaking_minutes: roundTo(sumDur / 60_000, 2),
+    free_mean_words: freeRows.length ? roundTo(freeWords / freeRows.length, 3) : 0,
+    free_wpm: freeDurMs > 0 ? roundTo(freeWords / (freeDurMs / 60_000), 3) : 0,
+    free_latency_per_word_ms: prepRows.length
+      ? Math.round(prepRows.reduce((a, u) => a + u.latency_ms / Math.max(1, u.words), 0) / prepRows.length)
+      : 0,
+    connectors_per_100: freeWords > 0 ? roundTo((connectorCount / freeWords) * 100, 3) : 0,
+    target_lang_ratio: sumWords + sumL1Words > 0 ? roundTo(sumWords / (sumWords + sumL1Words), 4) : 0,
+    hint_free_ratio: passed.length ? roundTo(passed.filter((u) => u.mode === 'free' || u.mode === 'recall').length / passed.length, 4) : 0
   };
 }
 
-export function computeTwoWeekBaseline(
-  firstTwoWeeks: readonly WeeklyGrowthMetrics[]
-): ThinkSpeakBaseline {
-  if (firstTwoWeeks.length === 0) {
-    return {
-      free_ratio: 0.4,
-      mean_words: 4,
-      lexical_diversity: 0.5,
-      mean_latency_ms: 3000,
-      mean_latency_per_word_ms: 750
-    };
-  }
+/** Neutral start for callers without the child's history (lesson reports): typical L2 values, not a measurement. */
+export const THINK_SPEAK_DEFAULT_BASELINE: ThinkSpeakBaseline = {
+  mean_words: 4,
+  speech_wpm: 60,
+  latency_per_word_ms: 750,
+  connectors_per_100: 2,
+  target_lang_ratio: 0.9,
+  hint_free_ratio: 0.3,
+  weeks: 0
+};
+
+/**
+ * docs/07 §2.1 baseline: the median of each component over the first two weeks. Pass the two weeks to use (the
+ * dashboard passes the first two weeks that reached the 30-free-sentence sample); none → the neutral default.
+ */
+export function computeTwoWeekBaseline(firstTwoWeeks: readonly WeeklyGrowthMetrics[]): ThinkSpeakBaseline {
   const slice = firstTwoWeeks.slice(0, 2);
+  if (slice.length === 0) return { ...THINK_SPEAK_DEFAULT_BASELINE };
+  const m = (f: (w: WeeklyGrowthMetrics) => number) => median(slice.map(f));
   return {
-    free_ratio: Math.max(0.05, median(slice.map((w) => w.weekly_free_ratio))),
-    mean_words: Math.max(1, median(slice.map((w) => w.mean_words_per_utterance))),
-    lexical_diversity: Math.max(0.1, median(slice.map((w) => w.lexical_diversity))),
-    mean_latency_ms: Math.max(300, median(slice.map((w) => w.mean_response_latency_ms))),
-    mean_latency_per_word_ms: Math.max(
-      THINK_SPEAK_MIN_LATENCY_PER_WORD_MS,
-      median(slice.map((w) => w.mean_latency_per_word_ms))
-    )
+    mean_words: m((w) => w.free_mean_words),
+    speech_wpm: m((w) => w.free_wpm),
+    latency_per_word_ms: m((w) => w.free_latency_per_word_ms),
+    connectors_per_100: m((w) => w.connectors_per_100),
+    target_lang_ratio: m((w) => w.target_lang_ratio),
+    hint_free_ratio: m((w) => w.hint_free_ratio),
+    weeks: slice.length
   };
 }
 
 /**
- * Think-and-Speak Index (docs/07 2.1):
- * - Excludes confidence < 0.5
- * - Requires >= 30 valid 'free' utterances; otherwise returns insufficient_sample
- * - Latency term uses per-word preparation time (latency_ms / words), not raw latency
- * - Clamps component ratios against first-2-week baseline to [0.5, 2.0]
+ * Think-and-Speak Index (docs/07 2.1), the child's own start = 100:
+ *   100 × (0.30 length + 0.20 speed + 0.15 prep (inverse) + 0.15 connectors + 0.10 target language + 0.10 no hint),
+ *   each ratio = now ÷ baseline clamped to 0.5–2.0 (prep time per word: baseline ÷ now).
+ * "Now" is whatever period the rows cover (a week for the weekly dot, four weeks for the line). Every component is
+ * a ratio of sums, so talking more at the same quality does not move the index (a type/token ratio would).
+ * Confidence < 0.5 excluded; fewer than 30 valid free sentences → insufficient_sample.
  */
 export function computeThinkAndSpeakIndex(
   utterances: readonly UtteranceMetricInput[],
@@ -347,52 +421,38 @@ export function computeThinkAndSpeakIndex(
       components: null
     };
   }
-
-  const freeRatioClamped = clamp(
-    weekly.weekly_free_ratio / Math.max(0.05, baseline.free_ratio),
-    THINK_SPEAK_RATIO_MIN,
-    THINK_SPEAK_RATIO_MAX
-  );
-  const wordsClamped = clamp(
-    weekly.mean_words_per_utterance / Math.max(1, baseline.mean_words),
-    THINK_SPEAK_RATIO_MIN,
-    THINK_SPEAK_RATIO_MAX
-  );
-  const lexicalClamped = clamp(
-    weekly.lexical_diversity / Math.max(0.1, baseline.lexical_diversity),
-    THINK_SPEAK_RATIO_MIN,
-    THINK_SPEAK_RATIO_MAX
-  );
-  // Preparation time PER WORD, not raw latency: longer, harder sentences must not be penalised.
-  const baselinePerWord = Math.max(
-    THINK_SPEAK_MIN_LATENCY_PER_WORD_MS,
-    baseline.mean_latency_per_word_ms ??
-      baseline.mean_latency_ms / Math.max(1, baseline.mean_words)
-  );
-  const latencyClamped = clamp(
-    baselinePerWord /
-      Math.max(THINK_SPEAK_MIN_LATENCY_PER_WORD_MS, weekly.mean_latency_per_word_ms),
-    THINK_SPEAK_RATIO_MIN,
-    THINK_SPEAK_RATIO_MAX
-  );
-
-  const composite =
-    0.35 * freeRatioClamped +
-    0.25 * wordsClamped +
-    0.2 * lexicalClamped +
-    0.2 * latencyClamped;
-
+  const now: Record<ThinkSpeakComponentKey, number> = {
+    words: weekly.free_mean_words,
+    speed: weekly.free_wpm,
+    prep: weekly.free_latency_per_word_ms,
+    connectors: weekly.connectors_per_100,
+    target_lang: weekly.target_lang_ratio,
+    hint_free: weekly.hint_free_ratio
+  };
+  const base: Record<ThinkSpeakComponentKey, number> = {
+    words: baseline.mean_words,
+    speed: baseline.speech_wpm,
+    prep: baseline.latency_per_word_ms,
+    connectors: baseline.connectors_per_100,
+    target_lang: baseline.target_lang_ratio,
+    hint_free: baseline.hint_free_ratio
+  };
+  const components = {} as Record<ThinkSpeakComponentKey, ThinkSpeakComponent>;
+  let composite = 0;
+  for (const k of Object.keys(THINK_SPEAK_WEIGHTS) as ThinkSpeakComponentKey[]) {
+    const f = THINK_SPEAK_FLOORS[k];
+    const n = Math.max(f, now[k]);
+    const b = Math.max(f, base[k]);
+    const ratio = clamp(k === 'prep' ? b / n : n / b, THINK_SPEAK_RATIO_MIN, THINK_SPEAK_RATIO_MAX);
+    components[k] = { value: roundTo(now[k], 2), base: roundTo(base[k], 2), ratio: roundTo(ratio, 3) };
+    composite += THINK_SPEAK_WEIGHTS[k] * ratio;
+  }
   return {
     status: 'ready',
     index: roundTo(composite * 100, 1),
     freeCount: weekly.free_utterance_count,
     requiredFreeCount: THINK_SPEAK_MIN_FREE_UTTERANCES,
-    components: {
-      freeRatioClamped: roundTo(freeRatioClamped, 3),
-      wordsClamped: roundTo(wordsClamped, 3),
-      lexicalClamped: roundTo(lexicalClamped, 3),
-      latencyClamped: roundTo(latencyClamped, 3)
-    }
+    components
   };
 }
 

@@ -72,32 +72,43 @@ describe('packages/metrics (WP-303, WP-308, WP-310)', () => {
     expect(res.requiredFreeCount).toBe(30);
   });
 
-  it('computes clamped Think-and-Speak Index when >= 30 free utterances exist', () => {
+  it('computes the docs/07 2.1 index (six components, clamped) when >= 30 free utterances exist', () => {
     const samples = Array.from({ length: 35 }, (_, idx) =>
       makeUtterance(`u-${idx}`, {
         mode: 'free',
-        final_text: idx % 2 === 0 ? 'Can I buy honey tea please' : 'I want a wooden shelter block',
+        final_text: idx % 2 === 0 ? 'Can I buy honey tea because I am cold' : 'I want a wooden shelter block',
         words: 6,
         latency_ms: 1500
       })
     );
-    const baseline = {
-      free_ratio: 0.5,
-      mean_words: 3,
-      lexical_diversity: 0.25,
-      mean_latency_ms: 3000
-    };
+    const baseline = { mean_words: 3, speech_wpm: 30, latency_per_word_ms: 500, connectors_per_100: 0, target_lang_ratio: 1, hint_free_ratio: 1, weeks: 2 };
 
     const res = computeThinkAndSpeakIndex(samples, baseline);
     expect(res.status).toBe('ready');
     expect(res.freeCount).toBe(35);
-    expect(res.index).not.toBeNull();
-    // All component ratios are clamped to 2.0 max
-    expect(res.components?.freeRatioClamped).toBe(2);
+    // length 6 vs 3 → 2.0 (cap); speed 90 vs 30 wpm → 2.0 (cap); prep 250 vs 500 ms/word → 2.0; connectors vs a
+    // floor of 1 per 100 words; target language and no-hint unchanged → 1.
+    expect(res.components?.words.ratio).toBe(2);
+    expect(res.components?.speed.ratio).toBe(2);
+    expect(res.components?.prep.ratio).toBe(2);
+    expect(res.components?.target_lang.ratio).toBe(1);
+    expect(res.components?.hint_free.ratio).toBe(1);
     expect(res.index).toBeLessThanOrEqual(200);
+    const c = res.components!;
+    const expected = 100 * (0.3 * 2 + 0.2 * 2 + 0.15 * 2 + 0.15 * c.connectors.ratio + 0.1 + 0.1);
+    expect(res.index).toBeCloseTo(expected, 0);
   });
 
-  it('does not lower the latency term when sentences get longer at the same per-word latency (L1 -> L3)', () => {
+  it('the week that sets the baseline scores 100; a component at zero in both stays neutral', () => {
+    const week = Array.from({ length: 40 }, (_, i) => makeUtterance(`w-${i}`, { final_text: 'I want a wooden shelter block', words: 6 }));
+    const baseline = computeTwoWeekBaseline([computeWeeklyMetrics(week), computeWeeklyMetrics(week)]);
+    expect(baseline.connectors_per_100).toBe(0);
+    const res = computeThinkAndSpeakIndex(week, baseline);
+    expect(res.index).toBe(100);
+    expect(res.components?.connectors.ratio).toBe(1);
+  });
+
+  it('does not lower the prep-time term when sentences get longer at the same per-word latency (L1 -> L3)', () => {
     const l1 = Array.from({ length: 40 }, (_, i) =>
       makeUtterance(`a-${i}`, { mode: 'free', words: 3, latency_ms: 1200 })
     );
@@ -105,24 +116,24 @@ describe('packages/metrics (WP-303, WP-308, WP-310)', () => {
       makeUtterance(`b-${i}`, { mode: 'free', words: 10, latency_ms: 4000 })
     );
     const baseline = computeTwoWeekBaseline([computeWeeklyMetrics(l1), computeWeeklyMetrics(l1)]);
-    expect(baseline.mean_latency_per_word_ms).toBe(400);
+    expect(baseline.latency_per_word_ms).toBe(400);
 
     const before = computeThinkAndSpeakIndex(l1, baseline);
     const after = computeThinkAndSpeakIndex(l3, baseline);
-    expect(after.components?.latencyClamped).toBeGreaterThanOrEqual(before.components?.latencyClamped ?? 0);
-    expect(after.components?.latencyClamped).toBe(1);
-    // total index must not fall either: words component rose
+    expect(after.components?.prep.ratio).toBeGreaterThanOrEqual(before.components?.prep.ratio ?? 0);
+    expect(after.components?.prep.ratio).toBe(1);
+    // total index must not fall either: the length component rose
     expect(after.index ?? 0).toBeGreaterThanOrEqual(before.index ?? 0);
   });
 
-  it('still rewards genuinely faster per-word preparation and falls back to mean_latency / mean_words', () => {
+  it('still rewards genuinely faster per-word preparation; no history → the neutral default baseline', () => {
     const fast = Array.from({ length: 35 }, (_, i) =>
       makeUtterance(`f-${i}`, { mode: 'free', words: 5, latency_ms: 500 })
     );
-    const legacy = { free_ratio: 1, mean_words: 5, lexical_diversity: 0.5, mean_latency_ms: 2500 };
-    const res = computeThinkAndSpeakIndex(fast, legacy);
+    const res = computeThinkAndSpeakIndex(fast, { ...computeTwoWeekBaseline([]), latency_per_word_ms: 500 });
     // baseline 500 ms/word vs now 100 ms/word -> ratio clamped to 2
-    expect(res.components?.latencyClamped).toBe(2);
+    expect(res.components?.prep.ratio).toBe(2);
+    expect(computeTwoWeekBaseline([]).weeks).toBe(0);
   });
 
   it('calculates teacher contribution rates: 14-day solo transfer and 35-day retention', () => {

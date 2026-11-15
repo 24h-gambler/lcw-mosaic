@@ -120,6 +120,7 @@ export function ChartCard({
   testId,
   initialTable = false,
   controls,
+  footer,
   children
 }: {
   title: string;
@@ -129,6 +130,8 @@ export function ChartCard({
   testId: string;
   initialTable?: boolean;
   controls?: React.ReactNode;
+  /** Shown under the graph or table in both views (the index card's component breakdown). */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }): React.ReactElement {
   const [showTable, setShowTable] = useState(initialTable);
@@ -145,6 +148,7 @@ export function ChartCard({
         {showTable ? <DataTable spec={table} testId={`${testId}-table`} /> : children}
         {legend ? <div style={{ display: 'flex', gap: sp(3), flexWrap: 'wrap', ...small }}>{legend}</div> : null}
         {note ? <p style={{ ...small, margin: 0 }}>{note}</p> : null}
+        {footer}
       </div>
     </Box>
   );
@@ -446,6 +450,101 @@ function Ladder({ level }: { level: string }): React.ReactElement {
   );
 }
 
+/* ---------- docs/07 §2.1: how the index is made, and its six components ---------- */
+
+type PartKey = 'words' | 'speed' | 'prep' | 'connectors' | 'target' | 'hintFree';
+const PARTS: ReadonlyArray<{
+  key: PartKey;
+  weight: number;
+  unit: string;
+  value: (w: DashboardWeek) => number | null;
+  base: (b: NonNullable<DashboardPayload['series']['baseline']>) => number;
+}> = [
+  { key: 'words', weight: 30, unit: D.units.words, value: (w) => w.mean_words, base: (b) => r1(b.mean_words) },
+  { key: 'speed', weight: 20, unit: D.units.wpm, value: (w) => w.speech_wpm, base: (b) => r1(b.speech_wpm) },
+  { key: 'prep', weight: 15, unit: D.units.secPerWord, value: (w) => (w.prep_per_word_ms === null ? null : r2(w.prep_per_word_ms / 1000)), base: (b) => r2(b.latency_per_word_ms / 1000) },
+  { key: 'connectors', weight: 15, unit: D.units.per100, value: (w) => w.connectors_per_100, base: (b) => r1(b.connectors_per_100) },
+  { key: 'target', weight: 10, unit: D.units.pct, value: (w) => (w.target_lang_ratio === null ? null : Math.round(w.target_lang_ratio * 100)), base: (b) => Math.round(b.target_lang_ratio * 100) },
+  { key: 'hintFree', weight: 10, unit: D.units.pct, value: (w) => (w.hint_free_ratio === null ? null : Math.round(w.hint_free_ratio * 100)), base: (b) => Math.round(b.hint_free_ratio * 100) }
+];
+function r1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+function r2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** "구성 지표 펼치기" (docs/07 §4.2): the formula in words, then one small graph per component with the start dashed. */
+export function ThinkParts({
+  weeks,
+  baseline,
+  labels,
+  ticks,
+  initialOpen = false
+}: {
+  weeks: readonly DashboardWeek[];
+  baseline: DashboardPayload['series']['baseline'];
+  labels: string[];
+  ticks: boolean[];
+  initialOpen?: boolean;
+}): React.ReactElement {
+  const [open, setOpen] = useState(initialOpen);
+  const [table, setTable] = useState(false);
+  const fmtV = (v: number | null) => (v === null ? '—' : fmt(v));
+  return (
+    <div data-testid="think-parts" style={{ display: 'grid', gap: sp(2), borderTop: `1px solid ${C['line-200']}`, paddingTop: sp(2) }}>
+      <div>
+        <Button type="button" variant="paper" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="think-parts-toggle">
+          {D.parts.summary}
+        </Button>
+      </div>
+      {open ? (
+        <>
+          <p style={{ ...small, margin: 0 }} data-testid="think-parts-how">{D.parts.how}</p>
+          {baseline ? null : <p style={{ ...small, margin: 0 }}>{D.parts.noBase}</p>}
+          <div>
+            <Button type="button" variant="paper" aria-pressed={table} onClick={() => setTable((v) => !v)}>
+              {table ? D.showChart : D.showTable}
+            </Button>
+          </div>
+          {table ? (
+            <DataTable
+              testId="think-parts-table"
+              spec={{
+                cols: [D.weekCol, ...PARTS.map((p) => `${D.parts[p.key]}(${p.unit})`)],
+                rows: [
+                  ...(baseline ? [[D.parts.legendBase, ...PARTS.map((p) => fmt(p.base(baseline)))]] : []),
+                  ...weeks.map((w, i) => [labels[i]!, ...PARTS.map((p) => fmtV(p.value(w)))])
+                ]
+              }}
+            />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: sp(3) }}>
+              {PARTS.map((p) => (
+                <div key={p.key} style={{ display: 'grid', gap: sp(1) }} data-testid={`think-part-${p.key}`}>
+                  <strong style={small}>{`${D.parts[p.key]} (${p.unit}) · ${D.parts.weight(p.weight)}`}</strong>
+                  <LineChart
+                    ariaLabel={D.parts[p.key]}
+                    unit={p.unit}
+                    width={300}
+                    height={170}
+                    reference={baseline ? p.base(baseline) : undefined}
+                    points={weeks.map((w, i) => ({ label: labels[i]!, y: p.value(w), tick: ticks[i] }))}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: sp(3), flexWrap: 'wrap', ...small }}>
+            <span><Swatch color={C['sky-d']} dashed={false} />{D.parts.legendValue}</span>
+            {baseline ? <span><Swatch color={C['ink-500']} dashed />{D.parts.legendBase}</span> : null}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export function Calendar({ days }: { days: ReadonlyArray<{ day: string; free_words: number }> }): React.ReactElement {
   const maxV = Math.max(1, ...days.map((d) => d.free_words));
   const first = days[0] ? new Date(`${days[0].day}T00:00:00Z`).getUTCDay() : 0;
@@ -554,10 +653,10 @@ export function DashboardView({ data, initialTables = false }: { data: Dashboard
         <Card4
           testId="card-think"
           label={D.cards.think}
-          value={now.think_speak_4w === null ? D.shortSample : String(now.think_speak_4w)}
+          value={now.think_speak_4w === null ? (data.series.baseline ? D.shortSample : D.baselinePending) : String(now.think_speak_4w)}
           unit=""
           badge={changeBadge(thinkC, '')}
-          line={now.think_speak_4w === null ? D.thinkShort : `${changeLine(thinkC, '')} ${D.thinkNote}`}
+          line={now.think_speak_4w === null ? (data.series.baseline ? D.thinkShort : D.thinkBaseline) : `${changeLine(thinkC, '')} ${D.thinkNote}`}
         />
         <Card4
           testId="card-free"
@@ -618,6 +717,12 @@ export function DashboardView({ data, initialTables = false }: { data: Dashboard
       <ChartCard
         testId="chart-think"
         initialTable={initialTables}
+        footer={
+          <>
+            {data.series.baseline ? null : <p style={{ ...small, margin: 0 }} data-testid="think-baseline-pending">{D.thinkBaseline}</p>}
+            <ThinkParts weeks={weeks} baseline={data.series.baseline} labels={labels} ticks={ticks} initialOpen={initialTables} />
+          </>
+        }
         title={D.charts.think.title}
         note={D.charts.think.note}
         legend={
@@ -627,7 +732,14 @@ export function DashboardView({ data, initialTables = false }: { data: Dashboard
             <span><Swatch color={C['ink-500']} hollow />{D.shortSample}</span>
           </>
         }
-        table={{ cols: [D.weekCol, D.charts.think.legendDot, D.charts.think.legendLine, D.lessonTick], rows: weekRows((w) => [opt(w.think_speak), opt(w.think_speak_4w), w.lesson_days ? '●' : '']) }}
+        table={{
+          cols: [D.weekCol, D.charts.think.legendDot, D.charts.think.legendLine, D.lessonTick],
+          rows: weekRows((w) => [
+            w.think_status === 'baseline' ? D.baselinePending : opt(w.think_speak),
+            w.think_speak_4w === null && !data.series.baseline ? D.baselinePending : opt(w.think_speak_4w),
+            w.lesson_days ? '●' : ''
+          ])
+        }}
       >
         <LineChart
           ariaLabel={D.charts.think.title}

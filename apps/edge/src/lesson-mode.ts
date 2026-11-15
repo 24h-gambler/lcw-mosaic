@@ -69,6 +69,14 @@ export interface LessonModeDeps {
   sha256Hex: (s: string) => Promise<string>;
   /** Runs the existing complete-and-send-report route so the report logic stays in one place. */
   completeLesson: (lessonId: string, body: Record<string, unknown>) => Promise<Response>;
+  /**
+   * The child's one coin ledger (home world, shared with solo orders). Lesson stars go in as stars × COINS_PER_STAR,
+   * once per utterance; `coins_total` is its balance. Absent only in unit setups without worlds (then the old sum).
+   */
+  coins?: {
+    credit: (playerId: string, delta: number, ref: string, nowMs: number) => number;
+    balance: (playerId: string) => number;
+  };
 }
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
@@ -813,8 +821,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     // Typed or card-assembled sentences are not speech: two stars at most (docs/04 §4.1, same as /v1/converse/score).
     const typedCapped = TYPED_INPUT_SOURCES.has(u.stt_source) && stars > TYPED_INPUT_MAX_STARS;
     if (typedCapped) stars = TYPED_INPUT_MAX_STARS;
+    const uttId = `utt-${s.lesson_id}-${now}-${hex(d.randomBytes(3))}`;
     d.db.logUtterance({
-      id: `utt-${s.lesson_id}-${now}-${hex(d.randomBytes(3))}`,
+      id: uttId,
       player_id: s.player_id,
       world_id: 'lesson-mode',
       session_id: s.lesson_id,
@@ -840,7 +849,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       created_at: now
     });
     recordMinuteAt(s.lesson_id, now);
-    const totals = d.sql.get<{ s: number }>('select coalesce(sum(stars), 0) as s from utterances where player_id = ?', [s.player_id]);
+    // One balance everywhere (coordinator 11-16): the ledger, credited once per utterance id.
+    const coinsTotal = d.coins
+      ? d.coins.credit(s.player_id, stars * COINS_PER_STAR, `lesson:${uttId}`, now)
+      : Number(d.sql.get<{ s: number }>('select coalesce(sum(stars), 0) as s from utterances where player_id = ?', [s.player_id])?.s ?? 0) *
+        COINS_PER_STAR;
     const from = kstDayStartMs(kstDay(now));
     const today = d.sql.get<{ n: number }>('select count(*) as n from utterances where player_id = ? and created_at >= ?', [
       s.player_id,
@@ -851,7 +864,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       score: Math.round(score * 1000) / 1000,
       stars,
       feedback_ko: feedbackKo({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
-      coins_total: Number(totals?.s ?? 0) * COINS_PER_STAR,
+      coins_total: coinsTotal,
       utterances_today: Number(today?.n ?? 0)
     });
   });

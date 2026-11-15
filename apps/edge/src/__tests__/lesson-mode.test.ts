@@ -8,6 +8,7 @@ import {
   scoreFreeTalk
 } from '../lesson-mode.js';
 import { fakeDurableStorage } from './fake-do.js';
+import { CAFE_MENU, starPrice } from '@lcw/content';
 
 const TOKEN = 'op-token-0123456789abcdef';
 const op = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
@@ -39,6 +40,44 @@ async function startLesson(p: PlatformDO) {
   return { lessonId: s.body.lesson_id as string, code: s.body.join_code as string, st, plan: s.body.plan };
 }
 
+describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
+  it('lesson stars go into the ledger once per utterance; lesson, solo dialog and /join all read the same balance', async () => {
+    const p = platform();
+    const { lessonId, st } = await startLesson(p);
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    const say = (stars: 1 | 2 | 3, transcript = 'can I have a warm honey tea') =>
+      call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript, chosen_stars: stars, dur_ms: 2000 }, st);
+
+    const a = await say(2);
+    expect(a.body.coins_total).toBe(220);
+    expect(p.coinBalance('kid-1')).toBe(220);
+    // a miss earns nothing and still reports the balance (not stars ever × 10)
+    const miss = await say(2, 'banana');
+    expect(miss.body.stars).toBe(0);
+    expect(miss.body.coins_total).toBe(220);
+
+    // the same utterance is credited once (ref = utterance id), whatever retries the server sees
+    expect(p.creditCoins('kid-1', 20, 'lesson_stars', 'lesson:utt-same', 1)).toBe(240);
+    expect(p.creditCoins('kid-1', 20, 'lesson_stars', 'lesson:utt-same', 2)).toBe(240);
+
+    // the dialog window's solo order (same student token) pays from that balance and reports the same number
+    const water = CAFE_MENU.find((d) => d.key === 'water')!;
+    const order = await call(
+      p,
+      'POST',
+      '/v1/converse/score',
+      { dialog_id: 'solo-w', chosen_stars: 3, hint_level: 'full', npc_ctx: 'cafe', transcript: 'Can I have some cold water, please?', target_text: 'Can I have some cold water, please?' },
+      st
+    );
+    expect(order.body.coins_total).toBe(240 - starPrice(water.basePrice, 3));
+
+    // back in the lesson (3D client or /join send the same request): balance continues from there
+    const b = await say(2);
+    expect(b.body.coins_total).toBe(240 - starPrice(water.basePrice, 3) + 20);
+    expect(p.coinBalance('kid-1')).toBe(b.body.coins_total);
+  });
+});
+
 describe('lesson mode (docs/18)', () => {
   it('join codes are 6 digits and free talk scores by length', () => {
     expect(makeJoinCode(new Uint8Array([0, 0, 0, 7]))).toBe('000007');
@@ -65,7 +104,7 @@ describe('lesson mode (docs/18)', () => {
     );
     expect(pass.body.pass).toBe(true);
     expect(pass.body.stars).toBe(2);
-    expect(pass.body.coins_total).toBe(20);
+    expect(pass.body.coins_total).toBe(200 + 20); // starting purse + 2 stars × 10 (one ledger, see below)
     expect(pass.body.utterances_today).toBe(1);
     expect(pass.body.feedback_ko).toMatch(/통과|완벽/);
 

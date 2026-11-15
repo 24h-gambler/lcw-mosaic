@@ -135,10 +135,25 @@ describe('client lesson module (docs/19 §4)', () => {
       stt_source: 'browser',
       confidence: 0.92
     });
-    expect(r).toMatchObject({ pass: true, stars: 2, coinsTotal: 20 });
+    expect(r).toMatchObject({ pass: true, stars: 2, coinsTotal: 220 }); // the child's one ledger: starting 200 + 2★ × 10
+    // the DialogPanel's payload carries solo meta; the strict lesson body must not (it would be a 400)
+    const viaPanel = await ctl.submit({
+      target_text: 'Can I have a warm honey tea?',
+      transcript: 'can I have a warm honey tea',
+      chosen_stars: 2,
+      hint_level: 'full',
+      latency_ms: 700,
+      dur_ms: 2000,
+      stt_source: 'browser',
+      confidence: 0.9,
+      echo: false,
+      attempt: 2,
+      dialogId: 'dlg_lesson_1'
+    });
+    expect(viaPanel).toMatchObject({ pass: true, coinsTotal: 240 });
     // the panel that shows the result celebrates (App's DialogHost or the layer's own), not the controller: no double stars
     expect(calls.filter((c) => c.startsWith('celebrate:'))).toEqual([]);
-    expect(ctl.state.lastResult?.utterancesToday).toBe(1);
+    expect(ctl.state.lastResult?.utterancesToday).toBe(2);
 
     // the director sees the student's screen
     const feed = await admin('GET', `/v1/admin/lessons/${lesson_id}/feed`);

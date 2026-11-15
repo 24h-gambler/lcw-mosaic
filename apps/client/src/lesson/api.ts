@@ -4,13 +4,20 @@
  * Scores, stars and coins are always the server's (AGENTS 4.7).
  */
 import type { LessonDirectorEventKind, LessonHintLevel, LessonSceneId, LessonUtteranceMode } from '@lcw/content';
+import type { DialogOffer, DialogResult, SttSource, UtteranceSubmit } from '../dialog/types.js';
+
+// The dialog domain's types are the contract (docs/19 §3); the lesson layer uses them as they are.
+export type { DialogOffer, DialogResult, SttSource, UtteranceSubmit };
+/** A sentence card of the current stage: the dialog's DialogOffer. */
+export type LessonOffer = DialogOffer;
+/** POST /v1/lesson/utterance body: UtteranceSubmit without the solo-route meta (the lesson body is strict). */
+export type LessonUtteranceBody = Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId'>;
 
 export const STUDENT_TOKEN_KEY = 'lcw.studentToken';
 export const STUDENT_LESSON_KEY = 'lcw.studentLessonId';
 export const STUDENT_NICKNAME_KEY = 'lcw.studentNickname';
 export const STUDENT_LEVEL_KEY = 'lcw.studentLevel';
 
-export type SttSource = 'browser' | 'keyboard' | 'board' | 'device' | 'workers_ai';
 export type PlayerLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
 
 export interface JoinResult {
@@ -19,12 +26,6 @@ export interface JoinResult {
   player_id: string;
   nickname: string;
   level: PlayerLevel;
-}
-
-export interface LessonOffer {
-  stars: 1 | 2 | 3;
-  text: string;
-  hintTags: string[];
 }
 
 export interface LessonNpcLine {
@@ -62,26 +63,14 @@ export interface StudentLessonState {
   server_now: number;
 }
 
-/** Same shape as the /v1/lesson/utterance body (docs/19 §3 UtteranceSubmit). */
-export interface UtteranceSubmit {
-  target_text: string;
-  transcript: string;
-  chosen_stars: 1 | 2 | 3;
-  hint_level: LessonHintLevel;
-  latency_ms: number;
-  dur_ms: number;
-  stt_source: SttSource;
-  confidence: number;
-}
-
 const STT_SOURCES: readonly SttSource[] = ['browser', 'keyboard', 'board', 'device', 'workers_ai'];
 const HINTS: readonly LessonHintLevel[] = ['full', 'keyword', 'initial', 'picture', 'none'];
 
 /**
- * The dialog domain's panel hands `submit` its own UtteranceSubmit (docs/19 §3, may carry extra fields such as
- * echo/attempt): keep the fields the lesson API takes, clamp numbers, default the rest. Throws on no transcript.
+ * The dialog panel hands `submit` an UtteranceSubmit with solo meta (echo, attempt, dialogId): send only the fields
+ * of the strict lesson body, clamp numbers, default the rest. Throws on no transcript.
  */
-export function readUtteranceSubmit(u: unknown): UtteranceSubmit {
+export function readUtteranceSubmit(u: UtteranceSubmit | unknown): LessonUtteranceBody {
   const o = (u && typeof u === 'object' ? u : {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -107,14 +96,6 @@ export interface UtteranceResult {
   feedback_ko: string;
   coins_total: number;
   utterances_today: number;
-}
-
-/** docs/19 §3 DialogResult. */
-export interface DialogResult {
-  pass: boolean;
-  stars: number;
-  feedbackKo: string;
-  coinsTotal?: number;
 }
 
 export class LessonHttpError extends Error {
@@ -223,16 +204,10 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
       const qs = p.toString();
       return request<StudentLessonState>('GET', `/v1/lesson/state${qs ? `?${qs}` : ''}`, token);
     },
-    utterance: (token: string, u: UtteranceSubmit) => request<UtteranceResult>('POST', '/v1/lesson/utterance', token, u)
+    // Whatever the caller hands in, only the strict lesson body goes out (no echo/attempt/dialogId).
+    utterance: (token: string, u: UtteranceSubmit | LessonUtteranceBody) =>
+      request<UtteranceResult>('POST', '/v1/lesson/utterance', token, readUtteranceSubmit(u))
   };
 }
 
 export type StudentLessonApi = ReturnType<typeof createStudentLessonApi>;
-
-/** DialogPanel `submit` for a lesson (docs/19 §3): the server scores, the panel only shows the result. */
-export function makeLessonSubmit(api: StudentLessonApi, token: string): (u: UtteranceSubmit) => Promise<DialogResult> {
-  return async (u) => {
-    const r = await api.utterance(token, u);
-    return { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, coinsTotal: r.coins_total };
-  };
-}

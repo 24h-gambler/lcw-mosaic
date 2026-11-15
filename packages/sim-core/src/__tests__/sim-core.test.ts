@@ -221,7 +221,7 @@ describe('@lcw/sim-core acceptance tests', () => {
     expect(missingLight.valid).toBe(false);
     expect(missingLight.promptSentence).toBe('This room needs a light source.');
 
-    // Add torch -> valid & Chef Mina moves in
+    // Add torch -> valid & Chef Leo moves in
     world.setBlock(owner, 102, 2, 161, 26);
     const complete = evaluateRoom(world, { x: 102, y: 1, z: 162 }, [
       { id: 'furn_bed_single', x: 101, y: 1, z: 161 },

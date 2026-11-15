@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { COLOR_TOKENS } from '@lcw/ui';
+import { npcPersona } from '@lcw/content';
 import { DialogPanel } from './DialogPanel.js';
 import { ROOM_MISSING_SENTENCES } from '@lcw/sim-core';
 import { ReadAloudPrompt, furnitureOffersFor, type FurnitureKind } from './ReadAloudPrompt.js';
@@ -17,10 +18,12 @@ import type { DialogHint, DialogMode, DialogOffer, DialogResult, Level, NpcRef }
 
 const q = new URLSearchParams(location.search);
 const ctx = (q.get('npc') ?? 'cafe') as NpcRef['ctx'];
+const castRef = (id: string, c: NpcRef['ctx']): NpcRef => ({ id, ctx: c, nameKo: npcPersona(id)?.nameKo ?? id, nameEn: npcPersona(id)?.nameEn ?? id });
 const NPCS: Record<string, NpcRef> = {
-  cafe: { id: 'cafe_owner', ctx: 'cafe', nameKo: '꿀벌 카페 주인', nameEn: 'Honey' },
-  trade_shop: { id: 'shop_owner', ctx: 'trade_shop', nameKo: '물물교환 상점 주인', nameEn: 'Pip' },
-  guide: { id: 'guide', ctx: 'guide', nameKo: '광장 안내인', nameEn: 'Fern' }
+  cafe: castRef('cafe_owner', 'cafe'),
+  trade_shop: castRef('shop_owner', 'trade_shop'),
+  guide: castRef('guide', 'guide'),
+  errand: castRef('errand_neighbor', 'errand')
 };
 const npc = NPCS[ctx] ?? NPCS.cafe!;
 const level = (q.get('level') ?? 'L1') as Level;

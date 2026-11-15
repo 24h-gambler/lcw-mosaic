@@ -112,7 +112,7 @@ export function bankOffersFor(npc: NpcRef, level: LangLevel, item?: string, modi
 }
 
 /**
- * Toby's furniture lines for one kind of furniture (docs/03 D13): after the build screen says what the room lacks
+ * The shop owner's furniture lines for one kind of furniture (docs/03 D13): after the build screen says what the room lacks
  * (or the child read it aloud), the trade shop offers that kind instead of its default barter lines. The first good
  * of the kind is the one offered; the server prices it (and spends today's read-aloud discount on it).
  */

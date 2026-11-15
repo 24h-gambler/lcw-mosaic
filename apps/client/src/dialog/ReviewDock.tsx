@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { UI_STRINGS_KO } from '@lcw/content';
+import { UI_STRINGS_KO, npcPersona } from '@lcw/content';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
 import { DialogPanel } from './DialogPanel.js';
@@ -17,10 +17,16 @@ import type { DialogResult, Level, NpcRef } from './types.js';
 
 const R = UI_STRINGS_KO.review;
 
+/** Fallback when the world has no NPC of that ctx: the names come from the cast pack (npc-cast.ts). */
+function castRef(id: string, ctx: NpcRef['ctx']): NpcRef {
+  const p = npcPersona(id);
+  return { id, ctx, nameKo: p?.nameKo ?? id, nameEn: p?.nameEn ?? id };
+}
+
 const NPC_BY_CTX: Record<string, NpcRef> = {
-  cafe: { id: 'cafe_owner', ctx: 'cafe', nameKo: '카페 주인 하니', nameEn: 'Hani' },
-  trade_shop: { id: 'shop_owner', ctx: 'trade_shop', nameKo: '상점 주인 토비', nameEn: 'Toby' },
-  guide: { id: 'guide', ctx: 'guide', nameKo: '안내인 선생님', nameEn: 'Luna' }
+  cafe: castRef('cafe_owner', 'cafe'),
+  trade_shop: castRef('shop_owner', 'trade_shop'),
+  guide: castRef('guide', 'guide')
 };
 
 export function npcForReview(world: WorldHandle | null, ctx: string): NpcRef {

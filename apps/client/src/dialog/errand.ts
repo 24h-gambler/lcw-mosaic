@@ -1,4 +1,4 @@
-import { FIRST_ERRAND, NPC_OPENING_LINES, UI_STRINGS_KO, type LangLevel } from '@lcw/content';
+import { FIRST_ERRAND, NPC_OPENING_LINES, UI_STRINGS_KO, npcPersona, type LangLevel } from '@lcw/content';
 import { bankOffersFor } from './hints.js';
 import { SubmitError } from './submit.js';
 import type { DialogOffer, NpcRef } from './types.js';
@@ -40,7 +40,7 @@ export async function fetchErrand(opts: { token: string; baseUrl?: string; fetch
 }
 
 /**
- * Who gives the first errand: the neighbour Mina at the honey cafe door (world `errand_neighbor`, ctx `errand`, docs/03
+ * Who gives the first errand: the neighbour (cast pack: Mia) at the honey cafe door (world `errand_neighbor`, ctx `errand`, docs/03
  * D1). Luna (guide) stays the guide: asking her the way to the cafe walks the child there.
  */
 export const ERRAND_GIVER_CTXS: ReadonlySet<string> = new Set(['errand']);
@@ -58,7 +58,7 @@ export interface ErrandDialog {
 export function errandDialogFor(npc: NpcRef, errand: ErrandView | null, level: LangLevel): ErrandDialog | null {
   if (!errand || errand.state === 'done') return null;
   if (ERRAND_GIVER_CTXS.has(npc.ctx)) {
-    // accepted: Mina reminds ("The honey cafe is right over there") and the child can say yes again (no step moves)
+    // accepted: the giver reminds ("The honey cafe is right over there") and the child can say yes again (no step moves)
     const step = errand.state === 'carrying' ? 'errand_deliver' : 'errand_accept';
     const as: NpcRef = { ...npc, ctx: 'errand' };
     return { npc: as, offers: bankOffersFor(as, level, step), npcLine: errand.npc_line };
@@ -72,8 +72,14 @@ export function errandDialogFor(npc: NpcRef, errand: ErrandView | null, level: L
 /** The goal line on top of the screen for each errand step (Korean, docs/08 8.1). */
 export function errandGoalKo(errand: ErrandView): string {
   const F = UI_STRINGS_KO.firstVisit;
-  if (errand.state === 'offered') return F.goalErrand;
-  if (errand.state === 'accepted') return F.goalOrder.replace('{item}', errand.item_ko);
-  if (errand.state === 'carrying') return F.goalDeliver.replace('{item}', errand.item_ko);
+  const names = (t: string) => t.replace('{giver}', errandGiverNameKo()).replace('{cafe}', npcPersona('cafe_owner')?.nameKoShort ?? '');
+  if (errand.state === 'offered') return names(F.goalErrand);
+  if (errand.state === 'accepted') return names(F.goalOrder).replace('{item}', errand.item_ko);
+  if (errand.state === 'carrying') return names(F.goalDeliver).replace('{item}', errand.item_ko);
   return F.goalDone;
+}
+
+/** The errand giver's short Korean name from the cast pack (npc-cast.ts), for goal lines and the walk button. */
+export function errandGiverNameKo(): string {
+  return npcPersona('errand_neighbor')?.nameKoShort ?? '';
 }

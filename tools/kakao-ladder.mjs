@@ -1,6 +1,6 @@
 // KakaoTalk in-app ladder check (docs/19 입력 사다리): a phone-size headless Chrome with the KAKAOTALK user agent and
 // no browser SpeechRecognition (like the in-app web view) plays a linked child's first visit by voice only:
-// the "Hello!" mic check, the neighbour Mina's errand at the honey cafe door, the cafe order and the hand-over. The microphone is a WebAudio stream of
+// the "Hello!" mic check, the neighbour Mia's errand at the honey cafe door, the cafe order and the hand-over. The microphone is a WebAudio stream of
 // synthetic WAV clips (one per turn); MediaRecorder, /v1/converse/stt (Workers AI) and scoring are the real ones.
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/kakao-ladder.mjs <base> dev.json <clips dir> <out dir>
@@ -131,7 +131,7 @@ async function talk(name, move = true) {
   }
   return r;
 }
-// Mina's spot at the honey cafe door (apps/client/src/world/town.ts errand_neighbor).
+// Mia's spot at the honey cafe door (apps/client/src/world/town.ts errand_neighbor).
 const MINA_SPOT = { x: 161, z: 139 };
 const pos = () => page.evaluate(() => window.__lcwWorld.getStats?.().player ?? null);
 async function hold(key, ms) {
@@ -188,7 +188,7 @@ async function walk() {
     last = p;
   }
   const walkMs = Date.now() - t0;
-  const toMina = /미나/.test(label);
+  const toMina = /미아/.test(label);
   const byWorld = await page.evaluate(() => typeof window.__lcwWorld.walkToNpc === 'function');
   const left = toMina && !byWorld ? await approach(MINA_SPOT.x, MINA_SPOT.z) : null;
   return { label, walkToNpc: byWorld, walk_s: Math.round(walkMs / 100) / 10, approach_left_m: left };
@@ -213,13 +213,13 @@ async function speak(clip, label, text) {
 }
 
 mark('to_mina', { walk: await walk() });
-mark('mina_open', await talk(/미나|Mina/, false));
+mark('mina_open', await talk(/미아|Mia/, false));
 mark('accept', await speak('accept', '81-kakao-accept', 'Yes, I can help you.'));
 mark('to_cafe', { walk: await walk() });
-mark('hani_open', await talk(/하니|Hani/));
+mark('hani_open', await talk(/해나|Hannah/));
 mark('first_order', await speak('order', '82-kakao-order', 'Cold water, please.'));
 mark('back_to_mina', { walk: await walk() });
-mark('mina2_open', await talk(/미나|Mina/, false));
+mark('mina2_open', await talk(/미아|Mia/, false));
 mark('deliver', await speak('deliver', '83-kakao-deliver', 'Here is your cold water. Enjoy!'));
 await page.waitForSelector('.lcw-errand-toast', { timeout: 6000 }).catch(() => {});
 await shot('84-kakao-reward');

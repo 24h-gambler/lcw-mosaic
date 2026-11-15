@@ -33,6 +33,7 @@ import {
   VoxelWorld
 } from '../index.js';
 import { scanSourceForDirectChunkWrite } from '../../../../tools/lint-invariants.mjs';
+import { timeRuns } from '../../../../tools/timing.mjs';
 
 describe('@lcw/sim-core acceptance tests', () => {
   it('WP-101 & WP-208: meshes a populated chunk in <4ms and propagates torch light in <8ms', () => {
@@ -46,18 +47,17 @@ describe('@lcw/sim-core acceptance tests', () => {
       }
     }
     const chunk = world.getOrCreateChunk(0, 0, 0);
-    const t0 = performance.now();
-    const mesh = greedyMeshChunk(chunk);
-    const meshMs = performance.now() - t0;
-    expect(mesh.quadCount).toBeGreaterThan(0);
-    expect(meshMs).toBeLessThan(15); // typical ~0.5-2ms; generous upper guard on busy CI
+    expect(greedyMeshChunk(chunk).quadCount).toBeGreaterThan(0);
+    // warmed up, best of 9: the WP-101 budget (4 ms) on the fastest run, a loose guard on the median for a busy PC
+    const mesh = timeRuns(() => greedyMeshChunk(chunk));
+    expect(mesh.min).toBeLessThan(4);
+    expect(mesh.median).toBeLessThan(15);
 
-    const t1 = performance.now();
-    propagateBlockLight(chunk, [{ lx: 8, ly: 8, lz: 8, level: 14 }]);
-    const lightMs = performance.now() - t1;
+    const light = timeRuns(() => propagateBlockLight(chunk, [{ lx: 8, ly: 8, lz: 8, level: 14 }]));
     expect(chunk.getLight(8, 8, 8)).toBe(14);
     expect(chunk.getLight(9, 8, 8)).toBe(13);
-    expect(lightMs).toBeLessThan(8);
+    expect(light.min).toBeLessThan(8);
+    expect(light.median).toBeLessThan(30);
   });
 
   it('WP-401: generates 100 deterministic seeds with all 4 required services and identical hashes', () => {

@@ -20,7 +20,9 @@
 //   'outsourcing:lcw:watch:<lesson_id | site-YYYYMMDD>:alerts', rewritten in place when its alerts change, so the same
 //   alert never makes a second card and the spine's per-source caps are not used up. During the lesson the cards are
 //   importance 1: in the hub, but the phone (which polls cards at importance 2 and up) does not ring the teacher; the
-//   spine's /notify push is never called. When the window ends, the alerts still standing (plus any worker errors) go
+//   spine's /notify push is never called. The spine adds Dan's source correction to every post, so a lesson card is
+//   asked at 0 first and only raised toward 1 (never above the ring line on the way); one it still lifts to 2 is closed
+//   at once and lesson cards stop for the day. When the window ends, the alerts still standing (plus any worker errors) go
 //   into one summary card at importance 2 (P2) and the lesson cards are closed. The card state is kept in
 //   <out>/lesson-watch-cards-YYYYMMDD.json, so a restarted watch carries on where it stopped.
 //   Spine token: --spine-token-file (default DANOS_TOKEN_FILE, else the automation secrets file), never printed.
@@ -579,45 +581,97 @@ async function readBack(id) {
 }
 
 /**
- * Post a card at its own importance and read it back. The spine recomputes its source adjustment on every post
- * (rewrites included), so nothing is carried over between posts: when the card landed off its importance, it is
- * posted again shifted by the difference, read back again, at most twice. A lesson card that lands at 2 or more is
- * brought back down this way at once (2 rings the phone). Still not shown afterwards: logged as card_hidden.
+ * Walk a card to its importance on the spine, which adds its own source adjustment (Dan's corrections, -2..+2; a
+ * muted source always lands 0) to whatever is asked and recomputes it on every post, rewrites included. Pure but for
+ * the injected calls, for tests.
+ *
+ * up: false (the summary) asks the target first; off by the adjustment, it asks again shifted by the difference.
+ * up: true (lesson cards, where 2 rings the teacher's phone) asks `start` (0) first and only ever raises the ask, by
+ * the gap still left under the target, so with an adjustment up to +1 no post ever lands above the target and a
+ * failed or cut-short raise leaves the card lower (hidden in the hub), never higher. If even the lowest ask lands
+ * above the target (an adjustment of +2), the card is closed at once (`tooHigh`) instead of being left to ring.
+ * At most `tries` re-posts; a muted source (stays 0 whatever is asked) stops at the edge.
+ *
+ * @param {{ target: number, start?: number, max: number, tries: number, up?: boolean,
+ *   post: (importance: number) => Promise<{ status: number, body: any }>,
+ *   read: (id: string) => Promise<{ state: string | null, importance: number | null }>,
+ *   close?: () => Promise<{ status: number }>,
+ *   log?: (row: Record<string, unknown>) => void }} o
  */
-async function postChecked(card, max) {
-  const target = card.importance;
-  let asked = target;
-  let r = await spine('POST', '/proposals', card);
-  if (r.status !== 201 || !r.body?.id) return { r };
-  let rb = await readBack(r.body.id);
-  for (let i = 0; i < 2 && typeof rb.importance === 'number' && rb.importance !== target; i++) {
+export async function settleImportance(o) {
+  const { target, max, tries, up = false, post, read, close, log = () => {} } = o;
+  let asked = up ? Math.max(0, Math.min(target, o.start ?? 0)) : target;
+  const landed = [];
+  let r = await post(asked);
+  if (r.status !== 201 || !r.body?.id) return { r, rb: null, asked, landed, tooHigh: false };
+  let rb = await read(r.body.id);
+  landed.push(rb.importance);
+  for (let i = 0; i < tries && typeof rb.importance === 'number' && rb.importance !== target; i++) {
+    if (up && rb.importance > target && asked === 0) break; // nothing lower to ask: closed below
     const next = Math.max(0, Math.min(max, asked + (target - rb.importance)));
     if (next === asked) break; // already at the edge (e.g. a muted source stays 0 whatever is asked)
-    write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_adjusted', ref: card.ref, asked, got: rb.importance, repost: next });
+    log({ key: 'card_adjusted', asked, got: rb.importance, repost: next });
     asked = next;
-    const again = await spine('POST', '/proposals', { ...card, importance: asked });
+    const again = await post(asked);
     if (again.status !== 201 || !again.body?.id) break;
     r = again;
-    rb = await readBack(r.body.id);
+    rb = await read(r.body.id);
+    landed.push(rb.importance);
   }
-  if (rb.state !== 'open' || (typeof rb.importance === 'number' && rb.importance < 1)) {
-    write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_hidden', ref: card.ref, id: r.body?.id ?? null, ...rb });
-    console.log(`card ${r.body?.id ?? '?'} is ${rb.state ?? 'unknown'} (importance ${rb.importance ?? '?'}) on the spine, not shown in the hub`);
+  let tooHigh = false;
+  if (up && close && typeof rb.importance === 'number' && rb.importance > target) {
+    const shut = await close();
+    tooHigh = true;
+    log({ key: 'card_too_high', asked, got: rb.importance, closed: shut.status === 200 });
+    if (shut.status === 200) rb = await read(r.body.id);
   }
-  return { r, rb };
+  return { r, rb, asked, landed, tooHigh };
 }
 
-/** Post the scope cards that changed this tick, each read back (see postChecked). */
+/** Lesson cards walk up from 0 (see settleImportance); never asked above 3, at most 3 raises (an adjustment of -2). */
+export const LESSON_SETTLE = { start: 0, max: 3, tries: 3, up: true };
+/** The summary is asked at its own importance (the lesson is over; the phone may chime), at most 2 re-posts. */
+export const SUMMARY_SETTLE = { max: 3, tries: 2, up: false };
+
+/** Post a card through settleImportance against the real spine. Still not shown afterwards: logged as card_hidden. */
+async function postChecked(card, how) {
+  const log = (row) => write('lesson-watch-alerts.jsonl', { at: stamp(), ref: card.ref, ...row });
+  const { r, rb, tooHigh } = await settleImportance({
+    ...how,
+    target: card.importance,
+    post: (importance) => spine('POST', '/proposals', { ...card, importance }),
+    read: readBack,
+    close: () => spine('POST', '/proposals/close', { source: card.source, ref: card.ref }),
+    log
+  });
+  if (r.status !== 201 || !r.body?.id) return { r };
+  if (rb.state !== 'open' || (typeof rb.importance === 'number' && rb.importance < 1)) {
+    log({ key: 'card_hidden', id: r.body?.id ?? null, ...rb });
+    console.log(`card ${r.body?.id ?? '?'} is ${rb.state ?? 'unknown'} (importance ${rb.importance ?? '?'}) on the spine, not shown in the hub`);
+  }
+  return { r, rb, tooHigh };
+}
+
+/**
+ * Post the scope cards that changed this tick, each walked up to its importance (see postChecked). Once a lesson card
+ * could not be kept below the phone's ring line (closed as too high), no more lesson cards go up for the day: every
+ * new post would land there again. The alerts still go to the JSONL and the summary still goes up after the lesson.
+ */
 async function postTickCards(alerts, at) {
   const st = loadCards();
   for (const { card, sig } of planTick(st, alerts, at, { base: BASE, out: OUT })) {
-    // Lesson cards are never asked above 2 (a -1 source lands that at 1); 3 would ring the phone.
-    const { r, rb } = await postChecked(card, 2);
+    if (st.lessonCardsOff) break;
+    const { r, rb, tooHigh } = await postChecked(card, LESSON_SETTLE);
     if (r.status !== 201 || !r.body?.id) {
       write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_error', ref: card.ref, status: r.status, error: spineError(r) });
       continue;
     }
     st.posted[card.ref] = { ...st.posted[card.ref], id: r.body.id, sig, at, state: rb?.state ?? null, importance: rb?.importance ?? null };
+    if (tooHigh) {
+      if (rb?.state === 'closed') st.posted[card.ref].closed = stamp();
+      st.lessonCardsOff = stamp();
+      console.log('lesson cards off for today: the spine keeps raising them to the ring line (card_too_high)');
+    }
   }
   saveCards();
 }
@@ -629,7 +683,7 @@ async function closeWindowCards() {
   if (plan.summary && !st.summary) {
     for (const wait of [0, 10_000, 30_000, 60_000]) {
       await sleep(wait);
-      const { r, rb } = await postChecked(plan.summary, 3);
+      const { r, rb } = await postChecked(plan.summary, SUMMARY_SETTLE);
       if (r.status === 201 && r.body?.id) {
         st.summary = { id: r.body.id, at: stamp(), state: rb?.state ?? null, importance: rb?.importance ?? null };
         break;

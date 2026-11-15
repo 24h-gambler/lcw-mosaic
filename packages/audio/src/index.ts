@@ -57,6 +57,7 @@ export const AUDIO_LIMITS = {
   NPC_END_TO_MIC_ON_MS: 150,
   EXPLOSION_COALESCE_WINDOW_MS: 100,
   EXPLOSION_MAX_SIMULTANEOUS: 3,
+  EXPLOSION_MERGE_MAX_BOOST_DB: 3,
   VAD_FRAME_MS: 20,
   VAD_SPEECH_START_MS: 300,
   /** Combat voice skills (docs/04 4.11): fast end-of-utterance. */
@@ -70,13 +71,35 @@ export const AUDIO_LIMITS = {
   SPATIAL_MAX_DISTANCE: 28
 } as const;
 
+/** docs/12 2장 동시 재생 상한. `voice_lesson` is the call bus (lesson teacher and approved friends' real voices). */
 export const BUS_CAPS: Record<AudioBusName, number> = {
   ui: 4,
-  sfx: 12,
+  sfx: 16,
   amb: 4,
-  bgm: 2,
+  bgm: 3,
+  voice_npc: 2,
+  voice_lesson: 8
+};
+
+/** docs/12 2장 기본 음량 and 4장 "기본 마스터 음량 70%". */
+export const BUS_DEFAULT_VOLUMES: Record<AudioBusName, number> = {
+  bgm: 0.6,
+  amb: 0.7,
+  sfx: 0.85,
+  ui: 0.85,
   voice_npc: 1,
-  voice_lesson: 4
+  voice_lesson: 1
+};
+export const MASTER_DEFAULT_VOLUME = 0.7;
+
+/** docs/12 2장: over a cap, lower-priority and older sounds stop first (call > NPC voice > UI > SFX > ambience). */
+export const BUS_PRIORITY: Record<AudioBusName, number> = {
+  voice_lesson: 50,
+  voice_npc: 40,
+  ui: 30,
+  sfx: 20,
+  amb: 10,
+  bgm: 5
 };
 
 export const BUS_LUFS_TARGETS: Record<AudioBusName, number> = {
@@ -88,15 +111,46 @@ export const BUS_LUFS_TARGETS: Record<AudioBusName, number> = {
   voice_lesson: -16
 };
 
-/** Attenuation in dB applied to target buses when a ducking reason is active (docs/12 §2). */
+/**
+ * docs/12 3장 덕킹 표, in dB per bus while a reason is active. Overlapping reasons take the deepest cut per bus
+ * (never the sum). The guardian lesson window plays no game sound at all: only the call bus is left.
+ * While the mic is open NPC voice and UI sounds are not played at all (3장 순서 5), see `play`.
+ */
 export const DUCK_TABLE_DB: Record<DuckReason, Partial<Record<AudioBusName, number>>> = {
-  mic_open: { bgm: -18, amb: -14, sfx: -12, voice_npc: -60 },
-  npc_speaking: { bgm: -10, amb: -6, sfx: -4 },
-  lesson_active: { bgm: -12, amb: -8 },
-  lesson_vad: { bgm: -16, sfx: -8 },
-  skill_or_bubble: { bgm: -8 },
-  lesson_window: { bgm: -12, amb: -10, sfx: -8 }
+  mic_open: { bgm: -24, amb: -18, sfx: -12 },
+  npc_speaking: { bgm: -12, amb: -9, sfx: -6 },
+  lesson_active: { bgm: -9, amb: -6, sfx: -3 },
+  lesson_vad: { bgm: -24, amb: -18, sfx: -9 },
+  skill_or_bubble: { bgm: -18, amb: -12, sfx: -6 },
+  lesson_window: { bgm: -Infinity, amb: -Infinity, sfx: -Infinity, ui: -Infinity, voice_npc: -Infinity }
 };
+
+/** docs/12 3장 복귀: how long a bus takes to come back once a reason ends. Lesson end returns in one second. */
+export const DUCK_RELEASE_MS: Record<DuckReason, number> = {
+  mic_open: 400,
+  npc_speaking: 300,
+  lesson_active: 1000,
+  lesson_vad: 600,
+  skill_or_bubble: 300,
+  lesson_window: 0
+};
+/** Going down is quick so the first syllable is not masked. */
+export const DUCK_ATTACK_MS = 40;
+
+/** Release time when `reason` ends while `stillActive` remain: the bus glides back over the ended reason's time. */
+export function duckReleaseMs(reason: DuckReason): number {
+  return DUCK_RELEASE_MS[reason];
+}
+
+/** Deepest active cut on a bus (dB, 0 = none). Pure, shared by the engine and the WebAudio runtime. */
+export function duckDbFor(bus: AudioBusName, active: Iterable<DuckReason>): number {
+  let min = 0;
+  for (const r of active) {
+    const db = DUCK_TABLE_DB[r][bus];
+    if (db !== undefined && db < min) min = db;
+  }
+  return min;
+}
 
 export interface SynthParams {
   freqStart: number;
@@ -107,8 +161,10 @@ export interface SynthParams {
 }
 
 export const PROCEDURAL_SFX_PRESETS: Record<string, SynthParams> = {
-  'ui.click': { freqStart: 880, freqEnd: 1120, durationMs: 45, wave: 'sine', gain: 0.35 },
-  'dlg.mic_on': { freqStart: 523.25, freqEnd: 783.99, durationMs: 90, wave: 'triangle', gain: 0.45 },
+  /** docs/12 6.4: square 1,200 Hz, 30 ms. */
+  'ui.click': { freqStart: 1200, freqEnd: 1200, durationMs: 30, wave: 'square', gain: 0.25 },
+  /** docs/12 6.4: sine 660 -> 880 Hz, 60 ms (the short rising cue before recording starts). */
+  'dlg.mic_on': { freqStart: 660, freqEnd: 880, durationMs: 60, wave: 'sine', gain: 0.45 },
   'dlg.mic_off': { freqStart: 659.25, freqEnd: 440, durationMs: 85, wave: 'triangle', gain: 0.4 },
   'blk.place': { freqStart: 220, freqEnd: 160, durationMs: 70, wave: 'triangle', gain: 0.5 },
   'blk.break': { freqStart: 180, freqEnd: 95, durationMs: 110, wave: 'square', gain: 0.45 },
@@ -132,7 +188,7 @@ export function getLadderSemitoneOffset(step: number): number {
 }
 
 export function dbToGain(db: number): number {
-  if (db <= -60) return 0;
+  if (!(db > -60)) return 0;
   return 10 ** (db / 20);
 }
 
@@ -228,6 +284,8 @@ export interface ActiveVoice {
   endsAtMs: number;
   looping: boolean;
   pos?: [number, number, number];
+  /** docs/12 6.3 폭발 묶기: explosions merged into this one raise its level, at most +3 dB. */
+  boostDb?: number;
 }
 
 export interface PlayOptions {
@@ -244,6 +302,9 @@ export interface PlayResult {
   played: boolean;
   handleId: number | null;
   reason?: string;
+  /** When an explosion was merged: the voice it joined and that voice's new boost. */
+  mergedInto?: number;
+  boostDb?: number;
   attenuatedGain: number;
   semitoneOffset: number;
 }
@@ -251,6 +312,7 @@ export interface PlayResult {
 export interface MicSequenceSchedule {
   npcEndedAtMs: number;
   micOnCueAtMs: number;
+  /** After the cue has finished (docs/12 3장 순서 4: the cue must not leak into recognition). */
   recordingStartedAtMs: number;
 }
 
@@ -259,6 +321,7 @@ export interface AudioEngineSnapshot {
   sector: MusicSector;
   musicState: MusicMoodState;
   micOpen: boolean;
+  hidden: boolean;
   listenOnlyMode: boolean;
   activeDuckReasons: DuckReason[];
   busVolumes: Record<AudioBusName, number>;
@@ -282,7 +345,13 @@ export interface AudioEngine {
   voice: {
     say(utterance: string, opts?: { nowMs?: number; durationMs?: number }): PlayResult;
     notifyNpcEnded(nowMs?: number): MicSequenceSchedule;
+    /** The NPC voice ended (or was cut) with nobody waiting for the mic. */
+    npcEnded(nowMs?: number): void;
+    /** The child asked for the mic: cuts a speaking NPC, then NPC end -> 150 ms -> cue -> recording. */
+    requestMic(nowMs?: number): MicSequenceSchedule;
+    /** True once recording may start (never while an NPC voice is still playing). */
     completeMicOpenDelay(nowMs?: number): boolean;
+    npcSpeaking(nowMs?: number): boolean;
     stopMic(nowMs?: number): void;
   };
   lesson: {
@@ -297,6 +366,8 @@ export interface AudioEngine {
   };
   setListener(pos: [number, number, number], yaw: number): void;
   setBusVolume(bus: AudioBusName, volume: number): void;
+  /** docs/12 2장: a hidden tab stops music and ambience; only the call bus keeps playing. */
+  setHidden(hidden: boolean): void;
   getEffectiveBusGain(bus: AudioBusName): number;
   getSnapshot(): AudioEngineSnapshot;
 }
@@ -319,20 +390,17 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
   let micOpen = false;
   let listenOnlyMode = false;
   let pendingMicSchedule: MicSequenceSchedule | null = null;
+  let cuePlayed = false;
+  let hidden = false;
+  /** End of the NPC voice now playing (ms), or -1. */
+  let npcVoiceUntil = -1;
+  let lastNpcEndMs = Number.NEGATIVE_INFINITY;
   let listenerPos: [number, number, number] = [0, 0, 0];
   let listenerYaw = 0;
 
   const activeDucks = new Set<DuckReason>();
-  const busVolumes: Record<AudioBusName, number> = {
-    ui: 1,
-    sfx: 1,
-    amb: 0.85,
-    bgm: 0.75,
-    voice_npc: 1,
-    voice_lesson: 1
-  };
+  const busVolumes: Record<AudioBusName, number> = { ...BUS_DEFAULT_VOLUMES };
   const voices: ActiveVoice[] = [];
-  const explosionTimestamps: number[] = [];
   const eventLog: Array<{ atMs: number; event: string; id: string }> = [];
 
   function pruneExpired(nowMs: number): void {
@@ -342,23 +410,23 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
         voices.splice(i, 1);
       }
     }
-    while (
-      explosionTimestamps.length > 0 &&
-      nowMs - explosionTimestamps[0]! > AUDIO_LIMITS.EXPLOSION_COALESCE_WINDOW_MS
-    ) {
-      explosionTimestamps.shift();
-    }
+    if (npcVoiceUntil >= 0 && nowMs >= npcVoiceUntil) endNpcVoice(npcVoiceUntil);
+  }
+
+  function endNpcVoice(t: number): void {
+    npcVoiceUntil = -1;
+    lastNpcEndMs = t;
+    activeDucks.delete('npc_speaking');
+    eventLog.push({ atMs: t, event: 'npc_end', id: 'voice.npc' });
+  }
+
+  function isExplosion(id: string): boolean {
+    return id.startsWith('exp.') || id.includes('explode');
   }
 
   function getEffectiveBusGain(bus: AudioBusName): number {
-    let minDuckDb = 0;
-    for (const reason of activeDucks) {
-      const db = DUCK_TABLE_DB[reason][bus];
-      if (db !== undefined && db < minDuckDb) {
-        minDuckDb = db;
-      }
-    }
-    const raw = busVolumes[bus] * dbToGain(minDuckDb);
+    if (hidden && (bus === 'bgm' || bus === 'amb')) return 0;
+    const raw = busVolumes[bus] * dbToGain(duckDbFor(bus, activeDucks));
     return Math.min(AUDIO_LIMITS.MASTER_PEAK_LINEAR, Math.max(0, raw));
   }
 
@@ -392,25 +460,33 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
       }
     }
 
-    // Coalesce explosion sounds inside 100ms window (docs/12 §2 & §12)
-    if (id.includes('explode')) {
-      if (explosionTimestamps.length >= AUDIO_LIMITS.EXPLOSION_MAX_SIMULTANEOUS) {
+    // docs/12 6.3 폭발 묶기: an explosion starting within 100 ms of the newest one joins it (+1 dB each, max +3 dB);
+    // at most 3 explosion sounds play at once.
+    if (isExplosion(id)) {
+      const booms = voices.filter((v) => isExplosion(v.soundId));
+      const newest = booms.reduce<ActiveVoice | null>((a, v) => (!a || v.startedAtMs > a.startedAtMs ? v : a), null);
+      if (newest && nowMs - newest.startedAtMs < AUDIO_LIMITS.EXPLOSION_COALESCE_WINDOW_MS) {
+        newest.boostDb = Math.min(AUDIO_LIMITS.EXPLOSION_MERGE_MAX_BOOST_DB, (newest.boostDb ?? 0) + 1);
         return {
           played: false,
           handleId: null,
           reason: 'explosion_coalesced',
+          mergedInto: newest.handleId,
+          boostDb: newest.boostDb,
           attenuatedGain: 0,
           semitoneOffset: 0
         };
       }
-      explosionTimestamps.push(nowMs);
+      if (booms.length >= AUDIO_LIMITS.EXPLOSION_MAX_SIMULTANEOUS) {
+        return { played: false, handleId: null, reason: 'explosion_limit', attenuatedGain: 0, semitoneOffset: 0 };
+      }
     }
 
     const cap = BUS_CAPS[bus];
     const busVoices = voices.filter((v) => v.bus === bus);
-    const priority = opts.priority ?? (bus === 'ui' || bus === 'voice_npc' ? 10 : 5);
+    const priority = opts.priority ?? BUS_PRIORITY[bus];
     if (busVoices.length >= cap) {
-      // Evict lowest priority oldest voice on same bus if incoming priority >= lowest
+      // Over the cap: the lowest-priority voice goes, the oldest among equals (voices are kept in start order).
       let victimIdx = -1;
       let lowestPri = Infinity;
       for (let i = 0; i < voices.length; i++) {
@@ -463,7 +539,19 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
     };
   }
 
-  return {
+  function schedule(npcEnded: number, now: number): MicSequenceSchedule {
+    const cueAt = Math.max(now, npcEnded + AUDIO_LIMITS.NPC_END_TO_MIC_ON_MS);
+    const s: MicSequenceSchedule = {
+      npcEndedAtMs: npcEnded,
+      micOnCueAtMs: cueAt,
+      recordingStartedAtMs: cueAt + PROCEDURAL_SFX_PRESETS['dlg.mic_on']!.durationMs
+    };
+    pendingMicSchedule = s;
+    cuePlayed = false;
+    return s;
+  }
+
+  const engine: AudioEngine = {
     unlock() {
       unlocked = true;
     },
@@ -509,7 +597,9 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
     voice: {
       say(utterance: string, opts = {}) {
         const nowMs = opts.nowMs ?? currentMs;
-        if (micOpen) {
+        currentMs = Math.max(currentMs, nowMs);
+        pruneExpired(nowMs);
+        if (micOpen || pendingMicSchedule) {
           return {
             played: false,
             handleId: null,
@@ -518,42 +608,60 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
             semitoneOffset: 0
           };
         }
-        activeDucks.add('npc_speaking');
         const durationMs = opts.durationMs ?? Math.max(400, utterance.length * 45);
-        return playInternal(
-          `voice.npc:${utterance.slice(0, 24)}`,
-          { bus: 'voice_npc', nowMs, durationMs },
-          false
-        );
+        const r = playInternal(`voice.npc:${utterance.slice(0, 24)}`, { bus: 'voice_npc', nowMs, durationMs }, false);
+        if (r.played) {
+          activeDucks.add('npc_speaking');
+          npcVoiceUntil = Math.max(npcVoiceUntil, nowMs + durationMs);
+          eventLog.push({ atMs: nowMs, event: 'npc_start', id: 'voice.npc' });
+        }
+        return r;
       },
       notifyNpcEnded(nowMs?: number): MicSequenceSchedule {
         const t = nowMs ?? currentMs;
+        engine.voice.npcEnded(t);
+        return schedule(t, t);
+      },
+      npcEnded(nowMs?: number): void {
+        const t = nowMs ?? currentMs;
         currentMs = Math.max(currentMs, t);
-        activeDucks.delete('npc_speaking');
-        const schedule: MicSequenceSchedule = {
-          npcEndedAtMs: t,
-          micOnCueAtMs: t + AUDIO_LIMITS.NPC_END_TO_MIC_ON_MS,
-          recordingStartedAtMs: t + AUDIO_LIMITS.NPC_END_TO_MIC_ON_MS
-        };
-        pendingMicSchedule = schedule;
-        eventLog.push({ atMs: t, event: 'npc_end', id: 'voice.npc' });
-        return schedule;
+        for (let i = voices.length - 1; i >= 0; i--) if (voices[i]!.bus === 'voice_npc') voices.splice(i, 1);
+        if (npcVoiceUntil >= 0) endNpcVoice(t);
+      },
+      requestMic(nowMs?: number): MicSequenceSchedule {
+        const t = nowMs ?? currentMs;
+        currentMs = Math.max(currentMs, t);
+        pruneExpired(t);
+        if (npcVoiceUntil >= 0) return engine.voice.notifyNpcEnded(t); // a tap on the mic cuts the NPC voice first
+        // A voice that ended less than 150 ms ago still gets its full pause; otherwise the cue plays now.
+        const gapLeft = lastNpcEndMs + AUDIO_LIMITS.NPC_END_TO_MIC_ON_MS - t;
+        return gapLeft > 0 ? schedule(lastNpcEndMs, t) : schedule(t - AUDIO_LIMITS.NPC_END_TO_MIC_ON_MS, t);
       },
       completeMicOpenDelay(nowMs?: number): boolean {
         const t = nowMs ?? currentMs;
         currentMs = Math.max(currentMs, t);
-        if (!pendingMicSchedule || t < pendingMicSchedule.micOnCueAtMs) {
-          return false;
+        pruneExpired(t);
+        const s = pendingMicSchedule;
+        if (!s || npcVoiceUntil >= 0) return false;
+        if (t >= s.micOnCueAtMs && !cuePlayed) {
+          cuePlayed = true;
+          playInternal('dlg.mic_on', { bus: 'ui', nowMs: s.micOnCueAtMs, priority: 60 }, false);
+          eventLog.push({ atMs: s.micOnCueAtMs, event: 'mic_cue', id: 'dlg.mic_on' });
         }
-        playInternal('dlg.mic_on', { bus: 'ui', nowMs: t, priority: 20 }, false);
+        if (t < s.recordingStartedAtMs) return false;
         micOpen = true;
         activeDucks.add('mic_open');
         pendingMicSchedule = null;
-        eventLog.push({ atMs: t, event: 'mic_record_start', id: 'mic' });
+        eventLog.push({ atMs: s.recordingStartedAtMs, event: 'mic_record_start', id: 'mic' });
         return true;
+      },
+      npcSpeaking(nowMs?: number): boolean {
+        pruneExpired(nowMs ?? currentMs);
+        return npcVoiceUntil >= 0;
       },
       stopMic(nowMs?: number) {
         const t = nowMs ?? currentMs;
+        pendingMicSchedule = null;
         micOpen = false;
         activeDucks.delete('mic_open');
         playInternal('dlg.mic_off', { bus: 'ui', nowMs: t, priority: 20 }, false);
@@ -592,6 +700,9 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
     setBusVolume(bus: AudioBusName, volume: number) {
       busVolumes[bus] = Math.min(1, Math.max(0, volume));
     },
+    setHidden(h: boolean) {
+      hidden = h;
+    },
     getEffectiveBusGain,
     getSnapshot() {
       pruneExpired(currentMs);
@@ -608,6 +719,7 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
         sector,
         musicState,
         micOpen,
+        hidden,
         listenOnlyMode,
         activeDuckReasons: [...activeDucks],
         busVolumes: { ...busVolumes },
@@ -618,4 +730,5 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
       };
     }
   };
+  return engine;
 }

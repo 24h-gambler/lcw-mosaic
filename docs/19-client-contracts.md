@@ -51,6 +51,8 @@ NPC id·ctx (대화 뱅크가 `npc.ctx`로 찾는 값):
 
 ## 3. 대화 → 다른 도메인 (`apps/client/src/dialog/DialogPanel.tsx`)
 
+- 소리(WP-110, `12` 12장): 페이지의 AudioContext는 `apps/client/src/audio/runtime.ts`의 `getAudioRuntime()` 하나입니다. 새 소리는 자기 컨텍스트를 만들지 말고 `rt.unlock()`(탭 안에서)로 컨텍스트를 얻어 `rt.bus('sfx'|'ui'|'amb'|'bgm'|'voice_npc'|'voice_lesson')`에 연결하고, 시작 전에 `rt.admit(id, bus, durMs)`로 상한·마이크 중 침묵·폭발 묶기를 확인합니다. 덕킹은 `rt.duck(reason, on)`(수업 상시 `lesson_active`, 수업 음성 감지 `lesson_vad`, 말풍선 입력 `skill_or_bubble`). 마이크를 여는 곳은 `micCue()`(`dialog/sound.ts`)가 true 로 끝난 뒤 녹음을 시작합니다.
+
 ```ts
 export interface DialogOffer { stars: 1 | 2 | 3; text: string; hintTags: string[] }
 export interface DialogResult { pass: boolean; stars: number; feedbackKo: string; coinsTotal?: number }

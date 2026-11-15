@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { UI_STRINGS_KO } from '@lcw/content';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { MicController, type MicView } from './mic-controller.js';
-import { playSfx, unlockDialogAudio } from './sound.js';
+import { cancelMicCue, micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
 import { createBrowserSpeechEngine, type SpeechEngine } from './speech.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 
@@ -81,6 +81,7 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
   const [result, setResult] = useState<ReadAloudResultView | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const ctrl = useRef<MicController | null>(null);
+  const pending = useRef(false);
   // The shell re-renders often and passes fresh objects/callbacks; keep the mic controller alive across them.
   const latest = useRef({ player, baseUrl, fetchImpl, onResult });
   latest.current = { player, baseUrl, fetchImpl, onResult };
@@ -88,7 +89,10 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
 
   useEffect(() => {
     const c = new MicController(engine, {
-      onView: setMic,
+      onView: (v) => {
+        setMic(v);
+        if (!v.recording) micClosed();
+      },
       onFinal: (r, durMs) => {
         playSfx('dlg.mic_off');
         if (!r) {
@@ -116,7 +120,12 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
       onIssue: (issue) => setNote(issue === 'no_speech' ? UI_STRINGS_KO.dialog.noSpeech : UI_STRINGS_KO.dialog.micUnsupported)
     });
     ctrl.current = c;
-    return () => c.dispose();
+    return () => {
+      if (pending.current) cancelMicCue();
+      pending.current = false;
+      if (c.recording) micClosed();
+      c.dispose();
+    };
   }, [engine, kind]);
 
   const tap = () => {
@@ -124,9 +133,21 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
     const c = ctrl.current;
     if (!c || busy) return;
     if (!c.recording) {
+      if (pending.current) {
+        pending.current = false;
+        cancelMicCue();
+        return;
+      }
       setResult(null);
       setNote(null);
-      playSfx('dlg.mic_on');
+      // docs/12 3장: 150 ms, the rising cue, then record.
+      pending.current = true;
+      void micCue().then((ok) => {
+        if (!pending.current) return;
+        pending.current = false;
+        if (ok && ctrl.current === c && !c.recording) c.tap();
+      });
+      return;
     }
     c.tap();
   };

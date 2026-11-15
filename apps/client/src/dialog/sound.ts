@@ -1,49 +1,61 @@
 import { LEVEL_DEFINITIONS, type LangLevel } from '@lcw/content';
-import { PROCEDURAL_SFX_PRESETS, synthesizeProceduralPcm } from '@lcw/audio';
+import { PROCEDURAL_SFX_PRESETS, synthesizeProceduralPcm, type AudioBusName } from '@lcw/audio';
+import { getAudioRuntime } from '../audio/runtime.js';
 
 /**
- * Dialog sounds (docs/12 6.2 `dlg.*`, temporary procedural sounds of 6.4) and the NPC/offer voice (4.8).
+ * Dialog sounds (docs/12 6.2 `dlg.*`, temporary procedural sounds of 6.4) and the NPC/offer voice (4.8), on the
+ * page's one audio graph (`audio/runtime.ts`): dialog cues go to the UI bus, the NPC voice ducks every game sound,
+ * and the mic only records after the NPC voice, a 150 ms pause and the rising cue (docs/12 3장).
  * Everything is optional: with sound off, blocked autoplay or no Web Audio the panel works the same (docs/12 10).
  */
 
-type Ctx = { ctx: AudioContext } | null;
-let shared: Ctx = null;
-
-function audioCtx(): AudioContext | null {
-  if (shared) return shared.ctx;
-  const g = globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
-  const C = g.AudioContext ?? g.webkitAudioContext;
-  if (!C) return null;
-  try {
-    shared = { ctx: new C() };
-    return shared.ctx;
-  } catch {
-    return null;
-  }
-}
-
 /** Call from a tap handler (iOS unlocks audio only inside a user gesture). */
 export function unlockDialogAudio(): void {
-  const c = audioCtx();
-  if (c && c.state === 'suspended') void c.resume().catch(() => undefined);
+  getAudioRuntime().unlock();
 }
 
 const SAMPLE_RATE = 24_000;
 
+/** Dialog feedback is UI (buttons, stars, coins, review cues); anything else goes to the effects bus. */
+export function busOf(id: string): AudioBusName {
+  return /^(dlg|ui|word|coin|star|mem)\./.test(id) ? 'ui' : 'sfx';
+}
+
 export function playSfx(id: keyof typeof PROCEDURAL_SFX_PRESETS | string, step = 0, delayMs = 0): void {
-  const c = audioCtx();
-  if (!c) return;
+  const rt = getAudioRuntime();
+  const c = rt.unlock();
+  const bus = busOf(id);
+  const out = rt.bus(bus);
+  if (!c || !out) return;
+  if (!rt.admit(id, bus, (PROCEDURAL_SFX_PRESETS[id]?.durationMs ?? 120) + delayMs).ok) return;
   try {
     const pcm = synthesizeProceduralPcm(id, SAMPLE_RATE, step);
     const buf = c.createBuffer(1, pcm.length, SAMPLE_RATE);
     buf.getChannelData(0).set(pcm);
     const src = c.createBufferSource();
     src.buffer = buf;
-    src.connect(c.destination);
+    src.connect(out);
     src.start(c.currentTime + delayMs / 1000);
   } catch {
     /* sound is decoration only */
   }
+}
+
+/**
+ * docs/12 3장 마이크 순서: cuts a speaking NPC, waits 150 ms, plays the rising cue, and resolves true when recording
+ * may start (after the cue, so it never lands in recognition). A second call or `cancelMicCue` resolves false.
+ */
+export function micCue(): Promise<boolean> {
+  return getAudioRuntime().micCue();
+}
+
+export function cancelMicCue(): void {
+  getAudioRuntime().cancelMic();
+}
+
+/** Recording ended: music and effects come back over 400 ms. */
+export function micClosed(): void {
+  getAudioRuntime().micClosed();
 }
 
 /** docs/12 6.2 dlg.pass.N: one rising note per star, 80 ms apart. */
@@ -60,13 +72,27 @@ export function playAgain(): void {
  * Speaks an English line. Bank lines should come from pre-synthesized files (4.8); until those exist the
  * device voice (speechSynthesis, on-device, no upload) reads them at the level's speech rate.
  */
+let speechGen = 0;
+
 export function speakEnglish(text: string, level: LangLevel): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise<void>((done) => {
     const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
     if (!synth || typeof SpeechSynthesisUtterance === 'undefined') {
-      resolve();
+      done();
       return;
     }
+    // The NPC voice ducks music/ambience/effects (docs/12 3장 "NPC가 말하는 중") until it ends.
+    const rt = getAudioRuntime();
+    const gen = ++speechGen;
+    rt.npcVoiceStarted(400 + text.length * 90);
+    let ended = false;
+    const resolve = () => {
+      if (ended) return;
+      ended = true;
+      // An older line's late onend (cancelled by this one) must not lift the duck of the line now speaking.
+      if (gen === speechGen) rt.npcVoiceEnded();
+      done();
+    };
     try {
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
@@ -91,4 +117,6 @@ export function stopSpeaking(): void {
   } catch {
     /* ignore */
   }
+  speechGen++;
+  getAudioRuntime().npcVoiceEnded();
 }

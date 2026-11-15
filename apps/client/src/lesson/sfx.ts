@@ -4,6 +4,7 @@
  */
 import { PROCEDURAL_SFX_PRESETS, type SynthParams } from '@lcw/audio';
 import type { LessonDirectorEventKind } from '@lcw/content';
+import { getAudioRuntime } from '../audio/runtime.js';
 
 export const LESSON_EVENT_SFX: Record<LessonDirectorEventKind, SynthParams[]> = {
   weather_shift: [{ freqStart: 900, freqEnd: 300, durationMs: 700, wave: 'noise', gain: 0.18 }],
@@ -25,14 +26,9 @@ const EXTRA: Record<'pass' | 'mic_on', SynthParams[]> = {
   mic_on: [PROCEDURAL_SFX_PRESETS['dlg.mic_on']!]
 };
 
-let ctx: AudioContext | null = null;
-
+/** The page's one audio graph (docs/12 2장, WP-110): lesson cues ride the UI bus, so the mic and NPC voice duck them. */
 function audio(): AudioContext | null {
-  const g = globalThis as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
-  const AC = g.AudioContext ?? g.webkitAudioContext; // older iOS Safari
-  if (!AC) return null;
-  ctx ??= new AC();
-  return ctx;
+  return getAudioRuntime().unlock();
 }
 
 /**
@@ -57,7 +53,7 @@ function play(seq: SynthParams[]): void {
       const g = ctx.createGain();
       g.gain.setValueAtTime(p.gain * 0.5, t);
       g.gain.exponentialRampToValueAtTime(0.0001, t + p.durationMs / 1000);
-      g.connect(ctx.destination);
+      g.connect(getAudioRuntime().bus('ui') ?? ctx.destination);
       if (p.wave === 'noise') {
         const len = Math.ceil((ctx.sampleRate * p.durationMs) / 1000);
         const buf = ctx.createBuffer(1, len, ctx.sampleRate);

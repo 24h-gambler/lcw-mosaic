@@ -1,7 +1,7 @@
 /**
  * Parent lesson window (WP-307, docs/08 P04): status bar (place · situation), scene icon and goal sentence from the
  * 10-second text signal, the talk-density band (with a table view) and captions. Listen-only by construction: this
- * page never asks for a microphone or camera and renders no <video>; audio, when a teacher stream exists, is
+ * page never asks for a microphone or camera and renders no video element; audio, when a teacher stream exists, is
  * receive-only (`audio.direction = 'recvonly'` from the server).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -18,6 +18,8 @@ import {
 import { errorCodeOf } from './lessonApi.js';
 import { Box, LessonStyle, Notice, border, sp } from './lessonUi.js';
 import { LessonWindowBar } from './WebUx.js';
+import { LessonListen } from './LessonListen.js';
+import type { RtcEnv } from './lessonAudio.js';
 import { PARENT_STRINGS_KO } from './parentStrings.js';
 
 const W = PARENT_STRINGS_KO.window;
@@ -157,6 +159,8 @@ export interface LessonWindowPageProps {
   initial?: WindowLoad;
   /** For tests: fixed clock. */
   nowMs?: number;
+  /** For tests: WebRTC stand-ins (null = no WebRTC in this browser). */
+  rtcEnv?: Pick<RtcEnv, 'RTCPeerConnection' | 'MediaStream'> | null;
 }
 
 const childFromQuery = () => {
@@ -167,7 +171,7 @@ const childFromQuery = () => {
   }
 };
 
-export function LessonWindowPage({ api, initial, nowMs }: LessonWindowPageProps): React.ReactElement {
+export function LessonWindowPage({ api, initial, nowMs, rtcEnv }: LessonWindowPageProps): React.ReactElement {
   const apiRef = useRef<FamilyApi>(api ?? createFamilyApi());
   const [load, setLoad] = useState<WindowLoad>(initial ?? { state: 'loading' });
   const [captions, setCaptions] = useState<LessonWindowCaption[]>(initial?.state === 'ok' ? initial.data.captions : []);
@@ -175,12 +179,13 @@ export function LessonWindowPage({ api, initial, nowMs }: LessonWindowPageProps)
   const [busy, setBusy] = useState(false);
   const tokenRef = useRef<string | null>(null);
   const lastAt = useRef(0);
+  const listenerRef = useRef<string | null>(null);
 
   const poll = useCallback(async (child: FamilyChild) => {
     const g = tokenRef.current;
     if (!g) return;
     try {
-      const data = await apiRef.current.lessonWindow(g, child.player_id, lastAt.current);
+      const data = await apiRef.current.lessonWindow(g, child.player_id, lastAt.current, listenerRef.current);
       if (!data.live) {
         lastAt.current = 0;
         setCaptions([]);
@@ -302,9 +307,22 @@ export function LessonWindowPage({ api, initial, nowMs }: LessonWindowPageProps)
           <Box>
             <Captions captions={captions} />
           </Box>
-          <Box title={W.audioTitle} testId="window-audio">
-            <p style={{ ...small, margin: 0 }}>{W.audioOff}</p>
-          </Box>
+          {tokenRef.current ? (
+            <LessonListen
+              api={apiRef.current}
+              guardian={tokenRef.current}
+              playerId={load.child.player_id}
+              audio={load.data.audio}
+              onListener={(id) => {
+                listenerRef.current = id;
+              }}
+              {...(rtcEnv !== undefined ? { env: rtcEnv } : {})}
+            />
+          ) : (
+            <Box title={W.audioTitle} testId="window-audio">
+              <p style={{ ...small, margin: 0 }}>{W.audioOff}</p>
+            </Box>
+          )}
         </>
       ) : null}
     </main>

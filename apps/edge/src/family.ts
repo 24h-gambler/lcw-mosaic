@@ -4,6 +4,7 @@ import { filterSpeechBubble } from '@lcw/converse';
 import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
 import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicReportView } from './parent-report.js';
 import { buildLessonWindow } from './lesson-window.js';
+import { answerListening, closeListeners, lessonAudioState, listenerOf, startListening, touchListener, type RealtimeClient } from './lesson-audio.js';
 import { buildDashboard } from './dashboard.js';
 import { mountSeatRoutes, playAllowed } from './seats.js';
 import { drainVoicePurge, reportClips, type VoiceBlobStore } from './voice.js';
@@ -38,6 +39,9 @@ export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', /^\/v1\/family\/reports\/[^/]+\/revoke$/],
   ['GET', /^\/v1\/family\/reports\/[^/]+\/clips$/],
   ['GET', /^\/v1\/family\/children\/[^/]+\/lesson-window$/],
+  ['POST', /^\/v1\/family\/children\/[^/]+\/lesson-window\/audio$/],
+  ['PUT', /^\/v1\/family\/children\/[^/]+\/lesson-window\/audio\/[0-9a-f]{24}$/],
+  ['DELETE', /^\/v1\/family\/children\/[^/]+\/lesson-window\/audio\/[0-9a-f]{24}$/],
   ['GET', /^\/v1\/family\/children\/[^/]+\/dashboard$/],
   ['GET', /^\/v1\/family\/seats$/],
   ['POST', /^\/v1\/family\/seats\/[^/]+\/refund-request$/],
@@ -71,6 +75,8 @@ export interface FamilyDeps {
   sha256Hex: (s: string) => Promise<string>;
   /** Voice clip storage (R2); absent in tests that do not touch voice, null while the binding is missing. */
   voiceStore?: () => VoiceBlobStore | null;
+  /** Cloudflare Realtime SFU (lesson-audio.ts); absent or null → the window is text only. */
+  realtime?: () => RealtimeClient | null;
 }
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
@@ -360,6 +366,11 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
       const purge = await drainVoicePurge(d.sql, d.voiceStore()).catch(() => null);
       return c.json({ ...res, voice_purge: purge ? { deleted: purge.deleted, pending: purge.left } : { deleted: 0, pending: null } });
     }
+    // Turning the lesson window off hangs up every guardian listening to this child's lesson at once.
+    if (scope === 'lesson_window' && !p.data.granted) {
+      const closed = await closeListeners(d.sql, d.realtime?.() ?? null, { playerId: kid.id }, 'consent_revoked', d.nowMs());
+      return c.json({ ...res, listeners_closed: closed });
+    }
     return c.json(res);
   });
 
@@ -414,7 +425,53 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     // docs/16 §3 row 6: the window opens only with this child's lesson_window consent; nothing about the lesson leaks without it.
     if (!d.db.listConsents(kid.id).lesson_window) return c.json({ error: 'lesson_window_consent_required' }, 403);
     c.header('cache-control', 'private, no-store');
-    return c.json(buildLessonWindow(d.sql, kid.id, d.nowMs(), { after: Number(c.req.query('after') ?? 0) }));
+    const now = d.nowMs();
+    const w = buildLessonWindow(d.sql, kid.id, now, { after: Number(c.req.query('after') ?? 0) });
+    const rt = d.realtime?.() ?? null;
+    // The poll doubles as the listener's heartbeat: the teacher console counts guardians seen in the last 35 s.
+    const lid = c.req.query('listener');
+    const listener = lid ? (touchListener(d.sql, lid, kid.id, now) ? 'open' : 'closed') : null;
+    return c.json({ ...w, audio: { ...lessonAudioState(d.sql, w.status?.lesson_id ?? null, now, rt !== null), listener } });
+  });
+
+  /* Live lesson sound, receive-only (lesson-audio.ts). Same gate as the window: service consent, own child, lesson_window. */
+  const listenGate = async (c: Ctx) => {
+    const g = await withGuardian(c, true);
+    if (g instanceof Response) return g;
+    const kid = childOf(g, c.req.param('pid') ?? '');
+    if (!kid) return c.json({ error: 'child_not_found' }, 404);
+    if (!d.db.listConsents(kid.id).lesson_window) return c.json({ error: 'lesson_window_consent_required' }, 403);
+    c.header('cache-control', 'private, no-store');
+    return { g, kid };
+  };
+
+  app.post('/v1/family/children/:pid/lesson-window/audio', async (c) => {
+    const gate = await listenGate(c);
+    if (gate instanceof Response) return gate;
+    const r = await startListening(d, d.realtime?.() ?? null, { playerId: gate.kid.id, guardianId: gate.g.guardian_id, nowMs: d.nowMs() });
+    if (!r.ok) return c.json({ error: r.error }, r.status);
+    const { ok: _ok, ...body } = r;
+    return c.json(body, 201);
+  });
+
+  app.put('/v1/family/children/:pid/lesson-window/audio/:lid', async (c) => {
+    const gate = await listenGate(c);
+    if (gate instanceof Response) return gate;
+    const row = listenerOf(d.sql, c.req.param('lid') ?? '', gate.kid.id, gate.g.family_id);
+    if (!row) return c.json({ error: 'listener_not_found' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { sdp?: unknown };
+    if (typeof body.sdp !== 'string') return c.json({ error: 'bad_sdp' }, 400);
+    const r = await answerListening(d.sql, d.realtime?.() ?? null, row, body.sdp, d.nowMs());
+    return r.ok ? c.json({ ok: true }) : c.json({ error: r.error }, r.status);
+  });
+
+  app.delete('/v1/family/children/:pid/lesson-window/audio/:lid', async (c) => {
+    const g = await withGuardian(c, false);
+    if (g instanceof Response) return g;
+    const row = listenerOf(d.sql, c.req.param('lid') ?? '', c.req.param('pid') ?? '', g.family_id);
+    if (!row) return c.json({ error: 'listener_not_found' }, 404);
+    await closeListeners(d.sql, d.realtime?.() ?? null, { id: row.id }, 'guardian_stopped', d.nowMs());
+    return c.json({ ok: true });
   });
 
   app.post('/v1/family/reports/:token/revoke', async (c) => {

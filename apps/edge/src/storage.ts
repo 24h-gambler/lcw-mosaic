@@ -163,6 +163,14 @@ export interface UtteranceLogRow {
   created_at: number;
 }
 
+/** Live lesson listening (lesson-audio.ts, WP-307): who publishes the lesson sound, who listens. Nothing is recorded. */
+export const LESSON_AUDIO_SCHEMA_SQL = `
+create table if not exists lesson_audio_pub (lesson_id text primary key, sfu_session text not null, track_name text not null, mid text not null, started_at integer not null, seen_at integer not null, ended_at integer);
+create table if not exists lesson_audio_listeners (id text primary key, lesson_id text not null, player_id text not null, guardian_id text not null, sfu_session text not null, mid text, track_name text not null, created_at integer not null, seen_at integer not null, answered_at integer, closed_at integer, close_reason text);
+create index if not exists lesson_audio_listeners_lesson on lesson_audio_listeners (lesson_id, closed_at);
+create index if not exists lesson_audio_listeners_player on lesson_audio_listeners (player_id, closed_at);
+`;
+
 /** Voice clips (voice.ts, docs/02 §10). Here so the consent change can queue deletions in its own transaction. */
 export const VOICE_SCHEMA_SQL = `
 create table if not exists voice_clips (id text primary key, utterance_id text unique not null, player_id text not null, r2_key text not null, mime text not null, bytes integer not null, created_at integer not null);
@@ -197,6 +205,7 @@ export class EdgePlatformDb {
     this.sql = sql;
     this.sql.exec(schemaSql);
     this.sql.exec(VOICE_SCHEMA_SQL);
+    this.sql.exec(LESSON_AUDIO_SCHEMA_SQL);
   }
 
   ensureFamilyAndPlayer(params: {

@@ -61,7 +61,15 @@ export interface LessonWindowPayload {
   captions: LessonWindowCaption[];
   /** Latest teacher-entered next lesson text, shown when no lesson is running. */
   next_lesson_at: string | null;
-  audio: { direction: 'recvonly'; available: boolean; reason: string | null };
+  /** Live sound (lesson-audio.ts): receive-only; `stream_id` changes when the teacher republishes. family.ts fills it. */
+  audio: {
+    direction: 'recvonly';
+    available: boolean;
+    reason: string | null;
+    stream_id: string | null;
+    /** The polling window's own listener: still open, or closed by the server (republish, consent off). */
+    listener?: 'open' | 'closed' | null;
+  };
   poll_ms: number;
   server_now: number;
 }
@@ -118,7 +126,8 @@ export function buildLessonWindow(
   const audio = {
     direction: 'recvonly' as const,
     available: false,
-    reason: opts.audioConfigured ? 'no_teacher_stream' : 'realtime_not_configured'
+    reason: opts.audioConfigured ? 'no_teacher_stream' : 'realtime_not_configured',
+    stream_id: null
   };
   const base = { next_lesson_at: next?.next_lesson_at ?? null, audio, poll_ms: LESSON_WINDOW_POLL_MS, server_now: nowMs };
   if (!lesson) return { live: false, status: null, started_at: null, minutes: [], captions: [], ...base };

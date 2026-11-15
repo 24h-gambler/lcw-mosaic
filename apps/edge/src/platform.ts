@@ -12,6 +12,7 @@ import {
   type VoiceBlobStore
 } from './voice.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
+import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
@@ -63,6 +64,14 @@ export interface LcwEnv {
   BUILD_SHA?: string;
   /** R2 bucket for children's voice clips (voice.ts). Unbound → uploads answer 503 and nothing is stored. */
   VOICE?: R2BucketLike;
+  /** Cloudflare Realtime SFU app for live lesson listening (lesson-audio.ts). Both unset → the window is text only. */
+  REALTIME_APP_ID?: string;
+  REALTIME_APP_TOKEN?: string;
+  /** Optional TURN key (strict networks); without it ICE uses Cloudflare STUN only. */
+  REALTIME_TURN_KEY_ID?: string;
+  REALTIME_TURN_KEY_TOKEN?: string;
+  /** Local real-path rig only: a stand-in SFU. Never set in production. */
+  REALTIME_API_BASE?: string;
 }
 interface DoState {
   storage: DurableStorageLike;
@@ -685,16 +694,20 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (r.status !== 200) return c.json({ error: r.error }, r.status);
     return c.json(r.view);
   });
+  const rtConfig = realtimeConfigFrom(env);
+  const realtime = rtConfig ? cloudflareRealtime(rtConfig) : null;
   const familyDeps = {
     sql: platform.sql,
     db: platform.db,
     nowMs: () => Date.now(),
     randomBytes: (n: number) => crypto.getRandomValues(new Uint8Array(n)),
     sha256Hex,
-    voiceStore: () => platform.voiceStore()
+    voiceStore: () => platform.voiceStore(),
+    realtime: () => realtime
   };
   app.route('/', buildFamilyApp(familyDeps));
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
+  app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
   app.get('/v1/admin/ops-runs', (c) =>

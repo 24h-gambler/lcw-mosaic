@@ -30,7 +30,12 @@ export const NON_HTML_CACHE = [
   // browsers would guess a lifetime for these.
   ['/robots.txt', REVALIDATE],
   ['/sitemap.xml', REVALIDATE],
-  ['/version.json', REVALIDATE]
+  ['/version.json', REVALIDATE],
+  // Guardian push (docs/09 §12): the service worker and the manifest must pick up a new version on the next visit;
+  // home-screen icons keep stable names like the share pictures.
+  ['/family-sw.js', REVALIDATE],
+  ['/family.webmanifest', REVALIDATE],
+  ['/icons/*', 'public, max-age=86400']
 ];
 
 /** @returns {string} the `_headers` file text */

@@ -24,6 +24,7 @@ import { Box, LessonStyle, Notice, border, inputStyle, labelStyle, sp } from './
 import { lessonDayLabel } from './ParentReportPage.js';
 import { PARENT_STRINGS_KO } from './parentStrings.js';
 import { FamilySeats } from './SeatsPage.js';
+import { FamilyPush, useFamilyManifest } from './FamilyPush.js';
 
 const F = PARENT_STRINGS_KO.family;
 const LK = PARENT_STRINGS_KO.link;
@@ -51,6 +52,7 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
   const [load, setLoad] = useState<FamilyLoad>(initial ?? { status: 'loading' });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  useFamilyManifest();
 
   const refresh = useCallback(async (g: string) => {
     try {
@@ -166,6 +168,7 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
           ))
         : null}
       {load.status === 'ok' && token ? <FamilySeats api={apiRef.current} token={token} /> : null}
+      {load.status === 'ok' && token ? <FamilyPush api={apiRef.current} token={token} /> : null}
       {load.status === 'ok' && load.me.service_consented ? (
         <AddChild
           disabled={busy}

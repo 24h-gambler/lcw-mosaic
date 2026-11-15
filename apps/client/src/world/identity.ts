@@ -124,6 +124,18 @@ export async function resolveIdentity(search: string, store: KeyStore | null, fe
   return { kind: 'child', token, nickname, level, voiceStore: body.voice_store === true, offline: false, playAllowed, seat: parseSeat(body.seat) };
 }
 
+/** Where the lesson layer (and apps/web /join) keeps this tab's student token after /v1/join (lesson/api.ts). */
+export const STUDENT_TOKEN_KEY = 'lcw.studentToken';
+
+/** This tab's lesson student token, or null before the join (or when storage is blocked). */
+export function storedStudentToken(): string | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(STUDENT_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
 /** Browser storage, or null when the accessor itself throws (blocked site data). */
 export function browserStore(): KeyStore | null {
   try {

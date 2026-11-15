@@ -24,12 +24,12 @@ import { BuildView } from './build-view.js';
 import { PlotSync } from './plot-sync.js';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
-import { NPCS, SCENES, WANDERERS, buildTownSteps, standHeight, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
+import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
 
 export { TIER_SETTINGS };
 
 const PLAYER_LOOK: NpcLook = { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3fa9f5, pants: 0x2f3b52, shoes: 0xff6b4a, hairStyle: 'short' };
-const TALK_RANGE = 3.6;
+export const TALK_RANGE = 3.6;
 const CAM_DIST_DEFAULT = 6.2;
 /** Dialog shot: metres above and below the look point that fit the visible strip, and the camera's downward pitch. */
 const DIALOG_SHOT_HALF_HEIGHT = 1.05;
@@ -58,6 +58,24 @@ interface WalkerRt {
   pause: number;
 }
 
+
+/** A text box: every key is its own (review M1). */
+export function keyIsTyping(t: HTMLElement | null): boolean {
+  if (!t) return false;
+  if (t.tagName === 'INPUT') return !PRESS_INPUT_TYPES.has(((t as HTMLInputElement).type || 'text').toLowerCase());
+  return t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable === true;
+}
+
+/** Something a key presses (a button, a link, a checkbox): only Space, Enter and Tab stay with it. */
+export function keyIsPressable(t: HTMLElement | null): boolean {
+  if (!t) return false;
+  if (t.tagName === 'INPUT') return PRESS_INPUT_TYPES.has(((t as HTMLInputElement).type || 'text').toLowerCase());
+  return t.tagName === 'BUTTON' || t.tagName === 'A' || t.tagName === 'SUMMARY' || t.getAttribute?.('role') === 'button';
+}
+
+const PRESS_INPUT_TYPES: ReadonlySet<string> = new Set(['button', 'submit', 'reset', 'checkbox', 'radio', 'image', 'color', 'file']);
+/** Keys a focused button keeps (press it, or move to the next one); every other key plays. */
+export const PAGE_KEYS_ON_BUTTONS: ReadonlySet<string> = new Set(['Space', 'Enter', 'NumpadEnter', 'Tab']);
 
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -320,6 +338,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const interactCbs = new Set<(npc: NpcRef) => void>();
   const hotbar: Array<string | null> = [null, null, null, null, null];
   let possessedId: string | null = null;
+  /** a lesson is live (setLessonBadge): solo-only NPCs (the errand giver) step out of it */
+  let lessonMode = false;
   let stepTimer = 0;
   let fps = 60;
   let frameMs = 16.7;
@@ -460,15 +480,14 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     return builder.aim(hit, body, hud.selectedSlot);
   };
 
-  const keyIsForPage = (t: HTMLElement | null): boolean =>
-    !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' || t.tagName === 'A' || t.isContentEditable);
-
   // ---- Input.
   const keyDown = (e: KeyboardEvent): void => {
     sfx.unlock();
     const t = e.target as HTMLElement | null;
-    // Keys aimed at the page (a site button, a text box) stay the page's: Space must still press a button.
-    if (keyIsForPage(t)) return;
+    // A text box takes every key (typing "wasd" must not walk). A focused button or link keeps only the keys that
+    // press or leave it (Space, Enter, Tab); walking, E, digits and the build keys still play (review M1).
+    if (keyIsTyping(t)) return;
+    if (keyIsPressable(t) && PAGE_KEYS_ON_BUTTONS.has(e.code)) return;
     input.keys.add(e.code);
     if (buildActive && !paused && !buildHud?.chestOpen) {
       if (e.code === 'KeyZ' && !e.repeat) {
@@ -602,6 +621,18 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   };
   window.addEventListener('keydown', keyDown);
   window.addEventListener('keyup', keyUp);
+  // Focus comes back to the world (review M1): the canvas takes focus when it is pressed, and a pointer click on a
+  // world HUD button hands focus back, so the next Space jumps instead of pressing that button again.
+  canvas.tabIndex = -1;
+  canvas.style.outline = 'none';
+  const focusWorld = (): void => {
+    if (disposed || document.activeElement === canvas || keyIsTyping(document.activeElement as HTMLElement | null)) return;
+    canvas.focus({ preventScroll: true });
+  };
+  canvas.addEventListener('pointerdown', focusWorld);
+  hud.root.addEventListener('click', (e) => {
+    if (e.detail > 0 && keyIsPressable(e.target as HTMLElement | null)) setTimeout(focusWorld, 0);
+  });
   canvas.addEventListener('pointerdown', pointerDown);
   window.addEventListener('pointermove', pointerMove);
   window.addEventListener('pointerup', pointerUp);
@@ -637,6 +668,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     let best: NpcRt | null = null;
     let bestD = Infinity;
     for (const n of npcs.values()) {
+      if (!npcTalkable(n.def, lessonMode)) continue;
       const hit = raycaster.ray.distanceSqToPoint(new THREE.Vector3(n.pos.x, n.pos.y + 1, n.pos.z));
       const along = raycaster.ray.origin.distanceTo(n.pos);
       if (hit < 0.6 && along < bestD) {
@@ -729,6 +761,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (focusNpc) return;
     let best = 6;
     for (const n of npcs.values()) {
+      if (!npcTalkable(n.def, lessonMode)) continue;
       const d = Math.hypot(n.pos.x - body.x, n.pos.z - body.z);
       if (d < best) {
         best = d;
@@ -806,6 +839,72 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     } finally {
       travel = null;
     }
+  }
+
+  /**
+   * Walk up to an NPC and face it (the talk lane's "미나에게 가기"). A scene's NPC on its own spot (a counter) is the
+   * scene walk itself; anyone else: its scene first when it is far, then about 1.5 m in front of it (talkSpotFor),
+   * well inside the talk range. Reduced motion, or a walk that got stuck, steps there.
+   */
+  async function walkToNpc(npcId: string): Promise<void> {
+    if (disposed) return;
+    const n = npcs.get(npcId);
+    if (!n || !npcTalkable(n.def, lessonMode)) return;
+    if (travel) await travel;
+    const counter = (Object.keys(SCENES) as SceneId[]).find((id) => {
+      const sn = SCENES[id].npc;
+      return sn?.id === npcId && Math.hypot(sn.spot.x - n.pos.x, sn.spot.z - n.pos.z) < 1.5;
+    });
+    if (counter) {
+      await goToScene(counter);
+      return;
+    }
+    if (Math.hypot(n.pos.x - body.x, n.pos.z - body.z) > 12) {
+      // the scene whose standing spot is nearest to where the NPC is now (a roaming guide follows the lesson)
+      let scene: SceneId = n.def.home;
+      let best = Infinity;
+      for (const id of Object.keys(SCENES) as SceneId[]) {
+        const d = Math.hypot(SCENES[id].player.x - n.pos.x, SCENES[id].player.z - n.pos.z);
+        if (d < best) {
+          best = d;
+          scene = id;
+        }
+      }
+      await goToScene(scene);
+    }
+    if (disposed || paused) return;
+    const spot = talkSpotFor(world, { x: n.pos.x, y: n.pos.y, z: n.pos.z, yaw: n.homeYaw });
+    if (spot && Math.hypot(spot.x - body.x, spot.z - body.z) > 0.6) {
+      travel = (async () => {
+        if (!reduceMotion) {
+          autopilot = [[spot.x, spot.z]];
+          autoStuck = 0;
+          autoTime = 0;
+          lastAutoPos.set(body.x, body.y, body.z);
+          while (autopilot.length > 0 && !disposed && !paused) {
+            await wait(50);
+            if (autoStuck > 0.9 || autoTime > 6) break;
+          }
+          autopilot = [];
+        }
+        if (!disposed && Math.hypot(n.pos.x - body.x, n.pos.z - body.z) > TALK_RANGE - 0.4) {
+          body.x = spot.x;
+          body.z = spot.z;
+          body.y = standHeight(world, spot.x, spot.z, Math.ceil(n.pos.y) + 2);
+          body.vx = body.vy = body.vz = 0;
+        }
+      })();
+      try {
+        await travel;
+      } finally {
+        travel = null;
+      }
+    }
+    if (disposed) return;
+    playerYaw = Math.atan2(n.pos.x - body.x, n.pos.z - body.z);
+    // a little off the shoulder, so the NPC's face is not hidden behind the player
+    camYaw = playerYaw + 0.45;
+    n.yaw = Math.atan2(body.x - n.pos.x, body.z - n.pos.z);
   }
 
   // ---- Camera.
@@ -964,8 +1063,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const startBuildAccess = (a: BuildAccess): void => {
     plotSync?.stop();
     plotSync = null;
-    buildToken = a.kind === 'saved' ? { token: a.token, base: a.base } : null;
-    buildHud?.setShowroomVisible(a.kind === 'saved');
+    buildToken = a.kind === 'saved' && !a.lesson ? { token: a.token, base: a.base } : null;
+    buildHud?.setShowroomVisible(a.kind === 'saved' && !a.lesson);
     if (a.kind === 'paused') {
       buildAccess = 'paused';
       builder.access = 'paused';
@@ -992,13 +1091,13 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       },
       onDenied: (kind) => {
         if (plotSync !== sync) return;
-        if (kind === 'paused' && a.pausedFallback !== 'local') {
+        if (kind === 'paused' && !a.lesson) {
           // the seat stopped while playing: look, don't build (plot-sync already told the shell, world/seat.ts)
           buildAccess = 'paused';
           builder.access = 'paused';
           buildHud?.setShowroomVisible(false);
         } else {
-          // not linked any more (or a lesson whose seat paused): keep building on this device only
+          // not linked any more (or the lesson token ran out): keep building on this device only
           buildAccess = 'local';
           builder.access = 'local';
           builder.onOp = null;
@@ -1119,6 +1218,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     nearNpc = null;
     let nearD = TALK_RANGE;
     for (const n of npcs.values()) {
+      const inPlay = npcTalkable(n.def, lessonMode);
+      n.char.root.visible = inPlay;
+      if (!inPlay) continue;
       let sp = 0;
       if (n.path.length > 0) {
         const [tx, tz] = n.path[0]!;
@@ -1274,6 +1376,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // ---- Handle.
   const handle: WorldHandle = {
     goToScene,
+    walkToNpc,
     onNpcInteract(cb) {
       interactCbs.add(cb);
       return () => {
@@ -1348,6 +1451,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       } else {
         focusNpc = null;
         camYaw = playerYaw;
+        // a dialog window closed: its buttons are gone or stay behind, the keys belong to the world again
+        const a = document.activeElement as HTMLElement | null;
+        if (!a || a === document.body || keyIsPressable(a)) focusWorld();
       }
       hud.setTouchPaused(p);
       hud.showPrompt(false);
@@ -1419,7 +1525,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     },
     getScene: () => currentScene,
     listNpcs: () => [...npcs.values()].map((n) => n.ref),
-    setLessonBadge: (on) => hud.setLessonBadge(on),
+    setLessonBadge: (on) => {
+      hud.setLessonBadge(on);
+      lessonMode = on;
+      if (on && nearNpc && !npcTalkable(nearNpc.def, true)) nearNpc = null;
+    },
     setCoins: (total) => hud.setCoins(total),
     setStars: (total) => hud.setStars(total),
     setPlayerName(name) {

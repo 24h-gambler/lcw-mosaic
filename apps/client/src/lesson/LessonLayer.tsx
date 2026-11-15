@@ -633,6 +633,10 @@ function SpeakPanel({
   const [result, setResult] = useState<DialogResult | null>(null);
   const [failed, setFailed] = useState(false);
   const [queued, setQueued] = useState(false);
+  // The "saved, will send" note goes once the outbox is empty (sent).
+  useEffect(() => {
+    if (view.outbox === 0) setQueued(false);
+  }, [view.outbox]);
   const [micNote, setMicNote] = useState<'not_heard' | 'blocked' | null>(null);
   const shownAt = useRef(Date.now());
   const recRef = useRef<SpeechRecognitionLike | null>(null);

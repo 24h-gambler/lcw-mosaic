@@ -193,7 +193,8 @@ export class LessonController {
     const s = loadStudentSession(this.store());
     if (!s) return this.set({ phase: 'needs_code' });
     this.session = s;
-    this.set({ phase: 'live', nickname: s.nickname, level: s.level });
+    // After a refresh the banner counts what this tab kept before the first send.
+    this.set({ phase: 'live', nickname: s.nickname, level: s.level, outbox: readOutbox(this.outboxStore(), s.lessonId).length });
     await this.poll();
   }
 

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
+import { sweepSeatNotices } from './seats.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
@@ -317,7 +318,7 @@ export class PlatformDO {
         detail = { players_with_speech: players.length };
       } else {
         const r = this.db.processPendingReportReminders(now);
-        detail = { reminded: r.remindedCount };
+        detail = { reminded: r.remindedCount, seat_notices: sweepSeatNotices(this.sql, now) };
       }
       this.recordRun(task, true, detail);
       return { task, ok: true, detail };

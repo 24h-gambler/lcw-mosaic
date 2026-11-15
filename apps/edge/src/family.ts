@@ -5,6 +5,7 @@ import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
 import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicReportView } from './parent-report.js';
 import { buildLessonWindow } from './lesson-window.js';
 import { buildDashboard } from './dashboard.js';
+import { mountSeatRoutes, playAllowed } from './seats.js';
 
 /**
  * Guardian domain (WP-301, docs/16 §3, docs/10 §5): family account, child profiles, separate consents, device link
@@ -36,6 +37,8 @@ export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', /^\/v1\/family\/reports\/[^/]+\/revoke$/],
   ['GET', /^\/v1\/family\/children\/[^/]+\/lesson-window$/],
   ['GET', /^\/v1\/family\/children\/[^/]+\/dashboard$/],
+  ['GET', /^\/v1\/family\/seats$/],
+  ['POST', /^\/v1\/family\/seats\/[^/]+\/refund-request$/],
   ['POST', /^\/v1\/device\/link$/],
   ['GET', /^\/v1\/device\/me$/]
 ];
@@ -455,8 +458,18 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     if (!dev || now - dev.created_at > DEVICE_TOKEN_TTL_MS) return c.json({ error: 'device_only' }, 401);
     d.sql.run('update devices set last_seen_at = ? where id = ?', [now, dev.id]);
     const kid = d.sql.get<{ nickname: string; level: string }>('select nickname, level from players where id = ?', [dev.player_id]);
-    return c.json({ nickname: kid?.nickname ?? '', level: kid?.level ?? 'L1', voice_store: d.db.hasActiveConsent(dev.player_id, 'voice_store') });
+    // Seat gate for solo play (docs/09 5): read-only/archived/refunded seat -> play_allowed false; lessons are not gated here.
+    const seat = playAllowed(d.sql, dev.player_id, now);
+    return c.json({
+      nickname: kid?.nickname ?? '',
+      level: kid?.level ?? 'L1',
+      voice_store: d.db.hasActiveConsent(dev.player_id, 'voice_store'),
+      play_allowed: seat.allowed,
+      seat: seat.seat
+    });
   });
+
+  mountSeatRoutes(app, d, withGuardian);
 
   return app;
 }

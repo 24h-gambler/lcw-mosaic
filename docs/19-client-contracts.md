@@ -122,7 +122,8 @@ export interface DialogPanelProps {
 
 ## 6. 보호자 → 월드 (기기 토큰 발급 쪽 보장, WP-301)
 
-- `/link`가 저장하는 `lcw.deviceToken`은 64자 소문자 16진수(서버에는 해시만, 365일), `lcw.deviceNickname`은 아이 별명입니다. 보호자가 우리 가족 화면에서 기기를 해제하거나 365일이 지나면 `GET /v1/device/me`가 401 `device_only`를 돌려줍니다(5장의 "401이면 지우고 게스트"). 200 응답은 `{nickname, level, voice_store}`뿐이며 `player_id`는 없습니다. `voice_store`가 false면 음성 원본은 서버가 저장하지 않습니다(`logUtterance` 동의 확인).
+- `/link`가 저장하는 `lcw.deviceToken`은 64자 소문자 16진수(서버에는 해시만, 365일), `lcw.deviceNickname`은 아이 별명입니다. 보호자가 우리 가족 화면에서 기기를 해제하거나 365일이 지나면 `GET /v1/device/me`가 401 `device_only`를 돌려줍니다(5장의 "401이면 지우고 게스트"). 200 응답은 `{nickname, level, voice_store, play_allowed, seat}`뿐이며 `player_id`는 없습니다. `voice_store`가 false면 음성 원본은 서버가 저장하지 않습니다(`logUtterance` 동의 확인).
+- 좌석(WP-704, `apps/edge/src/seats.ts`): `seat`는 `{state:'active'|'expiring'|'read_only'|'archived'|'refunded', ends_at}` 또는 좌석을 받은 적 없는 아이면 `null`입니다. `play_allowed`가 false(좌석이 보기 전용·보관·환불)면 월드는 혼자 놀기를 멈추고 월드를 보기만 하게 하며, 아이 화면에는 가격·결제를 보이지 않고 "보호자에게 말해 주세요" 정도만 띄웁니다. `seat:null`(판매 전·좌석 없는 아이)은 지금처럼 놉니다. 수업(`?code=`)은 좌석과 상관없이 들어옵니다.
 
 ## 7. 다른 도메인 → 외부인(공개 사이트) 쓰임
 

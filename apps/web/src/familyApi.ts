@@ -104,6 +104,70 @@ export interface DashboardPayload {
   voice_store_on: boolean;
   server_now: number;
 }
+export type SeatState = 'active' | 'expiring' | 'read_only' | 'archived' | 'refunded';
+export type SeatRefundMode = 'refund_difference' | 'convert_to_solo_days';
+export interface FamilySeat {
+  id: string;
+  /** null for the other family's Duo seat: no name, no id. */
+  child: { player_id: string; nickname: string } | null;
+  plan: 'solo' | 'duo' | 'tutoring' | string;
+  term: 'month' | 'year' | string;
+  starts_at: number;
+  ends_at: number;
+  state: SeatState;
+  read_only_until: number | null;
+  is_payer: boolean;
+  /** Only for the payer. */
+  payment: { amount_krw: number; paid_at: number; refunded_krw: number; plan: string } | null;
+  refund_until: number | null;
+  can_request_refund: boolean;
+  pending_request: { id: string; requested_at: number; status: 'pending' | 'review' } | null;
+  notice: { kind: '7d' | '1d' | 'expired' | string; at: number } | null;
+  /** Payer of a live Duo inside the 7 days: the two ways one seat can leave. */
+  duo_options: { refund_difference_krw: number; solo_days: number } | null;
+}
+export interface AdminSeat {
+  id: string;
+  player_id: string;
+  nickname: string;
+  plan: string;
+  term: string;
+  starts_at: number;
+  ends_at: number;
+  state: SeatState;
+  payer_id: string;
+  order: { id: string; plan: string; amount_krw: number; paid_at: number; refunded_krw: number; refund_until: number } | null;
+  requests: Array<{ id: string; requested_by: string; requested_at: number; mode: string | null; status: string; refund_krw: number | null; reason: string | null }>;
+}
+export interface SeatInboxItem {
+  id: string;
+  seat_id: string;
+  requested_by: string;
+  requested_at: number;
+  mode: SeatRefundMode | null;
+  status: 'pending' | 'review';
+  reason: string | null;
+  note: string;
+  plan: string;
+  nickname: string | null;
+  paid_at: number;
+  amount_krw: number;
+  term: string;
+  usage: { lessons: number; utterances: number };
+}
+export interface SeatInbox {
+  requests: SeatInboxItem[];
+  expiring: Array<{ id: string; player_id: string; nickname: string; ends_at: number }>;
+}
+export interface IssueSeatInput {
+  payer_player_id: string;
+  plan: 'solo' | 'duo' | 'tutoring';
+  term: 'month' | 'year';
+  player_ids: string[];
+  amount_krw?: number;
+  paid_at?: number;
+  note?: string;
+}
 export interface FamilyMe {
   service_consented: boolean;
   children: FamilyChild[];
@@ -160,7 +224,32 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
     dashboard: (g: string, playerId: string) => request<DashboardPayload>('GET', `/v1/family/children/${enc(playerId)}/dashboard`, g),
     lessonWindow: (g: string, playerId: string, after = 0) =>
       request<LessonWindowPayload>('GET', `/v1/family/children/${enc(playerId)}/lesson-window${after > 0 ? `?after=${after}` : ''}`, g),
-    deviceMe: (d: string) => request<{ nickname: string; level: string; voice_store: boolean }>('GET', '/v1/device/me', d)
+    deviceMe: (d: string) =>
+      request<{ nickname: string; level: string; voice_store: boolean; play_allowed: boolean; seat: { state: SeatState; ends_at: number } | null }>(
+        'GET',
+        '/v1/device/me',
+        d
+      ),
+    seats: (g: string) => request<{ seats: FamilySeat[]; server_now: number }>('GET', '/v1/family/seats', g),
+    requestRefund: (g: string, seatId: string, input: { mode?: SeatRefundMode; note?: string }) =>
+      request<{ id: string; status: 'pending' | 'review' }>('POST', `/v1/family/seats/${enc(seatId)}/refund-request`, g, input),
+    // operator (lcw.operatorToken)
+    adminSeats: (op: string) => request<AdminSeat[]>('GET', '/v1/admin/seats', op),
+    adminSeatInbox: (op: string) => request<SeatInbox>('GET', '/v1/admin/seat-inbox', op),
+    adminIssueSeat: (op: string, input: IssueSeatInput) =>
+      request<{ order_id: string; seat_ids: string[]; amount_krw: number; ends_at: number }>('POST', '/v1/admin/seats', op, input),
+    adminExtendSeat: (op: string, seatId: string, days: number) =>
+      request<{ id: string; ends_at: number }>('POST', `/v1/admin/seats/${enc(seatId)}/extend`, op, { days }),
+    adminRefundSeat: (op: string, seatId: string, mode?: SeatRefundMode) =>
+      request<{ refund_krw: number; remaining_seat: { id: string; plan: string; ends_at: number; solo_days: number } | null }>(
+        'POST',
+        `/v1/admin/seats/${enc(seatId)}/refund`,
+        op,
+        mode ? { mode } : {}
+      ),
+    adminDecideRefund: (op: string, requestId: string, decision: { decision: 'decline' } | { decision: 'refund'; refund_krw: number }) =>
+      request<{ id: string; status: string }>('POST', `/v1/admin/seat-refunds/${enc(requestId)}/decide`, op, decision),
+    adminStudents: (op: string) => request<Array<{ player_id: string; nickname: string; family_id: string }>>('GET', '/v1/admin/students', op)
   };
 }
 export type FamilyApi = ReturnType<typeof createFamilyApi>;

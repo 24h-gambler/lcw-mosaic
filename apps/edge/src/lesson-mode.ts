@@ -501,10 +501,12 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
    */
   app.get('/v1/admin/lessons/live', (c) => {
     const now = d.nowMs();
+    // `include_test=1` (operator smoke checks in production): smoke-/demo students too. Default leaves them out.
+    const withTest = c.req.query('include_test') === '1';
     const rows = d.sql.all<{ lesson_id: string; player_id: string; nickname: string | null; plan: string | null; started_at: number }>(
       `select l.id as lesson_id, l.player_id, p.nickname, l.plan, l.started_at
        from lessons l left join players p on p.id = l.player_id
-       where l.ended_at is null and l.started_at >= ? and l.player_id not like 'smoke-%' and l.player_id <> 'player-demo'
+       where l.ended_at is null and l.started_at >= ?${withTest ? '' : ` and l.player_id not like 'smoke-%' and l.player_id <> 'player-demo'`}
        order by l.started_at desc limit 20`,
       [now - JOIN_CODE_TTL_MS]
     );
@@ -843,6 +845,14 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       ended: Boolean(l?.ended_at),
       // The child's one coin balance (home-world ledger), so the 3D HUD and /join show it from the first poll.
       coins_balance: d.coins ? d.coins.balance(s.player_id) : null,
+      // Stars this child earned in this lesson (the HUD star chip during a lesson), and the stage NPC's opening line
+      // for the dialog window (the stage's script, not the NPC's solo greeting).
+      lesson_stars:
+        d.sql.get<{ n: number | null }>('select coalesce(sum(stars), 0) as n from utterances where session_id = ? and player_id = ?', [
+          s.lesson_id,
+          s.player_id
+        ])?.n ?? 0,
+      npc_line_en: stage?.teacherScriptEn ?? '',
       server_now: now
     });
   });

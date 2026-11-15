@@ -5,7 +5,7 @@ import { FIRST_LESSON_PLAN } from '@lcw/content';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { App } from '../App.js';
 import { handleDirectorKeydown } from '../director.js';
-import { LessonDirectorConsole, loadPlanChoice } from '../LessonDirector.js';
+import { LessonDirectorConsole, includeTestLessons, loadPlanChoice } from '../LessonDirector.js';
 import { ParentReportPage } from '../ParentReportPage.js';
 import { StudentJoin } from '../StudentJoin.js';
 import {
@@ -636,6 +636,11 @@ describe('/director live console', () => {
       React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: null, initialStudents: [], initialLive: { lessons: [], server_now: 1 } })
     );
     expect(none).not.toContain('director-live-lessons');
+
+    // /director?include_test=1 asks for smoke/demo lessons too (production checks); default does not
+    expect(includeTestLessons('?include_test=1')).toBe(true);
+    expect(includeTestLessons('')).toBe(false);
+    expect(includeTestLessons('?include_test=0')).toBe(false);
 
     // this device's clock is 5 s ahead of the server: elapsed stays 10 s on the stage
     const rec = recordFromLive(row, 50_000, 55_000);

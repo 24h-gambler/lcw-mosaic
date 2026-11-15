@@ -60,6 +60,11 @@ import { LESSON_STRINGS_KO } from './strings.js';
 const S = LESSON_STRINGS_KO.director;
 
 const PLAN_KEY = 'lcw.director.plan';
+/** `/director?include_test=1`: smoke and demo students' lessons show on the resume card too (production checks). */
+export function includeTestLessons(search: string = typeof location === 'undefined' ? '' : location.search): boolean {
+  return new URLSearchParams(search).get('include_test') === '1';
+}
+
 /** How often the first screen re-reads running lessons (another device may start one). */
 export const LIVE_LESSONS_POLL_MS = 15_000;
 
@@ -270,7 +275,7 @@ function StudentPicker({
   const liveGone = useRef(false);
   const loadLive = useCallback(async () => {
     try {
-      const r = await api.liveLessons(token);
+      const r = await api.liveLessons(token, includeTestLessons());
       if (!liveGone.current) setLive({ ...r, at: now() });
     } catch (e) {
       onAuthError(errorCodeOf(e));

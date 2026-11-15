@@ -82,10 +82,15 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
     const { lessonId, st } = await startLesson(p);
     const first = await call(p, 'GET', '/v1/lesson/state', undefined, st);
     expect(first.body.coins_balance).toBe(200);
+    expect(first.body.lesson_stars).toBe(0);
+    // the dialog window opens with the stage's script line, not the NPC's solo greeting
+    expect(first.body.npc_line_en).toBe('Hi! What is your name? What do you like to do after school?');
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
     await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000 }, st);
     const after = await call(p, 'GET', `/v1/lesson/state?cursor=${first.body.cursor}`, undefined, st);
     expect(after.body.coins_balance).toBe(220);
+    expect(after.body.lesson_stars).toBe(2);
+    expect(after.body.npc_line_en).toBe('Welcome to the honey cafe! What would you like today?');
   });
 });
 
@@ -108,6 +113,10 @@ describe('running lessons for a console on another device', () => {
     expect(l.stage_ms.warmup_anchor).toBeGreaterThanOrEqual(0);
     expect(l.stage_started_at).toBeGreaterThanOrEqual(l.started_at);
     expect(typeof live.body.server_now).toBe('number');
+
+    // operator smoke checks in production: include_test=1 shows the smoke student's lesson too
+    const withTest = await call(p, 'GET', '/v1/admin/lessons/live?include_test=1');
+    expect(withTest.body.lessons.map((x: { player_id: string }) => x.player_id).sort()).toEqual(['kid-1', 'smoke-1']);
 
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { teacher_comment: '잘했어요.' });
     expect((await call(p, 'GET', '/v1/admin/lessons/live')).body.lessons).toHaveLength(0);

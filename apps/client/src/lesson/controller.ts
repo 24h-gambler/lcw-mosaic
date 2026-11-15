@@ -33,6 +33,8 @@ export interface LessonWorld {
   playDirectorEvent?(kind: LessonDirectorEventKind, detail: string): void;
   /** HUD coin chip (WorldHandle.setCoins): the ledger balance from the first poll on. */
   setCoins?(n: number | null): void;
+  /** HUD star chip owned by the lesson: this lesson's stars (WorldHandle.setStars). */
+  setStars?(n: number | null): void;
 }
 
 export type LessonPhase = 'needs_code' | 'joining' | 'live' | 'ended';
@@ -75,6 +77,10 @@ export interface LessonView {
   lastResult: (DialogResult & { utterancesToday: number }) | null;
   /** Ledger balance shown on the HUD (state poll, then each answer). */
   coins: number | null;
+  /** Stars earned in this lesson (HUD star chip). */
+  lessonStars: number;
+  /** The stage NPC's opening line for the dialog window. */
+  npcLineEn: string;
   /** Bumps on every stage change so the dialog can reset. */
   stageSeq: number;
 }
@@ -119,6 +125,8 @@ export function initialLessonView(): LessonView {
     banner: null,
     lastResult: null,
     coins: null,
+    lessonStars: 0,
+    npcLineEn: '',
     stageSeq: 0
   };
 }
@@ -193,6 +201,8 @@ export class LessonController {
     // No celebrate here: whoever shows the result plays it (App's DialogHost, or the layer's own panel), once.
     this.set({ lastResult: { ...result, utterancesToday: r.utterances_today } });
     this.showCoins(r.coins_total);
+    // The star chip moves with the answer, not when the child taps "done" (the server sum confirms on the next poll).
+    if (r.pass && r.stars > 0) this.showStars(this.view.lessonStars + r.stars);
     return result;
   };
 
@@ -255,6 +265,13 @@ export class LessonController {
     this.timer = this.timers.setTimeout(() => this.poll(), this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
   }
 
+  private showStars(n: number | undefined): void {
+    // Stars only grow in a lesson: a poll answered before the latest answer landed must not take one back.
+    if (typeof n !== 'number' || !Number.isFinite(n) || n <= this.view.lessonStars) return;
+    this.opts.world?.setStars?.(n);
+    this.set({ lessonStars: n });
+  }
+
   private showCoins(n: number | null | undefined): void {
     if (typeof n !== 'number' || !Number.isFinite(n) || n === this.view.coins) return;
     this.opts.world?.setCoins?.(n);
@@ -266,6 +283,8 @@ export class LessonController {
     const w = this.opts.world;
     this.cursor = st.cursor;
     this.showCoins(st.coins_balance);
+    this.showStars(st.lesson_stars);
+    if (typeof st.npc_line_en === 'string' && st.npc_line_en !== this.view.npcLineEn) this.set({ npcLineEn: st.npc_line_en });
     const patch: Partial<LessonView> = {};
     const stageChanged = st.stage_id !== this.view.stageId;
     const targetsChanged = JSON.stringify(st.offers) !== JSON.stringify(this.view.offers);

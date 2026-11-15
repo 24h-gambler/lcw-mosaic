@@ -42,6 +42,8 @@ export interface LessonDialogConfig {
   submit: (u: unknown) => Promise<DialogResult>;
   onDone: (r: DialogResult) => void;
   onClose?: () => void;
+  /** The NPC's opening line: the stage script (App passes it to the panel as npcLine). */
+  npcLine?: string;
 }
 
 export interface LessonLayerProps {
@@ -96,6 +98,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
           celebrate: (s) => worldRef.current?.celebrate(s),
           setPossessed: (n) => worldRef.current?.setPossessed?.(n),
           setCoins: (n) => worldRef.current?.setCoins?.(n),
+          setStars: (n) => worldRef.current?.setStars?.(n),
           playDirectorEvent: (k, d) => {
             // The world plays its own effect and sound for events; ours only when it has none (no double sound).
             const w = worldRef.current;
@@ -120,6 +123,8 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   // Again when the world arrives: App's callback reaches the world's "수업 중" badge only once the world exists.
   useEffect(() => {
     onActive.current?.(live);
+    // Out of a lesson the star chip goes back to the world's own count.
+    if (!live) props.world?.setStars?.(null);
   }, [live, props.world]);
   // The world can load after the lesson joined (slow phones): give it the lesson's current scene, goal and possession.
   useEffect(() => {
@@ -130,6 +135,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     if (v.goalKo) w.setGoal(v.goalKo, goalTargetEn(v.hint, v.offers));
     w.setPossessed?.(v.possessedNpcId);
     if (v.coins !== null) w.setCoins?.(v.coins);
+    w.setStars?.(v.lessonStars);
   }, [props.world, ctl]);
   useEffect(() => () => onActive.current?.(false), []);
   useEffect(() => {
@@ -183,6 +189,8 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     offers: view.offers,
     hint: view.hint,
     submit: ctl.submit,
+    // The NPC opens with the stage's script line, not its solo greeting ("Where do you want to go?" at the warm-up).
+    ...(view.npcLineEn ? { npcLine: view.npcLineEn } : {}),
     // "완료" on a result: the window starts over for the next sentence (free talk takes many in one stage).
     onDone: () => setDoneSeq((n) => n + 1),
     // ✕ on the dialog window folds it away so the child can look at the world; "말하기" brings it back.

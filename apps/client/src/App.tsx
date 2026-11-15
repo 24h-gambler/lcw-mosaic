@@ -21,6 +21,8 @@ export interface DialogConfig {
   submit?: (u: unknown) => Promise<DialogResultLike>;
   onDone?: (r: DialogResultLike) => void;
   onClose?: () => void;
+  /** The NPC's opening line in the window (a lesson stage's script); absent = the NPC's own greeting. */
+  npcLine?: string;
 }
 
 export interface DialogResultLike {
@@ -197,6 +199,7 @@ function DialogHost(props: {
       mode={cfg.mode ?? 'guided'}
       offers={cfg.offers ?? []}
       hint={cfg.hint ?? 'full'}
+      {...(cfg.npcLine ? { npcLine: cfg.npcLine } : {})}
       submit={submit}
       onDone={onDone}
       onClose={close}

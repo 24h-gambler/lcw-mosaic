@@ -121,6 +121,8 @@ export const LESSON_STRINGS_KO = {
     keyNotStored: '이 브라우저는 저장을 막고 있어요. 새로 고치면 열쇠를 다시 넣어야 해요.',
     demoSummary: '데모 콘솔 둘러보기 (열쇠 없이, 저장되지 않음)',
     studentsTitle: '학생 고르기',
+    planTitle: '오늘 수업안',
+    planHint: '고른 수업안으로 시작해요. 이 기기에 기억돼요.',
     studentsEmpty: '아직 등록한 학생이 없어요. 아래에서 새 학생을 등록해 주세요.',
     refresh: '새로 고침',
     loading: '불러오는 중…',

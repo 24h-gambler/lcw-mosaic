@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, TOKENS } from '@lcw/ui';
-import type { LessonStage } from '@lcw/content';
+import { LESSON_PLANS, type LessonStage } from '@lcw/content';
 import {
   createLessonApi,
   errorCodeOf,
@@ -56,6 +56,27 @@ import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputS
 import { LESSON_STRINGS_KO } from './strings.js';
 
 const S = LESSON_STRINGS_KO.director;
+
+const PLAN_KEY = 'lcw.director.plan';
+
+/** The plan the teacher picked last on this device (first plan when none or storage is blocked). */
+export function loadPlanChoice(): string {
+  try {
+    const v = globalThis.localStorage?.getItem(PLAN_KEY);
+    if (v && LESSON_PLANS.some((p) => p.id === v)) return v;
+  } catch {
+    /* storage blocked: the default stands */
+  }
+  return LESSON_PLANS[0]!.id;
+}
+
+function savePlanChoice(id: string): void {
+  try {
+    globalThis.localStorage?.setItem(PLAN_KEY, id);
+  } catch {
+    /* storage blocked: the choice lasts this page */
+  }
+}
 const C = TOKENS.colors;
 const T = TOKENS.typography;
 
@@ -239,6 +260,11 @@ function StudentPicker({
   const [listError, setListError] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [startError, setStartError] = useState<{ id: string; text: string } | null>(null);
+  const [planId, setPlanId] = useState<string>(loadPlanChoice);
+  const choosePlan = (id: string) => {
+    setPlanId(id);
+    savePlanChoice(id);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -262,13 +288,13 @@ function StudentPicker({
     setStartingId(s.player_id);
     setStartError(null);
     try {
-      const res = await api.startLesson(token, { player_id: s.player_id, plan_id: 'first_lesson_v1' });
+      const res = await api.startLesson(token, { player_id: s.player_id, plan_id: planId });
       const t = now();
       onStarted({
         lesson_id: res.lesson_id,
         join_code: res.join_code,
         expires_at: res.expires_at,
-        plan_id: res.plan?.id ?? 'first_lesson_v1',
+        plan_id: res.plan?.id ?? planId,
         player_id: s.player_id,
         nickname: s.nickname,
         started_at: t,
@@ -301,6 +327,26 @@ function StudentPicker({
           </Button>
         }
       >
+        <div role="radiogroup" aria-label={S.planTitle} data-testid="director-plan" style={{ marginBottom: sp(3) }}>
+          <div style={{ fontWeight: 700, marginBottom: sp(1) }}>{S.planTitle}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
+            {LESSON_PLANS.map((p) => (
+              <Button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={p.id === planId}
+                data-testid={`plan-${p.id}`}
+                variant={p.id === planId ? 'brand' : 'paper'}
+                onClick={() => choosePlan(p.id)}
+              >
+                {p.id === planId ? '✓ ' : ''}
+                {p.titleKo}
+              </Button>
+            ))}
+          </div>
+          <p style={{ margin: `${sp(1)} 0 0`, fontSize: `${T.scale.small.sizePx}px` }}>{S.planHint}</p>
+        </div>
         {listError ? <Notice onRetry={() => void load()} retryLabel={S.retry}>{listError}</Notice> : null}
         {students && students.length === 0 ? <p>{S.studentsEmpty}</p> : null}
         {students && students.length > 0 ? (

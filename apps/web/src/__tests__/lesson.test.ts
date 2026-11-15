@@ -5,7 +5,7 @@ import { FIRST_LESSON_PLAN } from '@lcw/content';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { App } from '../App.js';
 import { handleDirectorKeydown } from '../director.js';
-import { LessonDirectorConsole } from '../LessonDirector.js';
+import { LessonDirectorConsole, loadPlanChoice } from '../LessonDirector.js';
 import { ParentReportPage } from '../ParentReportPage.js';
 import { StudentJoin } from '../StudentJoin.js';
 import {
@@ -600,6 +600,27 @@ describe('/director live console', () => {
     expect(html).toContain(LESSON_STRINGS_KO.director.startLesson);
     expect(html).toContain(LESSON_STRINGS_KO.director.newStudentTitle);
     expect(html).not.toContain('director-demo');
+  });
+
+  it('plan choice: both lessons offered, the remembered one is picked, unknown or blocked storage falls back to the first', () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) });
+    try {
+      expect(loadPlanChoice()).toBe('first_lesson_v1');
+      store.set('lcw.director.plan', 'second_lesson_v1');
+      expect(loadPlanChoice()).toBe('second_lesson_v1');
+      const html = renderToStaticMarkup(
+        React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: null, initialStudents: [] })
+      );
+      expect(html).toContain('data-testid="plan-first_lesson_v1"');
+      expect(html).toMatch(/aria-checked="true"[^>]*data-testid="plan-second_lesson_v1"/);
+      store.set('lcw.director.plan', 'gone_plan');
+      expect(loadPlanChoice()).toBe('first_lesson_v1');
+      vi.stubGlobal('localStorage', { getItem: () => { throw new Error('blocked'); }, setItem: () => undefined });
+      expect(loadPlanChoice()).toBe('first_lesson_v1');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters', () => {

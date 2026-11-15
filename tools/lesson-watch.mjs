@@ -411,7 +411,7 @@ const consoleAction = (base) => [{ type: 'open', url: `${base}/director`, label:
 const isStanding = (st, key, s) => st.lastTick.includes(key) || EVENT_ALERTS.has(s.kind);
 
 /** A fresh card state for one day and one spine. */
-export const emptyCardState = (dayStr, spine) => ({ day: dayStr, spine, seen: {}, posted: {}, lastTick: [], summary: null });
+export const emptyCardState = (dayStr, spine) => ({ day: dayStr, spine, seen: {}, posted: {}, lastTick: [], summary: null, boost: 0 });
 
 /** The card of one scope: every kind seen there today, standing or cleared (ids and counts only, nothing a child said). */
 export function scopeCard(st, scope, { base, out }) {
@@ -539,8 +539,13 @@ function loadCards() {
 /** Written whole to a temp file, then renamed over: a crash mid-write cannot leave half a file. */
 function saveCards() {
   const f = cardsFile();
-  writeFileSync(`${f}.tmp`, JSON.stringify(cardState, null, 1), 'utf8');
-  renameSync(`${f}.tmp`, f);
+  try {
+    writeFileSync(`${f}.tmp`, JSON.stringify(cardState, null, 1), 'utf8');
+    renameSync(`${f}.tmp`, f);
+  } catch (e) {
+    // The state stays in memory (this run keeps going right); only a restart would lose it, so say so and go on.
+    console.error('card state save failed', String(e?.message ?? e).slice(0, 120));
+  }
 }
 
 async function spine(method, path, body) {
@@ -559,26 +564,54 @@ async function spine(method, path, body) {
 const spineError = (r) => r.error ?? (r.body?.detail ? JSON.stringify(r.body.detail).slice(0, 200) : null);
 
 /** Post the scope cards that changed this tick; on a first post, read the card back to see the hub really shows it. */
+/**
+ * How the spine really holds a card: state and importance after its own adjustments. The spine answers 201 even when
+ * it parks the card (open-card cap -> queued, daily cap -> folded) or lowers it (a quiet source gets -1, and an
+ * importance-0 card is not listed in the hub). The list with ids= returns pinned ids whatever their importance.
+ */
+async function readBack(id) {
+  const q = `/proposals?ids=${encodeURIComponent(id)}&min_importance=0&folded=true&hours=1&limit=1`;
+  const r = await spine('GET', q);
+  const p = (r.body?.proposals ?? []).find((x) => x.id === id);
+  if (p) return { state: p.state ?? null, importance: typeof p.importance === 'number' ? p.importance : null };
+  const one = await spine('GET', `/proposals/one?id=${encodeURIComponent(id)}`);
+  return { state: one.body?.state ?? null, importance: null };
+}
+
+/** Post a card and check it landed as asked; a card the spine lowered is posted again, raised by what it lost. */
+async function postChecked(st, card, max) {
+  const asked = Math.min(max, card.importance + (st.boost ?? 0));
+  let r = await spine('POST', '/proposals', { ...card, importance: asked });
+  if (r.status !== 201 || !r.body?.id) return { r };
+  let rb = await readBack(r.body.id);
+  if (typeof rb.importance === 'number' && rb.importance < card.importance && asked < max) {
+    st.boost = Math.min(2, (st.boost ?? 0) + (card.importance - rb.importance));
+    const again = Math.min(max, card.importance + st.boost);
+    write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_lowered', ref: card.ref, asked, got: rb.importance, repost: again });
+    r = await spine('POST', '/proposals', { ...card, importance: again });
+    if (r.status === 201 && r.body?.id) rb = await readBack(r.body.id);
+  }
+  if (rb.state !== 'open' || (typeof rb.importance === 'number' && rb.importance < 1)) {
+    write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_hidden', ref: card.ref, id: r.body?.id ?? null, ...rb });
+    console.log(`card ${r.body?.id ?? '?'} is ${rb.state ?? 'unknown'} (importance ${rb.importance ?? '?'}) on the spine, not shown in the hub`);
+  }
+  return { r, rb };
+}
+
+/** Post the scope cards that changed this tick; a first post is read back (see postChecked). */
 async function postTickCards(alerts, at) {
   const st = loadCards();
   for (const { card, sig } of planTick(st, alerts, at, { base: BASE, out: OUT })) {
-    const r = await spine('POST', '/proposals', card);
+    const first = !st.posted[card.ref];
+    // Lesson cards never go above 2: 2 after a -1 lands as 1 (listed, no ring); 3 would ring the phone.
+    const { r, rb } = first
+      ? await postChecked(st, card, 2)
+      : { r: await spine('POST', '/proposals', { ...card, importance: Math.min(2, card.importance + (st.boost ?? 0)) }) };
     if (r.status !== 201 || !r.body?.id) {
       write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_error', ref: card.ref, status: r.status, error: spineError(r) });
       continue;
     }
-    const first = !st.posted[card.ref];
-    st.posted[card.ref] = { ...st.posted[card.ref], id: r.body.id, sig, at };
-    if (first) {
-      // The spine answers 201 even when it parks the card (open-card cap → queued, daily cap → folded).
-      const one = await spine('GET', `/proposals/one?id=${encodeURIComponent(r.body.id)}`);
-      const state = one.body?.state ?? null;
-      st.posted[card.ref].state = state;
-      if (state !== 'open') {
-        write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_hidden', ref: card.ref, id: r.body.id, state });
-        console.log(`card ${r.body.id} is ${state ?? 'unknown'} on the spine, not open in the hub`);
-      }
-    }
+    st.posted[card.ref] = { ...st.posted[card.ref], id: r.body.id, sig, at, ...(rb ? { state: rb.state, importance: rb.importance } : {}) };
   }
   saveCards();
 }
@@ -590,9 +623,9 @@ async function closeWindowCards() {
   if (plan.summary && !st.summary) {
     for (const wait of [0, 10_000, 30_000, 60_000]) {
       await sleep(wait);
-      const r = await spine('POST', '/proposals', plan.summary);
+      const { r, rb } = await postChecked(st, plan.summary, 3);
       if (r.status === 201 && r.body?.id) {
-        st.summary = { id: r.body.id, at: stamp() };
+        st.summary = { id: r.body.id, at: stamp(), state: rb?.state ?? null, importance: rb?.importance ?? null };
         break;
       }
       write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_error', ref: plan.summary.ref, status: r.status, error: spineError(r) });
@@ -626,13 +659,15 @@ async function testCard() {
     actions: consoleAction(BASE)
   });
   const id = made.body?.id ?? null;
-  const before = id ? await spine('GET', `/proposals/one?id=${encodeURIComponent(id)}`) : null;
+  // The same read-back the lesson cards use: state and importance after the spine's own adjustments.
+  const before = id ? await readBack(id) : null;
   const shut = await spine('POST', '/proposals/close', { source: CARD_SOURCE, ref });
   const after = id ? await spine('GET', `/proposals/one?id=${encodeURIComponent(id)}`) : null;
   const res = {
     post: made.status,
     id,
-    state_after_post: before?.body?.state ?? null,
+    state_after_post: before?.state ?? null,
+    importance_after_post: before?.importance ?? null,
     close: shut.status,
     closed_rows: shut.body?.closed ?? null,
     state_after_close: after?.body?.state ?? null

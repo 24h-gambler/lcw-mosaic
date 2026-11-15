@@ -366,6 +366,23 @@ export interface RoomCheckResult {
   eligibleResident: ResidentDef | null;
 }
 
+/**
+ * docs/03 D13: the room check names what is missing in the target language. One table for the world (build screen)
+ * and the server (read-aloud discount checks the child read exactly this sentence).
+ */
+export const ROOM_MISSING_SENTENCES = {
+  too_small: 'This room needs more space.',
+  low_ceiling: 'This room needs a higher ceiling.',
+  door: 'This room needs a door.',
+  light: 'This room needs a light source.',
+  rest: 'This room needs a bed or a chair.',
+  flat: 'This room needs a table or workbench.'
+} as const;
+
+/** Missing conditions that a furniture kind fixes (the read-aloud discount applies to these kinds only). */
+export const FURNITURE_KINDS = ['light', 'rest', 'flat'] as const;
+export type FurnitureKind = (typeof FURNITURE_KINDS)[number];
+
 const FURNITURE_ROLE_MAP = new Map(FURNITURE_REGISTRY.map((f) => [f.id, f.role]));
 
 /**
@@ -446,22 +463,22 @@ export function evaluateRoom(
 
   if (seen.size < TUNING.building.roomMinVolume) {
     missing.push('too_small');
-    promptSentence = 'This room needs more space.';
+    promptSentence = ROOM_MISSING_SENTENCES.too_small;
   } else if (ceilingHeight < TUNING.building.roomMinCeiling) {
     missing.push('low_ceiling');
-    promptSentence = 'This room needs a higher ceiling.';
+    promptSentence = ROOM_MISSING_SENTENCES.low_ceiling;
   } else if (!hasDoor) {
     missing.push('door');
-    promptSentence = 'This room needs a door.';
+    promptSentence = ROOM_MISSING_SENTENCES.door;
   } else if (!hasLight) {
     missing.push('light');
-    promptSentence = 'This room needs a light source.';
+    promptSentence = ROOM_MISSING_SENTENCES.light;
   } else if (!hasRest) {
     missing.push('rest');
-    promptSentence = 'This room needs a bed or a chair.';
+    promptSentence = ROOM_MISSING_SENTENCES.rest;
   } else if (!hasFlat) {
     missing.push('flat');
-    promptSentence = 'This room needs a table or workbench.';
+    promptSentence = ROOM_MISSING_SENTENCES.flat;
   }
 
   const jobFurniture = insideFurniture.find((f) => FURNITURE_ROLE_MAP.get(f.id) === 'job');

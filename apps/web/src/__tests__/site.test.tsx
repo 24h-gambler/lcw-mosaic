@@ -14,13 +14,15 @@ import { SAMPLE_SNAPSHOTS, parseShowroomSnapshot } from '../site/showroom.js';
 import { siteCss } from '../site/siteCss.js';
 import { TryScene } from '../site/TryScene.js';
 import { chooseTryStage, worldCueFor } from '../site/TryWorld.js';
+import { allPages, fillShell, prerenderPage } from '../site/prerender.js';
 import { TRY } from '../site/tryCopy.js';
 import { TRY_LOUDNESS_TRIES, TRY_RECOGNITION_ANSWER_MS, TRY_RECOGNITION_AUDIO_MS, cardOrderStars } from '../site/TrySpeak.js';
 import { TRY_INITIAL, TRY_OFFERS, TRY_PRICES, TRY_WALK_STEPS, TRY_WALLET, tryReducer, type TryPhase, type TryState } from '../site/tryState.js';
 import { eventPayload } from '../site/track.js';
 import { validateConsult } from '../site/pages/Tutoring.js';
 import { normalizePassCode } from '../site/pages/Info.js';
-import { projectIso, rotateQuarter, box } from '../site/voxel.js';
+import { VoxelSvg, collisions, projectIso, rotateQuarter, box } from '../site/voxel.js';
+import { LEARN_ART_PARTS } from '../site/pages/Learn.js';
 import { movingAverage } from '../site/widgets.js';
 
 const PRICE_RE = /[0-9,]+\s*원|결제|할인|구독|만료|기한|남은 수량|품절/;
@@ -251,6 +253,38 @@ describe('W06 /try in the 3D town (docs/19 createWorld)', () => {
   });
 });
 
+describe('static pages for crawlers and first paint (docs/14 §11)', () => {
+  const shell = '<!doctype html><html lang="ko"><head><meta charset="UTF-8" /><title>x</title>\n    <meta name="description" content="y" /></head><body><div id="root"></div><script type="module" src="/a.js"></script></body></html>';
+  it('renders every public page with its own title, description, canonical and content', () => {
+    const pages = allPages();
+    expect(pages.length).toBeGreaterThanOrEqual(13);
+    for (const p of pages) {
+      const html = fillShell(shell, p);
+      expect(html.match(/<title>/g)).toHaveLength(1);
+      expect(html.match(/name="description"/g)).toHaveLength(1);
+      expect(html).toContain(`<link rel="canonical" href="https://lcw.worldwidesomething.com${p.path}"`);
+      expect(html).toContain('<div id="root"><div class="s-root');
+    }
+    const parents = fillShell(shell, prerenderPage('/parents'));
+    expect(parents).toContain(PARENTS.title.slice(0, 8));
+    // hydrateRoot needs renderToString's text separators; renderToStaticMarkup output fails hydration on every page.
+    expect(prerenderPage('/pass').body).toContain('<!-- -->');
+  });
+
+  it('clears the pre-rendered page before paint when the file is served for another address', () => {
+    const html = fillShell(shell, prerenderPage('/'));
+    const guard = /<script>(\(function[\s\S]*?)<\/script>/.exec(html)![1]!;
+    const run = (pathname: string) => {
+      const root = { innerHTML: 'landing' };
+      new Function('location', 'document', guard)({ pathname }, { getElementById: () => root });
+      return root.innerHTML;
+    };
+    expect(run('/')).toBe('landing');
+    expect(run('/director')).toBe('');
+    expect(run('/r/abc')).toBe('');
+  });
+});
+
 describe('W08 showroom (WP-703)', () => {
   it('accepts the sample and rejects live position, voice or real-name fields', () => {
     const ok = parseShowroomSnapshot(SAMPLE_SNAPSHOTS.demo);
@@ -302,6 +336,20 @@ describe('forms, counters and helpers', () => {
     // 2x2x2: 4 top + 4 right + 4 left faces visible, inner faces culled
     expect(projectIso(cube).polys).toHaveLength(12);
     expect(rotateQuarter(rotateQuarter(cube, 2), 2)).toEqual(cube);
+  });
+
+  it('joins same-colour faces into one path but keeps paint order', () => {
+    const scene = [...box(0, 0, 0, 3, 3, 3, 'brand'), ...box(4, 0, 0, 2, 2, 2, 'sky')];
+    const html = renderToStaticMarkup(<VoxelSvg voxels={scene} unit={10} />);
+    const fills = [...html.matchAll(/<path d="[^"]+" fill="([^"]+)"/g)].map((m) => m[1]);
+    const runs = projectIso(scene, 10).polys.map((p) => p.fill).filter((f, i, a) => i === 0 || a[i - 1] !== f);
+    expect(fills).toEqual(runs);
+    expect(fills.length).toBeLessThan(projectIso(scene, 10).polys.length);
+    expect(html).not.toContain('<polygon');
+  });
+
+  it('never hides a prop inside a character on the expression pages', () => {
+    for (const [scene, parts] of Object.entries(LEARN_ART_PARTS)) expect([scene, collisions(...parts)]).toEqual([scene, 0]);
   });
 
   it('honours reduced motion and uses no blur or glass (08 §1, §5)', () => {

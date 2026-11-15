@@ -138,6 +138,8 @@ export const ScoreResponseSchema = z
     coins_total: z.number().int().optional(),
     /** Price-0 sentences: what the child asked for (barter good, place to show); nothing is sold or granted. */
     asked_key: z.string().min(1).optional(),
+    /** Furniture bought with today's read-aloud discount of its kind (docs/03 D13): the discount that was applied. */
+    read_aloud_discount_pct: z.number().min(0).max(1).optional(),
     /** Free talk without a chosen sentence: the bank sentence the server matched and scored. */
     target_text: z.string().min(1).optional()
   })

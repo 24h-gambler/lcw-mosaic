@@ -3,6 +3,8 @@ import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
 import { CONSULTS_PER_HOUR_PER_CLIENT, SITE_EVENTS, counterPath } from '../site.js';
 import { SITE_EVENTS as WEB_SITE_EVENTS } from '../../../web/src/site/track.js';
 import { fakeDurableStorage } from './fake-do.js';
+import { rewriteReportShell } from '../report-page.js';
+import { fillShell, prerenderPage } from '../../../web/src/site/prerender.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
 const op = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
@@ -45,6 +47,19 @@ describe('public site counters (docs/14 §10)', () => {
     expect(counterPath('/learn/order-a-drink')).toBe('/learn/order-a-drink');
     expect(counterPath('/Learn/<script>')).toBe('/other');
     expect(counterPath('/pricing/')).toBe('/pricing');
+  });
+});
+
+describe('report links on top of the pre-rendered landing file', () => {
+  it('keep only the report preview tags: no landing title, description, og or canonical', () => {
+    const page = prerenderPage('/');
+    const shell = fillShell('<!doctype html><html><head><title>x</title></head><body><div id="root"></div></body></html>', page);
+    const out = rewriteReportShell(shell, 'https://lcw.example');
+    expect(out).not.toContain('rel="canonical"');
+    expect(out).not.toContain(page.title);
+    expect(out.match(/<title>/g)).toHaveLength(1);
+    expect(out.match(/property="og:title"/g)).toHaveLength(1);
+    expect(out).toContain('noindex');
   });
 });
 

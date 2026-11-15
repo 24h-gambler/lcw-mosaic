@@ -411,10 +411,13 @@ function honeyCafe(set: Setter): void {
   set(x0, 2, 137, BK.flowerPot);
   // Ceiling, interior shelves and lights.
   fillBox(set, x0 + 1, 6, z0 + 1, x1 - 1, 6, z1 - 1, BK.oakPlank);
+  // Back wall: low light-wood cabinets, then one row of display cubbies (honey jar + mug) broken by windows and a
+  // menu board in the middle, honeycomb tiles above - a cafe wall, not a wall of shelves.
+  const menuZ = Math.floor((z0 + z1) / 2);
   for (let z = z0 + 1; z <= z1 - 1; z++) {
-    set(x1 - 1, 1, z, BK.jarShelf);
-    set(x1 - 1, 2, z, z % 2 === 0 ? BK.honeycomb : BK.glass);
-    set(x1 - 1, 3, z, BK.jarShelf);
+    set(x1 - 1, 1, z, BK.birchPlank);
+    set(x1 - 1, 2, z, z === menuZ ? BK.chalkboard : z % 2 === 0 ? BK.jarShelf : BK.glass);
+    set(x1 - 1, 3, z, z % 2 === 0 ? BK.honeycomb : BK.oakPlank);
   }
   set(170, 5, 131, BK.lantern);
   set(170, 5, 137, BK.lantern);
@@ -508,7 +511,7 @@ function tradeShop(set: Setter): void {
   }
   for (let z = z0 + 1; z <= z1 - 1; z++) {
     set(x0 + 1, 1, z, z % 3 === 0 ? BK.chest : BK.barrel);
-    set(x0 + 1, 2, z, BK.jarShelf);
+    set(x0 + 1, 2, z, z % 2 === 0 ? BK.jarShelf : BK.crate);
     set(x0 + 1, 3, z, z % 2 === 0 ? BK.woolBlue : BK.woolGreen);
   }
   set(116, 5, 131, BK.lantern);

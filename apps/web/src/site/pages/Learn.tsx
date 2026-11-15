@@ -5,13 +5,15 @@ import { SLink } from '../SiteShell.js';
 import { OfferList } from '../widgets.js';
 import { VoxelSvg, box, cafe, floatingIsland, grass, merge, miniCharacter as character, placeAt, shift, tree, type Vox } from '../voxel.js';
 
-const ART: Readonly<Record<string, Vox[]>> = {
-  cafe: merge(grass(14, 12), shift(cafe(), 2, 1, 0), placeAt(character({}), 7, 10)),
-  makers_lab: merge(grass(10, 8), placeAt(character({ jetpack: true }), 4, 4), box(7, 1, 0, 2, 4, 3, 'sun-d')),
-  trade: merge(grass(12, 8), placeAt(character({}), 3, 5), placeAt(character({ shirt: 'sky-d', hair: 'sun-d' }), 9, 5), box(5, 3, 0, 2, 4, 3, 'sun-d'), box(5, 4, 3, 1, 1, 1, 'sky')),
-  court: merge(grass(12, 8), box(1, 1, 0, 10, 2, 5, 'sun-d'), placeAt(character({ shirt: 'ink-700', hair: 'silver' }), 6, 2, 5), placeAt(character({}), 6, 6)),
-  open_question: merge(shift(floatingIsland('leaf', 'sun-d'), 0, 0, 2), shift(tree(), 2, 2, 3), placeAt(character({}), 4, 3, 3))
+/** Each scene as separate parts, so a test can check no prop sits inside a character (collisions()). */
+export const LEARN_ART_PARTS: Readonly<Record<string, Vox[][]>> = {
+  cafe: [grass(14, 13), shift(cafe(), 2, 1, 0), placeAt(character({}), 7, 11)],
+  makers_lab: [grass(10, 8), placeAt(character({ jetpack: true }), 4, 4), box(7, 1, 0, 2, 4, 3, 'sun-d')],
+  trade: [grass(12, 8), placeAt(character({}), 2, 5), placeAt(character({ shirt: 'sky-d', hair: 'sun-d' }), 10, 5), box(5, 3, 0, 2, 4, 3, 'sun-d'), box(5, 4, 3, 1, 1, 1, 'sky')],
+  court: [grass(12, 8), box(1, 1, 0, 10, 2, 5, 'sun-d'), placeAt(character({ shirt: 'ink-700', hair: 'silver' }), 6, 2, 5), placeAt(character({}), 6, 6)],
+  open_question: [shift(floatingIsland('leaf', 'sun-d'), 0, 0, 2), shift(tree(), 3, 0, 3), placeAt(character({}), 2, 4, 3)]
 };
+const ART: Readonly<Record<string, Vox[]>> = Object.fromEntries(Object.entries(LEARN_ART_PARTS).map(([k, parts]) => [k, merge(...parts)]));
 
 export function LearnIndexPage(): React.ReactElement {
   return (

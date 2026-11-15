@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { COLOR_TOKENS } from '@lcw/ui';
 import { DialogPanel } from './DialogPanel.js';
+import { ROOM_MISSING_SENTENCES } from '@lcw/sim-core';
+import { ReadAloudPrompt, furnitureOffersFor, type FurnitureKind } from './ReadAloudPrompt.js';
 import { createScriptedSpeechEngine, createBrowserSpeechEngine, type MicIssue } from './speech.js';
 import { createLessonSubmit, createSoloSubmitWith } from './submit.js';
 import type { DialogHint, DialogMode, DialogOffer, DialogResult, Level, NpcRef } from './types.js';
@@ -28,7 +30,9 @@ const fs = Number(q.get('fs') ?? '1');
 const say = q.get('say');
 const micOverride = q.get('mic') as MicIssue | null;
 const offersParam = q.get('offers');
-const offers: DialogOffer[] = offersParam ? (JSON.parse(offersParam) as DialogOffer[]) : [];
+// shop=light|rest|flat: the trade shop offers that kind of furniture, as App does while the room lacks it.
+const shopKind = q.get('shop') as FurnitureKind | null;
+const offers: DialogOffer[] = offersParam ? (JSON.parse(offersParam) as DialogOffer[]) : shopKind ? furnitureOffersFor(shopKind, (q.get('level') ?? 'L1') as Level) : [];
 
 const speech = micOverride
   ? { source: 'browser' as const, availability: () => ({ ok: false as const, issue: micOverride }), start: createScriptedSpeechEngine([]).start }
@@ -86,4 +90,20 @@ function Preview() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<Preview />);
+/** ?readaloud=light|rest|flat: the build-screen read-aloud line (docs/03 D13) against the real server with `token`. */
+function ReadAloudPreview(props: { kind: FurnitureKind }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 12px 96px', background: `linear-gradient(180deg, ${COLOR_TOKENS.sky} 0%, ${COLOR_TOKENS['paper-100']} 70%)` }}>
+      <ReadAloudPrompt
+        kind={props.kind}
+        sentence={ROOM_MISSING_SENTENCES[props.kind]}
+        speech={speech}
+        baseUrl={api ?? undefined}
+        player={token ? { deviceToken: token } : undefined}
+      />
+    </div>
+  );
+}
+
+const readAloudKind = q.get('readaloud') as FurnitureKind | null;
+createRoot(document.getElementById('root')!).render(readAloudKind ? <ReadAloudPreview kind={readAloudKind} /> : <Preview />);

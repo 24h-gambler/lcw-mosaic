@@ -9,6 +9,7 @@ import { canRunWorld, createWorld, SCENE_IDS, type NpcRef, type SceneId, type Wo
 import { WORLD_STRINGS as W } from './world/strings.js';
 import { browserStore, resolveIdentity, type PlayerIdentity } from './world/identity.js';
 import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
+import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
@@ -55,6 +56,11 @@ export interface SoloPlayer {
   level?: Level;
 }
 
+/** docs/19 6장: a linked child whose seat stopped (play_allowed=false) may look around but not play solo. */
+export function soloPlayBlocked(id: PlayerIdentity | null): boolean {
+  return id?.kind === 'child' && !id.playAllowed;
+}
+
 export function soloPlayerOf(id: PlayerIdentity | null): SoloPlayer | undefined {
   if (!id || id.kind !== 'child') return undefined;
   return { deviceToken: id.token, nickname: id.nickname || undefined, level: id.level };
@@ -70,6 +76,17 @@ interface ReviewModule {
   /** Review signs of the child's memory cards (dialog domain, docs/03 D8). */
   ReviewDock?: React.ComponentType<{ world: WorldHandle | null; player?: SoloPlayer; hidden?: boolean }>;
 }
+interface ReadAloudModule {
+  /** Read-aloud furniture discount line under the room check (dialog domain, docs/03 D13). */
+  ReadAloudPrompt?: React.ComponentType<{
+    kind: 'light' | 'rest' | 'flat';
+    sentence: string;
+    player?: SoloPlayer;
+    onResult?: (r: { pass: boolean; discount_pct: number; already_claimed: boolean }) => void;
+  }>;
+  /** Toby's lines for that kind of furniture; the solo trade shop offers them while the room lacks it. */
+  furnitureOffersFor?: (kind: 'light' | 'rest' | 'flat', level: Level) => NonNullable<DialogConfig['offers']>;
+}
 interface LessonModule {
   LessonLayer?: React.ComponentType<LessonLayerProps>;
 }
@@ -78,6 +95,7 @@ interface LessonModule {
 const dialogLoaders = import.meta.glob<DialogModule>('./dialog/DialogPanel.tsx');
 const lessonLoaders = import.meta.glob<LessonModule>('./lesson/LessonLayer.tsx');
 const reviewLoaders = import.meta.glob<ReviewModule>('./dialog/ReviewDock.tsx');
+const readAloudLoaders = import.meta.glob<ReadAloudModule>('./dialog/ReadAloudPrompt.tsx');
 
 /** Guide answers name a place (`askedKey`); the solo world walks the child there after the window closes. */
 const PLACE_SCENES: Readonly<Record<string, SceneId>> = { cafe: 'honey_cafe', honey_cafe: 'honey_cafe', trade_shop: 'trade_shop', plaza: 'plaza', build_plot: 'build_plot', open_hill: 'open_hill' };
@@ -194,10 +212,16 @@ export function App(): React.ReactElement {
   const [lessonMod, setLessonMod] = useState<LessonModule | null>(null);
   const [reviewMod, setReviewMod] = useState<ReviewModule | null>(null);
   const [lessonOn, setLessonOn] = useState(false);
+  const [readAloudMod, setReadAloudMod] = useState<ReadAloudModule | null>(null);
+  const [room, setRoom] = useState<{ missing: Array<'light' | 'rest' | 'flat'>; sentence: string } | null>(null);
+  // The kind the child last read aloud for (kept after the build screen closes, until the next room check).
+  const [readKind, setReadKind] = useState<'light' | 'rest' | 'flat' | null>(null);
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
   const [failed, setFailed] = useState(false);
   const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
   const [tooSlow, setTooSlow] = useState(false);
+  const [seatCard, setSeatCard] = useState(false);
+  const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
 
@@ -220,6 +244,7 @@ export function App(): React.ReactElement {
     for (const load of Object.values(dialogLoaders)) void load().then(setDialogMod);
     for (const load of Object.values(lessonLoaders)) void load().then(setLessonMod);
     for (const load of Object.values(reviewLoaders)) void load().then(setReviewMod);
+    for (const load of Object.values(readAloudLoaders)) void load().then(setReadAloudMod);
   }, []);
 
   useEffect(() => {
@@ -275,14 +300,33 @@ export function App(): React.ReactElement {
     [world]
   );
 
+  // Seat stopped: say so once when the world opens (and again on every NPC tap), while the world stays walkable.
+  useEffect(() => {
+    if (soloBlocked && world) setSeatCard(true);
+  }, [soloBlocked, world]);
+  useEffect(() => {
+    if (!world || !seatCard) return;
+    world.setPaused(true);
+    return () => world.setPaused(false);
+  }, [world, seatCard]);
+  // Build screen room check → read-aloud discount line (when the world reports one).
+  useEffect(() => {
+    if (!world?.onRoomCheck) return;
+    return world.onRoomCheck((r) => setRoom(r.missing.length > 0 ? r : null));
+  }, [world]);
+
   // Solo play: tapping an NPC opens the dialog panel when no lesson is running.
   useEffect(() => {
     if (!world) return;
     return world.onNpcInteract((npc) => {
       if (lessonActive.current) return;
+      if (soloBlocked) {
+        setSeatCard(true);
+        return;
+      }
       if (dialogMod?.DialogPanel && dialogMod.createSoloSubmit) setSoloNpc(npc);
     });
-  }, [world, dialogMod]);
+  }, [world, dialogMod, soloBlocked]);
 
   const renderDialog = useCallback(
     (npc: NpcRef, cfg: DialogConfig): React.ReactNode => {
@@ -300,7 +344,13 @@ export function App(): React.ReactElement {
   const SoloPanel = dialogMod?.DialogPanel;
   const soloSubmit = soloNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(soloNpc, soloPlayerOf(identity)) : null;
   const soloLevel = identity?.kind === 'child' ? identity.level : undefined;
+  // docs/03 D13: while the room lacks a kind of furniture (or the child just read it aloud), Toby sells that kind.
+  const shopKind = room?.missing[0] ?? readKind;
+  const shopOffers =
+    soloNpc?.ctx === 'trade_shop' && shopKind && readAloudMod?.furnitureOffersFor ? readAloudMod.furnitureOffersFor(shopKind, soloLevel ?? 'L1') : [];
+  const soloCfg: DialogConfig = { ...(soloLevel ? { level: soloLevel } : {}), ...(shopOffers.length > 0 ? { offers: shopOffers } : {}) };
   const Review = reviewMod?.ReviewDock;
+  const ReadAloud = readAloudMod?.ReadAloudPrompt;
   return (
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: C['paper-50'], touchAction: 'none' }}>
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
@@ -320,11 +370,26 @@ export function App(): React.ReactElement {
               }}
             />
           ) : null}
-          {Review && identity && identity.kind !== 'guest' ? (
+          {Review && identity && identity.kind !== 'guest' && !soloBlocked ? (
             <Review world={world} player={soloPlayerOf(identity)} hidden={lessonOn || soloNpc !== null} />
           ) : null}
-          {world && SoloPanel && soloNpc && soloSubmit ? (
-            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloLevel ? { level: soloLevel } : {}} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />
+          {soloBlocked && world && !lessonOn ? <SeatPausedChip onOpen={() => setSeatCard(true)} /> : null}
+          {soloBlocked && world && !lessonOn && seatCard ? <SeatPausedCard onClose={() => setSeatCard(false)} /> : null}
+          {ReadAloud && room && !lessonOn && !soloBlocked && soloNpc === null ? (
+            <div style={{ position: 'absolute', left: '50%', bottom: 96, transform: 'translateX(-50%)' }}>
+              <ReadAloud
+                key={`${room.missing[0]}|${room.sentence}`}
+                kind={room.missing[0]!}
+                sentence={room.sentence}
+                player={soloPlayerOf(identity)}
+                onResult={(r) => {
+                  if (r.pass) setReadKind(room.missing[0]!);
+                }}
+              />
+            </div>
+          ) : null}
+          {world && !soloBlocked && SoloPanel && soloNpc && soloSubmit ? (
+            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloCfg} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />
           ) : null}
         </div>
       </div>

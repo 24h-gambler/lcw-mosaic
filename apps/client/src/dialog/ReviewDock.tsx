@@ -129,7 +129,7 @@ export function ReviewDock(props: ReviewDockProps): React.ReactElement | null {
       aria-label={R.dockTitle}
       style={{
         position: 'absolute',
-        top: 64,
+        top: 112,
         right: 12,
         width: 'min(300px, calc(100vw - 24px))',
         display: 'flex',

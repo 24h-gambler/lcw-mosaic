@@ -6,6 +6,7 @@ import { cancelMicCue, micClosed, micCue, playSfx, unlockDialogAudio } from './s
 import type { SpeechEngine } from './speech.js';
 import { createDialogSpeechEngine } from './server-stt.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
+import { noteSeatResponse } from '../world/seat.js';
 
 /** The App loads this module lazily; the trade shop's furniture offers come with it (one slot, docs/19 3장). */
 export { furnitureOffersFor } from './hints.js';
@@ -51,6 +52,8 @@ export async function postReadAloud(opts: {
   } catch (err) {
     throw new SubmitError('network', err instanceof Error ? err.message : String(err));
   }
+  // a paused seat is not an error: the shell shows the seat card (world/seat.ts)
+  if (res.status === 403 && (await noteSeatResponse(res))) throw new SubmitError('auth', 'seat_inactive');
   if (res.status === 401 || res.status === 403) throw new SubmitError('auth', `status ${res.status}`);
   if (!res.ok) throw new SubmitError(res.status === 400 ? 'invalid' : 'server', `status ${res.status}`);
   const j = (await res.json()) as Partial<ReadAloudResultView>;

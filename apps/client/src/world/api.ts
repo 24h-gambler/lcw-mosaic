@@ -45,6 +45,8 @@ export interface WorldStats {
   ground?: { near: number; view: number };
   /** the last scene jump: how long the fade card waited for the ground at the new spot */
   arrival?: { scene: SceneId; groundMs: number };
+  /** building on my plot (headless checks): mode, carried stacks, sync queue, current aim, last room check */
+  build?: Record<string, unknown>;
 }
 
 export interface WorldHandle {
@@ -79,12 +81,35 @@ export interface WorldHandle {
   /** Linked child's nickname shown over the player (null = guest, no plate). The guide greets them by name once. */
   setPlayerName?(name: string | null): void;
   /**
-   * Build screen room check (docs/03 D13, docs/08 8.3): what the room still misses, as furniture kinds, and the English
-   * sentence shown for it. The dialog domain puts its read-aloud discount line under it. Returns an unsubscribe.
+   * Who may build on my plot and where it is saved (docs/03 D13, WP-207). Default `local`: a guest builds on this
+   * device only. `saved`: the linked child's device token; the server re-judges and keeps every edit. `paused`: the
+   * seat stopped solo play (look, don't build).
    */
-  onRoomCheck?(cb: (r: { missing: Array<'light' | 'rest' | 'flat'>; sentence: string }) => void): () => void;
+  setBuildAccess?(access: BuildAccess): void;
+  /**
+   * Build screen room check (docs/03 D13, docs/08 8.3): on placing a nameplate and 1 s after the room changes. What
+   * the room still misses as furniture kinds, and the English sentence shown for it; the dialog domain puts its
+   * read-aloud discount line under it. Returns an unsubscribe.
+   */
+  onRoomCheck?(cb: (r: RoomCheckInfo) => void): () => void;
   /** Performance and position read-out (headless checks, tier auto-detect). */
   getStats?(): WorldStats;
+}
+
+export type BuildAccess =
+  | { kind: 'local' }
+  | { kind: 'paused' }
+  /** `pausedFallback: 'local'` keeps building unsaved when the seat is paused (a lesson is never gated). */
+  | { kind: 'saved'; token: string; base?: string; pausedFallback?: 'local' };
+
+export interface RoomCheckInfo {
+  /** furniture kinds the room still needs (empty when only the shape is wrong, or the room is complete) */
+  missing: Array<'light' | 'rest' | 'flat'>;
+  /** target-language sentence for the first need, or the "ready" line */
+  sentence: string;
+  ok: boolean;
+  /** resident who may move in (English name), when the room is complete with job furniture */
+  resident: string | null;
 }
 
 export interface CreateWorldOptions {

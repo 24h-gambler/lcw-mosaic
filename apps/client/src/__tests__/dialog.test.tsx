@@ -25,7 +25,7 @@ import {
   type SpeechCallbacks,
   type SpeechEngine
 } from '../dialog/speech.js';
-import { SubmitError, createLessonSubmit, createSoloSubmitWith, lessonBody } from '../dialog/submit.js';
+import { SubmitError, createLessonSubmit, createPracticeSubmit, createSoloSubmit, createSoloSubmitWith, lessonBody } from '../dialog/submit.js';
 import { DIALOG_CSS } from '../dialog/styles.js';
 import type { DialogPanelProps, NpcRef, UtteranceSubmit } from '../dialog/types.js';
 
@@ -312,6 +312,37 @@ describe('submit paths are server-scored (docs/19 3, AGENTS 4.7)', () => {
     expect(sent[0]!.target_text).toBe('');
     expect(r).toMatchObject({ pass: true, stars: 2, askedKey: 'cafe', matchedText: 'Where is the cafe?' });
     expect(r.itemKey).toBeUndefined();
+  });
+
+  it('a guest (no lesson, no linked device) practices on the device: real bank check, nothing granted', async () => {
+    const practice = createPracticeSubmit(cafe, 'L1');
+    const ok = await practice({ ...u, target_text: 'Can I have some cold water, please?', transcript: 'can I have some cold water please' });
+    expect(ok).toMatchObject({ pass: true, stars: 3, practice: true });
+    expect(ok.itemKey).toBeUndefined();
+    expect(ok.coinsTotal).toBeUndefined();
+    const made = await practice({ ...u, target_text: 'hi', transcript: 'hi' });
+    expect(made.pass).toBe(false);
+    const typed = await practice({ ...u, target_text: 'Can I have some cold water, please?', transcript: 'Can I have some cold water please', stt_source: 'keyboard' });
+    expect(typed.stars).toBe(2);
+    // createSoloSubmit with no token at all falls back to practice instead of an error the child cannot pass.
+    const guest = await createSoloSubmit(cafe)({ ...u, target_text: 'Water, please.', transcript: 'water please', chosen_stars: 1 });
+    expect(guest).toMatchObject({ pass: true, practice: true });
+  });
+
+  it('solo play at home sends the linked device token when there is no lesson token', async () => {
+    const auths: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      auths.push((init!.headers as Record<string, string>).authorization ?? '');
+      return new Response(JSON.stringify({ pass: true, score: 1, stars: 1, missed: [], feedback_ko: 'ok', granted: null, memory_card: null }));
+    }) as typeof fetch;
+    try {
+      const r = await createSoloSubmit(cafe, { deviceToken: 'dev-token-0123456789abcdef0123456789' })(u);
+      expect(r.practice).toBeUndefined();
+      expect(auths).toEqual(['Bearer dev-token-0123456789abcdef0123456789']);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   it('an expired lesson token is an auth error and a bad request is not retried as a network error', async () => {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { QuotaMeter } from '@lcw/quota';
 import { CAFE_MENU, PHRASE_BANK, findBankOffer, starPrice } from '@lcw/content';
@@ -306,5 +307,30 @@ describe('student solo scoring through the platform gate', () => {
     // A body that is not JSON is a 400, not a crash.
     const res = await p.fetch(new Request('https://x/v1/converse/score', { method: 'POST', headers: st, body: '{oops' }));
     expect(res.status).toBe(400);
+  });
+
+  it('a linked child device (solo play at home) scores with its device token; a revoked device is refused', async () => {
+    const p = new PlatformDO({ storage: fakeDurableStorage() }, { PLATFORM: undefined as never, LCW_OPERATOR_TOKEN: TOKEN } as LcwEnv);
+    await call(p, '/v1/admin/players', { family_id: 'fam', guardian_id: 'g', player_id: 'kid-2', nickname: 'Mina', level: 'L2' }, op);
+    const devToken = 'd'.repeat(48);
+    const hash = createHash('sha256').update(devToken).digest('hex');
+    p.sql.run(
+      'insert into devices (id, player_id, family_id, token_hash, label, created_at, last_seen_at, revoked_at) values (?, ?, ?, ?, ?, ?, ?, null)',
+      ['dev-1', 'kid-2', 'fam', hash, 'tablet', Date.now(), Date.now()]
+    );
+    const dev = { authorization: `Bearer ${devToken}`, 'content-type': 'application/json' };
+    const r = await call(p, '/v1/converse/score', {
+      dialog_id: 'home-1', chosen_stars: 3, hint_level: 'full', npc_ctx: 'cafe',
+      target_text: L2_3STAR, transcript: L2_3STAR, player_id: 'someone-else', level: 'L1'
+    }, dev);
+    expect(r.status).toBe(200);
+    expect(r.body.stars).toBe(3);
+    expect(r.body.coins_total).toBe(200 - starPrice(smoothie.basePrice, 3));
+    const utt = p.db.listUtterancesForPlayer('kid-2');
+    expect(utt).toHaveLength(1);
+    expect(utt[0]!.session_id).toBe('solo-dev-1');
+    p.sql.run('update devices set revoked_at = ? where id = ?', [Date.now(), 'dev-1']);
+    const gone = await call(p, '/v1/converse/score', { dialog_id: 'home-2', chosen_stars: 1, hint_level: 'full', npc_ctx: 'cafe', target_text: L2_1STAR, transcript: L2_1STAR }, dev);
+    expect(gone.status).toBe(401);
   });
 });

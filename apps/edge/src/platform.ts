@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
-import { FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
+import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { injectReportShareMeta } from './report-page.js';
 import { createInitialPlayerState } from '@lcw/sim-core';
@@ -243,6 +243,22 @@ export class PlatformDO {
     return studentFromRequest({ sql: this.sql, sha256Hex, nowMs: () => Date.now() }, req);
   }
 
+  /**
+   * Linked child device token (guardian /link → `lcw.deviceToken`, same checks as GET /v1/device/me) → player,
+   * for solo play outside a lesson.
+   */
+  async deviceFromRequest(req: Request): Promise<{ device_id: string; player_id: string } | null> {
+    const h = req.headers.get('authorization') ?? '';
+    const token = h.startsWith('Bearer ') ? h.slice(7) : '';
+    if (token.length < 32) return null;
+    const dev = this.sql.get<{ id: string; player_id: string; created_at: number }>(
+      'select id, player_id, created_at from devices where token_hash = ? and revoked_at is null',
+      [await sha256Hex(token)]
+    );
+    if (!dev || Date.now() - dev.created_at > DEVICE_TOKEN_TTL_MS) return null;
+    return { device_id: dev.id, player_id: dev.player_id };
+  }
+
   playerLevel(playerId: string): string {
     return this.sql.get<{ level: string }>('select level from players where id = ?', [playerId])?.level ?? 'L1';
   }
@@ -375,11 +391,18 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const body = (await c.req.json()) as { cron: string };
     return c.json(platform.runCron(body.cron));
   });
-  // Students score their own solo orders with their lesson token (docs/19 3: solo submit -> /v1/converse/score).
-  // Who, which world and which level come from the token and the server, never from the body (AGENTS 4.7).
+  // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
+  // or outside a lesson with their linked device token. Who, which world and which level come from the token and
+  // the server, never from the body (AGENTS 4.7).
   app.post('/v1/converse/score', async (c, next) => {
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
-    const s = await platform.studentFromRequest(c.req.raw);
+    const student = await platform.studentFromRequest(c.req.raw);
+    const device = student ? null : await platform.deviceFromRequest(c.req.raw);
+    const s = student
+      ? { player_id: student.player_id, session_id: `solo-${student.lesson_id}` }
+      : device
+        ? { player_id: device.player_id, session_id: `solo-${device.device_id}` }
+        : null;
     if (!s) return next();
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ error: 'invalid_score_request' }, 400);
@@ -389,7 +412,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       player_id: s.player_id,
       world_id: platform.ensureHomeWorld(s.player_id),
       session_kind: 'solo',
-      session_id: `solo-${s.lesson_id}`,
+      session_id: s.session_id,
       level: platform.playerLevel(s.player_id),
       interlocutor: 'npc'
     };

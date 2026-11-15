@@ -1,17 +1,12 @@
 import type { LangLevel } from '@lcw/content';
-import type { HintLevel, NpcContext } from '@lcw/schemas';
+import type { HintLevel } from '@lcw/schemas';
+import type { NpcRef } from '../world/api.js';
 
 /**
  * docs/19 3: the dialog domain's contract with the world and lesson domains.
- * `NpcRef` is defined by the world domain in `world/api.ts` (docs/19 2); until that file lands on main it is
- * declared here with the same shape, and this file will re-export it from there.
+ * `NpcRef` is the world domain's (`world/api.ts`, docs/19 2).
  */
-export interface NpcRef {
-  id: string;
-  ctx: NpcContext;
-  nameKo: string;
-  nameEn: string;
-}
+export type { NpcRef };
 
 export type Level = LangLevel;
 export type DialogMode = 'free' | 'guided' | 'read' | 'recall';
@@ -40,6 +35,8 @@ export interface DialogResult {
   askedKey?: string;
   /** Free talk: the bank sentence the server matched the child's words to (shown on the result card). */
   matchedText?: string;
+  /** Guest practice (no lesson, no linked device): checked on the device, nothing is granted. */
+  practice?: boolean;
 }
 
 /**

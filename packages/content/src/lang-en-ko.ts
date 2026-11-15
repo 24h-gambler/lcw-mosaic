@@ -1043,6 +1043,7 @@ export const UI_STRINGS_KO = {
     networkError: '연결이 잠깐 끊겼어요. 한 번 더 눌러 볼까요?',
     submitError: '잠깐 문제가 생겼어요. 한 번 더 해 볼까요?',
     sessionEnded: '수업 시간이 끝나서 저장하지 못했어요. 선생님께 알려 주세요.',
+    practiceNote: '연습 중이라 코인과 물건은 없어요. 보호자와 기기를 연결하면 모을 수 있어요.',
     keepBest: '이대로 받을게요',
     echoTitle: '조금씩 끊어서 따라 말해요',
     echoStep: '{i} / {n}',

@@ -1,3 +1,5 @@
+import { converseFeedbackKo, decideConverseReward } from '@lcw/converse';
+import type { Level } from '@lcw/schemas';
 import type { DialogResult, NpcRef, UtteranceSubmit } from './types.js';
 
 /**
@@ -120,14 +122,51 @@ export function readStudentToken(): string | null {
   }
 }
 
-/** Solo submit for the world domain (docs/19 3): the student token is read at call time. */
-export function createSoloSubmit(npc: NpcRef): (u: UtteranceSubmit) => Promise<DialogResult> {
-  const inner = createSoloSubmitWith({ token: '', npc });
+/** What the world shell knows about who is playing (App.tsx SoloPlayer): a linked child device, or nobody. */
+export interface SoloPlayerRef {
+  deviceToken?: string;
+  nickname?: string;
+  level?: Level;
+}
+
+/**
+ * A guest (no lesson, no linked device) still gets to the end of the dialog: the sentence is checked on this
+ * device against the same bank and rules, but nothing worth anything is granted — no coins, no item (AGENTS 4.7).
+ */
+export function createPracticeSubmit(npc: NpcRef, level: Level = 'L1') {
+  return async (u: UtteranceSubmit): Promise<DialogResult> => {
+    const d = decideConverseReward({
+      ctx: npc.ctx,
+      level,
+      targetText: u.target_text,
+      chosenStars: u.chosen_stars,
+      transcript: u.transcript,
+      hintLevel: u.hint_level,
+      inputSource: u.stt_source,
+      strictBank: true
+    });
+    return {
+      pass: d.pass,
+      stars: d.stars,
+      feedbackKo: converseFeedbackKo({ ...d, inputSource: u.stt_source }),
+      missed: d.missed,
+      matchedText: d.targetText !== u.target_text ? d.targetText : undefined,
+      practice: true
+    };
+  };
+}
+
+/**
+ * Solo submit for the world domain (docs/19 3). The token is read at call time: the lesson student token first
+ * (a child in class), then the linked device token (solo play at home); with neither, practice on the device.
+ */
+export function createSoloSubmit(npc: NpcRef, player?: SoloPlayerRef): (u: UtteranceSubmit) => Promise<DialogResult> {
+  const practice = createPracticeSubmit(npc, player?.level ?? 'L1');
   let bound: ((u: UtteranceSubmit) => Promise<DialogResult>) | null = null;
   let boundToken = '';
   return (u) => {
-    const token = readStudentToken() ?? '';
-    if (!token) return inner(u);
+    const token = readStudentToken() || player?.deviceToken || '';
+    if (!token) return practice(u);
     if (!bound || token !== boundToken) {
       bound = createSoloSubmitWith({ token, npc });
       boundToken = token;

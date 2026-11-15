@@ -480,6 +480,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               ) : null}
               <div className="lcw-res__fb">{result.feedbackKo}</div>
               {!result.pass && missedWords.size > 0 ? <div className="lcw-dlg__name">{S.missedHint}</div> : null}
+              {result.practice ? <div className="lcw-dlg__name">{S.practiceNote}</div> : null}
               {typeof result.coinsTotal === 'number' ? <div className="lcw-res__coins">🪙 {result.coinsTotal} {S.coins}</div> : null}
               <div className="lcw-row">
                 {result.pass ? (

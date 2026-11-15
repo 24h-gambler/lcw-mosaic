@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App, type AppRoute } from './App.js';
+import { reportTokenFromPath } from './lessonFlow.js';
 
 const KNOWN_ROUTES: readonly AppRoute[] = [
   '/',
@@ -16,11 +17,13 @@ const KNOWN_ROUTES: readonly AppRoute[] = [
   '/director',
   '/guest-end',
   '/claim',
-  '/window'
+  '/window',
+  '/join'
 ];
 
 /** Deep links (e.g. a KakaoTalk share of /try) open the matching page instead of always the intro. */
 export function routeFromPath(pathname: string): AppRoute {
+  if (reportTokenFromPath(pathname)) return '/r';
   const clean = (pathname.replace(/\/+$/, '') || '/') as AppRoute;
   return KNOWN_ROUTES.includes(clean) ? clean : '/';
 }
@@ -29,7 +32,10 @@ if (typeof document !== 'undefined') {
   const rootEl = document.getElementById('root');
   if (rootEl) {
     createRoot(rootEl).render(
-      React.createElement(App, { initialRoute: routeFromPath(window.location.pathname) })
+      React.createElement(App, {
+        initialRoute: routeFromPath(window.location.pathname),
+        initialReportToken: reportTokenFromPath(window.location.pathname)
+      })
     );
   }
 }

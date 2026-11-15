@@ -31,6 +31,10 @@ import {
 } from './WebUx.js';
 import { handleDirectorKeydown } from './director.js';
 import { WEB_UX_STRINGS_KO as UX } from './strings.js';
+import { LessonDirectorConsole } from './LessonDirector.js';
+import { StudentJoin } from './StudentJoin.js';
+import { ParentReportPage } from './ParentReportPage.js';
+import { reportTokenFromPath } from './lessonFlow.js';
 
 /** Public site menu (docs/14 §2). Signed-in screens (dashboard, report, window, director, claim) are reached by link, not listed. */
 export const PUBLIC_NAV: ReadonlyArray<{ route: AppRoute; label: string }> = [
@@ -93,7 +97,9 @@ export type AppRoute =
   | '/director'
   | '/guest-end'
   | '/claim'
-  | '/window';
+  | '/window'
+  | '/join'
+  | '/r';
 
 export type ConsentScope = 'voice_store' | 'ai_report_draft' | 'peer_multiplayer' | 'clip_share';
 
@@ -137,6 +143,8 @@ export interface AppProps {
   initialRoute?: AppRoute;
   initialShowChartTables?: boolean;
   initialReportState?: ParentReportState;
+  /** Token from a /r/<token> parent report link. */
+  initialReportToken?: string | null;
 }
 
 const SAMPLE_WEEKLY_FACTS: ReportFacts = {
@@ -965,9 +973,11 @@ export function TeacherDirectorView({
 export function App({
   initialRoute = '/',
   initialShowChartTables = false,
-  initialReportState
+  initialReportState,
+  initialReportToken = null
 }: AppProps): React.ReactElement {
   const [route, setRouteState] = useState<AppRoute>(initialRoute);
+  const [reportToken, setReportToken] = useState<string | null>(initialReportToken);
   const [tryPassed, setTryPassed] = useState(false);
   const setRoute = (r: AppRoute) => {
     setRouteState(r);
@@ -977,7 +987,9 @@ export function App({
     if (typeof window === 'undefined') return undefined;
     const onPop = () => {
       const p = (window.location.pathname.replace(/\/+$/, '') || '/') as AppRoute;
-      setRouteState(p);
+      const token = reportTokenFromPath(window.location.pathname);
+      setRouteState(token ? '/r' : p);
+      setReportToken(token);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -1009,7 +1021,7 @@ export function App({
         padding: `${TOKENS.spacing[3]}px`
       }
     },
-    route !== '/play' && route !== '/try' && route !== '/guest-end'
+    route !== '/play' && route !== '/try' && route !== '/guest-end' && route !== '/join' && route !== '/r'
       ? React.createElement(
           'nav',
           {
@@ -1037,6 +1049,14 @@ export function App({
         )
       : null,
     route === '/play' && React.createElement(ChildPlayPortal),
+    route === '/join' && React.createElement(StudentJoin, null),
+    route === '/r' &&
+      (reportToken
+        ? React.createElement(ParentReportPage, { key: reportToken, token: reportToken })
+        : React.createElement(ParentReportPage, {
+            token: '',
+            initial: { status: 'not_found' }
+          })),
     route === '/try' &&
       React.createElement(
         Panel,
@@ -1110,7 +1130,8 @@ export function App({
     route === '/dashboard' &&
       React.createElement(ParentDashboardView, { initialShowTables: initialShowChartTables }),
     route === '/director' &&
-      React.createElement(TeacherDirectorView, {
+      React.createElement(LessonDirectorConsole, {
+        demo: React.createElement(TeacherDirectorView, {
         reportState,
         onSendReportToParent: ({ verifiedBody, teacherComment, nextLessonAt, trackedExpressions }) => {
           setReportState((prev) => ({
@@ -1134,6 +1155,7 @@ export function App({
           }));
         },
         onOpenParentReportView: () => setRoute('/report')
+        })
       }),
     route === '/' &&
       React.createElement(

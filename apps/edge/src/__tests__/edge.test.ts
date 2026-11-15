@@ -289,4 +289,161 @@ describe('apps/edge (WP-003, WP-205, WP-301, WP-304, WP-501)', () => {
     expect(viewed.share_token).toBe('tok-abc-123');
     expect(viewed.opened_at).not.toBeNull();
   });
+
+  it('executes bilateral trade atomically, tracks solo expression reuse, sends parent report, triggers 48h reminder, and updates on open', async () => {
+    const env = setupTestEnv(1_763_200_000_000);
+    env.worldDo.grantOrSetItem('child-1', 'itm-iron-1', '{"kind":"ore"}');
+    env.worldDo.grantOrSetItem('teacher-1', 'itm-tea-1', '{"kind":"drink"}');
+
+    const scenariosRes = await env.app.request('/v1/trades/scenarios');
+    expect(scenariosRes.status).toBe(200);
+    const scenariosBody = (await scenariosRes.json()) as {
+      scenarios: unknown[];
+      lesson_stages: unknown[];
+    };
+    expect(scenariosBody.scenarios).toHaveLength(4);
+    expect(scenariosBody.lesson_stages).toHaveLength(7);
+
+    // Unilateral speech (teacher transcript empty) is rejected with 422
+    const blockedRes = await env.app.request('/v1/worlds/world-1/trades', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        trade_id: 'tr-blocked',
+        student_id: 'child-1',
+        teacher_id: 'teacher-1',
+        student_give_item_id: 'itm-iron-1',
+        teacher_give_item_id: 'itm-tea-1',
+        base_value_coins: 100,
+        stars: 2,
+        level: 'L2',
+        target_text: 'Could we swap three iron ores for two warm honey teas',
+        teacher_transcript: '',
+        student_transcript: 'Could we swap three iron ores for two warm honey teas'
+      })
+    });
+    expect(blockedRes.status).toBe(422);
+    const blockedBody = (await blockedRes.json()) as { reason: string };
+    expect(blockedBody.reason).toBe('bilateral_utterance_required');
+
+    // Bilateral speech settles swap, 5% fee for 2 stars (= 5 coins), and logs pinned lesson expression
+    const tradeRes = await env.app.request('/v1/worlds/world-1/trades', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        trade_id: 'tr-ok',
+        student_id: 'child-1',
+        teacher_id: 'teacher-1',
+        student_give_item_id: 'itm-iron-1',
+        teacher_give_item_id: 'itm-tea-1',
+        base_value_coins: 100,
+        stars: 2,
+        level: 'L2',
+        target_text: 'Could we swap three iron ores for two warm honey teas',
+        teacher_transcript: 'What would you like to trade for this warm honey tea?',
+        student_transcript: 'Could we swap three iron ores for two warm honey teas',
+        lesson_id: 'lesson-1',
+        pin_expression: 'warm honey tea'
+      })
+    });
+    expect(tradeRes.status).toBe(200);
+    const tradeBody = (await tradeRes.json()) as {
+      ok: boolean;
+      fee_coins: number;
+      swapped_item_ids: string[];
+    };
+    expect(tradeBody.ok).toBe(true);
+    expect(tradeBody.fee_coins).toBe(5);
+    expect(tradeBody.swapped_item_ids).toEqual(['itm-iron-1', 'itm-tea-1']);
+    expect(env.worldDo.getPlayerBalance('child-1')).toBe(95);
+    expect(env.worldDo.listPlayerItems('child-1').map((i) => i.id)).toContain('itm-tea-1');
+    expect(env.worldDo.listPlayerItems('teacher-1').map((i) => i.id)).toContain('itm-iron-1');
+
+    // Solo play reuse increments reuse_solo on lesson-born expression
+    env.advanceClock(60_000);
+    const soloRes = await env.app.request('/v1/converse/score', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        dialog_id: 'd-solo-reuse',
+        chosen_stars: 3,
+        hint_level: 'none',
+        transcript: 'Can I have warm honey tea please',
+        player_id: 'child-1',
+        world_id: 'world-1',
+        session_id: 's-solo-1',
+        session_kind: 'solo',
+        npc_ctx: 'cafe',
+        level: 'L2',
+        target_text: 'Can I have warm honey tea please',
+        price: 20
+      })
+    });
+    expect(soloRes.status).toBe(200);
+    const trackedExpr = env.db.listExpressionsForPlayer('child-1');
+    expect(trackedExpr.some((e) => e.lemma_key === 'warm honey tea' && e.reuse_solo === 1)).toBe(
+      true
+    );
+
+    // Complete lesson and deliver parent report (invalid fabrication is replaced automatically)
+    env.lessonDo.recordMinute({
+      minute: 1,
+      studentMs: 30_000,
+      teacherMs: 25_000,
+      exchanges: 4,
+      activity: 'barter_and_dungeon'
+    });
+    const sendRes = await env.app.request('/v1/lessons/lesson-1/complete-and-send-report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        report_id: 'rep-lesson-1',
+        player_id: 'child-1',
+        guardian_id: 'guard-1',
+        ref_id: 'lesson-1',
+        draft_body: '오늘 999문장을 발화했습니다.',
+        teacher_comment: '물물교환에서 스스로 조건절을 사용했습니다.',
+        next_lesson_at: '2026-11-22 오전 10:00',
+        share_token: 'tok-lesson-1'
+      })
+    });
+    expect(sendRes.status).toBe(200);
+    const sendBody = (await sendRes.json()) as {
+      ok: boolean;
+      delivery_status: string;
+      replaced: boolean;
+      teacher_contribution: { solo_transfer_14d_rate: number };
+    };
+    expect(sendBody.ok).toBe(true);
+    expect(sendBody.delivery_status).toBe('sent');
+    expect(sendBody.replaced).toBe(true);
+    expect(sendBody.teacher_contribution.solo_transfer_14d_rate).toBe(1);
+
+    // Before 48h: no reminder triggered
+    env.advanceClock(60_000);
+    const remEarly = await env.app.request('/v1/reports/reminders/run', { method: 'POST' });
+    expect(((await remEarly.json()) as { remindedCount: number }).remindedCount).toBe(0);
+
+    // After 48h without open: 1 reminder triggered and delivery status flips to reminder_sent
+    env.advanceClock(2 * 86_400_000);
+    const remDue = await env.app.request('/v1/reports/reminders/run', { method: 'POST' });
+    const remDueBody = (await remDue.json()) as { remindedCount: number; reportIds: string[] };
+    expect(remDueBody.remindedCount).toBe(1);
+    expect(remDueBody.reportIds).toContain('rep-lesson-1');
+    expect(env.db.getReportDeliveryByToken('tok-lesson-1')?.status).toBe('reminder_sent');
+
+    // Guardian opens report -> opened_at recorded, delivery_status -> opened, nextTargetsUpdated -> true
+    env.advanceClock(10_000);
+    const openRes = await env.app.request('/v1/reports/tok-lesson-1');
+    expect(openRes.status).toBe(200);
+    const openedBody = (await openRes.json()) as {
+      opened_at: number | null;
+      delivery_status: string;
+      nextTargetsUpdated: boolean;
+    };
+    expect(openedBody.opened_at).not.toBeNull();
+    expect(openedBody.delivery_status).toBe('opened');
+    expect(openedBody.nextTargetsUpdated).toBe(true);
+    expect(env.db.getReportDeliveryByToken('tok-lesson-1')?.status).toBe('opened');
+  });
 });

@@ -388,3 +388,281 @@ export function calculateDialogBoxHeightPx(fontScale: number): number {
   const micRow = TOKENS.shape.micButtonPx + 24;
   return previewRow + promptRow + offersRow + micRow;
 }
+
+export interface TeacherScriptBannerProps {
+  stageTitle: string;
+  teacherLineEn: string;
+  coachingTipKo: string;
+  hintPhrases?: readonly string[];
+  spokenDone?: boolean;
+  onMarkSpoken?: () => void;
+}
+
+/**
+ * Displays what the teacher should say aloud during live tutoring and barter steps.
+ */
+export function TeacherScriptBanner({
+  stageTitle,
+  teacherLineEn,
+  coachingTipKo,
+  hintPhrases = [],
+  spokenDone = false,
+  onMarkSpoken
+}: TeacherScriptBannerProps): React.ReactElement {
+  return React.createElement(
+    Panel,
+    null,
+    React.createElement(
+      'div',
+      {
+        'data-testid': 'teacher-script-banner',
+        style: {
+          display: 'grid',
+          gap: `${TOKENS.spacing[1]}px`
+        }
+      },
+      React.createElement(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: `${TOKENS.spacing[1]}px`,
+            flexWrap: 'wrap'
+          }
+        },
+        React.createElement(
+          'strong',
+          { style: { color: TOKENS.colors['sky-d'] } },
+          `선생님 회화 대본 · ${stageTitle}`
+        ),
+        React.createElement(
+          'span',
+          {
+            style: {
+              padding: `2px ${TOKENS.spacing[1]}px`,
+              borderRadius: `${TOKENS.shape.radiusButtonPx}px`,
+              backgroundColor: spokenDone ? TOKENS.colors.leaf : TOKENS.colors.sun,
+              color: TOKENS.colors['ink-900'],
+              border: `1px solid ${TOKENS.colors['ink-900']}`
+            }
+          },
+          spokenDone ? '선생님 발화 완료' : '발화 안내 중'
+        )
+      ),
+      React.createElement(
+        'div',
+        {
+          style: {
+            fontFamily: TOKENS.typography.fonts.target,
+            fontSize: `${TOKENS.typography.targetSentenceMinPx}px`,
+            fontWeight: 700,
+            color: TOKENS.colors['ink-900'],
+            backgroundColor: TOKENS.colors['paper-50'],
+            padding: `${TOKENS.spacing[2]}px`,
+            borderRadius: `${TOKENS.shape.radiusButtonPx}px`,
+            border: `${TOKENS.shape.borderWidthPx}px solid ${TOKENS.colors['sky-d']}`
+          }
+        },
+        `"${teacherLineEn}"`
+      ),
+      React.createElement(
+        'div',
+        { style: { color: TOKENS.colors['ink-700'] } },
+        `코칭 포인트: ${coachingTipKo}`
+      ),
+      hintPhrases.length > 0
+        ? React.createElement(
+            'div',
+            { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap' } },
+            hintPhrases.map((h) =>
+              React.createElement(
+                'span',
+                {
+                  key: h,
+                  style: {
+                    padding: `2px ${TOKENS.spacing[1]}px`,
+                    backgroundColor: TOKENS.colors['paper-100'],
+                    border: `1px solid ${TOKENS.colors['line-200']}`,
+                    borderRadius: `${TOKENS.shape.radiusButtonPx}px`
+                  }
+                },
+                h
+              )
+            )
+          )
+        : null,
+      onMarkSpoken
+        ? React.createElement(
+            'div',
+            null,
+            React.createElement(
+              Button,
+              { variant: spokenDone ? 'leaf' : 'brand', onClick: onMarkSpoken },
+              spokenDone ? '선생님 대사 발화 확인됨' : '이 대사로 선생님 발화 완료'
+            )
+          )
+        : null
+    )
+  );
+}
+
+export interface BilateralTradeOfferOption {
+  stars: 1 | 2 | 3;
+  text: string;
+  feePct: number;
+  bonus: string | null;
+}
+
+export interface BilateralTradePanelProps {
+  role: 'teacher' | 'student';
+  title: string;
+  npcRoleLabel: string;
+  studentGivesLabel: string;
+  teacherGivesLabel: string;
+  baseValueCoins: number;
+  selectedStars: 1 | 2 | 3;
+  offers: readonly BilateralTradeOfferOption[];
+  teacherSpoken: boolean;
+  studentSpoken: boolean;
+  settled: boolean;
+  settlementNotice?: string;
+  onSelectStars: (stars: 1 | 2 | 3) => void;
+  onStudentSpeak?: () => void;
+  onTeacherSpeak?: () => void;
+  onExecuteTrade?: () => void;
+}
+
+/**
+ * Bilateral barter window shared by teacher director console and student HUD (WP-509, docs/03 D11).
+ * Contains zero real-money pricing/payment copy so it remains safe on child viewports.
+ */
+export function BilateralTradePanel({
+  role,
+  title,
+  npcRoleLabel,
+  studentGivesLabel,
+  teacherGivesLabel,
+  baseValueCoins,
+  selectedStars,
+  offers,
+  teacherSpoken,
+  studentSpoken,
+  settled,
+  settlementNotice,
+  onSelectStars,
+  onStudentSpeak,
+  onTeacherSpeak,
+  onExecuteTrade
+}: BilateralTradePanelProps): React.ReactElement {
+  const readyToSettle = teacherSpoken && studentSpoken;
+
+  return React.createElement(
+    Card,
+    { title: `${title} (${npcRoleLabel})`, tone: role === 'student' ? 'paper' : 'tinted' },
+    React.createElement(
+      'div',
+      {
+        'data-testid': `bilateral-trade-${role}`,
+        style: { display: 'grid', gap: `${TOKENS.spacing[1]}px` }
+      },
+      React.createElement(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: `${TOKENS.spacing[1]}px`,
+            padding: `${TOKENS.spacing[1]}px`,
+            backgroundColor: TOKENS.colors['paper-50'],
+            border: `1px solid ${TOKENS.colors['line-200']}`,
+            borderRadius: `${TOKENS.shape.radiusButtonPx}px`
+          }
+        },
+        React.createElement('strong', null, `학생 제시: ${studentGivesLabel} ⇄ 교사 제시: ${teacherGivesLabel}`),
+        React.createElement(
+          'span',
+          null,
+          `교사 발화: ${teacherSpoken ? '완료' : '대기'} · 학생 발화: ${studentSpoken ? '완료' : '대기'}`
+        )
+      ),
+      React.createElement(
+        'div',
+        { style: { display: 'grid', gap: `${TOKENS.spacing[1]}px` } },
+        offers.map((offer) => {
+          const feeCoins = Math.round((baseValueCoins * offer.feePct) / 100);
+          return React.createElement(
+            'button',
+            {
+              key: offer.stars,
+              type: 'button',
+              onClick: () => onSelectStars(offer.stars),
+              style: {
+                textAlign: 'left',
+                padding: `${TOKENS.spacing[1]}px`,
+                backgroundColor:
+                  selectedStars === offer.stars ? TOKENS.colors.sun : TOKENS.colors['paper-0'],
+                color: TOKENS.colors['ink-900'],
+                border: `${TOKENS.shape.borderWidthPx}px solid ${TOKENS.colors['ink-900']}`,
+                borderRadius: `${TOKENS.shape.radiusButtonPx}px`,
+                cursor: 'pointer'
+              }
+            },
+            React.createElement(
+              'div',
+              { style: { fontWeight: 700 } },
+              `${'★'.repeat(offer.stars)} · 교환 수수료 ${offer.feePct}% (${feeCoins} 코인)${offer.bonus ? ` · 보너스 ${offer.bonus}` : ''}`
+            ),
+            React.createElement(
+              'div',
+              { style: { fontFamily: TOKENS.typography.fonts.target } },
+              offer.text
+            )
+          );
+        })
+      ),
+      React.createElement(
+        'div',
+        { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap' } },
+        role === 'teacher' && onTeacherSpeak
+          ? React.createElement(
+              Button,
+              { variant: teacherSpoken ? 'leaf' : 'sky', onClick: onTeacherSpeak },
+              teacherSpoken ? '선생님 발화 완료' : '선생님 제안 말하기'
+            )
+          : null,
+        onStudentSpeak
+          ? React.createElement(
+              Button,
+              {
+                variant: studentSpoken ? 'leaf' : 'brand',
+                size: role === 'student' ? 'game' : 'standard',
+                onClick: onStudentSpeak
+              },
+              studentSpoken ? '학생 교환 문장 발화 완료' : '고른 문장으로 교환 말하기'
+            )
+          : null,
+        onExecuteTrade
+          ? React.createElement(
+              Button,
+              {
+                variant: settled ? 'leaf' : 'sky',
+                disabled: !readyToSettle || settled,
+                onClick: onExecuteTrade
+              },
+              settled ? '물물교환 성사됨' : readyToSettle ? '양쪽 발화 확인 · 물물교환 확정' : '양쪽 모두 말하면 성사'
+            )
+          : null
+      ),
+      settlementNotice
+        ? React.createElement(
+            'div',
+            { style: { fontWeight: 700, color: TOKENS.colors['leaf-d'] } },
+            settlementNotice
+          )
+        : null
+    )
+  );
+}

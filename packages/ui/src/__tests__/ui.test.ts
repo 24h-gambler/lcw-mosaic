@@ -27,7 +27,7 @@ describe('@lcw/ui WP-005 & WP-109 acceptance', () => {
 
   it('renders GuestPassEndModal without any price, payment, or deadline pressure (AGENTS.md 4.9)', () => {
     const html = renderToStaticMarkup(
-      React.createElement(GuestPassEndModal, { shareUrl: 'https://mosaic.example/parents' })
+      React.createElement(GuestPassEndModal, { shareUrl: 'https://lcw.example/parents' })
     );
     expect(html).toContain('부모님께 소개 보내기');
     for (const forbidden of FORBIDDEN_PLAYER_UI_PATTERNS) {

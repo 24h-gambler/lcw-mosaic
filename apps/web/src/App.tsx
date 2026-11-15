@@ -1,17 +1,50 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AccessibleChartWithTable,
+  BilateralTradePanel,
   Button,
   Card,
   GuestPassEndModal,
   Panel,
-  TOKENS
+  TOKENS,
+  TeacherScriptBanner
 } from '@lcw/ui';
+import { TEACHER_STUDENT_TRADE_SCENARIOS } from '@lcw/content';
 import {
   buildFactualWeeklySummary,
   verifyOrReplaceReportBody,
   type ReportFacts
 } from '@lcw/metrics';
+import {
+  LessonProgressionTracker,
+  calculateTradeSettlement,
+  evaluateMentorDungeonGate
+} from '@lcw/sim-core';
+
+export interface ParentReportState {
+  reportId: string;
+  lessonDateLabel: string;
+  clipTitle: string;
+  clipDurationLabel: string;
+  studentMinutes: number;
+  freeWordsCount: number;
+  exchangesPer10Min: number;
+  densityBand: string;
+  anchorBeforeText: string;
+  anchorAfterText: string;
+  todayExpressions: string[];
+  soloReusedCount: number;
+  totalTrackedExpressions: number;
+  verifiedBody: string;
+  teacherComment: string;
+  nextLessonAt: string;
+  deliveryStatus: 'draft' | 'sent' | 'opened' | 'reminder_sent';
+  shareToken: string;
+  sentAtMs: number | null;
+  openedAtMs: number | null;
+  reminderSentAtMs: number | null;
+  nextTargetsUpdated: boolean;
+}
 
 export type AppRoute =
   | '/'
@@ -67,6 +100,7 @@ export const DIRECTOR_EVENTS = [
 export interface AppProps {
   initialRoute?: AppRoute;
   initialShowChartTables?: boolean;
+  initialReportState?: ParentReportState;
 }
 
 const SAMPLE_WEEKLY_FACTS: ReportFacts = {
@@ -188,26 +222,382 @@ export function ParentDashboardView({
   );
 }
 
-export function TeacherDirectorView(): React.ReactElement {
+export const DEFAULT_PARENT_REPORT_STATE: ParentReportState = {
+  reportId: 'rep_weekly_default',
+  lessonDateLabel: '2026-11-15 (토) 120분 아크 수업',
+  clipTitle: '찻집 물물교환 · 철광석 3개 ⇄ 따뜻한 꿀차 2잔 성사 순간',
+  clipDurationLabel: '18초 (보호자 동의 시 재생)',
+  studentMinutes: 22,
+  freeWordsCount: 44,
+  exchangesPer10Min: 4.8,
+  densityBand: '목표 구간 달성 (20~35%)',
+  anchorBeforeText: '1주 기준선: "I want warm honey tea please." (단문 요청)',
+  anchorAfterText:
+    '4주 현재: "Could we trade three iron ores for two warm honey teas so I stay warm?" (조건·목적 복문)',
+  todayExpressions: [
+    'If I trade three iron ores, could I get two warm honey teas so that I can stay warm?',
+    'Would you trade four lanterns for my ruby so that I can light up my new room?',
+    'Pull the red lever first so that the bridge opens safely.',
+    'Wait! Let me check my floor map before pressing the blue switch.',
+    'Please add a warm lantern beside my cozy workshop.'
+  ],
+  soloReusedCount: 4,
+  totalTrackedExpressions: 6,
+  verifiedBody:
+    '이번 주 인식된 발화는 60건이며 직접 만들어 말한 발화는 42건(70%)입니다.',
+  teacherComment:
+    '오늘 물물교환과 멘토 던전 협동에서 because / so that 절을 스스로 연결해 말했습니다. 다음 수업 전 밀봉 상자 열기를 연습해 보세요.',
+  nextLessonAt: '2026-11-22 (토) 오전 10:00',
+  deliveryStatus: 'sent',
+  shareToken: 'share-lcw-parent-01',
+  sentAtMs: 1_763_200_000_000,
+  openedAtMs: null,
+  reminderSentAtMs: null,
+  nextTargetsUpdated: false
+};
+
+export interface ParentReportViewProps {
+  report: ParentReportState;
+  onMarkOpened?: () => void;
+  onBackToDirector?: () => void;
+}
+
+export function ParentReportView({
+  report,
+  onMarkOpened,
+  onBackToDirector
+}: ParentReportViewProps): React.ReactElement {
+  useEffect(() => {
+    if (
+      onMarkOpened &&
+      (report.deliveryStatus === 'sent' || report.deliveryStatus === 'reminder_sent') &&
+      report.openedAtMs === null
+    ) {
+      onMarkOpened();
+    }
+  }, [onMarkOpened, report.deliveryStatus, report.openedAtMs]);
+
+  const statusBadgeText =
+    report.deliveryStatus === 'opened'
+      ? '열람 확인됨 (교사 다음 수업 타깃 자동 갱신 완료)'
+      : report.deliveryStatus === 'reminder_sent'
+        ? '48시간 미열람 리마인드 발송됨'
+        : report.deliveryStatus === 'sent'
+          ? '발송 완료 (학부모 수신 확인 대기)'
+          : '초안 작성 중';
+
+  const statusBg =
+    report.deliveryStatus === 'opened'
+      ? TOKENS.colors.leaf
+      : report.deliveryStatus === 'reminder_sent'
+        ? TOKENS.colors.sun
+        : TOKENS.colors.sky;
+
+  return React.createElement(
+    'section',
+    {
+      'data-testid': 'parent-report-view',
+      style: { maxWidth: '640px', margin: '0 auto', display: 'grid', gap: `${TOKENS.spacing[2]}px` }
+    },
+    React.createElement(
+      Card,
+      { title: 'W09 주간·수업 성장 리포트', tone: 'tinted' },
+      React.createElement(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: `${TOKENS.spacing[1]}px`,
+            flexWrap: 'wrap',
+            marginBottom: `${TOKENS.spacing[1]}px`
+          }
+        },
+        React.createElement('span', null, `${report.lessonDateLabel} · 토큰 ${report.shareToken}`),
+        React.createElement(
+          'span',
+          {
+            'data-testid': 'report-delivery-badge',
+            style: {
+              padding: `2px ${TOKENS.spacing[1]}px`,
+              backgroundColor: statusBg,
+              color: TOKENS.colors['ink-900'],
+              borderRadius: `${TOKENS.shape.radiusButtonPx}px`,
+              border: `1px solid ${TOKENS.colors['ink-900']}`,
+              fontWeight: 700
+            }
+          },
+          statusBadgeText
+        )
+      ),
+      report.deliveryStatus !== 'opened' && onMarkOpened
+        ? React.createElement(
+            Button,
+            { variant: 'leaf', onClick: onMarkOpened },
+            '수신 및 열람 확인 완료'
+          )
+        : null
+    ),
+    React.createElement(
+      Card,
+      { title: '1. 오늘의 대표 발화 클립' },
+      React.createElement('strong', null, report.clipTitle),
+      React.createElement('p', null, `재생 정보: ${report.clipDurationLabel}`)
+    ),
+    React.createElement(
+      Card,
+      { title: '2. 수업 핵심 숫자 지표' },
+      React.createElement(
+        'ul',
+        null,
+        React.createElement('li', null, `직접 말한 시간: ${report.studentMinutes}분`),
+        React.createElement('li', null, `자유 말 뭉치(발화 단어 수): ${report.freeWordsCount}단어`),
+        React.createElement('li', null, `10분당 영어 주고받기: ${report.exchangesPer10Min}회`),
+        React.createElement('li', null, `발화 밀도 밴드: ${report.densityBand}`),
+        React.createElement(
+          'li',
+          null,
+          `혼자 플레이 재사용률: ${report.soloReusedCount}/${report.totalTrackedExpressions}`
+        )
+      )
+    ),
+    React.createElement(
+      Card,
+      { title: '3. 4주 고정 과제 전·후 비교' },
+      React.createElement('p', null, report.anchorBeforeText),
+      React.createElement('p', null, report.anchorAfterText)
+    ),
+    React.createElement(
+      Card,
+      { title: '4. 오늘 배운 핵심 표현 5개' },
+      React.createElement(
+        'ol',
+        null,
+        report.todayExpressions.map((expr) =>
+          React.createElement(
+            'li',
+            { key: expr, style: { fontFamily: TOKENS.typography.fonts.target } },
+            expr
+          )
+        )
+      )
+    ),
+    React.createElement(
+      Card,
+      { title: '5. 사실 검증 리포트 & 선생님 코멘트' },
+      React.createElement('p', null, `검증 요약: ${report.verifiedBody}`),
+      React.createElement('p', null, `선생님 한마디: ${report.teacherComment}`),
+      React.createElement(
+        'p',
+        null,
+        `다음 수업 일정: ${report.nextLessonAt} | 다음 수업 타깃 반영: ${
+          report.nextTargetsUpdated ? '완료' : '열람 시 자동 갱신'
+        }`
+      ),
+      onBackToDirector
+        ? React.createElement(
+            Button,
+            { variant: 'sky', onClick: onBackToDirector },
+            '디렉터 콘솔(/director)로 돌아가기'
+          )
+        : null
+    )
+  );
+}
+
+export interface TeacherDirectorViewProps {
+  reportState?: ParentReportState;
+  onSendReportToParent?: (params: {
+    verifiedBody: string;
+    teacherComment: string;
+    nextLessonAt: string;
+    trackedExpressions: string[];
+  }) => void;
+  onTriggerReminder?: () => void;
+  onOpenParentReportView?: () => void;
+}
+
+export function TeacherDirectorView({
+  reportState,
+  onSendReportToParent,
+  onTriggerReminder,
+  onOpenParentReportView
+}: TeacherDirectorViewProps): React.ReactElement {
   const [possessedNpc, setPossessedNpc] = useState<'cafe' | 'boutique' | 'makers_lab'>('cafe');
+  const trackerRef = useRef<LessonProgressionTracker | null>(null);
+  if (!trackerRef.current) {
+    trackerRef.current = new LessonProgressionTracker();
+  }
+  const tracker = trackerRef.current;
+  const [, setTrackerTick] = useState(0);
+  const [stageScriptSpoken, setStageScriptSpoken] = useState(false);
+  const [soloChestNotice, setSoloChestNotice] = useState(
+    '수업 말미에 봉인 상자를 심으면 학생의 주간 솔로 복습으로 이어집니다.'
+  );
+
+  const [scenarioIdx, setScenarioIdx] = useState(0);
+  const [tradeStageIdx, setTradeStageIdx] = useState(0);
+  const [selectedStars, setSelectedStars] = useState<1 | 2 | 3>(3);
+  const [teacherSpoken, setTeacherSpoken] = useState(false);
+  const [studentSpoken, setStudentSpoken] = useState(false);
+  const [tradeSettled, setTradeSettled] = useState(false);
+  const [studentCoins, setStudentCoins] = useState(300);
+  const [tradeNotice, setTradeNotice] = useState(
+    '선생님 회화 대본을 읽고 발화 완료를 누른 뒤, 학생 발화와 함께 물물교환을 확정하세요.'
+  );
+
   const [pins, setPins] = useState<Array<{ kind: 'E' | 'C' | 'H'; note: string }>>([
     { kind: 'E', note: 'Can I have a warm honey tea so I stay warm?' }
   ]);
   const [triggeredEvents, setTriggeredEvents] = useState<string[]>([]);
+  const [dungeonTeacherClue, setDungeonTeacherClue] = useState(
+    'Pull the red lever first so that the bridge opens.'
+  );
+  const [dungeonStudentAction, setDungeonStudentAction] = useState(
+    'I will pull the red lever carefully.'
+  );
+  const [dungeonNotice, setDungeonNotice] = useState(
+    '교사(지도 단서)와 학생(행동 발화) 양쪽이 모두 말하면 던전 문이 열립니다.'
+  );
+
   const [reportDraft, setReportDraft] = useState(
     '이번 주 인식된 발화는 60건이며 직접 만들어 말한 발화는 42건(70%)입니다.'
   );
+  const [teacherComment, setTeacherComment] = useState(DEFAULT_PARENT_REPORT_STATE.teacherComment);
+  const [nextLessonAt, setNextLessonAt] = useState(DEFAULT_PARENT_REPORT_STATE.nextLessonAt);
+  const [localReport, setLocalReport] = useState<ParentReportState>(DEFAULT_PARENT_REPORT_STATE);
+
+  const effectiveReport = reportState ?? localReport;
   const reportVerify = verifyOrReplaceReportBody(SAMPLE_WEEKLY_FACTS, reportDraft);
+
+  const scenario = TEACHER_STUDENT_TRADE_SCENARIOS[scenarioIdx] ?? TEACHER_STUDENT_TRADE_SCENARIOS[0]!;
+  const tradeGuide =
+    scenario.teacherGuideStages[tradeStageIdx] ?? scenario.teacherGuideStages[0]!;
+  const currentArcGuide = tracker.getCurrentGuide();
+  const arcStages = tracker.getAllProgress();
+
+  const handleCompleteStage = () => {
+    tracker.completeCurrentStage(`NPC=${possessedNpc} 확인 완료`);
+    setStageScriptSpoken(false);
+    setTrackerTick((n) => n + 1);
+  };
+
+  const handlePlantChest = () => {
+    const chestExpr = scenario.studentOffers[2]?.text ?? scenario.studentOffers[0]!.text;
+    tracker.plantSealedChest({
+      id: `chest_${tracker.sealedChests.length + 1}`,
+      expression: chestExpr,
+      rewardCoins: 25
+    });
+    tracker.setCampaignNote(`${scenario.titleKo} 차기 솔로 연계`);
+    setSoloChestNotice(`봉인 상자 매설 완료: "${chestExpr}" (보상 25코인)`);
+    setTrackerTick((n) => n + 1);
+  };
+
+  const handleSimulateSoloUnlock = () => {
+    if (tracker.sealedChests.length === 0) {
+      handlePlantChest();
+    }
+    const targetExpr =
+      tracker.sealedChests[0]?.expression ??
+      scenario.studentOffers[2]?.text ??
+      scenario.studentOffers[0]!.text;
+    const res = tracker.unlockSealedChestByExpression(targetExpr, 1_763_250_000_000);
+    setSoloChestNotice(
+      res.unlockedCount > 0
+        ? `솔로 복습 해금 성공: ${res.unlockedIds.join(', ')} (+${res.rewardCoins}코인)`
+        : '이미 모든 봉인 상자가 해금되었습니다.'
+    );
+    setTrackerTick((n) => n + 1);
+  };
+
+  const handleExecuteTrade = () => {
+    const settlement = calculateTradeSettlement({
+      baseValueCoins: scenario.teacherGives.baseValueCoins,
+      stars: selectedStars,
+      teacherSpoken,
+      studentSpoken,
+      studentPassed: true,
+      studentCoins
+    });
+    if (!settlement.settled) {
+      setTradeNotice(
+        settlement.reason === 'insufficient_coins_for_fee'
+          ? `코인이 부족합니다 (필요 수수료 ${settlement.feeCoins}코인).`
+          : '교사와 학생 양쪽 발화가 모두 완료되어야 물물교환이 성사됩니다.'
+      );
+      return;
+    }
+    const nextCoins = studentCoins - settlement.feeCoins;
+    setStudentCoins(nextCoins);
+    setTradeSettled(true);
+    const chosenOffer =
+      scenario.studentOffers.find((o) => o.stars === selectedStars) ?? scenario.studentOffers[0]!;
+    setPins((prev) => [...prev, { kind: 'E', note: chosenOffer.text }]);
+    setTradeNotice(
+      `물물교환 성사: ${scenario.studentGives.nameKo} ⇄ ${scenario.teacherGives.nameKo} | 수수료 ${settlement.feeCoins}코인 (남은 코인 ${nextCoins})`
+    );
+  };
+
+  const handleEvaluateDungeon = () => {
+    const res = evaluateMentorDungeonGate({
+      hazardCode: 'switch_maze_01',
+      teacherPromptText: dungeonTeacherClue,
+      studentActionText: dungeonStudentAction
+    });
+    setDungeonNotice(
+      res.gateOpened
+        ? `멘토 던전 문 개방 완료 (${res.hazardCode}) — 교사 단서와 학생 행동 발화 동기화됨`
+        : `아직 닫혀 있음 (${res.reason})`
+    );
+  };
+
+  const handleSendReport = () => {
+    const trackedExpressions = pins.filter((p) => p.kind === 'E').map((p) => p.note).slice(0, 5);
+    if (onSendReportToParent) {
+      onSendReportToParent({
+        verifiedBody: reportVerify.body,
+        teacherComment,
+        nextLessonAt,
+        trackedExpressions
+      });
+      return;
+    }
+    setLocalReport((prev) => ({
+      ...prev,
+      verifiedBody: reportVerify.body,
+      teacherComment,
+      nextLessonAt,
+      todayExpressions: trackedExpressions.length > 0 ? trackedExpressions : prev.todayExpressions,
+      deliveryStatus: 'sent',
+      sentAtMs: 1_763_200_000_000,
+      openedAtMs: null,
+      nextTargetsUpdated: false
+    }));
+  };
+
+  const handleReminder = () => {
+    if (onTriggerReminder) {
+      onTriggerReminder();
+      return;
+    }
+    setLocalReport((prev) => ({
+      ...prev,
+      deliveryStatus: prev.openedAtMs ? prev.deliveryStatus : 'reminder_sent',
+      reminderSentAtMs: 1_763_373_000_000
+    }));
+  };
 
   return React.createElement(
     'section',
     { 'data-testid': 'teacher-director-console', style: { display: 'grid', gap: `${TOKENS.spacing[3]}px` } },
     React.createElement(
       Card,
-      { title: 'T01 120분 디렉터 콘솔 & NPC 빙의' },
+      { title: 'T01 120분 7단계 연속 수업 아크 & NPC 빙의' },
       React.createElement(
         'div',
-        { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap' } },
+        { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap', marginBottom: `${TOKENS.spacing[2]}px` } },
         (['cafe', 'boutique', 'makers_lab'] as const).map((ctx) =>
           React.createElement(
             Button,
@@ -219,11 +609,151 @@ export function TeacherDirectorView(): React.ReactElement {
             `NPC 빙의: ${ctx}`
           )
         )
+      ),
+      React.createElement(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            gap: `${TOKENS.spacing[1]}px`,
+            flexWrap: 'wrap',
+            marginBottom: `${TOKENS.spacing[2]}px`
+          }
+        },
+        arcStages.map((stage) =>
+          React.createElement(
+            'span',
+            {
+              key: stage.id,
+              style: {
+                padding: `2px ${TOKENS.spacing[1]}px`,
+                borderRadius: `${TOKENS.shape.radiusButtonPx}px`,
+                border: `1px solid ${TOKENS.colors['ink-900']}`,
+                backgroundColor:
+                  stage.status === 'completed'
+                    ? TOKENS.colors.leaf
+                    : stage.status === 'current'
+                      ? TOKENS.colors.sun
+                      : TOKENS.colors['paper-100']
+              }
+            },
+            `${stage.titleKo} (${stage.minuteRange}) · ${
+              stage.status === 'completed' ? '완료' : stage.status === 'current' ? '진행중' : '대기'
+            }`
+          )
+        )
+      ),
+      React.createElement(TeacherScriptBanner, {
+        stageTitle: `${currentArcGuide.titleKo} (${currentArcGuide.minuteRange})`,
+        teacherLineEn: currentArcGuide.teacherScriptEn,
+        coachingTipKo: `${currentArcGuide.studentGoalKo} · 완료 기준: ${currentArcGuide.completionCriteriaKo}`,
+        hintPhrases: [currentArcGuide.id],
+        spokenDone: stageScriptSpoken,
+        onMarkSpoken: () => setStageScriptSpoken(true)
+      }),
+      React.createElement(
+        'div',
+        { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap', marginTop: `${TOKENS.spacing[2]}px` } },
+        React.createElement(
+          Button,
+          { variant: 'brand', onClick: handleCompleteStage },
+          '현재 단계 완료 → 다음 단계'
+        ),
+        React.createElement(
+          Button,
+          { variant: 'sky', onClick: handlePlantChest },
+          '봉인 복습 상자 심기 (차기 솔로 복습용)'
+        ),
+        React.createElement(
+          Button,
+          { variant: 'leaf', onClick: handleSimulateSoloUnlock },
+          '솔로 복습 발화로 상자 해금 시뮬레이션'
+        )
+      ),
+      React.createElement(
+        'p',
+        { style: { marginTop: `${TOKENS.spacing[1]}px` } },
+        `매설된 봉인 상자: ${tracker.sealedChests.length}개 | 다음 수업 자동 타깃: ${
+          tracker.nextLessonTargets.length
+        }건 | ${soloChestNotice}`
       )
     ),
     React.createElement(
       Card,
-      { title: 'T02 디렉터 이벤트 6종 & E/C/H 타임라인 핀' },
+      { title: '선생-학생 물물교환 & 회화 대본 콘솔' },
+      React.createElement(
+        'div',
+        { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap', marginBottom: `${TOKENS.spacing[2]}px` } },
+        TEACHER_STUDENT_TRADE_SCENARIOS.map((item, idx) =>
+          React.createElement(
+            Button,
+            {
+              key: item.id,
+              variant: scenarioIdx === idx ? 'brand' : 'paper',
+              onClick: () => {
+                setScenarioIdx(idx);
+                setTradeStageIdx(0);
+                setTeacherSpoken(false);
+                setStudentSpoken(false);
+                setTradeSettled(false);
+              }
+            },
+            item.titleKo
+          )
+        )
+      ),
+      React.createElement(
+        'div',
+        { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap', marginBottom: `${TOKENS.spacing[2]}px` } },
+        scenario.teacherGuideStages.map((st, idx) =>
+          React.createElement(
+            Button,
+            {
+              key: st.stage,
+              variant: tradeStageIdx === idx ? 'sky' : 'paper',
+              onClick: () => setTradeStageIdx(idx)
+            },
+            st.titleKo
+          )
+        )
+      ),
+      React.createElement(TeacherScriptBanner, {
+        stageTitle: `${scenario.npcRoleKo} · ${tradeGuide.titleKo}`,
+        teacherLineEn: tradeGuide.teacherLineEn,
+        coachingTipKo: tradeGuide.coachingTipKo,
+        hintPhrases: [scenario.openFollowUpEn],
+        spokenDone: teacherSpoken,
+        onMarkSpoken: () => setTeacherSpoken(true)
+      }),
+      React.createElement(
+        'div',
+        { style: { marginTop: `${TOKENS.spacing[2]}px` } },
+        React.createElement(BilateralTradePanel, {
+          role: 'teacher',
+          title: scenario.titleKo,
+          npcRoleLabel: scenario.npcRoleKo,
+          studentGivesLabel: scenario.studentGives.nameKo,
+          teacherGivesLabel: scenario.teacherGives.nameKo,
+          baseValueCoins: scenario.teacherGives.baseValueCoins,
+          selectedStars,
+          offers: scenario.studentOffers,
+          teacherSpoken,
+          studentSpoken,
+          settled: tradeSettled,
+          settlementNotice: tradeNotice,
+          onSelectStars: (stars) => {
+            setSelectedStars(stars);
+            setTradeSettled(false);
+          },
+          onTeacherSpeak: () => setTeacherSpoken(true),
+          onStudentSpeak: () => setStudentSpoken(true),
+          onExecuteTrade: handleExecuteTrade
+        })
+      )
+    ),
+    React.createElement(
+      Card,
+      { title: 'T02 디렉터 이벤트 6종 & E/C/H 핀 & 멘토 던전 정보 격차 (WP-311)' },
       React.createElement(
         'div',
         { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap', marginBottom: `${TOKENS.spacing[2]}px` } },
@@ -241,7 +771,7 @@ export function TeacherDirectorView(): React.ReactElement {
       ),
       React.createElement(
         'div',
-        { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px` } },
+        { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap', marginBottom: `${TOKENS.spacing[2]}px` } },
         (['E', 'C', 'H'] as const).map((kind) =>
           React.createElement(
             Button,
@@ -257,13 +787,45 @@ export function TeacherDirectorView(): React.ReactElement {
       ),
       React.createElement(
         'p',
-        { style: { marginTop: `${TOKENS.spacing[1]}px` } },
+        { style: { marginBottom: `${TOKENS.spacing[2]}px` } },
         `활성 이벤트: ${triggeredEvents.join(', ') || '없음'} | 핀 수: ${pins.length}`
+      ),
+      React.createElement(
+        'div',
+        {
+          style: {
+            display: 'grid',
+            gap: `${TOKENS.spacing[1]}px`,
+            padding: `${TOKENS.spacing[2]}px`,
+            backgroundColor: TOKENS.colors['paper-50'],
+            border: `1px solid ${TOKENS.colors['line-200']}`,
+            borderRadius: `${TOKENS.shape.radiusButtonPx}px`
+          }
+        },
+        React.createElement('strong', null, '멘토 던전 정보 격차 협동 검증'),
+        React.createElement('input', {
+          type: 'text',
+          'aria-label': '교사 지도 단서 문장',
+          value: dungeonTeacherClue,
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDungeonTeacherClue(e.target.value)
+        }),
+        React.createElement('input', {
+          type: 'text',
+          'aria-label': '학생 행동 응답 문장',
+          value: dungeonStudentAction,
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDungeonStudentAction(e.target.value)
+        }),
+        React.createElement(
+          Button,
+          { variant: 'brand', onClick: handleEvaluateDungeon },
+          '정보 격차 던전 게이트 판정 (WP-311)'
+        ),
+        React.createElement('p', null, dungeonNotice)
       )
     ),
     React.createElement(
       Card,
-      { title: 'T03 사실 검증 리포트 초안 편집기' },
+      { title: 'T03 사실 검증 리포트 & 학부모 발송/수신 추적' },
       React.createElement('textarea', {
         value: reportDraft,
         onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => setReportDraft(e.target.value),
@@ -274,6 +836,50 @@ export function TeacherDirectorView(): React.ReactElement {
         'p',
         null,
         `검증 결과: ${reportVerify.ok ? '사실 일치' : `자동 치환됨 (${reportVerify.reasons.join(', ')})`} -> ${reportVerify.body}`
+      ),
+      React.createElement(
+        'div',
+        { style: { display: 'grid', gap: `${TOKENS.spacing[1]}px`, marginTop: `${TOKENS.spacing[1]}px` } },
+        React.createElement('input', {
+          type: 'text',
+          'aria-label': '선생님 코멘트',
+          value: teacherComment,
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => setTeacherComment(e.target.value)
+        }),
+        React.createElement('input', {
+          type: 'text',
+          'aria-label': '다음 수업 일정',
+          value: nextLessonAt,
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => setNextLessonAt(e.target.value)
+        })
+      ),
+      React.createElement(
+        'div',
+        { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap', marginTop: `${TOKENS.spacing[2]}px` } },
+        React.createElement(
+          Button,
+          { variant: 'brand', onClick: handleSendReport },
+          '학부모에게 리포트 발송'
+        ),
+        React.createElement(
+          Button,
+          { variant: 'sky', onClick: handleReminder },
+          '48시간 미열람 재알림 테스트'
+        ),
+        onOpenParentReportView
+          ? React.createElement(
+              Button,
+              { variant: 'leaf', onClick: onOpenParentReportView },
+              '학부모 수신 화면(/report) 열어서 열람 확인하기'
+            )
+          : null
+      ),
+      React.createElement(
+        'p',
+        { style: { marginTop: `${TOKENS.spacing[1]}px` } },
+        `발송 상태: ${effectiveReport.deliveryStatus} | 공유 토큰: ${effectiveReport.shareToken} | 열람 여부: ${
+          effectiveReport.openedAtMs ? '열람 완료' : '미열람'
+        } | 다음 수업 타깃 갱신: ${effectiveReport.nextTargetsUpdated ? '완료' : '대기'}`
       )
     )
   );
@@ -281,9 +887,13 @@ export function TeacherDirectorView(): React.ReactElement {
 
 export function App({
   initialRoute = '/',
-  initialShowChartTables = false
+  initialShowChartTables = false,
+  initialReportState
 }: AppProps): React.ReactElement {
   const [route, setRoute] = useState<AppRoute>(initialRoute);
+  const [reportState, setReportState] = useState<ParentReportState>(
+    initialReportState ?? DEFAULT_PARENT_REPORT_STATE
+  );
 
   const navItems: Array<{ route: AppRoute; label: string }> = [
     { route: '/', label: '소개 (W01)' },
@@ -293,9 +903,19 @@ export function App({
     { route: '/safety', label: '안전·개인정보 (W05)' },
     { route: '/teachers', label: '선생님 안내 (W06)' },
     { route: '/worlds', label: '월드 구경 (W07)' },
+    { route: '/report', label: '수업 리포트 (W09)' },
     { route: '/dashboard', label: '부모 대시보드 (P01)' },
     { route: '/director', label: '디렉터 콘솔 (T02)' }
   ];
+
+  const handleMarkReportOpened = () => {
+    setReportState((prev) => ({
+      ...prev,
+      deliveryStatus: 'opened',
+      openedAtMs: prev.openedAtMs ?? 1_763_205_000_000,
+      nextTargetsUpdated: true
+    }));
+  };
 
   return React.createElement(
     'div',
@@ -345,13 +965,17 @@ export function App({
     route === '/parents' &&
       React.createElement(
         Card,
-        { title: 'W04 부모·가족 요금 및 14일 환불 정책' },
+        { title: 'W04 부모·가족 요금 및 7일 환불 정책' },
         React.createElement(
           'ul',
           null,
-          React.createElement('li', null, '솔로 패스: 월 19,900원 (언제든 마이페이지에서 즉시 해지 가능)'),
-          React.createElement('li', null, '듀오 패스: 월 29,900원 (동반 가족 추가 +9,900원)'),
-          React.createElement('li', null, '14일 이내 무조건 전액 환불 및 갱신 7일 전 사전 알림')
+          React.createElement('li', null, 'Solo (1좌석): 월 14,900원 / 연 119,000원 (언제든 마이페이지에서 즉시 해지 가능)'),
+          React.createElement(
+            'li',
+            null,
+            'Duo (2좌석): 월 19,900원 / 연 159,000원 (좌석 추가: 월 7,000원 / 연 59,000원)'
+          ),
+          React.createElement('li', null, '결제 후 7일 이내 전액 환불 및 연간 갱신 7일 전 사전 알림')
         )
       ),
     route === '/safety' &&
@@ -391,19 +1015,44 @@ export function App({
         React.createElement('p', null, '승인된 친구 월드로 안전하게 입장합니다.')
       ),
     route === '/report' &&
-      React.createElement(
-        Card,
-        { title: 'W09 주간 성장 리포트 공유 카드' },
-        React.createElement('p', null, buildFactualWeeklySummary(SAMPLE_WEEKLY_FACTS))
-      ),
+      React.createElement(ParentReportView, {
+        report: reportState,
+        onMarkOpened: handleMarkReportOpened,
+        onBackToDirector: () => setRoute('/director')
+      }),
     route === '/dashboard' &&
       React.createElement(ParentDashboardView, { initialShowTables: initialShowChartTables }),
-    route === '/director' && React.createElement(TeacherDirectorView),
+    route === '/director' &&
+      React.createElement(TeacherDirectorView, {
+        reportState,
+        onSendReportToParent: ({ verifiedBody, teacherComment, nextLessonAt, trackedExpressions }) => {
+          setReportState((prev) => ({
+            ...prev,
+            verifiedBody,
+            teacherComment,
+            nextLessonAt,
+            todayExpressions:
+              trackedExpressions.length > 0 ? trackedExpressions : prev.todayExpressions,
+            deliveryStatus: 'sent',
+            sentAtMs: 1_763_200_000_000,
+            openedAtMs: null,
+            nextTargetsUpdated: false
+          }));
+        },
+        onTriggerReminder: () => {
+          setReportState((prev) => ({
+            ...prev,
+            deliveryStatus: prev.openedAtMs ? prev.deliveryStatus : 'reminder_sent',
+            reminderSentAtMs: 1_763_373_000_000
+          }));
+        },
+        onOpenParentReportView: () => setRoute('/report')
+      }),
     route === '/' &&
       React.createElement(
         Panel,
         null,
-        React.createElement('h1', null, '모자이크 월드 — 3D 영어 회화 샌드박스'),
+        React.createElement('h1', null, 'LCW — 말하면 생기는 3D 영어 회화 세계'),
         React.createElement(
           'p',
           null,

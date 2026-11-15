@@ -641,3 +641,406 @@ export const UI_STRINGS_KO = {
     dropNotice: '이번 주는 플레이 일수가 적어 발화량이 줄었습니다.'
   }
 } as const;
+
+export interface TeacherTradeScriptStage {
+  stage: 'greeting' | 'bargain' | 'scaffold' | 'accept';
+  titleKo: string;
+  teacherLineEn: string;
+  coachingTipKo: string;
+  expectedStudentIntent: string;
+}
+
+export interface TradeScenarioDef {
+  id:
+    | 'iron_for_honey_tea'
+    | 'ruby_for_lanterns'
+    | 'gold_for_jetpack_core'
+    | 'bricks_for_workbench';
+  titleKo: string;
+  npcRoleKo: string;
+  studentGives: {
+    itemId: string;
+    nameKo: string;
+    nameEn: string;
+    count: number;
+  };
+  teacherGives: {
+    itemId: string;
+    nameKo: string;
+    nameEn: string;
+    count: number;
+    baseValueCoins: number;
+  };
+  teacherGuideStages: readonly TeacherTradeScriptStage[];
+  openFollowUpEn: string;
+  studentOffers: ReadonlyArray<{
+    stars: 1 | 2 | 3;
+    text: string;
+    feePct: number;
+    bonus: string | null;
+  }>;
+}
+
+/**
+ * Bilateral teacher-student barter scenarios & teacher conversation prompts (WP-509, docs/03 D11).
+ */
+export const TEACHER_STUDENT_TRADE_SCENARIOS: readonly TradeScenarioDef[] = [
+  {
+    id: 'iron_for_honey_tea',
+    titleKo: '철광석 3개 ↔ 따뜻한 꿀차 2잔 물물교환',
+    npcRoleKo: '찻집 주인 (교사 빙의)',
+    studentGives: { itemId: 'iron_ore', nameKo: '철광석 3개', nameEn: 'three pieces of iron ore', count: 3 },
+    teacherGives: {
+      itemId: 'warm_honey_tea',
+      nameKo: '따뜻한 꿀차 2잔',
+      nameEn: 'two cups of warm honey tea',
+      count: 2,
+      baseValueCoins: 100
+    },
+    teacherGuideStages: [
+      {
+        stage: 'greeting',
+        titleKo: '① 인사·교환 물품 묻기',
+        teacherLineEn:
+          'Welcome! It looks chilly outside. What would you like to trade for this warm honey tea?',
+        coachingTipKo: '학생이 먼저 손에 든 철광석과 원하는 음료를 영어로 말하도록 유도하세요.',
+        expectedStudentIntent: 'propose_barter'
+      },
+      {
+        stage: 'bargain',
+        titleKo: '② 이유·조건으로 3성 문장 이끌기',
+        teacherLineEn:
+          'Three iron ores is nice, but why do you need two cups of warm honey tea right now?',
+        coachingTipKo: 'because / so that 이유·목적절을 붙이면 수수료 0%가 된다고 안내하세요.',
+        expectedStudentIntent: 'explain_reason_for_discount'
+      },
+      {
+        stage: 'scaffold',
+        titleKo: '③ 막힐 때 힌트 스캐폴딩',
+        teacherLineEn:
+          'Try saying: "If I give you three iron ores, could you give me honey tea so that I stay warm?"',
+        coachingTipKo: '학생이 단어를 못 떠올리면 핵심 구문(if / so that)을 한 단어씩 떼어 들려주세요.',
+        expectedStudentIntent: 'guided_repeat'
+      },
+      {
+        stage: 'accept',
+        titleKo: '④ 거래 수락 & 열린 질문',
+        teacherLineEn:
+          'Deal! Here are two warm honey teas for your iron ore. Where will you explore next?',
+        coachingTipKo: '거래 성사 후 학생의 다음 행동(free 발화)을 묻는 열린 질문으로 이어 가세요.',
+        expectedStudentIntent: 'open_followup'
+      }
+    ],
+    openFollowUpEn: 'What will you do next with this item?',
+    studentOffers: [
+      {
+        stars: 1,
+        text: 'I want to trade three iron ores for warm honey tea please.',
+        feePct: 10,
+        bonus: null
+      },
+      {
+        stars: 2,
+        text: 'Could we swap three iron ores for two warm honey teas?',
+        feePct: 5,
+        bonus: null
+      },
+      {
+        stars: 3,
+        text: 'If I trade three iron ores, could I get two warm honey teas so that I can stay warm?',
+        feePct: 0,
+        bonus: 'warmth_grace_x2'
+      }
+    ]
+  },
+  {
+    id: 'ruby_for_lanterns',
+    titleKo: '루비 1개 ↔ 빛나는 랜턴 4개 물물교환',
+    npcRoleKo: '등대 장인 (교사 빙의)',
+    studentGives: { itemId: 'ruby', nameKo: '루비 1개', nameEn: 'one bright ruby', count: 1 },
+    teacherGives: {
+      itemId: 'lantern',
+      nameKo: '빛나는 랜턴 4개',
+      nameEn: 'four bright lanterns',
+      count: 4,
+      baseValueCoins: 200
+    },
+    teacherGuideStages: [
+      {
+        stage: 'greeting',
+        titleKo: '① 인사·교환 물품 묻기',
+        teacherLineEn:
+          'Hello explorer! My lamps glow even in deep mines. What can you offer me in exchange?',
+        coachingTipKo: '광산이나 방 꾸미기에 랜턴이 왜 필요한지 묻기 전 먼저 제안하게 하세요.',
+        expectedStudentIntent: 'propose_barter'
+      },
+      {
+        stage: 'bargain',
+        titleKo: '② 이유·조건으로 3성 문장 이끌기',
+        teacherLineEn:
+          'That ruby is shiny! Tell me where you plan to hang these four lanterns to get a fair deal.',
+        coachingTipKo: '방 판정(light source)이나 광산 탐험 목적을 영어로 표현하면 3성입니다.',
+        expectedStudentIntent: 'explain_reason_for_discount'
+      },
+      {
+        stage: 'scaffold',
+        titleKo: '③ 막힐 때 힌트 스캐폴딩',
+        teacherLineEn:
+          'You can say: "I need four lanterns so that my room is bright enough for a resident."',
+        coachingTipKo: '방 판정 문장("needs a light source")과 연결해 주면 학습 전이가 일어납니다.',
+        expectedStudentIntent: 'guided_repeat'
+      },
+      {
+        stage: 'accept',
+        titleKo: '④ 거래 수락 & 열린 질문',
+        teacherLineEn:
+          'Agreed! Take these four lanterns and place them carefully. Which resident are you inviting first?',
+        coachingTipKo: '입주 조건이 맞은 주민을 물어 쇼앤텔 단계로 자연스럽게 연결하세요.',
+        expectedStudentIntent: 'open_followup'
+      }
+    ],
+    openFollowUpEn: 'What will you do next with this item?',
+    studentOffers: [
+      {
+        stars: 1,
+        text: 'I will give you one ruby for four lanterns please.',
+        feePct: 10,
+        bonus: null
+      },
+      {
+        stars: 2,
+        text: 'Could I trade this ruby for four bright lanterns for my dark mine?',
+        feePct: 5,
+        bonus: null
+      },
+      {
+        stars: 3,
+        text: 'Would you trade four lanterns for my ruby so that I can light up my new room?',
+        feePct: 0,
+        bonus: 'extra_lantern_glow'
+      }
+    ]
+  },
+  {
+    id: 'gold_for_jetpack_core',
+    titleKo: '금괴 2개 ↔ 제트팩 연료 코어 1개 물물교환',
+    npcRoleKo: '제작소 기술자 (교사 빙의)',
+    studentGives: { itemId: 'gold_ore', nameKo: '금괴 2개', nameEn: 'two gold ingots', count: 2 },
+    teacherGives: {
+      itemId: 'jetpack_core',
+      nameKo: '제트팩 연료 코어 1개',
+      nameEn: 'one jetpack fuel core',
+      count: 1,
+      baseValueCoins: 300
+    },
+    teacherGuideStages: [
+      {
+        stage: 'greeting',
+        titleKo: '① 인사·교환 물품 묻기',
+        teacherLineEn:
+          'Welcome to the Makers Lab! Are you looking for sky island gear, and what did you bring to trade?',
+        coachingTipKo: '학생이 수직 밴드(하늘섬/정거장) 목표를 이야기하게 질문하세요.',
+        expectedStudentIntent: 'propose_barter'
+      },
+      {
+        stage: 'bargain',
+        titleKo: '② 이유·조건으로 3성 문장 이끌기',
+        teacherLineEn:
+          'Two gold ingots can cover part of the core. Explain your flight plan to unlock zero trade fee!',
+        coachingTipKo: '목적절(so that I can fly to the sky island) 사용을 격려하세요.',
+        expectedStudentIntent: 'explain_reason_for_discount'
+      },
+      {
+        stage: 'scaffold',
+        titleKo: '③ 막힐 때 힌트 스캐폴딩',
+        teacherLineEn:
+          'Try building it piece by piece: "Please swap two gold ingots / for a fuel core / so that I can reach the sky island."',
+        coachingTipKo: '긴 3성 문장을 3구절로 끊어 따라 말하기(echo)로 도와주세요.',
+        expectedStudentIntent: 'guided_repeat'
+      },
+      {
+        stage: 'accept',
+        titleKo: '④ 거래 수락 & 열린 질문',
+        teacherLineEn:
+          'Awesome engineering! The core is yours with zero fee. What will you do next with this item?',
+        coachingTipKo: '아이템 수령 직후 자유 발화(free)로 목표 계획을 한 문장 더 말하게 하세요.',
+        expectedStudentIntent: 'open_followup'
+      }
+    ],
+    openFollowUpEn: 'What will you do next with this item?',
+    studentOffers: [
+      {
+        stars: 1,
+        text: 'I want to exchange two gold ingots for a jetpack fuel core.',
+        feePct: 10,
+        bonus: null
+      },
+      {
+        stars: 2,
+        text: 'Could I trade two gold ingots for a fast jetpack fuel core?',
+        feePct: 5,
+        bonus: null
+      },
+      {
+        stars: 3,
+        text: 'I would like to swap two gold ingots for a jetpack fuel core so that I can reach the sky island.',
+        feePct: 0,
+        bonus: 'fuel_efficiency_boost'
+      }
+    ]
+  },
+  {
+    id: 'bricks_for_workbench',
+    titleKo: '붉은 벽돌 20개 ↔ 석재 작업대 1개 물물교환',
+    npcRoleKo: '석공 마스터 (교사 빙의)',
+    studentGives: { itemId: 'red_brick', nameKo: '붉은 벽돌 20개', nameEn: 'twenty red bricks', count: 20 },
+    teacherGives: {
+      itemId: 'stone_workbench',
+      nameKo: '석재 작업대 1개',
+      nameEn: 'one stone workbench',
+      count: 1,
+      baseValueCoins: 140
+    },
+    teacherGuideStages: [
+      {
+        stage: 'greeting',
+        titleKo: '① 인사·교환 물품 묻기',
+        teacherLineEn:
+          'Good builders always plan ahead! How many bricks are you trading, and what furniture does your house need?',
+        coachingTipKo: '수량(twenty bricks)과 필요한 가구 이름을 정확히 말하도록 유도하세요.',
+        expectedStudentIntent: 'propose_barter'
+      },
+      {
+        stage: 'bargain',
+        titleKo: '② 이유·조건으로 3성 문장 이끌기',
+        teacherLineEn:
+          'Twenty red bricks is a solid batch! Why does your room need this stone workbench right now?',
+        coachingTipKo: '방 판정 조건이나 석공 주민 입주 조건을 설명하면 3성 수수료 면제!',
+        expectedStudentIntent: 'explain_reason_for_discount'
+      },
+      {
+        stage: 'scaffold',
+        titleKo: '③ 막힐 때 힌트 스캐폴딩',
+        teacherLineEn:
+          'Hint: "If I trade twenty red bricks, could I get a workbench because the mason wants to move in?"',
+        coachingTipKo: 'because / so that 접속사를 손가락으로 짚어 주며 발화를 유도하세요.',
+        expectedStudentIntent: 'guided_repeat'
+      },
+      {
+        stage: 'accept',
+        titleKo: '④ 거래 수락 & 열린 질문',
+        teacherLineEn:
+          'Solid trade! Place the workbench inside your enclosed room and invite me for show-and-tell!',
+        coachingTipKo: '직접 블록을 놓은 뒤 방 판정(400칸 BFS)과 쇼앤텔 발표로 이어 가세요.',
+        expectedStudentIntent: 'open_followup'
+      }
+    ],
+    openFollowUpEn: 'What will you do next with this item?',
+    studentOffers: [
+      {
+        stars: 1,
+        text: 'Can I trade twenty red bricks for one stone workbench please?',
+        feePct: 10,
+        bonus: null
+      },
+      {
+        stars: 2,
+        text: 'Could we trade twenty red bricks for a sturdy stone workbench for my house?',
+        feePct: 5,
+        bonus: null
+      },
+      {
+        stars: 3,
+        text: 'If I trade twenty red bricks, may I have a stone workbench because the mason needs one in my room?',
+        feePct: 0,
+        bonus: 'masonry_discount_token'
+      }
+    ]
+  }
+] as const;
+
+export interface LessonArcStageGuide {
+  id:
+    | 'warmup_anchor'
+    | 'review_repair'
+    | 'npc_possession_trade'
+    | 'director_event_dungeon'
+    | 'show_and_tell'
+    | 'wrapup_recall'
+    | 'sealed_chest_campaign';
+  order: number;
+  titleKo: string;
+  minuteRange: string;
+  teacherScriptEn: string;
+  studentGoalKo: string;
+  completionCriteriaKo: string;
+}
+
+/**
+ * 120-minute continuous 7-stage lesson arc (docs/06 & docs/10 §2).
+ */
+export const LESSON_ARC_STAGE_GUIDES: readonly LessonArcStageGuide[] = [
+  {
+    id: 'warmup_anchor',
+    order: 1,
+    titleKo: '1단계 · 모닥불 고정 과제 (자유 발화)',
+    minuteRange: '0~15분',
+    teacherScriptEn: 'Gather around the campfire! What happened in your world since last time?',
+    studentGoalKo: '대본 없이 2분간 최근 모험 이야기 (고정 과제 4주 비교 원자료 기록)',
+    completionCriteriaKo: '자유 발화 1건 이상 기록 완료'
+  },
+  {
+    id: 'review_repair',
+    order: 2,
+    titleKo: '2단계 · 수리소 복습 징후 3건 수리',
+    minuteRange: '15~30분',
+    teacherScriptEn: 'Your gear is flashing yellow! Say the phrase from last week without hints to repair it.',
+    studentGoalKo: '복습 도래 memory_card 최대 3건 힌트 없이 회상 발화',
+    completionCriteriaKo: '복습 대상 카드 수리 완료'
+  },
+  {
+    id: 'npc_possession_trade',
+    order: 3,
+    titleKo: '3단계 · 교사 NPC 빙의 & 선생-학생 물물교환',
+    minuteRange: '30~55분',
+    teacherScriptEn: 'Welcome to my counter! What would you like to barter today, and why?',
+    studentGoalKo: '교사와 양쪽 발화로 광물↔장비 물물교환 성사 + 표현 핀(E) 수집',
+    completionCriteriaKo: '교사·학생 양쪽 발화 물물교환 1건 성사'
+  },
+  {
+    id: 'director_event_dungeon',
+    order: 4,
+    titleKo: '4단계 · 디렉터 사건 & 멘토 던전 (정보 격차)',
+    minuteRange: '55~85분',
+    teacherScriptEn: 'Blackout alarm! I hold the floor map—ask me which switch to pull first!',
+    studentGoalKo: '교사는 지도 단서 발화, 학생은 스위치 작동 영어로 말해야 던전 문 개방',
+    completionCriteriaKo: '정보 격차 던전 게이트 양방향 발화로 개방'
+  },
+  {
+    id: 'show_and_tell',
+    order: 5,
+    titleKo: '5단계 · 내 부지 건축, 방 판정 & 쇼앤텔',
+    minuteRange: '85~105분',
+    teacherScriptEn: 'Show me your new room! What is inside, and which resident moved in?',
+    studentGoalKo: '부족 조건 문장 낭독(10% 할인) → 주민 입주 → 직접 지은 건축물 영어로 설명',
+    completionCriteriaKo: '쇼앤텔 코칭 핀(C/H) 기록'
+  },
+  {
+    id: 'wrapup_recall',
+    order: 6,
+    titleKo: '6단계 · 오늘의 표현 5개 힌트 없이 되짚기',
+    minuteRange: '105~115분',
+    teacherScriptEn: 'Before we wrap up, can you recall today’s key expressions in your own words?',
+    studentGoalKo: '오늘 수업에서 핀으로 꽂힌 표현을 힌트 없이 직접 사용',
+    completionCriteriaKo: '회상 점검 및 핵심 클립 선별'
+  },
+  {
+    id: 'sealed_chest_campaign',
+    order: 7,
+    titleKo: '7단계 · 봉인 복습 상자 심기 & 리포트 발송',
+    minuteRange: '115~120분',
+    teacherScriptEn: 'I buried a sealed chest in your plaza! Use today’s phrase solo this week to unlock it.',
+    studentGoalKo: '수업 후 혼자 플레이에서 표현 재사용 시 봉인 상자 해금 → 다음 수업 캠페인 연결',
+    completionCriteriaKo: '봉인 상자 생성 + 학부모 리포트 사실 검증 발송'
+  }
+] as const;

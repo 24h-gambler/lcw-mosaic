@@ -11,6 +11,7 @@
     "@lcw/content": "workspace:*",
     "@lcw/metrics": "workspace:*",
     "@lcw/schemas": "workspace:*",
+    "@lcw/sim-core": "workspace:*",
     "@lcw/ui": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

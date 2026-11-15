@@ -1,4 +1,10 @@
-import { FURNITURE_REGISTRY, RESIDENT_REGISTRY, type ResidentDef } from '@lcw/content';
+import {
+  FURNITURE_REGISTRY,
+  LESSON_ARC_STAGE_GUIDES,
+  RESIDENT_REGISTRY,
+  type LessonArcStageGuide,
+  type ResidentDef
+} from '@lcw/content';
 import { mulberry32 } from '@lcw/destruction';
 import { TUNING } from './tuning.js';
 import { VoxelWorld } from './world.js';
@@ -348,4 +354,318 @@ export function evaluateRoom(
     promptSentence,
     eligibleResident
   };
+}
+
+export interface TradeSettlementResult {
+  settled: boolean;
+  reason?: 'bilateral_utterance_required' | 'insufficient_coins_for_fee';
+  feeCoins: number;
+  bonusGranted: boolean;
+}
+
+/**
+ * Bilateral player-teacher / player-player barter settlement (WP-509, docs/03 D11).
+ * Both parties must speak before items swap and star-based fees (10% / 5% / 0%) settle.
+ */
+export function calculateTradeSettlement(params: {
+  baseValueCoins: number;
+  stars: 1 | 2 | 3;
+  teacherSpoken: boolean;
+  studentSpoken: boolean;
+  studentPassed: boolean;
+  studentCoins: number;
+}): TradeSettlementResult {
+  if (!params.teacherSpoken || !params.studentSpoken || !params.studentPassed) {
+    return {
+      settled: false,
+      reason: 'bilateral_utterance_required',
+      feeCoins: 0,
+      bonusGranted: false
+    };
+  }
+  const rate = TUNING.trade.feeRateByStars[params.stars];
+  const feeCoins = Math.max(0, Math.round(params.baseValueCoins * rate));
+  if (params.studentCoins < feeCoins) {
+    return {
+      settled: false,
+      reason: 'insufficient_coins_for_fee',
+      feeCoins,
+      bonusGranted: false
+    };
+  }
+  return {
+    settled: true,
+    feeCoins,
+    bonusGranted: params.stars === 3
+  };
+}
+
+const DUNGEON_CLUE_TOKENS = new Set([
+  'red',
+  'blue',
+  'green',
+  'yellow',
+  'gold',
+  'left',
+  'right',
+  'north',
+  'south',
+  'east',
+  'west',
+  'first',
+  'second',
+  'switch',
+  'lever',
+  'door',
+  'plate',
+  'crystal',
+  'bridge',
+  'gate'
+]);
+
+const DUNGEON_ACTION_TOKENS = new Set([
+  'pull',
+  'push',
+  'press',
+  'open',
+  'turn',
+  'activate',
+  'step',
+  'flip',
+  'switch',
+  'lever',
+  'door',
+  'plate',
+  'gate'
+]);
+
+/**
+ * Info-gap Mentor Dungeon Gate (WP-311, docs/06 & docs/10):
+ * requires the teacher (map holder) to speak a clue and the student (actor) to state an action.
+ */
+export function evaluateMentorDungeonGate(params: {
+  hazardCode: string;
+  teacherPromptText: string;
+  studentActionText: string;
+}): {
+  gateOpened: boolean;
+  synced: boolean;
+  hazardCode: string;
+  reason?: 'teacher_clue_required' | 'student_action_required';
+} {
+  const teacherTokens = (params.teacherPromptText.toLowerCase().match(/[a-z]+/g) ?? []);
+  const studentTokens = (params.studentActionText.toLowerCase().match(/[a-z]+/g) ?? []);
+
+  const hasTeacherClue = teacherTokens.some((tok) => DUNGEON_CLUE_TOKENS.has(tok));
+  if (!hasTeacherClue) {
+    return {
+      gateOpened: false,
+      synced: false,
+      hazardCode: params.hazardCode,
+      reason: 'teacher_clue_required'
+    };
+  }
+
+  const hasStudentAction =
+    studentTokens.length >= 2 && studentTokens.some((tok) => DUNGEON_ACTION_TOKENS.has(tok));
+  if (!hasStudentAction) {
+    return {
+      gateOpened: false,
+      synced: false,
+      hazardCode: params.hazardCode,
+      reason: 'student_action_required'
+    };
+  }
+
+  return {
+    gateOpened: true,
+    synced: true,
+    hazardCode: params.hazardCode
+  };
+}
+
+export type SimLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
+
+const ORDERED_LEVELS: readonly SimLevel[] = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6'];
+
+/**
+ * Automatic Level Ladder adjustment across a rolling 20-attempt window (WP-410, docs/04 4.3).
+ */
+export function evaluateLevelAdjustment(params: {
+  currentLevel: SimLevel;
+  recentAttempts: ReadonlyArray<{ stars: 1 | 2 | 3; firstTryPass: boolean; passed: boolean }>;
+  locked?: boolean;
+}): {
+  nextLevel: SimLevel;
+  changed: boolean;
+  direction: 'up' | 'down' | 'stay';
+  reason: string;
+} {
+  if (params.locked) {
+    return {
+      nextLevel: params.currentLevel,
+      changed: false,
+      direction: 'stay',
+      reason: 'locked_by_guardian_or_teacher'
+    };
+  }
+
+  const window = params.recentAttempts.slice(-TUNING.levelLadder.windowSize);
+  if (window.length < TUNING.levelLadder.windowSize) {
+    return {
+      nextLevel: params.currentLevel,
+      changed: false,
+      direction: 'stay',
+      reason: 'insufficient_window'
+    };
+  }
+
+  const currentIdx = ORDERED_LEVELS.indexOf(params.currentLevel);
+  const threeStarFirstTryCount = window.filter(
+    (a) => a.passed && a.firstTryPass && a.stars === 3
+  ).length;
+  const failCount = window.filter((a) => !a.passed).length;
+
+  const promoteRatio = threeStarFirstTryCount / window.length;
+  const failRatio = failCount / window.length;
+
+  if (promoteRatio >= TUNING.levelLadder.promoteThreeStarPassRatio && currentIdx < ORDERED_LEVELS.length - 1) {
+    return {
+      nextLevel: ORDERED_LEVELS[currentIdx + 1]!,
+      changed: true,
+      direction: 'up',
+      reason: 'three_star_first_try_threshold_met'
+    };
+  }
+
+  if (failRatio >= TUNING.levelLadder.demoteFailRatio && currentIdx > 0) {
+    return {
+      nextLevel: ORDERED_LEVELS[currentIdx - 1]!,
+      changed: true,
+      direction: 'down',
+      reason: 'fail_threshold_exceeded'
+    };
+  }
+
+  return {
+    nextLevel: params.currentLevel,
+    changed: false,
+    direction: 'stay',
+    reason: 'within_target_band'
+  };
+}
+
+export type LessonArcStageId = LessonArcStageGuide['id'];
+
+export interface SealedReviewChest {
+  id: string;
+  expression: string;
+  rewardCoins: number;
+  unlocked: boolean;
+  unlockedAtMs: number | null;
+}
+
+export interface LessonStageProgressItem extends LessonArcStageGuide {
+  status: 'completed' | 'current' | 'upcoming';
+  evidenceNote: string | null;
+}
+
+/**
+ * Deterministic tracker for the 120-minute 7-stage lesson arc and between-lesson
+ * sealed chest continuity loop (docs/06 & docs/10 §2).
+ */
+export class LessonProgressionTracker {
+  private currentStageIndex = 0;
+  private readonly completed = new Map<LessonArcStageId, string>();
+  readonly sealedChests: SealedReviewChest[] = [];
+  readonly nextLessonTargets: string[] = [];
+  campaignNote = '';
+
+  getCurrentGuide(): LessonArcStageGuide {
+    return (
+      LESSON_ARC_STAGE_GUIDES[this.currentStageIndex] ??
+      LESSON_ARC_STAGE_GUIDES[LESSON_ARC_STAGE_GUIDES.length - 1]!
+    );
+  }
+
+  getAllProgress(): LessonStageProgressItem[] {
+    return LESSON_ARC_STAGE_GUIDES.map((guide, idx) => {
+      const evidenceNote = this.completed.get(guide.id) ?? null;
+      const status: LessonStageProgressItem['status'] =
+        evidenceNote !== null
+          ? 'completed'
+          : idx === this.currentStageIndex
+            ? 'current'
+            : 'upcoming';
+      return {
+        ...guide,
+        status,
+        evidenceNote
+      };
+    });
+  }
+
+  completeCurrentStage(evidenceNote = 'completed'): LessonStageProgressItem[] {
+    const current = this.getCurrentGuide();
+    this.completed.set(current.id, evidenceNote);
+    if (this.currentStageIndex < LESSON_ARC_STAGE_GUIDES.length - 1) {
+      this.currentStageIndex += 1;
+    }
+    return this.getAllProgress();
+  }
+
+  plantSealedChest(params: { id: string; expression: string; rewardCoins: number }): SealedReviewChest {
+    const chest: SealedReviewChest = {
+      id: params.id,
+      expression: params.expression,
+      rewardCoins: params.rewardCoins,
+      unlocked: false,
+      unlockedAtMs: null
+    };
+    this.sealedChests.push(chest);
+    const normalized = params.expression.trim().toLowerCase();
+    if (normalized && !this.nextLessonTargets.includes(normalized)) {
+      this.nextLessonTargets.push(normalized);
+    }
+    return chest;
+  }
+
+  /**
+   * Unlocks any sealed review chest whose target phrase or core content tokens appear in solo play.
+   */
+  unlockSealedChestByExpression(
+    spokenText: string,
+    nowMs: number
+  ): { unlockedCount: number; unlockedIds: string[]; rewardCoins: number } {
+    const normalizedSpoken = spokenText.toLowerCase().replace(/[^a-z0-9\s']/g, ' ');
+    const spokenTokens = new Set(normalizedSpoken.split(/\s+/).filter((t) => t.length > 0));
+    const unlockedIds: string[] = [];
+    let rewardCoins = 0;
+
+    for (const chest of this.sealedChests) {
+      if (chest.unlocked) continue;
+      const targetNorm = chest.expression.toLowerCase().replace(/[^a-z0-9\s']/g, ' ').trim();
+      if (!targetNorm) continue;
+      const exactMatch = normalizedSpoken.includes(targetNorm);
+      const targetTokens = targetNorm.split(/\s+/).filter((t) => t.length > 2);
+      const hits = targetTokens.filter((t) => spokenTokens.has(t)).length;
+      const ratioMatch = targetTokens.length > 0 && hits / targetTokens.length >= 0.7;
+      if (exactMatch || ratioMatch) {
+        chest.unlocked = true;
+        chest.unlockedAtMs = nowMs;
+        unlockedIds.push(chest.id);
+        rewardCoins += chest.rewardCoins;
+      }
+    }
+
+    return {
+      unlockedCount: unlockedIds.length,
+      unlockedIds,
+      rewardCoins
+    };
+  }
+
+  setCampaignNote(note: string): void {
+    this.campaignNote = note;
+  }
 }

@@ -207,6 +207,21 @@ create table if not exists reports (
   created_at integer not null
 );
 
+create table if not exists report_deliveries (
+  report_id text primary key,
+  player_id text not null,
+  guardian_id text not null,
+  kind text not null,
+  share_token text not null,
+  share_url text not null,
+  status text not null,
+  teacher_comment text,
+  next_lesson_at text,
+  sent_at integer not null,
+  opened_at integer,
+  reminder_sent_at integer
+);
+
 create table if not exists phrase_bank (
   id text primary key,
   lang text not null,

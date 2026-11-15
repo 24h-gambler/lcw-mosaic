@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  BilateralTradePanel,
   Button,
   Card,
   GaugeBar,
@@ -7,10 +8,31 @@ import {
   Panel,
   StarOfferCard,
   TOKENS,
-  calculateDialogBoxHeightPx
+  calculateDialogBoxHeightPx,
+  type BilateralTradeOfferOption
 } from '@lcw/ui';
 import type { Offer } from '@lcw/schemas';
 import type { PlayerState } from '@lcw/sim-core';
+
+export interface HudTradeWindowProps {
+  open: boolean;
+  title: string;
+  npcRoleLabel: string;
+  studentGivesLabel: string;
+  teacherGivesLabel: string;
+  baseValueCoins: number;
+  selectedStars: 1 | 2 | 3;
+  offers: readonly BilateralTradeOfferOption[];
+  teacherPromptEn: string;
+  teacherSpoken: boolean;
+  studentSpoken: boolean;
+  settled: boolean;
+  settlementNotice?: string;
+  onToggleOpen: () => void;
+  onSelectStars: (stars: 1 | 2 | 3) => void;
+  onStudentSpeak: () => void;
+  onExecuteTrade: () => void;
+}
 
 export interface HudOverlayProps {
   player: PlayerState;
@@ -26,6 +48,7 @@ export interface HudOverlayProps {
     secondsRemaining: number;
     ended: boolean;
   };
+  tradeWindow?: HudTradeWindowProps;
   onSelectOffer: (stars: 1 | 2 | 3) => void;
   onToggleMic: () => void;
   onToggleThoughtBoard: () => void;
@@ -54,6 +77,7 @@ export function HudOverlay({
   micActive,
   thoughtBoardOpen,
   tryMode,
+  tradeWindow,
   onSelectOffer,
   onToggleMic,
   onToggleThoughtBoard,
@@ -201,13 +225,25 @@ export function HudOverlay({
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  gap: `${TOKENS.spacing[2]}px`
+                  gap: `${TOKENS.spacing[2]}px`,
+                  flexWrap: 'wrap'
                 }
               },
               React.createElement(
-                Button,
-                { variant: 'paper', onClick: onToggleThoughtBoard },
-                thoughtBoardOpen ? '생각 보드 닫기' : '말이 안 나오면 그림으로 고르기'
+                'div',
+                { style: { display: 'flex', gap: `${TOKENS.spacing[1]}px`, flexWrap: 'wrap' } },
+                React.createElement(
+                  Button,
+                  { variant: 'paper', onClick: onToggleThoughtBoard },
+                  thoughtBoardOpen ? '생각 보드 닫기' : '말이 안 나오면 그림으로 고르기'
+                ),
+                tradeWindow
+                  ? React.createElement(
+                      Button,
+                      { variant: 'sky', onClick: tradeWindow.onToggleOpen },
+                      tradeWindow.open ? '물물교환 닫기' : '선생님과 물물교환'
+                    )
+                  : null
               ),
               React.createElement(
                 Button,
@@ -219,7 +255,42 @@ export function HudOverlay({
                 },
                 micActive ? '말하는 중' : '말하기'
               )
-            )
+            ),
+            tradeWindow?.open
+              ? React.createElement(
+                  'div',
+                  { style: { marginTop: `${TOKENS.spacing[2]}px`, display: 'grid', gap: `${TOKENS.spacing[1]}px` } },
+                  React.createElement(
+                    'div',
+                    {
+                      style: {
+                        padding: `${TOKENS.spacing[1]}px`,
+                        backgroundColor: TOKENS.colors['paper-100'],
+                        borderRadius: `${TOKENS.shape.radiusButtonPx}px`,
+                        border: `1px solid ${TOKENS.colors['sky-d']}`
+                      }
+                    },
+                    `선생님 말씀: "${tradeWindow.teacherPromptEn}"`
+                  ),
+                  React.createElement(BilateralTradePanel, {
+                    role: 'student',
+                    title: tradeWindow.title,
+                    npcRoleLabel: tradeWindow.npcRoleLabel,
+                    studentGivesLabel: tradeWindow.studentGivesLabel,
+                    teacherGivesLabel: tradeWindow.teacherGivesLabel,
+                    baseValueCoins: tradeWindow.baseValueCoins,
+                    selectedStars: tradeWindow.selectedStars,
+                    offers: tradeWindow.offers,
+                    teacherSpoken: tradeWindow.teacherSpoken,
+                    studentSpoken: tradeWindow.studentSpoken,
+                    settled: tradeWindow.settled,
+                    settlementNotice: tradeWindow.settlementNotice,
+                    onSelectStars: tradeWindow.onSelectStars,
+                    onStudentSpeak: tradeWindow.onStudentSpeak,
+                    onExecuteTrade: tradeWindow.onExecuteTrade
+                  })
+                )
+              : null
           )
         ),
 

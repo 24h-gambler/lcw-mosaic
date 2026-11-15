@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  calculateTradeSettlement,
   canMineOre,
   computeAttackDamage,
   computeOfferPrice,
   createInitialPlayerState,
   CubicChunk,
   equipToSocket,
+  evaluateLevelAdjustment,
+  evaluateMentorDungeonGate,
   evaluateRoom,
   generateWorldLayout,
   getDueCardsForSession,
@@ -13,6 +16,7 @@ import {
   greedyMeshChunk,
   hashWorldLayout,
   Ledger,
+  LessonProgressionTracker,
   placeBlockSingleInput,
   populateInitialWorld,
   propagateBlockLight,
@@ -231,5 +235,140 @@ describe('@lcw/sim-core acceptance tests', () => {
     expect(getVerticalBandAtY(400).gravity).toBe(0.2);
     expect(getVerticalBandAtY(400).hasOxygen).toBe(false);
     expect(getVerticalBandAtY(-200).hasHeat).toBe(true);
+  });
+
+  it('WP-311, WP-410, WP-509: verifies bilateral trade settlement, mentor dungeon gate, level ladder, and 7-stage continuous lesson tracker', () => {
+    // WP-509: bilateral barter settlement requires both teacher and student speech
+    const blocked = calculateTradeSettlement({
+      baseValueCoins: 100,
+      stars: 3,
+      teacherSpoken: true,
+      studentSpoken: false,
+      studentPassed: true,
+      studentCoins: 100
+    });
+    expect(blocked.settled).toBe(false);
+    expect(blocked.reason).toBe('bilateral_utterance_required');
+
+    const star1 = calculateTradeSettlement({
+      baseValueCoins: 100,
+      stars: 1,
+      teacherSpoken: true,
+      studentSpoken: true,
+      studentPassed: true,
+      studentCoins: 100
+    });
+    expect(star1.settled).toBe(true);
+    expect(star1.feeCoins).toBe(10);
+    expect(star1.bonusGranted).toBe(false);
+
+    const star2 = calculateTradeSettlement({
+      baseValueCoins: 100,
+      stars: 2,
+      teacherSpoken: true,
+      studentSpoken: true,
+      studentPassed: true,
+      studentCoins: 100
+    });
+    expect(star2.settled).toBe(true);
+    expect(star2.feeCoins).toBe(5);
+
+    const star3 = calculateTradeSettlement({
+      baseValueCoins: 100,
+      stars: 3,
+      teacherSpoken: true,
+      studentSpoken: true,
+      studentPassed: true,
+      studentCoins: 100
+    });
+    expect(star3.settled).toBe(true);
+    expect(star3.feeCoins).toBe(0);
+    expect(star3.bonusGranted).toBe(true);
+
+    // WP-311: Mentor Dungeon info-gap gate requires teacher clue AND student action
+    const noClue = evaluateMentorDungeonGate({
+      hazardCode: 'switch_maze_01',
+      teacherPromptText: 'Look carefully around.',
+      studentActionText: 'I pull the red lever.'
+    });
+    expect(noClue.gateOpened).toBe(false);
+    expect(noClue.reason).toBe('teacher_clue_required');
+
+    const noAction = evaluateMentorDungeonGate({
+      hazardCode: 'switch_maze_01',
+      teacherPromptText: 'Use the red lever first.',
+      studentActionText: 'Okay.'
+    });
+    expect(noAction.gateOpened).toBe(false);
+    expect(noAction.reason).toBe('student_action_required');
+
+    const gateOpen = evaluateMentorDungeonGate({
+      hazardCode: 'switch_maze_01',
+      teacherPromptText: 'Pull the red lever beside the crystal bridge.',
+      studentActionText: 'I will pull the red lever.'
+    });
+    expect(gateOpen.gateOpened).toBe(true);
+    expect(gateOpen.synced).toBe(true);
+
+    // WP-410: Level ladder rolling 20-attempt window & lock
+    const locked = evaluateLevelAdjustment({
+      currentLevel: 'L2',
+      recentAttempts: Array.from({ length: 20 }, () => ({
+        stars: 3 as const,
+        firstTryPass: true,
+        passed: true
+      })),
+      locked: true
+    });
+    expect(locked.changed).toBe(false);
+    expect(locked.direction).toBe('stay');
+
+    const promoted = evaluateLevelAdjustment({
+      currentLevel: 'L2',
+      recentAttempts: Array.from({ length: 20 }, (_, idx) => ({
+        stars: (idx < 14 ? 3 : 2) as 1 | 2 | 3,
+        firstTryPass: idx < 14,
+        passed: true
+      }))
+    });
+    expect(promoted.changed).toBe(true);
+    expect(promoted.direction).toBe('up');
+    expect(promoted.nextLevel).toBe('L3');
+
+    const demoted = evaluateLevelAdjustment({
+      currentLevel: 'L3',
+      recentAttempts: Array.from({ length: 20 }, (_, idx) => ({
+        stars: 1 as const,
+        firstTryPass: false,
+        passed: idx >= 8
+      }))
+    });
+    expect(demoted.changed).toBe(true);
+    expect(demoted.direction).toBe('down');
+    expect(demoted.nextLevel).toBe('L2');
+
+    // Continuous 7-stage lesson arc + sealed review chest loop
+    const tracker = new LessonProgressionTracker();
+    expect(tracker.getCurrentGuide().id).toBe('warmup_anchor');
+    for (let i = 0; i < 6; i++) {
+      tracker.completeCurrentStage(`step_${i + 1}`);
+    }
+    expect(tracker.getCurrentGuide().id).toBe('sealed_chest_campaign');
+    tracker.completeCurrentStage('step_7');
+    expect(tracker.getAllProgress().every((s) => s.status === 'completed')).toBe(true);
+
+    tracker.plantSealedChest({
+      id: 'chest_warm_tea',
+      expression: 'Could I get two warm honey teas so that I can stay warm',
+      rewardCoins: 30
+    });
+    expect(tracker.nextLessonTargets).toHaveLength(1);
+    const unlockRes = tracker.unlockSealedChestByExpression(
+      'Please give me two warm honey teas so that I can stay warm',
+      1_763_250_000_000
+    );
+    expect(unlockRes.unlockedCount).toBe(1);
+    expect(unlockRes.rewardCoins).toBe(30);
+    expect(tracker.sealedChests[0]!.unlocked).toBe(true);
   });
 });

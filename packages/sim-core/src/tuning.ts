@@ -143,5 +143,13 @@ export const TUNING = {
     hospitalFeeMax: 100,
     dizzyDurationSec: 30,
     dizzySpeedMult: 0.7
+  },
+  trade: {
+    feeRateByStars: { 1: 0.1, 2: 0.05, 3: 0 } as Record<1 | 2 | 3, number>
+  },
+  levelLadder: {
+    windowSize: 20,
+    promoteThreeStarPassRatio: 0.7,
+    demoteFailRatio: 0.4
   }
 } as const;

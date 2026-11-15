@@ -10,7 +10,13 @@ import {
   type SessionKind,
   type UtteranceMode
 } from '@lcw/schemas';
-import { CHUNK_SIZE, CubicChunk, VoxelWorld, populateInitialWorld } from '@lcw/sim-core';
+import {
+  CHUNK_SIZE,
+  CubicChunk,
+  VoxelWorld,
+  calculateTradeSettlement,
+  populateInitialWorld
+} from '@lcw/sim-core';
 import { GuardedWorldObjects, inspectSpecG1ToG5, type StoredL3Object } from '@lcw/guard';
 
 export interface SqliteExecutor {
@@ -78,6 +84,7 @@ create table if not exists pins (id text primary key, lesson_id text not null, a
 create table if not exists anchor_tasks (id text primary key, lesson_id text not null, prompt_id text not null, utterance_ids text not null, metrics text not null);
 create table if not exists metrics_weekly (player_id text not null, week text not null, m text not null, primary key (player_id, week));
 create table if not exists reports (id text primary key, player_id text not null, kind text not null, ref_id text not null, facts text not null, body text not null, clips text not null, share_token text unique, opened_at integer, created_at integer not null);
+create table if not exists report_deliveries (report_id text primary key, player_id text not null, guardian_id text not null, kind text not null, share_token text not null, share_url text not null, status text not null, teacher_comment text, next_lesson_at text, sent_at integer not null, opened_at integer, reminder_sent_at integer);
 create table if not exists phrase_bank (id text primary key, lang text not null, ctx text not null, intent text not null, slots_key text not null, level text not null, offers text not null, tts text, status text not null);
 create table if not exists cache_entries (key_hash text primary key, lang text not null, offers text not null, status text not null, distinct_users integer not null default 0, created_at integer not null);
 create table if not exists quota_daily (day text not null, k text not null, used integer not null, primary key (day, k));
@@ -310,7 +317,7 @@ export class EdgePlatformDb {
     nowMs: number;
   }): void {
     this.sql.run(
-      `insert into reports (id, player_id, kind, ref_id, facts, body, clips, share_token, opened_at, created_at)
+      `insert or replace into reports (id, player_id, kind, ref_id, facts, body, clips, share_token, opened_at, created_at)
        values (?, ?, ?, ?, ?, ?, ?, ?, null, ?)`,
       [
         params.id,
@@ -326,6 +333,140 @@ export class EdgePlatformDb {
     );
   }
 
+  registerLessonExpression(params: {
+    id: string;
+    playerId: string;
+    lemmaKey: string;
+    lessonId: string;
+    nowMs: number;
+  }): void {
+    this.sql.run(
+      `insert or ignore into expressions (id, player_id, lemma_key, first_seen_at, born_in, lesson_id, reuse_solo, last_used_at)
+       values (?, ?, ?, ?, 'lesson', ?, 0, ?)`,
+      [params.id, params.playerId, params.lemmaKey.toLowerCase(), params.nowMs, params.lessonId, params.nowMs]
+    );
+  }
+
+  recordSoloExpressionReuse(
+    playerId: string,
+    text: string,
+    nowMs: number
+  ): { updatedCount: number; matchedLemmas: string[] } {
+    const rows = this.sql.all<{ id: string; lemma_key: string; reuse_solo: number }>(
+      "select id, lemma_key, reuse_solo from expressions where player_id = ? and born_in = 'lesson'",
+      [playerId]
+    );
+    const normalizedText = text.toLowerCase();
+    const textTokens = new Set(normalizedText.match(/[a-z0-9']+/g) ?? []);
+    const matchedLemmas: string[] = [];
+
+    for (const row of rows) {
+      const lemmaTokens = row.lemma_key.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+      if (lemmaTokens.length === 0) continue;
+      const allMatched =
+        normalizedText.includes(row.lemma_key.toLowerCase()) ||
+        lemmaTokens.every((tok) => textTokens.has(tok));
+      if (allMatched) {
+        this.sql.run('update expressions set reuse_solo = reuse_solo + 1, last_used_at = ? where id = ?', [
+          nowMs,
+          row.id
+        ]);
+        matchedLemmas.push(row.lemma_key);
+      }
+    }
+
+    return { updatedCount: matchedLemmas.length, matchedLemmas };
+  }
+
+  listExpressionsForPlayer(playerId: string): Array<{
+    id: string;
+    player_id: string;
+    lemma_key: string;
+    first_seen_at: number;
+    born_in: string;
+    lesson_id: string | null;
+    reuse_solo: number;
+    last_used_at: number | null;
+  }> {
+    return this.sql.all('select * from expressions where player_id = ? order by first_seen_at asc', [
+      playerId
+    ]);
+  }
+
+  listLessonMinutes(lessonId: string): Array<{
+    lesson_id: string;
+    minute: number;
+    student_ms: number;
+    teacher_ms: number;
+    exchanges: number;
+    activity: string;
+  }> {
+    return this.sql.all('select * from lesson_minutes where lesson_id = ? order by minute asc', [
+      lessonId
+    ]);
+  }
+
+  createAndDeliverParentReport(params: {
+    id: string;
+    playerId: string;
+    guardianId: string;
+    kind: 'weekly' | 'lesson';
+    refId: string;
+    facts: unknown;
+    body: string;
+    clips: unknown[];
+    shareToken: string;
+    shareUrl: string;
+    teacherComment?: string;
+    nextLessonAt?: string;
+    nowMs: number;
+  }): ReportDeliveryRow {
+    this.saveReport({
+      id: params.id,
+      playerId: params.playerId,
+      kind: params.kind,
+      refId: params.refId,
+      facts: params.facts,
+      body: params.body,
+      clips: params.clips,
+      shareToken: params.shareToken,
+      nowMs: params.nowMs
+    });
+    this.sql.run(
+      `insert or replace into report_deliveries (
+        report_id, player_id, guardian_id, kind, share_token, share_url, status,
+        teacher_comment, next_lesson_at, sent_at, opened_at, reminder_sent_at
+      ) values (?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, null, null)`,
+      [
+        params.id,
+        params.playerId,
+        params.guardianId,
+        params.kind,
+        params.shareToken,
+        params.shareUrl,
+        params.teacherComment ?? null,
+        params.nextLessonAt ?? null,
+        params.nowMs
+      ]
+    );
+    return this.getReportDeliveryByToken(params.shareToken)!;
+  }
+
+  getReportDeliveryByToken(shareToken: string): ReportDeliveryRow | null {
+    return (
+      this.sql.get<ReportDeliveryRow>('select * from report_deliveries where share_token = ?', [
+        shareToken
+      ]) ?? null
+    );
+  }
+
+  listReportDeliveriesForPlayer(playerId: string): ReportDeliveryRow[] {
+    return this.sql.all<ReportDeliveryRow>(
+      'select * from report_deliveries where player_id = ? order by sent_at desc',
+      [playerId]
+    );
+  }
+
   openSharedReport(shareToken: string, nowMs: number): Record<string, unknown> | null {
     const row = this.sql.get<Record<string, unknown>>(
       'select * from reports where share_token = ?',
@@ -336,8 +477,52 @@ export class EdgePlatformDb {
       this.sql.run('update reports set opened_at = ? where share_token = ?', [nowMs, shareToken]);
       row.opened_at = nowMs;
     }
-    return row;
+    this.sql.run(
+      "update report_deliveries set opened_at = coalesce(opened_at, ?), status = 'opened' where share_token = ?",
+      [nowMs, shareToken]
+    );
+    return {
+      ...row,
+      delivery_status: 'opened',
+      nextTargetsUpdated: true
+    };
   }
+
+  /**
+   * Dispatches 1 reminder after 48h when guardian has not opened the report (docs/10 §4 T5 -> T7).
+   */
+  processPendingReportReminders(nowMs: number): { remindedCount: number; reportIds: string[] } {
+    const TWO_DAYS_MS = 2 * 86_400_000;
+    const due = this.sql.all<ReportDeliveryRow>(
+      `select * from report_deliveries
+       where opened_at is null and reminder_sent_at is null and (? - sent_at) >= ?`,
+      [nowMs, TWO_DAYS_MS]
+    );
+    const reportIds: string[] = [];
+    for (const d of due) {
+      this.sql.run(
+        "update report_deliveries set status = 'reminder_sent', reminder_sent_at = ? where report_id = ?",
+        [nowMs, d.report_id]
+      );
+      reportIds.push(d.report_id);
+    }
+    return { remindedCount: reportIds.length, reportIds };
+  }
+}
+
+export interface ReportDeliveryRow extends Record<string, unknown> {
+  report_id: string;
+  player_id: string;
+  guardian_id: string;
+  kind: 'weekly' | 'lesson';
+  share_token: string;
+  share_url: string;
+  status: 'sent' | 'opened' | 'reminder_sent';
+  teacher_comment: string | null;
+  next_lesson_at: string | null;
+  sent_at: number;
+  opened_at: number | null;
+  reminder_sent_at: number | null;
 }
 
 export interface SerializedChunkBlob {
@@ -367,7 +552,7 @@ export class WorldDO {
   }) {
     this.sql = params.sql;
     this.r2 = params.r2;
-    this.seed = params.seed ?? 'mosaic-world-1';
+    this.seed = params.seed ?? 'lcw-world-1';
     this.genVersion = params.genVersion ?? 1;
     this.world = new VoxelWorld();
     this.sql.exec(WORLD_DO_SCHEMA_SQL);
@@ -551,6 +736,149 @@ export class WorldDO {
       [player]
     );
     return Number(row?.total ?? 0);
+  }
+
+  grantOrSetItem(
+    owner: string,
+    itemId: string,
+    specJson: string,
+    location = 'hotbar',
+    durability = 100
+  ): void {
+    this.sql.run(
+      `insert or replace into items (id, owner, spec, location, durability, card_id)
+       values (?, ?, ?, ?, ?, null)`,
+      [itemId, owner, specJson, location, durability]
+    );
+  }
+
+  listPlayerItems(owner: string): Array<{
+    id: string;
+    owner: string;
+    spec: string;
+    location: string;
+    durability: number;
+    card_id: string | null;
+  }> {
+    return this.sql.all('select * from items where owner = ? order by id asc', [owner]);
+  }
+
+  /**
+   * Executes an atomic bilateral teacher-student or peer barter trade (WP-509, docs/03 D11).
+   * Requires both sides to have spoken and verifies ownership + star-based fee in one transaction.
+   */
+  executeTradeAtomic(params: {
+    tradeId: string;
+    studentId: string;
+    teacherId: string;
+    studentGiveItemId: string;
+    teacherGiveItemId: string;
+    baseValueCoins: number;
+    stars: 1 | 2 | 3;
+    teacherTranscript: string;
+    studentTranscript: string;
+    studentScorePass: boolean;
+    nowMs: number;
+  }): {
+    ok: boolean;
+    reason?: string;
+    feeCoins: number;
+    bonusGranted: boolean;
+    swappedItemIds: [string, string] | [];
+  } {
+    const teacherSpoken = params.teacherTranscript.trim().length > 0;
+    const studentSpoken = params.studentTranscript.trim().length > 0;
+
+    const settlement = calculateTradeSettlement({
+      baseValueCoins: params.baseValueCoins,
+      stars: params.stars,
+      teacherSpoken,
+      studentSpoken,
+      studentPassed: params.studentScorePass,
+      studentCoins: this.getPlayerBalance(params.studentId)
+    });
+    if (!settlement.settled) {
+      return {
+        ok: false,
+        reason: settlement.reason,
+        feeCoins: settlement.feeCoins,
+        bonusGranted: false,
+        swappedItemIds: []
+      };
+    }
+
+    const studentItem = this.sql.get<{ id: string; owner: string }>(
+      'select id, owner from items where id = ? and owner = ?',
+      [params.studentGiveItemId, params.studentId]
+    );
+    const teacherItem = this.sql.get<{ id: string; owner: string }>(
+      'select id, owner from items where id = ? and owner = ?',
+      [params.teacherGiveItemId, params.teacherId]
+    );
+    if (!studentItem || !teacherItem) {
+      return {
+        ok: false,
+        reason: 'missing_trade_item_ownership',
+        feeCoins: settlement.feeCoins,
+        bonusGranted: false,
+        swappedItemIds: []
+      };
+    }
+
+    this.sql.exec('BEGIN TRANSACTION');
+    try {
+      if (settlement.feeCoins > 0) {
+        this.sql.run(
+          'insert into ledger (player, delta, reason, ref, at) values (?, ?, ?, ?, ?)',
+          [params.studentId, -settlement.feeCoins, 'trade:fee', params.tradeId, params.nowMs]
+        );
+      }
+      this.sql.run('update items set owner = ? where id = ?', [
+        params.teacherId,
+        params.studentGiveItemId
+      ]);
+      this.sql.run('update items set owner = ? where id = ?', [
+        params.studentId,
+        params.teacherGiveItemId
+      ]);
+      this.sql.run(
+        'insert into journal (at, actor, op, payload, inverse) values (?, ?, ?, ?, ?)',
+        [
+          params.nowMs,
+          params.studentId,
+          'trade.execute',
+          JSON.stringify({
+            tradeId: params.tradeId,
+            teacherId: params.teacherId,
+            studentGiveItemId: params.studentGiveItemId,
+            teacherGiveItemId: params.teacherGiveItemId,
+            stars: params.stars,
+            feeCoins: settlement.feeCoins
+          }),
+          JSON.stringify({
+            studentGiveItemId: params.studentGiveItemId,
+            teacherGiveItemId: params.teacherGiveItemId,
+            feeRefund: settlement.feeCoins
+          })
+        ]
+      );
+      this.sql.exec('COMMIT');
+      return {
+        ok: true,
+        feeCoins: settlement.feeCoins,
+        bonusGranted: settlement.bonusGranted,
+        swappedItemIds: [params.studentGiveItemId, params.teacherGiveItemId]
+      };
+    } catch (err) {
+      this.sql.exec('ROLLBACK');
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : 'trade_tx_failed',
+        feeCoins: settlement.feeCoins,
+        bonusGranted: false,
+        swappedItemIds: []
+      };
+    }
   }
 
   async saveSnapshot(snapshotId: string, reason: string, nowMs: number): Promise<string> {

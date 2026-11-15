@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import type { SqliteExecutor } from '@lcw/edge';
-import { runGoldenPathBot } from '../index.js';
+import { runGoldenPathBot, runLessonTradeAndReportBot } from '../index.js';
 
 function createTestSqlite(): SqliteExecutor {
   const req = createRequire(import.meta.url);
@@ -46,5 +46,27 @@ describe('packages/bots (WP-111 Golden Path)', () => {
     expect(report.memoryCardBoxAfterReview).toBe(1);
     expect(report.reportReplacedFabrication).toBe(true);
     expect(report.reportBody).toContain('1건');
+  });
+
+  it('completes 7-stage continuous lesson arc, bilateral barter, solo chest unlock, and parent report tracking', async () => {
+    const res = await runLessonTradeAndReportBot({
+      seed: 'wp-continuous-lesson-bot',
+      createSqlite: createTestSqlite
+    });
+
+    expect(res.allSevenStagesCompleted).toBe(true);
+    expect(res.unilateralRejected).toBe(true);
+    expect(res.bilateralTradeOk).toBe(true);
+    expect(res.tradeFeeCoins).toBe(5);
+    expect(res.studentBalanceAfterTrade).toBe(145);
+    expect(res.studentOwnsTea).toBe(true);
+    expect(res.teacherOwnsOre).toBe(true);
+    expect(res.mentorDungeonRejectedWithoutClue).toBe(true);
+    expect(res.mentorDungeonOpened).toBe(true);
+    expect(res.sealedChestUnlocked).toBe(true);
+    expect(res.soloReuseUpdatedCount).toBe(1);
+    expect(res.reminderCountAfter48h).toBe(1);
+    expect(res.openedDeliveryStatus).toBe('opened');
+    expect(res.openedNextTargetsUpdated).toBe(true);
   });
 });

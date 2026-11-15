@@ -8,9 +8,12 @@ import {
   type LlmConverseInput
 } from '@lcw/schemas';
 import { scoreUtterance, understandUtterance } from '@lcw/converse';
+import { LESSON_ARC_STAGE_GUIDES, TEACHER_STUDENT_TRADE_SCENARIOS } from '@lcw/content';
 import { QuotaMeter } from '@lcw/quota';
 import {
   buildFactualWeeklySummary,
+  computeLessonMetrics,
+  computeTeacherContribution,
   computeThinkAndSpeakIndex,
   computeTwoWeekBaseline,
   computeWeeklyMetrics,
@@ -72,6 +75,39 @@ const WorldAbuseReportSchema = z
   .object({
     reporter_id: z.string().min(1),
     reason: z.string().min(3).max(200)
+  })
+  .strict();
+
+const WorldTradeBodySchema = z
+  .object({
+    trade_id: z.string().min(1),
+    student_id: z.string().min(1),
+    teacher_id: z.string().min(1),
+    student_give_item_id: z.string().min(1),
+    teacher_give_item_id: z.string().min(1),
+    base_value_coins: z.number().int().min(0),
+    stars: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).default('L2'),
+    target_text: z.string().min(1),
+    teacher_transcript: z.string(),
+    student_transcript: z.string(),
+    lesson_id: z.string().min(1).optional(),
+    pin_expression: z.string().min(1).optional()
+  })
+  .strict();
+
+const CompleteLessonSendReportSchema = z
+  .object({
+    report_id: z.string().min(1),
+    player_id: z.string().min(1),
+    guardian_id: z.string().min(1),
+    ref_id: z.string().min(1).default('lesson'),
+    draft_body: z.string().default(''),
+    teacher_comment: z.string().max(400).default(''),
+    next_lesson_at: z.string().min(1).default('일요일 오전 10:00'),
+    share_token: z.string().min(4),
+    share_url: z.string().min(1).optional(),
+    clips: z.array(z.unknown()).default([])
   })
   .strict();
 
@@ -205,6 +241,10 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       audio_final: req.audio_key ?? null,
       created_at: nowMs
     });
+
+    if (scored.pass && req.session_kind !== 'lesson') {
+      deps.db.recordSoloExpressionReuse(req.player_id, req.transcript, nowMs);
+    }
 
     const out = ScoreResponseSchema.parse({
       pass: scored.pass,
@@ -403,6 +443,205 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       nowMs: deps.nowMs()
     });
     return c.json({ ok: true, replaced: verified.replaced, reasons: verified.reasons, body: verified.body });
+  });
+
+  app.get('/v1/trades/scenarios', (c) =>
+    c.json({
+      scenarios: TEACHER_STUDENT_TRADE_SCENARIOS,
+      lesson_stages: LESSON_ARC_STAGE_GUIDES
+    })
+  );
+
+  app.post('/v1/worlds/:id/trades', async (c) => {
+    const worldDo = deps.worlds.get(c.req.param('id'));
+    if (!worldDo) return c.json({ error: 'world_not_found' }, 404);
+
+    const parsed = WorldTradeBodySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_trade_request', issues: parsed.error.issues }, 400);
+    }
+
+    const req = parsed.data;
+    const nowMs = deps.nowMs();
+    const scored = scoreUtterance({
+      targetText: req.target_text,
+      spokenTranscript: req.student_transcript,
+      level: req.level,
+      hintLevel: req.stars === 3 ? 'none' : 'full'
+    });
+
+    const tx = worldDo.executeTradeAtomic({
+      tradeId: req.trade_id,
+      studentId: req.student_id,
+      teacherId: req.teacher_id,
+      studentGiveItemId: req.student_give_item_id,
+      teacherGiveItemId: req.teacher_give_item_id,
+      baseValueCoins: req.base_value_coins,
+      stars: req.stars,
+      teacherTranscript: req.teacher_transcript,
+      studentTranscript: req.student_transcript,
+      studentScorePass: scored.pass,
+      nowMs
+    });
+
+    if (!tx.ok) {
+      return c.json(
+        {
+          ok: false,
+          reason: tx.reason ?? 'trade_rejected',
+          score: scored.score,
+          missed: scored.missed
+        },
+        422
+      );
+    }
+
+    deps.db.logUtterance({
+      id: `utt-trade-${req.trade_id}-${nowMs}`,
+      player_id: req.student_id,
+      world_id: c.req.param('id'),
+      session_id: req.lesson_id ?? `trade-${req.trade_id}`,
+      session_kind: req.lesson_id ? 'lesson' : 'multi',
+      ctx: 'trade',
+      mode: req.stars === 3 ? 'free' : 'read',
+      interlocutor: 'teacher',
+      first_text: req.student_transcript,
+      target_text: req.target_text,
+      final_text: req.student_transcript,
+      words: req.student_transcript.trim().split(/\s+/).filter(Boolean).length,
+      l1_words: 0,
+      dur_ms: 3000,
+      latency_ms: 1200,
+      stars: req.stars,
+      hint_level: req.stars === 3 ? 'none' : 'full',
+      attempts: 1,
+      score: scored.score,
+      confidence: 0.96,
+      source: 'trade',
+      audio_first: null,
+      audio_final: null,
+      created_at: nowMs
+    });
+
+    if (req.lesson_id) {
+      deps.db.registerLessonExpression({
+        id: `expr-${req.trade_id}`,
+        playerId: req.student_id,
+        lemmaKey: req.pin_expression ?? req.target_text,
+        lessonId: req.lesson_id,
+        nowMs
+      });
+    }
+
+    return c.json({
+      ok: true,
+      fee_coins: tx.feeCoins,
+      bonus_granted: tx.bonusGranted,
+      swapped_item_ids: tx.swappedItemIds,
+      score: scored.score
+    });
+  });
+
+  app.post('/v1/lessons/:id/complete-and-send-report', async (c) => {
+    const lessonId = c.req.param('id');
+    const parsed = CompleteLessonSendReportSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_lesson_report_request', issues: parsed.error.issues }, 400);
+    }
+    const req = parsed.data;
+    const nowMs = deps.nowMs();
+
+    const rows = deps.db.listUtterancesForPlayer(req.player_id);
+    const metricInputs: UtteranceMetricInput[] = rows.map((r) => ({
+      id: r.id,
+      player_id: r.player_id,
+      session_id: r.session_id,
+      session_kind: r.session_kind,
+      ctx: r.ctx,
+      mode: r.mode,
+      interlocutor: r.interlocutor,
+      final_text: r.final_text,
+      words: r.words,
+      l1_words: r.l1_words,
+      dur_ms: r.dur_ms,
+      latency_ms: r.latency_ms,
+      stars: r.stars,
+      hint_level: r.hint_level,
+      attempts: r.attempts,
+      score: r.score,
+      confidence: r.confidence,
+      created_at: r.created_at
+    }));
+    const weekly = computeWeeklyMetrics(metricInputs);
+    const thinkSpeak = computeThinkAndSpeakIndex(metricInputs, computeTwoWeekBaseline([weekly]));
+    const minutes = deps.db.listLessonMinutes(lessonId);
+    const lessonStats = computeLessonMetrics(lessonId, minutes, metricInputs);
+    const expressions = deps.db.listExpressionsForPlayer(req.player_id);
+    const contribution = computeTeacherContribution(
+      expressions.map((e) => ({
+        id: e.id,
+        player_id: e.player_id,
+        lemma_key: e.lemma_key,
+        first_seen_at: e.first_seen_at,
+        born_in: e.born_in,
+        lesson_id: e.lesson_id,
+        reuse_solo: e.reuse_solo,
+        last_used_at: e.last_used_at
+      })),
+      [],
+      nowMs
+    );
+
+    const facts = {
+      free_utterances: weekly.free_utterance_count,
+      total_valid_utterances: weekly.total_valid_utterances,
+      weekly_free_ratio: weekly.weekly_free_ratio,
+      active_speaking_minutes: weekly.active_speaking_minutes,
+      mean_words_per_utterance: weekly.mean_words_per_utterance,
+      think_speak_index: thinkSpeak.index,
+      new_expressions: contribution.lesson_born_expressions,
+      solo_reused_expressions: Math.round(
+        contribution.lesson_born_expressions * contribution.solo_transfer_14d_rate
+      )
+    };
+    const verified = verifyOrReplaceReportBody(facts, req.draft_body);
+    const shareUrl = req.share_url ?? `/report?token=${req.share_token}`;
+
+    const delivery = deps.db.createAndDeliverParentReport({
+      id: req.report_id,
+      playerId: req.player_id,
+      guardianId: req.guardian_id,
+      kind: 'lesson',
+      refId: lessonId,
+      facts,
+      body: verified.body,
+      clips: req.clips,
+      shareToken: req.share_token,
+      shareUrl,
+      teacherComment: req.teacher_comment,
+      nextLessonAt: req.next_lesson_at,
+      nowMs
+    });
+
+    return c.json({
+      ok: true,
+      delivery_status: delivery.status,
+      share_token: delivery.share_token,
+      share_url: delivery.share_url,
+      replaced: verified.replaced,
+      reasons: verified.reasons,
+      facts,
+      lesson_metrics: lessonStats,
+      teacher_contribution: contribution,
+      body: verified.body,
+      teacher_comment: delivery.teacher_comment,
+      next_lesson_at: delivery.next_lesson_at
+    });
+  });
+
+  app.post('/v1/reports/reminders/run', (c) => {
+    const res = deps.db.processPendingReportReminders(deps.nowMs());
+    return c.json(res);
   });
 
   app.get('/v1/reports/:token', (c) => {

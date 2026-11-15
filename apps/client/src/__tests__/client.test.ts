@@ -116,5 +116,65 @@ describe('apps/client (WP-004, WP-109)', () => {
       expect(endedHtml).not.toContain(pattern);
     }
     expect(/[0-9,]+\s*원|결제|할인|구독|만료/.test(endedHtml)).toBe(false);
+
+    const tradeHtml = renderToStaticMarkup(
+      React.createElement(HudOverlay, {
+        player,
+        zoneLabel: '브릭 플라자',
+        offers: understand.offers,
+        selectedStars: 3,
+        fontScale: 1.0,
+        micActive: false,
+        thoughtBoardOpen: false,
+        tradeWindow: {
+          open: true,
+          title: '철광석 3개 ↔ 따뜻한 꿀차 2잔 물물교환',
+          npcRoleLabel: '찻집 주인 (교사 빙의)',
+          studentGivesLabel: '철광석 3개',
+          teacherGivesLabel: '따뜻한 꿀차 2잔',
+          baseValueCoins: 100,
+          selectedStars: 3,
+          offers: [
+            {
+              stars: 1,
+              text: 'I want to trade three iron ores for warm honey tea please.',
+              feePct: 10,
+              bonus: null
+            },
+            {
+              stars: 2,
+              text: 'Could we swap three iron ores for two warm honey teas?',
+              feePct: 5,
+              bonus: null
+            },
+            {
+              stars: 3,
+              text: 'If I trade three iron ores, could I get two warm honey teas so that I can stay warm?',
+              feePct: 0,
+              bonus: 'warmth_grace_x2'
+            }
+          ],
+          teacherPromptEn: 'Welcome! What would you like to trade for this warm honey tea?',
+          teacherSpoken: true,
+          studentSpoken: false,
+          settled: false,
+          onToggleOpen: () => {},
+          onSelectStars: () => {},
+          onStudentSpeak: () => {},
+          onExecuteTrade: () => {}
+        },
+        onSelectOffer: () => {},
+        onToggleMic: () => {},
+        onToggleThoughtBoard: () => {},
+        onSelectBoardItem: () => {},
+        onChangeFontScale: () => {}
+      })
+    );
+    expect(tradeHtml).toContain('선생님 말씀:');
+    expect(tradeHtml).toContain('물물교환');
+    for (const pattern of FORBIDDEN_PLAYER_UI_PATTERNS) {
+      expect(tradeHtml).not.toContain(pattern);
+    }
+    expect(/[0-9,]+\s*원|결제|할인|구독|만료/.test(tradeHtml)).toBe(false);
   });
 });

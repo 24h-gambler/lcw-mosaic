@@ -280,6 +280,9 @@ importers:
       '@lcw/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
+      '@lcw/sim-core':
+        specifier: workspace:*
+        version: link:../../packages/sim-core
       '@lcw/ui':
         specifier: workspace:*
         version: link:../../packages/ui

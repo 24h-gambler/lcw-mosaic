@@ -6,19 +6,30 @@
     <meta name="theme-color" content="#FFF9EE" />
     <title>LCW 마을</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2365b84a'/%3E%3Crect y='9' width='16' height='7' fill='%238a5a33'/%3E%3C/svg%3E" />
-    <!-- Fonts from docs/08 3장, all SIL OFL: Pretendard (UI), Atkinson Hyperlegible (target sentences), Galmuri11 (pixel). -->
+    <!-- Fonts from docs/08 3장, all SIL OFL: Pretendard (UI), Atkinson Hyperlegible (target sentences), Galmuri11 (pixel).
+         Loaded without blocking the first paint (media=print swap): the splash shows at once, text re-renders when fonts land. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.39.0/dist/galmuri.css" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" media="print" onload="this.media='all'" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" media="print" onload="this.media='all'" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.39.0/dist/galmuri.css" media="print" onload="this.media='all'" />
     <style>
       html, body, #root { margin: 0; height: 100%; overflow: hidden; background: #FFF9EE; overscroll-behavior: none; }
       body { -webkit-tap-highlight-color: transparent; }
+      /* First-paint splash, replaced by React (the HUD loading card has the same cubes). Colours are the @lcw/ui
+         tokens paper-50 / ink-900 / brand / sun / leaf / sky; a test keeps them equal to tokens.ts. */
+      .lcw-splash { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; gap: 6px; background: #FFF9EE; }
+      .lcw-splash span { width: 18px; height: 18px; border: 2px solid #1B1F2A; animation: lcwhop 900ms ease-in-out infinite; }
+      .lcw-splash span:nth-child(1) { background: #FF6B4A; }
+      .lcw-splash span:nth-child(2) { background: #FFC53D; animation-delay: 150ms; }
+      .lcw-splash span:nth-child(3) { background: #3DBE6B; animation-delay: 300ms; }
+      .lcw-splash span:nth-child(4) { background: #3FA9F5; animation-delay: 450ms; }
+      @keyframes lcwhop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+      @media (prefers-reduced-motion: reduce) { .lcw-splash span { animation: none; } }
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="lcw-splash" aria-hidden="true"><span></span><span></span><span></span><span></span></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

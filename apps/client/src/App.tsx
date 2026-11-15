@@ -9,6 +9,7 @@ import { canRunWorld, createWorld, SCENE_IDS, type NpcRef, type SceneId, type Wo
 import { WORLD_STRINGS as W } from './world/strings.js';
 import { browserStore, resolveIdentity, type PlayerIdentity } from './world/identity.js';
 import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
+import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
@@ -53,6 +54,11 @@ export interface SoloPlayer {
   deviceToken?: string;
   nickname?: string;
   level?: Level;
+}
+
+/** docs/19 6장: a linked child whose seat stopped (play_allowed=false) may look around but not play solo. */
+export function soloPlayBlocked(id: PlayerIdentity | null): boolean {
+  return id?.kind === 'child' && !id.playAllowed;
 }
 
 export function soloPlayerOf(id: PlayerIdentity | null): SoloPlayer | undefined {
@@ -198,6 +204,8 @@ export function App(): React.ReactElement {
   const [failed, setFailed] = useState(false);
   const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
   const [tooSlow, setTooSlow] = useState(false);
+  const [seatCard, setSeatCard] = useState(false);
+  const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
 
@@ -275,14 +283,28 @@ export function App(): React.ReactElement {
     [world]
   );
 
+  // Seat stopped: say so once when the world opens (and again on every NPC tap), while the world stays walkable.
+  useEffect(() => {
+    if (soloBlocked && world) setSeatCard(true);
+  }, [soloBlocked, world]);
+  useEffect(() => {
+    if (!world || !seatCard) return;
+    world.setPaused(true);
+    return () => world.setPaused(false);
+  }, [world, seatCard]);
+
   // Solo play: tapping an NPC opens the dialog panel when no lesson is running.
   useEffect(() => {
     if (!world) return;
     return world.onNpcInteract((npc) => {
       if (lessonActive.current) return;
+      if (soloBlocked) {
+        setSeatCard(true);
+        return;
+      }
       if (dialogMod?.DialogPanel && dialogMod.createSoloSubmit) setSoloNpc(npc);
     });
-  }, [world, dialogMod]);
+  }, [world, dialogMod, soloBlocked]);
 
   const renderDialog = useCallback(
     (npc: NpcRef, cfg: DialogConfig): React.ReactNode => {
@@ -320,10 +342,12 @@ export function App(): React.ReactElement {
               }}
             />
           ) : null}
-          {Review && identity && identity.kind !== 'guest' ? (
+          {Review && identity && identity.kind !== 'guest' && !soloBlocked ? (
             <Review world={world} player={soloPlayerOf(identity)} hidden={lessonOn || soloNpc !== null} />
           ) : null}
-          {world && SoloPanel && soloNpc && soloSubmit ? (
+          {soloBlocked && world && !lessonOn ? <SeatPausedChip onOpen={() => setSeatCard(true)} /> : null}
+          {soloBlocked && world && !lessonOn && seatCard ? <SeatPausedCard onClose={() => setSeatCard(false)} /> : null}
+          {world && !soloBlocked && SoloPanel && soloNpc && soloSubmit ? (
             <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloLevel ? { level: soloLevel } : {}} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />
           ) : null}
         </div>

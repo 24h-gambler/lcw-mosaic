@@ -63,7 +63,8 @@ function fakeWorld() {
     celebrate: (s) => void calls.push(`celebrate:${s}`),
     setPossessed: (n) => void calls.push(`possess:${n}`),
     playDirectorEvent: (k) => void calls.push(`event:${k}`),
-    setCoins: (n) => void calls.push(`coins:${n}`)
+    setCoins: (n) => void calls.push(`coins:${n}`),
+    setStars: (n) => void calls.push(`stars:${n}`)
   };
   return { world, calls };
 }
@@ -141,6 +142,11 @@ describe('client lesson module (docs/19 §4)', () => {
     });
     expect(r).toMatchObject({ pass: true, stars: 2, coinsTotal: 220 }); // the child's one ledger: starting 200 + 2★ × 10
     expect(calls.filter((c) => c.startsWith('coins:'))).toEqual(['coins:200', 'coins:220']); // once per change
+    // the HUD star chip counts this lesson's stars as the answer lands (not when "done" is tapped)
+    expect(calls).toContain('stars:2');
+    expect(ctl.state.lessonStars).toBe(2);
+    // the dialog window opens with the stage script
+    expect(ctl.state.npcLineEn).toBe('Welcome to the honey cafe! What would you like today?');
     // the DialogPanel's payload carries solo meta; the strict lesson body must not (it would be a 400)
     const viaPanel = await ctl.submit({
       target_text: 'Can I have a warm honey tea?',

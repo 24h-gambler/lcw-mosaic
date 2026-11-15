@@ -202,6 +202,8 @@ export class WorldHud {
     { el: HTMLDivElement; text: HTMLSpanElement; until: number; full: string; shown: number; sx: number; sy: number; vis: boolean; live: boolean }
   >();
   starTotal = 0;
+  /** Set by setStars: an outside count owns the chip (a lesson), celebrate() only plays the burst. */
+  private starsExternal = false;
   private selected = 0;
 
   constructor(parent: HTMLElement, private h: HudHandlers) {
@@ -407,6 +409,25 @@ export class WorldHud {
     this.sceneChip.textContent = titleKo;
   }
 
+  /** Outside star count (a lesson's stars): the chip shows it, celebrate() stops adding. null = back to celebrate(). */
+  setStars(total: number | null): void {
+    if (total === null || !Number.isFinite(total)) {
+      this.starsExternal = false;
+      return;
+    }
+    this.starsExternal = true;
+    const n = Math.max(0, Math.round(total));
+    if (n === this.starTotal) return;
+    const grew = n > this.starTotal;
+    this.starTotal = n;
+    this.starsN.textContent = String(n);
+    if (grew) {
+      this.starsEl.classList.remove('pop');
+      void this.starsEl.offsetWidth;
+      this.starsEl.classList.add('pop');
+    }
+  }
+
   /** Server ledger balance (one ledger, docs/19): null hides the coin chip. */
   setCoins(total: number | null): void {
     const n = total === null || !Number.isFinite(total) ? null : Math.max(0, Math.round(total));
@@ -478,7 +499,7 @@ export class WorldHud {
     window.setTimeout(() => {
       if (this.cele.classList.contains('out')) this.cele.innerHTML = '';
     }, 2400);
-    if (stars > 0) {
+    if (stars > 0 && !this.starsExternal) {
       window.setTimeout(() => {
         this.starTotal += stars;
         this.starsN.textContent = String(this.starTotal);

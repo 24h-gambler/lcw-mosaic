@@ -64,6 +64,11 @@ export interface WorldHandle {
   setLessonBadge?(on: boolean): void;
   /** Coin balance from the server ledger (dialog `coinsTotal`, lesson sync); null hides it. */
   setCoins?(total: number | null): void;
+  /**
+   * Star chip from an outside count (a lesson's stars, server-summed): the chip shows this number and celebrate()
+   * no longer adds to it, so a star is never counted twice. null hands the chip back to celebrate().
+   */
+  setStars?(total: number | null): void;
   /** Linked child's nickname shown over the player (null = guest, no plate). The guide greets them by name once. */
   setPlayerName?(name: string | null): void;
   /**

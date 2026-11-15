@@ -3,8 +3,8 @@
  * Rendering is Three.js (AGENTS 2); every block change goes through VoxelWorld.setBlock (AGENTS 4.1).
  */
 import * as THREE from 'three';
-import { VoxelWorld } from '@lcw/sim-core';
-import type { CreateWorldOptions, DirectorEventKind, NpcRef, SceneId, WorldHandle, WorldStats } from './api.js';
+import { VoxelWorld, parseRef } from '@lcw/sim-core';
+import type { BuildAccess, CreateWorldOptions, DirectorEventKind, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
 import { TILE_NAMES, blockLook } from './blocks.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
@@ -17,7 +17,12 @@ import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveInt
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, welcomeBackEn } from './strings.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, welcomeBackEn } from './strings.js';
+import { PlotBuilder, type Aim, type BuildReason } from './build.js';
+import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
+import { BuildView } from './build-view.js';
+import { PlotSync } from './plot-sync.js';
+import { browserStore } from './identity.js';
 import { NPCS, SCENES, WANDERERS, buildTownSteps, standHeight, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
 
 export { TIER_SETTINGS };
@@ -210,6 +215,30 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const effects = new Effects(tier.particles);
   scene.add(effects.group);
 
+  // ---- Building on my plot (docs/03 D13, WP-201/207): shared rules, optimistic, saved by the server.
+  await yieldToMain(); // the plot copy below is its own task
+  const buildView = new BuildView();
+  scene.add(buildView.group);
+  const roomCbs = new Set<(r: RoomCheckInfo) => void>();
+  let lastRoom: RoomCheckInfo | null = null;
+  let buildHud: BuildHud | null = null;
+  const builder = new PlotBuilder(
+    world,
+    {
+      blockChanged: (x, y, z) => chunks.markDirtyAt(x, y, z),
+      furnitureChanged: () => buildView.setFurniture(builder.state.furniture),
+      inventoryChanged: () => refreshBuildSlots(),
+      roomChecked: (r) => {
+        lastRoom = { missing: r.missing, sentence: r.sentence, ok: r.ok, resident: r.resident };
+        buildHud?.showRoom(r);
+        for (const cb of roomCbs) cb(lastRoom);
+      }
+    },
+    performance.now()
+  );
+  let plotSync: PlotSync | null = null;
+  let buildAccess: BuildAccess['kind'] | 'loading' = 'local';
+
   const blockAt = (x: number, y: number, z: number): number => world.getBlock(x, y, z);
 
   // ---- Characters.
@@ -314,12 +343,132 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   mark('mesh');
   if (startup.mesh! - startup.characters! > FIRST_SCREEN_CAP_MS) startup.slowGround = 1;
 
+  // ---- Building controls.
+  let buildActive = false;
+  let tool: 'place' | 'break' = 'place';
+  let aim: Aim | null = null;
+  let mouseAt: { x: number; y: number } | null = null;
+  /** a press that may become a place / break (mouse button or a still finger) */
+  let hold: { kind: 'place' | 'break'; id: number; sx: number; sy: number; x: number; y: number; t0: number; moved: boolean; cell: string; progress: number; lastPlace: number } | null = null;
+  const icons = new BuildIcons(atlasPixels);
+  const selectedRef = (): string | null => builder.inv.slots[hud.selectedSlot]?.ref ?? null;
+  const refreshBuildSlots = (): void => {
+    if (!buildHud) return;
+    if (buildActive) {
+      hud.setBuildSlots(builder.inv.slots.map((s) => (s ? { icon: icons.icon(s.ref), count: s.n, name: refNameKo(s.ref) } : null)));
+    }
+    const ref = selectedRef();
+    buildHud.setRotateVisible(!!ref && parseRef(ref)?.kind === 'furniture');
+    buildHud.renderChest(builder.inv, hud.selectedSlot);
+  };
+  const sayReason = (reason: BuildReason | string | undefined): void => {
+    if (!reason || !buildHud) return;
+    buildHud.say(reason);
+    if (reason !== 'rate') sfx.play('ui.click', { pitch: -6 });
+  };
+  const doPlace = (): boolean => {
+    if (!aim) return false;
+    if (aim.placeReason) {
+      sayReason(aim.placeReason);
+      return false;
+    }
+    const r = builder.place(aim.place, hud.selectedSlot, performance.now());
+    if (!r.ok) {
+      sayReason(r.reason);
+      return false;
+    }
+    sfx.play('blk.place', { pitch: (Math.random() - 0.5) * 2 });
+    return true;
+  };
+  const doBreak = (cell: { x: number; y: number; z: number }): boolean => {
+    const before = world.getBlock(cell.x, cell.y, cell.z);
+    const r = builder.breakAt(cell, performance.now());
+    if (!r.ok) {
+      sayReason(r.reason);
+      return false;
+    }
+    sfx.play('blk.break', { pitch: (Math.random() - 0.5) * 2 });
+    const look = blockLook(before);
+    const col = before ? new THREE.Color(look.sound === 'wood' ? 0xc98a4a : look.sound === 'glass' ? 0xbfe6ff : look.sound === 'cloth' ? 0xfff3d6 : look.sound === 'dirt' || look.sound === 'plant' ? 0x7a5a3a : 0x9aa3b2) : new THREE.Color(0xc98a4a);
+    if (!reduceMotion) effects.burst(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5, col, 14, 2.5, 0.1, 0.7);
+    return true;
+  };
+  const openChest = (): void => {
+    if (!buildHud) return;
+    sfx.play('ui.open');
+    buildHud.openChest(builder.inv, hud.selectedSlot);
+  };
+  buildHud = new BuildHud(
+    hud.root,
+    icons,
+    {
+      onTool: (t) => {
+        tool = t;
+        buildHud?.setTool(t);
+        sfx.play('ui.click');
+      },
+      onChest: () => openChest(),
+      onUndo: () => {
+        const r = builder.undoLast(performance.now());
+        if (!r.ok) sayReason(r.reason === 'no_block' ? undefined : r.reason);
+        else sfx.play('blk.place', { pitch: -4 });
+      },
+      onRotate: () => {
+        builder.rot = (builder.rot + 1) % 4;
+        sfx.play('ui.click');
+        buildHud?.say(`${W.rotate} ${builder.rot * 90}°`, false);
+      },
+      onTake: (ref) => {
+        const what = parseRef(ref);
+        const r = builder.take(ref, what?.kind === 'furniture' ? 1 : 16, hud.selectedSlot, performance.now());
+        if (!r.ok) sayReason(r.reason);
+        else sfx.play('item.get');
+      },
+      onStore: (slot) => {
+        const r = builder.store(slot, performance.now());
+        if (!r.ok) sayReason(r.reason);
+        else sfx.play('ui.click');
+      },
+      onCloseChest: () => buildHud?.closeChest()
+    },
+    touch
+  );
+
+  /** Point the build aim at a screen position: the block under it within reach, judged for both tools. */
+  const aimAt = (cx: number, cy: number): Aim | null => {
+    const rect = canvas.getBoundingClientRect();
+    ndc.set(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    const o = raycaster.ray.origin;
+    const d = raycaster.ray.direction;
+    const reach = o.distanceTo(new THREE.Vector3(body.x, body.y + 1.5, body.z)) + 6;
+    const hit = pickVoxel(builder.pickAt, o.x, o.y, o.z, d.x, d.y, d.z, reach);
+    if (!hit) return null;
+    return builder.aim(hit, body, hud.selectedSlot);
+  };
+
+  const keyIsForPage = (t: HTMLElement | null): boolean =>
+    !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' || t.tagName === 'A' || t.isContentEditable);
+
   // ---- Input.
   const keyDown = (e: KeyboardEvent): void => {
     sfx.unlock();
     const t = e.target as HTMLElement | null;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    // Keys aimed at the page (a site button, a text box) stay the page's: Space must still press a button.
+    if (keyIsForPage(t)) return;
     input.keys.add(e.code);
+    if (buildActive && !paused && !buildHud?.chestOpen) {
+      if (e.code === 'KeyZ' && !e.repeat) {
+        const r = builder.undoLast(performance.now());
+        if (r.ok) sfx.play('blk.place', { pitch: -4 });
+      }
+      if (e.code === 'KeyR' && !e.repeat) {
+        builder.rot = (builder.rot + 1) % 4;
+        buildHud?.say(`${W.rotate} ${builder.rot * 90}°`, false);
+      }
+      if (e.code === 'KeyC' && !e.repeat) openChest();
+    }
+    if (e.code === 'Escape' && buildHud?.chestOpen) buildHud.closeChest();
     if (e.code === 'KeyE') tryTalk();
     if (e.code === 'F5') {
       e.preventDefault();
@@ -331,9 +480,13 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
     if (e.code.startsWith('Digit')) {
       const n = Number(e.code.slice(5)) - 1;
-      if (n >= 0 && n < 5) hud.selectSlot(n);
+      if (n >= 0 && n < 5) {
+        hud.selectSlot(n);
+        refreshBuildSlots();
+      }
     }
-    if (e.code === 'Space') e.preventDefault();
+    // Space jumps; keep the page from scrolling only when nothing on the page has focus (or the canvas has).
+    if (e.code === 'Space' && (!t || t === document.body || t === document.documentElement || t === canvas)) e.preventDefault();
   };
   const keyUp = (e: KeyboardEvent): void => {
     input.keys.delete(e.code);
@@ -346,14 +499,66 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let dragMoved = 0;
   let lastX = 0;
   let lastY = 0;
+  /** Start a build press (mouse button or finger) when standing on my plot. */
+  const buildPress = (e: PointerEvent, kind: 'place' | 'break'): void => {
+    if (!buildActive || paused || buildHud?.chestOpen) return;
+    const now = performance.now();
+    hold = { kind, id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, t0: now, moved: false, cell: '', progress: 0, lastPlace: 0 };
+    aim = aimAt(e.clientX, e.clientY);
+    if (e.pointerType === 'mouse' && kind === 'place') {
+      hold.lastPlace = now;
+      doPlace();
+    }
+  };
+  const buildMove = (e: PointerEvent): void => {
+    if (!hold || hold.id !== e.pointerId) return;
+    hold.x = e.clientX;
+    hold.y = e.clientY;
+    if (Math.hypot(e.clientX - hold.sx, e.clientY - hold.sy) > (e.pointerType === 'mouse' ? 6 : 12)) {
+      // it became a camera drag or a stick: not an edit
+      hold.moved = true;
+      hold.progress = 0;
+      buildView.showBreak(null, 0);
+    }
+  };
+  const buildRelease = (e: PointerEvent): void => {
+    if (!hold || hold.id !== e.pointerId) return;
+    const h = hold;
+    hold = null;
+    buildView.showBreak(null, 0);
+    if (h.moved || !buildActive) return;
+    if (e.pointerType === 'mouse') {
+      if (h.kind === 'break' && performance.now() - h.t0 < 250) {
+        // a click: open the chest when it is the chest, otherwise nothing (breaking needs a hold)
+        const a = aimAt(e.clientX, e.clientY);
+        if (a && builder.isChest(a.hit.x, a.hit.y, a.hit.z)) openChest();
+      }
+      return;
+    }
+    const a = aimAt(e.clientX, e.clientY);
+    if (a && builder.isChest(a.hit.x, a.hit.y, a.hit.z) && performance.now() - h.t0 < 450) {
+      openChest();
+      return;
+    }
+    if (h.kind === 'place' && performance.now() - h.t0 < 450) {
+      aim = a;
+      doPlace();
+    }
+  };
   const pointerDown = (e: PointerEvent): void => {
     sfx.unlock();
     sfx.startAmbient();
     if (e.pointerType !== 'mouse') {
       // touch taps on NPCs (the HUD touch layer handles sticks; taps reach here only when it is off)
+      buildPress(e, tool);
       tapPick(e.clientX, e.clientY);
       return;
     }
+    if (e.button === 2) {
+      buildPress(e, 'place');
+      return;
+    }
+    if (e.button === 0) buildPress(e, 'break');
     dragging = true;
     dragMoved = 0;
     lastX = e.clientX;
@@ -361,6 +566,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     canvas.setPointerCapture?.(e.pointerId);
   };
   const pointerMove = (e: PointerEvent): void => {
+    if (e.pointerType === 'mouse') mouseAt = { x: e.clientX, y: e.clientY };
+    buildMove(e);
     if (!dragging) return;
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
@@ -371,9 +578,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005));
   };
   const pointerUp = (e: PointerEvent): void => {
-    if (dragging && dragMoved < 6) tapPick(e.clientX, e.clientY);
+    buildRelease(e);
+    if (dragging && dragMoved < 6 && e.button === 0) tapPick(e.clientX, e.clientY);
     dragging = false;
   };
+  const contextMenu = (e: Event): void => e.preventDefault();
   const wheel = (e: WheelEvent): void => {
     e.preventDefault();
     camDist = Math.max(3, Math.min(11, camDist + e.deltaY * 0.004));
@@ -384,9 +593,21 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   window.addEventListener('pointermove', pointerMove);
   window.addEventListener('pointerup', pointerUp);
   canvas.addEventListener('wheel', wheel, { passive: false });
-  // Touch layer taps (short touches without moving) also pick NPCs.
+  canvas.addEventListener('contextmenu', contextMenu);
+  // Touch layer: a still finger is a build tap or hold on my plot; short touches without moving also pick NPCs.
+  hud.root.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse') buildPress(e, tool);
+  });
+  hud.root.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse') buildMove(e);
+  });
   hud.root.addEventListener('pointerup', (e) => {
-    if (e.pointerType !== 'mouse') tapPick(e.clientX, e.clientY);
+    if (e.pointerType === 'mouse') return;
+    buildRelease(e);
+    tapPick(e.clientX, e.clientY);
+  });
+  hud.root.addEventListener('pointercancel', (e) => {
+    if (hold && hold.id === e.pointerId) hold = null;
   });
   const unlockOnce = (): void => {
     sfx.unlock();
@@ -655,6 +876,127 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const resizeObs = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null;
   resizeObs?.observe(canvas);
 
+  // ---- Building, per frame: plot entry/exit, aim outline, held break / place.
+  function updateBuild(dt: number, now: number): void {
+    const want = builder.inPlot(body.x, body.z) && !paused && autopilot.length === 0;
+    if (want !== buildActive) {
+      buildActive = want;
+      buildHud?.setActive(want, touch ? W.buildHelpTouch : W.buildHelpDesktop);
+      buildHud?.setSync(buildAccess === 'saved' ? (plotSync?.status === 'offline' ? 'offline' : plotSync && plotSync.pending > 0 ? 'saving' : 'saved') : buildAccess === 'loading' ? 'loading' : buildAccess === 'local' ? 'local' : 'idle');
+      if (want) refreshBuildSlots();
+      else {
+        hud.setBuildSlots(null);
+        buildHud?.closeChest();
+        hold = null;
+        aim = null;
+        buildView.showAim(null, false);
+        buildView.showBreak(null, 0);
+      }
+    }
+    if (!buildActive) return;
+    // aim: the held press first, else the mouse hover (desktop shows the outline before any click)
+    const at = hold ? { x: hold.x, y: hold.y } : !touch ? mouseAt : null;
+    aim = at ? aimAt(at.x, at.y) : null;
+    const mode: 'place' | 'break' = hold ? hold.kind : touch ? tool : 'place';
+    if (!aim) buildView.showAim(null, false);
+    else if (mode === 'place') buildView.showAim(aim.place, !!aim.placeReason);
+    else buildView.showAim(aim.hit, !!aim.breakReason);
+    if (!hold || hold.moved || !aim) {
+      buildView.showBreak(null, 0);
+      return;
+    }
+    if (hold.kind === 'break') {
+      const key = `${aim.hit.x},${aim.hit.y},${aim.hit.z}`;
+      if (key !== hold.cell) {
+        hold.cell = key;
+        hold.progress = 0;
+        if (aim.breakReason) sayReason(aim.breakReason);
+      }
+      if (aim.breakReason) {
+        buildView.showBreak(null, 0);
+        return;
+      }
+      hold.progress += dt / Math.max(0.001, aim.breakS);
+      if (hold.progress >= 1) {
+        doBreak(aim.hit);
+        hold.progress = 0;
+        hold.cell = '';
+        buildView.showBreak(null, 0);
+      } else buildView.showBreak(aim.hit, hold.progress);
+    } else {
+      // holding place repeats at D13 4 a second (a finger waits a moment first, so a tap stays one block)
+      const first = touch ? 450 : 300;
+      if (now - hold.t0 >= first && now - hold.lastPlace >= 250) {
+        hold.lastPlace = now;
+        doPlace();
+      }
+    }
+  }
+
+  const startBuildAccess = (a: BuildAccess): void => {
+    plotSync?.stop();
+    plotSync = null;
+    if (a.kind === 'paused') {
+      buildAccess = 'paused';
+      builder.access = 'paused';
+      buildHud?.setSync('idle');
+      return;
+    }
+    if (a.kind === 'local') {
+      buildAccess = 'local';
+      builder.access = 'local';
+      builder.onOp = null;
+      if (buildActive) buildHud?.setSync('local');
+      return;
+    }
+    buildAccess = 'loading';
+    builder.access = 'paused';
+    if (buildActive) buildHud?.setSync('loading');
+    const sync = new PlotSync({
+      token: a.token,
+      base: a.base,
+      store: browserStore(),
+      onResync: (snap) => builder.applySnapshot(snap),
+      onStatus: (st) => {
+        if (buildActive && buildAccess === 'saved') buildHud?.setSync(st);
+      },
+      onDenied: (kind) => {
+        if (plotSync !== sync) return;
+        if (kind === 'paused' && a.pausedFallback !== 'local') {
+          buildAccess = 'paused';
+          builder.access = 'paused';
+          buildPausedCbs.forEach((cb) => cb());
+        } else {
+          // not linked any more (or a lesson whose seat paused): keep building on this device only
+          buildAccess = 'local';
+          builder.access = 'local';
+          builder.onOp = null;
+        }
+        if (buildActive) buildHud?.setSync(buildAccess === 'local' ? 'local' : 'idle');
+      }
+    });
+    plotSync = sync;
+    void sync.start().then((snap) => {
+      if (plotSync !== sync || disposed) return;
+      if (!snap) {
+        if (buildAccess === 'loading') {
+          // offline at start: build on what is here; the queue (and later ops) still go up when the line is back
+          buildAccess = 'saved';
+          builder.access = 'local';
+          builder.onOp = (op) => sync.push(op);
+          if (buildActive) buildHud?.setSync('offline');
+        }
+        return;
+      }
+      builder.applySnapshot(snap);
+      buildAccess = 'saved';
+      builder.access = 'saved';
+      builder.onOp = (op) => sync.push(op);
+      if (buildActive) buildHud?.setSync('saved');
+    });
+  };
+  const buildPausedCbs = new Set<() => void>();
+
   // ---- Frame loop.
   const tmp = new THREE.Vector3();
   const project = (x: number, y: number, z: number): { sx: number; sy: number; vis: boolean } => {
@@ -819,6 +1161,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     chunkMats.sync(sky);
     chunks.update(body.x, body.z, tier.viewChunks);
     updateCamera(dt);
+    updateBuild(dt, now);
 
     // HUD projections.
     const nowMs = now;
@@ -973,6 +1316,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       resizeObs?.disconnect();
       canvas.removeEventListener('pointerdown', pointerDown);
       canvas.removeEventListener('wheel', wheel);
+      canvas.removeEventListener('contextmenu', contextMenu);
+      plotSync?.stop();
+      builder.dispose();
+      buildHud?.dispose();
+      buildView.dispose();
       chunks.dispose();
       VoxelCharacter.shadows = null;
       sfx.dispose();
@@ -1015,6 +1363,19 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
           break;
       }
     },
+    setBuildAccess: (a) => startBuildAccess(a),
+    onRoomCheck(cb) {
+      roomCbs.add(cb);
+      return () => {
+        roomCbs.delete(cb);
+      };
+    },
+    onBuildPaused(cb) {
+      buildPausedCbs.add(cb);
+      return () => {
+        buildPausedCbs.delete(cb);
+      };
+    },
     getScene: () => currentScene,
     listNpcs: () => [...npcs.values()].map((n) => n.ref),
     setLessonBadge: (on) => hud.setLessonBadge(on),
@@ -1048,10 +1409,27 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         ground: { near: chunks.outstanding(body.x, body.z, FIRST_RING), view: chunks.outstanding(body.x, body.z, tier.viewChunks) },
         scene: currentScene,
         player: { x: body.x, y: body.y, z: body.z },
-        startup: { ...startup }
+        startup: { ...startup },
+        build: {
+          active: buildActive,
+          access: buildAccess,
+          tool,
+          slots: builder.inv.slots.map((x) => (x ? `${x.ref}x${x.n}` : null)),
+          chestKinds: Object.keys(builder.inv.chest).length,
+          furniture: builder.state.furniture.size,
+          edits: builder.edits,
+          undo: builder.undoDepth,
+          pending: plotSync?.pending ?? 0,
+          sent: plotSync?.sent ?? 0,
+          refused: plotSync?.refused ?? 0,
+          sync: plotSync?.status ?? 'idle',
+          aim: aim ? { hit: aim.hit, place: aim.place, placeReason: aim.placeReason, breakReason: aim.breakReason } : null,
+          tip: buildHud?.tipText ?? '',
+          room: lastRoom,
+          chestOpen: buildHud?.chestOpen ?? false
+        }
       };
     }
   };
-  void pickVoxel;
   return handle;
 }

@@ -289,6 +289,8 @@ audio.setBusVolume(bus: BusId, v: number): void
 | 마이크 순서 | NPC 음성 종료 전에는 녹음이 시작되지 않는다 |
 | 라이선스 검사 | `LICENSES.md`에 없는 파일이 있으면 빌드 실패 |
 
+구현(WP-110, 2026-11-16): 규칙(상한·덕킹 표·복귀 시간·폭발 묶기·마이크 순서·탭 숨김)은 `packages/audio`의 엔진 하나에 있고, 시험 5종은 `packages/audio/src/__tests__/audio.test.ts`입니다. 화면 쪽은 `apps/client/src/audio/runtime.ts`가 페이지에 AudioContext 하나와 버스 6개(음악·환경음·효과음·UI·NPC 음성·통화) → 마스터 70% → 40Hz 고역 통과 → −1dB 리미터를 만들고, 엔진 상태를 버스 음량 곡선(내려갈 때 40ms, 복귀는 표의 시간)으로 옮깁니다. 월드 효과음(`world/sfx.ts`: 효과음·UI·환경음 버스), 대화 소리(`dialog/sound.ts`: UI 버스, NPC 음성은 덕킹), 수업 소리(`lesson/sfx.ts`: UI 버스)가 모두 여기에 붙습니다. 대화창과 소리 내어 읽기의 마이크는 `micCue()`가 끝난 뒤(NPC 음성 끊기 → 150ms → 60ms 신호음 → 녹음) 시작합니다. 확인용으로 `window.__lcwAudio`(버스 목표 음량·덕킹 사유·마이크 상태)를 둡니다.
+
 | 사람이 듣고 확인 | 기준 |
 |---|---|
 | 2시간 연속 플레이 후 | 거슬리는 반복음이 없다 |

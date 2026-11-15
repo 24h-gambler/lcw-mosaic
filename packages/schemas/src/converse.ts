@@ -29,7 +29,8 @@ export const NpcContextSchema = z.enum([
   'repair_shop',
   'resident',
   'trade_shop',
-  'guide'
+  'guide',
+  'errand'
 ]);
 export type NpcContext = z.infer<typeof NpcContextSchema>;
 
@@ -149,6 +150,8 @@ export const ScoreResponseSchema = z
     asked_key: z.string().min(1).optional(),
     /** Furniture bought with today's read-aloud discount of its kind (docs/03 D13): the discount that was applied. */
     read_aloud_discount_pct: z.number().min(0).max(1).optional(),
+    /** First-visit errand (docs/03 D1): its state after this sentence, and the coins it paid (hand-over only). */
+    errand: z.object({ state: z.enum(['offered', 'accepted', 'carrying', 'done']), reward_coins: z.number().int().optional() }).optional(),
     /** Free talk without a chosen sentence: the bank sentence the server matched and scored. */
     target_text: z.string().min(1).optional(),
     /**

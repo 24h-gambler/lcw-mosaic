@@ -1,0 +1,112 @@
+{
+ "view": "desktop",
+ "steps": [
+  {
+   "name": "spawn",
+   "t": 121932,
+   "scene": "plaza"
+  },
+  {
+   "name": "intro",
+   "t": 122259
+  },
+  {
+   "name": "intro_done",
+   "t": 127150,
+   "goalShown": true
+  },
+  {
+   "name": "luna_open",
+   "t": 128457,
+   "ok": true
+  },
+  {
+   "name": "accept_scored",
+   "t": 133082,
+   "npcLine": "🙂 | 안내인 선생님 · Luna | Hi! I am so thirsty. Could you get me a cold water from the honey cafe?",
+   "offers": [
+    "Okay, I can go.",
+    "Yes, I can help you.",
+    "Yes, I can help you. I will go now."
+   ],
+   "said": "Yes, I can help you.",
+   "res": "★ ★ ★ Yes,Icanhelpyou. 통과! 다음엔 별 하나 더 도전해 볼까요? 🪙 200 코인 별 하나 더 도전 좋아요!"
+  },
+  {
+   "name": "accept_closed",
+   "t": 135768,
+   "closedBy": "done",
+   "stillOpen": false
+  },
+  {
+   "name": "at_cafe",
+   "t": 155332,
+   "walk": "☕ 카페로 걸어가기"
+  },
+  {
+   "name": "hani_open",
+   "t": 157756,
+   "ok": true
+  },
+  {
+   "name": "first_order",
+   "t": 161620,
+   "npcLine": "🧑‍🍳 | 카페 주인 하니 · Hani | Welcome to the honey cafe! What would you like today?",
+   "offers": [
+    "Water, please.",
+    "Cold water, please.",
+    "Can I have some cold water, please?"
+   ],
+   "said": "Cold water, please.",
+   "res": "★ ★ ★ Coldwater,please. 통과! 다음엔 별 하나 더 도전해 볼까요? 🪙 184 코인 별 하나 더 도전 좋아요!"
+  },
+  {
+   "name": "order_closed",
+   "t": 164783,
+   "closedBy": "done",
+   "stillOpen": false
+  },
+  {
+   "name": "back_plaza",
+   "t": 182377,
+   "walk": "🙋 루나에게 돌아가기"
+  },
+  {
+   "name": "luna2_open",
+   "t": 183287,
+   "ok": true
+  },
+  {
+   "name": "deliver_scored",
+   "t": 187923,
+   "npcLine": "🙂 | 안내인 선생님 · Luna | Oh, you are back! Is that my cold water?",
+   "offers": [
+    "Here you are.",
+    "Here is your water.",
+    "Here is your cold water. Enjoy!"
+   ],
+   "said": "Here is your cold water. Enjoy!",
+   "res": "★ ★ ★ Hereisyourcoldwater.Enjoy! 글자로 잘 썼어요! 다음엔 목소리로 말하면 별 3개도 받을 수 있어요. 🪙 234 코인 별 하나 더 도전 좋아요!"
+  },
+  {
+   "name": "deliver_closed",
+   "t": 196177,
+   "closedBy": "done",
+   "stillOpen": false
+  },
+  {
+   "name": "reward",
+   "t": 219309,
+   "toast": "🪙 +50 코인! 심부름 완료"
+  }
+ ],
+ "errand": {
+  "state": "done",
+  "reward_coins": 50,
+  "first_pass_s": 131.37,
+  "first_order_s": 159.991,
+  "done_s": 184.962
+ },
+ "bot_spawn_to_first_order_s": 39.688,
+ "errs": []
+}

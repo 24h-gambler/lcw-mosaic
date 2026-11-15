@@ -295,7 +295,8 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
 
   return {
     listStudents: (op: string) => request<AdminStudent[]>('GET', '/v1/admin/students', op),
-    liveLessons: (op: string) => request<{ lessons: LiveLessonRow[]; server_now: number }>('GET', '/v1/admin/lessons/live', op),
+    liveLessons: (op: string, includeTest = false) =>
+      request<{ lessons: LiveLessonRow[]; server_now: number }>('GET', `/v1/admin/lessons/live${includeTest ? '?include_test=1' : ''}`, op),
     createPlayer: (op: string, input: CreatePlayerInput) =>
       request<{ ok: boolean }>('POST', '/v1/admin/players', op, input),
     startLesson: (op: string, input: { player_id: string; plan_id?: string }) =>

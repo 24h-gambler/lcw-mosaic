@@ -17,7 +17,7 @@ import {
 import { createMediaClipRecorder } from '@lcw/audio';
 import { MicController, type MicView } from './mic-controller.js';
 import { createBrowserSpeechEngine, isKakaoInApp, kakaoOpenExternalUrl, type MicIssue, type SpeechEngine } from './speech.js';
-import { playAgain, playPass, playSfx, speakEnglish, stopSpeaking, unlockDialogAudio } from './sound.js';
+import { cancelMicCue, micClosed, micCue, playAgain, playPass, playSfx, speakEnglish, stopSpeaking, unlockDialogAudio } from './sound.js';
 import { DIALOG_CSS } from './styles.js';
 import { newDialogId, SubmitError } from './submit.js';
 import type { DialogOffer, DialogPanelProps, DialogResult, SttSource, UtteranceSubmit } from './types.js';
@@ -155,6 +155,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const readyAt = useRef(Date.now());
   const micStartAt = useRef(0);
   const ctrl = useRef<MicController | null>(null);
+  /** Between the tap and the end of the mic cue (recording has not started yet). */
+  const micPending = useRef(false);
   const echoRef = useRef(echo);
   echoRef.current = echo;
 
@@ -295,7 +297,10 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   useEffect(() => {
     const recorder = recordClip && engine.source !== 'workers_ai' ? createMediaClipRecorder() : null;
     const c = new MicController(engine, {
-      onView: setMic,
+      onView: (v) => {
+        setMic(v);
+        if (!v.recording) micClosed();
+      },
       onFinal: (r, durMs, clip) => {
         playSfx('dlg.mic_off');
         if (!r) {
@@ -339,22 +344,44 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       }
     }, undefined, recorder);
     ctrl.current = c;
-    return () => c.dispose();
+    return () => {
+      // Only this window's own pending cue / open mic (the audio runtime is shared by the page).
+      if (micPending.current) cancelMicCue();
+      micPending.current = false;
+      if (c.recording) micClosed();
+      c.dispose();
+    };
   }, [engine, recordClip]);
 
   const micDisabled = !!micIssue || phase === 'scoring' || (offers.length === 0 && !needsUnderstand);
   const toggleMic = useCallback(() => {
     unlockDialogAudio();
     if (micIssue) return;
-    stopSpeaking();
     const c = ctrl.current;
     if (!c) return;
     if (!c.recording) {
+      // A second tap while the cue is still coming cancels the start.
+      if (micPending.current) {
+        micPending.current = false;
+        cancelMicCue();
+        setPhase((p) => (p === 'echo' ? 'echo' : 'choose'));
+        return;
+      }
       micStartAt.current = Date.now();
       setNotice(null);
       setHeard(null);
-      playSfx('dlg.mic_on');
       setPhase((p) => (p === 'echo' ? 'echo' : 'listening'));
+      // docs/12 3장: cut the NPC voice, 150 ms, the rising cue, then record (the cue never lands in recognition).
+      micPending.current = true;
+      void micCue().then((ok) => {
+        if (!micPending.current) return;
+        micPending.current = false;
+        if (ok && ctrl.current === c && !c.recording) {
+          micStartAt.current = Date.now();
+          c.tap();
+        }
+      });
+      return;
     }
     c.tap();
   }, [micIssue]);

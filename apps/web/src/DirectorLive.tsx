@@ -249,30 +249,34 @@ export function PossessBox(p: {
         </Button>
       </form>
       {p.stage?.teacherScriptEn ? (
-        <button
-          type="button"
-          data-testid="npc-say-script"
-          disabled={p.disabled || busy}
-          onClick={() => void say(p.stage!.teacherScriptEn)}
-          style={{
-            marginTop: sp(2),
-            width: '100%',
-            textAlign: 'left',
-            border,
-            borderStyle: 'dashed',
-            borderRadius: `${TOKENS.shape.radiusButtonPx}px`,
-            backgroundColor: C['paper-50'],
-            padding: `${sp(1)} ${sp(2)}`,
-            cursor: 'pointer',
-            minHeight: `${TOKENS.shape.touchTargetMinPx}px`,
-            color: C['ink-900']
-          }}
-        >
-          <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C['ink-700'] }}>{L.sayScript} · </span>
-          <span lang="en" style={{ fontFamily: T.fonts.target }}>
-            “{p.stage.teacherScriptEn}”
-          </span>
-        </button>
+        <div style={{ display: 'grid', gap: sp(1), marginTop: sp(2) }}>
+          {[p.stage.teacherScriptEn, ...(p.stage.followUpsEn ?? [])].map((line, i) => (
+            <button
+              key={`${i}:${line}`}
+              type="button"
+              data-testid={i === 0 ? 'npc-say-script' : `npc-say-followup-${i}`}
+              disabled={p.disabled || busy}
+              onClick={() => void say(line)}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                border,
+                borderStyle: 'dashed',
+                borderRadius: `${TOKENS.shape.radiusButtonPx}px`,
+                backgroundColor: i === 0 ? C['paper-50'] : C['paper-0'],
+                padding: `${sp(1)} ${sp(2)}`,
+                cursor: 'pointer',
+                minHeight: `${TOKENS.shape.touchTargetMinPx}px`,
+                color: C['ink-900']
+              }}
+            >
+              <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C['ink-700'] }}>{i === 0 ? L.sayScript : L.sayFollowUp} · </span>
+              <span lang="en" style={{ fontFamily: T.fonts.target }}>
+                “{line}”
+              </span>
+            </button>
+          ))}
+        </div>
       ) : null}
       {err ? (
         <div style={{ marginTop: sp(2) }}>

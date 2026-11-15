@@ -5,7 +5,7 @@ import { FIRST_LESSON_PLAN } from '@lcw/content';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { App } from '../App.js';
 import { handleDirectorKeydown } from '../director.js';
-import { LessonDirectorConsole, loadPlanChoice } from '../LessonDirector.js';
+import { LessonDirectorConsole, includeTestLessons, loadPlanChoice } from '../LessonDirector.js';
 import { ParentReportPage } from '../ParentReportPage.js';
 import { StudentJoin } from '../StudentJoin.js';
 import {
@@ -642,6 +642,11 @@ describe('/director live console', () => {
     );
     expect(none).not.toContain('director-live-lessons');
 
+    // /director?include_test=1 asks for smoke/demo lessons too (production checks); default does not
+    expect(includeTestLessons('?include_test=1')).toBe(true);
+    expect(includeTestLessons('')).toBe(false);
+    expect(includeTestLessons('?include_test=0')).toBe(false);
+
     // this device's clock is 5 s ahead of the server: elapsed stays 10 s on the stage
     const rec = recordFromLive(row, 50_000, 55_000);
     expect(rec).toMatchObject({ lesson_id: 'les-1', join_code: '482913', plan_id: 'second_lesson_v1', stage_id: 'shop_idea', started_at: 15_000, stage_started_at: 45_000, report_path: null });
@@ -748,6 +753,20 @@ describe('join links (docs/19 §4)', () => {
     );
     expect(dir).toContain('/join?code=482913');
     expect(dir).toContain('/game/?code=482913');
+  });
+
+  it('the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: FEED })
+    );
+    const stage = FIRST_LESSON_PLAN.stages.find((s) => s.id === LESSON_REC.stage_id)!;
+    expect(html).toContain('data-testid="stage-steps"');
+    for (const step of stage.stepsKo!) expect(html).toContain(step.replace(/"/g, '&quot;'));
+    expect(html).toContain('data-testid="npc-say-script"');
+    stage.followUpsEn!.forEach((line, i) => {
+      expect(html).toContain(`data-testid="npc-say-followup-${i + 1}"`);
+      expect(html).toContain(line);
+    });
   });
 
   it('a lesson ended on another device offers its existing report link or a new lesson, never a second end form', () => {

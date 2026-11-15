@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { FIRST_LESSON_PLAN, getLessonNpc, getLessonPlan, LESSON_PLANS, SECOND_LESSON_PLAN } from '../index.js';
+import { FIRST_LESSON_PLAN, getLessonNpc, getLessonPlan, LESSON_DIRECTOR_EVENTS, LESSON_PLANS, SECOND_LESSON_PLAN } from '../index.js';
 
 // Who stands in each 3D scene (apps/client/src/world/town.ts SCENES): a stage's NPC must be the one the world spawns there.
+const EVENT_KEYS: Record<string, string> = Object.fromEntries(LESSON_DIRECTOR_EVENTS.map((e) => [e.labelKo, e.hotkey]));
+
 const SCENE_NPC: Record<string, string> = {
   plaza: 'guide',
   honey_cafe: 'cafe_owner',
@@ -23,6 +25,24 @@ describe('lesson plans', () => {
         expect(plan.stages.reduce((a, s) => a + s.minutes, 0)).toBe(plan.totalMinutes);
         expect(plan.stages.map((s) => s.order)).toEqual(plan.stages.map((_, i) => i + 1));
         expect(new Set(plan.stages.map((s) => s.id)).size).toBe(plan.stages.length);
+      });
+
+      it('every stage carries timed steps for the teacher and follow-up lines in English', () => {
+        for (const s of plan.stages) {
+          expect(s.stepsKo?.length ?? 0, s.id).toBeGreaterThanOrEqual(2);
+          // steps walk the stage from 0 to its planned minutes
+          expect(s.stepsKo![0], s.id).toMatch(/^0–\d+분 · /);
+          expect(s.stepsKo!.at(-1), s.id).toMatch(new RegExp(`–${s.minutes}분 · `));
+          for (const step of s.stepsKo!) expect(step.length, step).toBeLessThanOrEqual(110);
+          expect(s.followUpsEn?.length ?? 0, s.id).toBeGreaterThanOrEqual(2);
+          for (const line of s.followUpsEn!) expect(/[가-힣]/.test(line), line).toBe(false);
+          // the hotkeys a step names are the real event keys (1 blizzard … 6 star celebration)
+          for (const step of s.stepsKo!) {
+            for (const m of step.matchAll(/「([^」]+)」\((\d)\)/g)) {
+              expect(EVENT_KEYS[m[1]!], step).toBe(m[2]);
+            }
+          }
+        }
       });
 
       it('every stage happens where its NPC stands', () => {

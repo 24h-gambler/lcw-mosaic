@@ -66,6 +66,10 @@ export interface StudentLessonState {
   ended: boolean;
   /** The child's one coin balance (home-world ledger); null on a server without it. */
   coins_balance?: number | null;
+  /** Stars earned in this lesson (server sum): the HUD star chip during the lesson. */
+  lesson_stars?: number;
+  /** The stage NPC's opening line for the dialog window (the stage script). */
+  npc_line_en?: string;
   server_now: number;
 }
 

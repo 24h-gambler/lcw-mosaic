@@ -1336,6 +1336,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     setViewInset(px) {
       viewInset = Number.isFinite(px) ? px : 0;
       applyViewInset();
+      hud.setDialogOpen(viewInset > 0);
     },
     setPaused(p) {
       paused = p;

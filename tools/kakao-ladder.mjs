@@ -102,7 +102,7 @@ await page.click('.lcw-firstvisit-go');
 await page.waitForTimeout(800);
 
 // Talk to the NPC whose name matches: a dialog with someone else is closed (nothing bought) and the walk goes on.
-async function talk(name) {
+async function talk(name, move = true) {
   for (let i = 0; i < 12; i++) {
     if (await page.$('.lcw-dlg')) {
       const who = await page.$eval('.lcw-dlg', (d) => d.innerText.split(/\n/).slice(0, 2).join(' '));
@@ -114,7 +114,7 @@ async function talk(name) {
     if (await btn.count()) await btn.click({ timeout: 1500 }).catch(() => {});
     else await page.keyboard.press('KeyE');
     await page.waitForTimeout(700);
-    if (await page.$('.lcw-dlg')) continue;
+    if (await page.$('.lcw-dlg') || !move) continue;
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(180);
     await page.keyboard.up('KeyW');
@@ -122,13 +122,57 @@ async function talk(name) {
   }
   return Boolean(await page.$('.lcw-dlg'));
 }
+// Mina's spot at the honey cafe door (apps/client/src/world/town.ts errand_neighbor).
+const MINA_SPOT = { x: 161, z: 139 };
+const pos = () => page.evaluate(() => window.__lcwWorld.getStats?.().player ?? null);
+async function hold(key, ms) {
+  await page.keyboard.down(key);
+  await page.waitForTimeout(ms);
+  await page.keyboard.up(key);
+  await page.waitForTimeout(150);
+}
+// A world without walkToNpc stops at the counter: walk up to the spot like a child would (learn which key moves
+// where from the measured position, then step towards it).
+async function approach(tx, tz, within = 2.4) {
+  let dirs = null;
+  for (let i = 0; i < 40; i++) {
+    const p = await pos();
+    if (!p) return null;
+    const dx = tx - p.x;
+    const dz = tz - p.z;
+    const d = Math.hypot(dx, dz);
+    if (d < within) return Math.round(d * 10) / 10;
+    if (!dirs || i % 8 === 0) {
+      dirs = {};
+      for (const k of ['KeyW', 'KeyD', 'KeyS', 'KeyA']) {
+        const a = await pos();
+        await hold(k, 250);
+        const b = await pos();
+        dirs[k] = [b.x - a.x, b.z - a.z];
+      }
+      continue;
+    }
+    let best = 'KeyW';
+    let bv = -Infinity;
+    for (const [k, [vx, vz]] of Object.entries(dirs)) {
+      const v = (vx * dx + vz * dz) / (Math.hypot(vx, vz) || 1);
+      if (v > bv) [bv, best] = [v, k];
+    }
+    await hold(best, Math.min(400, 120 + d * 60));
+  }
+  const p = await pos();
+  return p ? Math.round(Math.hypot(tx - p.x, tz - p.z) * 10) / 10 : null;
+}
 async function walk() {
   await page.waitForSelector('.lcw-errand-walk', { timeout: 15000 });
   const label = await page.$eval('.lcw-errand-walk', (b) => b.innerText);
   await page.click('.lcw-errand-walk');
   await page.waitForFunction(() => window.__lcwWorld.getScene?.() === 'honey_cafe', null, { timeout: 60000 });
   await page.waitForTimeout(3500);
-  return label;
+  const toMina = /미나/.test(label);
+  const byWorld = await page.evaluate(() => typeof window.__lcwWorld.walkToNpc === 'function');
+  const left = toMina && !byWorld ? await approach(MINA_SPOT.x, MINA_SPOT.z) : null;
+  return { label, walkToNpc: byWorld, approach_left_m: left };
 }
 // TAP=1: the child taps the sentence first; default: just speaks one of the sentences on screen (voice picks it).
 const TAP = process.env.TAP === '1';
@@ -150,13 +194,13 @@ async function speak(clip, label, text) {
 }
 
 mark('to_mina', { walk: await walk() });
-mark('mina_open', { ok: await talk(/미나|Mina/) });
+mark('mina_open', { ok: await talk(/미나|Mina/, false) });
 mark('accept', await speak('accept', '81-kakao-accept', 'Yes, I can help you.'));
 mark('to_cafe', { walk: await walk() });
 mark('hani_open', { ok: await talk(/하니|Hani/) });
 mark('first_order', await speak('order', '82-kakao-order', 'Cold water, please.'));
 mark('back_to_mina', { walk: await walk() });
-mark('mina2_open', { ok: await talk(/미나|Mina/) });
+mark('mina2_open', { ok: await talk(/미나|Mina/, false) });
 mark('deliver', await speak('deliver', '83-kakao-deliver', 'Here is your cold water. Enjoy!'));
 await page.waitForSelector('.lcw-errand-toast', { timeout: 6000 }).catch(() => {});
 await shot('84-kakao-reward');

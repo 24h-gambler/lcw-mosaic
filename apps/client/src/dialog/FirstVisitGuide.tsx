@@ -131,7 +131,9 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
         <button
           type="button"
           className="lcw-errand-walk"
-          onClick={() => {
+          onClick={(e) => {
+            // a focused button keeps the keys (the world ignores keys aimed at buttons): WASD must walk right after
+            e.currentTarget.blur();
             unlockDialogAudio();
             playSfx('ui.click');
             const w = world as WorldWithWalk;

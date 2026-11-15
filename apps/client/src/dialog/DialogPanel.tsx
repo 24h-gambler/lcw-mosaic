@@ -41,7 +41,7 @@ export const GLOSS_LINGER_MS = 500;
 
 type Phase = 'choose' | 'listening' | 'scoring' | 'result' | 'board' | 'keyboard' | 'echo';
 
-const NPC_EMOJI: Record<string, string> = { cafe: '🧑‍🍳', trade_shop: '🧙', guide: '🦊', exchange: '💰', makers_lab: '🛠️', boutique: '🧥' };
+const NPC_EMOJI: Record<string, string> = { cafe: '🧑‍🍳', trade_shop: '🧙', guide: '🦊', errand: '👧', exchange: '💰', makers_lab: '🛠️', boutique: '🧥' };
 
 function micIssueText(issue: MicIssue): string {
   if (issue === 'in_app') return S.inAppBrowser;

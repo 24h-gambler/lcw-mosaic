@@ -58,6 +58,8 @@ export interface NpcDef {
   look: NpcLook;
   /** guides follow the lesson to plaza / hill; shop keepers stay */
   roams?: readonly SceneId[];
+  /** a fixed place outside any scene's NPC spot (the errand giver at the cafe door) */
+  spot?: Spot;
 }
 
 
@@ -86,6 +88,17 @@ export const NPCS: readonly NpcDef[] = [
     nameEn: 'Toby',
     home: 'trade_shop',
     look: { skin: 0xc68e62, hair: 0x2a2320, shirt: 0xf3efe7, pants: 0x2f3b52, shoes: 0x2a2320, apron: 0x2f6fae, hairStyle: 'cap', hat: 0x3dbe6b }
+  },
+  {
+    // docs/03 D1 first-visit errand: a neighbour waiting by the honey cafe door, facing the road from the plaza
+    // (2.5 m west of the walk to the counter, so the cafe two-shot stays clear).
+    id: 'errand_neighbor',
+    ctx: 'errand',
+    nameKo: '이웃 미나',
+    nameEn: 'Mina',
+    home: 'honey_cafe',
+    spot: { x: 161.0, y: 1, z: 139.0, yaw: 0 },
+    look: { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3dbe6b, pants: 0x3fa9f5, shoes: 0xf3efe7, hairStyle: 'bun', hat: 0xffc53d }
   }
 ];
 

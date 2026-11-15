@@ -99,7 +99,8 @@ function css(): string {
 @keyframes lwsnow{from{background-position:0 0,0 0}to{background-position:-48px 96px,32px 128px}}
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
-@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot img{width:28px;height:28px}.lw-goal .t{font-size:${T.scale.h3.sizePx}px}.lw-chip .s{font-size:${T.scale.micro.sizePx}px}}
+@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot img{width:28px;height:28px}.lw-goal .t{font-size:${T.scale.h3.sizePx}px}.lw-chip .s{font-size:${T.scale.micro.sizePx}px}
+.lw-goal{top:60px;left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}}
 @media (prefers-reduced-motion:reduce){.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
 }
@@ -484,6 +485,13 @@ export class WorldHud {
     this.toast.classList.add('on');
     window.clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toast.classList.remove('on'), 2600);
+  }
+
+  /** Empty an item slot (the item was handed over); the build bar keeps drawing while building is on. */
+  clearItem(slot: number): void {
+    if (!this.slots[slot]) return;
+    this.itemSlots[slot] = null;
+    if (!this.buildSlotsOn) this.drawSlot(slot, null, null);
   }
 
   private drawSlot(i: number, c: { src: string; title: string } | null, count: number | null): void {

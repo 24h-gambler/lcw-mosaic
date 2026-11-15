@@ -92,8 +92,6 @@ export interface WorldHandle {
    * read-aloud discount line under it. Returns an unsubscribe.
    */
   onRoomCheck?(cb: (r: RoomCheckInfo) => void): () => void;
-  /** The server refused building because the seat stopped (the shell shows the seat card). */
-  onBuildPaused?(cb: () => void): () => void;
   /** Performance and position read-out (headless checks, tier auto-detect). */
   getStats?(): WorldStats;
 }

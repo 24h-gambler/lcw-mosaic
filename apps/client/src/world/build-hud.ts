@@ -11,7 +11,8 @@ import { TILE_LAYER, blockLook } from './blocks.js';
 import { TILE_PX } from './atlas.js';
 import { furniturePieces } from './build-view.js';
 import type { RoomCheckEvent } from './build.js';
-import { BLOCK_NAMES_KO, BUILD_REASONS_KO, FURNITURE_NAMES_KO, ROOM_GLOSS_KO, WORLD_STRINGS as W } from './strings.js';
+import { BLOCK_NAMES_KO, BUILD_REASONS_KO, FURNITURE_NAMES_KO, ROOM_GLOSS_KO, SHOWROOM_REASONS_KO, WORLD_STRINGS as W } from './strings.js';
+import type { ShowroomResult } from './showroom.js';
 import type { SyncStatus } from './plot-sync.js';
 
 const STYLE_ID = 'lcw-build-hud-style';
@@ -49,6 +50,12 @@ function css(): string {
 .lb-hand .lb-cell{width:72px}
 .lb-hand .lb-cell.sel{border-color:${C['brand-d']};box-shadow:0 0 0 3px ${C.brand}}
 .lb-close{align-self:flex-end}
+.lb-share{display:flex;flex-direction:column;gap:8px}
+.lb-share input{font-family:${T.fonts.ui};font-size:${T.scale.body.sizePx}px;padding:10px 12px;border:2px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;background:${C['paper-0']};color:${C['ink-900']};min-height:${S.touchTargetMinPx}px}
+.lb-share .out{font-weight:700;font-size:${T.scale.small.sizePx}px;min-height:20px}
+.lb-share .out.bad{color:${C['danger-d']}}
+.lb-share .link{font-family:${T.fonts.pixel};font-size:12px;word-break:break-all;color:${C['sky-d']}}
+.lb-share .lb-row .lb-btn{position:static}
 .lb-room{position:absolute;left:50%;top:84px;transform:translate(-50%,-20px);opacity:0;transition:all ${M.baseMs}ms ease-out;max-width:min(560px,calc(100% - 24px));padding:12px 16px;display:flex;flex-direction:column;gap:4px;align-items:center;text-align:center;pointer-events:none}
 .lb-room.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 .lb-room .k{font-size:${T.scale.micro.sizePx}px;font-weight:700;color:${C['brand-d']}}
@@ -167,6 +174,8 @@ export interface BuildHudHandlers {
   /** hand slot tapped in the chest panel: put it back */
   onStore(slot: number): void;
   onCloseChest(): void;
+  /** 쇼룸 공개 with this title (linked child only) */
+  onShowroom(title: string): Promise<ShowroomResult>;
 }
 
 export class BuildHud {
@@ -187,7 +196,17 @@ export class BuildHud {
   private roomE: HTMLDivElement;
   private roomG: HTMLDivElement;
   private roomTimer = 0;
+  private showroomBtn: HTMLButtonElement;
+  private share: HTMLDivElement;
+  private shareInput: HTMLInputElement;
+  private shareOut: HTMLDivElement;
+  private shareLink: HTMLDivElement;
+  private shareGo: HTMLButtonElement;
+  private shareCopy: HTMLButtonElement;
   chestOpen = false;
+  shareOpen = false;
+  /** last showroom answer (headless checks) */
+  shareState = '';
 
   constructor(
     root: HTMLElement,
@@ -215,6 +234,8 @@ export class BuildHud {
     this.rotateBtn = this.button(row2, 'lb-btn off', W.rotate, () => h.onRotate());
     this.button(row2, 'lb-btn', W.undo, () => h.onUndo());
     this.button(row2, 'lb-btn', W.chest, () => h.onChest());
+    const row3 = el('div', 'lb-row', this.tools);
+    this.showroomBtn = this.button(row3, 'lb-btn off', W.showroomBtn, () => this.openShare());
 
     this.tip = el('div', 'lb-tip', root);
     this.sync = el('div', 'lb-sync', root);
@@ -233,6 +254,34 @@ export class BuildHud {
     this.grid = el('div', 'lb-grid', panel);
     const close = this.button(panel, 'lb-btn lb-close', W.close, () => h.onCloseChest());
     close.style.position = 'static';
+
+    // 쇼룸 공개 card
+    this.share = el('div', 'lb-chest', root);
+    this.share.addEventListener('pointerdown', (e) => {
+      stop(e);
+      if (e.target === this.share) this.closeShare();
+    });
+    const sp = el('div', 'lb-panel lw-card lb-share', this.share);
+    el('h2', '', sp).textContent = W.showroomTitle;
+    el('p', '', sp).textContent = W.showroomHint;
+    const lab = el('label', '', sp);
+    lab.textContent = W.showroomName;
+    this.shareInput = el('input', '', sp);
+    this.shareInput.maxLength = 40;
+    this.shareInput.value = W.showroomDefault;
+    this.shareInput.addEventListener('pointerdown', stop);
+    this.shareOut = el('div', 'out', sp);
+    this.shareLink = el('div', 'link', sp);
+    const srow = el('div', 'lb-row', sp);
+    this.shareGo = this.button(srow, 'lb-btn sel', W.showroomGo, () => void this.publish());
+    this.shareCopy = this.button(srow, 'lb-btn off', W.showroomCopy, () => {
+      const url = this.shareLink.textContent ?? '';
+      void navigator.clipboard?.writeText(url).then(
+        () => (this.shareOut.textContent = W.showroomCopied),
+        () => undefined
+      );
+    });
+    this.button(srow, 'lb-btn', W.close, () => this.closeShare());
 
     this.room = el('div', 'lb-room lw-card', root);
     el('div', 'k', this.room).textContent = W.roomTitle;
@@ -274,6 +323,49 @@ export class BuildHud {
     this.help.classList.add('on');
     window.clearTimeout(this.helpTimer);
     this.helpTimer = window.setTimeout(() => this.help.classList.remove('on'), 9000);
+  }
+
+  /** 쇼룸 공개 only for a linked child whose plot is saved. */
+  setShowroomVisible(on: boolean): void {
+    this.showroomBtn.classList.toggle('off', !on);
+    if (!on) this.closeShare();
+  }
+
+  openShare(): void {
+    this.shareOpen = true;
+    this.share.classList.add('on');
+    this.shareOut.textContent = '';
+    this.shareOut.classList.remove('bad');
+  }
+
+  closeShare(): void {
+    this.shareOpen = false;
+    this.share.classList.remove('on');
+  }
+
+  private async publish(): Promise<void> {
+    const title = this.shareInput.value.trim() || W.showroomDefault;
+    this.shareGo.disabled = true;
+    this.shareOut.classList.remove('bad');
+    this.shareOut.textContent = W.showroomBusyNow;
+    let r: ShowroomResult;
+    try {
+      r = await this.h.onShowroom(title);
+    } catch {
+      r = { ok: false, reason: 'server' };
+    }
+    this.shareGo.disabled = false;
+    if (r.ok) {
+      this.shareState = 'ok';
+      this.shareOut.textContent = W.showroomDone;
+      this.shareLink.textContent = `${location.origin}${r.path}`;
+      this.shareCopy.classList.remove('off');
+    } else {
+      this.shareState = r.reason;
+      this.shareOut.textContent = SHOWROOM_REASONS_KO[r.reason] ?? SHOWROOM_REASONS_KO.server!;
+      this.shareOut.classList.add('bad');
+      if (r.reason === 'seat') this.closeShare();
+    }
   }
 
   setTool(tool: 'place' | 'break'): void {
@@ -385,6 +477,7 @@ export class BuildHud {
     this.sync.remove();
     this.help.remove();
     this.chest.remove();
+    this.share.remove();
     this.room.remove();
   }
 }

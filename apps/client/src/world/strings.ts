@@ -48,8 +48,30 @@ export const WORLD_STRINGS = {
   syncLoading: '내 부지를 불러오는 중…',
   roomTitle: '방 검사',
   roomOk: '확인',
-  buildCount: (n: number): string => `${n}개`
+  buildCount: (n: number): string => `${n}개`,
+  // 쇼룸 공개 (docs/19 7장): only the build's shape and colours go up — say so on the card.
+  showroomBtn: '쇼룸 공개',
+  showroomTitle: '내 부지를 쇼룸에 올려요',
+  showroomHint: '블록 모양과 색만 올라가요. 내 이름이나 위치는 올라가지 않아요.',
+  showroomName: '쇼룸 이름',
+  showroomDefault: '나의 꿀벌 집',
+  showroomGo: '공개하기',
+  showroomBusyNow: '올리는 중…',
+  showroomDone: '올렸어요! 이 주소를 가족에게 보여 주세요',
+  showroomCopy: '주소 복사',
+  showroomCopied: '복사했어요'
 } as const;
+
+/** Why the showroom did not go up (no prices, no blame: what to do next). */
+export const SHOWROOM_REASONS_KO: Readonly<Record<string, string>> = {
+  consent: '보호자가 쇼룸 공개를 허락해야 해요. 보호자에게 말해 주세요.',
+  title: '다른 이름으로 해 볼까요?',
+  busy: '조금 뒤에 다시 해요',
+  offline: '인터넷이 연결되면 다시 해요',
+  unlinked: '보호자와 연결된 기기에서만 올릴 수 있어요',
+  seat: '지금은 혼자 놀기가 쉬는 중이에요',
+  server: '지금은 안 돼요. 조금 뒤에 다시 해요'
+};
 
 /** Why an edit did not happen (docs/03 D13 "빨강=불가+이유"). */
 export const BUILD_REASONS_KO: Readonly<Record<string, string>> = {

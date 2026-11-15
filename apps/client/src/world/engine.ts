@@ -23,6 +23,7 @@ import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
 import { PlotSync } from './plot-sync.js';
 import { browserStore } from './identity.js';
+import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
 import { NPCS, SCENES, WANDERERS, buildTownSteps, standHeight, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
 
 export { TIER_SETTINGS };
@@ -237,6 +238,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     performance.now()
   );
   let plotSync: PlotSync | null = null;
+  let buildToken: { token: string; base?: string } | null = null;
+  let tokenOf: ((id: number) => import('@lcw/ui').ColorTokenName) | null = null;
   let buildAccess: BuildAccess['kind'] | 'loading' = 'local';
 
   const blockAt = (x: number, y: number, z: number): number => world.getBlock(x, y, z);
@@ -429,7 +432,13 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         if (!r.ok) sayReason(r.reason);
         else sfx.play('ui.click');
       },
-      onCloseChest: () => buildHud?.closeChest()
+      onCloseChest: () => buildHud?.closeChest(),
+      onShowroom: async (title) => {
+        if (!buildToken) return { ok: false, reason: 'unlinked' };
+        tokenOf ??= blockTokenMap(atlasPixels);
+        const snap = plotSnapshot(world, builder.state.furniture, tokenOf, title, { shirt: PLAYER_LOOK.shirt, pants: PLAYER_LOOK.pants, hair: PLAYER_LOOK.hair });
+        return publishShowroom(buildToken.token, snap, undefined, buildToken.base ?? '');
+      }
     },
     touch
   );
@@ -936,6 +945,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const startBuildAccess = (a: BuildAccess): void => {
     plotSync?.stop();
     plotSync = null;
+    buildToken = a.kind === 'saved' ? { token: a.token, base: a.base } : null;
+    buildHud?.setShowroomVisible(a.kind === 'saved');
     if (a.kind === 'paused') {
       buildAccess = 'paused';
       builder.access = 'paused';
@@ -963,9 +974,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       onDenied: (kind) => {
         if (plotSync !== sync) return;
         if (kind === 'paused' && a.pausedFallback !== 'local') {
+          // the seat stopped while playing: look, don't build (plot-sync already told the shell, world/seat.ts)
           buildAccess = 'paused';
           builder.access = 'paused';
-          buildPausedCbs.forEach((cb) => cb());
+          buildHud?.setShowroomVisible(false);
         } else {
           // not linked any more (or a lesson whose seat paused): keep building on this device only
           buildAccess = 'local';
@@ -995,7 +1007,6 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       if (buildActive) buildHud?.setSync('saved');
     });
   };
-  const buildPausedCbs = new Set<() => void>();
 
   // ---- Frame loop.
   const tmp = new THREE.Vector3();
@@ -1368,12 +1379,6 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       roomCbs.add(cb);
       return () => {
         roomCbs.delete(cb);
-      };
-    },
-    onBuildPaused(cb) {
-      buildPausedCbs.add(cb);
-      return () => {
-        buildPausedCbs.delete(cb);
       };
     },
     getScene: () => currentScene,

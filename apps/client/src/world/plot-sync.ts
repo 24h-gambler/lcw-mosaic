@@ -6,6 +6,7 @@
  */
 import type { PlotOp, PlotSnapshotLike } from './build.js';
 import type { FetchLike, KeyStore } from './identity.js';
+import { noteSeatResponse } from './seat.js';
 
 export const PLOT_QUEUE_KEY = 'lcw.plotQueue';
 const FLUSH_MS = 350;
@@ -153,7 +154,7 @@ export class PlotSync {
       }
       this.backoff = 0;
     }
-    this.setStatus('saved');
+    if (!this.stopped) this.setStatus('saved');
   }
 
   /** One request. Returns false when it should be retried later. */
@@ -175,7 +176,9 @@ export class PlotSync {
       return false;
     }
     if (res.status === 403 || res.status === 401) {
-      // seat paused or token revoked: these ops can never be saved; stop and tell the world
+      // seat paused (403 seat_inactive: the shell swaps to the seat card) or token revoked: these ops can never be
+      // saved; stop and tell the world
+      if (res.status === 403) await noteSeatResponse(res, this.o.store);
       this.inFlight = null;
       this.queue = [];
       this.persist();

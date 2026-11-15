@@ -94,6 +94,7 @@ export interface DialogPanelProps {
   - `POST /v1/furniture/read-aloud` `{kind, transcript, stt_source, confidence, dur_ms}`(학생·기기 토큰): 서버가 그 종류의 문장과 맞춰 채점(목소리만 — 글자·카드 입력은 할인 없음)하고 `claimReadAloudDiscount`로 **가구 종류당 한국 시간 하루 1회, 플레이어마다** 10%를 줍니다. 같은 날 다시 읽으면 `already_claimed`. `GET /v1/furniture/discounts`는 오늘 받은 할인과 사용 여부.
   - 할인은 다음 그 종류 가구 구매에서 서버가 씁니다: 교환 상점(`trade_shop`, 토비)이 가구 9종(`FURNITURE_SHOP_GOODS`, 조명·쉴 곳·탁자, 코인 가격 = 별 가격)을 팔고, `/v1/converse/score`가 오늘 할인을 그 구매(`dialog_id`)에 묶어 가격을 깎습니다(`read_aloud_discount_pct`). 같은 창의 "별 하나 더"도 할인 유지, 같은 날 두 번째 구매는 정가. 교환 상점의 기본 제안은 그대로 물물교환 문장입니다(첫 수업 장면 그대로).
   - 혼자 놀이에서 방에 그 종류가 없다고 나왔거나(방 판정) 아이가 그 문장을 읽었으면, 앱이 토비 대화창에 그 종류 가구 문장(`furnitureOffersFor(kind, level)`, `ReadAloudPrompt.tsx`가 함께 내보냄)을 `cfg.offers`로 넘깁니다. 그 밖에는 물물교환 문장 그대로입니다.
+- 월드 시세 지수(`09` P7, WP-405, 2026-11-16): 서버 가격 = 별 가격 × 그 월드 시세 지수(반올림, 최소 1) × 읽기 할인. 지수는 주간 크론(`0 6 * * 1`)이 `apps/edge/src/economy.ts`의 `runWeeklyPriceIndexes`로 **그 월드 원장의 지난 7일 수입·지출만** 보고 주당 ±5%, 0.8~1.25 안에서 움직입니다(시작 지갑·"별 하나 더" 차액 환불은 수입이 아님). 같은 주 재실행은 건너뛰고(`price_index_history` 주 키), 한계에 닿은 월드는 크론 기록(`ops_runs`)의 `price_index.at_limit`에 남습니다. 클라이언트는 가격을 계산하지 않고 `/v1/converse/score`의 `coins_delta`만 씁니다.
 
 ## 4. 수업 → 다른 도메인 (`apps/client/src/lesson/`)
 

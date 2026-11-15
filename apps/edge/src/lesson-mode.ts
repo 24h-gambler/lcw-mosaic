@@ -494,6 +494,54 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   app.get('/v1/admin/lesson-npcs', (c) => c.json(LESSON_NPCS));
   app.get('/v1/admin/director-events', (c) => c.json(LESSON_DIRECTOR_EVENTS));
 
+  /**
+   * Lessons still running (no end, started within the join code's life), for a console opened on another device:
+   * the code, the plan, the current stage and the time per stage come from the server, not the starting browser.
+   */
+  app.get('/v1/admin/lessons/live', (c) => {
+    const now = d.nowMs();
+    const rows = d.sql.all<{ lesson_id: string; player_id: string; nickname: string | null; plan: string | null; started_at: number }>(
+      `select l.id as lesson_id, l.player_id, p.nickname, l.plan, l.started_at
+       from lessons l left join players p on p.id = l.player_id
+       where l.ended_at is null and l.started_at >= ? and l.player_id not like 'smoke-%' and l.player_id <> 'player-demo'
+       order by l.started_at desc limit 20`,
+      [now - JOIN_CODE_TTL_MS]
+    );
+    const lessons = rows.flatMap((r) => {
+      const join = d.sql.get<{ code: string; expires_at: number }>(
+        'select code, expires_at from lesson_joins where lesson_id = ? and expires_at > ? order by expires_at desc limit 1',
+        [r.lesson_id, now]
+      );
+      if (!join) return [];
+      const st = stateOf(r.lesson_id);
+      const log = d.sql.all<{ at: number; stage_id: string }>(
+        'select at, stage_id from lesson_stage_log where lesson_id = ? order by at, id',
+        [r.lesson_id]
+      );
+      const stageMs: Record<string, number> = {};
+      for (let i = 0; i + 1 < log.length; i++) {
+        const cur = log[i]!;
+        stageMs[cur.stage_id] = (stageMs[cur.stage_id] ?? 0) + Math.max(0, log[i + 1]!.at - cur.at);
+      }
+      const last = log[log.length - 1];
+      return [
+        {
+          lesson_id: r.lesson_id,
+          join_code: join.code,
+          expires_at: join.expires_at,
+          plan_id: getLessonPlan(st?.plan_id ?? r.plan ?? undefined).id,
+          player_id: r.player_id,
+          nickname: r.nickname ?? r.player_id,
+          started_at: r.started_at,
+          stage_id: st?.stage_id ?? last?.stage_id ?? null,
+          stage_started_at: last?.at ?? r.started_at,
+          stage_ms: stageMs
+        }
+      ];
+    });
+    return c.json({ lessons, server_now: now });
+  });
+
   /** Lessons of one KST day for the hub (report check, send to parent). */
   app.get('/v1/admin/lessons', (c) => {
     const day = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('day') ?? '') ? c.req.query('day')! : kstDay(d.nowMs());
@@ -775,6 +823,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       events: live.events,
       cursor: live.cursor,
       ended: Boolean(l?.ended_at),
+      // The child's one coin balance (home-world ledger), so the 3D HUD and /join show it from the first poll.
+      coins_balance: d.coins ? d.coins.balance(s.player_id) : null,
       server_now: now
     });
   });

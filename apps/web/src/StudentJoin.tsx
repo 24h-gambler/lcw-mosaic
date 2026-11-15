@@ -455,10 +455,10 @@ function LessonPlay({ api, token, state, now, recognition, isIosWebView, onResul
         <h1 style={{ margin: 0, fontSize: `${T.scale.h2.sizePx}px`, lineHeight: `${T.scale.h2.lineHeightPx}px` }}>
           {S.hello(state.nickname)}
         </h1>
-        {last ? (
+        {state.coins !== null || last ? (
           <div style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap' }}>
-            <Chip testId="coins">{`${S.coins} ${last.coins_total.toLocaleString('ko-KR')}`}</Chip>
-            <Chip testId="said-today">{`${S.saidToday} ${last.utterances_today}`}</Chip>
+            {state.coins !== null ? <Chip testId="coins">{`${S.coins} ${state.coins.toLocaleString('ko-KR')}`}</Chip> : null}
+            {last ? <Chip testId="said-today">{`${S.saidToday} ${last.utterances_today}`}</Chip> : null}
           </div>
         ) : null}
       </header>

@@ -95,6 +95,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
           setGoal: (g, t) => worldRef.current?.setGoal(g, t),
           celebrate: (s) => worldRef.current?.celebrate(s),
           setPossessed: (n) => worldRef.current?.setPossessed?.(n),
+          setCoins: (n) => worldRef.current?.setCoins?.(n),
           playDirectorEvent: (k, d) => {
             // The world plays its own effect and sound for events; ours only when it has none (no double sound).
             const w = worldRef.current;
@@ -128,6 +129,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     if (v.sceneId) void goToSceneChecked(w, v.sceneId).catch(() => undefined);
     if (v.goalKo) w.setGoal(v.goalKo, goalTargetEn(v.hint, v.offers));
     w.setPossessed?.(v.possessedNpcId);
+    if (v.coins !== null) w.setCoins?.(v.coins);
   }, [props.world, ctl]);
   useEffect(() => () => onActive.current?.(false), []);
   useEffect(() => {

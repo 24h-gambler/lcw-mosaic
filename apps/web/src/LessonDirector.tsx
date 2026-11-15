@@ -13,11 +13,13 @@ import {
   loadOperatorToken,
   saveDirectorLesson,
   saveOperatorToken,
+  recordFromLive,
   type AdminStudent,
   type DirectorLessonRecord,
   type FeedLive,
   type LessonApi,
   type LessonFeed,
+  type LiveLessonRow,
   type PinInput,
   type PinKind
 } from './lessonApi.js';
@@ -86,6 +88,8 @@ export interface LessonDirectorConsoleProps {
   initialToken?: string | null;
   initialLesson?: DirectorLessonRecord | null;
   initialStudents?: AdminStudent[];
+  /** Running lessons for the resume card; undefined → fetched. */
+  initialLive?: { lessons: LiveLessonRow[]; server_now: number };
   initialFeed?: LessonFeed;
   /** Shown under the key box while there is no key (the old demo console). */
   demo?: React.ReactNode;
@@ -152,6 +156,7 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
           now={now}
           onAuthError={onAuthError}
           initialStudents={props.initialStudents}
+          initialLive={props.initialLive}
           onStarted={setLesson}
         />
       )}
@@ -246,6 +251,7 @@ function StudentPicker({
   now,
   onAuthError,
   initialStudents,
+  initialLive,
   onStarted
 }: {
   api: LessonApi;
@@ -253,8 +259,25 @@ function StudentPicker({
   now: () => number;
   onAuthError: (code: string) => void;
   initialStudents: AdminStudent[] | undefined;
+  initialLive: { lessons: LiveLessonRow[]; server_now: number } | undefined;
   onStarted: (rec: DirectorLessonRecord) => void;
 }): React.ReactElement {
+  const [live, setLive] = useState<{ lessons: LiveLessonRow[]; server_now: number; at: number } | null>(
+    initialLive ? { ...initialLive, at: now() } : null
+  );
+  useEffect(() => {
+    if (initialLive) return;
+    let gone = false;
+    api
+      .liveLessons(token)
+      .then((r) => {
+        if (!gone) setLive({ ...r, at: now() });
+      })
+      .catch((e) => onAuthError(errorCodeOf(e)));
+    return () => {
+      gone = true;
+    };
+  }, [api, token, initialLive, now, onAuthError]);
   const [students, setStudents] = useState<AdminStudent[] | null>(initialStudents ?? null);
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -318,6 +341,27 @@ function StudentPicker({
 
   return (
     <div style={{ display: 'grid', gap: sp(4) }}>
+      {live && live.lessons.length > 0 ? (
+        <Box title={S.resumeTitle} tone="tinted" testId="director-live-lessons">
+          <p style={{ margin: `0 0 ${sp(2)}` }}>{S.resumeHelp}</p>
+          <div style={{ display: 'grid', gap: sp(2) }}>
+            {live.lessons.map((l) => {
+              const plan = planById(l.plan_id);
+              const stage = plan.stages.find((s) => s.id === l.stage_id);
+              return (
+                <div key={l.lesson_id} data-testid="live-lesson" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: sp(2), justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 700 }}>
+                    {S.resumeLine(l.nickname, plan.titleKo, stage?.titleKo ?? '—', kstLabel(l.started_at), l.join_code)}
+                  </span>
+                  <Button type="button" variant="brand" data-testid={`resume-${l.lesson_id}`} onClick={() => onStarted(recordFromLive(l, live.server_now, live.at))}>
+                    {S.resumeButton}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </Box>
+      ) : null}
       <Box
         title={S.studentsTitle}
         testId="director-students"

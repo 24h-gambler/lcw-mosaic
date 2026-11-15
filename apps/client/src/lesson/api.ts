@@ -60,6 +60,8 @@ export interface StudentLessonState {
   /** Row sequence of the last line/event delivered; send it back on the next poll. */
   cursor: number;
   ended: boolean;
+  /** The child's one coin balance (home-world ledger); null on a server without it. */
+  coins_balance?: number | null;
   server_now: number;
 }
 

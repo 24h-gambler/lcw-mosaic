@@ -20,6 +20,41 @@ export interface AdminStudent {
   utterances_7d: number;
 }
 
+/** GET /v1/admin/lessons/live row: a running lesson, whichever device started it (server clock). */
+export interface LiveLessonRow {
+  lesson_id: string;
+  join_code: string;
+  expires_at: number;
+  plan_id: string;
+  player_id: string;
+  nickname: string;
+  started_at: number;
+  stage_id: string | null;
+  stage_started_at: number | null;
+  stage_ms: Record<string, number>;
+}
+
+/**
+ * A running lesson as this console's record. The console counts elapsed time on its own clock, so server times move
+ * by (client now − server now): another device's clock being off does not show a wrong stage time.
+ */
+export function recordFromLive(row: LiveLessonRow, serverNow: number, clientNow: number): DirectorLessonRecord {
+  const shift = clientNow - serverNow;
+  return {
+    lesson_id: row.lesson_id,
+    join_code: row.join_code,
+    expires_at: row.expires_at,
+    plan_id: row.plan_id,
+    player_id: row.player_id,
+    nickname: row.nickname,
+    started_at: row.started_at + shift,
+    stage_id: row.stage_id,
+    stage_started_at: row.stage_started_at === null ? null : row.stage_started_at + shift,
+    stage_ms: { ...row.stage_ms },
+    report_path: null
+  };
+}
+
 export interface CreatePlayerInput {
   family_id: string;
   guardian_id: string;
@@ -139,6 +174,8 @@ export interface StudentLessonState {
   /** Extra fields the server sends for the child screen (docs/18 §2 keeps the core four). */
   mode?: LessonUtteranceMode;
   stage_goal_ko?: string;
+  /** The child's one coin balance (home-world ledger), same as the 3D HUD. */
+  coins_balance?: number | null;
 }
 
 export interface UtteranceInput {
@@ -254,6 +291,7 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
 
   return {
     listStudents: (op: string) => request<AdminStudent[]>('GET', '/v1/admin/students', op),
+    liveLessons: (op: string) => request<{ lessons: LiveLessonRow[]; server_now: number }>('GET', '/v1/admin/lessons/live', op),
     createPlayer: (op: string, input: CreatePlayerInput) =>
       request<{ ok: boolean }>('POST', '/v1/admin/players', op, input),
     startLesson: (op: string, input: { player_id: string; plan_id?: string }) =>

@@ -253,6 +253,8 @@ export interface JoinState {
   /** Consecutive failed polls; the child sees a gentle "reconnecting" line, never a raw code. */
   pollFailures: number;
   last: UtteranceResult | null;
+  /** Ledger balance: from the first state poll, then each answer's coins_total. */
+  coins: number | null;
   saidCount: number;
   starsEarned: number;
 }
@@ -278,6 +280,7 @@ export const INITIAL_JOIN_STATE: JoinState = {
   lesson: null,
   pollFailures: 0,
   last: null,
+  coins: null,
   saidCount: 0,
   starsEarned: 0
 };
@@ -318,7 +321,13 @@ export function joinReducer(s: JoinState, a: JoinAction): JoinState {
       return { ...INITIAL_JOIN_STATE, phase: 'lesson', token: a.token, lessonId: a.lessonId, nickname: a.nickname };
     case 'state':
       if (s.phase !== 'lesson' && s.phase !== 'ended') return s;
-      return { ...s, lesson: a.state, pollFailures: 0, phase: a.state.ended ? 'ended' : 'lesson' };
+      return {
+        ...s,
+        lesson: a.state,
+        pollFailures: 0,
+        phase: a.state.ended ? 'ended' : 'lesson',
+        coins: typeof a.state.coins_balance === 'number' ? a.state.coins_balance : s.coins
+      };
     case 'state_failed':
       // A token the server no longer knows (lesson ended long ago, new tab) sends the child back to the code box.
       if (a.code === 'student_only') {
@@ -329,6 +338,7 @@ export function joinReducer(s: JoinState, a: JoinAction): JoinState {
       return {
         ...s,
         last: a.result,
+        coins: a.result.coins_total,
         saidCount: s.saidCount + 1,
         starsEarned: s.starsEarned + Math.max(0, a.result.stars)
       };

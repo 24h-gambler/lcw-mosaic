@@ -284,6 +284,23 @@ export class PlatformDO {
     return id;
   }
 
+  /**
+   * One coin balance per child: the home-world ledger (same one solo orders pay from). Lesson stars are credited
+   * here once per utterance (`ref` = the utterance id), so the 3D client, the dialog window and /join all show it.
+   */
+  creditCoins(playerId: string, delta: number, reason: string, ref: string, nowMs: number): number {
+    const w = this.worlds.get(this.ensureHomeWorld(playerId));
+    if (!w) return 0;
+    if (delta !== 0 && !w.sql.get('select 1 as x from ledger where player = ? and ref = ?', [playerId, ref])) {
+      w.appendLedger(playerId, delta, reason, ref, nowMs);
+    }
+    return w.getPlayerBalance(playerId);
+  }
+
+  coinBalance(playerId: string): number {
+    return this.worlds.get(this.ensureHomeWorld(playerId))?.getPlayerBalance(playerId) ?? 0;
+  }
+
   recordRun(task: string, ok: boolean, detail: unknown): void {
     this.sql.run('insert into ops_runs (task, at, ok, detail) values (?, ?, ?, ?)', [
       task,
@@ -497,6 +514,10 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       nowMs: () => Date.now(),
       randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
       sha256Hex,
+      coins: {
+        credit: (playerId, delta, ref, nowMs) => platform.creditCoins(playerId, delta, 'lesson_stars', ref, nowMs),
+        balance: (playerId) => platform.coinBalance(playerId)
+      },
       completeLesson: (lessonId, body) =>
         Promise.resolve(
           inner.fetch(

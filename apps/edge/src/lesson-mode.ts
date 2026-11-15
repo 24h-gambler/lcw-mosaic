@@ -5,6 +5,7 @@ import { scoreUtterance } from '@lcw/converse';
 import {
   computeLessonMetrics,
   extractBookmarkWindows,
+  meaningfulExpression,
   type BookmarkTranscriptLine,
   type LessonMinuteInput,
   type UtteranceMetricInput
@@ -20,7 +21,10 @@ import { buildLessonParentFacts } from './parent-report.js';
 
 export const JOIN_CODE_TTL_MS = 12 * 3_600_000;
 export const STUDENT_TOKEN_TTL_MS = 12 * 3_600_000;
+/** Wrong codes one device (client IP) may try per hour; a typo-prone child never locks out other lessons. */
 export const JOIN_FAILS_PER_HOUR = 10;
+/** Wrong codes all devices together may try per hour (6-digit codes live 12 h: guessing stays far below 1%). */
+export const JOIN_FAILS_PER_HOUR_ALL = 200;
 export const COINS_PER_STAR = 10;
 /** A student client that has not polled state for this long shows as disconnected on the director console. */
 export const STUDENT_PRESENCE_TTL_MS = 10_000;
@@ -45,6 +49,7 @@ create table if not exists lesson_joins (code text primary key, lesson_id text n
 create table if not exists student_tokens (token_hash text primary key, lesson_id text not null, player_id text not null, expires_at integer not null);
 create table if not exists lesson_state (lesson_id text primary key, plan_id text not null, stage_id text not null, targets text not null, updated_at integer not null);
 create table if not exists join_failures (hour integer primary key, n integer not null);
+create table if not exists join_failures_by_client (hour integer not null, client text not null, n integer not null, primary key (hour, client));
 create table if not exists lesson_live (seq integer primary key autoincrement, id text not null unique, lesson_id text not null, at integer not null, type text not null, npc_id text, kind text, text text not null);
 create index if not exists lesson_live_by_lesson on lesson_live (lesson_id, seq);
 create index if not exists utterances_by_session on utterances (session_id, created_at);
@@ -64,6 +69,14 @@ export interface LessonModeDeps {
   sha256Hex: (s: string) => Promise<string>;
   /** Runs the existing complete-and-send-report route so the report logic stays in one place. */
   completeLesson: (lessonId: string, body: Record<string, unknown>) => Promise<Response>;
+  /**
+   * The child's one coin ledger (home world, shared with solo orders). Lesson stars go in as stars × COINS_PER_STAR,
+   * once per utterance; `coins_total` is its balance. Absent only in unit setups without worlds (then the old sum).
+   */
+  coins?: {
+    credit: (playerId: string, delta: number, ref: string, nowMs: number) => number;
+    balance: (playerId: string) => number;
+  };
 }
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
@@ -280,6 +293,12 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     };
   };
 
+  /** The lesson plan's target sentences (with core-pattern tags): what a pinned fragment can grow into. */
+  const planTargetsOf = (id: string) =>
+    getLessonPlan(d.sql.get<{ plan: string }>('select plan from lessons where id = ?', [id])?.plan || undefined).stages.flatMap(
+      (s) => s.targets
+    );
+
   /** F1/F2 pin windows (docs/10 §2): 30 s either side of each pin over the student's and the teacher's lines. */
   const pinWindowsOf = (id: string) => {
     const l = lessonRow(id);
@@ -301,7 +320,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     );
     const windows = extractBookmarkWindows(
       pins.map((p) => ({ kind: p.kind === 'expression' ? ('expression' as const) : ('coaching' as const), at_ms: p.at_ms })),
-      transcript
+      transcript,
+      undefined,
+      planTargetsOf(id)
     );
     return pins.map((p, i) => {
       const w = windows[i]!;
@@ -594,10 +615,17 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     );
     const token = hex(d.randomBytes(16));
     const pinWindows = pinWindowsOf(id);
-    // F2 pins become lesson-born expressions (WP-310 transfer tracking): the teacher's note, else the top candidate.
+    // F2 pins become lesson-born expressions (WP-310 transfer tracking): the teacher's note, else the top candidate,
+    // as a whole unit ("Can I have" -> the child's "Can I have a warm honey tea?"); fragments nothing explains are dropped.
+    const targets = planTargetsOf(id);
     for (const w of pinWindows) {
       const note = /[A-Za-z]{2,}/.test(w.note) ? w.note.trim() : '';
-      const lemma = w.kind === 'expression' ? (note || w.candidate_expressions[0] || '').slice(0, 120) : '';
+      const said = w.lines.filter((x) => x.speaker === 'student').map((x) => x.text).reverse();
+      // The lemma stays the pattern the teacher pinned ("can I have"): transfer tracking looks for it in solo play
+      // (every lemma token must reappear), so a whole sentence would almost never count. A note that nothing in the
+      // lesson explains (a remark, "for your") is not a pattern: the top candidate line stands in.
+      const pattern = note && meaningfulExpression(note, { utterances: said, targets }) ? note : '';
+      const lemma = w.kind === 'expression' ? (pattern || w.candidate_expressions[0] || '').slice(0, 120) : '';
       if (lemma) {
         d.db.registerLessonExpression({ id: `expr-${w.pin_id}`, playerId: l.player_id, lemmaKey: lemma, lessonId: id, nowMs: d.nowMs() });
       }
@@ -669,8 +697,10 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   app.post('/v1/join', async (c) => {
     const now = d.nowMs();
     const hour = Math.floor(now / 3_600_000);
+    const client = (c.req.header('cf-connecting-ip') ?? 'local').slice(0, 64);
     const fails = d.sql.get<{ n: number }>('select n from join_failures where hour = ?', [hour])?.n ?? 0;
-    if (fails >= JOIN_FAILS_PER_HOUR) return c.json({ error: 'too_many_attempts' }, 429);
+    const mine = d.sql.get<{ n: number }>('select n from join_failures_by_client where hour = ? and client = ?', [hour, client])?.n ?? 0;
+    if (fails >= JOIN_FAILS_PER_HOUR_ALL || mine >= JOIN_FAILS_PER_HOUR) return c.json({ error: 'too_many_attempts' }, 429);
     const p = JoinSchema.safeParse(await c.req.json());
     const row = p.success
       ? d.sql.get<{ lesson_id: string; player_id: string }>(
@@ -680,6 +710,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       : undefined;
     if (!row) {
       d.sql.run('insert into join_failures (hour, n) values (?, 1) on conflict(hour) do update set n = n + 1', [hour]);
+      d.sql.run(
+        'insert into join_failures_by_client (hour, client, n) values (?, ?, 1) on conflict(hour, client) do update set n = n + 1',
+        [hour, client]
+      );
+      d.sql.run('delete from join_failures_by_client where hour < ?', [hour - 1]);
       return c.json({ error: 'invalid_code' }, 404);
     }
     const token = hex(d.randomBytes(24));
@@ -789,8 +824,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     // Typed or card-assembled sentences are not speech: two stars at most (docs/04 §4.1, same as /v1/converse/score).
     const typedCapped = TYPED_INPUT_SOURCES.has(u.stt_source) && stars > TYPED_INPUT_MAX_STARS;
     if (typedCapped) stars = TYPED_INPUT_MAX_STARS;
+    const uttId = `utt-${s.lesson_id}-${now}-${hex(d.randomBytes(3))}`;
     d.db.logUtterance({
-      id: `utt-${s.lesson_id}-${now}-${hex(d.randomBytes(3))}`,
+      id: uttId,
       player_id: s.player_id,
       world_id: 'lesson-mode',
       session_id: s.lesson_id,
@@ -816,7 +852,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       created_at: now
     });
     recordMinuteAt(s.lesson_id, now);
-    const totals = d.sql.get<{ s: number }>('select coalesce(sum(stars), 0) as s from utterances where player_id = ?', [s.player_id]);
+    // One balance everywhere (coordinator 11-16): the ledger, credited once per utterance id.
+    const coinsTotal = d.coins
+      ? d.coins.credit(s.player_id, stars * COINS_PER_STAR, `lesson:${uttId}`, now)
+      : Number(d.sql.get<{ s: number }>('select coalesce(sum(stars), 0) as s from utterances where player_id = ?', [s.player_id])?.s ?? 0) *
+        COINS_PER_STAR;
     const from = kstDayStartMs(kstDay(now));
     const today = d.sql.get<{ n: number }>('select count(*) as n from utterances where player_id = ? and created_at >= ?', [
       s.player_id,
@@ -827,7 +867,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       score: Math.round(score * 1000) / 1000,
       stars,
       feedback_ko: feedbackKo({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
-      coins_total: Number(totals?.s ?? 0) * COINS_PER_STAR,
+      coins_total: coinsTotal,
       utterances_today: Number(today?.n ?? 0)
     });
   });

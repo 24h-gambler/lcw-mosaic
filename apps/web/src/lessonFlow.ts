@@ -77,10 +77,10 @@ export function validateNewStudent(f: NewStudentForm): string | null {
 /* ---------- join links (docs/19 §4) ---------- */
 
 /**
- * The 3D client (/game/?code=) is the default student path once apps/client/src/lesson joins lessons; until then
- * the teacher hands out the /join fallback first. Flip when the client's lesson join is merged.
+ * The 3D client (/game/?code=) is the default student path (apps/client/src/lesson joins lessons); /join is the
+ * word-card fallback for low-tier devices (docs/19 §4).
  */
-export const STUDENT_3D_LESSON_READY = false;
+export const STUDENT_3D_LESSON_READY = true;
 
 export interface JoinLink {
   kind: '3d' | 'fallback';

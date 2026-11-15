@@ -46,6 +46,13 @@ async function runLesson(p: PlatformDO) {
   await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'expression', at_ms: 1000, note: 'so that' });
   await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'expression', at_ms: 2000, note: 'So that' });
   await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'expression', at_ms: 3000, note: '천천히' });
+  // fragments teachers type (main c851190 report showed "Can I have", "for your" as chips)
+  await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'expression', at_ms: 3500, note: 'Can I have' });
+  await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'expression', at_ms: 3600, note: 'for your' });
+  // a fragment that only the phone line contains must not pull that line into the public page
+  await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'expression', at_ms: 3700, note: 'call me' });
+  // the teacher's own remark is not the child's expression
+  await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'expression', at_ms: 3800, note: 'nice pronunciation' });
   await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'coaching', at_ms: 4000, note: '' });
   const end = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { teacher_comment: '카페 주문을 끝까지 영어로 했습니다.', next_lesson_at: '11월 19일 수요일 17:30' });
   expect(end.status).toBe(200);
@@ -71,7 +78,8 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
       'I want a jetpack so that I can fly to school'
     ]);
     expect(L.quotes.every((q: any) => q.stage_title_ko.length > 0)).toBe(true);
-    expect(L.expressions).toEqual(['so that']);
+    // whole units a parent understands: fragments grow to the child's own clause/sentence, "for your" (nothing said it) drops
+    expect(L.expressions).toEqual(['so that I can fly to school', 'Can I have a warm honey tea?']);
     expect(L.coaching_moments).toBe(1);
     expect(L.stages.map((s: any) => s.id)).toEqual(['warmup_anchor', 'cafe_order', 'open_question']);
     expect(L.stages.map((s: any) => s.title_ko)).toEqual(['인사와 고정 과제', '카페 주문', '열린 질문']);

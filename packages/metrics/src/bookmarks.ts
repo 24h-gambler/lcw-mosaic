@@ -5,6 +5,8 @@
  * Time is always passed in (ms since lesson start); no clock access.
  */
 
+import { meaningfulExpressions, type ExpressionTarget } from './expressions.js';
+
 export const BOOKMARK_WINDOW_MS = 30_000;
 export const BOOKMARK_MAX_CANDIDATES_PER_MARK = 3;
 export const BOOKMARK_MIN_CANDIDATE_WORDS = 2;
@@ -42,7 +44,8 @@ function normKey(text: string): string {
 export function extractBookmarkWindows(
   bookmarks: readonly LessonBookmark[],
   transcript: readonly BookmarkTranscriptLine[],
-  windowMs: number = BOOKMARK_WINDOW_MS
+  windowMs: number = BOOKMARK_WINDOW_MS,
+  targets: readonly ExpressionTarget[] = []
 ): BookmarkWindow[] {
   const sortedTranscript = [...transcript].sort((a, b) => a.at_ms - b.at_ms);
   return [...bookmarks]
@@ -54,12 +57,13 @@ export function extractBookmarkWindows(
       let candidates: string[] = [];
       if (bookmark.kind === 'expression') {
         // The teacher presses after hearing the phrase, so lines just before the mark rank first.
-        candidates = lines
+        const ranked = lines
           .filter((l) => l.speaker === 'student' && wordCount(l.text) >= BOOKMARK_MIN_CANDIDATE_WORDS)
           .map((l) => ({ l, d: l.at_ms <= bookmark.at_ms ? bookmark.at_ms - l.at_ms : bookmark.at_ms - l.at_ms + 2 * windowMs + 1 }))
           .sort((a, b) => Math.abs(a.d) - Math.abs(b.d))
-          .slice(0, BOOKMARK_MAX_CANDIDATES_PER_MARK)
           .map((x) => x.l.text.trim());
+        // Whole, parent-readable units only (expressions.ts): a fragment grows from the nearby lines or is dropped.
+        candidates = meaningfulExpressions(ranked, { utterances: ranked, targets }, BOOKMARK_MAX_CANDIDATES_PER_MARK);
       }
       return {
         bookmark,

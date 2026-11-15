@@ -6,6 +6,7 @@ import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicRe
 import { buildLessonWindow } from './lesson-window.js';
 import { buildDashboard } from './dashboard.js';
 import { mountSeatRoutes, playAllowed } from './seats.js';
+import { drainVoicePurge, reportClips, type VoiceBlobStore } from './voice.js';
 
 /**
  * Guardian domain (WP-301, docs/16 §3, docs/10 §5): family account, child profiles, separate consents, device link
@@ -35,6 +36,7 @@ export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', /^\/v1\/family\/children\/[^/]+\/device-code$/],
   ['DELETE', /^\/v1\/family\/devices\/[^/]+$/],
   ['POST', /^\/v1\/family\/reports\/[^/]+\/revoke$/],
+  ['GET', /^\/v1\/family\/reports\/[^/]+\/clips$/],
   ['GET', /^\/v1\/family\/children\/[^/]+\/lesson-window$/],
   ['GET', /^\/v1\/family\/children\/[^/]+\/dashboard$/],
   ['GET', /^\/v1\/family\/seats$/],
@@ -67,6 +69,8 @@ export interface FamilyDeps {
   nowMs: () => number;
   randomBytes: (n: number) => Uint8Array;
   sha256Hex: (s: string) => Promise<string>;
+  /** Voice clip storage (R2); absent in tests that do not touch voice, null while the binding is missing. */
+  voiceStore?: () => VoiceBlobStore | null;
 }
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
@@ -350,6 +354,12 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     const res = d.db.setConsent({ playerId: kid.id, guardianId: g.guardian_id, scope, granted: p.data.granted, nowMs: d.nowMs() });
     logConsent(kid.id, g.guardian_id, scope, p.data.granted);
+    // "끄면 저장된 음성도 바로 지웁니다": the clips were queued in setConsent; delete them from R2 before answering.
+    // What R2 refuses stays queued and the hourly cron retries (voice.ts drainVoicePurge).
+    if (scope === 'voice_store' && !p.data.granted && d.voiceStore) {
+      const purge = await drainVoicePurge(d.sql, d.voiceStore()).catch(() => null);
+      return c.json({ ...res, voice_purge: purge ? { deleted: purge.deleted, pending: purge.left } : { deleted: 0, pending: null } });
+    }
     return c.json(res);
   });
 
@@ -418,6 +428,20 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     if (!mine) return c.json({ error: 'report_not_found' }, 404);
     d.sql.run('insert or ignore into report_revocations (share_token, revoked_at) values (?, ?)', [token, d.nowMs()]);
     return c.json({ ok: true });
+  });
+
+  // Voice clips under one report, for the guardian of that child only (the public report link never carries audio).
+  app.get('/v1/family/reports/:token/clips', async (c) => {
+    const g = await withGuardian(c, false);
+    if (g instanceof Response) return g;
+    c.header('cache-control', 'private, no-store');
+    const r = d.sql.get<{ player_id: string; kind: string; ref_id: string; created_at: number }>(
+      'select r.player_id, r.kind, r.ref_id, r.created_at from reports r join players p on p.id = r.player_id where r.share_token = ? and p.family_id = ?',
+      [c.req.param('token'), g.family_id]
+    );
+    if (!r) return c.json({ error: 'report_not_found' }, 404);
+    const on = d.db.hasActiveConsent(r.player_id, 'voice_store');
+    return c.json({ voice_store: on, clips: on ? await reportClips(d, r, d.nowMs()) : [] });
   });
 
   /* ---------- child device ---------- */

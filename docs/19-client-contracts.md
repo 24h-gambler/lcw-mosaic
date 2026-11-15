@@ -79,6 +79,7 @@ export interface DialogPanelProps {
 - 한 번 연 대화창 = 한 번의 구매(`dialogId`): "별 하나 더"로 다시 말하면 가격이 최고 별 기준으로 내려가 차액을 돌려받고, 응답을 못 받아 다시 보내도 두 번 빠지지 않습니다. 통과한 뒤 "별 하나 더"에 실패하거나 창을 닫아도(✕·Esc) `onDone`에 그 창의 최고 결과가 갑니다. `onClose`는 아무것도 사지 않았을 때만 불립니다.
 - 서버만 정하는 것: ECHO(같은 창에서 서버가 실패 2번을 기록한 뒤에만 낮은 통과선), 별 등급(아이 레벨의 뱅크 문장만 — 그 NPC에 그 레벨 문장이 있으면 다른 레벨 문장은 인정 안 함), 학생 경로에서 뱅크에 없는 문장은 별 0. 음성인지(`stt_source`)·받아쓴 글은 브라우저 STT 구조상 클라가 보내므로, 서버 Whisper(`/v1/converse/stt`)가 붙으면 그 결과로 바꿉니다.
 - `DialogPanelProps`에 선택 필드 `npcLine?`(NPC 첫 질문, 없으면 맥락별 기본 대사), `fontScale?`(1~1.5), `speech?`(시험·미리보기용 음성 엔진).
+- 음성 클립(보호자 다시 듣기, `apps/edge/src/voice.ts`, 2026-11-16): `DialogPanelProps.recordClip?`가 true면(앱이 정함: 수업 중이면 `/v1/join`의 `voice_store`를 담은 `sessionStorage` `lcw.studentVoice`, 아니면 `GET /v1/device/me`의 `voice_store`, 게스트는 항상 false) 마이크가 켜진 동안만 `@lcw/audio` `createMediaClipRecorder`(Opus 24kbps WebM, Safari는 MP4, 최대 12.5초)로 그 말 한 번을 메모리에 녹음합니다. 들린 말이 없으면 버립니다. 클립은 채점 요청 본문에 실리지 않고, 서버가 `/v1/converse/score`·`/v1/lesson/utterance` 응답에 `audio_upload {token(48자 16진수), max_bytes, expires_at}`을 줄 때만 `POST /v1/voice/upload/<token>`으로 한 번 올립니다(본문 = 오디오 그대로, 10분·한 번만, 256KB 이하, WebM/Ogg/MP4 매직 바이트만, 그 사이 동의가 꺼졌으면 403). `audio_upload`는 말소리 입력(`browser`·`device`·`workers_ai`)이고 보호자가 `voice_store`를 켰고 R2가 붙어 있을 때만 옵니다. 채점 요청의 `audio_key`는 받아도 저장하지 않습니다. 녹음이 인식을 방해하지 않게: 인식이 먼저 마이크를 잡고, 녹음기가 함께 있는 동안 인식이 `denied`로 끝나면 그 기기는 `localStorage` `lcw.clip.off`로 녹음을 영구히 끕니다. `/join` 단어 카드 화면도 같은 녹음기·같은 업로드를 씁니다.
 - `DialogPanel.tsx`는 `DialogPanel`과 함께 `createSoloSubmit(npc)`(학생 토큰으로 `/v1/converse/score`), `createLessonSubmit({token})`을 내보냅니다. 혼자 경로에서 서버는 토큰에서 학생·집 월드(`home-<player>`, 처음에 시작 코인 1회)·레벨을 정하고, 별·가격·아이템을 문장 뱅크에서 정합니다(요청의 `price`·`item_id`는 무시).
 - 입력 사다리: 브라우저 음성 인식(en-US) → 안 되면(카카오톡 등 인앱 브라우저, 미지원, 권한 거부, 2회 연속 못 들음) 단어 카드 조합판 → 글자 입력. 카드·글자 입력은 별 2개까지(`04` 4.1). 기기 내·서버 Whisper는 같은 `SpeechEngine` 인터페이스로 붙습니다.
 - NPC 맥락: 카페 주인 `cafe`, 물물교환 상점 주인 `trade_shop`(상점 거래 뱅크, 가격 0), 광장 안내인 `guide`(길 묻기 뱅크 — 카페·교환 상점, 가격 0).
@@ -98,7 +99,7 @@ export interface DialogPanelProps {
 
 ## 4. 수업 → 다른 도메인 (`apps/client/src/lesson/`)
 
-- `/game/?code=123456` 또는 첫 화면의 코드 입력 → `POST /v1/join` → 학생 토큰은 `sessionStorage`.
+- `/game/?code=123456` 또는 첫 화면의 코드 입력 → `POST /v1/join` → 학생 토큰은 `sessionStorage`. 응답의 `voice_store`(보호자의 음성 저장 동의)는 `lcw.studentVoice='1'`로 같이 두고, 대화창 `recordClip`이 이것을 봅니다(3장).
 - `GET /v1/lesson/state`를 3초마다: `stage_id`가 바뀌면 아래 표대로 `goToScene`, `targets`는 대화창 `offers`, 빙의 대사(`npc_lines`)는 `npcSay`.
 
 | stage_id | 장면 | NPC | 힌트 |
@@ -138,7 +139,7 @@ export interface DialogPanelProps {
 
 ## 6. 보호자 → 월드 (기기 토큰 발급 쪽 보장, WP-301)
 
-- `/link`가 저장하는 `lcw.deviceToken`은 64자 소문자 16진수(서버에는 해시만, 365일), `lcw.deviceNickname`은 아이 별명입니다. 보호자가 우리 가족 화면에서 기기를 해제하거나 365일이 지나면 `GET /v1/device/me`가 401 `device_only`를 돌려줍니다(5장의 "401이면 지우고 게스트"). 200 응답은 `{nickname, level, voice_store, play_allowed, seat}`뿐이며 `player_id`는 없습니다. `voice_store`가 false면 음성 원본은 서버가 저장하지 않습니다(`logUtterance` 동의 확인).
+- `/link`가 저장하는 `lcw.deviceToken`은 64자 소문자 16진수(서버에는 해시만, 365일), `lcw.deviceNickname`은 아이 별명입니다. 보호자가 우리 가족 화면에서 기기를 해제하거나 365일이 지나면 `GET /v1/device/me`가 401 `device_only`를 돌려줍니다(5장의 "401이면 지우고 게스트"). 200 응답은 `{nickname, level, voice_store, play_allowed, seat}`뿐이며 `player_id`는 없습니다. `voice_store`가 false면 음성은 서버가 저장하지 않고 기기도 녹음하지 않습니다(3장 음성 클립).
 - 좌석(WP-704, `apps/edge/src/seats.ts`): `seat`는 `{state:'active'|'expiring'|'read_only'|'archived'|'refunded'}` 또는 좌석을 받은 적 없는 아이면 `null`입니다. 날짜(`ends_at`)는 아이 기기에 내려보내지 않습니다(AGENTS 4장 9: 아이 화면에 기한 금지). `play_allowed`가 false(좌석이 보기 전용·보관·환불)면 월드는 혼자 놀기를 멈추고 월드를 보기만 하게 하며, 아이 화면에는 가격·결제·기한을 보이지 않고 "보호자에게 말해 주세요" 정도만 띄웁니다. 서버도 같은 판단으로 막습니다: 기기 토큰으로 오는 혼자 놀기 쓰기(`POST /v1/converse/score`(구매 포함), `POST /v1/review/attempt`, `POST /v1/showroom`)는 403 `{error:'seat_inactive', seat:{state}}`를 돌려주고, 읽기(`GET /v1/review/due`)와 쇼룸 내리기(`DELETE /v1/showroom`)는 보기 전용 30일 동안에도 됩니다. `seat:null`(판매 전·좌석 없는 아이)은 지금처럼 놉니다. 수업(`?code=`, `/v1/join`, `/v1/lesson/*`, 수업 학생 토큰)은 좌석과 상관없이 들어옵니다.
 
 ## 7. 다른 도메인 → 외부인(공개 사이트) 쓰임

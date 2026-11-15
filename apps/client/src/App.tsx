@@ -61,6 +61,27 @@ export function soloPlayBlocked(id: PlayerIdentity | null): boolean {
   return id?.kind === 'child' && !id.playAllowed;
 }
 
+/**
+ * Record spoken turns for the guardian's replay (edge voice.ts)? In a lesson: the /v1/join answer kept in this tab;
+ * otherwise the linked child device's voice_store from /v1/device/me. A guest never records. The server checks again.
+ */
+export function recordClipFor(id: PlayerIdentity | null, store: Pick<Storage, 'getItem'> | null = sessionStoreOrNull()): boolean {
+  try {
+    if (store?.getItem('lcw.studentToken')) return store.getItem('lcw.studentVoice') === '1';
+  } catch {
+    /* storage blocked: fall through to the device identity */
+  }
+  return id?.kind === 'child' && id.voiceStore === true;
+}
+
+function sessionStoreOrNull(): Pick<Storage, 'getItem'> | null {
+  try {
+    return typeof sessionStorage !== 'undefined' ? sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
 export function soloPlayerOf(id: PlayerIdentity | null): SoloPlayer | undefined {
   if (!id || id.kind !== 'child') return undefined;
   return { deviceToken: id.token, nickname: id.nickname || undefined, level: id.level };
@@ -170,6 +191,7 @@ function DialogHost(props: {
   cfg: DialogConfig;
   submit: NonNullable<DialogConfig['submit']>;
   onClose: (lastResult: DialogResultLike | null) => void;
+  recordClip?: boolean;
 }): React.ReactElement {
   const { Panel, world, npc, cfg, submit, onClose } = props;
   useEffect(() => {
@@ -200,6 +222,7 @@ function DialogHost(props: {
       submit={submit}
       onDone={onDone}
       onClose={close}
+      recordClip={props.recordClip === true}
     />
   );
 }
@@ -334,7 +357,9 @@ export function App(): React.ReactElement {
       if (!Panel || !world) return null;
       const submit = cfg.submit ?? dialogMod?.createSoloSubmit?.(npc, soloPlayerOf(identity));
       if (!submit) return null;
-      return <DialogHost key={npc.id} Panel={Panel} world={world} npc={npc} cfg={cfg} submit={submit} onClose={() => undefined} />;
+      return (
+        <DialogHost key={npc.id} Panel={Panel} world={world} npc={npc} cfg={cfg} submit={submit} onClose={() => undefined} recordClip={recordClipFor(identity)} />
+      );
     },
     [dialogMod, world, identity]
   );
@@ -389,7 +414,15 @@ export function App(): React.ReactElement {
             </div>
           ) : null}
           {world && !soloBlocked && SoloPanel && soloNpc && soloSubmit ? (
-            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloCfg} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />
+            <DialogHost
+              Panel={SoloPanel}
+              world={world}
+              npc={soloNpc}
+              cfg={soloCfg}
+              submit={soloSubmit}
+              onClose={(last) => closeSolo(soloNpc, last)}
+              recordClip={recordClipFor(identity)}
+            />
           ) : null}
         </div>
       </div>

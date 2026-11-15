@@ -11,12 +11,14 @@ export type { DialogOffer, DialogResult, SttSource, UtteranceSubmit };
 /** A sentence card of the current stage: the dialog's DialogOffer. */
 export type LessonOffer = DialogOffer;
 /** POST /v1/lesson/utterance body: UtteranceSubmit without the solo-route meta (the lesson body is strict). */
-export type LessonUtteranceBody = Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId'>;
+export type LessonUtteranceBody = Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId' | 'clip'>;
 
 export const STUDENT_TOKEN_KEY = 'lcw.studentToken';
 export const STUDENT_LESSON_KEY = 'lcw.studentLessonId';
 export const STUDENT_NICKNAME_KEY = 'lcw.studentNickname';
 export const STUDENT_LEVEL_KEY = 'lcw.studentLevel';
+/** '1' when the guardian turned voice_store on (/v1/join `voice_store`): the dialog records spoken turns for replay. */
+export const STUDENT_VOICE_KEY = 'lcw.studentVoice';
 
 export type PlayerLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
 
@@ -26,6 +28,8 @@ export interface JoinResult {
   player_id: string;
   nickname: string;
   level: PlayerLevel;
+  /** The guardian's voice_store consent (edge voice.ts): record spoken turns for the guardian's replay. */
+  voice_store?: boolean;
 }
 
 export interface LessonNpcLine {
@@ -116,6 +120,7 @@ export interface StudentSession {
   lessonId: string;
   nickname: string;
   level: PlayerLevel;
+  voiceStore?: boolean;
 }
 
 export interface KeyValue {
@@ -141,7 +146,8 @@ export function loadStudentSession(store: KeyValue | null = sessionStore()): Stu
       token,
       lessonId,
       nickname: store?.getItem(STUDENT_NICKNAME_KEY) ?? '',
-      level: (store?.getItem(STUDENT_LEVEL_KEY) as PlayerLevel | null) ?? 'L1'
+      level: (store?.getItem(STUDENT_LEVEL_KEY) as PlayerLevel | null) ?? 'L1',
+      voiceStore: store?.getItem(STUDENT_VOICE_KEY) === '1'
     };
   } catch {
     return null;
@@ -152,13 +158,15 @@ export function saveStudentSession(s: StudentSession | null, store: KeyValue | n
   try {
     if (!store) return;
     if (!s) {
-      for (const k of [STUDENT_TOKEN_KEY, STUDENT_LESSON_KEY, STUDENT_NICKNAME_KEY, STUDENT_LEVEL_KEY]) store.removeItem(k);
+      for (const k of [STUDENT_TOKEN_KEY, STUDENT_LESSON_KEY, STUDENT_NICKNAME_KEY, STUDENT_LEVEL_KEY, STUDENT_VOICE_KEY]) store.removeItem(k);
       return;
     }
     store.setItem(STUDENT_TOKEN_KEY, s.token);
     store.setItem(STUDENT_LESSON_KEY, s.lessonId);
     store.setItem(STUDENT_NICKNAME_KEY, s.nickname);
     store.setItem(STUDENT_LEVEL_KEY, s.level);
+    if (s.voiceStore) store.setItem(STUDENT_VOICE_KEY, '1');
+    else store.removeItem(STUDENT_VOICE_KEY);
   } catch {
     /* private mode: the session simply lasts as long as the page */
   }

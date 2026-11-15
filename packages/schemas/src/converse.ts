@@ -111,6 +111,15 @@ export const ScoreRequestSchema = z
   .strict();
 export type ScoreRequest = z.infer<typeof ScoreRequestSchema>;
 
+export const VoiceUploadOfferSchema = z
+  .object({
+    token: z.string().regex(/^[0-9a-f]{48}$/),
+    max_bytes: z.number().int().positive(),
+    expires_at: z.number().int().positive()
+  })
+  .strict();
+export type VoiceUploadOffer = z.infer<typeof VoiceUploadOfferSchema>;
+
 export const ScoreResponseSchema = z
   .object({
     pass: z.boolean(),
@@ -141,7 +150,12 @@ export const ScoreResponseSchema = z
     /** Furniture bought with today's read-aloud discount of its kind (docs/03 D13): the discount that was applied. */
     read_aloud_discount_pct: z.number().min(0).max(1).optional(),
     /** Free talk without a chosen sentence: the bank sentence the server matched and scored. */
-    target_text: z.string().min(1).optional()
+    target_text: z.string().min(1).optional(),
+    /**
+     * Voice clip upload (docs/19 3, edge voice.ts): only for a speech turn of a child whose guardian turned
+     * voice_store on. POST the recorded turn to /v1/voice/upload/<token> once, before expires_at.
+     */
+    audio_upload: VoiceUploadOfferSchema.optional()
   })
   .strict();
 export type ScoreResponse = z.infer<typeof ScoreResponseSchema>;

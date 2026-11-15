@@ -163,12 +163,40 @@ export interface UtteranceLogRow {
   created_at: number;
 }
 
+/** Voice clips (voice.ts, docs/02 §10). Here so the consent change can queue deletions in its own transaction. */
+export const VOICE_SCHEMA_SQL = `
+create table if not exists voice_clips (id text primary key, utterance_id text unique not null, player_id text not null, r2_key text not null, mime text not null, bytes integer not null, created_at integer not null);
+create index if not exists voice_clips_player on voice_clips (player_id, created_at);
+create table if not exists voice_upload_tokens (token_hash text primary key, utterance_id text not null, player_id text not null, expires_at integer not null, used_at integer);
+create table if not exists voice_purge (r2_key text primary key, player_id text not null, reason text not null, queued_at integer not null, attempts integer not null default 0, last_error text);
+create table if not exists voice_meta (k text primary key, v text not null)
+`;
+
+
+/**
+ * Queues every clip of a child for deletion and cuts the clips off from the utterances (voice.ts drains the queue
+ * into R2). Runs inside the caller's transaction.
+ */
+export function queueVoicePurgeSql(sql: SqliteExecutor, playerId: string, reason: string, nowMs: number): number {
+  const n = Number(sql.get<{ n: number }>('select count(*) as n from voice_clips where player_id = ?', [playerId])?.n ?? 0);
+  sql.run(
+    `insert or ignore into voice_purge (r2_key, player_id, reason, queued_at, attempts, last_error)
+     select r2_key, player_id, ?, ?, 0, null from voice_clips where player_id = ?`,
+    [reason, nowMs, playerId]
+  );
+  sql.run('delete from voice_clips where player_id = ?', [playerId]);
+  sql.run('update voice_upload_tokens set used_at = ? where player_id = ? and used_at is null', [nowMs, playerId]);
+  sql.run('update utterances set audio_first = null, audio_final = null where player_id = ?', [playerId]);
+  return n;
+}
+
 export class EdgePlatformDb {
   readonly sql: SqliteExecutor;
 
   constructor(sql: SqliteExecutor, schemaSql = D1_SCHEMA_SQL) {
     this.sql = sql;
     this.sql.exec(schemaSql);
+    this.sql.exec(VOICE_SCHEMA_SQL);
   }
 
   ensureFamilyAndPlayer(params: {
@@ -218,19 +246,17 @@ export class EdgePlatformDb {
       return { scope: params.scope, active: true };
     }
 
-    this.sql.run(
-      `insert into consents (player_id, guardian_id, scope, granted_at, revoked_at)
-       values (?, ?, ?, null, ?)
-       on conflict(player_id, scope) do update set guardian_id = excluded.guardian_id, revoked_at = excluded.revoked_at`,
-      [params.playerId, params.guardianId, params.scope, params.nowMs]
-    );
-
-    // Revoking voice_store strips previously attached raw audio references (AGENTS.md 4.5, docs/16)
-    if (params.scope === 'voice_store') {
-      this.sql.run('update utterances set audio_first = null, audio_final = null where player_id = ?', [
-        params.playerId
-      ]);
-    }
+    runInTransaction(this.sql, () => {
+      this.sql.run(
+        `insert into consents (player_id, guardian_id, scope, granted_at, revoked_at)
+         values (?, ?, ?, null, ?)
+         on conflict(player_id, scope) do update set guardian_id = excluded.guardian_id, revoked_at = excluded.revoked_at`,
+        [params.playerId, params.guardianId, params.scope, params.nowMs]
+      );
+      // Revoking voice_store strips previously attached raw audio references (AGENTS.md 4.5, docs/16) and queues the
+      // clips for deletion from R2 in the same transaction (voice.ts drainVoicePurge; the consent route drains at once).
+      if (params.scope === 'voice_store') queueVoicePurgeSql(this.sql, params.playerId, 'consent_revoked', params.nowMs);
+    });
     return { scope: params.scope, active: false };
   }
 

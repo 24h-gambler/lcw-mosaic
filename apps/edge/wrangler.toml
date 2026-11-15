@@ -1,0 +1,32 @@
+name = "lcw-edge"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lcw-main"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "lcw-artifacts"
+
+[ai]
+binding = "AI"
+
+[durable_objects]
+bindings = [
+  { name = "WORLD_DO", class_name = "WorldDO" },
+  { name = "LESSON_DO", class_name = "LessonDO" },
+  { name = "QUOTA_DO", class_name = "QuotaDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WorldDO", "LessonDO", "QuotaDO"]
+
+[triggers]
+# Daily 03:00 UTC maintenance & retention cleanup, hourly snapshot/quota rollup, Monday 06:00 weekly reports (docs/09 §2)
+crons = ["0 3 * * *", "0 * * * *", "0 6 * * 1"]

@@ -1,0 +1,13 @@
+{
+  "name": "@lcw/guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@lcw/content": "workspace:*",
+    "@lcw/destruction": "workspace:*",
+    "@lcw/schemas": "workspace:*"
+  }
+}

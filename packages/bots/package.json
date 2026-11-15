@@ -1,0 +1,16 @@
+{
+  "name": "@lcw/bots",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@lcw/converse": "workspace:*",
+    "@lcw/edge": "workspace:*",
+    "@lcw/metrics": "workspace:*",
+    "@lcw/quota": "workspace:*",
+    "@lcw/schemas": "workspace:*",
+    "@lcw/sim-core": "workspace:*"
+  }
+}

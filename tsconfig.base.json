@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@lcw/schemas": ["packages/schemas/src/index.ts"],
+      "@lcw/content": ["packages/content/src/index.ts"],
+      "@lcw/destruction": ["packages/destruction/src/index.ts"],
+      "@lcw/sim-core": ["packages/sim-core/src/index.ts"],
+      "@lcw/quota": ["packages/quota/src/index.ts"],
+      "@lcw/converse": ["packages/converse/src/index.ts"],
+      "@lcw/guard": ["packages/guard/src/index.ts"],
+      "@lcw/metrics": ["packages/metrics/src/index.ts"],
+      "@lcw/audio": ["packages/audio/src/index.ts"],
+      "@lcw/ui": ["packages/ui/src/index.ts"],
+      "@lcw/bots": ["packages/bots/src/index.ts"],
+      "@lcw/edge": ["apps/edge/src/index.ts"]
+    }
+  }
+}

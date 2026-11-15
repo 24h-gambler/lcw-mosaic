@@ -1,0 +1,179 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { UI_STRINGS_KO } from '@lcw/content';
+import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
+import { MicController, type MicView } from './mic-controller.js';
+import { playSfx, unlockDialogAudio } from './sound.js';
+import { createBrowserSpeechEngine, type SpeechEngine } from './speech.js';
+import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
+
+/**
+ * docs/08 8.3 build screen line: the room check's missing-condition sentence with a [소리 내어 읽기] button
+ * (docs/03 D13). The child reads it aloud; the server checks the reading and grants 10% off that furniture kind once
+ * a day, spent automatically on the next purchase of that kind at the trade shop. Guests can read it for practice
+ * but nothing is granted (no server record for them).
+ */
+
+const R = UI_STRINGS_KO.readAloud;
+
+export type FurnitureKind = 'light' | 'rest' | 'flat';
+
+export interface ReadAloudResultView {
+  pass: boolean;
+  discount_pct: number;
+  already_claimed: boolean;
+  feedback_ko: string;
+}
+
+type Fetch = typeof fetch;
+
+export async function postReadAloud(opts: {
+  token: string;
+  kind: FurnitureKind;
+  transcript: string;
+  sttSource: string;
+  confidence: number;
+  durMs: number;
+  baseUrl?: string;
+  fetchImpl?: Fetch;
+}): Promise<ReadAloudResultView> {
+  const f = opts.fetchImpl ?? fetch.bind(globalThis);
+  let res: Response;
+  try {
+    res = await f(`${opts.baseUrl ?? ''}/v1/furniture/read-aloud`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${opts.token}` },
+      body: JSON.stringify({ kind: opts.kind, transcript: opts.transcript, stt_source: opts.sttSource, confidence: opts.confidence, dur_ms: opts.durMs })
+    });
+  } catch (err) {
+    throw new SubmitError('network', err instanceof Error ? err.message : String(err));
+  }
+  if (res.status === 401 || res.status === 403) throw new SubmitError('auth', `status ${res.status}`);
+  if (!res.ok) throw new SubmitError(res.status === 400 ? 'invalid' : 'server', `status ${res.status}`);
+  const j = (await res.json()) as Partial<ReadAloudResultView>;
+  return {
+    pass: j.pass === true,
+    discount_pct: typeof j.discount_pct === 'number' ? j.discount_pct : 0,
+    already_claimed: j.already_claimed === true,
+    feedback_ko: typeof j.feedback_ko === 'string' ? j.feedback_ko : ''
+  };
+}
+
+export interface ReadAloudPromptProps {
+  kind: FurnitureKind;
+  /** The English sentence the world's room check shows (same table as the server, sim-core ROOM_MISSING_SENTENCES). */
+  sentence: string;
+  player?: SoloPlayerRef;
+  speech?: SpeechEngine;
+  baseUrl?: string;
+  fetchImpl?: Fetch;
+  onResult?: (r: ReadAloudResultView) => void;
+}
+
+export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement {
+  const { kind, sentence, player, baseUrl, fetchImpl, onResult } = props;
+  const engine = useMemo(() => props.speech ?? createBrowserSpeechEngine(), [props.speech]);
+  const ok = useMemo(() => engine.availability().ok, [engine]);
+  const [mic, setMic] = useState<MicView>({ recording: false, interim: '', hangover: false, level: 0 });
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ReadAloudResultView | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const ctrl = useRef<MicController | null>(null);
+  const kindKo = R.kind[kind] ?? kind;
+
+  useEffect(() => {
+    const c = new MicController(engine, {
+      onView: setMic,
+      onFinal: (r, durMs) => {
+        playSfx('dlg.mic_off');
+        if (!r) {
+          setNote(UI_STRINGS_KO.dialog.noSpeech);
+          return;
+        }
+        const token = readStudentToken() || player?.deviceToken || '';
+        if (!token) {
+          setNote(UI_STRINGS_KO.dialog.practiceNote);
+          return;
+        }
+        setBusy(true);
+        void postReadAloud({ token, kind, transcript: r.transcript, sttSource: engine.source, confidence: r.confidence, durMs, baseUrl, fetchImpl })
+          .then((res) => {
+            setResult(res);
+            setNote(null);
+            if (res.discount_pct > 0) playSfx('coin.drop');
+            else if (!res.pass) playSfx('ui.click');
+            onResult?.(res);
+          })
+          .catch(() => setNote(UI_STRINGS_KO.dialog.networkError))
+          .finally(() => setBusy(false));
+      },
+      onIssue: (issue) => setNote(issue === 'no_speech' ? UI_STRINGS_KO.dialog.noSpeech : UI_STRINGS_KO.dialog.micUnsupported)
+    });
+    ctrl.current = c;
+    return () => c.dispose();
+  }, [engine, kind, player, baseUrl, fetchImpl, onResult]);
+
+  const tap = () => {
+    unlockDialogAudio();
+    const c = ctrl.current;
+    if (!c || busy) return;
+    if (!c.recording) {
+      setResult(null);
+      setNote(null);
+      playSfx('dlg.mic_on');
+    }
+    c.tap();
+  };
+
+  return (
+    <div
+      className="lcw-readaloud"
+      role="group"
+      aria-label={R.cta}
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 12,
+        background: C['paper-50'],
+        color: C['ink-900'],
+        border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
+        borderRadius: S.radiusCardPx,
+        boxShadow: S.shadowDefault,
+        padding: '10px 14px',
+        fontFamily: T.fonts.ui,
+        pointerEvents: 'auto',
+        maxWidth: 'min(720px, calc(100vw - 24px))'
+      }}
+    >
+      <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+        <div lang="en" style={{ fontFamily: T.fonts.target, fontSize: Math.max(22, T.scale.h3.sizePx), fontWeight: 800, lineHeight: 1.25 }}>
+          “{sentence}”
+        </div>
+        <div style={{ fontSize: T.scale.small.sizePx, color: C['ink-700'], marginTop: 4 }} aria-live="polite">
+          {mic.recording ? R.listening : result ? result.feedback_ko : note ?? R.hint.replace('{kind}', kindKo)}
+          {result && result.discount_pct > 0 ? <div style={{ fontWeight: 700, color: C['leaf-d'] }}>{R.where}</div> : null}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={tap}
+        disabled={!ok || busy}
+        data-on={mic.recording}
+        style={{
+          minHeight: S.touchTargetMinPx,
+          padding: '8px 16px',
+          background: mic.recording ? C.danger : C['brand-d'],
+          color: C['paper-0'],
+          border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
+          borderRadius: S.radiusButtonPx,
+          boxShadow: S.shadowDefault,
+          fontWeight: 800,
+          fontSize: T.scale.body.sizePx,
+          cursor: 'pointer'
+        }}
+      >
+        {mic.recording ? `⏹ ${UI_STRINGS_KO.dialog.micStop}` : `🎤 ${R.cta}`}
+      </button>
+    </div>
+  );
+}

@@ -76,6 +76,10 @@ interface ReviewModule {
   /** Review signs of the child's memory cards (dialog domain, docs/03 D8). */
   ReviewDock?: React.ComponentType<{ world: WorldHandle | null; player?: SoloPlayer; hidden?: boolean }>;
 }
+interface ReadAloudModule {
+  /** Read-aloud furniture discount line under the room check (dialog domain, docs/03 D13). */
+  ReadAloudPrompt?: React.ComponentType<{ kind: 'light' | 'rest' | 'flat'; sentence: string; player?: SoloPlayer }>;
+}
 interface LessonModule {
   LessonLayer?: React.ComponentType<LessonLayerProps>;
 }
@@ -84,6 +88,7 @@ interface LessonModule {
 const dialogLoaders = import.meta.glob<DialogModule>('./dialog/DialogPanel.tsx');
 const lessonLoaders = import.meta.glob<LessonModule>('./lesson/LessonLayer.tsx');
 const reviewLoaders = import.meta.glob<ReviewModule>('./dialog/ReviewDock.tsx');
+const readAloudLoaders = import.meta.glob<ReadAloudModule>('./dialog/ReadAloudPrompt.tsx');
 
 /** Guide answers name a place (`askedKey`); the solo world walks the child there after the window closes. */
 const PLACE_SCENES: Readonly<Record<string, SceneId>> = { cafe: 'honey_cafe', honey_cafe: 'honey_cafe', trade_shop: 'trade_shop', plaza: 'plaza', build_plot: 'build_plot', open_hill: 'open_hill' };
@@ -200,6 +205,8 @@ export function App(): React.ReactElement {
   const [lessonMod, setLessonMod] = useState<LessonModule | null>(null);
   const [reviewMod, setReviewMod] = useState<ReviewModule | null>(null);
   const [lessonOn, setLessonOn] = useState(false);
+  const [readAloudMod, setReadAloudMod] = useState<ReadAloudModule | null>(null);
+  const [room, setRoom] = useState<{ missing: Array<'light' | 'rest' | 'flat'>; sentence: string } | null>(null);
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
   const [failed, setFailed] = useState(false);
   const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
@@ -228,6 +235,7 @@ export function App(): React.ReactElement {
     for (const load of Object.values(dialogLoaders)) void load().then(setDialogMod);
     for (const load of Object.values(lessonLoaders)) void load().then(setLessonMod);
     for (const load of Object.values(reviewLoaders)) void load().then(setReviewMod);
+    for (const load of Object.values(readAloudLoaders)) void load().then(setReadAloudMod);
   }, []);
 
   useEffect(() => {
@@ -292,6 +300,11 @@ export function App(): React.ReactElement {
     world.setPaused(true);
     return () => world.setPaused(false);
   }, [world, seatCard]);
+  // Build screen room check → read-aloud discount line (when the world reports one).
+  useEffect(() => {
+    if (!world?.onRoomCheck) return;
+    return world.onRoomCheck((r) => setRoom(r.missing.length > 0 ? r : null));
+  }, [world]);
 
   // Solo play: tapping an NPC opens the dialog panel when no lesson is running.
   useEffect(() => {
@@ -323,6 +336,7 @@ export function App(): React.ReactElement {
   const soloSubmit = soloNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(soloNpc, soloPlayerOf(identity)) : null;
   const soloLevel = identity?.kind === 'child' ? identity.level : undefined;
   const Review = reviewMod?.ReviewDock;
+  const ReadAloud = readAloudMod?.ReadAloudPrompt;
   return (
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: C['paper-50'], touchAction: 'none' }}>
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
@@ -347,6 +361,11 @@ export function App(): React.ReactElement {
           ) : null}
           {soloBlocked && world && !lessonOn ? <SeatPausedChip onOpen={() => setSeatCard(true)} /> : null}
           {soloBlocked && world && !lessonOn && seatCard ? <SeatPausedCard onClose={() => setSeatCard(false)} /> : null}
+          {ReadAloud && room && !lessonOn && !soloBlocked && soloNpc === null ? (
+            <div style={{ position: 'absolute', left: '50%', bottom: 96, transform: 'translateX(-50%)' }}>
+              <ReadAloud key={`${room.missing[0]}|${room.sentence}`} kind={room.missing[0]!} sentence={room.sentence} player={soloPlayerOf(identity)} />
+            </div>
+          ) : null}
           {world && !soloBlocked && SoloPanel && soloNpc && soloSubmit ? (
             <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloLevel ? { level: soloLevel } : {}} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />
           ) : null}

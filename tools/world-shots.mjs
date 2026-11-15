@@ -60,7 +60,7 @@ async function fpsOver(page, ms) {
     await new Promise((r) => setTimeout(r, ms));
     run = false;
     const s = w.getStats();
-    return { fps: (frames * 1000) / ms, drawCalls: s.drawCalls, triangles: s.triangles, chunksVisible: s.chunksVisible, chunksMeshed: s.chunksMeshed, scene: s.scene, player: s.player };
+    return { fps: (frames * 1000) / ms, drawCalls: s.drawCalls, triangles: s.triangles, chunksVisible: s.chunksVisible, chunksMeshed: s.chunksMeshed, scene: s.scene, player: s.player, renderScale: s.renderScale, tier: s.tier };
   }, ms);
 }
 
@@ -68,7 +68,8 @@ for (const vp of VIEWPORTS) {
   for (const scene of SCENES) {
     if (only && !`${vp.name}:${scene}`.includes(only)) continue;
     const { ctx, page, errs, readyMs } = await open(vp, `scene=${scene}&tier=mid&fps=1`);
-    await page.waitForTimeout(2500);
+    // let the dynamic-resolution governor settle (it adjusts once a second), then measure
+    await page.waitForTimeout(6000);
     const stats = await fpsOver(page, 3000);
     const file = `${out}/${vp.name}-${scene}.png`;
     await page.screenshot({ path: file });

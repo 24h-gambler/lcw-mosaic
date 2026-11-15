@@ -71,6 +71,9 @@ void main() {
 export class Sky {
   readonly dome: THREE.Mesh;
   readonly clouds = new THREE.Group();
+  private cloudMesh: THREE.InstancedMesh | null = null;
+  private cloudParts: Array<{ cloud: number; ox: number; oy: number; oz: number; sx: number; sy: number; sz: number }> = [];
+  private cloudPos: THREE.Vector3[] = [];
   readonly hemi: THREE.HemisphereLight;
   readonly sun: THREE.DirectionalLight;
   readonly fog: THREE.Fog;
@@ -111,26 +114,50 @@ export class Sky {
     this.apply();
   }
 
+  /** Puffy rounded clouds as ONE instanced draw (26 clouds, 3–6 soft boxes each). */
   private buildClouds(): void {
-    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.35, fog: false });
-    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xfff9ee, emissiveIntensity: 0.45, fog: false });
     let seed = 17;
     const rnd = (): number => {
       seed = (seed * 16807) % 2147483647;
       return seed / 2147483647;
     };
     for (let i = 0; i < 26; i++) {
-      const cloud = new THREE.Group();
       const parts = 3 + Math.floor(rnd() * 4);
       for (let k = 0; k < parts; k++) {
-        const m = new THREE.Mesh(geo, mat);
-        m.scale.set(6 + rnd() * 10, 2 + rnd() * 1.5, 5 + rnd() * 8);
-        m.position.set((rnd() - 0.5) * 14, rnd() * 1.5, (rnd() - 0.5) * 9);
-        cloud.add(m);
+        this.cloudParts.push({
+          cloud: i,
+          sx: 6 + rnd() * 10,
+          sy: 2 + rnd() * 1.5,
+          sz: 5 + rnd() * 8,
+          ox: (rnd() - 0.5) * 14,
+          oy: rnd() * 1.5,
+          oz: (rnd() - 0.5) * 9
+        });
       }
-      cloud.position.set(144 + (rnd() - 0.5) * 420, 58 + rnd() * 18, 144 + (rnd() - 0.5) * 420);
-      this.clouds.add(cloud);
+      this.cloudPos.push(new THREE.Vector3(144 + (rnd() - 0.5) * 420, 58 + rnd() * 18, 144 + (rnd() - 0.5) * 420));
     }
+    // a box with bevelled (rounded-looking) edges: soft toy clouds rather than hard cubes
+    const geo = roundedBox(1, 1, 1, 0.18);
+    this.cloudMesh = new THREE.InstancedMesh(geo, mat, this.cloudParts.length);
+    this.cloudMesh.frustumCulled = false;
+    this.clouds.add(this.cloudMesh);
+    this.layoutClouds();
+  }
+
+  private layoutClouds(): void {
+    if (!this.cloudMesh) return;
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const pos = new THREE.Vector3();
+    const scl = new THREE.Vector3();
+    this.cloudParts.forEach((p, i) => {
+      const c = this.cloudPos[p.cloud]!;
+      pos.set(c.x + p.ox, c.y + p.oy, c.z + p.oz);
+      scl.set(p.sx, p.sy, p.sz);
+      this.cloudMesh!.setMatrixAt(i, m.compose(pos, q, scl));
+    });
+    this.cloudMesh.instanceMatrix.needsUpdate = true;
   }
 
   apply(): void {
@@ -159,10 +186,11 @@ export class Sky {
       this.apply();
     }
     this.dome.position.copy(center);
-    for (const c of this.clouds.children) {
-      c.position.x += this.cloudSpeed * dt;
-      if (c.position.x > center.x + 230) c.position.x -= 460;
+    for (const c of this.cloudPos) {
+      c.x += this.cloudSpeed * dt;
+      if (c.x > center.x + 230) c.x -= 460;
     }
+    this.layoutClouds();
     this.sun.position.copy(center).addScaledVector(this.sunDir, 80);
     this.sun.target.position.copy(center);
   }
@@ -171,4 +199,27 @@ export class Sky {
     this.fog.near = d * 0.8;
     this.fog.far = d;
   }
+}
+
+/** Unit box with chamfered edges (8 corners pulled in), normals smoothed so it shades like a soft toy cushion. */
+export function roundedBox(w: number, h: number, d: number, r: number): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(w, h, d, 3, 3, 3);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const v = new THREE.Vector3();
+  const hw = w / 2 - r;
+  const hh = h / 2 - r;
+  const hd = d / 2 - r;
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const cx = Math.max(-hw, Math.min(hw, v.x));
+    const cy = Math.max(-hh, Math.min(hh, v.y));
+    const cz = Math.max(-hd, Math.min(hd, v.z));
+    const dx = v.x - cx;
+    const dy = v.y - cy;
+    const dz = v.z - cz;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    pos.setXYZ(i, cx + (dx / len) * r, cy + (dy / len) * r, cz + (dz / len) * r);
+  }
+  g.computeVertexNormals();
+  return g;
 }

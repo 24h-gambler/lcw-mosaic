@@ -32,6 +32,10 @@ export interface WorldStats {
   chunksVisible: number;
   scene: SceneId;
   player: { x: number; y: number; z: number };
+  /** current dynamic-resolution scale (1 = tier scale x devicePixelRatio) */
+  renderScale?: number;
+  /** tier the world runs at */
+  tier?: WorldTier;
 }
 
 export interface WorldHandle {

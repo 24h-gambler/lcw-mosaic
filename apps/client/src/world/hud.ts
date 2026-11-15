@@ -580,10 +580,18 @@ export class WorldHud {
     this.plate.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%)`;
   }
 
+  private promptKey = '';
+
+  /** Called every frame: touches the DOM only when something changed (whole pixels), so idle frames cost no style work. */
   showPrompt(on: boolean, sx = 0, sy = 0, touch = false): void {
+    const x = Math.round(sx);
+    const y = Math.round(sy);
+    const key = on ? `${touch ? 't' : 'k'}:${x}:${y}` : 'off';
+    if (key === this.promptKey) return;
+    this.promptKey = key;
     this.prompt.classList.toggle('on', on && !touch);
     this.talkBtn.classList.toggle('on', on && touch);
-    if (on) this.prompt.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%)`;
+    if (on) this.prompt.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
   }
 
   director(kind: 'blackout' | 'snow' | null): void {

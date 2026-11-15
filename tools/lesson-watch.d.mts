@@ -18,6 +18,7 @@ export declare function tailVerdict(ev: unknown): {
   method: string;
   url: string;
   exceptions: string[];
+  exceptionNames: string[];
   errorLogs: string[];
   s5xx: boolean;
   s4xx: boolean;
@@ -34,25 +35,32 @@ export interface WatchCard {
   actions: Array<Record<string, unknown>>;
 }
 export interface SeenAlert {
-  key: string;
-  lesson: string | null;
+  scope: string;
+  kind: string;
   msg: string;
   first: string;
   last: string;
   count: number;
 }
+export interface CardState {
+  day: string;
+  spine: string;
+  seen: Record<string, SeenAlert>;
+  posted: Record<string, { id: string; sig: string; at: string; state?: string | null; closed?: string }>;
+  lastTick: string[];
+  summary: { id: string; at: string } | null;
+}
 export declare const CARD_SOURCE: string;
-export declare const CARD_IMPORTANCE: number;
+export declare const LESSON_CARD_IMPORTANCE: number;
+export declare const SUMMARY_IMPORTANCE: number;
 export declare const TEST_CARD_IMPORTANCE: number;
 export declare const EVENT_ALERTS: Set<string>;
-export declare function alertRef(a: WatchAlert, dayStr: string): string;
-export declare function alertCard(a: WatchAlert, o: { base: string; dayStr: string; at: string; out: string }): WatchCard;
-export declare function summaryCard(
-  standing: Array<SeenAlert & { ref: string }>,
-  cleared: Array<SeenAlert & { ref: string }>,
-  o: { base: string; dayStr: string; from: string; to: string; out: string }
-): WatchCard;
-export declare function standingAlerts(
-  seen: Record<string, SeenAlert>,
-  lastTick: string[]
-): { standing: Array<SeenAlert & { ref: string }>; cleared: Array<SeenAlert & { ref: string }> };
+export declare function alertScope(a: WatchAlert, dayStr: string): string;
+export declare function scopeRef(scope: string): string;
+export declare function emptyCardState(dayStr: string, spine: string): CardState;
+export declare function scopeCard(st: CardState, scope: string, o: { base: string; out: string }): WatchCard;
+export declare function planTick(st: CardState, alerts: WatchAlert[], at: string, o: { base: string; out: string }): Array<{ card: WatchCard; sig: string }>;
+export declare function planWindowEnd(
+  st: CardState,
+  o: { base: string; from: string; to: string; out: string }
+): { summary: WatchCard | null; closeRefs: string[]; standing: number; cleared: number };

@@ -16,14 +16,17 @@
 //   and one line per tick on stdout ("OK ..." or "ALERT ...").
 // - wrangler tail restarts by itself if it exits (network drop, session expiry), so the watch keeps running.
 // - Alerts also go to the spine as hub cards (a session or lane may be gone by the time an alert fires): one card per
-//   (lesson, kind), source 'outsourcing', ref 'outsourcing:lcw:watch:<lesson_id | site-YYYYMMDD>:<kind>', importance 2
-//   (P2). Cards only, never a phone push (it would interrupt the teacher mid-lesson). When the window ends, the alerts
-//   still standing (plus any worker errors) go into one summary card and the per-alert cards are closed. Posted refs
-//   are kept in <out>/lesson-watch-cards-YYYYMMDD.json, so a restarted watch does not post them again.
+//   lesson (and one per day for alerts of no lesson), source 'outsourcing', ref
+//   'outsourcing:lcw:watch:<lesson_id | site-YYYYMMDD>:alerts', rewritten in place when its alerts change, so the same
+//   alert never makes a second card and the spine's per-source caps are not used up. During the lesson the cards are
+//   importance 1: in the hub, but the phone (which polls cards at importance 2 and up) does not ring the teacher; the
+//   spine's /notify push is never called. When the window ends, the alerts still standing (plus any worker errors) go
+//   into one summary card at importance 2 (P2) and the lesson cards are closed. The card state is kept in
+//   <out>/lesson-watch-cards-YYYYMMDD.json, so a restarted watch carries on where it stopped.
 //   Spine token: --spine-token-file (default DANOS_TOKEN_FILE, else the automation secrets file), never printed.
 //   --no-cards turns cards off; --once posts none unless --cards. --test-card posts one P3 card, closes it, and exits.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -64,6 +67,14 @@ const day = () => {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 };
 const write = (file, row) => appendFileSync(join(OUT, file), `${JSON.stringify(row)}\n`, 'utf8');
+/** For the tail's stream handlers: a failed log write must not break the event split or the restart. */
+const safeWrite = (file, row) => {
+  try {
+    write(file, row);
+  } catch (e) {
+    console.error('log write failed', file, String(e?.message ?? e).slice(0, 120));
+  }
+};
 const stamp = () => new Date().toISOString();
 
 /** Read in main() (importing this file for tests touches no secret and no disk). */
@@ -101,9 +112,11 @@ let tailProc = null;
 let tailRestarts = 0;
 let tailUp = false;
 let lastTailRestarts = 0;
+/** Set by stopTail(): a restart timer already waiting must not bring tail back. */
+let tailStopped = false;
 
 function startTail() {
-  if (!TAIL) return;
+  if (!TAIL || tailStopped) return;
   const env = { ...process.env };
   delete env.NO_COLOR;
   // The installed wrangler through this same node (no npx, no shell in between): it starts at once, and the process
@@ -129,9 +142,10 @@ function startTail() {
     down = true;
     tailUp = false;
     tailRestarts++;
-    write('lesson-watch-tail.jsonl', { at: stamp(), kind, ...detail });
-    // Resume where it stopped: a dropped tail is restarted, with a growing pause (not after stopTail()).
+    // Resume where it stopped: a dropped tail is restarted, with a growing pause (not after stopTail()). The timer is
+    // set before the log write, so a failing disk cannot keep tail down.
     if (tailProc === me) setTimeout(startTail, Math.min(60_000, 5_000 * tailRestarts));
+    safeWrite('lesson-watch-tail.jsonl', { at: stamp(), kind, ...detail });
   };
   // A spawn failure (no wrangler, no npx on PATH) is an 'error' with no 'exit': handled the same way, never a crash.
   tailProc.on('error', (e) => restart('tail_error', { error: maskUrl(String(e?.message ?? e).slice(0, 200)) }));
@@ -178,6 +192,9 @@ function startTail() {
   tailProc.on('exit', (code) => restart('tail_exit', { code, stderr: maskUrl(errTail.trim()) }));
 }
 
+/** Outcomes that mean the client went away, not that the worker failed. */
+const CLIENT_OUTCOMES = new Set(['ok', 'canceled', 'responseStreamDisconnected', 'clientDisconnected']);
+
 /** What one tail event says (pure, for tests): masked request, errors, and whether the server was at fault. */
 export function tailVerdict(ev) {
   const status = ev?.event?.response?.status ?? null;
@@ -186,9 +203,11 @@ export function tailVerdict(ev) {
     .filter((l) => l.level === 'error')
     .map((l) => maskUrl((Array.isArray(l.message) ? l.message.join(' ') : String(l.message ?? '')).slice(0, 200)));
   const outcome = ev?.outcome ?? null;
-  // The worker itself died (exceededCpu, exceededMemory, exception, ...): usually no status and no exception list.
-  // 'canceled' is the client hanging up (a tab closed), not a server fault.
-  const killed = outcome !== null && outcome !== 'ok' && outcome !== 'canceled';
+  // The worker itself died (exceededCpu, exceededMemory, ...): usually no status and no exception list. The client's
+  // side going away (a tab closed, a dropped stream) is not a server fault, and an 'exception' outcome already counts
+  // through its exception list.
+  const killed =
+    outcome !== null && !CLIENT_OUTCOMES.has(outcome) && !(outcome === 'exception' && exceptions.length > 0);
   const s5xx = typeof status === 'number' && status >= 500;
   return {
     status,
@@ -196,6 +215,8 @@ export function tailVerdict(ev) {
     method: ev?.event?.request?.method ?? '',
     url: maskUrl(ev?.event?.request?.url),
     exceptions,
+    /** Names only: what goes onto a hub card (the messages stay in the local tail log). */
+    exceptionNames: (ev?.exceptions ?? []).map((x) => String(x.name ?? 'Error').slice(0, 60)),
     errorLogs,
     s5xx,
     s4xx: !s5xx && typeof status === 'number' && status >= 400,
@@ -220,13 +241,18 @@ function onTailEvent(text) {
   tailBuf.errorLogs += v.errorLogs.length;
   if (v.serverBad || v.outcome !== 'ok') {
     const { status, outcome, method, url, exceptions, errorLogs } = v;
-    write('lesson-watch-tail.jsonl', { at: stamp(), outcome, status, method, url, exceptions, errorLogs });
+    safeWrite('lesson-watch-tail.jsonl', { at: stamp(), outcome, status, method, url, exceptions, errorLogs });
+    // The sample reaches the alert and the hub card: status, method, masked path and the exception name, never a
+    // message text (a parse error can quote stored data).
     if (v.serverBad && tailBuf.samples.length < 5)
-      tailBuf.samples.push(`${status ?? outcome} ${method} ${url} ${exceptions[0] ?? errorLogs[0] ?? (v.killed ? outcome : '')}`.trim());
+      tailBuf.samples.push(
+        `${status ?? outcome} ${method} ${url} ${v.exceptionNames[0] ?? (errorLogs.length ? 'error log' : v.killed ? outcome : '')}`.trim()
+      );
   }
 }
 
 function stopTail() {
+  tailStopped = true;
   const p = tailProc;
   tailProc = null;
   if (!p || p.exitCode !== null) return;
@@ -339,7 +365,7 @@ export async function tick() {
   };
   write(`lesson-watch-${day()}.jsonl`, row);
   for (const a of alerts) write('lesson-watch-alerts.jsonl', { at: row.at, ...a });
-  if (CARDS) await postAlertCards(alerts, row.at);
+  if (CARDS) await postTickCards(alerts, row.at);
   const brief = lessons
     .map((x) => `${x.lesson_id.slice(-8)} ${x.stage} ${x.utterances}발화(+${x.new_utterances ?? '?'}) 마지막답 ${x.last_answer_s ?? '-'}s 학생 ${x.student_connected ? '연결' : '끊김'}`)
     .join(' | ');
@@ -348,11 +374,16 @@ export async function tick() {
   return row;
 }
 
-/* ---------- spine cards (hub, no push) ---------- */
+/* ---------- spine cards (hub only during the lesson) ---------- */
 
 export const CARD_SOURCE = 'outsourcing';
-/** P2: a card in the hub list. Pushes go through the spine's /notify, which this tool never calls. */
-export const CARD_IMPORTANCE = 2;
+/**
+ * During the lesson: importance 1. The hub lists it (its default floor is 1), but the phone's card poller reads
+ * min_importance=2 and does not ring, and the teacher in the lesson is the phone's owner. /notify is never called.
+ */
+export const LESSON_CARD_IMPORTANCE = 1;
+/** After the lesson: the summary card at importance 2 (P2); the lesson is over, so the phone may chime. */
+export const SUMMARY_IMPORTANCE = 2;
 /** P3 for the test card. */
 export const TEST_CARD_IMPORTANCE = 1;
 /** Kinds that record something that happened (not a state that can clear): they count as standing at the end. */
@@ -369,82 +400,148 @@ const KIND_KO = {
   worker_errors: '서버 오류(5xx·예외)'
 };
 const kindKo = (k) => KIND_KO[k] ?? k;
+const hhmm = (iso) => new Date(iso).toTimeString().slice(0, 5);
 
-/** One ref per (lesson, kind); alerts that belong to no lesson are per day. */
-export function alertRef(a, dayStr) {
-  return `${CARD_SOURCE}:lcw:watch:${a.lesson ?? `site-${dayStr}`}:${a.key}`.slice(0, 200);
-}
+/** A lesson's alerts share one card; alerts that belong to no lesson share one card per day. */
+export const alertScope = (a, dayStr) => a.lesson ?? `site-${dayStr}`;
+/** The card ref of a scope: rewritten in place (a spine update, not a new card), so a bad lesson is one card. */
+export const scopeRef = (scope) => `${CARD_SOURCE}:lcw:watch:${scope}:alerts`.slice(0, 200);
 
 const consoleAction = (base) => [{ type: 'open', url: `${base}/director`, label: '디렉터 콘솔 열기' }, { type: 'dismiss' }];
+const isStanding = (st, key, s) => st.lastTick.includes(key) || EVENT_ALERTS.has(s.kind);
 
-/** The card for one alert (ids and counts only: the alert text never carries what a child said). */
-export function alertCard(a, { base, dayStr, at, out }) {
-  const where = a.lesson ? `수업 ${a.lesson}` : '서버 전체';
+/** A fresh card state for one day and one spine. */
+export const emptyCardState = (dayStr, spine) => ({ day: dayStr, spine, seen: {}, posted: {}, lastTick: [], summary: null });
+
+/** The card of one scope: every kind seen there today, standing or cleared (ids and counts only, nothing a child said). */
+export function scopeCard(st, scope, { base, out }) {
+  const rows = Object.entries(st.seen).filter(([, s]) => s.scope === scope);
+  const standing = rows.filter(([k, s]) => isStanding(st, k, s));
+  const lesson = scope.startsWith('site-') ? null : scope;
+  const lines = rows.map(
+    ([k, s]) =>
+      `· ${kindKo(s.kind)} — ${isStanding(st, k, s) ? '지금 남음' : '풀림'} · ${s.count}번 · ${hhmm(s.first)}–${hhmm(s.last)} · ${s.msg}`
+  );
   return {
     source: CARD_SOURCE,
-    ref: alertRef(a, dayStr),
-    title: `⚠️ LCW 수업 감시 · ${kindKo(a.key)} · ${a.lesson ? `수업 …${a.lesson.slice(-8)}` : '서버'}`.slice(0, 300),
+    ref: scopeRef(scope),
+    title: `⚠️ LCW 수업 감시 · ${lesson ? `수업 …${lesson.slice(-8)}` : '서버'} · 지금 경보 ${standing.length}건${
+      standing.length ? ` (${standing.map(([, s]) => kindKo(s.kind)).join(', ')})` : ' (모두 풀림)'
+    }`.slice(0, 300),
     body: [
-      `${where} · ${new Date(at).toTimeString().slice(0, 8)} 감지`,
-      a.msg,
+      lesson ? `수업 ${lesson}` : '서버 전체(특정 수업이 아닌 경보)',
+      ...lines,
       '',
-      '수업 중이라 폰 알림은 보내지 않았어요. 디렉터 콘솔에서 학생 화면을 확인해 주세요.',
-      `같은 경보는 이 카드 한 장만 씁니다. 기록: ${out}/lesson-watch-alerts.jsonl`
+      '수업 중에는 폰이 울리지 않게 허브에만 올렸어요(중요도 낮음). 디렉터 콘솔에서 학생 화면을 확인해 주세요.',
+      `같은 수업의 경보는 이 카드 한 장을 고쳐 씁니다. 수업이 끝나면 남은 경보만 요약 카드로 모아요. 기록: ${out}/lesson-watch-alerts.jsonl`
     ]
       .join('\n')
       .slice(0, 4000),
-    importance: CARD_IMPORTANCE,
+    importance: LESSON_CARD_IMPORTANCE,
     actions: consoleAction(base)
   };
 }
 
-/** One card after the window: the alerts still standing, and how many cleared on their own. */
-export function summaryCard(standing, cleared, { base, dayStr, from, to, out }) {
-  const line = (s) => `· ${kindKo(s.key)} — ${s.lesson ? `수업 ${s.lesson}` : '서버'} · ${s.count}번 · 마지막 ${s.msg}`;
-  return {
-    source: CARD_SOURCE,
-    ref: `${CARD_SOURCE}:lcw:watch:site-${dayStr}:summary`,
-    title: `📋 LCW 수업 감시 ${from}–${to} · 남은 경보 ${standing.length}건`.slice(0, 300),
-    body: [
-      `수업 시간 ${from}–${to} 동안 난 경보 중 끝까지 남은 것(서버 오류는 한 번이라도 나면 남김):`,
-      ...standing.map(line),
-      '',
-      cleared.length ? `수업 중 났다가 스스로 풀린 경보 ${cleared.length}건: ${cleared.map((s) => kindKo(s.key)).join(', ')}` : '스스로 풀린 경보 없음',
-      `경보 카드는 이 요약 한 장으로 합치고 닫았어요. 기록: ${out}/lesson-watch-${dayStr}.jsonl · lesson-watch-tail.jsonl`
-    ]
-      .join('\n')
-      .slice(0, 4000),
-    importance: CARD_IMPORTANCE,
-    actions: consoleAction(base)
-  };
-}
+/** The card's content signature: a card is posted again (rewritten) only when what it says changes. */
+const scopeSig = (st, scope) =>
+  Object.entries(st.seen)
+    .filter(([, s]) => s.scope === scope)
+    .map(([k, s]) => `${s.kind}:${isStanding(st, k, s) ? 1 : 0}`)
+    .sort()
+    .join(',');
 
 /**
- * Which alerts stand at the end of the window: those in the last tick, plus every event kind (an error that happened
- * needs a look even if the last tick was clean). Pure, for tests.
+ * One tick's alerts into the card state (pure apart from mutating `st`, for tests): which scope cards to post or
+ * rewrite now. A card that failed to post keeps its old signature in `st.posted` and comes back next tick.
  */
-export function standingAlerts(seen, lastTick) {
-  const last = new Set(lastTick);
-  const standing = [];
-  const cleared = [];
-  for (const [ref, s] of Object.entries(seen)) (last.has(ref) || EVENT_ALERTS.has(s.key) ? standing : cleared).push({ ref, ...s });
-  return { standing, cleared };
+export function planTick(st, alerts, at, ctx) {
+  const now = new Map();
+  for (const a of alerts) {
+    const scope = alertScope(a, st.day);
+    const key = `${scope}:${a.key}`;
+    const m = now.get(key);
+    now.set(key, m ? { ...m, msg: `${m.msg} ; ${a.msg}` } : { scope, kind: a.key, msg: a.msg });
+  }
+  st.lastTick = [...now.keys()];
+  for (const [key, a] of now) {
+    const s = st.seen[key];
+    st.seen[key] = { scope: a.scope, kind: a.kind, msg: a.msg.slice(0, 300), first: s?.first ?? at, last: at, count: (s?.count ?? 0) + 1 };
+  }
+  const scopes = new Set(Object.values(st.seen).map((s) => s.scope));
+  const out = [];
+  for (const scope of scopes) {
+    const sig = scopeSig(st, scope);
+    if (st.posted[scopeRef(scope)]?.sig !== sig) out.push({ card: scopeCard(st, scope, ctx), sig });
+  }
+  return out;
+}
+
+/** After the window: the summary card (null when nothing stands) and the scope cards to close. Pure, for tests. */
+export function planWindowEnd(st, { base, from, to, out }) {
+  const all = Object.entries(st.seen);
+  const standing = all.filter(([k, s]) => isStanding(st, k, s)).map(([, s]) => s);
+  const cleared = all.filter(([k, s]) => !isStanding(st, k, s)).map(([, s]) => s);
+  const where = (s) => (s.scope.startsWith('site-') ? '서버' : `수업 ${s.scope}`);
+  const summary = standing.length
+    ? {
+        source: CARD_SOURCE,
+        ref: `${CARD_SOURCE}:lcw:watch:site-${st.day}:summary`,
+        title: `📋 LCW 수업 감시 ${from}–${to} · 남은 경보 ${standing.length}건`.slice(0, 300),
+        body: [
+          `수업 시간 ${from}–${to} 동안 난 경보 중 끝까지 남은 것(서버 오류는 한 번이라도 나면 남김):`,
+          ...standing.map((s) => `· ${kindKo(s.kind)} — ${where(s)} · ${s.count}번 · ${hhmm(s.first)}–${hhmm(s.last)} · ${s.msg}`),
+          '',
+          cleared.length
+            ? `수업 중 났다가 스스로 풀린 경보 ${cleared.length}건: ${cleared.map((s) => `${kindKo(s.kind)}(${where(s)})`).join(', ')}`
+            : '스스로 풀린 경보 없음',
+          `수업 중 경보 카드는 이 요약 한 장으로 합치고 닫았어요. 기록: ${out}/lesson-watch-${st.day}.jsonl · lesson-watch-tail.jsonl`
+        ]
+          .join('\n')
+          .slice(0, 4000),
+        importance: SUMMARY_IMPORTANCE,
+        actions: consoleAction(base)
+      }
+    : null;
+  const closeRefs = Object.entries(st.posted)
+    .filter(([, p]) => !p.closed)
+    .map(([ref]) => ref);
+  return { summary, closeRefs, standing: standing.length, cleared: cleared.length };
 }
 
 let SPINE_TOKEN = '';
 const cardsFile = () => join(OUT, `lesson-watch-cards-${day()}.json`);
 let cardState = null;
+/** Today's card state for this spine. A broken file, or one written for another spine, is set aside, not reused. */
 function loadCards() {
-  if (cardState) return cardState;
-  try {
-    cardState = JSON.parse(readFileSync(cardsFile(), 'utf8'));
-  } catch {
-    cardState = null;
+  if (cardState && cardState.day === day()) return cardState;
+  const f = cardsFile();
+  let st = null;
+  if (existsSync(f)) {
+    try {
+      st = JSON.parse(readFileSync(f, 'utf8'));
+    } catch {
+      st = null;
+    }
+    if (!st || st.day !== day() || st.spine !== SPINE || typeof st.seen !== 'object' || typeof st.posted !== 'object') {
+      const aside = `${f}.aside-${Date.now()}`;
+      try {
+        renameSync(f, aside);
+      } catch {
+        /* keep going with a fresh state */
+      }
+      safeWrite('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_state_reset', aside });
+      st = null;
+    }
   }
-  if (!cardState || cardState.day !== day()) cardState = { day: day(), seen: {}, posted: {}, lastTick: [], summary: null };
+  cardState = st ?? emptyCardState(day(), SPINE);
   return cardState;
 }
-const saveCards = () => writeFileSync(cardsFile(), JSON.stringify(cardState, null, 1), 'utf8');
+/** Written whole to a temp file, then renamed over: a crash mid-write cannot leave half a file. */
+function saveCards() {
+  const f = cardsFile();
+  writeFileSync(`${f}.tmp`, JSON.stringify(cardState, null, 1), 'utf8');
+  renameSync(`${f}.tmp`, f);
+}
 
 async function spine(method, path, body) {
   try {
@@ -459,53 +556,62 @@ async function spine(method, path, body) {
     return { status: 0, body: null, error: String(e?.message ?? e).slice(0, 120) };
   }
 }
+const spineError = (r) => r.error ?? (r.body?.detail ? JSON.stringify(r.body.detail).slice(0, 200) : null);
 
-/** New alerts become cards; one that did not get through is tried again next tick (it stays unposted). */
-async function postAlertCards(alerts, at) {
+/** Post the scope cards that changed this tick; on a first post, read the card back to see the hub really shows it. */
+async function postTickCards(alerts, at) {
   const st = loadCards();
-  const byRef = new Map();
-  for (const a of alerts) {
-    const ref = alertRef(a, st.day);
-    const m = byRef.get(ref);
-    byRef.set(ref, m ? { ...m, msg: `${m.msg} ; ${a.msg}` } : a);
-  }
-  st.lastTick = [...byRef.keys()];
-  for (const [ref, a] of byRef) {
-    const s = st.seen[ref];
-    st.seen[ref] = { key: a.key, lesson: a.lesson ?? null, msg: a.msg.slice(0, 300), first: s?.first ?? at, last: at, count: (s?.count ?? 0) + 1 };
-    if (st.posted[ref]) continue;
-    const r = await spine('POST', '/proposals', alertCard(a, { base: BASE, dayStr: st.day, at, out: OUT }));
-    if (r.status === 201 && r.body?.id) st.posted[ref] = { id: r.body.id, at };
-    else write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_error', ref, status: r.status, error: r.error ?? r.body?.detail ?? null });
+  for (const { card, sig } of planTick(st, alerts, at, { base: BASE, out: OUT })) {
+    const r = await spine('POST', '/proposals', card);
+    if (r.status !== 201 || !r.body?.id) {
+      write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_error', ref: card.ref, status: r.status, error: spineError(r) });
+      continue;
+    }
+    const first = !st.posted[card.ref];
+    st.posted[card.ref] = { ...st.posted[card.ref], id: r.body.id, sig, at };
+    if (first) {
+      // The spine answers 201 even when it parks the card (open-card cap → queued, daily cap → folded).
+      const one = await spine('GET', `/proposals/one?id=${encodeURIComponent(r.body.id)}`);
+      const state = one.body?.state ?? null;
+      st.posted[card.ref].state = state;
+      if (state !== 'open') {
+        write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_hidden', ref: card.ref, id: r.body.id, state });
+        console.log(`card ${r.body.id} is ${state ?? 'unknown'} on the spine, not open in the hub`);
+      }
+    }
   }
   saveCards();
 }
 
-/** After the window: one summary card for what still stands, then the per-alert cards close (the summary carries them). */
+/** After the window: the summary card (retried), then the scope cards close. If the summary fails, nothing closes. */
 async function closeWindowCards() {
   const st = loadCards();
-  const { standing, cleared } = standingAlerts(st.seen, st.lastTick);
-  if (standing.length && !st.summary) {
-    const r = await spine('POST', '/proposals', summaryCard(standing, cleared, { base: BASE, dayStr: st.day, from: FROM, to: TO, out: OUT }));
-    if (r.status === 201 && r.body?.id) st.summary = { id: r.body.id, at: stamp() };
-    else {
-      // Keep the alert cards open when the summary did not get through: nothing is lost.
-      write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_error', ref: 'summary', status: r.status, error: r.error ?? null });
+  const plan = planWindowEnd(st, { base: BASE, from: FROM, to: TO, out: OUT });
+  if (plan.summary && !st.summary) {
+    for (const wait of [0, 10_000, 30_000, 60_000]) {
+      await sleep(wait);
+      const r = await spine('POST', '/proposals', plan.summary);
+      if (r.status === 201 && r.body?.id) {
+        st.summary = { id: r.body.id, at: stamp() };
+        break;
+      }
+      write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_error', ref: plan.summary.ref, status: r.status, error: spineError(r) });
+    }
+    if (!st.summary) {
       saveCards();
-      return { summary: null, closed: 0 };
+      return { ok: false, summary: null, standing: plan.standing, cleared: plan.cleared, closed: 0 };
     }
   }
   let closed = 0;
-  for (const ref of Object.keys(st.posted)) {
-    if (st.posted[ref].closed) continue;
+  for (const ref of plan.closeRefs) {
     const r = await spine('POST', '/proposals/close', { source: CARD_SOURCE, ref });
     if (r.status === 200) {
       st.posted[ref].closed = stamp();
       closed++;
-    }
+    } else write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_close_error', ref, status: r.status, error: spineError(r) });
   }
   saveCards();
-  return { summary: st.summary?.id ?? null, standing: standing.length, cleared: cleared.length, closed };
+  return { ok: closed === plan.closeRefs.length, summary: st.summary?.id ?? null, standing: plan.standing, cleared: plan.cleared, closed };
 }
 
 /** The P3 test card: post, read back, close, read back. Prints states only. */
@@ -591,9 +697,11 @@ async function main() {
     next += step;
   }
   stopTail();
-  if (CARDS) console.log(`cards: ${JSON.stringify(await closeWindowCards())}`);
+  const cards = CARDS ? await closeWindowCards() : null;
+  if (cards) console.log(`cards: ${JSON.stringify(cards)}`);
   console.log('watch window ended');
-  process.exit(0);
+  // Exit 1 when the summary or a close did not reach the spine (the alerts file says which).
+  process.exit(cards && !cards.ok ? 1 : 0);
 }
 
 // Run when started as a script (also from a copy elsewhere), not when imported by a test.

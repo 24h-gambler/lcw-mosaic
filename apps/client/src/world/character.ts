@@ -194,8 +194,8 @@ const tmpV = new THREE.Vector3();
  * Add a soft box centred at (cx, cy, cz) in voxels, belonging to `part`. `face` maps the +z face to the face canvas.
  * Edges are chamfered by `r` voxels so every part reads as a rounded toy piece.
  */
-function softBox(b: Builder, part: number, color: number, cx: number, cy: number, cz: number, w: number, h: number, d: number, r = 0.8, face = false): void {
-  const g = new THREE.BoxGeometry(w * V, h * V, d * V, 2, 2, 2);
+function softBox(b: Builder, part: number, color: number, cx: number, cy: number, cz: number, w: number, h: number, d: number, r = 0.8, face = false, seg = 2): void {
+  const g = new THREE.BoxGeometry(w * V, h * V, d * V, seg, seg, seg);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const hw = (w / 2 - r) * V;
   const hh = (h / 2 - r) * V;
@@ -220,8 +220,8 @@ function softBox(b: Builder, part: number, color: number, cx: number, cy: number
   const cr = ((color >> 16) & 255) / 255;
   const cg = ((color >> 8) & 255) / 255;
   const cb = (color & 255) / 255;
-  // BoxGeometry groups: +x, -x, +y, -y, +z, -z; each face has (2+1)^2 = 9 vertices.
-  const perFace = 9;
+  // BoxGeometry groups: +x, -x, +y, -y, +z, -z; each face has (seg+1)^2 vertices.
+  const perFace = (seg + 1) * (seg + 1);
   for (let i = 0; i < pos.count; i++) {
     b.pos.push(pos.getX(i) + cx * V, pos.getY(i) + cy * V, pos.getZ(i) + cz * V);
     b.nrm.push(nrm.getX(i), nrm.getY(i), nrm.getZ(i));
@@ -351,11 +351,11 @@ export class VoxelCharacter {
       softBox(b, part, skin, 0, -5.8, 0, 2.6, 4, 2.6, 1);
       softBox(b, part, skin, 0, -8.4, 0.2, 3.4, 3, 3.4, 1.4);
     }
-    // Head: wider than tall, rounded; the +z face carries the painted face; hair shell on top and back.
-    softBox(b, P.head, skin, 0, 5, 0, 11, 10, 10, 2.2, true);
-    if (look.hairStyle !== 'cap') softBox(b, P.head, look.hair, 0, 9.4, -0.6, 11.8, 2.8, 11, 1.4);
-    const backLen = look.hairStyle === 'long' ? 11 : 6.5;
-    softBox(b, P.head, look.hair, 0, 10.4 - backLen / 2, -5, 11.8, backLen, 1.8, 0.9);
+    // Head: a round toy head (4 segments, big radius) whose +z face carries the painted face. Hair is one rounded
+    // shell over the top, back and upper sides (a soft bob), so from behind the head reads as hair, not a skin cube.
+    softBox(b, P.head, skin, 0, 5, 0, 11, 10, 10, 3, true, 4);
+    softBox(b, P.head, look.hair, 0, 7.5, -1.1, 11.9, 8.6, 9.4, 2.8, false, 3);
+    if (look.hairStyle === 'long') softBox(b, P.head, look.hair, 0, 3.6, -4.4, 11.4, 8.4, 2, 0.9);
     if (look.hairStyle === 'bun') softBox(b, P.head, look.hair, 0, 12, -3.4, 4.6, 4.2, 4.6, 2);
     if (look.hat !== undefined) {
       softBox(b, P.head, look.hat, 0, 10.6, -0.2, 12, 3.4, 11.6, 1.6);

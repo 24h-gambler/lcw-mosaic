@@ -13,6 +13,7 @@ import {
   TUNING,
   getHintLevelForBox,
   reviewMemoryCard,
+  selectRepairPickCards,
   selectReviewSigns,
   type MemoryCardState
 } from '@lcw/sim-core';
@@ -24,15 +25,24 @@ import type { EdgePlatformDb, WorldDO } from './storage.js';
  *
  * - A sentence passed with 2+ stars becomes a `memory_cards` row bound to what it bought (world `items` row) or, for
  *   price-0 sentences and lesson lines, to the thing it named. The card's sentence is its utterance's target text.
- * - Review signs are computed when the child asks (no cron, docs/09 P4): due cards of gear that is equipped or was
- *   used in the last 7 days, highest `10 + days overdue` first, at most 3 (`selectReviewSigns`). Gear only kept in
- *   the chest gets no sign.
+ * - Review signs are computed when the child asks (no cron, docs/09 P4): due cards, highest
+ *   `(carried or recently used ? 10 : 0) + days overdue` first, at most 3 (`selectReviewSigns`). "Recently" stretches
+ *   with the card's interval (`activeGearWindowMs`). Gear stored in the chest gets no sign; the repair NPC route
+ *   (`listRepairGear` / `pickRepairCard`) reviews it when the child picks it.
+ * - Equip and use are the server's record: items move between the bag and the chest only through `placeItem`, and a
+ *   passed sentence that names a card's thing again, a review, or holding the thing (`recordUseOfThing`) is a use.
  * - A review is scored on the server against the card's own sentence with the hint and pass line of its box; the
  *   box moves with `reviewMemoryCard`. Mastery pays the master bonus into the player's ledger (the only coin record).
  */
 
 const REVIEW_ID_PREFIX = 'mc-';
-const EQUIPPED_LOCATIONS = new Set(['hotbar', 'socket', 'equipped']);
+/** Carried or worn: the bag is the hotbar the child plays with (bought things land there). */
+const EQUIPPED_LOCATIONS = new Set(['hotbar', 'socket', 'equipped', 'bag']);
+/** Stored away: no sign until the child picks it at the repair NPC (docs/09 P4). */
+const STORED_LOCATIONS = new Set(['chest']);
+/** Where a child may move their own thing (`placeItem`). */
+export const ITEM_PLACES = ['bag', 'chest'] as const;
+export type ItemPlace = (typeof ITEM_PLACES)[number];
 
 export type MemoryCardRow = {
   id: string;
@@ -72,6 +82,53 @@ export function recordItemUse(db: EdgePlatformDb, playerId: string, itemId: stri
      on conflict(player_id, item_id) do update set at = max(item_uses.at, excluded.at)`,
     [playerId, itemId, nowMs]
   );
+}
+
+/**
+ * A use of the thing a card is about (docs/09 P4): every unmastered card of this player whose thing is `itemKey`
+ * (a bought cold water, an asked-for place) counts as used now. Server facts only: the caller passes a key the
+ * server itself decided (a passed sentence's granted or asked key, a review, an owned item held in hand).
+ */
+export function recordUseOfThing(db: EdgePlatformDb, playerId: string, itemKey: string, nowMs: number): number {
+  if (!itemKey) return 0;
+  let n = 0;
+  for (const r of db.sql.all<{ item_id: string }>('select item_id from memory_cards where player_id = ? and mastered_at is null', [playerId])) {
+    if (itemKeyOfCard(r.item_id) !== itemKey) continue;
+    recordItemUse(db, playerId, r.item_id, nowMs);
+    n++;
+  }
+  return n;
+}
+
+/** Item rows a child owns and may still carry or store (not handed over). */
+function ownedThings(world: WorldDO, playerId: string): Array<{ id: string; location: string; card_id: string | null }> {
+  return world.sql.all<{ id: string; location: string; card_id: string | null }>(
+    "select id, location, card_id from items where owner = ? and location in ('bag', 'hotbar', 'socket', 'equipped', 'chest')",
+    [playerId]
+  );
+}
+
+/** Move the child's own thing to the bag (carry) or the chest (store). Carrying it is a use. */
+export function placeItem(
+  db: EdgePlatformDb,
+  world: WorldDO,
+  playerId: string,
+  itemId: string,
+  to: ItemPlace,
+  nowMs: number
+): { ok: true; item_id: string; location: ItemPlace } | { ok: false; status: 404; error: 'item_not_found' } {
+  const row = ownedThings(world, playerId).find((r) => r.id === itemId);
+  if (!row) return { ok: false, status: 404, error: 'item_not_found' };
+  world.sql.run('update items set location = ? where id = ? and owner = ?', [to, itemId, playerId]);
+  if (to === 'bag') recordItemUse(db, playerId, itemId, nowMs);
+  return { ok: true, item_id: itemId, location: to };
+}
+
+/** Holding a thing in hand: a use when the child owns and carries it (unknown or stored things change nothing). */
+export function holdThing(db: EdgePlatformDb, world: WorldDO | undefined, playerId: string, itemKey: string, nowMs: number): number {
+  if (!world) return 0;
+  const carried = ownedThings(world, playerId).filter((r) => EQUIPPED_LOCATIONS.has(r.location) && itemKeyOfCard(r.id) === itemKey);
+  return carried.length > 0 ? recordUseOfThing(db, playerId, itemKey, nowMs) : 0;
 }
 
 /**
@@ -175,14 +232,18 @@ function equippedAndUsed(
   db: EdgePlatformDb,
   world: WorldDO | undefined,
   playerId: string
-): { equipped: Set<string>; lastUsed: Record<string, number> } {
+): { equipped: Set<string>; stored: Set<string>; lastUsed: Record<string, number> } {
   const equipped = new Set<string>();
+  const stored = new Set<string>();
   if (world) {
     const rows = world.sql.all<{ id: string; location: string }>(
       'select id, location from items where owner = ? and card_id is not null',
       [playerId]
     );
-    for (const r of rows) if (EQUIPPED_LOCATIONS.has(r.location) || r.location.startsWith('slot')) equipped.add(r.id);
+    for (const r of rows) {
+      if (EQUIPPED_LOCATIONS.has(r.location) || r.location.startsWith('slot')) equipped.add(r.id);
+      else if (STORED_LOCATIONS.has(r.location)) stored.add(r.id);
+    }
   }
   const lastUsed: Record<string, number> = {};
   for (const u of db.sql.all<{ item_id: string; at: number }>('select item_id, at from item_uses where player_id = ?', [
@@ -190,7 +251,7 @@ function equippedAndUsed(
   ])) {
     lastUsed[u.item_id] = Number(u.at);
   }
-  return { equipped, lastUsed };
+  return { equipped, stored, lastUsed };
 }
 
 export function listMemoryCards(db: EdgePlatformDb, playerId: string): MemoryCardRow[] {
@@ -207,33 +268,13 @@ export function listReviewSigns(
   nowMs: number
 ): { signs: ReviewSign[]; next_due_at: number | null; cards_total: number; mastered: number } {
   const rows = listMemoryCards(db, playerId);
-  const { equipped, lastUsed } = equippedAndUsed(db, world, playerId);
-  const picked = selectReviewSigns(rows.map(toState), equipped, lastUsed, nowMs);
+  const { equipped, stored, lastUsed } = equippedAndUsed(db, world, playerId);
+  const picked = selectReviewSigns(rows.map(toState), equipped, lastUsed, nowMs, stored);
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const R = UI_STRINGS_KO.review;
   const signs: ReviewSign[] = [];
   for (const card of picked) {
-    const row = byId.get(card.id)!;
-    const s = cardSentence(db, row.utterance_id);
-    if (!s) continue;
-    const key = itemKeyOfCard(row.item_id);
-    const label = itemLabelKo(key);
-    signs.push({
-      card_id: card.id,
-      item_key: key,
-      item_name_ko: label.nameKo,
-      emoji: label.emoji,
-      ctx: s.ctx,
-      text: s.text,
-      hint_tags: hintTagsOf(s.ctx, s.text),
-      hint: reviewHintForBox(card.box),
-      listen: card.box <= TUNING.memory.reviewListenMaxBox,
-      box: card.box,
-      stars: Number(s.stars),
-      due_at: card.nextReviewAtMs,
-      overdue_days: Math.max(0, Math.floor((nowMs - card.nextReviewAtMs) / 86_400_000)),
-      label_ko: R.signLine.replace('{item}', label.nameKo)
-    });
+    const sign = signOf(db, byId.get(card.id)!, card, nowMs);
+    if (sign) signs.push(sign);
   }
   const pending = rows.filter((r) => r.mastered_at === null).map((r) => Number(r.next_review_at));
   const future = pending.filter((t) => t > nowMs);
@@ -243,6 +284,67 @@ export function listReviewSigns(
     cards_total: rows.length,
     mastered: rows.length - pending.length
   };
+}
+
+function signOf(db: EdgePlatformDb, row: MemoryCardRow, card: MemoryCardState, nowMs: number): ReviewSign | null {
+  const s = cardSentence(db, row.utterance_id);
+  if (!s) return null;
+  const key = itemKeyOfCard(row.item_id);
+  const label = itemLabelKo(key);
+  return {
+    card_id: card.id,
+    item_key: key,
+    item_name_ko: label.nameKo,
+    emoji: label.emoji,
+    ctx: s.ctx,
+    text: s.text,
+    hint_tags: hintTagsOf(s.ctx, s.text),
+    hint: reviewHintForBox(card.box),
+    listen: card.box <= TUNING.memory.reviewListenMaxBox,
+    box: card.box,
+    stars: Number(s.stars),
+    due_at: card.nextReviewAtMs,
+    overdue_days: Math.max(0, Math.floor((nowMs - card.nextReviewAtMs) / 86_400_000)),
+    label_ko: UI_STRINGS_KO.review.signLine.replace('{item}', label.nameKo)
+  };
+}
+
+/** Repair NPC (docs/09 P4): the child's stored gear that has a card, and whether each is due for its review now. */
+export function listRepairGear(
+  db: EdgePlatformDb,
+  world: WorldDO | undefined,
+  playerId: string,
+  nowMs: number
+): { items: Array<{ item_id: string; item_key: string; item_name_ko: string; emoji: string; due: boolean }> } {
+  if (!world) return { items: [] };
+  const cards = new Map(listMemoryCards(db, playerId).map((r) => [r.item_id, r]));
+  const items: Array<{ item_id: string; item_key: string; item_name_ko: string; emoji: string; due: boolean }> = [];
+  for (const r of ownedThings(world, playerId)) {
+    if (!STORED_LOCATIONS.has(r.location)) continue;
+    const card = cards.get(r.id);
+    if (!card || card.mastered_at !== null) continue;
+    const key = itemKeyOfCard(r.id);
+    const label = itemLabelKo(key);
+    items.push({ item_id: r.id, item_key: key, item_name_ko: label.nameKo, emoji: label.emoji, due: Number(card.next_review_at) <= nowMs });
+  }
+  return { items };
+}
+
+/** The child picked a stored thing at the repair NPC: its review, as a sign the review window opens like any other. */
+export function pickRepairCard(
+  db: EdgePlatformDb,
+  world: WorldDO | undefined,
+  playerId: string,
+  itemId: string,
+  nowMs: number
+): { ok: true; sign: ReviewSign } | { ok: false; status: 404 | 409; error: 'item_not_found' | 'not_due' } {
+  if (!world || !ownedThings(world, playerId).some((r) => r.id === itemId)) return { ok: false, status: 404, error: 'item_not_found' };
+  const rows = listMemoryCards(db, playerId).filter((r) => r.item_id === itemId);
+  if (rows.length === 0) return { ok: false, status: 404, error: 'item_not_found' };
+  const due = selectRepairPickCards(rows.map(toState), new Set([itemId]), nowMs);
+  if (due.length === 0) return { ok: false, status: 409, error: 'not_due' };
+  const sign = signOf(db, rows.find((r) => r.id === due[0]!.id)!, due[0]!, nowMs);
+  return sign ? { ok: true, sign } : { ok: false, status: 404, error: 'item_not_found' };
 }
 
 /** Bank sentences that name the same thing as the card (any level, any star): "same meaning, other words". */

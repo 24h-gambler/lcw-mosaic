@@ -16,7 +16,7 @@ import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
 import { Sky } from './sky.js';
 import { NPC_GREETINGS_EN, SCENE_TITLES_KO } from './strings.js';
-import { NPCS, SCENES, WANDERERS, buildTown, standHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
+import { NPCS, SCENES, WANDERERS, buildTown, standHeight, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
 
 export const TIER_SETTINGS: Readonly<Record<WorldTier, { viewChunks: number; pixelScale: number; shadows: boolean; particles: number; antialias: boolean }>> = {
   // docs/08 6.6
@@ -180,10 +180,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
   // ---- Characters.
   const startScene = SCENES[opts.startScene ?? 'plaza'];
-  const spotY = (s: Spot): number => standHeight(world, s.x, s.z, Math.ceil(s.y) + 4);
+  const spotY = (s: Spot): number => standHeight(world, s.x, s.z, Math.ceil(s.y) + 1);
   const body: Body = makeBody(startScene.player.x, spotY(startScene.player), startScene.player.z);
   let playerYaw = startScene.player.yaw;
-  camYaw = playerYaw;
+  camYaw = playerYaw + startScene.cameraYaw;
+  camPitch = startScene.camPitch ?? camPitch;
+  camDist = startScene.camDist ?? camDist;
   const player = new VoxelCharacter(PLAYER_LOOK);
   scene.add(player.root);
   let heldItem: THREE.Group | null = null;
@@ -212,7 +214,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     const char = new VoxelCharacter(w.look);
     scene.add(char.root);
     const [x, z] = w.route[0]!;
-    return { char, route: w.route, i: 1, pos: new THREE.Vector3(x + 0.5, standHeight(world, x, z), z + 0.5), yaw: 0, pause: k * 1.5 };
+    return { char, route: w.route, i: 1, pos: new THREE.Vector3(x + 0.5, standHeight(world, x, z, terrainHeight(x, z) + 2), z + 0.5), yaw: 0, pause: k * 1.5 };
   });
   const windmill = new Windmill(137.5, standHeight(world, 137, 98) + 6.4, 99.9);
   scene.add(windmill.root);
@@ -426,14 +428,15 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
   function snapToScene(target: SceneId): void {
     const s = SCENES[target];
+    hud.clearBubbles();
     body.x = s.player.x;
     body.z = s.player.z;
     body.y = spotY(s.player);
     body.vx = body.vy = body.vz = 0;
     playerYaw = s.player.yaw;
     camYaw = s.player.yaw + s.cameraYaw;
-    camPitch = 0.3;
-    camDist = CAM_DIST_DEFAULT;
+    camPitch = s.camPitch ?? 0.3;
+    camDist = s.camDist ?? CAM_DIST_DEFAULT;
   }
 
   let travel: Promise<void> | null = null;
@@ -467,7 +470,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         } else {
           // settle on the exact spot and facing
           playerYaw = SCENES[target].player.yaw;
-          camYaw = playerYaw;
+          camYaw = playerYaw + SCENES[target].cameraYaw;
+          camPitch = SCENES[target].camPitch ?? camPitch;
+          camDist = SCENES[target].camDist ?? camDist;
         }
       } else {
         sfx.play('wld.door');
@@ -532,6 +537,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       const d = Math.max(0.8, free - 0.25);
       wantPos = new THREE.Vector3(camTarget.x + dirX * d, camTarget.y + dirY * d, camTarget.z + dirZ * d);
       wantLook = camTarget.clone();
+      // Squeezed against a wall: let the camera see through the player instead of a wall of hair.
+      player.setFade(d < 2.2 ? 0.25 + (d - 0.8) * 0.4 : 1);
     }
     const k = camInit ? 1 - Math.exp(-(paused ? 4.5 : 14) * dt) : 1;
     camPos.lerp(wantPos, k);
@@ -540,6 +547,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     camera.position.copy(camPos);
     camera.lookAt(camLook);
     player.setHeadVisible(!(camMode === 'first' && !paused));
+    if (camMode !== 'third' || paused) player.setFade(1);
   };
   camPos.set(body.x - Math.sin(camYaw) * camDist, body.y + 3, body.z - Math.cos(camYaw) * camDist);
 
@@ -732,6 +740,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       const p = project(body.x, body.y + CHAR_HEIGHT + 0.45, body.z);
       hud.updateBubble('player', p.sx, p.sy, p.vis, nowMs, dt);
     }
+    hud.flushBubbles();
     if (nearNpc && !paused && autopilot.length === 0 && !hud.hasBubble(nearNpc.def.id, nowMs)) {
       const p = project(nearNpc.pos.x, nearNpc.pos.y + CHAR_HEIGHT + 0.35, nearNpc.pos.z);
       hud.showPrompt(p.vis, p.sx, p.sy, touch);
@@ -800,6 +809,17 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         body.vx = 0;
         body.vz = 0;
         if (!focusNpc && nearNpc) focusNpc = nearNpc;
+        if (!focusNpc) {
+          // A lesson can pause the world without a tap on an NPC: frame whoever stands closest (counters are ~4 m wide).
+          let best = 6;
+          for (const n of npcs.values()) {
+            const d = Math.hypot(n.pos.x - body.x, n.pos.z - body.z);
+            if (d < best) {
+              best = d;
+              focusNpc = n;
+            }
+          }
+        }
       } else {
         focusNpc = null;
         camYaw = playerYaw;

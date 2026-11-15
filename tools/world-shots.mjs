@@ -1,13 +1,13 @@
 // Headless check of the 3D world (/game/): every scene at desktop / tablet / phone sizes, FPS, console errors,
 // and the WorldHandle calls other domains use (goal line, bubbles, item, stars). Headless only, audio muted.
 //
-//   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/world-shots.mjs http://127.0.0.1:5179/game/ shots/world
+//   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/world-shots.mjs http://127.0.0.1:8910/game/ shots/world
 //
 // playwright-core is not a repo dependency (it is only a dev tool); point PLAYWRIGHT_CORE at any install.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const base = process.argv[2] ?? 'http://127.0.0.1:5179/game/';
+const base = process.argv[2] ?? 'http://127.0.0.1:8910/game/';
 const out = process.argv[3] ?? 'shots/world';
 const only = process.argv[4] ?? '';
 mkdirSync(out, { recursive: true });

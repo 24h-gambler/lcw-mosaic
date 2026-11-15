@@ -15,19 +15,36 @@
 ```ts
 export type SceneId = 'plaza' | 'honey_cafe' | 'trade_shop' | 'build_plot' | 'open_hill';
 export interface NpcRef { id: string; ctx: NpcContext; nameKo: string; nameEn: string }
+export type DirectorEventKind = 'weather_shift' | 'blackout' | 'npc_prompt' | 'mentor_dungeon_gate' | 'review_chest' | 'star_celebration';
 export interface WorldHandle {
-  goToScene(id: SceneId): Promise<void>;            // 걸어가거나 문을 지나는 연출 포함
+  goToScene(id: SceneId): Promise<void>;            // 46 m 이내는 걸어가고, 멀거나 막히면 문 연출(페이드)로
   onNpcInteract(cb: (npc: NpcRef) => void): () => void; // E 키·탭으로 NPC에게 말 걸기
-  npcSay(npcId: string, text: string): void;        // 말풍선(빙의 대사 포함, 빙의 중엔 반짝임)
+  npcSay(npcId: string, text: string, opts?: { possessed?: boolean }): void; // 말풍선(빙의 중엔 반짝임)
   playerSay(text: string): void;
   giveItem(itemKey: string): void;                  // 주문한 음료·교환한 물건이 손/슬롯에
-  celebrate(stars: 0 | 1 | 2 | 3): void;            // 별 연출·효과음
+  celebrate(stars: 0 | 1 | 2 | 3): void;            // 별 연출·효과음 (0 = '다시 해 볼까요')
   setGoal(goalKo: string, targetEn?: string): void; // 화면 맨 위 목표 한 줄
-  setPaused(paused: boolean): void;                 // 대화창이 열리면 이동 멈춤
+  setPaused(paused: boolean): void;                 // 대화창이 열리면 이동 멈춤 + 가까운 NPC와 투샷
   dispose(): void;
+  // 선택(월드가 구현, 다른 도메인은 있으면 씀)
+  setPossessed?(npcId: string | null): void;        // 교사 빙의 표시(머리 위 반짝임)
+  playDirectorEvent?(kind: DirectorEventKind, detail: string): void; // 디렉터 이벤트 연출
+  getScene?(): SceneId;
+  listNpcs?(): NpcRef[];
+  setLessonBadge?(on: boolean): void;               // 장면 이름 옆 '수업 중'
+  getStats?(): WorldStats;                          // fps·draw call·삼각형·청크 수(검증용)
 }
-export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high' }): Promise<WorldHandle>;
+export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
+export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
 ```
+
+NPC id·ctx (대화 뱅크가 `npc.ctx`로 찾는 값):
+
+| id | 이름 | ctx | 나오는 장면 |
+|---|---|---|---|
+| `guide` | 안내인 선생님 (Luna) | `guide` | plaza · build_plot · open_hill (장면을 따라 옮겨 다님) |
+| `cafe_owner` | 카페 주인 하니 (Hani) | `cafe` | honey_cafe |
+| `shop_owner` | 상점 주인 토비 (Toby) | `trade_shop` | trade_shop |
 
 월드 도메인은 첫 PR에서 이 인터페이스를 (내용이 단순하더라도) 먼저 머지해 다른 도메인이 붙을 수 있게 합니다.
 
@@ -65,3 +82,16 @@ export interface DialogPanelProps {
 | wrap_up | plaza | 안내인 | full |
 
 저사양 기기(`classifyDeviceTier` = low)나 WebGL이 없으면 `/join` 단어 카드 화면으로 보냅니다.
+
+## 5. 앱 껍데기 슬롯 (`apps/client/src/App.tsx`, 월드 소유)
+
+`App.tsx`는 월드를 만들고 다른 도메인의 화면을 **있으면** 붙입니다(`import.meta.glob`이라 파일이 없어도 빌드가 깨지지 않음).
+
+- 대화: `apps/client/src/dialog/DialogPanel.tsx`의 이름 있는 내보내기 `DialogPanel`(3장 props)과, 수업이 아닐 때 쓸 `createSoloSubmit(npc: NpcRef)`.
+  - NPC에게 말을 걸면(`onNpcInteract`) 수업 중이 아닐 때 앱이 `DialogPanel`을 엽니다. 열리면 `setPaused(true)`, 닫히면 `setPaused(false)`.
+  - `onDone(r)`: 앱이 `celebrate(r.stars)`(실패면 0)와 `giveItem(r.itemKey ?? 장면 기본값)`을 부릅니다(cafe → `honey_tea`). `DialogPanel`은 `celebrate`·`giveItem`을 직접 부르지 않습니다. `DialogResult.itemKey?`는 선택 필드입니다.
+- 수업: `apps/client/src/lesson/LessonLayer.tsx`의 `LessonLayer`.
+  - props: `{ world: WorldHandle; renderDialog: (cfg: DialogConfig) => ReactNode; onLessonActive?: (active: boolean) => void }`.
+  - 수업이 시작되면 `onLessonActive(true)` → 앱이 `setLessonBadge(true)`, 혼자 대화 열기를 멈춥니다(대화는 수업이 `renderDialog`로 엶).
+- 화면 주소: `/game/?scene=<SceneId>`(시작 장면), `?tier=low|mid|high`(사양 강제), `?fps=1`(fps 표시). 디버그·검증용으로 `window.__lcwWorld`에 핸들을 둡니다.
+- 검증: `node tools/world-shots.mjs <url> <out> [desktop|tablet|phone|flow]` — 헤드리스 Chrome(swiftshader)으로 장면 5개 × 3 화면 크기 스크린샷, fps, 콘솔 오류, 흐름(목표·말풍선·걷기·멈춤·별·아이템·빙의·눈·키보드·E 키)을 `report.json`에.

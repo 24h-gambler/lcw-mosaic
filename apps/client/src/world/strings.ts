@@ -16,7 +16,7 @@ export const WORLD_STRINGS = {
   noWebglCta: '단어 카드로 하기',
   starsAgain: '한 번 더 해 볼까요?',
   starsGot: (n: number): string => `별 ${n}개!`,
-  itemGot: (name: string): string => `${name}을(를) 받았어요`,
+  itemGot: (name: string): string => `${name}${objectParticle(name)} 받았어요`,
   hotbarEmpty: '빈 칸',
   lessonBadge: '수업 중',
   controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기',
@@ -77,4 +77,12 @@ export const NPC_GREETINGS_EN: Record<string, string> = {
 
 export function itemNameKo(key: string): string {
   return ITEM_NAMES_KO[key] ?? ITEM_NAMES_KO.gift!;
+}
+
+/** 을/를 by whether the last Hangul syllable has a final consonant (받침). Non-Hangul endings fall back to 을(를). */
+export function objectParticle(word: string): string {
+  const last = word.trim().slice(-1);
+  const code = last.charCodeAt(0) - 0xac00;
+  if (code < 0 || code > 11171) return '을(를)';
+  return code % 28 === 0 ? '를' : '을';
 }

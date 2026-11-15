@@ -1,0 +1,270 @@
+[
+ {
+  "viewport": "desktop",
+  "scene": "plaza",
+  "readyMs": 1815,
+  "fps": 13.666666666666666,
+  "drawCalls": 250,
+  "triangles": 51754,
+  "chunksVisible": 178,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 144.5,
+   "y": 1,
+   "z": 153.5
+  },
+  "errors": [],
+  "file": "shots/world/desktop-plaza.png"
+ },
+ {
+  "viewport": "desktop",
+  "scene": "honey_cafe",
+  "readyMs": 1615,
+  "fps": 13.333333333333334,
+  "drawCalls": 137,
+  "triangles": 33654,
+  "chunksVisible": 191,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 163.5,
+   "y": 1,
+   "z": 134.5
+  },
+  "errors": [],
+  "file": "shots/world/desktop-honey_cafe.png"
+ },
+ {
+  "viewport": "desktop",
+  "scene": "trade_shop",
+  "readyMs": 1538,
+  "fps": 13,
+  "drawCalls": 136,
+  "triangles": 39100,
+  "chunksVisible": 191,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 124.5,
+   "y": 1,
+   "z": 134.5
+  },
+  "errors": [],
+  "file": "shots/world/desktop-trade_shop.png"
+ },
+ {
+  "viewport": "desktop",
+  "scene": "build_plot",
+  "readyMs": 1571,
+  "fps": 14.666666666666666,
+  "drawCalls": 130,
+  "triangles": 36968,
+  "chunksVisible": 203,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 121.5,
+   "y": 0.9375,
+   "z": 161.5
+  },
+  "errors": [],
+  "file": "shots/world/desktop-build_plot.png"
+ },
+ {
+  "viewport": "desktop",
+  "scene": "open_hill",
+  "readyMs": 1472,
+  "fps": 11.666666666666666,
+  "drawCalls": 253,
+  "triangles": 51134,
+  "chunksVisible": 178,
+  "chunksMeshed": 316,
+  "player": {
+   "x": 144.5,
+   "y": 10,
+   "z": 100.5
+  },
+  "errors": [],
+  "file": "shots/world/desktop-open_hill.png"
+ },
+ {
+  "viewport": "tablet",
+  "scene": "plaza",
+  "readyMs": 1487,
+  "fps": 20.333333333333332,
+  "drawCalls": 209,
+  "triangles": 43180,
+  "chunksVisible": 178,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 144.5,
+   "y": 1,
+   "z": 153.5
+  },
+  "errors": [],
+  "file": "shots/world/tablet-plaza.png"
+ },
+ {
+  "viewport": "tablet",
+  "scene": "honey_cafe",
+  "readyMs": 1478,
+  "fps": 20,
+  "drawCalls": 126,
+  "triangles": 31670,
+  "chunksVisible": 191,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 163.5,
+   "y": 1,
+   "z": 134.5
+  },
+  "errors": [],
+  "file": "shots/world/tablet-honey_cafe.png"
+ },
+ {
+  "viewport": "tablet",
+  "scene": "trade_shop",
+  "readyMs": 1444,
+  "fps": 19.333333333333332,
+  "drawCalls": 122,
+  "triangles": 35100,
+  "chunksVisible": 191,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 124.5,
+   "y": 1,
+   "z": 134.5
+  },
+  "errors": [],
+  "file": "shots/world/tablet-trade_shop.png"
+ },
+ {
+  "viewport": "tablet",
+  "scene": "build_plot",
+  "readyMs": 1475,
+  "fps": 22,
+  "drawCalls": 123,
+  "triangles": 34834,
+  "chunksVisible": 203,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 121.5,
+   "y": 0.9375,
+   "z": 161.5
+  },
+  "errors": [],
+  "file": "shots/world/tablet-build_plot.png"
+ },
+ {
+  "viewport": "tablet",
+  "scene": "open_hill",
+  "readyMs": 1456,
+  "fps": 18,
+  "drawCalls": 241,
+  "triangles": 47448,
+  "chunksVisible": 178,
+  "chunksMeshed": 316,
+  "player": {
+   "x": 144.5,
+   "y": 10,
+   "z": 100.5
+  },
+  "errors": [],
+  "file": "shots/world/tablet-open_hill.png"
+ },
+ {
+  "viewport": "phone",
+  "scene": "plaza",
+  "readyMs": 1460,
+  "fps": 45.666666666666664,
+  "drawCalls": 146,
+  "triangles": 27850,
+  "chunksVisible": 178,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 144.5,
+   "y": 1,
+   "z": 153.5
+  },
+  "errors": [],
+  "file": "shots/world/phone-plaza.png"
+ },
+ {
+  "viewport": "phone",
+  "scene": "honey_cafe",
+  "readyMs": 1457,
+  "fps": 50,
+  "drawCalls": 78,
+  "triangles": 16674,
+  "chunksVisible": 191,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 163.5,
+   "y": 1,
+   "z": 134.5
+  },
+  "errors": [],
+  "file": "shots/world/phone-honey_cafe.png"
+ },
+ {
+  "viewport": "phone",
+  "scene": "trade_shop",
+  "readyMs": 1466,
+  "fps": 45,
+  "drawCalls": 92,
+  "triangles": 23466,
+  "chunksVisible": 191,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 124.5,
+   "y": 1,
+   "z": 134.5
+  },
+  "errors": [],
+  "file": "shots/world/phone-trade_shop.png"
+ },
+ {
+  "viewport": "phone",
+  "scene": "build_plot",
+  "readyMs": 1444,
+  "fps": 45,
+  "drawCalls": 84,
+  "triangles": 21442,
+  "chunksVisible": 203,
+  "chunksMeshed": 342,
+  "player": {
+   "x": 121.5,
+   "y": 0.9375,
+   "z": 161.5
+  },
+  "errors": [],
+  "file": "shots/world/phone-build_plot.png"
+ },
+ {
+  "viewport": "phone",
+  "scene": "open_hill",
+  "readyMs": 1453,
+  "fps": 43,
+  "drawCalls": 152,
+  "triangles": 29920,
+  "chunksVisible": 178,
+  "chunksMeshed": 316,
+  "player": {
+   "x": 144.5,
+   "y": 10,
+   "z": 100.5
+  },
+  "errors": [],
+  "file": "shots/world/phone-open_hill.png"
+ },
+ {
+  "flow": true,
+  "walkToCafeMs": 4828,
+  "fadeToShopMs": 1160,
+  "moved": 1.7269737318990688,
+  "talkedTo": {
+   "id": "shop_owner",
+   "ctx": "trade_shop",
+   "nameKo": "상점 주인 토비",
+   "nameEn": "Toby"
+  },
+  "errors": []
+ }
+]

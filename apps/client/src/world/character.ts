@@ -341,4 +341,30 @@ export class VoxelCharacter {
   setHeadVisible(v: boolean): void {
     this.head.visible = v;
   }
+
+  private fade = 1;
+  /** Fade the body (1 = solid) so a camera squeezed against the player in tight rooms can see past it. */
+  setFade(alpha: number): void {
+    const a = Math.max(0.15, Math.min(1, alpha));
+    if (Math.abs(a - this.fade) < 0.02) return;
+    this.fade = a;
+    const seen = new Set<THREE.Material>();
+    this.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || o === this.shadow || o.parent === this.sparkle) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        if (seen.has(m)) continue;
+        seen.add(m);
+        const solid = a >= 0.99;
+        if (m.transparent !== !solid) {
+          m.transparent = !solid;
+          m.needsUpdate = true;
+        }
+        m.opacity = a;
+        m.depthWrite = solid;
+      }
+      mesh.castShadow = a > 0.5;
+    });
+  }
 }

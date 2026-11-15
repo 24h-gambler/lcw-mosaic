@@ -29,6 +29,9 @@ export interface SceneDef {
   npc?: { id: string; spot: Spot };
   /** where the camera should look from, relative to the player (yaw offset) */
   cameraYaw: number;
+  /** camera pitch (radians above horizontal) and distance for this scene; tight spots use a lower, closer camera */
+  camPitch?: number;
+  camDist?: number;
   /** waypoints from the plaza hub to the scene (auto-walk path) */
   path: Array<[number, number]>;
 }
@@ -68,7 +71,7 @@ export const NPCS: readonly NpcDef[] = [
   {
     id: 'guide',
     ctx: 'guide',
-    nameKo: '안내인 루나',
+    nameKo: '안내인 선생님',
     nameEn: 'Luna',
     home: 'plaza',
     roams: ['plaza', 'open_hill', 'build_plot'],
@@ -126,15 +129,19 @@ export const SCENES: Readonly<Record<SceneId, SceneDef>> = {
     player: { x: 163.5, y: 1, z: 134.5, yaw: Math.PI / 2 },
     npc: { id: 'cafe_owner', spot: { x: 167.5, y: 1, z: 134.5, yaw: -Math.PI / 2 } },
     cameraYaw: 0,
-    path: [[152, 144], [160.5, 141], [163.5, 134.5]]
+    camPitch: 0.2,
+    camDist: 5,
+    path: [[152, 144], [160.5, 144], [163.5, 141], [163.5, 134.5]]
   },
   trade_shop: {
     id: 'trade_shop',
     titleKo: SCENE_TITLES_KO.trade_shop,
     player: { x: 124.5, y: 1, z: 134.5, yaw: -Math.PI / 2 },
     npc: { id: 'shop_owner', spot: { x: 120.5, y: 1, z: 134.5, yaw: Math.PI / 2 } },
-    cameraYaw: 0,
-    path: [[136, 144], [127.5, 141], [124.5, 134.5]]
+    cameraYaw: -0.45,
+    camPitch: 0.14,
+    camDist: 4.6,
+    path: [[136, 144], [126.5, 144], [124.5, 141], [124.5, 134.5]]
   },
   build_plot: {
     id: 'build_plot',
@@ -142,7 +149,7 @@ export const SCENES: Readonly<Record<SceneId, SceneDef>> = {
     player: { x: 121.5, y: 1, z: 161.5, yaw: 0 },
     npc: { id: 'guide', spot: { x: 124.5, y: 1, z: 163.5, yaw: -Math.PI * 0.75 } },
     cameraYaw: 0,
-    path: [[138, 156], [130, 158.5], [121.5, 157.5], [121.5, 161.5]]
+    path: [[138, 156], [133, 158], [121.5, 158], [121.5, 161.5]]
   },
   open_hill: {
     id: 'open_hill',
@@ -346,7 +353,8 @@ function plaza(world: VoxelWorld, set: Setter): void {
   for (const [x, z] of [[134, 134], [153, 134], [134, 153], [153, 153]] as const) lampPost(set, x, 1, z, 3);
 
   // Flower beds with small trees in the four corners.
-  const beds: Array<[number, number]> = [[130, 130], [155, 130], [130, 155], [155, 155]];
+  // The south-west corner is where the plaza meets the build plot's side gate, so that bed sits further north.
+  const beds: Array<[number, number]> = [[130, 130], [155, 130], [130, 149], [155, 155]];
   beds.forEach(([bx, bz], i) => {
     fillBox(set, bx - 1, 0, bz - 1, bx + 2, 0, bz + 2, BK.grass);
     for (let k = -2; k <= 3; k++) {
@@ -503,7 +511,7 @@ function honeyCafe(set: Setter): void {
   set(165, 2, 129, BK.chalkboard);
   set(161, 1, 128, BK.flowerPot);
   set(161, 1, 140, BK.flowerPot);
-  lampPost(set, 161, 1, 134, 3);
+  lampPost(set, 161, 1, 132, 3);
   // Beehives by the side wall.
   set(179, 1, 130, BK.hay);
   set(179, 2, 130, BK.honeycomb);
@@ -598,11 +606,11 @@ function buildPlot(world: VoxelWorld, set: Setter): void {
     set(x, 3, z0, BK.lantern);
   }
   // Path from the plaza corner to the gate and into the plot.
-  for (let x = 120; x <= 131; x++) for (let z = 157; z <= 158; z++) set(x, 0, z, BK.path);
+  for (let x = 120; x <= 136; x++) for (let z = 157; z <= 158; z++) set(x, 0, z, BK.path);
   for (let z = 156; z <= 166; z++) for (let x = 120; x <= 123; x++) set(x, 0, z, BK.path);
   // Storage chest (보관 상자) and a nameplate by the gate.
   set(118, 1, 158, BK.chest);
-  set(125, 1, 157, BK.nameplate);
+  set(125, 1, 155, BK.nameplate); // outside the north gate, facing the road
   // A started foundation and material piles, so the first thing to do is obvious.
   for (let x = 106; x <= 114; x++) {
     for (let z = 168; z <= 176; z++) {

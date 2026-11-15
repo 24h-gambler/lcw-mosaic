@@ -188,7 +188,10 @@ export class WorldHud {
   private talkBtn: HTMLDivElement;
   private dirLayer: HTMLDivElement;
   private fpsEl: HTMLDivElement;
-  private bubbles = new Map<string, { el: HTMLDivElement; text: HTMLSpanElement; until: number; full: string; shown: number }>();
+  private bubbles = new Map<
+    string,
+    { el: HTMLDivElement; text: HTMLSpanElement; until: number; full: string; shown: number; sx: number; sy: number; vis: boolean; live: boolean }
+  >();
   starTotal = 0;
   private selected = 0;
 
@@ -474,7 +477,7 @@ export class WorldHud {
       const n = el('span', 'n', e);
       n.lang = 'ko';
       const t = el('span', 'x', e);
-      b = { el: e, text: t, until: 0, full: '', shown: 0 };
+      b = { el: e, text: t, until: 0, full: '', shown: 0, sx: 0, sy: 0, vis: false, live: false };
       this.bubbles.set(id, b);
     }
     (b.el.firstChild as HTMLElement).textContent = name;
@@ -499,14 +502,61 @@ export class WorldHud {
     if (!b) return;
     if (nowMs > b.until) {
       b.el.classList.remove('on');
+      b.live = false;
       return;
     }
     if (b.shown < b.full.length) {
       b.shown = Math.min(b.full.length, b.shown + dt * 45);
       b.text.textContent = b.full.slice(0, Math.ceil(b.shown));
     }
-    b.el.style.visibility = visible ? 'visible' : 'hidden';
-    b.el.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%)`;
+    b.sx = sx;
+    b.sy = sy;
+    b.vis = visible;
+    b.live = true;
+  }
+
+  /**
+   * Place this frame's bubbles. Two people talking stand close, so their bubbles would cover each other:
+   * the lowest bubble keeps its anchor and every other one is lifted above whatever it overlaps.
+   */
+  flushBubbles(): void {
+    const live = [...this.bubbles.values()].filter((b) => {
+      if (!b.live) {
+        // not updated this frame: expired or its speaker is gone, so it must not linger on screen
+        b.el.classList.remove('on');
+        b.el.style.visibility = 'hidden';
+        return false;
+      }
+      b.live = false;
+      b.el.style.visibility = b.vis ? 'visible' : 'hidden';
+      return b.vis;
+    });
+    live.sort((a, b) => b.sy - a.sy);
+    const placed: Array<{ l: number; r: number; t: number; b: number }> = [];
+    const gap = 6;
+    for (const b of live) {
+      const w = b.el.offsetWidth || 200;
+      const h = b.el.offsetHeight || 60;
+      let y = b.sy;
+      for (let guard = 0; guard < 6; guard++) {
+        const hit = placed.find((p) => b.sx - w / 2 < p.r + gap && b.sx + w / 2 > p.l - gap && y - h < p.b + gap && y > p.t - gap);
+        if (!hit) break;
+        y = hit.t - gap;
+      }
+      y = Math.max(h + 8, y);
+      placed.push({ l: b.sx - w / 2, r: b.sx + w / 2, t: y - h, b: y });
+      b.el.style.transform = `translate(${b.sx}px, ${y}px) translate(-50%, -100%)`;
+    }
+  }
+
+  /** Drop every bubble at once (scene change by fade: old lines belong to the old place). */
+  clearBubbles(): void {
+    for (const b of this.bubbles.values()) {
+      b.until = 0;
+      b.live = false;
+      b.el.classList.remove('on');
+      b.el.style.visibility = 'hidden';
+    }
   }
 
   hasBubble(id: string, nowMs: number): boolean {

@@ -4,7 +4,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, TOKENS } from '@lcw/ui';
-import { createLessonApi, errorCodeOf, type LessonApi, type SharedReport } from './lessonApi.js';
+import { createLessonApi, errorCodeOf, loadOperatorToken, type LessonApi, type SharedReport } from './lessonApi.js';
 import { kstLabel, reportFactRows } from './lessonFlow.js';
 import { LessonStyle, border, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
@@ -12,6 +12,11 @@ import { LESSON_STRINGS_KO } from './strings.js';
 const S = LESSON_STRINGS_KO.report;
 const C = TOKENS.colors;
 const T = TOKENS.typography;
+
+/** The director's "미리 보기" link adds ?preview=1; on the teacher's device the stored operator token then marks it a preview. */
+export function previewOperatorToken(search = typeof window !== 'undefined' ? window.location.search : ''): string | null {
+  return new URLSearchParams(search).get('preview') === '1' ? loadOperatorToken() : null;
+}
 
 export type ReportLoad =
   | { status: 'loading' }
@@ -32,10 +37,12 @@ export function ParentReportPage({ token, api, initial }: ParentReportPageProps)
   const fetchReport = useCallback(async () => {
     setLoad({ status: 'loading' });
     try {
-      setLoad({ status: 'ok', report: await apiRef.current.getReport(token) });
+      setLoad({ status: 'ok', report: await apiRef.current.getReport(token, previewOperatorToken()) });
     } catch (e) {
       const code = errorCodeOf(e);
-      setLoad(code === 'report_not_found' || code === 'http_404' ? { status: 'not_found' } : { status: 'error' });
+      // 410 (30 days passed, or the guardian closed the link) is not a connection problem: same screen as not found.
+      const gone = ['report_not_found', 'report_expired', 'report_revoked', 'http_404', 'http_410'].includes(code);
+      setLoad(gone ? { status: 'not_found' } : { status: 'error' });
     }
   }, [token]);
 

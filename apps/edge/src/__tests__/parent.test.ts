@@ -76,6 +76,13 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
     for (const n of L.summary_ko.match(/\d+/g) ?? []) {
       expect([L.utterances, L.passes, Math.floor(L.speaking_sec / 60), L.speaking_sec % 60, L.speaking_sec, L.free_words].map(String)).toContain(n);
     }
+    // The summary sentence is this lesson's, in the units the page shows, and carries only fact numbers
+    expect(r.body.body).toBe(L.summary_ko);
+    expect(r.body.body).not.toContain('이번 주');
+    expect(r.body.body).toContain('18초');
+    expect(lessonSummaryKo({ utterances: 3, passes: 2, speaking_sec: 2, free_words: 0 })).toContain('2초');
+    expect(lessonSummaryKo({ utterances: 3, passes: 2, speaking_sec: 125, free_words: 0 })).toContain('2분 5초');
+    expect(lessonSummaryKo({ utterances: 3, passes: 2, speaking_sec: 125, free_words: 0 })).not.toContain('0분');
     expect(r.body.teacher_comment).toBe('카페 주문을 끝까지 영어로 했습니다.');
     expect(r.body.next_lesson_at).toBe('11월 19일 수요일 17:30');
     expect(r.body.expires_at - r.body.created_at).toBe(REPORT_SHARE_TTL_MS);

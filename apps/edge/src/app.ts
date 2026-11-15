@@ -611,7 +611,11 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       ...(req.lesson_extra ?? {}),
       ...(req.lesson_facts ? { lesson: req.lesson_facts } : {})
     };
-    const verified = verifyOrReplaceReportBody(facts, req.draft_body);
+    const checked = verifyOrReplaceReportBody(facts, req.draft_body);
+    // A lesson report's fallback sentence is about this lesson (parent-report.ts lessonSummaryKo, same numbers as
+    // facts.lesson), not the weekly template.
+    const lessonSummary = typeof req.lesson_facts?.summary_ko === 'string' ? req.lesson_facts.summary_ko : null;
+    const verified = checked.replaced && lessonSummary ? { ...checked, body: lessonSummary } : checked;
     const shareUrl = req.share_url ?? `/report?token=${req.share_token}`;
 
     const delivery = deps.db.createAndDeliverParentReport({

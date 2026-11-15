@@ -1166,7 +1166,7 @@ function EndLessonBox({
               {S.copyReport}
             </Button>
             <a
-              href={lesson.report_path}
+              href={`${lesson.report_path}?preview=1`}
               target="_blank"
               rel="noopener"
               style={{ color: C['sky-d'], fontWeight: 700, padding: sp(1) }}

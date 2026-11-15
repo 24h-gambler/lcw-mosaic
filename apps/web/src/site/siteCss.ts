@@ -80,7 +80,7 @@ export function siteCss(): string {
 .s-sec-tint{background:${C['paper-100']}}
 .s-sec-head{display:grid;gap:12px;margin-bottom:32px;max-width:720px}
 .s-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:2px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;${type('micro')}font-weight:800;background:${C['paper-0']}}
-.s-tag-sample{background:${C.sun}}
+.s-tag-sample{background:${C.sun};color:${C['ink-900']}}
 .s-tag-leaf{background:${C.leaf}}
 .s-tag-sky{background:${C.sky}}
 .s-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
@@ -94,7 +94,7 @@ export function siteCss(): string {
 .s-hero-copy{display:grid;gap:16px}
 .s-entrances{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
 .s-entrance{display:grid;gap:2px;text-align:left;padding:12px 20px}
-.s-entrance small{font-weight:600;opacity:.9;${type('small')}}
+.s-entrance small{font-weight:600;${type('small')}}
 
 /* loop stage */
 .s-loop{position:relative;border:2px solid ${C['ink-900']};border-radius:${S.radiusCardPx}px;box-shadow:${S.shadowDefault};overflow:hidden;background:linear-gradient(${C.sky},${C['paper-0']} 78%);aspect-ratio:4/3;isolation:isolate}

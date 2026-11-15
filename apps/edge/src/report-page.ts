@@ -37,7 +37,9 @@ export function reportShareHead(origin: string): string {
 export function rewriteReportShell(html: string, origin: string): string {
   const cleaned = html
     .replace(/<title>[\s\S]*?<\/title>\s*/i, '')
-    .replace(/<meta\s+(?:name|property)="(?:description|robots|referrer|og:[^"]*|twitter:[^"]*)"[^>]*>\s*/gi, '');
+    .replace(/<meta\s+(?:name|property)="(?:description|robots|referrer|og:[^"]*|twitter:[^"]*)"[^>]*>\s*/gi, '')
+    // The root file is the pre-rendered landing (tools/prerender-site.mjs): its canonical must not follow a report link.
+    .replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
   return cleaned.replace(/<\/head>/i, `    ${reportShareHead(origin)}\n  </head>`);
 }
 

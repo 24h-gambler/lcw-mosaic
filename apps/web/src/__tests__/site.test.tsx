@@ -14,6 +14,7 @@ import { SAMPLE_SNAPSHOTS, parseShowroomSnapshot } from '../site/showroom.js';
 import { siteCss } from '../site/siteCss.js';
 import { TryScene } from '../site/TryScene.js';
 import { chooseTryStage, worldCueFor } from '../site/TryWorld.js';
+import { allPages, fillShell, prerenderPage } from '../site/prerender.js';
 import { TRY } from '../site/tryCopy.js';
 import { TRY_LOUDNESS_TRIES, TRY_RECOGNITION_ANSWER_MS, TRY_RECOGNITION_AUDIO_MS, cardOrderStars } from '../site/TrySpeak.js';
 import { TRY_INITIAL, TRY_OFFERS, TRY_PRICES, TRY_WALK_STEPS, TRY_WALLET, tryReducer, type TryPhase, type TryState } from '../site/tryState.js';
@@ -248,6 +249,36 @@ describe('W06 /try in the 3D town (docs/19 createWorld)', () => {
     const html = renderToStaticMarkup(<TryScene />);
     expect(html).toContain('data-stage="2d"');
     expect(html).not.toContain('data-testid="try-world"');
+  });
+});
+
+describe('static pages for crawlers and first paint (docs/14 §11)', () => {
+  const shell = '<!doctype html><html lang="ko"><head><meta charset="UTF-8" /><title>x</title>\n    <meta name="description" content="y" /></head><body><div id="root"></div><script type="module" src="/a.js"></script></body></html>';
+  it('renders every public page with its own title, description, canonical and content', () => {
+    const pages = allPages();
+    expect(pages.length).toBeGreaterThanOrEqual(13);
+    for (const p of pages) {
+      const html = fillShell(shell, p);
+      expect(html.match(/<title>/g)).toHaveLength(1);
+      expect(html.match(/name="description"/g)).toHaveLength(1);
+      expect(html).toContain(`<link rel="canonical" href="https://lcw.worldwidesomething.com${p.path}"`);
+      expect(html).toContain('<div id="root"><div class="s-root');
+    }
+    const parents = fillShell(shell, prerenderPage('/parents'));
+    expect(parents).toContain(PARENTS.title.slice(0, 8));
+  });
+
+  it('clears the pre-rendered page before paint when the file is served for another address', () => {
+    const html = fillShell(shell, prerenderPage('/'));
+    const guard = /<script>(\(function[\s\S]*?)<\/script>/.exec(html)![1]!;
+    const run = (pathname: string) => {
+      const root = { innerHTML: 'landing' };
+      new Function('location', 'document', guard)({ pathname }, { getElementById: () => root });
+      return root.innerHTML;
+    };
+    expect(run('/')).toBe('landing');
+    expect(run('/director')).toBe('');
+    expect(run('/r/abc')).toBe('');
   });
 });
 

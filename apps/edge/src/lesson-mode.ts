@@ -1,8 +1,15 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { getLessonPlan, type LessonPlan } from '@lcw/content';
+import { LESSON_DIRECTOR_EVENTS, LESSON_NPCS, LESSON_PLANS, getLessonPlan, type LessonPlan } from '@lcw/content';
 import { scoreUtterance } from '@lcw/converse';
-import { LessonDO, type EdgePlatformDb, type SqliteExecutor } from './storage.js';
+import {
+  computeLessonMetrics,
+  extractBookmarkWindows,
+  type BookmarkTranscriptLine,
+  type LessonMinuteInput,
+  type UtteranceMetricInput
+} from '@lcw/metrics';
+import { LessonDO, type DirectorEventKind, type EdgePlatformDb, type SqliteExecutor } from './storage.js';
 
 /**
  * Lesson mode (docs/18): a real lesson without the 3D world. The teacher (operator token) starts a lesson and gets a
@@ -14,12 +21,35 @@ export const JOIN_CODE_TTL_MS = 12 * 3_600_000;
 export const STUDENT_TOKEN_TTL_MS = 12 * 3_600_000;
 export const JOIN_FAILS_PER_HOUR = 10;
 export const COINS_PER_STAR = 10;
+/** A student client that has not polled state for this long shows as disconnected on the director console. */
+export const STUDENT_PRESENCE_TTL_MS = 10_000;
+/** A client that asks without `since` (first poll, reload) still sees a line or event spoken this recently. */
+export const LESSON_LIVE_FRESH_MS = 20_000;
+/** A client back from a long pause is not flooded with old bubbles. */
+export const LESSON_LIVE_MAX_BACKLOG_MS = 120_000;
+export const LESSON_LIVE_MAX_ITEMS = 20;
+/**
+ * Speaking time estimates for the per-minute progress table until WP-306 voice activity lands: teacher lines are
+ * typed (no audio), and a student utterance without a measured duration is costed by words. Children speak about
+ * 2 words/s in early lessons; adult teacher speech about 2.5 words/s.
+ */
+export const TEACHER_MS_PER_WORD = 400;
+export const STUDENT_MS_PER_WORD = 500;
+export const LESSON_MINUTES_MAX = 240;
 
 export const LESSON_MODE_SCHEMA = `
 create table if not exists lesson_joins (code text primary key, lesson_id text not null, player_id text not null, expires_at integer not null);
 create table if not exists student_tokens (token_hash text primary key, lesson_id text not null, player_id text not null, expires_at integer not null);
 create table if not exists lesson_state (lesson_id text primary key, plan_id text not null, stage_id text not null, targets text not null, updated_at integer not null);
-create table if not exists join_failures (hour integer primary key, n integer not null)
+create table if not exists join_failures (hour integer primary key, n integer not null);
+create table if not exists lesson_npc_lines (id text primary key, lesson_id text not null, at integer not null, npc_id text not null, text text not null);
+create index if not exists lesson_npc_lines_by_lesson on lesson_npc_lines (lesson_id, at);
+create table if not exists lesson_events (id text primary key, lesson_id text not null, at integer not null, kind text not null, detail text not null);
+create index if not exists lesson_events_by_lesson on lesson_events (lesson_id, at);
+create table if not exists lesson_stage_log (id integer primary key autoincrement, lesson_id text not null, at integer not null, stage_id text not null);
+create index if not exists lesson_stage_log_by_lesson on lesson_stage_log (lesson_id, at);
+create table if not exists lesson_director (lesson_id text primary key, possessed_npc_id text, updated_at integer not null);
+create table if not exists lesson_presence (lesson_id text primary key, last_seen_at integer not null, scene_id text, ui text)
 `;
 
 export interface LessonModeDeps {
@@ -79,6 +109,11 @@ const PinSchema = z
 const EndSchema = z
   .object({ teacher_comment: z.string().max(400).default(''), next_lesson_at: z.string().max(60).default('') })
   .strict();
+const NpcIdSchema = z.string().regex(/^[a-z0-9_]{1,40}$/);
+const NpcSaySchema = z.object({ npc_id: NpcIdSchema, text: z.string().trim().min(1).max(200) }).strict();
+const PossessSchema = z.object({ npc_id: NpcIdSchema.nullable() }).strict();
+const DIRECTOR_EVENT_KINDS = LESSON_DIRECTOR_EVENTS.map((e) => e.kind) as [DirectorEventKind, ...DirectorEventKind[]];
+const EventSchema = z.object({ kind: z.enum(DIRECTOR_EVENT_KINDS), detail: z.string().max(200).default('') }).strict();
 const JoinSchema = z.object({ code: z.string().regex(/^\d{6}$/) }).strict();
 const UtteranceSchema = z
   .object({
@@ -117,6 +152,163 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     return s ? { plan_id: s.plan_id, stage_id: s.stage_id, targets: JSON.parse(s.targets) as string[] } : null;
   };
   const planStage = (plan: LessonPlan, stageId: string) => plan.stages.find((s) => s.id === stageId);
+  const possessedOf = (id: string) =>
+    d.sql.get<{ possessed_npc_id: string | null }>('select possessed_npc_id from lesson_director where lesson_id = ?', [id])
+      ?.possessed_npc_id ?? null;
+  const setPossessed = (id: string, npcId: string | null) =>
+    d.sql.run('insert or replace into lesson_director (lesson_id, possessed_npc_id, updated_at) values (?, ?, ?)', [
+      id,
+      npcId,
+      d.nowMs()
+    ]);
+  const logStage = (id: string, stageId: string, at: number) =>
+    d.sql.run('insert into lesson_stage_log (lesson_id, at, stage_id) values (?, ?, ?)', [id, at, stageId]);
+  const stageAt = (id: string, at: number) =>
+    d.sql.get<{ stage_id: string }>(
+      'select stage_id from lesson_stage_log where lesson_id = ? and at <= ? order by at desc, id desc limit 1',
+      [id, at]
+    )?.stage_id ??
+    stateOf(id)?.stage_id ??
+    'lesson';
+  /** Targets as dialog offers (docs/19 §3): plan sentences keep their stars and core tags; a sentence the teacher
+   * typed gets stars by its place in the list. */
+  const offersOf = (plan: LessonPlan, targets: readonly string[]) =>
+    targets.map((text, i) => {
+      const t = plan.stages.flatMap((x) => x.targets).find((x) => x.text === text);
+      return t
+        ? { stars: t.stars, text: t.text, hintTags: t.hintTags }
+        : { stars: Math.min(3, i + 1) as 1 | 2 | 3, text, hintTags: [] as string[] };
+    });
+
+  /**
+   * Per-minute progress (WP-304 LessonDO.recordMinute): rebuilt from what is stored for that minute, so a retry or
+   * an out-of-order write converges on the same row.
+   */
+  const recordMinuteAt = (id: string, at: number) => {
+    const l = lessonRow(id);
+    if (!l || at < l.started_at) return;
+    const minute = Math.floor((at - l.started_at) / 60_000);
+    if (minute >= LESSON_MINUTES_MAX) return;
+    const from = l.started_at + minute * 60_000;
+    const to = from + 60_000;
+    const st = d.sql.get<{ n: number; ms: number }>(
+      `select count(*) as n, coalesce(sum(case when dur_ms > 0 then dur_ms else words * ${STUDENT_MS_PER_WORD} end), 0) as ms
+       from utterances where session_id = ? and created_at >= ? and created_at < ?`,
+      [id, from, to]
+    );
+    const lines = d.sql.all<{ text: string }>('select text from lesson_npc_lines where lesson_id = ? and at >= ? and at < ?', [
+      id,
+      from,
+      to
+    ]);
+    const teacherMs = lines.reduce((a, x) => a + wordsOf(x.text) * TEACHER_MS_PER_WORD, 0);
+    new LessonDO(id, d.db, l.player_id, 'lesson-mode', l.started_at).recordMinute({
+      minute,
+      studentMs: Number(st?.ms ?? 0),
+      teacherMs,
+      exchanges: Number(st?.n ?? 0),
+      activity: stageAt(id, to - 1)
+    });
+  };
+
+  /** Every minute from the start to now (or the end), silent minutes included, so the chart shows gaps. */
+  const minutesOf = (id: string): LessonMinuteInput[] => {
+    const l = lessonRow(id);
+    if (!l) return [];
+    const stored = new Map(d.db.listLessonMinutes(id).map((m) => [m.minute, m]));
+    const endAt = l.ended_at ?? d.nowMs();
+    const last = Math.min(LESSON_MINUTES_MAX - 1, Math.max(0, Math.floor((endAt - l.started_at) / 60_000)));
+    const out: LessonMinuteInput[] = [];
+    for (let m = 0; m <= last; m++) {
+      out.push(
+        stored.get(m) ?? {
+          lesson_id: id,
+          minute: m,
+          student_ms: 0,
+          teacher_ms: 0,
+          exchanges: 0,
+          activity: stageAt(id, l.started_at + (m + 1) * 60_000 - 1)
+        }
+      );
+    }
+    return out;
+  };
+
+  const lessonUtterances = (id: string): UtteranceMetricInput[] =>
+    d.db
+      .listUtterancesForPlayer(lessonRow(id)?.player_id ?? '')
+      .filter((u) => u.session_id === id)
+      .map((u) => ({ ...u, lesson_id: id }) as UtteranceMetricInput);
+
+  /** Talk balance of this lesson only (computeLessonMetrics over this lesson's minutes and utterances). */
+  const progressOf = (id: string) => {
+    const m = computeLessonMetrics(id, minutesOf(id), lessonUtterances(id));
+    return {
+      student_ms: m.student_ms,
+      teacher_ms: m.teacher_ms,
+      student_talk_ratio: m.student_talk_ratio,
+      exchanges: m.exchanges,
+      long_silence_minutes: m.long_silence_minutes,
+      mode_breakdown: m.mode_breakdown
+    };
+  };
+
+  /** F1/F2 pin windows (docs/10 §2): 30 s either side of each pin over the student's and the teacher's lines. */
+  const pinWindowsOf = (id: string) => {
+    const l = lessonRow(id);
+    if (!l) return [];
+    const transcript: BookmarkTranscriptLine[] = [
+      ...d.sql
+        .all<{ at: number; text: string }>(
+          'select created_at as at, final_text as text from utterances where session_id = ? order by created_at',
+          [id]
+        )
+        .map((u) => ({ at_ms: u.at - l.started_at, speaker: 'student' as const, text: u.text })),
+      ...d.sql
+        .all<{ at: number; text: string }>('select at, text from lesson_npc_lines where lesson_id = ? order by at', [id])
+        .map((x) => ({ at_ms: x.at - l.started_at, speaker: 'teacher' as const, text: x.text }))
+    ];
+    const pins = d.sql.all<{ id: string; kind: string; at_ms: number; note: string }>(
+      'select id, kind, at_ms, note from pins where lesson_id = ? order by at_ms',
+      [id]
+    );
+    const windows = extractBookmarkWindows(
+      pins.map((p) => ({ kind: p.kind === 'expression' ? ('expression' as const) : ('coaching' as const), at_ms: p.at_ms })),
+      transcript
+    );
+    return pins.map((p, i) => {
+      const w = windows[i]!;
+      return {
+        pin_id: p.id,
+        kind: p.kind,
+        note: p.note,
+        at_ms: p.at_ms,
+        window_start_ms: w.window_start_ms,
+        window_end_ms: w.window_end_ms,
+        lines: w.lines,
+        candidate_expressions: w.candidate_expressions
+      };
+    });
+  };
+
+  const liveSince = (raw: string | undefined, now: number) => {
+    const since = Number(raw ?? 0) || 0;
+    return since > 0 ? Math.max(since, now - LESSON_LIVE_MAX_BACKLOG_MS) : now - LESSON_LIVE_FRESH_MS;
+  };
+  const npcLinesSince = (id: string, since: number, limit = LESSON_LIVE_MAX_ITEMS) =>
+    d.sql
+      .all<{ id: string; at: number; npc_id: string; text: string }>(
+        'select id, at, npc_id, text from lesson_npc_lines where lesson_id = ? and at > ? order by at desc limit ?',
+        [id, since, limit]
+      )
+      .reverse();
+  const eventsSince = (id: string, since: number, limit = LESSON_LIVE_MAX_ITEMS) =>
+    d.sql
+      .all<{ id: string; at: number; kind: string; detail: string }>(
+        'select id, at, kind, detail from lesson_events where lesson_id = ? and at > ? order by at desc limit ?',
+        [id, since, limit]
+      )
+      .reverse();
 
   /* ---------- operator ---------- */
 
@@ -157,6 +349,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       'insert or replace into lesson_state (lesson_id, plan_id, stage_id, targets, updated_at) values (?, ?, ?, ?, ?)',
       [lessonId, plan.id, first.id, JSON.stringify(first.targets.map((t) => t.text)), now]
     );
+    logStage(lessonId, first.id, now);
+    setPossessed(lessonId, null);
     return c.json({ lesson_id: lessonId, join_code: code, expires_at: now + JOIN_CODE_TTL_MS, plan }, 201);
   });
 
@@ -170,7 +364,87 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       'insert or replace into lesson_state (lesson_id, plan_id, stage_id, targets, updated_at) values (?, ?, ?, ?, ?)',
       [id, l.plan || 'first_lesson_v1', p.data.stage_id, JSON.stringify(p.data.targets), d.nowMs()]
     );
+    const prev = d.sql.get<{ stage_id: string }>(
+      'select stage_id from lesson_stage_log where lesson_id = ? order by at desc, id desc limit 1',
+      [id]
+    );
+    if (prev?.stage_id !== p.data.stage_id) logStage(id, p.data.stage_id, d.nowMs());
     return c.json({ ok: true });
+  });
+
+  /* Possession and NPC lines (WP-305): the teacher speaks as an NPC; the student's world shows the bubble with a
+     sparkle on that NPC only (docs/10 §2). Saying a line as an NPC also possesses it. */
+  app.post('/v1/admin/lessons/:id/npc-say', async (c) => {
+    const id = c.req.param('id');
+    const l = lessonRow(id);
+    if (!l) return c.json({ error: 'lesson_not_found' }, 404);
+    if (l.ended_at) return c.json({ error: 'lesson_ended' }, 409);
+    const p = NpcSaySchema.safeParse(await c.req.json().catch(() => null));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const at = d.nowMs();
+    const lineId = `npc-${hex(d.randomBytes(6))}`;
+    d.sql.run('insert into lesson_npc_lines (id, lesson_id, at, npc_id, text) values (?, ?, ?, ?, ?)', [
+      lineId,
+      id,
+      at,
+      p.data.npc_id,
+      p.data.text
+    ]);
+    setPossessed(id, p.data.npc_id);
+    recordMinuteAt(id, at);
+    return c.json({ ok: true, id: lineId, at }, 201);
+  });
+
+  app.post('/v1/admin/lessons/:id/possess', async (c) => {
+    const id = c.req.param('id');
+    if (!lessonRow(id)) return c.json({ error: 'lesson_not_found' }, 404);
+    const p = PossessSchema.safeParse(await c.req.json().catch(() => null));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    setPossessed(id, p.data.npc_id);
+    return c.json({ ok: true, possessed_npc_id: p.data.npc_id });
+  });
+
+  /* Director events (WP-305, six kinds): stored with the lesson, played once on the student's screen. */
+  app.post('/v1/admin/lessons/:id/event', async (c) => {
+    const id = c.req.param('id');
+    const l = lessonRow(id);
+    if (!l) return c.json({ error: 'lesson_not_found' }, 404);
+    if (l.ended_at) return c.json({ error: 'lesson_ended' }, 409);
+    const p = EventSchema.safeParse(await c.req.json().catch(() => null));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const at = d.nowMs();
+    const eventId = `evt-${hex(d.randomBytes(6))}`;
+    d.sql.run('insert into lesson_events (id, lesson_id, at, kind, detail) values (?, ?, ?, ?, ?)', [
+      eventId,
+      id,
+      at,
+      p.data.kind,
+      p.data.detail
+    ]);
+    return c.json({ ok: true, id: eventId, at }, 201);
+  });
+
+  app.get('/v1/admin/lesson-plans', (c) => c.json(LESSON_PLANS));
+  app.get('/v1/admin/lesson-npcs', (c) => c.json(LESSON_NPCS));
+  app.get('/v1/admin/director-events', (c) => c.json(LESSON_DIRECTOR_EVENTS));
+
+  /** Lessons of one KST day for the hub (report check, send to parent). */
+  app.get('/v1/admin/lessons', (c) => {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('day') ?? '') ? c.req.query('day')! : kstDay(d.nowMs());
+    const from = kstDayStartMs(day);
+    const rows = d.sql.all<Record<string, unknown>>(
+      `select l.id, l.player_id, p.nickname, l.plan, l.started_at, l.ended_at,
+              (select share_token from reports r where r.ref_id = l.id and r.kind = 'lesson' order by created_at desc limit 1) as share_token,
+              (select count(*) from utterances u where u.session_id = l.id) as utterances,
+              (select count(*) from utterances u where u.session_id = l.id and u.stars > 0) as passes
+       from lessons l left join players p on p.id = l.player_id
+       where l.started_at >= ? and l.started_at < ? and l.player_id not like 'smoke-%' order by l.started_at`,
+      [from, from + 86_400_000]
+    );
+    return c.json({
+      day,
+      lessons: rows.map(({ share_token, ...r }) => ({ ...r, report_path: share_token ? `/r/${String(share_token)}` : null }))
+    });
   });
 
   app.post('/v1/admin/lessons/:id/pins', async (c) => {
@@ -211,6 +485,18 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
        from utterances where session_id = ?`,
       [id]
     );
+    const now = d.nowMs();
+    const presence = d.sql.get<{ last_seen_at: number; scene_id: string | null; ui: string | null }>(
+      'select last_seen_at, scene_id, ui from lesson_presence where lesson_id = ?',
+      [id]
+    );
+    const lastUtt = d.sql.get<Record<string, unknown>>(
+      `select created_at as at, target_text, final_text as transcript, stars from utterances
+       where session_id = ? order by created_at desc limit 1`,
+      [id]
+    );
+    const plan = getLessonPlan(st?.plan_id);
+    const stage = st ? planStage(plan, st.stage_id) : undefined;
     return c.json({
       lesson: {
         id,
@@ -219,11 +505,29 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         started_at: l.started_at,
         ended_at: l.ended_at,
         stage_id: st?.stage_id ?? null,
-        targets: st?.targets ?? []
+        targets: st?.targets ?? [],
+        plan_id: plan.id,
+        possessed_npc_id: possessedOf(id)
       },
       utterances,
       pins,
-      live
+      live,
+      npc_lines: npcLinesSince(id, since, 500),
+      events: eventsSince(id, since, 500),
+      stage_log: d.sql.all('select at, stage_id from lesson_stage_log where lesson_id = ? order by at, id', [id]),
+      minutes: minutesOf(id).map(({ lesson_id: _l, ...m }) => m),
+      progress: progressOf(id),
+      student_view: {
+        connected: Boolean(presence && now - presence.last_seen_at <= STUDENT_PRESENCE_TTL_MS),
+        last_seen_at: presence?.last_seen_at ?? null,
+        scene_id: presence?.scene_id ?? null,
+        ui: presence?.ui ?? null,
+        expected_scene_id: stage?.sceneId ?? null,
+        goal_ko: stage?.studentGoalKo ?? '',
+        targets: st?.targets ?? [],
+        last_utterance: lastUtt ? { ...lastUtt, pass: Number(lastUtt.stars) > 0 } : null
+      },
+      server_now: now
     });
   });
 
@@ -238,6 +542,14 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       [l.player_id]
     );
     const token = hex(d.randomBytes(16));
+    const pinWindows = pinWindowsOf(id);
+    // F2 pins become lesson-born expressions (WP-310 transfer tracking): the teacher's note, else the top candidate.
+    for (const w of pinWindows) {
+      const lemma = w.kind === 'expression' ? (w.note.trim() || w.candidate_expressions[0] || '').slice(0, 120) : '';
+      if (lemma) {
+        d.db.registerLessonExpression({ id: `expr-${w.pin_id}`, playerId: l.player_id, lemmaKey: lemma, lessonId: id, nowMs: d.nowMs() });
+      }
+    }
     const res = await d.completeLesson(id, {
       report_id: `rep-${id}`,
       player_id: l.player_id,
@@ -248,7 +560,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       next_lesson_at: p.data.next_lesson_at || '다음 수업 때 알려 드려요',
       share_token: token,
       share_url: `/r/${token}`,
-      clips: []
+      clips: [],
+      lesson_extra: { progress: progressOf(id), pin_windows: pinWindows }
     });
     const body = (await res.json()) as { facts?: unknown; error?: string };
     if (!res.ok) return c.json({ error: body.error ?? 'report_failed' }, 500);
@@ -256,7 +569,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     d.sql.run('update lessons set ended_at = coalesce(ended_at, ?) where id = ?', [now, id]);
     d.sql.run('update student_tokens set expires_at = min(expires_at, ?) where lesson_id = ?', [now + 10 * 60_000, id]);
     d.sql.run('delete from lesson_joins where lesson_id = ?', [id]);
-    return c.json({ report_path: `/r/${token}`, share_token: token, facts: body.facts });
+    return c.json({ report_path: `/r/${token}`, share_token: token, facts: body.facts, pin_windows: pinWindows });
   });
 
   const dailyRows = (where: string, params: unknown[]) =>
@@ -344,20 +657,45 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     );
   };
 
+  /* Polled every 3 s by the student client (docs/19 §4). `since` is the previous `server_now`; `scene` and `ui`
+     tell the director console what the student's screen shows right now. */
   app.get('/v1/lesson/state', async (c) => {
     const s = await student(c.req.raw);
     if (!s) return c.json({ error: 'student_only' }, 401);
+    const now = d.nowMs();
     const st = stateOf(s.lesson_id);
     const l = lessonRow(s.lesson_id);
     const plan = getLessonPlan(st?.plan_id);
     const stage = st ? planStage(plan, st.stage_id) : undefined;
+    const scene = c.req.query('scene');
+    const ui = c.req.query('ui');
+    d.sql.run(
+      `insert into lesson_presence (lesson_id, last_seen_at, scene_id, ui) values (?, ?, ?, ?)
+       on conflict(lesson_id) do update set last_seen_at = excluded.last_seen_at,
+         scene_id = coalesce(excluded.scene_id, lesson_presence.scene_id), ui = coalesce(excluded.ui, lesson_presence.ui)`,
+      [
+        s.lesson_id,
+        now,
+        scene && /^[a-z_]{1,32}$/.test(scene) ? scene : null,
+        ui === '3d' || ui === 'cards' ? ui : null
+      ]
+    );
+    const since = liveSince(c.req.query('since'), now);
     return c.json({
       lesson_id: s.lesson_id,
       stage_id: st?.stage_id ?? null,
       stage_goal_ko: stage?.studentGoalKo ?? '',
       mode: stage?.mode ?? 'guided',
+      scene_id: stage?.sceneId ?? 'plaza',
+      npc_id: stage?.npcId ?? 'guide',
+      hint: stage?.hint ?? 'full',
       targets: st?.targets ?? [],
-      ended: Boolean(l?.ended_at)
+      offers: offersOf(plan, st?.targets ?? []),
+      possessed_npc_id: possessedOf(s.lesson_id),
+      npc_lines: npcLinesSince(s.lesson_id, since),
+      events: eventsSince(s.lesson_id, since),
+      ended: Boolean(l?.ended_at),
+      server_now: now
     });
   });
 
@@ -429,6 +767,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       audio_final: null,
       created_at: now
     });
+    recordMinuteAt(s.lesson_id, now);
     const totals = d.sql.get<{ s: number }>('select coalesce(sum(stars), 0) as s from utterances where player_id = ?', [s.player_id]);
     const from = kstDayStartMs(kstDay(now));
     const today = d.sql.get<{ n: number }>('select count(*) as n from utterances where player_id = ? and created_at >= ?', [

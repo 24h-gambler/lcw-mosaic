@@ -24,12 +24,17 @@
 | `POST /v1/admin/lessons/start` | 운영자 | `{player_id, plan_id?}` | `{lesson_id, join_code, expires_at, plan}` |
 | `POST /v1/admin/lessons/:id/stage` | 운영자 | `{stage_id, targets: string[]}` | `{ok}` |
 | `POST /v1/admin/lessons/:id/pins` | 운영자 | `{kind: 'expression'\|'coaching'\|'highlight', at_ms, note}` | `{ok, id}` |
-| `GET /v1/admin/lessons/:id/feed?since=<ms>` | 운영자 | — | `{lesson, utterances, pins, live}` (3절) |
+| `POST /v1/admin/lessons/:id/npc-say` | 운영자 | `{npc_id, text}` (npc_id 는 `LESSON_NPCS`: guide·cafe_owner·shop_owner) | `201 {ok, id, at}` — 그 NPC 에 빙의도 함. 끝난 수업은 409 |
+| `POST /v1/admin/lessons/:id/possess` | 운영자 | `{npc_id \| null}` | `{ok, possessed_npc_id}` (null = 빙의 풀기) |
+| `POST /v1/admin/lessons/:id/event` | 운영자 | `{kind, detail?}` (kind 6종 = `LESSON_DIRECTOR_EVENTS`, `storage.ts` `DirectorEventKind`) | `201 {ok, id, at}`. 끝난 수업은 409 |
+| `GET /v1/admin/lessons/:id/feed?since=<ms>` | 운영자 | — | `{lesson, utterances, pins, live, npc_lines, events, stage_log, minutes, progress, student_view, server_now}` (3절) |
+| `GET /v1/admin/lessons?day=YYYY-MM-DD` | 운영자 | — | `{day, lessons: [{id, player_id, nickname, plan, started_at, ended_at, report_path, utterances, passes}]}` (KST 하루, 허브 카드용) |
+| `GET /v1/admin/lesson-plans` · `lesson-npcs` · `director-events` | 운영자 | — | `LESSON_PLANS` · `LESSON_NPCS` · `LESSON_DIRECTOR_EVENTS` 그대로 |
 | `POST /v1/admin/lessons/:id/end` | 운영자 | `{teacher_comment?, next_lesson_at?}` | `{report_path, share_token, facts}` |
 | `GET /v1/admin/students/:id/daily?days=14` | 운영자 | — | `[{day, utterances, passes, words, speaking_ms, lessons}]` |
 | `GET /v1/admin/daily?day=YYYY-MM-DD` | 운영자 | — | `{day, students: [{player_id, nickname, utterances, passes, words, speaking_ms, lessons, last_at}]}` |
 | `POST /v1/join` | 공개 | `{code}` | `{student_token, lesson_id, player_id, nickname, level}` (코드 6자리, 12시간 유효, 실패 10회/시간 넘으면 429) |
-| `GET /v1/lesson/state` | 학생 | — | `{lesson_id, stage_id, targets, ended}` |
+| `GET /v1/lesson/state?since=<server_now>&scene=<SceneId>&ui=3d\|cards` | 학생 | — | `{lesson_id, stage_id, stage_goal_ko, mode, scene_id, npc_id, hint, targets, offers:[{stars,text,hintTags}], possessed_npc_id, npc_lines:[{id,at,npc_id,text}], events:[{id,at,kind,detail}], ended, server_now}` — 3초마다. `since` 없으면 최근 20초, 있으면 최대 2분 전까지만. `scene`·`ui` 는 디렉터 콘솔의 학생 화면 요약으로 |
 | `POST /v1/lesson/utterance` | 학생 | `{target_text, transcript, chosen_stars, hint_level, latency_ms, dur_ms, stt_source, confidence}` | `{pass, score, stars, feedback_ko, coins_total, utterances_today}` |
 | `GET /v1/reports/:token` | 공개 | — | `{kind, ref_id, facts, body, clips, created_at}` |
 
@@ -40,9 +45,20 @@
   "lesson": { "id": "les-…", "player_id": "…", "nickname": "…", "started_at": 0, "ended_at": null, "stage_id": "cafe_order", "targets": ["Can I have a warm honey tea?"] },
   "utterances": [{ "id": "…", "at": 0, "target_text": "…", "transcript": "…", "stars": 2, "score": 0.8, "pass": true, "hint_level": "full", "mode": "guided" }],
   "pins": [{ "id": "…", "kind": "expression", "at_ms": 0, "note": "…" }],
-  "live": { "utterances": 0, "passes": 0, "stars_total": 0, "words_total": 0, "student_speaking_ms": 0 }
+  "live": { "utterances": 0, "passes": 0, "stars_total": 0, "words_total": 0, "student_speaking_ms": 0 },
+  "npc_lines": [{ "id": "npc-…", "at": 0, "npc_id": "cafe_owner", "text": "Welcome! What would you like?" }],
+  "events": [{ "id": "evt-…", "at": 0, "kind": "blackout", "detail": "" }],
+  "stage_log": [{ "at": 0, "stage_id": "warmup_anchor" }],
+  "minutes": [{ "minute": 0, "student_ms": 3000, "teacher_ms": 2000, "exchanges": 1, "activity": "warmup_anchor" }],
+  "progress": { "student_ms": 0, "teacher_ms": 0, "student_talk_ratio": 0, "exchanges": 0, "long_silence_minutes": 0, "mode_breakdown": {} },
+  "student_view": { "connected": true, "last_seen_at": 0, "scene_id": "honey_cafe", "ui": "3d", "expected_scene_id": "honey_cafe", "goal_ko": "…", "targets": [], "last_utterance": null },
+  "server_now": 0
 }
 ```
+
+**진행표(WP-304 분 단위 집계)**: 발화와 빙의 대사가 들어올 때마다 그 분을 저장된 기록에서 다시 계산해 `LessonDO.recordMinute`로 `lesson_minutes`에 씁니다(다시 써도 같은 값). 학생 시간은 `dur_ms`(없으면 단어×500ms), 교사 시간은 빙의 대사 단어×400ms(WP-306 음성 감지 전까지의 추정, 상수는 `lesson-mode.ts`), 교환 수는 학생 발화 수, 활동은 그 분의 단계입니다. `minutes`는 말이 없던 분도 0으로 채워 빈 구간이 보입니다.
+
+**리포트**: 「수업 끝」은 이번 수업만의 `progress`(위와 같은 값)와 `pin_windows`(핀마다 앞뒤 30초의 학생 발화·빙의 대사와 F2 표현 후보, `extractBookmarkWindows`)를 `facts`에 붙입니다. F2 핀은 메모(없으면 첫 후보)로 수업 유래 표현(`expressions`, WP-310)에 등록됩니다. 학부모용 이번 수업 사실표(`facts.lesson`)는 보호자 도메인이 같은 자리에 붙입니다.
 
 ## 4. 첫 수업안 (`plan_id = first_lesson_v1`, 120분 대면)
 

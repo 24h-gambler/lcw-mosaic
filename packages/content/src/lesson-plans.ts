@@ -3,6 +3,28 @@
  * the student sees, and the teacher's own guide. Korean text is teacher/parent copy; English is what the child says.
  */
 export type LessonUtteranceMode = 'free' | 'guided' | 'read' | 'recall';
+/** Scenes of the 3D lesson world (docs/19 §2 SceneId). */
+export type LessonSceneId = 'plaza' | 'honey_cafe' | 'trade_shop' | 'build_plot' | 'open_hill';
+export type LessonHintLevel = 'full' | 'keyword' | 'initial' | 'picture' | 'none';
+
+/** NPCs the teacher can possess in lesson scenes (docs/19 §4). The world domain spawns them under these ids. */
+export interface LessonNpc {
+  id: string;
+  nameKo: string;
+  nameEn: string;
+  /** Conversation-bank context the dialog panel falls back to (docs/04 ctx). */
+  ctx: string;
+}
+
+export const LESSON_NPCS: readonly LessonNpc[] = [
+  { id: 'guide', nameKo: '안내인 선생님', nameEn: 'Guide', ctx: 'plaza' },
+  { id: 'cafe_owner', nameKo: '카페 주인', nameEn: 'Cafe owner', ctx: 'cafe' },
+  { id: 'shop_owner', nameKo: '상점 주인', nameEn: 'Shop owner', ctx: 'trade' }
+];
+
+export function getLessonNpc(id: string | null | undefined): LessonNpc | undefined {
+  return LESSON_NPCS.find((n) => n.id === id);
+}
 
 export interface LessonTarget {
   stars: 1 | 2 | 3;
@@ -25,6 +47,10 @@ export interface LessonStage {
   teacherScriptEn: string;
   /** What the child sees as the goal (Korean, no prices or deadlines). */
   studentGoalKo: string;
+  /** Where the student's 3D client goes for this stage and who talks there (docs/19 §4 table). */
+  sceneId: LessonSceneId;
+  npcId: string;
+  hint: LessonHintLevel;
   targets: LessonTarget[];
 }
 
@@ -50,6 +76,9 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '이름·좋아하는 것을 영어로 물어 보세요. 아이가 대본 없이 2분 말하면 첫 기준선이 저장되고, 4주 뒤 같은 질문과 비교해 부모 리포트에 성장으로 나옵니다.',
       teacherScriptEn: 'Hi! What is your name? What do you like to do after school?',
       studentGoalKo: '선생님 질문에 영어로 내 이야기를 해 봐요',
+      sceneId: 'plaza',
+      npcId: 'guide',
+      hint: 'full',
       targets: [
         { stars: 1, text: 'My name is ___.', hintTags: ['my name is'] },
         { stars: 2, text: 'I like playing games after school.', hintTags: ['i like'] },
@@ -66,6 +95,9 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '카페 주인 역할을 해 주세요. 아이가 1성 문장부터 말하고, 통과하면 2성·3성으로 올려 주세요. 3성은 so that·because 같은 연결어가 있어야 통과합니다(빠지면 2성까지만).',
       teacherScriptEn: 'Welcome to the honey cafe! What would you like today?',
       studentGoalKo: '카페에서 영어로 음료를 주문해요. 별 3개에 도전!',
+      sceneId: 'honey_cafe',
+      npcId: 'cafe_owner',
+      hint: 'full',
       targets: [
         { stars: 1, text: 'Honey tea, please.', hintTags: ['please'] },
         { stars: 2, text: 'Can I have a warm honey tea?', hintTags: ['can i have'] },
@@ -82,6 +114,9 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '가게 주인이 되어 물건을 바꿔 달라고 해 보세요. 아이가 왜 필요한지(because) 말하게 하면 3성입니다. 좋은 표현이 나오면 F2 를 눌러 표시하세요 — 수업 뒤 리포트 초안에 앞뒤 30초가 같이 들어갑니다.',
       teacherScriptEn: 'I have a shiny red helmet. What will you give me for it, and why?',
       studentGoalKo: '선생님과 물건을 바꿔요. 왜 필요한지도 말해 봐요',
+      sceneId: 'trade_shop',
+      npcId: 'shop_owner',
+      hint: 'keyword',
       targets: [
         { stars: 1, text: 'I want the red helmet.', hintTags: ['i want'] },
         { stars: 2, text: 'Can I trade my blue stone for the helmet?', hintTags: ['can i', 'for'] },
@@ -102,6 +137,9 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '정답이 없는 질문을 하고 기다려 주세요(5초 이상). 아이 말이 길어질수록 생각말하기 지수가 오릅니다. 막히면 한국어 단어를 섞어도 화면이 영어로 바꿔 보여 줍니다.',
       teacherScriptEn: 'If you could build any place in a new world, what would you build? Why?',
       studentGoalKo: '내가 만들고 싶은 곳을 영어로 설명해요',
+      sceneId: 'open_hill',
+      npcId: 'guide',
+      hint: 'none',
       targets: [
         { stars: 1, text: 'I would build a cafe.', hintTags: ['i would'] },
         { stars: 2, text: 'I would build a big cafe with a garden.', hintTags: ['i would', 'with'] },
@@ -118,6 +156,9 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '오늘 나온 문장을 힌트 없이 다시 말하게 하세요. 화면은 첫 단어만 보여 줍니다. 여기서 통과한 문장이 다음 수업의 복습 카드가 됩니다.',
       teacherScriptEn: 'Do you remember how to order your honey tea? Try it without looking!',
       studentGoalKo: '오늘 배운 문장을 기억해서 말해요',
+      sceneId: 'honey_cafe',
+      npcId: 'cafe_owner',
+      hint: 'initial',
       targets: [
         { stars: 2, text: 'Can I have a warm honey tea?', hintTags: ['can i have'] },
         { stars: 3, text: 'I want to trade my blue stone because I need a helmet for the cave.', hintTags: ['because'] }
@@ -133,6 +174,9 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '오늘 가장 잘한 문장 하나를 칭찬하고 다음 수업을 예고하세요. 「수업 끝」을 누르면 숫자가 검증된 부모 리포트 링크가 만들어집니다 — 문자로 보내기 전에 한 번 읽어 보세요.',
       teacherScriptEn: 'Great job today! Next time, we will build our own shop. See you!',
       studentGoalKo: '오늘 제일 잘한 문장을 한 번 더 말해요',
+      sceneId: 'plaza',
+      npcId: 'guide',
+      hint: 'full',
       targets: [{ stars: 1, text: 'Thank you! See you next time.', hintTags: ['see you'] }]
     }
   ]

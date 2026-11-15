@@ -96,7 +96,7 @@ export const TILE_NAMES = [
   'hay_side',
   'hay_top',
   'cobblestone',
-  'bookshelf',
+  'jar_shelf',
   'dark_plank',
   'chest_side',
   'chest_top',
@@ -224,7 +224,7 @@ export const BLOCK_LOOKS: ReadonlyArray<BlockLook | undefined> = (() => {
   put(cube(58, 'barrel_side', 'wood', { top: 'barrel_top', bottom: 'barrel_top' }));
   put(cube(59, 'hay_side', 'plant', { top: 'hay_top', bottom: 'hay_top' }));
   put(cube(60, 'cobblestone', 'stone'));
-  put(cube(61, 'bookshelf', 'wood', { top: 'oak_plank', bottom: 'oak_plank' }));
+  put(cube(61, 'jar_shelf', 'wood', { top: 'oak_plank', bottom: 'oak_plank' }));
   put(cube(62, 'dark_plank', 'wood'));
   put(cube(63, 'chest_side', 'wood', { top: 'chest_top', bottom: 'dark_plank' }));
   put({
@@ -292,65 +292,5 @@ export function collideHeight(id: number): number {
 }
 
 /** Named ids used by the town builder, so prefabs read like the palette, not magic numbers. */
-export const BK = {
-  air: 0,
-  stone: 1,
-  dirt: 2,
-  grass: 3,
-  brick: 4,
-  road: 5,
-  plank: 8,
-  glass: 9,
-  sand: 11,
-  gravel: 12,
-  granite: 14,
-  marble: 15,
-  stoneStair: 16,
-  stoneSlab: 17,
-  oakPlank: 18,
-  birchPlank: 19,
-  pinePlank: 20,
-  log: 21,
-  fence: 22,
-  door: 23,
-  stainedGlass: 25,
-  torch: 26,
-  lantern: 27,
-  ironPlate: 29,
-  copper: 30,
-  goldTrim: 31,
-  roofRed: 33,
-  roofBlue: 34,
-  roofSlate: 35,
-  thatch: 36,
-  scaffold: 41,
-  nameplate: 42,
-  carpet: 43,
-  flowerPot: 44,
-  leaves: 45,
-  water: 46,
-  flowerRed: 47,
-  flowerYellow: 48,
-  tallGrass: 49,
-  honeycomb: 50,
-  woolWhite: 51,
-  woolRed: 52,
-  woolYellow: 53,
-  woolBlue: 54,
-  woolGreen: 55,
-  woolOrange: 56,
-  crate: 57,
-  barrel: 58,
-  hay: 59,
-  cobble: 60,
-  bookshelf: 61,
-  darkPlank: 62,
-  chest: 63,
-  path: 64,
-  woolPink: 65,
-  woolPurple: 66,
-  terracottaHoney: 67,
-  flowerBlue: 68,
-  chalkboard: 69,
-  stoneBrick: 70
-} as const;
+/** Named block ids (shared with the town builder in sim-core). */
+export { BK } from '@lcw/sim-core';

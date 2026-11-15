@@ -1,7 +1,10 @@
 /**
- * Voxel characters (docs/08 6.2): six boxes at 1/16 m — head 10^3, body 8x9x5, arms 3x9x3, legs 4x8x4,
- * 27 voxels ~ 1.7 m. Own proportions and UV-free coloring, so no other game's skin format fits (docs/15 2장).
- * Animation is part rotation only: idle, walk/run, talk (gesture + mouth shapes), wave, celebrate.
+ * LCW toy figures (docs/08 6.2 sizes, own look). A character is ONE mesh and ONE draw call: every part is a
+ * soft-edged box baked into a single geometry, tagged with its part index, and moved in the vertex shader by a
+ * per-part matrix (legs, body, arms, head, possession ring). The figure reads as a painted wooden toy — rounded
+ * head wider than tall, big oval eyes with highlights, rosy cheeks, sculpted fringe, mitten hands, round shoes,
+ * an A-line shirt hem — not a cube-headed block person. Animation is part rotation only (idle, walk/run, talk
+ * gestures + six mouth shapes, wave, celebrate). Blob shadows for all figures are one instanced draw (BlobShadows).
  */
 import * as THREE from 'three';
 import type { NpcLook } from './town.js';
@@ -11,33 +14,41 @@ export const CHAR_HEIGHT = 27 * V;
 
 type Mouth = 'closed' | 'small' | 'big' | 'wide' | 'o' | 'smile';
 
-function css(hex: number, mul = 1): string {
+/** Part indices (the shader's uParts[]). */
+const P = { legL: 0, legR: 1, body: 2, armL: 3, armR: 4, head: 5, ring: 6 } as const;
+const PARTS = 7;
+
+function rgb(hex: number, mul = 1): string {
   const r = Math.min(255, Math.round(((hex >> 16) & 255) * mul));
   const g = Math.min(255, Math.round(((hex >> 8) & 255) * mul));
   const b = Math.min(255, Math.round((hex & 255) * mul));
   return `rgb(${r},${g},${b})`;
 }
 
+// Face canvas: 64 x 64. The face fills [0, 48) x [0, 48); the white texel block at (56..64) colours every other face.
+const FACE_PX = 64;
+const FACE_W = 48;
+const WHITE_UV = (60 / FACE_PX);
+
 class FacePainter {
-  readonly canvas: HTMLCanvasElement | null;
   readonly texture: THREE.Texture;
   private ctx: CanvasRenderingContext2D | null;
   private last = '';
 
   constructor(private look: NpcLook) {
     if (typeof document !== 'undefined') {
-      this.canvas = document.createElement('canvas');
-      this.canvas.width = 10;
-      this.canvas.height = 10;
-      this.ctx = this.canvas.getContext('2d');
-      this.texture = new THREE.CanvasTexture(this.canvas);
+      const canvas = document.createElement('canvas');
+      canvas.width = FACE_PX;
+      canvas.height = FACE_PX;
+      this.ctx = canvas.getContext('2d');
+      this.texture = new THREE.CanvasTexture(canvas);
     } else {
-      this.canvas = null;
       this.ctx = null;
       this.texture = new THREE.Texture();
     }
-    this.texture.magFilter = THREE.NearestFilter;
-    this.texture.minFilter = THREE.NearestFilter;
+    this.texture.magFilter = THREE.LinearFilter;
+    this.texture.minFilter = THREE.LinearFilter;
+    this.texture.generateMipmaps = false;
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.draw('smile', false);
   }
@@ -48,74 +59,160 @@ class FacePainter {
     this.last = key;
     const c = this.ctx;
     const L = this.look;
-    c.fillStyle = css(L.skin);
-    c.fillRect(0, 0, 10, 10);
-    c.fillStyle = css(L.hair);
-    c.fillRect(0, 0, 10, 2);
+    const W = FACE_W;
+    c.clearRect(0, 0, FACE_PX, FACE_PX);
+    c.fillStyle = '#ffffff';
+    c.fillRect(52, 52, 12, 12);
+    c.fillStyle = rgb(L.skin);
+    c.fillRect(0, 0, W, W);
+    // soft vertical shading: lighter forehead
+    const g = c.createLinearGradient(0, 0, 0, W);
+    g.addColorStop(0, 'rgba(255,255,255,0.10)');
+    g.addColorStop(1, 'rgba(0,0,0,0.06)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, W, W);
+    // sculpted fringe: three rounded scallops across the forehead
+    c.fillStyle = rgb(L.hair);
+    c.fillRect(0, 0, W, 8);
+    for (let i = 0; i < 3; i++) {
+      c.beginPath();
+      c.ellipse(8 + i * 16, 8, 9, 6.5, 0, 0, Math.PI);
+      c.fill();
+    }
     if (L.hairStyle === 'long' || L.hairStyle === 'bun') {
-      c.fillRect(0, 2, 1, 4);
-      c.fillRect(9, 2, 1, 4);
+      c.fillRect(0, 8, 4, 22);
+      c.fillRect(W - 4, 8, 4, 22);
     }
-    // cheeks
-    c.fillStyle = css(L.skin, 0.9);
-    c.fillRect(1, 7, 1, 1);
-    c.fillRect(8, 7, 1, 1);
-    c.fillStyle = 'rgb(255,150,140)';
-    c.globalAlpha = 0.55;
-    c.fillRect(1, 6, 2, 1);
-    c.fillRect(7, 6, 2, 1);
-    c.globalAlpha = 1;
-    // eyes 2 x 3
-    c.fillStyle = 'rgb(27,31,42)';
-    if (blink) {
-      c.fillRect(2, 5, 2, 1);
-      c.fillRect(6, 5, 2, 1);
-    } else {
-      c.fillRect(2, 3, 2, 3);
-      c.fillRect(6, 3, 2, 3);
-      c.fillStyle = 'rgb(255,255,255)';
-      c.fillRect(2, 3, 1, 1);
-      c.fillRect(6, 3, 1, 1);
+    // rosy round cheeks
+    c.fillStyle = 'rgba(255,128,120,0.45)';
+    for (const x of [10, W - 10]) {
+      c.beginPath();
+      c.arc(x, 31, 4.2, 0, Math.PI * 2);
+      c.fill();
     }
-    // mouth (4 x 1 base, six shapes)
-    c.fillStyle = 'rgb(110,40,40)';
+    // big oval eyes with a highlight (or closed arcs while blinking)
+    c.fillStyle = '#2b2f3c';
+    c.strokeStyle = '#2b2f3c';
+    c.lineWidth = 2.4;
+    c.lineCap = 'round';
+    for (const x of [15, W - 15]) {
+      if (blink) {
+        c.beginPath();
+        c.arc(x, 23, 4, Math.PI * 0.15, Math.PI * 0.85);
+        c.stroke();
+      } else {
+        c.beginPath();
+        c.ellipse(x, 22, 3.6, 5, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#ffffff';
+        c.beginPath();
+        c.arc(x - 1.2, 19.6, 1.5, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#2b2f3c';
+      }
+    }
+    // mouth: six shapes (docs/08 6.2), drawn as soft curves
+    c.fillStyle = '#8a3b3b';
+    c.strokeStyle = '#8a3b3b';
+    c.lineWidth = 2;
+    const mx = W / 2;
+    const my = 34;
+    c.beginPath();
     switch (mouth) {
       case 'closed':
-        c.fillRect(3, 8, 4, 1);
+        c.moveTo(mx - 3.5, my);
+        c.lineTo(mx + 3.5, my);
+        c.stroke();
         break;
       case 'small':
-        c.fillRect(4, 8, 2, 1);
+        c.ellipse(mx, my, 2, 1.4, 0, 0, Math.PI * 2);
+        c.fill();
         break;
       case 'big':
-        c.fillRect(3, 7, 4, 2);
-        c.fillStyle = 'rgb(230,110,110)';
-        c.fillRect(4, 8, 2, 1);
+        c.ellipse(mx, my, 4.5, 3.6, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#e8817a';
+        c.beginPath();
+        c.ellipse(mx, my + 1.6, 2.6, 1.4, 0, 0, Math.PI * 2);
+        c.fill();
         break;
       case 'wide':
-        c.fillRect(2, 8, 6, 1);
+        c.ellipse(mx, my, 6, 1.8, 0, 0, Math.PI * 2);
+        c.fill();
         break;
       case 'o':
-        c.fillRect(4, 7, 2, 2);
+        c.ellipse(mx, my, 2.6, 3, 0, 0, Math.PI * 2);
+        c.fill();
         break;
       case 'smile':
-        c.fillRect(3, 7, 1, 1);
-        c.fillRect(6, 7, 1, 1);
-        c.fillRect(4, 8, 2, 1);
+        c.arc(mx, my - 2.5, 4.5, Math.PI * 0.2, Math.PI * 0.8);
+        c.stroke();
         break;
     }
     this.texture.needsUpdate = true;
   }
 }
 
-function lambert(color: number): THREE.MeshLambertMaterial {
-  return new THREE.MeshLambertMaterial({ color });
+// ---- Geometry builder: soft-edged boxes, vertex colours, part tags, and face UVs.
+interface Builder {
+  pos: number[];
+  nrm: number[];
+  col: number[];
+  uv: number[];
+  part: number[];
+  idx: number[];
 }
 
-function box(w: number, h: number, d: number, mat: THREE.Material | THREE.Material[]): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  m.castShadow = true;
-  m.receiveShadow = false;
-  return m;
+const tmpV = new THREE.Vector3();
+
+/**
+ * Add a soft box centred at (cx, cy, cz) in voxels, belonging to `part`. `face` maps the +z face to the face canvas.
+ * Edges are chamfered by `r` voxels so every part reads as a rounded toy piece.
+ */
+function softBox(b: Builder, part: number, color: number, cx: number, cy: number, cz: number, w: number, h: number, d: number, r = 0.8, face = false): void {
+  const g = new THREE.BoxGeometry(w * V, h * V, d * V, 2, 2, 2);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const hw = (w / 2 - r) * V;
+  const hh = (h / 2 - r) * V;
+  const hd = (d / 2 - r) * V;
+  const rr = r * V;
+  for (let i = 0; i < pos.count; i++) {
+    tmpV.fromBufferAttribute(pos, i);
+    const kx = Math.max(-hw, Math.min(hw, tmpV.x));
+    const ky = Math.max(-hh, Math.min(hh, tmpV.y));
+    const kz = Math.max(-hd, Math.min(hd, tmpV.z));
+    const dx = tmpV.x - kx;
+    const dy = tmpV.y - ky;
+    const dz = tmpV.z - kz;
+    const len = Math.hypot(dx, dy, dz);
+    if (len > 1e-6) pos.setXYZ(i, kx + (dx / len) * rr, ky + (dy / len) * rr, kz + (dz / len) * rr);
+  }
+  g.computeVertexNormals();
+  const nrm = g.attributes.normal as THREE.BufferAttribute;
+  const uvs = g.attributes.uv as THREE.BufferAttribute;
+  const index = g.index!;
+  const base = b.pos.length / 3;
+  const cr = ((color >> 16) & 255) / 255;
+  const cg = ((color >> 8) & 255) / 255;
+  const cb = (color & 255) / 255;
+  // BoxGeometry groups: +x, -x, +y, -y, +z, -z; each face has (2+1)^2 = 9 vertices.
+  const perFace = 9;
+  for (let i = 0; i < pos.count; i++) {
+    b.pos.push(pos.getX(i) + cx * V, pos.getY(i) + cy * V, pos.getZ(i) + cz * V);
+    b.nrm.push(nrm.getX(i), nrm.getY(i), nrm.getZ(i));
+    const isFace = face && Math.floor(i / perFace) === 4;
+    if (isFace) {
+      // the face canvas is drawn top-down; flip v
+      b.uv.push((uvs.getX(i) * FACE_W) / FACE_PX, 1 - ((1 - uvs.getY(i)) * FACE_W) / FACE_PX);
+      b.col.push(1, 1, 1);
+    } else {
+      b.uv.push(WHITE_UV, 1 - WHITE_UV);
+      b.col.push(cr, cg, cb);
+    }
+    b.part.push(part);
+  }
+  for (let i = 0; i < index.count; i++) b.idx.push(index.getX(i) + base);
+  g.dispose();
 }
 
 let blobTexture: THREE.Texture | null = null;
@@ -126,11 +223,11 @@ function getBlobTexture(): THREE.Texture {
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const d = Math.hypot(x - size / 2 + 0.5, y - size / 2 + 0.5) / (size / 2);
-      const a = d >= 1 ? 0 : Math.pow(1 - d, 0.8) * 0.45;
+      const a = d >= 1 ? 0 : Math.pow(1 - d, 0.8) * 0.42;
       const i = (y * size + x) * 4;
-      data[i] = 20;
-      data[i + 1] = 24;
-      data[i + 2] = 36;
+      data[i] = 40;
+      data[i + 1] = 34;
+      data[i + 2] = 30;
       data[i + 3] = Math.round(a * 255);
     }
   }
@@ -140,23 +237,61 @@ function getBlobTexture(): THREE.Texture {
   return t;
 }
 
+/** Round soft shadows under every figure as ONE instanced draw. */
+export class BlobShadows {
+  readonly mesh: THREE.InstancedMesh;
+  private used = 0;
+  private readonly m = new THREE.Matrix4();
+  constructor(max = 24) {
+    const geo = new THREE.PlaneGeometry(0.95, 0.95);
+    geo.rotateX(-Math.PI / 2);
+    this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ map: getBlobTexture(), transparent: true, depthWrite: false }), max);
+    this.mesh.renderOrder = 1;
+    this.mesh.frustumCulled = false;
+    this.mesh.count = 0;
+  }
+  claim(): number {
+    const i = this.used++;
+    this.mesh.count = this.used;
+    this.m.makeScale(0, 0, 0);
+    this.mesh.setMatrixAt(i, this.m);
+    return i;
+  }
+  place(i: number, x: number, y: number, z: number, scale: number): void {
+    this.m.makeScale(scale, 1, scale).setPosition(x, y + 0.02, z);
+    this.mesh.setMatrixAt(i, this.m);
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
 export interface CharacterAnim {
   speed: number; // m/s
   talking: boolean;
   lookYaw: number; // head turn relative to body
 }
 
+const PART_VERT_HEAD = /* glsl */ `#include <common>
+attribute float aPart;
+uniform mat4 uParts[${PARTS}];`;
+
 export class VoxelCharacter {
   readonly root = new THREE.Group();
+  // Transform nodes (not drawn): the part matrices are read from these every frame.
   readonly body = new THREE.Group();
   readonly head = new THREE.Group();
   readonly armL = new THREE.Group();
   readonly armR = new THREE.Group();
   readonly legL = new THREE.Group();
   readonly legR = new THREE.Group();
+  readonly ring = new THREE.Group();
+  /** attach held items here (a real child of the right arm) */
   readonly hand = new THREE.Group();
-  readonly shadow: THREE.Mesh;
-  readonly sparkle = new THREE.Group();
+  readonly mesh: THREE.Mesh;
+  private readonly mat: THREE.MeshLambertMaterial;
+  private readonly partMats: THREE.Matrix4[] = Array.from({ length: PARTS }, () => new THREE.Matrix4());
+  private readonly nodes: THREE.Object3D[];
+  private readonly invRoot = new THREE.Matrix4();
+  private readonly zero = new THREE.Matrix4().makeScale(0, 0, 0);
   private face: FacePainter;
   private phase = 0;
   private t = 0;
@@ -166,94 +301,87 @@ export class VoxelCharacter {
   private mouthT = 0;
   private talkLevel = 0;
   private headYaw = 0;
+  private headVisible = true;
+  private shadowSlot = -1;
   possessed = false;
+  static shadows: BlobShadows | null = null;
 
   constructor(look: NpcLook) {
     this.face = new FacePainter(look);
-    const skin = lambert(look.skin);
-    const shirt = lambert(look.shirt);
-    const pants = lambert(look.pants);
-    const shoes = lambert(look.shoes);
-    const hair = lambert(look.hair);
-    const faceMat = new THREE.MeshLambertMaterial({ map: this.face.texture });
-
-    // Legs (pivot at the hip, 8 voxels long, last 2 voxels are shoes).
-    for (const [g, sx] of [[this.legL, -2], [this.legR, 2]] as const) {
-      g.position.set(sx * V, 8 * V, 0);
-      const leg = box(4 * V, 6 * V, 4 * V, pants);
-      leg.position.y = -3 * V;
-      const shoe = box(4.2 * V, 2 * V, 4.6 * V, shoes);
-      shoe.position.set(0, -7 * V, 0.3 * V);
-      g.add(leg, shoe);
-      this.root.add(g);
+    const b: Builder = { pos: [], nrm: [], col: [], uv: [], part: [], idx: [] };
+    const skin = look.skin;
+    const shirt = look.shirt;
+    // Legs (pivot at the hip): short rounded legs and big round toy shoes.
+    for (const part of [P.legL, P.legR] as const) {
+      softBox(b, part, look.pants, 0, -3, 0, 3.6, 6, 3.8, 1);
+      softBox(b, part, look.shoes, 0, -7, 0.6, 4.4, 2.6, 5.6, 1.2);
     }
-    // Body
-    this.body.position.y = 8 * V;
-    const torso = box(8 * V, 9 * V, 5 * V, shirt);
-    torso.position.y = 4.5 * V;
-    this.body.add(torso);
-    if (look.apron !== undefined) {
-      const apron = box(7 * V, 7 * V, 0.6 * V, lambert(look.apron));
-      apron.position.set(0, 3 * V, 2.75 * V);
-      this.body.add(apron);
+    // Body: rounded torso with an A-line hem (flares at the bottom), optional apron.
+    softBox(b, P.body, shirt, 0, 4.8, 0, 8, 8.4, 5.6, 1.6);
+    softBox(b, P.body, shirt, 0, 1.1, 0, 9.2, 2.4, 6.4, 1.1);
+    if (look.apron !== undefined) softBox(b, P.body, look.apron, 0, 3.2, 3, 6.4, 6.6, 0.8, 0.4);
+    // Arms (pivot at the shoulder): sleeves + mitten hands.
+    for (const part of [P.armL, P.armR] as const) {
+      softBox(b, part, shirt, 0, -2, 0, 3, 4.4, 3.2, 1.1);
+      softBox(b, part, skin, 0, -5.8, 0, 2.6, 4, 2.6, 1);
+      softBox(b, part, skin, 0, -8.4, 0.2, 3.4, 3, 3.4, 1.4);
     }
-    this.root.add(this.body);
-    // Arms (pivot at the shoulder).
-    for (const [g, sx] of [[this.armL, -5.5], [this.armR, 5.5]] as const) {
-      g.position.set(sx * V, 9 * V, 0);
-      const sleeve = box(3 * V, 4 * V, 3 * V, shirt);
-      sleeve.position.y = -2 * V;
-      const arm = box(2.8 * V, 5 * V, 2.8 * V, skin);
-      arm.position.y = -6.5 * V;
-      g.add(sleeve, arm);
-      this.body.add(g);
-    }
-    this.hand.position.set(0, -8.5 * V, 1.5 * V);
-    this.armR.add(this.hand);
-    // Head: +z is the face.
-    this.head.position.y = 9 * V;
-    const headMesh = box(10 * V, 10 * V, 10 * V, [skin, skin, hair, skin, faceMat, hair]);
-    headMesh.position.y = 5 * V;
-    this.head.add(headMesh);
-    const hairTop = box(10.6 * V, 2 * V, 10.6 * V, hair);
-    hairTop.position.set(0, 9.6 * V, -0.1 * V);
-    this.head.add(hairTop);
-    const backLen = look.hairStyle === 'long' ? 11 : 6;
-    const hairBack = box(10.6 * V, backLen * V, 1.4 * V, hair);
-    hairBack.position.set(0, (10.6 - backLen / 2) * V, -5.1 * V);
-    this.head.add(hairBack);
-    if (look.hairStyle === 'bun') {
-      const bun = box(4 * V, 4 * V, 4 * V, hair);
-      bun.position.set(0, 11.5 * V, -3.5 * V);
-      this.head.add(bun);
-    }
+    // Head: wider than tall, rounded; the +z face carries the painted face; hair shell on top and back.
+    softBox(b, P.head, skin, 0, 5, 0, 11, 10, 10, 2.2, true);
+    if (look.hairStyle !== 'cap') softBox(b, P.head, look.hair, 0, 9.4, -0.6, 11.8, 2.8, 11, 1.4);
+    const backLen = look.hairStyle === 'long' ? 11 : 6.5;
+    softBox(b, P.head, look.hair, 0, 10.4 - backLen / 2, -5, 11.8, backLen, 1.8, 0.9);
+    if (look.hairStyle === 'bun') softBox(b, P.head, look.hair, 0, 12, -3.4, 4.6, 4.2, 4.6, 2);
     if (look.hat !== undefined) {
-      const hatMat = lambert(look.hat);
-      const cap = box(11 * V, 3 * V, 11 * V, hatMat);
-      cap.position.set(0, 10.8 * V, 0);
-      const brim = box(9 * V, 0.8 * V, 4 * V, hatMat);
-      brim.position.set(0, 9.6 * V, 6.5 * V);
-      this.head.add(cap, brim);
+      softBox(b, P.head, look.hat, 0, 10.6, -0.2, 12, 3.4, 11.6, 1.6);
+      softBox(b, P.head, look.hat, 0, 9.4, 6.4, 9, 1, 4, 0.5);
+      softBox(b, P.head, 0xffffff, 0, 12.2, -0.2, 2.4, 1.2, 2.4, 0.6);
     }
-    this.body.add(this.head);
-
-    this.shadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.95, 0.95),
-      new THREE.MeshBasicMaterial({ map: getBlobTexture(), transparent: true, depthWrite: false })
-    );
-    this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.position.y = 0.02;
-    this.shadow.renderOrder = 1;
-    this.root.add(this.shadow);
-
-    // Possession sparkle: four little sun-colored cubes circling the head.
-    const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffc53d });
+    // Possession ring: four little sun cubes around the head (scaled to zero when off).
     for (let i = 0; i < 4; i++) {
-      const s = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.09), sparkMat);
-      this.sparkle.add(s);
+      const a = (i * Math.PI) / 2;
+      softBox(b, P.ring, 0xffc53d, Math.cos(a) * 9, 0, Math.sin(a) * 9, 1.6, 1.6, 1.6, 0.5);
     }
-    this.sparkle.visible = false;
-    this.root.add(this.sparkle);
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.nrm, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
+    geo.setAttribute('aPart', new THREE.Float32BufferAttribute(b.part, 1));
+    geo.setIndex(b.idx);
+    geo.computeBoundingSphere();
+    if (geo.boundingSphere) geo.boundingSphere.radius += 1.2; // parts move; keep culling generous
+
+    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: this.face.texture });
+    const parts = this.partMats;
+    this.mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uParts = { value: parts };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', PART_VERT_HEAD)
+        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nobjectNormal = mat3(uParts[int(aPart + 0.5)]) * objectNormal;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed = (uParts[int(aPart + 0.5)] * vec4(transformed, 1.0)).xyz;');
+    };
+    this.mat.customProgramCacheKey = () => 'lcw-figure';
+    this.mesh = new THREE.Mesh(geo, this.mat);
+    this.mesh.frustumCulled = true;
+    this.root.add(this.mesh);
+
+    // Transform hierarchy (pivots in voxels).
+    this.legL.position.set(-2 * V, 8 * V, 0);
+    this.legR.position.set(2 * V, 8 * V, 0);
+    this.body.position.y = 8 * V;
+    this.armL.position.set(-5.6 * V, 8.6 * V, 0);
+    this.armR.position.set(5.6 * V, 8.6 * V, 0);
+    this.head.position.y = 9.2 * V;
+    this.ring.position.y = 9.2 * V + 15 * V;
+    this.hand.position.set(0, -8.6 * V, 1.6 * V);
+    this.armR.add(this.hand);
+    this.body.add(this.armL, this.armR, this.head);
+    this.root.add(this.legL, this.legR, this.body);
+    this.body.add(this.ring);
+    this.nodes = [this.legL, this.legR, this.body, this.armL, this.armR, this.head, this.ring];
+    if (VoxelCharacter.shadows) this.shadowSlot = VoxelCharacter.shadows.claim();
   }
 
   wave(): void {
@@ -264,7 +392,7 @@ export class VoxelCharacter {
     this.cheerT = 1.4;
   }
 
-  /** `level` 0..1 = speech loudness; picks one of the six mouth shapes. */
+  /** Keep the mouth moving for `seconds` (speech bubble typing). */
   speak(seconds: number): void {
     this.mouthT = Math.max(this.mouthT, seconds);
   }
@@ -280,8 +408,8 @@ export class VoxelCharacter {
     this.legR.rotation.x += (-swing - this.legR.rotation.x) * settle;
     let armLx = -swing * 0.8;
     let armRx = swing * 0.8;
-    let armLz = 0.06;
-    let armRz = -0.06;
+    let armLz = 0.1;
+    let armRz = -0.1;
     let bodyY = 8 * V + (moving ? Math.abs(Math.cos(this.phase)) * 0.04 * stride : Math.sin(this.t * 2) * 0.006);
 
     const talking = anim.talking || this.mouthT > 0;
@@ -315,6 +443,8 @@ export class VoxelCharacter {
     this.headYaw += (Math.max(-0.9, Math.min(0.9, anim.lookYaw)) - this.headYaw) * (1 - Math.exp(-6 * dt));
     this.head.rotation.y = this.headYaw;
     this.head.rotation.x = talking ? Math.sin(this.t * 7) * 0.04 : 0;
+    this.ring.rotation.y = this.t * 2.2;
+    this.ring.position.y = 9.2 * V + 15 * V + Math.sin(this.t * 4) * 0.05;
 
     // Face: blink and mouth shapes.
     this.blinkAt -= dt;
@@ -328,43 +458,43 @@ export class VoxelCharacter {
     } else if (this.cheerT > 0) mouth = 'big';
     this.face.draw(mouth, blink);
 
-    this.sparkle.visible = this.possessed;
-    if (this.possessed) {
-      this.sparkle.children.forEach((s, i) => {
-        const a = this.t * 2.2 + (i * Math.PI) / 2;
-        s.position.set(Math.cos(a) * 0.55, CHAR_HEIGHT + 0.15 + Math.sin(this.t * 4 + i) * 0.08, Math.sin(a) * 0.55);
-        s.rotation.set(this.t * 3, this.t * 2, 0);
-      });
+    this.syncParts();
+    if (this.shadowSlot >= 0 && VoxelCharacter.shadows) {
+      const p = this.root.position;
+      VoxelCharacter.shadows.place(this.shadowSlot, p.x, p.y, p.z, this.root.visible ? 1 : 0);
+    }
+  }
+
+  /** Part matrices relative to the figure root (what the vertex shader multiplies each part by). */
+  private syncParts(): void {
+    this.root.updateMatrixWorld(true);
+    this.invRoot.copy(this.root.matrixWorld).invert();
+    for (let i = 0; i < PARTS; i++) {
+      const m = this.partMats[i]!;
+      if ((i === P.head && !this.headVisible) || (i === P.ring && !this.possessed)) {
+        m.copy(this.zero);
+        continue;
+      }
+      m.multiplyMatrices(this.invRoot, this.nodes[i]!.matrixWorld);
     }
   }
 
   setHeadVisible(v: boolean): void {
-    this.head.visible = v;
+    this.headVisible = v;
   }
 
   private fade = 1;
-  /** Fade the body (1 = solid) so a camera squeezed against the player in tight rooms can see past it. */
+  /** Fade the figure (1 = solid) so a camera squeezed against the player in tight rooms can see past it. */
   setFade(alpha: number): void {
     const a = Math.max(0.15, Math.min(1, alpha));
     if (Math.abs(a - this.fade) < 0.02) return;
     this.fade = a;
-    const seen = new Set<THREE.Material>();
-    this.root.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh || o === this.shadow || o.parent === this.sparkle) return;
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const m of mats) {
-        if (seen.has(m)) continue;
-        seen.add(m);
-        const solid = a >= 0.99;
-        if (m.transparent !== !solid) {
-          m.transparent = !solid;
-          m.needsUpdate = true;
-        }
-        m.opacity = a;
-        m.depthWrite = solid;
-      }
-      mesh.castShadow = a > 0.5;
-    });
+    const solid = a >= 0.99;
+    if (this.mat.transparent !== !solid) {
+      this.mat.transparent = !solid;
+      this.mat.needsUpdate = true;
+    }
+    this.mat.opacity = a;
+    this.mat.depthWrite = solid;
   }
 }

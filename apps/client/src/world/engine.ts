@@ -4,11 +4,13 @@
  */
 import * as THREE from 'three';
 import { VoxelWorld } from '@lcw/sim-core';
-import type { CreateWorldOptions, DirectorEventKind, NpcRef, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
+import type { CreateWorldOptions, DirectorEventKind, NpcRef, SceneId, WorldHandle, WorldStats } from './api.js';
 import { buildAtlasPixels, TILE_PX } from './atlas.js';
 import { TILE_NAMES, blockLook } from './blocks.js';
-import { CHAR_HEIGHT, VoxelCharacter } from './character.js';
+import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import { ChunkRenderer } from './chunks.js';
+import { makeBlockMaterials } from './materials.js';
+import { ResolutionGovernor, TIER_SETTINGS } from './tiers.js';
 import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
@@ -18,12 +20,7 @@ import { Sky } from './sky.js';
 import { NPC_GREETINGS_EN, SCENE_TITLES_KO, welcomeBackEn } from './strings.js';
 import { NPCS, SCENES, WANDERERS, buildTown, standHeight, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
 
-export const TIER_SETTINGS: Readonly<Record<WorldTier, { viewChunks: number; pixelScale: number; shadows: boolean; particles: number; antialias: boolean }>> = {
-  // docs/08 6.6
-  low: { viewChunks: 4, pixelScale: 0.75, shadows: false, particles: 200, antialias: false },
-  mid: { viewChunks: 6, pixelScale: 1.0, shadows: false, particles: 400, antialias: true },
-  high: { viewChunks: 8, pixelScale: 1.0, shadows: true, particles: 600, antialias: true }
-};
+export { TIER_SETTINGS };
 
 const PLAYER_LOOK: NpcLook = { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3fa9f5, pants: 0x2f3b52, shoes: 0xff6b4a, hairStyle: 'short' };
 const TALK_RANGE = 3.6;
@@ -52,27 +49,6 @@ interface WalkerRt {
   pause: number;
 }
 
-function blockMaterial(atlas: THREE.DataArrayTexture, translucent: boolean): THREE.MeshLambertMaterial {
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: translucent, depthWrite: !translucent });
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uAtlas = { value: atlas };
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec4 aTile;\nvarying vec3 vTile;\nvarying float vGlow;')
-      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvTile = aTile.xyz;\nvGlow = aTile.w;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform highp sampler2DArray uAtlas;\nvarying vec3 vTile;\nvarying float vGlow;')
-      .replace(
-        '#include <map_fragment>',
-        `vec2 tuv = vTile.xy;
-vec4 texel = textureGrad(uAtlas, vec3(clamp(fract(tuv), 0.002, 0.998), vTile.z), dFdx(tuv), dFdy(tuv));
-${translucent ? 'if (texel.a < 0.02) discard;' : 'if (texel.a < 0.5) discard;'}
-diffuseColor *= texel;`
-      )
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vGlow * 0.85;');
-  };
-  mat.customProgramCacheKey = () => (translucent ? 'lcw-block-t' : 'lcw-block-o');
-  return mat;
-}
 
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -135,7 +111,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
   // ---- Renderer.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: tier.antialias, powerPreference: 'high-performance', alpha: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2) * tier.pixelScale);
+  const basePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const governor = new ResolutionGovernor(tier);
+  renderer.setPixelRatio(basePixelRatio * governor.scale);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = tier.shadows;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -143,6 +121,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 600);
   const viewDistance = tier.viewChunks * 16;
   const sky = new Sky(scene, viewDistance);
+  sky.clouds.visible = tier.clouds;
   if (tier.shadows) {
     sky.sun.castShadow = true;
     sky.sun.shadow.mapSize.set(2048, 2048);
@@ -161,12 +140,15 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const atlas = new THREE.DataArrayTexture(atlasPixels, TILE_PX, TILE_PX, TILE_NAMES.length);
   atlas.format = THREE.RGBAFormat;
   atlas.type = THREE.UnsignedByteType;
-  atlas.magFilter = THREE.NearestFilter;
-  atlas.minFilter = THREE.NearestMipmapLinearFilter;
+  // Soft painted toy look: linear filtering on 32 px tiles (array layers never bleed into each other).
+  atlas.magFilter = THREE.LinearFilter;
+  atlas.minFilter = THREE.LinearMipmapLinearFilter;
+  // anisotropic filtering only where the GPU has room (it is expensive on tablets and software GL)
+  if (opts.tier === 'high') atlas.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
   atlas.generateMipmaps = true;
   atlas.colorSpace = THREE.SRGBColorSpace;
   atlas.needsUpdate = true;
-  const chunkMats = { opaque: blockMaterial(atlas, false), translucent: blockMaterial(atlas, true) };
+  const chunkMats = makeBlockMaterials(atlas, tier.material);
   const workerCount = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
   const chunks = new ChunkRenderer(world, chunkMats, workerCount, () =>
     new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module' })
@@ -186,6 +168,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   camYaw = playerYaw + startScene.cameraYaw;
   camPitch = startScene.camPitch ?? camPitch;
   camDist = startScene.camDist ?? camDist;
+  VoxelCharacter.shadows = new BlobShadows(24);
+  scene.add(VoxelCharacter.shadows.mesh);
   const player = new VoxelCharacter(PLAYER_LOOK);
   scene.add(player.root);
   let heldItem: THREE.Group | null = null;
@@ -728,6 +712,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (player.root.position.distanceTo(fountain) < viewDistance) effects.spray(fountain.x, fountain.y, fountain.z, dt);
     effects.update(dt);
     sky.update(dt, player.root.position);
+    chunkMats.sync(sky);
     chunks.update(body.x, body.z, tier.viewChunks);
     updateCamera(dt);
 
@@ -754,6 +739,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
     renderer.render(scene, camera);
     lastStats = { draw: renderer.info.render.calls, tris: renderer.info.render.triangles };
+    // Dynamic resolution (docs/08 6.6 목표 프레임): slow frames lower the render scale, fast ones restore it.
+    if (governor.frame(dt * 1000)) {
+      renderer.setPixelRatio(basePixelRatio * governor.scale);
+      resize();
+    }
     forward.set(0, 0, 0);
   };
   hud.setLoading(1, true);
@@ -844,6 +834,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       canvas.removeEventListener('pointerdown', pointerDown);
       canvas.removeEventListener('wheel', wheel);
       chunks.dispose();
+      VoxelCharacter.shadows = null;
       sfx.dispose();
       hud.dispose();
       renderer.dispose();
@@ -905,6 +896,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       return {
         fps,
         frameMs,
+        renderScale: governor.scale,
+        tier: opts.tier,
         drawCalls: lastStats.draw,
         triangles: lastStats.tris,
         chunksMeshed: chunks.meshed,

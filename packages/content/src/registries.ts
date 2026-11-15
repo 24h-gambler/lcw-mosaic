@@ -293,7 +293,7 @@ export const BLOCK_PALETTE: readonly BlockDef[] = [
   { id: 58, key: 'barrel', category: 'wood', blastResistance: 2.5, lightLevel: 0, priceCoins: 5 },
   { id: 59, key: 'hay_bale', category: 'earth_sand', blastResistance: 0.5, lightLevel: 0, priceCoins: 3 },
   { id: 60, key: 'cobblestone', category: 'stone', blastResistance: 6, lightLevel: 0, priceCoins: 2 },
-  { id: 61, key: 'bookshelf', category: 'wood', blastResistance: 1.5, lightLevel: 0, priceCoins: 8 },
+  { id: 61, key: 'jar_shelf', category: 'wood', blastResistance: 1.5, lightLevel: 0, priceCoins: 8 },
   { id: 62, key: 'dark_plank', category: 'wood', blastResistance: 3, lightLevel: 0, priceCoins: 3 },
   { id: 63, key: 'storage_chest', category: 'special', blastResistance: 2.5, lightLevel: 0, priceCoins: 12 },
   { id: 64, key: 'dirt_path', category: 'earth_sand', blastResistance: 0.6, lightLevel: 0, priceCoins: 2 },

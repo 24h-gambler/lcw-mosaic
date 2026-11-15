@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { HexColorSchema, SocketIdSchema } from './specs.js';
+import { HexColorSchema, ItemSpecV2Schema, SocketIdSchema } from './specs.js';
 
 export const LevelSchema = z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']);
 export type Level = z.infer<typeof LevelSchema>;
@@ -59,7 +59,7 @@ export const OfferSchema = z
   .strict();
 export type Offer = z.infer<typeof OfferSchema>;
 
-export const ItemPreviewSchema = z
+export const LegacyItemPreviewSchema = z
   .object({
     base_mesh: z.string().min(1).max(64),
     socket: SocketIdSchema,
@@ -70,6 +70,9 @@ export const ItemPreviewSchema = z
       .strict()
   })
   .strict();
+
+/** docs/04 4.5: preview is a v2 assembly draft; the legacy bank-mesh preview stays accepted for the bank path. */
+export const ItemPreviewSchema = z.union([ItemSpecV2Schema, LegacyItemPreviewSchema]);
 
 export const SlotsSchema = z
   .object({

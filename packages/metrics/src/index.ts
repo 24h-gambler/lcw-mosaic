@@ -4,6 +4,8 @@ export const METRICS_MIN_STT_CONFIDENCE = 0.5;
 export const THINK_SPEAK_MIN_FREE_UTTERANCES = 30;
 export const THINK_SPEAK_RATIO_MIN = 0.5;
 export const THINK_SPEAK_RATIO_MAX = 2.0;
+/** Per-word prep time floor (ms/word) so near-zero latencies cannot blow up the ratio. */
+export const THINK_SPEAK_MIN_LATENCY_PER_WORD_MS = 50;
 const DAY_MS = 86_400_000;
 export const SOLO_TRANSFER_WINDOW_MS = 14 * DAY_MS;
 export const MASTERY_RETENTION_WINDOW_MS = 35 * DAY_MS;
@@ -81,6 +83,8 @@ export interface WeeklyGrowthMetrics {
   mean_words_per_utterance: number;
   lexical_diversity: number;
   mean_response_latency_ms: number;
+  /** Mean of latency_ms / max(1, words) per utterance (docs/07 2.1: preparation time per word). */
+  mean_latency_per_word_ms: number;
   first_try_pass_rate: number;
   mean_stars: number;
   recall_retention_rate: number;
@@ -96,6 +100,8 @@ export interface ThinkSpeakBaseline {
   mean_words: number;
   lexical_diversity: number;
   mean_latency_ms: number;
+  /** Baseline preparation time per word. Derived from mean_latency_ms / mean_words when absent. */
+  mean_latency_per_word_ms?: number;
 }
 
 export interface ThinkAndSpeakResult {
@@ -197,6 +203,7 @@ export function computeWeeklyMetrics(
       mean_words_per_utterance: 0,
       lexical_diversity: 0,
       mean_response_latency_ms: 0,
+      mean_latency_per_word_ms: 0,
       first_try_pass_rate: 0,
       mean_stars: 0,
       recall_retention_rate: 0,
@@ -212,6 +219,7 @@ export function computeWeeklyMetrics(
   let sumWords = 0;
   let sumL1Words = 0;
   let sumLatency = 0;
+  let sumLatencyPerWord = 0;
   let sumDur = 0;
   let firstTryTotal = 0;
   let firstTryPass = 0;
@@ -235,6 +243,7 @@ export function computeWeeklyMetrics(
     sumWords += Math.max(0, u.words);
     sumL1Words += Math.max(0, u.l1_words);
     sumLatency += Math.max(0, u.latency_ms);
+    sumLatencyPerWord += Math.max(0, u.latency_ms) / Math.max(1, u.words);
     sumDur += Math.max(0, u.dur_ms);
 
     const tokens = extractUniqueTokens(u.final_text);
@@ -279,6 +288,7 @@ export function computeWeeklyMetrics(
     mean_words_per_utterance: roundTo(sumWords / total, 2),
     lexical_diversity: totalTokens > 0 ? roundTo(uniqueTokens.size / totalTokens, 4) : 0,
     mean_response_latency_ms: Math.round(sumLatency / total),
+    mean_latency_per_word_ms: Math.round(sumLatencyPerWord / total),
     first_try_pass_rate: firstTryTotal > 0 ? roundTo(firstTryPass / firstTryTotal, 4) : 0,
     mean_stars: starredCount > 0 ? roundTo(sumStars / starredCount, 2) : 0,
     recall_retention_rate: roundTo(recallRate, 4),
@@ -299,7 +309,8 @@ export function computeTwoWeekBaseline(
       free_ratio: 0.4,
       mean_words: 4,
       lexical_diversity: 0.5,
-      mean_latency_ms: 3000
+      mean_latency_ms: 3000,
+      mean_latency_per_word_ms: 750
     };
   }
   const slice = firstTwoWeeks.slice(0, 2);
@@ -307,7 +318,11 @@ export function computeTwoWeekBaseline(
     free_ratio: Math.max(0.05, median(slice.map((w) => w.weekly_free_ratio))),
     mean_words: Math.max(1, median(slice.map((w) => w.mean_words_per_utterance))),
     lexical_diversity: Math.max(0.1, median(slice.map((w) => w.lexical_diversity))),
-    mean_latency_ms: Math.max(300, median(slice.map((w) => w.mean_response_latency_ms)))
+    mean_latency_ms: Math.max(300, median(slice.map((w) => w.mean_response_latency_ms))),
+    mean_latency_per_word_ms: Math.max(
+      THINK_SPEAK_MIN_LATENCY_PER_WORD_MS,
+      median(slice.map((w) => w.mean_latency_per_word_ms))
+    )
   };
 }
 
@@ -315,6 +330,7 @@ export function computeTwoWeekBaseline(
  * Think-and-Speak Index (docs/07 2.1):
  * - Excludes confidence < 0.5
  * - Requires >= 30 valid 'free' utterances; otherwise returns insufficient_sample
+ * - Latency term uses per-word preparation time (latency_ms / words), not raw latency
  * - Clamps component ratios against first-2-week baseline to [0.5, 2.0]
  */
 export function computeThinkAndSpeakIndex(
@@ -347,8 +363,15 @@ export function computeThinkAndSpeakIndex(
     THINK_SPEAK_RATIO_MIN,
     THINK_SPEAK_RATIO_MAX
   );
+  // Preparation time PER WORD, not raw latency: longer, harder sentences must not be penalised.
+  const baselinePerWord = Math.max(
+    THINK_SPEAK_MIN_LATENCY_PER_WORD_MS,
+    baseline.mean_latency_per_word_ms ??
+      baseline.mean_latency_ms / Math.max(1, baseline.mean_words)
+  );
   const latencyClamped = clamp(
-    Math.max(300, baseline.mean_latency_ms) / Math.max(300, weekly.mean_response_latency_ms),
+    baselinePerWord /
+      Math.max(THINK_SPEAK_MIN_LATENCY_PER_WORD_MS, weekly.mean_latency_per_word_ms),
     THINK_SPEAK_RATIO_MIN,
     THINK_SPEAK_RATIO_MAX
   );

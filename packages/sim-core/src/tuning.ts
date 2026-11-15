@@ -64,8 +64,24 @@ export const TUNING = {
     >,
     marketIndexMin: 0.8,
     marketIndexMax: 1.25,
-    repairNonReviewPct: 0.1
+    repairNonReviewPct: 0.1,
+    /** docs/09 P7: weekly price-index step cap, applied per world (never server-wide). */
+    priceIndexWeeklyStepMax: 0.05,
+    /** docs/03 D13: read-aloud discount on a furniture kind, once per kind per day per player. */
+    readAloudDiscountPct: 0.1,
+    /** Day boundary for once-per-day rules: KST midnight (UTC+9). */
+    dayBoundaryOffsetMs: 9 * 60 * 60 * 1000
   },
+  /** docs/03 D2: separate item IDs. A bundle is its own SKU, never a discount on the parts. */
+  equipment: {
+    dynamite_x5: { basePrice: 150, threeStarPrice: 75 },
+    drill: { basePrice: 350, threeStarPrice: 175 },
+    drill_bundle: {
+      basePrice: 500,
+      threeStarPrice: 250,
+      contains: ['drill', 'dynamite_x5'] as readonly string[]
+    }
+  } as Record<string, { basePrice: number; threeStarPrice: number; contains?: readonly string[] }>,
   mining: {
     ores: {
       coal: { price: 4, requiredToolTier: 1, minY: -60, maxY: -9 },
@@ -114,6 +130,9 @@ export const TUNING = {
       35 * 24 * 60 * 60 * 1000 // 35 days -> master
     ] as const,
     maxDuePerSession: 3,
+    /** docs/09 P4: gear equipped/socketed or used within this window gets review signs first. */
+    activeGearWindowMs: 7 * 24 * 60 * 60 * 1000,
+    activeGearPriorityBonus: 10,
     masterBonusCoins: 200
   },
   combat: {

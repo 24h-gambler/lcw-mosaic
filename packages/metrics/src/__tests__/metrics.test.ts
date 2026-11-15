@@ -97,6 +97,34 @@ describe('packages/metrics (WP-303, WP-308, WP-310)', () => {
     expect(res.index).toBeLessThanOrEqual(200);
   });
 
+  it('does not lower the latency term when sentences get longer at the same per-word latency (L1 -> L3)', () => {
+    const l1 = Array.from({ length: 40 }, (_, i) =>
+      makeUtterance(`a-${i}`, { mode: 'free', words: 3, latency_ms: 1200 })
+    );
+    const l3 = Array.from({ length: 40 }, (_, i) =>
+      makeUtterance(`b-${i}`, { mode: 'free', words: 10, latency_ms: 4000 })
+    );
+    const baseline = computeTwoWeekBaseline([computeWeeklyMetrics(l1), computeWeeklyMetrics(l1)]);
+    expect(baseline.mean_latency_per_word_ms).toBe(400);
+
+    const before = computeThinkAndSpeakIndex(l1, baseline);
+    const after = computeThinkAndSpeakIndex(l3, baseline);
+    expect(after.components?.latencyClamped).toBeGreaterThanOrEqual(before.components?.latencyClamped ?? 0);
+    expect(after.components?.latencyClamped).toBe(1);
+    // total index must not fall either: words component rose
+    expect(after.index ?? 0).toBeGreaterThanOrEqual(before.index ?? 0);
+  });
+
+  it('still rewards genuinely faster per-word preparation and falls back to mean_latency / mean_words', () => {
+    const fast = Array.from({ length: 35 }, (_, i) =>
+      makeUtterance(`f-${i}`, { mode: 'free', words: 5, latency_ms: 500 })
+    );
+    const legacy = { free_ratio: 1, mean_words: 5, lexical_diversity: 0.5, mean_latency_ms: 2500 };
+    const res = computeThinkAndSpeakIndex(fast, legacy);
+    // baseline 500 ms/word vs now 100 ms/word -> ratio clamped to 2
+    expect(res.components?.latencyClamped).toBe(2);
+  });
+
   it('calculates teacher contribution rates: 14-day solo transfer and 35-day retention', () => {
     const t0 = 1_700_000_000_000;
     const day = 86_400_000;

@@ -138,7 +138,7 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
               statusOf: (e) => (e instanceof LessonApiError ? e.status : null)
             });
             if (live) {
-              for (const r of res.sent) dispatch({ type: 'utterance_result', result: r });
+              if (res.sent.length) dispatch({ type: 'outbox_results', results: res.sent });
               setOutboxN(res.left);
             }
           } finally {
@@ -347,6 +347,10 @@ function LessonPlay({
   const [sending, setSending] = useState(false);
   const [sendFailed, setSendFailed] = useState(false);
   const [savedOffline, setSavedOffline] = useState(false);
+  // The "saved, will send" note goes once the outbox is empty (sent).
+  useEffect(() => {
+    if (outboxN === 0) setSavedOffline(false);
+  }, [outboxN]);
   const [notHeard, setNotHeard] = useState(false);
   const [heard, setHeard] = useState<{ text: string; target: string } | null>(null);
   const [resultKey, setResultKey] = useState(0);

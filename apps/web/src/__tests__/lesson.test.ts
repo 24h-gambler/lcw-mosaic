@@ -388,6 +388,22 @@ describe('student join state machine', () => {
     expect(s.phase).toBe('ended');
   });
 
+  it('answers sent from the device outbox move the counters and coins, not the last answer on screen', () => {
+    let s = joinReducer(INITIAL_JOIN_STATE, { type: 'resume', token: 'tok', lessonId: 'les-1', nickname: '지우' });
+    const shown = { pass: true, score: 1, stars: 1, feedback_ko: '통과!', coins_total: 210, utterances_today: 1 };
+    s = joinReducer(s, { type: 'utterance_result', result: shown });
+    s = joinReducer(s, {
+      type: 'outbox_results',
+      results: [
+        { pass: true, score: 1, stars: 2, feedback_ko: 'a', coins_total: 230, utterances_today: 2 },
+        { pass: false, score: 0.1, stars: 0, feedback_ko: 'b', coins_total: 230, utterances_today: 3 }
+      ]
+    });
+    expect(s.last).toBe(shown);
+    expect(s).toMatchObject({ coins: 230, saidCount: 3, starsEarned: 3 });
+    expect(joinReducer(s, { type: 'outbox_results', results: [] })).toBe(s);
+  });
+
   it('short codes and wrong codes stay on the code box with child-friendly copy', () => {
     let s = joinReducer(INITIAL_JOIN_STATE, { type: 'code_changed', value: '123' });
     s = joinReducer(s, { type: 'submit' });

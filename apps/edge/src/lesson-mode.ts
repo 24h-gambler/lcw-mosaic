@@ -999,9 +999,6 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       created_at: now
     });
     recordMinuteAt(s.lesson_id, now);
-    const audioUpload = d.offerVoiceUpload
-      ? await d.offerVoiceUpload({ playerId: s.player_id, utteranceId: uttId, source: u.stt_source, nowMs: now })
-      : null;
     // One balance everywhere (coordinator 11-16): the ledger, credited once per utterance id.
     const coinsTotal = d.coins
       ? d.coins.credit(s.player_id, stars * COINS_PER_STAR, `lesson:${uttId}`, now)
@@ -1037,13 +1034,17 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       utterances_today: Number(today?.n ?? 0)
     };
     if (u.client_id) {
-      // The stored answer for a resend; the voice upload ticket is for this request only.
+      // The stored answer for a resend (written before anything awaits, so the claim is never left empty by a failure
+      // further down); the voice upload ticket is for this request only.
       d.sql.run('update lesson_utterance_clients set response = ? where lesson_id = ? and client_id = ?', [
         JSON.stringify(answer),
         s.lesson_id,
         u.client_id
       ]);
     }
+    const audioUpload = d.offerVoiceUpload
+      ? await d.offerVoiceUpload({ playerId: s.player_id, utteranceId: uttId, source: u.stt_source, nowMs: now })
+      : null;
     return c.json({ ...answer, ...(audioUpload ? { audio_upload: audioUpload } : {}) });
   });
 

@@ -7,7 +7,7 @@ import { BK, BLOCK_LOOKS, TILE_LAYER, TILE_NAMES, blockLook, collideHeight, isOp
 import { TILE_PX, buildAtlasPixels } from '../atlas.js';
 import { AO_CURVE, PAD, meshChunk, padIndex } from '../mesher.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type BlockAt } from '../physics.js';
-import { NPCS, SCENES, WANDERERS, buildTown, npcTalkable, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
+import { NPCS, SCENES, WANDERERS, buildTown, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
 import { PAGE_KEYS_ON_BUTTONS, TALK_RANGE, keyIsPressable, keyIsTyping } from '../engine.js';
 import { extractPadded } from '../chunks.js';
 import { skyAt } from '../sky.js';
@@ -266,6 +266,54 @@ describe('town build (all through setBlock)', () => {
     const mina = NPCS.find((n) => n.id === 'errand_neighbor')!.spot!;
     const spot = talkSpotFor(world, { ...mina, y: standHeight(world, mina.x, mina.z, 2) })!;
     expect(spot.z).toBeGreaterThan(mina.z);
+  });
+
+  it('walks scene to scene the same way as before when starting on a scene spot', () => {
+    // the route before sceneRoute (engine pathTo), from the scene spot
+    const old = (from: (typeof SCENE_IDS)[number], to: (typeof SCENE_IDS)[number]): Array<[number, number]> => {
+      const src = SCENES[from];
+      const dst = SCENES[to];
+      if (to === 'plaza') return [...src.path].reverse().slice(1).concat([[dst.player.x, dst.player.z]]);
+      if (from === 'plaza') return [...dst.path];
+      return [...src.path].reverse().slice(1).concat(dst.path);
+    };
+    for (const from of SCENE_IDS)
+      for (const to of SCENE_IDS) {
+        if (from === to) continue;
+        expect(sceneRoute(from, to, SCENES[from].player.x, SCENES[from].player.z), `${from} -> ${to}`).toEqual(old(from, to));
+      }
+  });
+
+  it('already in the scene, walks only the rest of its own path: 미나 to the cafe counter, not out to the plaza (talk lane 11-16)', () => {
+    const ms = NPCS.find((n) => n.id === 'errand_neighbor')!.spot!;
+    const start = talkSpotFor(world, { ...ms, y: standHeight(world, ms.x, ms.z, Math.ceil(ms.y) + 1) })!;
+    const route = sceneRoute('honey_cafe', 'honey_cafe', start.x, start.z);
+    const cafe = SCENES.honey_cafe.player;
+    expect(route[route.length - 1]).toEqual([cafe.x, cafe.z]);
+    let len = 0;
+    let [px, pz] = [start.x, start.z];
+    let prevY = standHeight(world, px, pz, Math.ceil(ms.y) + 2);
+    for (const [wx, wz] of route) {
+      // never back toward the plaza (the old route went out to 152,144 and in again, ~30 m)
+      expect(Math.hypot(wx - 152, wz - 144), `${wx},${wz}`).toBeGreaterThan(6);
+      const n = Math.ceil(Math.hypot(wx - px, wz - pz) / 0.25);
+      for (let i = 1; i <= n; i++) {
+        const x = px + ((wx - px) * i) / n;
+        const z = pz + ((wz - pz) * i) / n;
+        const y = standHeight(world, x, z, Math.ceil(prevY) + 2);
+        expect(y - prevY, `near ${x.toFixed(1)},${z.toFixed(1)}`).toBeLessThanOrEqual(1.05);
+        prevY = y;
+      }
+      len += Math.hypot(wx - px, wz - pz);
+      [px, pz] = [wx, wz];
+    }
+    expect(len).toBeLessThan(12);
+    // on the stretch between two waypoints, it goes on to the next one (no turning back)
+    const [a, b] = [SCENES.honey_cafe.path[1]!, SCENES.honey_cafe.path[2]!];
+    const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    expect(sceneRoute('honey_cafe', 'honey_cafe', mid[0], mid[1])[0]).toEqual(b);
+    // standing on the plaza spot already: just the spot
+    expect(sceneRoute('plaza', 'plaza', 140, 150)).toEqual([[SCENES.plaza.player.x, SCENES.plaza.player.z]]);
   });
 
   it('keeps the auto-walk paths from the plaza walkable (no wall taller than a step)', () => {

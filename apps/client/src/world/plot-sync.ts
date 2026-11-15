@@ -3,12 +3,24 @@
  * to POST /v1/plot/ops in small batches with the child's device token, and the server's answer is the truth
  * (AGENTS 4: saves never trust the client). Unsent ops survive a reload (`lcw.plotQueue`) and are sent first, before
  * the plot is loaded again, so a closed tab loses nothing. Batches carry an id so a resend is answered, not redone.
+ * The queue is kept per token (`plotQueueKey`): ops built under one child's token never go out under another's.
  */
 import type { PlotOp, PlotSnapshotLike } from './build.js';
-import type { FetchLike, KeyStore } from './identity.js';
+import { DEVICE_TOKEN_KEY, type FetchLike, type KeyStore } from './identity.js';
 import { noteSeatResponse } from './seat.js';
 
+/** The queue key before it was kept per token; only ever written under this device's own linked token. */
 export const PLOT_QUEUE_KEY = 'lcw.plotQueue';
+
+/** Where the unsent ops of one token live (a short hash, never the token itself). */
+export function plotQueueKey(token: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < token.length; i++) {
+    h ^= token.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${PLOT_QUEUE_KEY}.${h.toString(16).padStart(8, '0')}`;
+}
 const FLUSH_MS = 350;
 const MAX_BATCH = 32;
 
@@ -49,8 +61,11 @@ export class PlotSync {
   /** ops the server refused (for stats / checks) */
   refused = 0;
   sent = 0;
+  private readonly key: string;
 
   constructor(private readonly o: PlotSyncOptions) {
+    this.key = plotQueueKey(o.token);
+    this.adoptLegacyQueue();
     // Ops left from a closed tab: they go out first (in-flight batch with its id, then the rest).
     const saved = this.read();
     if (saved) {
@@ -67,9 +82,25 @@ export class PlotSync {
     return { authorization: `Bearer ${this.o.token}`, 'content-type': 'application/json', accept: 'application/json' };
   }
 
+  /**
+   * A queue saved before the per-token key came from this device's own linked token (lessons used it too, which is
+   * the leak the per-token key closes): only that token takes it over, any other token leaves it alone.
+   */
+  private adoptLegacyQueue(): void {
+    try {
+      const store = this.o.store;
+      const legacy = store?.getItem(PLOT_QUEUE_KEY);
+      if (!store || !legacy || store.getItem(DEVICE_TOKEN_KEY) !== this.o.token) return;
+      if (!store.getItem(this.key)) store.setItem(this.key, legacy);
+      store.removeItem(PLOT_QUEUE_KEY);
+    } catch {
+      /* storage blocked: nothing was saved either */
+    }
+  }
+
   private read(): { inFlight: Batch | null; queue: PlotOp[] } | null {
     try {
-      const raw = this.o.store?.getItem(PLOT_QUEUE_KEY);
+      const raw = this.o.store?.getItem(this.key);
       if (!raw) return null;
       const v = JSON.parse(raw) as { inFlight?: Batch | null; queue?: PlotOp[] };
       return { inFlight: v.inFlight && Array.isArray(v.inFlight.ops) ? v.inFlight : null, queue: Array.isArray(v.queue) ? v.queue : [] };
@@ -80,8 +111,8 @@ export class PlotSync {
 
   private persist(): void {
     try {
-      if (!this.inFlight && this.queue.length === 0) this.o.store?.removeItem(PLOT_QUEUE_KEY);
-      else this.o.store?.setItem(PLOT_QUEUE_KEY, JSON.stringify({ inFlight: this.inFlight, queue: this.queue }));
+      if (!this.inFlight && this.queue.length === 0) this.o.store?.removeItem(this.key);
+      else this.o.store?.setItem(this.key, JSON.stringify({ inFlight: this.inFlight, queue: this.queue }));
     } catch {
       /* storage blocked: the queue still lives in memory */
     }
@@ -113,7 +144,7 @@ export class PlotSync {
   async load(): Promise<PlotSnapshotLike | null> {
     try {
       const res = await this.fetchFn(`${this.o.base ?? ''}/v1/plot`, { headers: this.headers(), cache: 'no-store' });
-      if (res.status === 401 || res.status === 403) {
+      if (res.status === 401) {
         this.o.onDenied?.('unlinked');
         return null;
       }
@@ -175,16 +206,24 @@ export class PlotSync {
     } catch {
       return false;
     }
-    if (res.status === 403 || res.status === 401) {
-      // seat paused (403 seat_inactive: the shell swaps to the seat card) or token revoked: these ops can never be
-      // saved; stop and tell the world
-      if (res.status === 403) await noteSeatResponse(res, this.o.store);
+    // Only the seat answer (403 seat_inactive: the shell swaps to the seat card) or a dead token (401) stops saving.
+    // Any other 403 refuses this batch alone: drop it and take the server's plot, like a refused op.
+    const seatStopped = res.status === 403 && (await noteSeatResponse(res, this.o.store));
+    if (seatStopped || res.status === 401) {
       this.inFlight = null;
       this.queue = [];
       this.persist();
       this.stopped = true;
       this.setStatus('paused');
-      this.o.onDenied?.(res.status === 403 ? 'paused' : 'unlinked');
+      this.o.onDenied?.(seatStopped ? 'paused' : 'unlinked');
+      return true;
+    }
+    if (res.status === 403) {
+      this.inFlight = null;
+      this.refused += batch.ops.length;
+      this.queue = [];
+      this.persist();
+      await this.resync();
       return true;
     }
     if (res.status >= 500 || res.status === 429) return false;

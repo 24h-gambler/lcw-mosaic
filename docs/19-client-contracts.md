@@ -133,8 +133,8 @@ export interface DialogPanelProps {
     - 혼자 대화: 안내인(`ctx:'guide'`)이 통과한 답의 `askedKey`가 장소(`'cafe'|'trade_shop'`, 장면 id 도 됨)면 창을 닫은 뒤 그 장면으로 걸어갑니다(`goToScene`). 수업 중에는 수업이 장면을 정하므로 걷지 않습니다.
 - 복습: `apps/client/src/dialog/ReviewDock.tsx`의 `ReviewDock`(게스트가 아닐 때, 수업 중이거나 혼자 대화창이 열려 있으면 `hidden`). 자리는 오른쪽 위 별·코인 칩 아래: 터치(`pointer: coarse`)면 시점 버튼(약 60~116px) 아래 `top:128px`, 아니면 `top:60px`.
 - 첫 방문 안내·1분 심부름(WP-111, docs/03 D1, docs/08 G15): `apps/client/src/dialog/FirstVisitGuide.tsx`의 `FirstVisitGuide`와 `errandDialogFor`. 연결된 아이(`kind:'child'`)일 때만 붙고, 수업 중이거나 혼자 대화창이 열려 있으면 `hidden`.
-  - 처음 한 번(`localStorage['lcw.firstVisitSeen']`) 헤드폰·보호자와 볼륨 안내와 "Hello!" 마이크 점검 카드(건너뛰기 가능). 위쪽 목표 한 줄은 `setGoal`, 왼쪽 아래 "카페로 가기 / 루나에게 돌아가기" 버튼은 `goToScene`. 끝나면 +50 알림.
-  - 앱은 혼자 대화창을 **열 때** `errandDialogFor(npc, errand, level)`로 창의 모양을 정하고 창이 닫힐 때까지 바꾸지 않습니다: 루나는 `offered`·`carrying`에서 `ctx:'errand'`(수락·건네기 문장), `accepted`에서 카페 길 묻기, 카페는 `accepted`에서 시원한 물 문장. 첫 줄은 `cfg.npcLine`.
+  - 처음 한 번(`localStorage['lcw.firstVisitSeen']`) 헤드폰·보호자와 볼륨 안내와 "Hello!" 마이크 점검 카드(건너뛰기 가능). 위쪽 목표 한 줄은 `setGoal`, 왼쪽 아래 "미나에게 가기 / 카페로 걸어가기" 버튼은 `walkToNpc?('errand_neighbor')`(없으면 `goToScene('honey_cafe')`) / `goToScene('honey_cafe')`. 끝나면 +50 알림.
+  - 앱은 혼자 대화창을 **열 때** `errandDialogFor(npc, errand, level)`로 창의 모양을 정하고 창이 닫힐 때까지 바꾸지 않습니다: 미나(`ctx:'errand'`)는 `offered`에서 수락, `accepted`에서 기다림 대사와 수락 문장(상태는 안 바뀜), `carrying`에서 건네기 문장, 카페는 `accepted`에서 시원한 물 문장. 루나는 늘 안내인 대화. `done`이 오면 앱이 `takeItem?(item_key)`로 손·슬롯의 물을 뺍니다. 첫 줄은 `cfg.npcLine`.
   - 점수 응답의 `errand: {state, reward_coins?}`(`DialogResult.errand`)로 앱이 상태를 바꾸고, 안내가 `GET /v1/errand`로 다시 읽습니다. 상태·보상은 서버만 정합니다.
 - 수업: `apps/client/src/lesson/LessonLayer.tsx`의 `LessonLayer`.
   - props: `{ world: WorldHandle; renderDialog: (cfg: DialogConfig) => ReactNode; onLessonActive?: (active: boolean) => void }`.

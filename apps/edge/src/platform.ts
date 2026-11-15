@@ -17,7 +17,7 @@ import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './l
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
-import { htmlNoTransform } from './html-cache.js';
+import { htmlForClient } from './html-cache.js';
 import { injectShowroomShareMeta, showroomTokenFromPath } from './showroom-page.js';
 import { createInitialPlayerState } from '@lcw/sim-core';
 import { z } from 'zod';
@@ -679,9 +679,10 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await soloPlayer(c.req.raw);
     if (!s) return next();
+    // Read the body first: answering a POST before draining it breaks the next request on a kept-alive connection (workerd).
+    const body = await readBody(c);
     const blocked = seatBlocked(s);
     if (blocked) return blocked;
-    const body = await readBody(c);
     if (!body) return c.json({ error: 'invalid_plot_ops' }, 400);
     return forwardSolo(c.req.url, s, { ops: body.ops, batch: body.batch }, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
   });
@@ -816,9 +817,10 @@ async function routeWorkerRequest(request: Request, env: LcwEnv): Promise<Respon
 }
 
 export const workerHandler = {
-  // Every HTML response leaves with `no-transform` so Cloudflare does not inject its analytics beacon (html-cache.ts).
+  // Every HTML response leaves with `no-transform` so Cloudflare does not inject its analytics beacon, compressed by
+  // the Worker because no-transform also turns off Cloudflare's compression (html-cache.ts).
   async fetch(request: Request, env: LcwEnv): Promise<Response> {
-    return htmlNoTransform(await routeWorkerRequest(request, env));
+    return htmlForClient(await routeWorkerRequest(request, env), request);
   },
   async scheduled(event: { cron: string }, env: LcwEnv): Promise<void> {
     const res = await platformStub(env).fetch('https://platform/internal/cron', {

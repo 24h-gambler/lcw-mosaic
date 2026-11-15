@@ -60,6 +60,11 @@ export interface NpcDef {
   roams?: readonly SceneId[];
   /** a fixed place outside any scene's NPC spot (the errand giver at the cafe door) */
   spot?: Spot;
+  /**
+   * Solo play only (the errand giver): hidden and not talkable while a lesson runs, so the stage NPC is the only one
+   * E or a tap can reach in the lesson's scenes (review L4: 미나 stood 1.2 m farther than the cafe owner).
+   */
+  soloOnly?: true;
 }
 
 
@@ -98,6 +103,7 @@ export const NPCS: readonly NpcDef[] = [
     nameEn: 'Mina',
     home: 'honey_cafe',
     spot: { x: 161.0, y: 1, z: 139.0, yaw: 0 },
+    soloOnly: true,
     look: { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3dbe6b, pants: 0x3fa9f5, shoes: 0xf3efe7, hairStyle: 'bun', hat: 0xffc53d }
   }
 ];
@@ -125,48 +131,114 @@ export const SCENES: Readonly<Record<SceneId, SceneDef>> = {
   plaza: {
     id: 'plaza',
     titleKo: SCENE_TITLES_KO.plaza,
-    player: { x: 144.5, y: 1, z: 153.5, yaw: Math.PI },
+    player: { x: 144.5, y: 1, z: 152.3, yaw: Math.PI },
     npc: { id: 'guide', spot: { x: 144.5, y: 1, z: 150.0, yaw: 0 } },
     cameraYaw: 0,
-    path: [[144.5, 153.5]]
+    path: [[144.5, 152.3]]
   },
   honey_cafe: {
     id: 'honey_cafe',
     titleKo: SCENE_TITLES_KO.honey_cafe,
-    player: { x: 163.5, y: 1, z: 134.5, yaw: Math.PI / 2 },
+    // at the counter (x 166): 2.3 m from the owner, inside E reach on arrival
+    player: { x: 165.2, y: 1, z: 134.5, yaw: Math.PI / 2 },
     npc: { id: 'cafe_owner', spot: { x: 167.5, y: 1, z: 134.5, yaw: -Math.PI / 2 } },
     cameraYaw: 0,
     camPitch: 0.2,
     camDist: 5,
-    path: [[152, 144], [160.5, 144], [163.5, 141], [163.5, 134.5]]
+    path: [[152, 144], [160.5, 144], [163.5, 141], [163.5, 136.5], [165.2, 134.5]]
   },
   trade_shop: {
     id: 'trade_shop',
     titleKo: SCENE_TITLES_KO.trade_shop,
-    player: { x: 124.5, y: 1, z: 134.5, yaw: -Math.PI / 2 },
-    npc: { id: 'shop_owner', spot: { x: 120.5, y: 1, z: 134.5, yaw: Math.PI / 2 } },
+    // at the counter (x 122): the keeper stands right behind it, 2.3 m from the child, inside E reach on arrival;
+    // one cell south of the crate on the counter (122, 2, 133), so the dialog shot over the shoulder sees his face
+    player: { x: 123.8, y: 1, z: 135.5, yaw: -Math.PI / 2 },
+    npc: { id: 'shop_owner', spot: { x: 121.5, y: 1, z: 135.5, yaw: Math.PI / 2 } },
     cameraYaw: -0.45,
     camPitch: 0.14,
     camDist: 4.6,
-    path: [[136, 144], [126.5, 144], [124.5, 141], [124.5, 134.5]]
+    path: [[136, 144], [126.5, 144], [124.5, 141], [124.2, 137.5], [123.8, 135.5]]
   },
   build_plot: {
     id: 'build_plot',
     titleKo: SCENE_TITLES_KO.build_plot,
-    player: { x: 121.5, y: 1, z: 161.5, yaw: 0 },
+    player: { x: 122.8, y: 1, z: 162.2, yaw: 0.92 },
     npc: { id: 'guide', spot: { x: 124.5, y: 1, z: 163.5, yaw: -Math.PI * 0.75 } },
     cameraYaw: 0,
-    path: [[138, 156], [133, 158], [121.5, 158], [121.5, 161.5]]
+    path: [[138, 156], [133, 158], [121.5, 158], [122.8, 162.2]]
   },
   open_hill: {
     id: 'open_hill',
     titleKo: SCENE_TITLES_KO.open_hill,
-    player: { x: 144.5, y: 10, z: 100.5, yaw: 0 },
+    player: { x: 144.5, y: 10, z: 102.2, yaw: 0 },
     npc: { id: 'guide', spot: { x: 144.5, y: 10, z: 104.5, yaw: Math.PI } },
     cameraYaw: 0,
-    path: [[150.5, 152], [150.5, 135], [144.5, 127], [144.5, 112], [144.5, 100.5]]
+    // the last steps pass beside the guide (not through) to stop in front of her, looking down at the town
+    path: [[150.5, 152], [150.5, 135], [144.5, 127], [144.5, 112], [146.0, 107], [145.6, 103.5], [144.5, 102.2]]
   }
 };
+
+/**
+ * The auto-walk to a scene (goToScene): out along the current scene's path, in along the target's, starting from
+ * where the player actually is. Already in the target scene (talked to 미나 by the cafe door, then "카페로 걸어가기"),
+ * only the rest of that scene's own path, never out to the plaza and back in. A route starts at the waypoint nearest
+ * the player, or the next one when the player already stands on the stretch between them (no corner is cut).
+ */
+export function sceneRoute(from: SceneId, to: SceneId, x: number, z: number): Array<[number, number]> {
+  const src = SCENES[from];
+  const dst = SCENES[to];
+  let pts: Array<[number, number]>;
+  if (to === from) pts = [...dst.path];
+  else if (to === 'plaza') pts = [...src.path].reverse().slice(1).concat([[dst.player.x, dst.player.z]]);
+  else if (from === 'plaza') pts = [...dst.path];
+  else pts = [...src.path].reverse().slice(1).concat(dst.path);
+  let i = 0;
+  let best = Infinity;
+  for (let k = 0; k < pts.length; k++) {
+    const d = Math.hypot(pts[k]![0] - x, pts[k]![1] - z);
+    if (d < best) {
+      best = d;
+      i = k;
+    }
+  }
+  if (i + 1 < pts.length) {
+    const [ax, az] = pts[i]!;
+    const [bx, bz] = pts[i + 1]!;
+    const len = Math.hypot(bx - ax, bz - az) || 1;
+    const t = ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / (len * len);
+    const off = Math.abs((x - ax) * (bz - az) - (z - az) * (bx - ax)) / len;
+    if (t > 0 && t < 1 && off < 1) i++;
+  }
+  return pts.slice(i);
+}
+
+/** Who E or a tap may reach: everyone in solo play, only lesson NPCs while a lesson runs. */
+export function npcTalkable(def: Pick<NpcDef, 'soloOnly'>, lesson: boolean): boolean {
+  return !(lesson && def.soloOnly);
+}
+
+/**
+ * Where the player stands to talk to an NPC (walkToNpc): `dist` m in front of it (its facing), else to its sides or
+ * behind, on ground no higher than a step from the NPC's feet with two free cells above and nothing solid between
+ * (not across a counter). null when boxed in.
+ */
+export function talkSpotFor(world: VoxelWorld, npc: { x: number; y: number; z: number; yaw: number }, dist = 1.5): { x: number; z: number } | null {
+  for (const turn of [0, Math.PI / 2, -Math.PI / 2, Math.PI / 4, -Math.PI / 4, Math.PI]) {
+    const a = npc.yaw + turn;
+    const x = npc.x + Math.sin(a) * dist;
+    const z = npc.z + Math.cos(a) * dist;
+    const y = standHeight(world, x, z, Math.ceil(npc.y) + 2);
+    if (Math.abs(y - npc.y) > 1.05) continue;
+    const by = Math.ceil(y - 0.01);
+    if (collideHeight(world.getBlock(Math.floor(x), by, Math.floor(z))) > 0) continue;
+    if (collideHeight(world.getBlock(Math.floor(x), by + 1, Math.floor(z))) > 0) continue;
+    const mx = (npc.x + x) / 2;
+    const mz = (npc.z + z) / 2;
+    if (collideHeight(world.getBlock(Math.floor(mx), by, Math.floor(mz))) > 0) continue;
+    return { x, z };
+  }
+  return null;
+}
 
 /** Topmost walkable surface at a column at or below `fromY` (for spawning and NPC placement). */
 export function standHeight(world: VoxelWorld, x: number, z: number, fromY = 40): number {

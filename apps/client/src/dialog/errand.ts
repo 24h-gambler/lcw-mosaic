@@ -39,8 +39,11 @@ export async function fetchErrand(opts: { token: string; baseUrl?: string; fetch
   return (await res.json()) as ErrandView;
 }
 
-/** The world's guide (Luna) gives the errand until a dedicated errand NPC stands at the cafe door. */
-export const ERRAND_GIVER_CTXS: ReadonlySet<string> = new Set(['errand', 'guide']);
+/**
+ * Who gives the first errand: the neighbour Mina at the honey cafe door (world `errand_neighbor`, ctx `errand`, docs/03
+ * D1). Luna (guide) stays the guide: asking her the way to the cafe walks the child there.
+ */
+export const ERRAND_GIVER_CTXS: ReadonlySet<string> = new Set(['errand']);
 
 export interface ErrandDialog {
   npc: NpcRef;
@@ -55,12 +58,8 @@ export interface ErrandDialog {
 export function errandDialogFor(npc: NpcRef, errand: ErrandView | null, level: LangLevel): ErrandDialog | null {
   if (!errand || errand.state === 'done') return null;
   if (ERRAND_GIVER_CTXS.has(npc.ctx)) {
+    // accepted: Mina reminds ("The honey cafe is right over there") and the child can say yes again (no step moves)
     const step = errand.state === 'carrying' ? 'errand_deliver' : 'errand_accept';
-    if (errand.state === 'accepted') {
-      // On the way: the giver reminds, and asking the way to the cafe walks the child there (guide talk).
-      if (npc.ctx !== 'guide') return null;
-      return { npc, offers: bankOffersFor(npc, level, 'cafe'), npcLine: errand.npc_line };
-    }
     const as: NpcRef = { ...npc, ctx: 'errand' };
     return { npc: as, offers: bankOffersFor(as, level, step), npcLine: errand.npc_line };
   }

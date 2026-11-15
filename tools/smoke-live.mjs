@@ -59,8 +59,11 @@ if (token) {
 const BROWSER_UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
 for (const page of ['/', '/try', '/parents', '/game/']) {
   await check(`page ${page}`, async () => {
-    const r = await req(page, { headers: { accept: 'text/html', 'user-agent': BROWSER_UA } });
+    const r = await req(page, { headers: { accept: 'text/html', 'user-agent': BROWSER_UA, 'accept-encoding': 'gzip, br' } });
     expect(r.status === 200, `status ${r.status}`);
+    // no-transform also stops Cloudflare compressing, so the Worker must (html-cache.ts htmlForClient).
+    const encoding = r.headers.get('content-encoding');
+    expect(encoding === 'br' || encoding === 'gzip', `html not compressed (content-encoding ${encoding})`);
     const html = await r.text();
     expect(html.includes('<div id="root"'), 'no app root in html');
     // docs/14 §11: no third-party script. Cloudflare's zone analytics injects one unless HTML says no-transform
@@ -74,7 +77,22 @@ for (const page of ['/', '/try', '/parents', '/game/']) {
     expect(a.status === 200, `asset ${asset} → ${a.status}`);
     const assetCache = a.headers.get('cache-control') ?? '';
     expect(/max-age=31536000/.test(assetCache) && !/no-transform|max-age=0/.test(assetCache), `asset cache-control "${assetCache}"`);
-    return { asset, cacheControl };
+    return { asset, cacheControl, encoding };
+  });
+}
+// App-screen HTML the Worker builds or falls back to (share links, single-page routes): same three rules.
+for (const page of ['/join', '/s/demo', '/r/00000000000000000000000000000000']) {
+  await check(`app html ${page.split('/').slice(0, 2).join('/')}`, async () => {
+    const r = await req(page, { headers: { accept: 'text/html', 'user-agent': BROWSER_UA, 'accept-encoding': 'gzip, br' } });
+    expect(r.status === 200, `status ${r.status}`);
+    const encoding = r.headers.get('content-encoding');
+    expect(encoding === 'br' || encoding === 'gzip', `html not compressed (content-encoding ${encoding})`);
+    const cacheControl = r.headers.get('cache-control') ?? '';
+    expect(/no-transform/.test(cacheControl), `html cache-control "${cacheControl}" lacks no-transform`);
+    const html = await r.text();
+    expect(html.includes('<div id="root"'), 'no app root in html');
+    expect(!/cloudflareinsights|beacon\.min\.js/.test(html), 'Cloudflare analytics beacon injected into the page');
+    return { cacheControl, encoding };
   });
 }
 await check('version.json', async () => {

@@ -11,12 +11,14 @@ import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 
 /**
  * docs/08 G15 첫 접속 안내: mic check -> move -> first order within 3 minutes (docs/01 활성화, docs/09 첫 문장까지
- * 시간), carried by the first-visit errand (docs/03 D1): Luna asks for a cold water from the honey cafe, the child
- * orders it from Hani (the first order) and brings it back for 50 coins. The headset tip and the "volume with a
+ * 시간), carried by the first-visit errand (docs/03 D1): the neighbour Mina at the honey cafe door asks for a cold
+ * water, the child orders it from Hani inside (the first order) and brings it out to her for 50 coins. The headset tip and the "volume with a
  * guardian" note are shown once (docs/12 3·4장). The server owns the errand; this screen shows the step and the way.
  */
 
 const F = UI_STRINGS_KO.firstVisit;
+/** The world's errand giver at the honey cafe door (town.ts `errand_neighbor`). */
+export const ERRAND_GIVER_NPC_ID = 'errand_neighbor';
 const SEEN_KEY = 'lcw.firstVisitSeen';
 
 function seen(): boolean {
@@ -113,18 +115,27 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
     );
   }
   if (hidden) return null;
+  // Mina waits at the honey cafe door (world errand_neighbor) and the cafe is behind her: to her to start and to hand
+  // over, to the counter to order. A world without walkToNpc walks to the scene.
   const walk =
-    errand.state === 'accepted' ? { label: `☕ ${F.walkCafe}`, scene: 'honey_cafe' as const } : errand.state === 'carrying' ? { label: `🙋 ${F.walkBack}`, scene: 'plaza' as const } : null;
+    errand.state === 'accepted'
+      ? { label: `☕ ${F.walkCafe}`, scene: 'honey_cafe' as const, npcId: null }
+      : errand.state === 'offered' || errand.state === 'carrying'
+        ? { label: `🙋 ${F.walkMina}`, scene: 'honey_cafe' as const, npcId: ERRAND_GIVER_NPC_ID }
+        : null;
   return (
     <>
       {walk && world ? (
         <button
           type="button"
           className="lcw-errand-walk"
-          onClick={() => {
+          onClick={(e) => {
+            // a focused button keeps the keys (the world ignores keys aimed at buttons): WASD must walk right after
+            e.currentTarget.blur();
             unlockDialogAudio();
             playSfx('ui.click');
-            void world.goToScene(walk.scene);
+            if (walk.npcId && world.walkToNpc) void world.walkToNpc(walk.npcId);
+            else void world.goToScene(walk.scene);
           }}
           style={{
             position: 'absolute',

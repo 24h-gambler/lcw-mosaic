@@ -1242,12 +1242,12 @@ export const UI_STRINGS_KO = {
     micNone: '이 기기는 마이크를 쓸 수 없어요. 단어 카드와 글자로도 할 수 있어요.',
     skip: '건너뛰기',
     next: '좋아요, 출발!',
-    goalErrand: '안내인 루나에게 가서 말을 걸어요',
+    goalErrand: '카페 앞 이웃 미나에게 가서 말을 걸어요',
     goalOrder: '꿀벌 카페 하니에게 {item}을 주문해요',
-    goalDeliver: '루나에게 {item}을 가져다줘요',
+    goalDeliver: '카페 앞 미나에게 {item}을 가져다줘요',
     goalDone: '심부름 끝! 50코인을 받았어요',
     walkCafe: '카페로 걸어가기',
-    walkBack: '루나에게 돌아가기',
+    walkMina: '미나에게 가기',
     rewardToast: '+{coins} 코인! 심부름 완료'
   },
   /** Memory-card review (docs/03 D8, docs/08 6장 "복습 징후": a small lightning mark, never a scolding). */

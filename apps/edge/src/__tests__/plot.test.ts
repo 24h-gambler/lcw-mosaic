@@ -113,6 +113,35 @@ describe('my plot on the server (WP-201/205/207)', () => {
     const blocked = await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X, y: 1, z: Z, slot: 0 }] }, dev);
     expect(blocked.status).toBe(403);
     expect(blocked.body.error).toBe('seat_inactive');
+
+    // the seat answer comes only after the route read the body: an early answer to an unread POST breaks the next
+    // request on a kept-alive connection (workerd), review M2. The routes alone (PlatformDO.fetch drains any unread
+    // body afterwards as a safety net, which would hide the order).
+    const routes = (p as unknown as { app: { fetch(r: Request): Promise<Response> } }).app;
+    const req = new Request('https://x/v1/plot/ops', { method: 'POST', headers: dev, body: JSON.stringify({ ops: [{ op: 'place', x: X, y: 1, z: Z, slot: 0 }] }) });
+    const res = await routes.fetch(req);
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe('seat_inactive');
+    expect(req.bodyUsed).toBe(true);
+  });
+
+  it('a lesson builds on the lesson child own plot, never on the plot of the child this tablet is linked to (review L3)', async () => {
+    const p = new PlatformDO({ storage: fakeDurableStorage() }, env);
+    const { dev } = await linkedChild(p); // this tablet is linked to kid-1
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-lee', guardian_id: 'g-lee', player_id: 'kid-2', nickname: 'Mia', birth_year: 2016, level: 'L1' });
+    const st = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-2' });
+    const join = await call(p, 'POST', '/v1/join', { code: st.body.join_code }, anon);
+    expect(join.status).toBe(200);
+    expect(join.body.player_id).toBe('kid-2');
+    const stu = bearer(join.body.student_token);
+    // who and which world come from the token: a body naming the linked child changes nothing
+    const r = await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X, y: 1, z: Z, slot: 0 }], player_id: 'kid-1', world_id: homeWorldId('kid-1') }, stu);
+    expect(r.status).toBe(200);
+    expect(r.body.results).toEqual([{ ok: true }]);
+    expect((await call(p, 'GET', '/v1/plot', undefined, stu)).body.cells).toEqual([[X, 1, Z, BK.oakPlank]]);
+    expect((await call(p, 'GET', `/v1/plot?player_id=kid-2&world_id=${homeWorldId('kid-2')}`)).body.cells).toEqual([[X, 1, Z, BK.oakPlank]]);
+    expect((await call(p, 'GET', '/v1/plot', undefined, dev)).body.cells).toEqual([]);
+    expect((await call(p, 'GET', `/v1/plot?player_id=kid-1&world_id=${homeWorldId('kid-1')}`)).body.cells).toEqual([]);
   });
 });
 

@@ -7,7 +7,8 @@ import { BK, BLOCK_LOOKS, TILE_LAYER, TILE_NAMES, blockLook, collideHeight, isOp
 import { TILE_PX, buildAtlasPixels } from '../atlas.js';
 import { AO_CURVE, PAD, meshChunk, padIndex } from '../mesher.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type BlockAt } from '../physics.js';
-import { NPCS, SCENES, WANDERERS, buildTown, standHeight, terrainHeight } from '../town.js';
+import { NPCS, SCENES, WANDERERS, buildTown, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
+import { PAGE_KEYS_ON_BUTTONS, TALK_RANGE, keyIsPressable, keyIsTyping } from '../engine.js';
 import { extractPadded } from '../chunks.js';
 import { skyAt } from '../sky.js';
 import { pickTier } from '../../App.js';
@@ -40,6 +41,29 @@ describe('world api contract (docs/19 §2)', () => {
       expect(n.nameKo.length).toBeGreaterThan(0);
       expect(n.nameEn.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('keys and focus (review M1)', () => {
+  const el = (tagName: string, extra: { type?: string; role?: string; editable?: boolean } = {}): HTMLElement =>
+    ({ tagName, type: extra.type, isContentEditable: extra.editable === true, getAttribute: (k: string) => (k === 'role' ? (extra.role ?? null) : null) }) as unknown as HTMLElement;
+
+  it('a text box takes every key; a focused button or link keeps only Space, Enter and Tab', () => {
+    for (const t of [el('INPUT'), el('INPUT', { type: 'text' }), el('INPUT', { type: 'range' }), el('TEXTAREA'), el('SELECT'), el('DIV', { editable: true })]) {
+      expect(keyIsTyping(t)).toBe(true);
+      expect(keyIsPressable(t)).toBe(false);
+    }
+    for (const t of [el('BUTTON'), el('A'), el('INPUT', { type: 'checkbox' }), el('INPUT', { type: 'submit' }), el('DIV', { role: 'button' })]) {
+      expect(keyIsTyping(t)).toBe(false);
+      expect(keyIsPressable(t)).toBe(true);
+    }
+    for (const t of [null, el('CANVAS'), el('BODY'), el('DIV')]) {
+      expect(keyIsTyping(t)).toBe(false);
+      expect(keyIsPressable(t)).toBe(false);
+    }
+    // walking, talking, slots and the build keys are never page keys, so they play with a button focused
+    for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'KeyE', 'Digit1', 'KeyZ', 'KeyR', 'KeyC', 'Escape', 'F5']) expect(PAGE_KEYS_ON_BUTTONS.has(code)).toBe(false);
+    for (const code of ['Space', 'Enter', 'Tab']) expect(PAGE_KEYS_ON_BUTTONS.has(code)).toBe(true);
   });
 });
 
@@ -146,6 +170,150 @@ describe('town build (all through setBlock)', () => {
       const [bx, bz] = walk[i]!;
       for (let t = 0; t <= 1; t += 0.05) expect(Math.hypot(ax + (bx - ax) * t - spot.x, az + (bz - az) * t - spot.z)).toBeGreaterThanOrEqual(2);
     }
+  });
+
+  it('in a lesson only the stage NPC is in reach where each scene starts: the errand giver steps out (review L4)', () => {
+    // where everyone stands while the lesson is in scene `id`: its NPC on the scene spot, the rest at home
+    const homeSpot = (npcId: string): Spot | undefined => {
+      const d = NPCS.find((n) => n.id === npcId)!;
+      return d.spot ?? (SCENES[d.home].npc?.id === npcId ? SCENES[d.home].npc!.spot : undefined);
+    };
+    expect(NPCS.filter((n) => n.soloOnly).map((n) => n.id)).toEqual(['errand_neighbor']);
+    expect(npcTalkable(NPCS.find((n) => n.id === 'errand_neighbor')!, false)).toBe(true);
+    for (const id of SCENE_IDS) {
+      const s = SCENES[id];
+      if (!s.npc) continue;
+      const stage = Math.hypot(s.npc.spot.x - s.player.x, s.npc.spot.z - s.player.z);
+      for (const n of NPCS) {
+        if (n.id === s.npc.id || !npcTalkable(n, true)) continue;
+        const at = homeSpot(n.id);
+        if (!at) continue;
+        const d = Math.hypot(at.x - s.player.x, at.z - s.player.z);
+        // clearly farther than the stage NPC and out of E reach from the scene spot
+        expect(d, `${id}: ${n.id} vs ${s.npc.id}`).toBeGreaterThan(Math.max(stage + 2, TALK_RANGE + 1));
+      }
+    }
+  });
+
+  it('arriving in any scene, E reaches that scene NPC (within 2.5 m) and no one else; the errand too (coordinator 11-16)', () => {
+    // where everyone stands while the player is in scene `id`: its NPC on the scene spot, the rest at home
+    const at = (npcId: string, scene: string): Spot | undefined => {
+      const s = SCENES[scene as keyof typeof SCENES];
+      if (s.npc?.id === npcId) return s.npc.spot;
+      const d = NPCS.find((n) => n.id === npcId)!;
+      return d.spot ?? (SCENES[d.home].npc?.id === npcId ? SCENES[d.home].npc!.spot : undefined);
+    };
+    // the engine's rule (frame loop): nearest NPC closer than TALK_RANGE, feet within 2.5 m height
+    const eTarget = (px: number, pz: number, fromY: number, scene: string, lesson: boolean): { id: string; d: number } | null => {
+      const py = standHeight(world, px, pz, Math.ceil(fromY) + 1);
+      let best: { id: string; d: number } | null = null;
+      for (const n of NPCS) {
+        if (!npcTalkable(n, lesson)) continue;
+        const spot = at(n.id, scene);
+        if (!spot) continue;
+        const d = Math.hypot(spot.x - px, spot.z - pz);
+        const ny = standHeight(world, spot.x, spot.z, Math.ceil(spot.y) + 1);
+        if (d < TALK_RANGE && Math.abs(py - ny) < 2.5 && (!best || d < best.d)) best = { id: n.id, d };
+      }
+      return best;
+    };
+    for (const id of SCENE_IDS) {
+      const s = SCENES[id];
+      if (!s.npc) continue;
+      for (const lesson of [false, true]) {
+        const t = eTarget(s.player.x, s.player.z, s.player.y, id, lesson);
+        expect(t?.id, `${id} lesson=${lesson}`).toBe(s.npc.id);
+        expect(t!.d, id).toBeLessThanOrEqual(2.5);
+      }
+      // the walk ends on the spot, and the spot faces the NPC (within 60°)
+      const last = s.path[s.path.length - 1]!;
+      expect(Math.hypot(last[0] - s.player.x, last[1] - s.player.z), id).toBeLessThan(0.01);
+      const face = Math.atan2(s.npc.spot.x - s.player.x, s.npc.spot.z - s.player.z);
+      expect(Math.abs(Math.atan2(Math.sin(face - s.player.yaw), Math.cos(face - s.player.yaw))), id).toBeLessThan(Math.PI / 3);
+    }
+    // the errand: walkToNpc stands in front of 미나, and she is the one E reaches
+    const mina = NPCS.find((n) => n.id === 'errand_neighbor')!;
+    const ms = mina.spot!;
+    const spot = talkSpotFor(world, { ...ms, y: standHeight(world, ms.x, ms.z, Math.ceil(ms.y) + 1) })!;
+    const t = eTarget(spot.x, spot.z, ms.y, mina.home, false);
+    expect(t?.id).toBe('errand_neighbor');
+    expect(t!.d).toBeLessThanOrEqual(2.5);
+  });
+
+  it('finds a talk spot in front of every fixed-place NPC, inside the talk range and reachable from its scene (walkToNpc)', () => {
+    // counter NPCs are reached by their scene walk (paths tested below); fixed places need their own spot
+    const fixed = NPCS.filter((n) => n.spot);
+    expect(fixed.length).toBeGreaterThan(0);
+    for (const n of fixed) {
+      const at = n.spot!;
+      const y = standHeight(world, at.x, at.z, Math.ceil(at.y) + 1);
+      const spot = talkSpotFor(world, { x: at.x, y, z: at.z, yaw: at.yaw });
+      expect(spot, n.id).not.toBeNull();
+      expect(Math.hypot(spot!.x - at.x, spot!.z - at.z)).toBeLessThan(TALK_RANGE - 1);
+      // a straight walk from where the NPC's scene starts, no wall taller than a step
+      const from = SCENES[n.home].player;
+      let prevY = standHeight(world, from.x, from.z, Math.ceil(from.y) + 1);
+      const steps = Math.ceil(Math.hypot(spot!.x - from.x, spot!.z - from.z) / 0.25);
+      for (let i = 1; i <= steps; i++) {
+        const x = from.x + ((spot!.x - from.x) * i) / steps;
+        const z = from.z + ((spot!.z - from.z) * i) / steps;
+        const yy = standHeight(world, x, z, Math.ceil(prevY) + 2);
+        expect(yy - prevY, `${n.id} near ${x.toFixed(1)},${z.toFixed(1)}`).toBeLessThanOrEqual(1.05);
+        prevY = yy;
+      }
+    }
+    // 미나: in front of her (facing the road, +z), not behind the cafe wall
+    const mina = NPCS.find((n) => n.id === 'errand_neighbor')!.spot!;
+    const spot = talkSpotFor(world, { ...mina, y: standHeight(world, mina.x, mina.z, 2) })!;
+    expect(spot.z).toBeGreaterThan(mina.z);
+  });
+
+  it('walks scene to scene the same way as before when starting on a scene spot', () => {
+    // the route before sceneRoute (engine pathTo), from the scene spot
+    const old = (from: (typeof SCENE_IDS)[number], to: (typeof SCENE_IDS)[number]): Array<[number, number]> => {
+      const src = SCENES[from];
+      const dst = SCENES[to];
+      if (to === 'plaza') return [...src.path].reverse().slice(1).concat([[dst.player.x, dst.player.z]]);
+      if (from === 'plaza') return [...dst.path];
+      return [...src.path].reverse().slice(1).concat(dst.path);
+    };
+    for (const from of SCENE_IDS)
+      for (const to of SCENE_IDS) {
+        if (from === to) continue;
+        expect(sceneRoute(from, to, SCENES[from].player.x, SCENES[from].player.z), `${from} -> ${to}`).toEqual(old(from, to));
+      }
+  });
+
+  it('already in the scene, walks only the rest of its own path: 미나 to the cafe counter, not out to the plaza (talk lane 11-16)', () => {
+    const ms = NPCS.find((n) => n.id === 'errand_neighbor')!.spot!;
+    const start = talkSpotFor(world, { ...ms, y: standHeight(world, ms.x, ms.z, Math.ceil(ms.y) + 1) })!;
+    const route = sceneRoute('honey_cafe', 'honey_cafe', start.x, start.z);
+    const cafe = SCENES.honey_cafe.player;
+    expect(route[route.length - 1]).toEqual([cafe.x, cafe.z]);
+    let len = 0;
+    let [px, pz] = [start.x, start.z];
+    let prevY = standHeight(world, px, pz, Math.ceil(ms.y) + 2);
+    for (const [wx, wz] of route) {
+      // never back toward the plaza (the old route went out to 152,144 and in again, ~30 m)
+      expect(Math.hypot(wx - 152, wz - 144), `${wx},${wz}`).toBeGreaterThan(6);
+      const n = Math.ceil(Math.hypot(wx - px, wz - pz) / 0.25);
+      for (let i = 1; i <= n; i++) {
+        const x = px + ((wx - px) * i) / n;
+        const z = pz + ((wz - pz) * i) / n;
+        const y = standHeight(world, x, z, Math.ceil(prevY) + 2);
+        expect(y - prevY, `near ${x.toFixed(1)},${z.toFixed(1)}`).toBeLessThanOrEqual(1.05);
+        prevY = y;
+      }
+      len += Math.hypot(wx - px, wz - pz);
+      [px, pz] = [wx, wz];
+    }
+    expect(len).toBeLessThan(12);
+    // on the stretch between two waypoints, it goes on to the next one (no turning back)
+    const [a, b] = [SCENES.honey_cafe.path[1]!, SCENES.honey_cafe.path[2]!];
+    const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    expect(sceneRoute('honey_cafe', 'honey_cafe', mid[0], mid[1])[0]).toEqual(b);
+    // standing on the plaza spot already: just the spot
+    expect(sceneRoute('plaza', 'plaza', 140, 150)).toEqual([[SCENES.plaza.player.x, SCENES.plaza.player.z]]);
   });
 
   it('keeps the auto-walk paths from the plaza walkable (no wall taller than a step)', () => {

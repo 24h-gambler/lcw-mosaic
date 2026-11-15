@@ -44,10 +44,11 @@ create table if not exists lesson_joins (code text primary key, lesson_id text n
 create table if not exists student_tokens (token_hash text primary key, lesson_id text not null, player_id text not null, expires_at integer not null);
 create table if not exists lesson_state (lesson_id text primary key, plan_id text not null, stage_id text not null, targets text not null, updated_at integer not null);
 create table if not exists join_failures (hour integer primary key, n integer not null);
-create table if not exists lesson_npc_lines (id text primary key, lesson_id text not null, at integer not null, npc_id text not null, text text not null);
-create index if not exists lesson_npc_lines_by_lesson on lesson_npc_lines (lesson_id, at);
-create table if not exists lesson_events (id text primary key, lesson_id text not null, at integer not null, kind text not null, detail text not null);
-create index if not exists lesson_events_by_lesson on lesson_events (lesson_id, at);
+create table if not exists lesson_live (seq integer primary key autoincrement, id text not null unique, lesson_id text not null, at integer not null, type text not null, npc_id text, kind text, text text not null);
+create index if not exists lesson_live_by_lesson on lesson_live (lesson_id, seq);
+create index if not exists utterances_by_session on utterances (session_id, created_at);
+create index if not exists utterances_by_player on utterances (player_id, created_at);
+create index if not exists pins_by_lesson on pins (lesson_id, at_ms);
 create table if not exists lesson_stage_log (id integer primary key autoincrement, lesson_id text not null, at integer not null, stage_id text not null);
 create index if not exists lesson_stage_log_by_lesson on lesson_stage_log (lesson_id, at);
 create table if not exists lesson_director (lesson_id text primary key, possessed_npc_id text, updated_at integer not null);
@@ -113,7 +114,7 @@ const PinSchema = z
 const EndSchema = z
   .object({ teacher_comment: z.string().max(400).default(''), next_lesson_at: z.string().max(60).default('') })
   .strict();
-const NpcIdSchema = z.string().regex(/^[a-z0-9_]{1,40}$/);
+const NpcIdSchema = z.enum(LESSON_NPCS.map((n) => n.id) as [string, ...string[]]);
 const NpcSaySchema = z.object({ npc_id: NpcIdSchema, text: z.string().trim().min(1).max(200) }).strict();
 const PossessSchema = z.object({ npc_id: NpcIdSchema.nullable() }).strict();
 const DIRECTOR_EVENT_KINDS = LESSON_DIRECTOR_EVENTS.map((e) => e.kind) as [DirectorEventKind, ...DirectorEventKind[]];
@@ -200,11 +201,10 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
        from utterances where session_id = ? and created_at >= ? and created_at < ?`,
       [id, from, to]
     );
-    const lines = d.sql.all<{ text: string }>('select text from lesson_npc_lines where lesson_id = ? and at >= ? and at < ?', [
-      id,
-      from,
-      to
-    ]);
+    const lines = d.sql.all<{ text: string }>(
+      "select text from lesson_live where lesson_id = ? and type = 'line' and at >= ? and at < ?",
+      [id, from, to]
+    );
     const teacherMs = lines.reduce((a, x) => a + wordsOf(x.text) * TEACHER_MS_PER_WORD, 0);
     new LessonDO(id, d.db, l.player_id, 'lesson-mode', l.started_at).recordMinute({
       minute,
@@ -215,38 +215,44 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     });
   };
 
-  /** Every minute from the start to now (or the end), silent minutes included, so the chart shows gaps. */
-  const minutesOf = (id: string): LessonMinuteInput[] => {
+  /**
+   * Every minute from the start to now (or the end), silent minutes included, so the chart shows gaps. `complete`
+   * says whether the last minute is over (a running lesson's current minute is not yet a silent minute).
+   */
+  const minutesOf = (id: string, endingAt?: number): { minutes: LessonMinuteInput[]; complete: number } => {
     const l = lessonRow(id);
-    if (!l) return [];
+    if (!l) return { minutes: [], complete: 0 };
     const stored = new Map(d.db.listLessonMinutes(id).map((m) => [m.minute, m]));
-    const endAt = l.ended_at ?? d.nowMs();
-    const last = Math.min(LESSON_MINUTES_MAX - 1, Math.max(0, Math.floor((endAt - l.started_at) / 60_000)));
+    const stages = d.sql.all<{ at: number; stage_id: string }>(
+      'select at, stage_id from lesson_stage_log where lesson_id = ? order by at, id',
+      [id]
+    );
+    const endAt = l.ended_at ?? endingAt ?? d.nowMs();
+    const elapsed = Math.max(0, endAt - l.started_at);
+    const last = Math.min(LESSON_MINUTES_MAX - 1, Math.floor(elapsed / 60_000));
     const out: LessonMinuteInput[] = [];
+    let si = 0;
+    let stage = stages[0]?.stage_id ?? stateOf(id)?.stage_id ?? 'lesson';
     for (let m = 0; m <= last; m++) {
-      out.push(
-        stored.get(m) ?? {
-          lesson_id: id,
-          minute: m,
-          student_ms: 0,
-          teacher_ms: 0,
-          exchanges: 0,
-          activity: stageAt(id, l.started_at + (m + 1) * 60_000 - 1)
-        }
-      );
+      const minuteEnd = l.started_at + (m + 1) * 60_000 - 1;
+      while (si < stages.length && stages[si]!.at <= minuteEnd) stage = stages[si++]!.stage_id;
+      out.push(stored.get(m) ?? { lesson_id: id, minute: m, student_ms: 0, teacher_ms: 0, exchanges: 0, activity: stage });
     }
-    return out;
+    const complete = l.ended_at || endingAt ? out.length : Math.min(out.length, Math.floor(elapsed / 60_000));
+    return { minutes: out, complete };
   };
 
   const lessonUtterances = (id: string): UtteranceMetricInput[] =>
-    d.db
-      .listUtterancesForPlayer(lessonRow(id)?.player_id ?? '')
-      .filter((u) => u.session_id === id)
-      .map((u) => ({ ...u, lesson_id: id }) as UtteranceMetricInput);
+    d.sql
+      .all<Record<string, unknown>>('select * from utterances where session_id = ? order by created_at', [id])
+      .map((u) => ({ ...u, lesson_id: id }) as unknown as UtteranceMetricInput);
 
-  /** Talk balance of this lesson only (computeLessonMetrics over this lesson's minutes and utterances). */
-  const progressOf = (id: string) => {
-    const m = computeLessonMetrics(id, minutesOf(id), lessonUtterances(id));
+  /** Talk balance of this lesson only (computeLessonMetrics over this lesson's finished minutes and utterances). */
+  const progressOf = (id: string, mins = minutesOf(id)) => {
+    const m = computeLessonMetrics(id, mins.minutes.slice(0, Math.max(mins.complete, 0)).concat(
+      // the running minute still counts its talk, just not as silence
+      mins.minutes.slice(mins.complete).filter((x) => x.student_ms > 0 || x.exchanges > 0)
+    ), lessonUtterances(id));
     return {
       student_ms: m.student_ms,
       teacher_ms: m.teacher_ms,
@@ -269,7 +275,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         )
         .map((u) => ({ at_ms: u.at - l.started_at, speaker: 'student' as const, text: u.text })),
       ...d.sql
-        .all<{ at: number; text: string }>('select at, text from lesson_npc_lines where lesson_id = ? order by at', [id])
+        .all<{ at: number; text: string }>("select at, text from lesson_live where lesson_id = ? and type = 'line' order by seq", [id])
         .map((x) => ({ at_ms: x.at - l.started_at, speaker: 'teacher' as const, text: x.text }))
     ];
     const pins = d.sql.all<{ id: string; kind: string; at_ms: number; note: string }>(
@@ -295,24 +301,45 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     });
   };
 
-  const liveSince = (raw: string | undefined, now: number) => {
-    const since = Number(raw ?? 0) || 0;
-    return since > 0 ? Math.max(since, now - LESSON_LIVE_MAX_BACKLOG_MS) : now - LESSON_LIVE_FRESH_MS;
+  type LiveRow = { seq: number; id: string; at: number; type: string; npc_id: string | null; kind: string | null; text: string };
+  const splitLive = (rows: LiveRow[]) => ({
+    npc_lines: rows.filter((r) => r.type === 'line').map((r) => ({ id: r.id, seq: r.seq, at: r.at, npc_id: r.npc_id ?? '', text: r.text })),
+    events: rows.filter((r) => r.type === 'event').map((r) => ({ id: r.id, seq: r.seq, at: r.at, kind: r.kind ?? '', detail: r.text }))
+  });
+  const maxSeq = (id: string) =>
+    Number(d.sql.get<{ s: number | null }>('select max(seq) as s from lesson_live where lesson_id = ?', [id])?.s ?? 0);
+  /**
+   * NPC lines and events for a polling student (docs/19 §4). The cursor is the row sequence, never a clock, so two
+   * rows written in the same millisecond are both delivered once. Without a cursor (first poll, reload) only lines of
+   * the last 20 s are shown and no event is replayed; a client back from a long pause skips rows older than 2 min.
+   */
+  const liveForStudent = (id: string, rawCursor: string | undefined, now: number) => {
+    const cursor = Number(rawCursor ?? '');
+    if (!Number.isFinite(cursor) || rawCursor === undefined || rawCursor === '' || cursor < 0) {
+      const rows = d.sql.all<LiveRow>(
+        "select * from lesson_live where lesson_id = ? and type = 'line' and at > ? order by seq desc limit ?",
+        [id, now - LESSON_LIVE_FRESH_MS, LESSON_LIVE_MAX_ITEMS]
+      );
+      return { ...splitLive(rows.reverse()), cursor: maxSeq(id) };
+    }
+    const rows = d.sql.all<LiveRow>('select * from lesson_live where lesson_id = ? and seq > ? order by seq limit ?', [
+      id,
+      cursor,
+      LESSON_LIVE_MAX_ITEMS
+    ]);
+    const next = rows.length ? rows[rows.length - 1]!.seq : cursor;
+    return { ...splitLive(rows.filter((r) => r.at >= now - LESSON_LIVE_MAX_BACKLOG_MS)), cursor: next };
   };
-  const npcLinesSince = (id: string, since: number, limit = LESSON_LIVE_MAX_ITEMS) =>
-    d.sql
-      .all<{ id: string; at: number; npc_id: string; text: string }>(
-        'select id, at, npc_id, text from lesson_npc_lines where lesson_id = ? and at > ? order by at desc limit ?',
-        [id, since, limit]
-      )
-      .reverse();
-  const eventsSince = (id: string, since: number, limit = LESSON_LIVE_MAX_ITEMS) =>
-    d.sql
-      .all<{ id: string; at: number; kind: string; detail: string }>(
-        'select id, at, kind, detail from lesson_events where lesson_id = ? and at > ? order by at desc limit ?',
-        [id, since, limit]
-      )
-      .reverse();
+  const insertLive = (row: { id: string; lessonId: string; at: number; type: 'line' | 'event'; npcId?: string; kind?: string; text: string }) =>
+    d.sql.run('insert into lesson_live (id, lesson_id, at, type, npc_id, kind, text) values (?, ?, ?, ?, ?, ?, ?)', [
+      row.id,
+      row.lessonId,
+      row.at,
+      row.type,
+      row.npcId ?? null,
+      row.kind ?? null,
+      row.text
+    ]);
 
   /* ---------- operator ---------- */
 
@@ -387,13 +414,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     const at = d.nowMs();
     const lineId = `npc-${hex(d.randomBytes(6))}`;
-    d.sql.run('insert into lesson_npc_lines (id, lesson_id, at, npc_id, text) values (?, ?, ?, ?, ?)', [
-      lineId,
-      id,
-      at,
-      p.data.npc_id,
-      p.data.text
-    ]);
+    insertLive({ id: lineId, lessonId: id, at, type: 'line', npcId: p.data.npc_id, text: p.data.text });
     setPossessed(id, p.data.npc_id);
     recordMinuteAt(id, at);
     return c.json({ ok: true, id: lineId, at }, 201);
@@ -401,7 +422,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
 
   app.post('/v1/admin/lessons/:id/possess', async (c) => {
     const id = c.req.param('id');
-    if (!lessonRow(id)) return c.json({ error: 'lesson_not_found' }, 404);
+    const l = lessonRow(id);
+    if (!l) return c.json({ error: 'lesson_not_found' }, 404);
+    if (l.ended_at) return c.json({ error: 'lesson_ended' }, 409);
     const p = PossessSchema.safeParse(await c.req.json().catch(() => null));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     setPossessed(id, p.data.npc_id);
@@ -418,14 +441,15 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     const at = d.nowMs();
     const eventId = `evt-${hex(d.randomBytes(6))}`;
-    d.sql.run('insert into lesson_events (id, lesson_id, at, kind, detail) values (?, ?, ?, ?, ?)', [
-      eventId,
-      id,
-      at,
-      p.data.kind,
-      p.data.detail
-    ]);
+    insertLive({ id: eventId, lessonId: id, at, type: 'event', kind: p.data.kind, text: p.data.detail });
     return c.json({ ok: true, id: eventId, at }, 201);
+  });
+
+  /** Report draft material for the teacher only (T03): transcripts stay off the public report. */
+  app.get('/v1/admin/lessons/:id/pin-windows', (c) => {
+    const id = c.req.param('id');
+    if (!lessonRow(id)) return c.json({ error: 'lesson_not_found' }, 404);
+    return c.json(pinWindowsOf(id));
   });
 
   app.get('/v1/admin/lesson-plans', (c) => c.json(LESSON_PLANS));
@@ -501,6 +525,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     );
     const plan = getLessonPlan(st?.plan_id);
     const stage = st ? planStage(plan, st.stage_id) : undefined;
+    const mins = minutesOf(id);
     return c.json({
       lesson: {
         id,
@@ -516,11 +541,16 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       utterances,
       pins,
       live,
-      npc_lines: npcLinesSince(id, since, 500),
-      events: eventsSince(id, since, 500),
+      ...splitLive(
+        d.sql.all<LiveRow>('select * from lesson_live where lesson_id = ? and seq > ? order by seq', [
+          id,
+          Math.max(0, Number(c.req.query('live_cursor') ?? 0) || 0)
+        ])
+      ),
+      live_cursor: maxSeq(id),
       stage_log: d.sql.all('select at, stage_id from lesson_stage_log where lesson_id = ? order by at, id', [id]),
-      minutes: minutesOf(id).map(({ lesson_id: _l, ...m }) => m),
-      progress: progressOf(id),
+      minutes: mins.minutes.map(({ lesson_id: _l, ...m }) => m),
+      progress: progressOf(id, mins),
       student_view: {
         connected: Boolean(presence && now - presence.last_seen_at <= STUDENT_PRESENCE_TTL_MS),
         last_seen_at: presence?.last_seen_at ?? null,
@@ -549,7 +579,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const pinWindows = pinWindowsOf(id);
     // F2 pins become lesson-born expressions (WP-310 transfer tracking): the teacher's note, else the top candidate.
     for (const w of pinWindows) {
-      const lemma = w.kind === 'expression' ? (w.note.trim() || w.candidate_expressions[0] || '').slice(0, 120) : '';
+      const note = /[A-Za-z]{2,}/.test(w.note) ? w.note.trim() : '';
+      const lemma = w.kind === 'expression' ? (note || w.candidate_expressions[0] || '').slice(0, 120) : '';
       if (lemma) {
         d.db.registerLessonExpression({ id: `expr-${w.pin_id}`, playerId: l.player_id, lemmaKey: lemma, lessonId: id, nowMs: d.nowMs() });
       }
@@ -565,7 +596,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       share_token: token,
       share_url: `/r/${token}`,
       clips: [],
-      lesson_extra: { progress: progressOf(id), pin_windows: pinWindows }
+      // Numbers only on the public report (docs/18 §1, 07 §5); pin transcripts go back to the teacher below.
+      lesson_extra: { progress: progressOf(id, minutesOf(id, d.nowMs())) }
     });
     const body = (await res.json()) as { facts?: unknown; error?: string };
     if (!res.ok) return c.json({ error: body.error ?? 'report_failed' }, 500);
@@ -684,7 +716,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         ui === '3d' || ui === 'cards' ? ui : null
       ]
     );
-    const since = liveSince(c.req.query('since'), now);
+    const live = liveForStudent(s.lesson_id, c.req.query('cursor'), now);
     return c.json({
       lesson_id: s.lesson_id,
       stage_id: st?.stage_id ?? null,
@@ -696,8 +728,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       targets: st?.targets ?? [],
       offers: offersOf(plan, st?.targets ?? []),
       possessed_npc_id: possessedOf(s.lesson_id),
-      npc_lines: npcLinesSince(s.lesson_id, since),
-      events: eventsSince(s.lesson_id, since),
+      npc_lines: live.npc_lines,
+      events: live.events,
+      cursor: live.cursor,
       ended: Boolean(l?.ended_at),
       server_now: now
     });

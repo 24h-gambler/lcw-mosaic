@@ -108,8 +108,8 @@ const CompleteLessonSendReportSchema = z
     share_token: z.string().min(16),
     share_url: z.string().min(1).optional(),
     clips: z.array(z.unknown()).default([]),
-    /** Lesson-only progress and F1/F2 pin windows, built by lesson mode (docs/18) and stored with the facts. */
-    lesson_extra: z.object({ progress: z.unknown(), pin_windows: z.array(z.unknown()) }).partial().optional()
+    /** Lesson-only progress numbers built by lesson mode (docs/18 §3), stored with the facts. No transcript text. */
+    lesson_extra: z.object({ progress: z.record(z.union([z.number(), z.record(z.number())])) }).strict().optional()
   })
   .strict();
 

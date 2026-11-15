@@ -85,6 +85,19 @@ describe('place and break (WP-201)', () => {
     expect(applyPlotOp(st, ME, { op: 'place', x: X, y: 1, z: Z, slot: 9 }).reason).toBe('bad_op');
   });
 
+  it('every cell inside the fence is buildable, also the corner that touches the plaza square', () => {
+    const s = plotState();
+    const p = s.world.plot;
+    // x 128..130, z 157..159 lie inside the plaza's core square too (regression: refused as not_my_plot)
+    for (const [x, z] of [[p.x1 - 2, p.z0 + 1], [128, 159], [129, 158], [118, 170]] as const) {
+      s.inv.slots[0] = { ref: blockRef(BK.oakPlank), n: 8 };
+      for (const y of [8, 15, 23]) expect(applyPlotOp(s, 'kid', { op: 'place', x, y, z, slot: 0 })).toMatchObject({ ok: true });
+      expect(s.world.getZone(x, 1, z)).toBe('plot');
+    }
+    // the plaza itself stays protected
+    expect(s.world.getZone(140, 1, 140)).toBe('core');
+  });
+
   it('a full hand sends what is broken to the chest instead of losing it', () => {
     const st = plotState();
     st.inv.slots = st.inv.slots.map((_s, i) => ({ ref: blockRef(BK.glass), n: i === 0 ? 63 : 64 }));

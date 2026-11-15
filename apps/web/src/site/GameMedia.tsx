@@ -3,8 +3,8 @@
  * tools/site-captures.mjs. Every picture carries a "실제 게임 화면 · 시연" tag — the screen is the real game, the voice
  * input was a demonstration (no child voice, docs/14 §10.3).
  *
- * Clips: muted, inline, no download until they are on screen (preload none, poster first — docs/14 §11 budget),
- * play only while visible, never auto-play with reduced motion or Save-Data, and a pause button (WCAG 2.2.2).
+ * Clips: muted, inline, no download until they are on screen and the page has settled (preload none, poster
+ * first — docs/14 §11 budget), play only while visible, never auto-play with reduced motion or Save-Data, and a pause button (WCAG 2.2.2).
  * Captions follow the clip's own marks so the story reads with the sound off (docs/14 §3).
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -27,6 +27,51 @@ function saveData(): boolean {
   return !!c?.saveData;
 }
 
+/**
+ * Earliest clip start after navigation. On a fast connection load and idle come within a few hundred ms, still inside
+ * the largest-paint window, and the clip bytes would then count against the page's first paint. The poster shows
+ * the same frame meanwhile, so waiting costs nothing visible.
+ */
+export const CLIP_EARLIEST_START_MS = 2500;
+
+/**
+ * Runs `fn` once the page has loaded, the main thread is idle and CLIP_EARLIEST_START_MS has passed; returns a cancel
+ * function. The clip download
+ * (hundreds of KB) waits for this so the poster, text and scripts get the slow-network bandwidth first: on /play the
+ * 681 KB clip started at 0.58 s and Lighthouse's mobile LCP went to 3.1 s (production 11-16, score 90).
+ */
+export function afterPageSettles(fn: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  let done = false;
+  let idle: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const run = () => {
+    if (done) return;
+    const wait = CLIP_EARLIEST_START_MS - (typeof performance !== 'undefined' ? performance.now() : CLIP_EARLIEST_START_MS);
+    if (wait > 0) {
+      timer = setTimeout(run, wait);
+      return;
+    }
+    done = true;
+    fn();
+  };
+  const onIdle = () => {
+    const ric = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    if (ric) idle = ric(run, { timeout: 2000 });
+    else timer = setTimeout(run, 500);
+  };
+  const onLoad = () => onIdle();
+  if (document.readyState === 'complete') onIdle();
+  else window.addEventListener('load', onLoad, { once: true });
+  return () => {
+    done = true;
+    window.removeEventListener('load', onLoad);
+    const cic = (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback;
+    if (idle !== undefined && cic) cic(idle);
+    if (timer !== undefined) clearTimeout(timer);
+  };
+}
+
 export function GameClip(props: {
   clip: SiteClipKey;
   /** [mark, caption] in play order */
@@ -43,7 +88,11 @@ export function GameClip(props: {
   const [auto, setAuto] = useState(false);
 
   useEffect(() => {
-    setAuto(!prefersReducedMotion() && !saveData());
+    if (prefersReducedMotion() || saveData()) return undefined;
+    return afterPageSettles(() => setAuto(true));
+  }, []);
+
+  useEffect(() => {
     const el = box.current;
     if (!el || typeof IntersectionObserver === 'undefined') return undefined;
     const io = new IntersectionObserver((es) => setVisible(es.some((e) => e.isIntersecting)), { threshold: 0.3 });

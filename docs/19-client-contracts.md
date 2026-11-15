@@ -82,6 +82,12 @@ export interface DialogPanelProps {
 - `DialogPanel.tsx`는 `DialogPanel`과 함께 `createSoloSubmit(npc)`(학생 토큰으로 `/v1/converse/score`), `createLessonSubmit({token})`을 내보냅니다. 혼자 경로에서 서버는 토큰에서 학생·집 월드(`home-<player>`, 처음에 시작 코인 1회)·레벨을 정하고, 별·가격·아이템을 문장 뱅크에서 정합니다(요청의 `price`·`item_id`는 무시).
 - 입력 사다리: 브라우저 음성 인식(en-US) → 안 되면(카카오톡 등 인앱 브라우저, 미지원, 권한 거부, 2회 연속 못 들음) 단어 카드 조합판 → 글자 입력. 카드·글자 입력은 별 2개까지(`04` 4.1). 기기 내·서버 Whisper는 같은 `SpeechEngine` 인터페이스로 붙습니다.
 - NPC 맥락: 카페 주인 `cafe`, 물물교환 상점 주인 `trade_shop`(상점 거래 뱅크, 가격 0), 광장 안내인 `guide`(길 묻기 뱅크 — 카페·교환 상점, 가격 0).
+- 기억 카드·복습(WP-310·406, `03` D8, `09` P4, 2026-11-16):
+  - 혼자 경로에서 2성 이상으로 통과하고 무언가를 얻은 문장(산 아이템, 가격 0 문장이면 말한 대상)은 `memory_cards` 한 줄이 됩니다(`mc-<dialog_id>`, 한 창에 하나 — "별 하나 더"는 같은 카드를 더 좋은 문장으로 바꿈). 첫 복습은 20분 뒤이고 응답의 `memory_card.next_review_at`이 그 시각입니다. 코인이 모자라 아무것도 못 샀으면 카드도 없습니다. 산 아이템 행(`items.card_id`)에 카드가 붙습니다.
+  - `GET /v1/review/due`(학생·기기 토큰): `{signs, next_due_at, cards_total, mastered}`. `signs`는 서버가 고른 최대 3건(`selectReviewSigns`: 장착 중이거나 7일 안에 쓴 장비 우선, `10 + 밀린 일수` 순, 창고 장비는 제외)이고 각 항목은 `card_id·item_key·item_name_ko·emoji·ctx·text·hint_tags·hint·listen·box·stars·label_ko`입니다. 힌트는 칸(box)이 정합니다: 20분·1일 전체 문장(1일부터 음성 없음 `listen=false`), 3일 키워드, 7일 첫 글자, 16일 그림, 35일 없음.
+  - `POST /v1/review/attempt` `{card_id, transcript, stt_source, confidence, dur_ms, latency_ms}`: 서버가 그 카드 자기 문장과 그 칸의 통과선(`TUNING.memory.reviewPassThreshold` 0.70/0.70/0.70/0.65/0.60/0.60)으로 채점하고 칸을 옮깁니다(실패는 한 칸만 후퇴). 16일 칸은 같은 물건의 다른 뱅크 문장도 인정(`matched_text`). 아직 때가 안 된 카드·남의 카드·마스터한 카드는 409/404. 35일을 통과하면 마스터 도안이 되고 보너스 코인이 **장부**(`ledger`, reason `memory_master`)에 한 번만 들어갑니다. 복습 발화는 `utterances`에 남고(3일 칸부터 `recall`), 통과하면 그 장비의 사용 시각과 수업 유래 표현의 혼자 재사용(`expressions.reuse_solo`)이 갱신됩니다.
+  - 화면: `apps/client/src/dialog/ReviewDock.tsx`의 `ReviewDock({world, player, hidden})` — 오른쪽 위(별·코인 칩 아래, top 112px) 번개 표시 카드 최대 3장, 새 징후가 뜨면 `mem.warn`, 누르면 그 카드 문장 한 개로 대화창(`mode` read/recall, 칸의 `hint`, `listen`)을 열고 통과하면 `mem.fix` + `celebrate`. 다음 복습 시각에 맞춰 다시 묻습니다(같은 세션의 20분 복습). 게스트는 카드가 없어 비어 있습니다.
+  - 수업 발화로 생기는 카드는 같은 입구 `createMemoryCard(db, {origin: 'lesson', itemId: 'lesson-<utt>|<대상>'})`(`apps/edge/src/review.ts`)를 씁니다. 수업 리포트의 35일 유지율은 이 카드들로 계산합니다.
 
 ## 4. 수업 → 다른 도메인 (`apps/client/src/lesson/`)
 
@@ -110,6 +116,7 @@ export interface DialogPanelProps {
     - 별은 그 창에서 보여 준 것보다 높을 때만 축하합니다. 실패의 '다시 해 봐요'(0)는 아직 통과 전일 때만 보여 줍니다. ✕·Esc 로 닫을 때 최고 결과로 `onDone`이 다시 와도 두 번 축하하지 않습니다.
     - `r.coinsTotal`(서버 장부 잔액)이 오면 `setCoins?(n)`으로 HUD 의 별 옆 코인 칩에 보여 줍니다. 장부는 서버 하나이고, 수업 도메인이 맞춘 잔액을 `world.setCoins?.(n)`으로 직접 넣어도 됩니다.
     - 혼자 대화: 안내인(`ctx:'guide'`)이 통과한 답의 `askedKey`가 장소(`'cafe'|'trade_shop'`, 장면 id 도 됨)면 창을 닫은 뒤 그 장면으로 걸어갑니다(`goToScene`). 수업 중에는 수업이 장면을 정하므로 걷지 않습니다.
+- 복습: `apps/client/src/dialog/ReviewDock.tsx`의 `ReviewDock`(게스트가 아닐 때, 수업 중이거나 혼자 대화창이 열려 있으면 `hidden`). 자리는 오른쪽 위 별·코인 칩 아래: 터치(`pointer: coarse`)면 시점 버튼(약 60~116px) 아래 `top:128px`, 아니면 `top:60px`.
 - 수업: `apps/client/src/lesson/LessonLayer.tsx`의 `LessonLayer`.
   - props: `{ world: WorldHandle; renderDialog: (cfg: DialogConfig) => ReactNode; onLessonActive?: (active: boolean) => void }`.
   - 수업이 시작되면 `onLessonActive(true)` → 앱이 `setLessonBadge(true)`, 혼자 대화 열기를 멈춥니다(대화는 수업이 `renderDialog`로 엶).

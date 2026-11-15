@@ -116,7 +116,11 @@ export const PROCEDURAL_SFX_PRESETS: Record<string, SynthParams> = {
   'word.hit': { freqStart: 440, freqEnd: 440, durationMs: 100, wave: 'sine', gain: 0.45 },
   'fx.explode': { freqStart: 110, freqEnd: 38, durationMs: 280, wave: 'noise', gain: 0.7 },
   'coin.drop': { freqStart: 987.77, freqEnd: 1318.51, durationMs: 130, wave: 'sine', gain: 0.5 },
-  'star.chime': { freqStart: 587.33, freqEnd: 1174.66, durationMs: 240, wave: 'triangle', gain: 0.55 }
+  'star.chime': { freqStart: 587.33, freqEnd: 1174.66, durationMs: 240, wave: 'triangle', gain: 0.55 },
+  /** docs/12 6.2: review sign, a low two-note cue that does not fall (no 'failure' sound). */
+  'mem.warn': { freqStart: 392, freqEnd: 440, durationMs: 220, wave: 'triangle', gain: 0.35 },
+  /** docs/12 6.2: repair done (wrench + sparkle). */
+  'mem.fix': { freqStart: 659.25, freqEnd: 1318.51, durationMs: 200, wave: 'sine', gain: 0.45 }
 };
 
 const PENTATONIC_SEMITONES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24] as const;

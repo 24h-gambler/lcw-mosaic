@@ -3,7 +3,7 @@
  * world calls — scene change, goal line, possession sparkle, NPC bubbles, director events. Pure apart from the
  * injected api, world and timers, so it is tested without a browser.
  */
-import { LESSON_DIRECTOR_EVENTS, getLessonNpc, type LessonDirectorEventKind, type LessonSceneId } from '@lcw/content';
+import { LESSON_DIRECTOR_EVENTS, getLessonNpc, type LessonDirectorEventKind, type LessonHintLevel, type LessonSceneId } from '@lcw/content';
 import {
   LessonHttpError,
   loadStudentSession,
@@ -116,6 +116,14 @@ export function initialLessonView(): LessonView {
     lastResult: null,
     stageSeq: 0
   };
+}
+
+/**
+ * The English line under the world HUD goal. Only with the full hint: in recall and the other hint levels the cards
+ * show the sentence masked, and the goal box must not give the answer away.
+ */
+export function goalTargetEn(hint: LessonHintLevel, offers: readonly { text: string }[]): string | undefined {
+  return hint === 'full' ? offers[0]?.text : undefined;
 }
 
 export class LessonController {
@@ -256,7 +264,7 @@ export class LessonController {
       if (w && st.scene_id !== this.view.sceneId) void w.goToScene(st.scene_id).catch(() => undefined);
     }
     if (stageChanged || targetsChanged || st.stage_goal_ko !== this.view.goalKo) {
-      w?.setGoal(st.stage_goal_ko, st.offers[0]?.text);
+      w?.setGoal(st.stage_goal_ko, goalTargetEn(st.hint, st.offers));
     }
     Object.assign(patch, {
       goalKo: st.stage_goal_ko,

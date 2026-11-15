@@ -17,7 +17,7 @@ import {
 import type { Level } from '@lcw/schemas';
 import { TOKENS } from '@lcw/ui';
 import { codeFromSearch, createStudentLessonApi, loadStudentSession, type DialogResult, type LessonOffer, type StudentLessonApi, type UtteranceSubmit } from './api.js';
-import { LessonController, initialLessonView, type LessonView, type LessonWorld } from './controller.js';
+import { LessonController, goalTargetEn, initialLessonView, type LessonView, type LessonWorld } from './controller.js';
 import { MIC_BLOCKING_ERRORS, maskTarget, micUnreliable, pickHeard, type HeardAlternative } from './hint.js';
 import { LESSON_STRINGS_KO as S } from './strings.js';
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
@@ -126,7 +126,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     const v = ctl.state;
     if (!w || v.phase !== 'live') return;
     if (v.sceneId) void goToSceneChecked(w, v.sceneId).catch(() => undefined);
-    if (v.goalKo) w.setGoal(v.goalKo, v.offers[0]?.text);
+    if (v.goalKo) w.setGoal(v.goalKo, goalTargetEn(v.hint, v.offers));
     w.setPossessed?.(v.possessedNpcId);
   }, [props.world, ctl]);
   useEffect(() => () => onActive.current?.(false), []);

@@ -5,7 +5,7 @@ import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
-import { LESSON_BANNER_MS, LESSON_POLL_MS, LessonController, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
+import { LESSON_BANNER_MS, LESSON_POLL_MS, LessonController, goalTargetEn, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
 import { LessonLayer, goToSceneChecked } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
@@ -302,6 +302,13 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(calls).toBe(2);
     await goToSceneChecked(w, 'honey_cafe');
     expect(calls).toBe(3); // arrived: no extra walk
+  });
+
+  it('the HUD goal shows the English sentence only with the full hint (recall must not give it away)', () => {
+    const offers = [{ text: 'Can I have a warm honey tea?' }];
+    expect(goalTargetEn('full', offers)).toBe('Can I have a warm honey tea?');
+    for (const h of ['keyword', 'initial', 'picture', 'none'] as const) expect(goalTargetEn(h, offers)).toBeUndefined();
+    expect(goalTargetEn('full', [])).toBeUndefined();
   });
 
   it('hints follow the stage ladder and the layer draws nothing outside a lesson', () => {

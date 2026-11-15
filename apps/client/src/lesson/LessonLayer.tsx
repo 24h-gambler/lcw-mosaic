@@ -117,15 +117,35 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   // New stage or new sentences from the teacher: the panel starts fresh (selection, heard text, open microphone),
   // and a folded dialog window opens again.
   const panelKey = `${view.stageSeq}:${view.offers.map((o) => o.text).join('|')}`;
+  // The dialog window's first NPC line is fixed while that window is open (review of #26): a teacher line arriving
+  // mid-answer must not swap the question and be read aloud over the open microphone. A new window (new stage or
+  // sentences, "완료", reopening after ✕) takes the newest line again.
+  const openLine = useRef<{ key: string; line: string } | null>(null);
+  const openKey = `${panelKey}:${doneSeq}:${foldedKey === panelKey ? 'folded' : 'open'}`;
+  openLine.current = pinOpeningLine(openLine.current, openKey, view);
+  const firstLine = openLine.current.line;
   // App decides WebGL once (canRunWorld) and never mounts the layer without it; no probing here on every render.
   const lowTier = props.canRender3d === false;
   const live = view.phase === 'live';
   // Again when the world arrives: App's callback reaches the world's "수업 중" badge only once the world exists.
+  const ended = view.phase === 'ended';
   useEffect(() => {
     onActive.current?.(live);
-    // Out of a lesson the star chip goes back to the world's own count.
-    if (!live) props.world?.setStars?.(null);
-  }, [live, props.world]);
+    // In a lesson the chip shows this lesson's stars from the start (0 before the first). When it ends the chip keeps
+    // them while the end card says how many (no sudden 7 → world count), then goes back to the world's own count.
+    const w = props.world;
+    if (live) {
+      w?.setStars?.(ctl.state.lessonStars);
+      return undefined;
+    }
+    if (!ended) {
+      w?.setStars?.(null);
+      return undefined;
+    }
+    w?.setStars?.(ctl.state.lessonStars);
+    const t = setTimeout(() => w?.setStars?.(null), LESSON_STARS_HOLD_MS);
+    return () => clearTimeout(t);
+  }, [live, ended, props.world]);
   // The world can load after the lesson joined (slow phones): give it the lesson's current scene, goal and possession.
   useEffect(() => {
     const w = props.world;
@@ -175,6 +195,11 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
           <div style={{ fontSize: 56, lineHeight: '64px' }} aria-hidden>⭐</div>
           <h1 style={{ ...h2, margin: `${SP[2]}px 0` }}>{S.ended.title}</h1>
           <p style={bodyL}>{S.ended.body}</p>
+          {view.lessonStars > 0 ? (
+            <p data-testid="lesson-ended-stars" style={{ ...bodyL, fontWeight: 700 }}>
+              {S.ended.stars(view.lessonStars)}
+            </p>
+          ) : null}
           {view.lastResult ? <p style={{ ...bodyL, fontWeight: 700 }}>{S.ended.today(view.lastResult.utterancesToday)}</p> : null}
         </CenterCard>
       </Shell>
@@ -190,7 +215,9 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     hint: view.hint,
     submit: ctl.submit,
     // The NPC opens with the stage's script line, not its solo greeting ("Where do you want to go?" at the warm-up).
-    ...(view.npcLineEn ? { npcLine: view.npcLineEn } : {}),
+    // After an answer the window opens again: then it says what the teacher last said as this NPC in this stage, so
+    // the script is not asked (and read aloud) again over a follow-up line.
+    ...(firstLine ? { npcLine: firstLine } : {}),
     // "완료" on a result: the window starts over for the next sentence (free talk takes many in one stage).
     onDone: () => setDoneSeq((n) => n + 1),
     // ✕ on the dialog window folds it away so the child can look at the world; "말하기" brings it back.
@@ -482,6 +509,33 @@ function EventEffect({ kind, id, handledByWorld }: { kind: LessonDirectorEventKi
   }
   return null;
 }
+
+/**
+ * The dialog window's first NPC line: the newest line the teacher spoke as the stage NPC since this stage began, else
+ * the stage script.
+ */
+export function openingLine(view: OpeningView): string {
+  for (let i = view.bubbles.length - 1; i >= 0; i--) {
+    const b = view.bubbles[i]!;
+    if (b.npcId === view.npcId && b.possessed && b.at >= view.stageStartedAt) return b.text;
+  }
+  // Older than the bubbles kept (or than the first poll's 20 s after a reload): the server's newest line of this stage.
+  return view.stageLastLineEn || view.npcLineEn;
+}
+
+type OpeningView = Pick<LessonView, 'bubbles' | 'npcId' | 'npcLineEn' | 'stageStartedAt'> & Partial<Pick<LessonView, 'stageLastLineEn'>>;
+
+/** `openingLine` taken once per dialog window (`key`): the same window keeps its first line whatever arrives later. */
+export function pinOpeningLine(
+  prev: { key: string; line: string } | null,
+  key: string,
+  view: OpeningView
+): { key: string; line: string } {
+  return prev && prev.key === key ? prev : { key, line: openingLine(view) };
+}
+
+/** After the lesson ends the HUD star chip keeps the lesson's stars this long, then shows the world's own count. */
+export const LESSON_STARS_HOLD_MS = 8_000;
 
 /** How long the teacher's newest line shows over the dialog window. */
 export const LATEST_LINE_MS = 8_000;

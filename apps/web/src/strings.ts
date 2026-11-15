@@ -246,7 +246,7 @@ export const LESSON_STRINGS_KO = {
     saidToday: '오늘 말한 문장',
     waiting: '선생님이 문장을 띄워 줄 거예요. 잠깐만 기다려요!',
     pickOne: '말하고 싶은 문장을 골라요',
-    recallNote: '첫 단어만 보여요. 기억해서 끝까지 말해 봐요!',
+    recallNote: '단어마다 첫 글자만 보여요. 기억해서 끝까지 말해 봐요!',
     freeNote: '문장은 보기예요. 내 이야기로 자유롭게 말해도 돼요!',
     speak: '말하기',
     listening: '듣고 있어요…',

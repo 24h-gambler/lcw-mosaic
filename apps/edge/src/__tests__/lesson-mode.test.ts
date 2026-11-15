@@ -86,11 +86,39 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
     // the dialog window opens with the stage's script line, not the NPC's solo greeting
     expect(first.body.npc_line_en).toBe('Hi! What is your name? What do you like to do after school?');
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
-    await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000 }, st);
+    const ans = await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000 }, st);
+    // the answer carries the lesson's star sum right after it was stored (the HUD takes it as is)
+    expect(ans.body.lesson_stars).toBe(2);
     const after = await call(p, 'GET', `/v1/lesson/state?cursor=${first.body.cursor}`, undefined, st);
+    expect(typeof after.body.stage_started_at).toBe('number');
+    expect(after.body.stage_started_at).toBeGreaterThanOrEqual(first.body.stage_started_at);
     expect(after.body.coins_balance).toBe(220);
     expect(after.body.lesson_stars).toBe(2);
     expect(after.body.npc_line_en).toBe('Welcome to the honey cafe! What would you like today?');
+  });
+
+  it("a reload's first poll still names the teacher's newest line as this stage's NPC (older than the 20 s window)", async () => {
+    let now = Date.parse('2026-11-16T15:00:00+09:00');
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const p = platform();
+      const { lessonId, st } = await startLesson(p);
+      await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+      expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.stage_last_line_en).toBeNull();
+      now += 1_000;
+      await call(p, 'POST', `/v1/admin/lessons/${lessonId}/npc-say`, { npc_id: 'cafe_owner', text: 'Anything else?' });
+      await call(p, 'POST', `/v1/admin/lessons/${lessonId}/npc-say`, { npc_id: 'guide', text: 'Not the stage NPC' });
+      now += 60_000;
+      const reload = await call(p, 'GET', '/v1/lesson/state', undefined, st);
+      expect(reload.body.npc_lines.map((l: any) => l.text)).toEqual([]);
+      expect(reload.body.stage_last_line_en).toBe('Anything else?');
+      // a new stage starts clean
+      now += 1_000;
+      await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'trade_roleplay', targets: [] });
+      expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.stage_last_line_en).toBeNull();
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
 

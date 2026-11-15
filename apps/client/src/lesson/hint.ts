@@ -1,9 +1,9 @@
 /**
  * How much of the target sentence the child sees (docs/04 hint ladder; docs/19 §4 per-stage hint):
- * full = the sentence, keyword = only the core phrases (others as blanks), initial = the first word only
- * (recall: "화면은 첫 단어만 보여 줍니다"), picture/none = nothing written.
+ * full = the sentence, keyword = only the core phrases (others as blanks), initial = each word's first letter
+ * (recall: "화면은 단어마다 첫 글자만 보여 줍니다", same as the dialog window), picture/none = nothing written.
  */
-import type { LessonHintLevel } from '@lcw/content';
+import { maskInitials, type LessonHintLevel } from '@lcw/content';
 
 export function blankWord(w: string): string {
   const core = w.replace(/[^A-Za-z']/g, '');
@@ -14,7 +14,7 @@ export function maskTarget(text: string, hint: LessonHintLevel, hintTags: readon
   if (hint === 'full') return text;
   if (hint === 'none' || hint === 'picture') return '';
   const words = text.split(/\s+/).filter(Boolean);
-  if (hint === 'initial') return words.length ? `${words[0]} …` : '';
+  if (hint === 'initial') return maskInitials(text);
   // keyword: keep the words that belong to a core phrase, blank the rest
   const keep = new Set(
     hintTags.flatMap((t) => t.toLowerCase().split(/\s+/)).filter(Boolean)

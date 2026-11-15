@@ -813,6 +813,13 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   });
 
   const student = (req: Request) => studentFromRequest(d, req);
+  const lessonStarsOf = (lessonId: string, playerId: string): number =>
+    Number(
+      d.sql.get<{ n: number | null }>('select coalesce(sum(stars), 0) as n from utterances where session_id = ? and player_id = ?', [
+        lessonId,
+        playerId
+      ])?.n ?? 0
+    );
 
   /* Polled every 3 s by the student client (docs/19 §4). `since` is the previous `server_now`; `scene` and `ui`
      tell the director console what the student's screen shows right now. */
@@ -838,6 +845,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       ]
     );
     const live = liveForStudent(s.lesson_id, c.req.query('cursor'), now);
+    const stageStartedAt =
+      d.sql.get<{ at: number | null }>('select max(at) as at from lesson_stage_log where lesson_id = ?', [s.lesson_id])?.at ?? null;
+    const stageNpc = stage?.npcId ?? 'guide';
     return c.json({
       lesson_id: s.lesson_id,
       stage_id: st?.stage_id ?? null,
@@ -857,12 +867,19 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       coins_balance: d.coins ? d.coins.balance(s.player_id) : null,
       // Stars this child earned in this lesson (the HUD star chip during a lesson), and the stage NPC's opening line
       // for the dialog window (the stage's script, not the NPC's solo greeting).
-      lesson_stars:
-        d.sql.get<{ n: number | null }>('select coalesce(sum(stars), 0) as n from utterances where session_id = ? and player_id = ?', [
-          s.lesson_id,
-          s.player_id
-        ])?.n ?? 0,
+      lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
       npc_line_en: stage?.teacherScriptEn ?? '',
+      // When the current stage began (server clock, same as npc_lines.at): lines before it belong to the last stage.
+      stage_started_at: stageStartedAt,
+      // The teacher's newest line as the stage NPC in this stage, however old: after a reload the first poll only
+      // carries the last 20 s of lines, and the dialog window must still open with the follow-up, not the script.
+      stage_last_line_en:
+        stageStartedAt === null
+          ? null
+          : (d.sql.get<{ text: string }>(
+              "select text from lesson_live where lesson_id = ? and type = 'line' and npc_id = ? and at >= ? order by seq desc limit 1",
+              [s.lesson_id, stageNpc, stageStartedAt]
+            )?.text ?? null),
       server_now: now
     });
   });
@@ -972,6 +989,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       stars,
       feedback_ko: feedbackKo({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
       coins_total: coinsTotal,
+      // This lesson's star sum right after this answer was stored: the HUD chip takes it as is (adding the answer's
+      // stars to its own count could count one twice when a poll lands between the store and this answer).
+      lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
       utterances_today: Number(today?.n ?? 0),
       ...(audioUpload ? { audio_upload: audioUpload } : {})
     });

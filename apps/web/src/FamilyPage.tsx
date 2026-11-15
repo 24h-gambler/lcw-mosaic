@@ -21,6 +21,7 @@ import {
 import { errorCodeOf } from './lessonApi.js';
 import { kstLabel } from './lessonFlow.js';
 import { Box, LessonStyle, Notice, border, inputStyle, labelStyle, sp } from './lessonUi.js';
+import { lessonDayLabel } from './ParentReportPage.js';
 import { PARENT_STRINGS_KO } from './parentStrings.js';
 
 const F = PARENT_STRINGS_KO.family;
@@ -299,7 +300,7 @@ function ChildCard({
             return (
               <li key={r.share_path} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: sp(2), flexWrap: 'wrap', borderBottom: `1px solid ${C['line-200']}`, padding: `${sp(1)} 0` }}>
                 <span>
-                  <strong>{r.lesson_day}</strong> <span style={small}>{state}</span>
+                  <strong>{lessonDayLabel(r.lesson_day)}</strong> <span style={small}>{state}</span>
                 </span>
                 <span style={{ display: 'flex', gap: sp(1), alignItems: 'center' }}>
                   {live ? (
@@ -418,11 +419,37 @@ export function DeviceLinkPage({ api }: { api?: FamilyApi }): React.ReactElement
   const [label, setLabel] = useState('');
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [relinking, setRelinking] = useState(false);
+  if (linked && !relinking) {
+    // One clear state once the device is linked: who it belongs to and the way into the game.
+    return (
+      <main className="lcw-lesson" data-testid="device-link-page" style={{ maxWidth: '480px', margin: '0 auto', display: 'grid', gap: sp(3), fontFamily: T.fonts.ui }}>
+        <LessonStyle />
+        <Box title={LK.title} testId="device-linked">
+          <Notice kind="ok">{msg?.kind === 'ok' ? msg.text : LK.already(linked)}</Notice>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), marginTop: sp(3) }}>
+            <Button type="button" variant="brand" onClick={() => window.location.assign('/game/')}>
+              {LK.goGame}
+            </Button>
+            <Button
+              type="button"
+              variant="paper"
+              onClick={() => {
+                setMsg(null);
+                setRelinking(true);
+              }}
+            >
+              {LK.relink}
+            </Button>
+          </div>
+        </Box>
+      </main>
+    );
+  }
   return (
     <main className="lcw-lesson" data-testid="device-link-page" style={{ maxWidth: '480px', margin: '0 auto', display: 'grid', gap: sp(3), fontFamily: T.fonts.ui }}>
       <LessonStyle />
       <Box title={LK.title}>
-        {linked ? <Notice kind="ok">{LK.already(linked)}</Notice> : null}
         <p style={{ marginTop: 0 }}>{LK.body}</p>
         <form
           style={{ display: 'grid', gap: sp(2) }}
@@ -437,6 +464,7 @@ export function DeviceLinkPage({ api }: { api?: FamilyApi }): React.ReactElement
               setLinked(r.nickname);
               setMsg({ kind: 'ok', text: LK.done(r.nickname) });
               setCode('');
+              setRelinking(false);
             } catch (err) {
               const c = errorCodeOf(err);
               setMsg({ kind: 'error', text: c === 'too_many_attempts' ? LK.tooMany : c === 'network' ? LK.network : LK.wrong });

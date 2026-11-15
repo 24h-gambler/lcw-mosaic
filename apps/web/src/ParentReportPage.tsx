@@ -8,7 +8,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, TOKENS } from '@lcw/ui';
 import { createLessonApi, errorCodeOf, loadOperatorToken, type LessonApi, type SharedReport } from './lessonApi.js';
-import { kstLabel, reportFactRows } from './lessonFlow.js';
+import { formatLessonFact, kstLabel, reportFactRows } from './lessonFlow.js';
 import { LessonStyle, border, sp } from './lessonUi.js';
 import { PARENT_STRINGS_KO } from './parentStrings.js';
 import { LESSON_STRINGS_KO } from './strings.js';
@@ -249,10 +249,7 @@ export function lessonFactsOf(facts: Record<string, unknown> | undefined): Lesso
 
 /** "21초", "2분 5초", "28분" — the same split the server's summary sentence uses. */
 export function speakingTimeLabel(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s}초`;
-  return s > 0 ? `${m}분 ${s}초` : `${m}분`;
+  return formatLessonFact('speaking_sec', sec);
 }
 
 /** "2026-11-16" → "11월 16일 (일)". */

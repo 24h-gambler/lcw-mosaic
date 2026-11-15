@@ -59,6 +59,9 @@ describe('report table never contradicts the summary sentence', () => {
 
   it('a report without lesson facts (weekly) keeps the weekly table', () => {
     expect(reportFactRows({ active_speaking_minutes: 0.04 })[0]!.key).toBe('active_speaking_minutes');
+  });
+});
+
 const P = PARENT_STRINGS_KO.report;
 const lessonReport = (over: Record<string, unknown> = {}): SharedReport => ({
   kind: 'lesson',

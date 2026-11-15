@@ -118,6 +118,8 @@ export const PARENT_STRINGS_KO = {
     wrong: '코드가 맞지 않거나 시간이 지났어요. 보호자 화면에서 새 코드를 받아 주세요.',
     tooMany: '시도가 너무 많아요. 잠시 뒤에 다시 해 주세요.',
     network: '인터넷 연결을 확인하고 다시 해 주세요.',
-    defaultLabel: '아이 기기'
+    defaultLabel: '아이 기기',
+    goGame: '게임 시작하기',
+    relink: '다른 코드로 다시 연결하기'
   }
 } as const;

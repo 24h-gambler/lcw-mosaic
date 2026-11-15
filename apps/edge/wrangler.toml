@@ -5,7 +5,11 @@ name = "lcw"
 main = "src/worker.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
-workers_dev = true
+# Company app (WWS): served on the company subdomain like the other wws-cloud workers (team rule 11-10: no workers.dev URLs).
+# The account-wide workers.dev name is "beff-data", so workers.dev stays off to keep LCW out from under that name.
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "lcw.worldwidesomething.com", custom_domain = true }]
 
 [assets]
 directory = "./public"

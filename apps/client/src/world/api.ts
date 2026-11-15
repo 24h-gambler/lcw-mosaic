@@ -36,6 +36,8 @@ export interface WorldStats {
   renderScale?: number;
   /** tier the world runs at */
   tier?: WorldTier;
+  /** start-up phases in ms since createWorld (town, atlas, characters, mesh, firstFrame) */
+  startup?: Record<string, number>;
 }
 
 export interface WorldHandle {

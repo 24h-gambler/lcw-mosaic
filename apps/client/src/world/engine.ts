@@ -60,12 +60,21 @@ function isTouchDevice(): boolean {
   return typeof window !== 'undefined' && (('ontouchstart' in window) || navigator.maxTouchPoints > 0) && matchMedia('(pointer: coarse)').matches;
 }
 
+/** Chunk rings meshed before the first frame (Chebyshev distance in chunks; 2 = an 80 m square). */
+export const FIRST_RING = 2;
+
 function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 export async function createWorldEngine(opts: CreateWorldOptions): Promise<WorldHandle> {
   const { canvas } = opts;
+  // Start-up phases (ms since createWorld), read back through getStats().startup for the 3 s first-screen budget.
+  const tStart = performance.now();
+  const startup: Record<string, number> = {};
+  const mark = (k: string): void => {
+    startup[k] = Math.round(performance.now() - tStart);
+  };
   const tier = TIER_SETTINGS[opts.tier];
   const hudParent = opts.hudRoot ?? canvas.parentElement ?? document.body;
   const touch = isTouchDevice();
@@ -106,6 +115,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // ---- Town (deterministic, system actor through setBlock).
   const world = new VoxelWorld();
   buildTown(world);
+  mark('town');
   hud.setLoading(0.45, false);
   await wait(0);
 
@@ -148,6 +158,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   atlas.generateMipmaps = true;
   atlas.colorSpace = THREE.SRGBColorSpace;
   atlas.needsUpdate = true;
+  mark('atlas');
   const chunkMats = makeBlockMaterials(atlas, tier.material);
   const workerCount = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
   const chunks = new ChunkRenderer(world, chunkMats, workerCount, () =>
@@ -234,20 +245,24 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const showFps = new URLSearchParams(location.search).has('fps');
   hud.setScene(SCENE_TITLES_KO[currentScene]);
 
-  // ---- Initial meshing around the player before revealing.
+  // ---- Initial meshing: only the chunks right around the start spot (FIRST_RING) before revealing, nearest first;
+  // the rest of the view streams in behind the first frame (the frame loop keeps calling chunks.update), so the
+  // first screen stays inside the 3 s budget whatever the start scene is.
   const meshUntilReady = async (): Promise<void> => {
     const t0 = performance.now();
     let total = -1;
-    while (performance.now() - t0 < 12000) {
-      chunks.update(body.x, body.z, tier.viewChunks, 24);
-      const left = chunks.outstanding(body.x, body.z, Math.min(tier.viewChunks, 4));
+    while (performance.now() - t0 < 8000) {
+      chunks.update(body.x, body.z, FIRST_RING, 24);
+      const left = chunks.outstanding(body.x, body.z, FIRST_RING);
       if (total < 0) total = Math.max(1, left);
       hud.setLoading(0.45 + 0.55 * (1 - left / total), false);
       if (left === 0) break;
       await wait(30);
     }
   };
+  mark('characters');
   await meshUntilReady();
+  mark('mesh');
 
   // ---- Input.
   const keyDown = (e: KeyboardEvent): void => {
@@ -779,7 +794,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     forward.set(0, 0, 0);
   };
   hud.setLoading(1, true);
-  raf = requestAnimationFrame(frame);
+  raf = requestAnimationFrame(() => {
+    frame();
+    mark('firstFrame');
+  });
 
   // ---- Handle.
   const handle: WorldHandle = {
@@ -927,7 +945,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         chunksMeshed: chunks.meshed,
         chunksVisible: chunks.visible,
         scene: currentScene,
-        player: { x: body.x, y: body.y, z: body.z }
+        player: { x: body.x, y: body.y, z: body.z },
+        startup: { ...startup }
       };
     }
   };

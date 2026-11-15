@@ -152,6 +152,10 @@ export const LESSON_STRINGS_KO = {
     errUnknown: '서버가 요청을 받지 않았어요',
     joinTitle: '학생 기기 참가 코드',
     joinHow: (url: string) => `학생 기기에서 ${url} 을 열고 이 숫자 6개를 넣어요.`,
+    joinOpen: (url: string) => `학생 기기에서 ${url} 을 열면 바로 들어가요.`,
+    join3d: '3D 화면',
+    joinFallback: '대체 화면 (저사양·WebGL 없는 기기)',
+    join3dPending: '3D 화면 수업 참가는 준비 중이에요. 지금은 대체 화면으로 들어가요.',
     copyJoinUrl: '참가 주소 복사',
     copied: '복사했어요',
     copyFailed: '복사가 막혔어요. 직접 선택해서 복사해 주세요.',
@@ -216,6 +220,7 @@ export const LESSON_STRINGS_KO = {
   },
   join: {
     title: '수업 들어가기',
+    fallbackNote: '가벼운 대체 화면이에요. 3D 화면을 못 여는 기기에서도 수업할 수 있어요.',
     codePrompt: '선생님이 알려 준 숫자 6개를 넣어요',
     codeLabel: '참가 숫자 6개',
     enter: '들어가기',
@@ -283,17 +288,5 @@ export const LESSON_STRINGS_KO = {
       new_expressions: '새로 나온 표현',
       solo_reused_expressions: '혼자서도 다시 쓴 표현'
     } as Record<string, string>
-  },
-  landing: {
-    heroAria: '아이가 영어로 말하면 문장이 별 세 개로 자라고 제트팩이 생기는 장면',
-    captions: ['① 말한다', '② 문장이 자란다', '③ 세계가 넓어진다'],
-    bubble1: 'I want a jetpack.',
-    bubble2: 'I want a red jetpack.',
-    bubble3a: 'I want a red jetpack',
-    bubble3b: 'so that I can fly!',
-    stepsTitle: '이렇게 놀아요',
-    parentsBody: '아이가 스스로 만든 문장과 말한 시간을 숫자로 보여 드립니다.',
-    playersBody: '말할수록 장비가 좋아지고 세계가 넓어져요.',
-    lessonJoin: '수업 참가 코드가 있어요'
   }
 } as const;

@@ -34,8 +34,7 @@ import { WEB_UX_STRINGS_KO as UX } from './strings.js';
 import { LessonDirectorConsole } from './LessonDirector.js';
 import { StudentJoin } from './StudentJoin.js';
 import { ParentReportPage } from './ParentReportPage.js';
-import { LandingPage } from './LandingPage.js';
-import { reportTokenFromPath, routeFromPath } from './routes.js';
+import { reportTokenFromPath } from './lessonFlow.js';
 
 /** Public site menu (docs/14 §2). Signed-in screens (dashboard, report, window, director, claim) are reached by link, not listed. */
 export const PUBLIC_NAV: ReadonlyArray<{ route: AppRoute; label: string }> = [
@@ -987,8 +986,10 @@ export function App({
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const onPop = () => {
-      setRouteState(routeFromPath(window.location.pathname));
-      setReportToken(reportTokenFromPath(window.location.pathname));
+      const p = (window.location.pathname.replace(/\/+$/, '') || '/') as AppRoute;
+      const token = reportTokenFromPath(window.location.pathname);
+      setRouteState(token ? '/r' : p);
+      setReportToken(token);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -1156,6 +1157,33 @@ export function App({
         onOpenParentReportView: () => setRoute('/report')
         })
       }),
-    route === '/' && React.createElement(LandingPage, { onNavigate: (r) => setRoute(r) })
+    route === '/' &&
+      React.createElement(
+        Panel,
+        null,
+        React.createElement('h1', null, UX.site.heroTitle),
+        React.createElement('p', { style: { marginBottom: `${TOKENS.spacing[3]}px` } }, UX.site.heroBody),
+        React.createElement(
+          'div',
+          { style: { display: 'flex', flexWrap: 'wrap', gap: `${TOKENS.spacing[2]}px`, marginBottom: `${TOKENS.spacing[3]}px` } },
+          React.createElement(Button, { variant: 'brand', onClick: () => setRoute('/parents') }, UX.site.forParents),
+          React.createElement(Button, { variant: 'sky', onClick: () => setRoute('/play') }, UX.site.forPlayers)
+        ),
+        React.createElement(
+          'div',
+          {
+            style: {
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: `${TOKENS.spacing[2]}px`,
+              marginBottom: `${TOKENS.spacing[3]}px`
+            }
+          },
+          UX.site.steps.map((st) =>
+            React.createElement(Card, { key: st.title, title: st.title }, React.createElement('p', { lang: 'en' }, st.body))
+          )
+        ),
+        React.createElement(Button, { variant: 'leaf', onClick: () => setRoute('/try') }, UX.site.tryCta)
+      )
   );
 }

@@ -43,6 +43,8 @@ import {
   stageElapsedMs,
   stageStatus,
   starsText,
+  studentJoinLinks,
+  STUDENT_3D_LESSON_READY,
   validateNewStudent,
   type FeedView,
   type NewStudentForm
@@ -742,7 +744,8 @@ function JoinCodeBar({
   totalMinutes: number;
 }): React.ReactElement {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
-  const joinUrl = `${currentOrigin()}/join`;
+  const links = studentJoinLinks(currentOrigin(), lesson.join_code);
+  const primary = links[0]!;
   const code = lesson.join_code;
   return (
     <section
@@ -781,12 +784,20 @@ function JoinCodeBar({
           <span style={{ display: 'inline-block', width: '0.35em' }} />
           {code.slice(3)}
         </strong>
-        <span style={{ fontSize: `${T.scale['body-l'].sizePx}px` }}>{S.joinHow(joinUrl || '/join')}</span>
+        <span style={{ fontSize: `${T.scale['body-l'].sizePx}px` }}>{S.joinOpen(primary.url)}</span>
+        <ul data-testid="join-links" style={{ margin: 0, paddingLeft: sp(4), fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>
+          {links.map((l) => (
+            <li key={l.kind}>
+              {l.kind === '3d' ? S.join3d : S.joinFallback}: <span style={{ color: C['paper-0'] }}>{l.url}</span>
+              {l.kind === '3d' && !STUDENT_3D_LESSON_READY ? ` — ${S.join3dPending}` : ''}
+            </li>
+          ))}
+        </ul>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
           <Button
             type="button"
             variant="paper"
-            onClick={async () => setCopyMsg((await copyText(joinUrl || '/join')) ? S.copied : S.copyFailed)}
+            onClick={async () => setCopyMsg((await copyText(primary.url)) ? S.copied : S.copyFailed)}
           >
             {S.copyJoinUrl}
           </Button>

@@ -21,6 +21,7 @@ import {
   displayTarget,
   heardWordMask,
   hintLevelFor,
+  joinCodeFromSearch,
   joinReducer,
   pickAlternative,
   targetCards,
@@ -77,9 +78,10 @@ export interface StudentJoinProps {
 
 function initialJoinState(): JoinState {
   const s = loadStudentSession();
-  return s
-    ? joinReducer(INITIAL_JOIN_STATE, { type: 'resume', token: s.token, lessonId: s.lessonId, nickname: s.nickname })
-    : INITIAL_JOIN_STATE;
+  if (s) return joinReducer(INITIAL_JOIN_STATE, { type: 'resume', token: s.token, lessonId: s.lessonId, nickname: s.nickname });
+  // /join?code=123456 (link from the teacher, or the 3D client sending a low-tier device here) joins at once.
+  const code = joinCodeFromSearch(typeof location !== 'undefined' ? location.search : '');
+  return code ? joinReducer(joinReducer(INITIAL_JOIN_STATE, { type: 'code_changed', value: code }), { type: 'submit' }) : INITIAL_JOIN_STATE;
 }
 
 export function StudentJoin(props: StudentJoinProps): React.ReactElement {
@@ -205,6 +207,9 @@ function CodeEntry({
       <JoinMascot />
       <h1 style={{ margin: 0, fontSize: `${T.scale.h1.sizePx}px`, lineHeight: `${T.scale.h1.lineHeightPx}px` }}>{S.title}</h1>
       <p style={{ margin: 0, fontSize: `${T.scale['body-l'].sizePx}px` }}>{S.codePrompt}</p>
+      <p data-testid="fallback-note" style={{ margin: 0, fontSize: `${T.scale.small.sizePx}px`, color: C['ink-700'] }}>
+        {S.fallbackNote}
+      </p>
       <form
         onSubmit={(e) => {
           e.preventDefault();

@@ -1,10 +1,32 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App.js';
-import { KNOWN_ROUTES, reportTokenFromPath, routeFromPath } from './routes.js';
+import { App, type AppRoute } from './App.js';
+import { reportTokenFromPath } from './lessonFlow.js';
 
-// Route table lives in routes.ts so App's back/forward handling parses URLs the same way as the first load.
-export { KNOWN_ROUTES, routeFromPath };
+const KNOWN_ROUTES: readonly AppRoute[] = [
+  '/',
+  '/try',
+  '/play',
+  '/parents',
+  '/safety',
+  '/teachers',
+  '/worlds',
+  '/pass',
+  '/report',
+  '/dashboard',
+  '/director',
+  '/guest-end',
+  '/claim',
+  '/window',
+  '/join'
+];
+
+/** Deep links (e.g. a KakaoTalk share of /try) open the matching page instead of always the intro. */
+export function routeFromPath(pathname: string): AppRoute {
+  if (reportTokenFromPath(pathname)) return '/r';
+  const clean = (pathname.replace(/\/+$/, '') || '/') as AppRoute;
+  return KNOWN_ROUTES.includes(clean) ? clean : '/';
+}
 
 if (typeof document !== 'undefined') {
   const rootEl = document.getElementById('root');

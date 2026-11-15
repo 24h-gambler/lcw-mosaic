@@ -74,6 +74,31 @@ export function validateNewStudent(f: NewStudentForm): string | null {
   return null;
 }
 
+/* ---------- join links (docs/19 §4) ---------- */
+
+/**
+ * The 3D client (/game/?code=) is the default student path once apps/client/src/lesson joins lessons; until then
+ * the teacher hands out the /join fallback first. Flip when the client's lesson join is merged.
+ */
+export const STUDENT_3D_LESSON_READY = false;
+
+export interface JoinLink {
+  kind: '3d' | 'fallback';
+  url: string;
+}
+
+export function studentJoinLinks(origin: string, code: string, ready3d = STUDENT_3D_LESSON_READY): JoinLink[] {
+  const game: JoinLink = { kind: '3d', url: `${origin}/game/?code=${code}` };
+  const fallback: JoinLink = { kind: 'fallback', url: `${origin}/join?code=${code}` };
+  return ready3d ? [game, fallback] : [fallback, game];
+}
+
+/** `?code=123456` on /join (the 3D client sends low-tier devices here with the code). */
+export function joinCodeFromSearch(search: string): string | null {
+  const m = /[?&]code=(\d{6})(?:&|$)/.exec(search);
+  return m ? m[1]! : null;
+}
+
 /* ---------- director: stages ---------- */
 
 export function planById(id: string | null | undefined): LessonPlan {
@@ -433,7 +458,8 @@ export function formatFact(key: string, v: unknown): string {
   if (typeof v !== 'number') return String(v);
   switch (key) {
     case 'active_speaking_minutes':
-      return `${fmtNum(v)}분`;
+      // A first lesson can be under a minute of speech: show seconds instead of "0.0분".
+      return v > 0 && v < 1 ? `${Math.max(1, Math.round(v * 60))}초` : `${fmtNum(v)}분`;
     case 'total_valid_utterances':
     case 'free_utterances':
       return `${fmtNum(v)}문장`;

@@ -41,6 +41,9 @@ import {
   pinKindForKey,
   recallHint,
   reportFactRows,
+  reportTokenFromPath,
+  joinCodeFromSearch,
+  studentJoinLinks,
   stageElapsedMs,
   stageStatus,
   targetCards,
@@ -48,7 +51,7 @@ import {
   EMPTY_FEED_VIEW,
   type JoinState
 } from '../lessonFlow.js';
-import { routeFromPath, reportTokenFromPath } from '../routes.js';
+import { routeFromPath } from '../main.js';
 import { LESSON_STRINGS_KO } from '../strings.js';
 
 /* ---------- helpers ---------- */
@@ -556,6 +559,8 @@ describe('/r/<token> parent report', () => {
     expect(html).toContain('5.3단어');
     expect(html).toContain('기준선 수집 중');
     expect(html).toContain(report.body);
+    expect(reportFactRows({ active_speaking_minutes: 0.04 })[0]!.value).toBe('2초');
+    expect(reportFactRows({ active_speaking_minutes: 0 })[0]!.value).toBe('0분');
     const rows = reportFactRows(report.facts);
     expect(rows[0]!.key).toBe('active_speaking_minutes');
     expect(rows).toHaveLength(8);
@@ -652,17 +657,28 @@ describe('/director live console', () => {
   });
 });
 
-/* ---------- 9. landing ---------- */
+/* ---------- 10. docs/19: 3D default, /join fallback ---------- */
 
-describe('landing W01', () => {
-  it('hero loop with captions, two entrances, three steps, try CTA, and a reduced-motion rule', () => {
-    const html = renderToStaticMarkup(React.createElement(App, { initialRoute: '/' }));
-    expect(html).toContain('data-testid="hero-loop"');
-    expect(html).toContain('prefers-reduced-motion');
-    for (const c of LESSON_STRINGS_KO.landing.captions) expect(html).toContain(c);
-    expect(html).toContain('학부모님이세요?');
-    expect(html).toContain('플레이어세요?');
-    expect(html).toContain('지금 5분 체험');
-    expect(html).toContain('so that I can fly!');
+describe('join links (docs/19 §4)', () => {
+  it('lists /game/?code= and /join?code=, fallback first until the 3D lesson join is ready', () => {
+    expect(studentJoinLinks('https://x', '482913', false).map((l) => l.url)).toEqual([
+      'https://x/join?code=482913',
+      'https://x/game/?code=482913'
+    ]);
+    expect(studentJoinLinks('https://x', '482913', true)[0]).toEqual({ kind: '3d', url: 'https://x/game/?code=482913' });
+  });
+
+  it('reads ?code= on /join and the screen says it is the fallback', () => {
+    expect(joinCodeFromSearch('?code=482913')).toBe('482913');
+    expect(joinCodeFromSearch('?x=1&code=482913&y=2')).toBe('482913');
+    expect(joinCodeFromSearch('?code=12345')).toBeNull();
+    expect(joinCodeFromSearch('')).toBeNull();
+    const html = renderToStaticMarkup(React.createElement(App, { initialRoute: '/join' }));
+    expect(html).toContain(LESSON_STRINGS_KO.join.fallbackNote);
+    const dir = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: FEED })
+    );
+    expect(dir).toContain('/join?code=482913');
+    expect(dir).toContain('/game/?code=482913');
   });
 });

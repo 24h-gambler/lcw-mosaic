@@ -62,6 +62,8 @@ function isTouchDevice(): boolean {
 
 /** Chunk rings meshed before the first frame (Chebyshev distance in chunks; 2 = an 80 m square). */
 export const FIRST_RING = 2;
+/** Longest the first-ring meshing may hold the loading card (the rest of the 3 s budget is town + first frame). */
+export const FIRST_SCREEN_CAP_MS = 2000;
 
 function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -251,7 +253,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const meshUntilReady = async (): Promise<void> => {
     const t0 = performance.now();
     let total = -1;
-    while (performance.now() - t0 < 8000) {
+    // hard cap: on a busy or slow device show what is ready rather than keep the child on the loading card
+    while (performance.now() - t0 < FIRST_SCREEN_CAP_MS) {
       chunks.update(body.x, body.z, FIRST_RING, 24);
       const left = chunks.outstanding(body.x, body.z, FIRST_RING);
       if (total < 0) total = Math.max(1, left);

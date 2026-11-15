@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEVICE_NICKNAME_KEY, DEVICE_TOKEN_KEY, joinCodeFrom, resolveIdentity, type FetchLike, type KeyStore } from '../identity.js';
+import { DEVICE_PLAY_BLOCKED_KEY } from '../identity.js';
+import { soloPlayBlocked } from '../../App.js';
 import { soloPlayerOf } from '../../App.js';
 
 function memStore(init: Record<string, string> = {}): KeyStore & { data: Record<string, string> } {
@@ -44,7 +46,7 @@ describe('player identity (lesson code > linked device > guest)', () => {
     const seen: string[] = [];
     const store = memStore({ [DEVICE_TOKEN_KEY]: TOKEN });
     const id = await resolveIdentity('', store, fetchReturning(200, { nickname: 'Sora', level: 'L2', voice_store: true }, seen));
-    expect(id).toEqual({ kind: 'child', token: TOKEN, nickname: 'Sora', level: 'L2', voiceStore: true, offline: false });
+    expect(id).toEqual({ kind: 'child', token: TOKEN, nickname: 'Sora', level: 'L2', voiceStore: true, offline: false, playAllowed: true, seat: null });
     expect(seen).toEqual([`/v1/device/me Bearer ${TOKEN}`]);
     expect(store.data[DEVICE_NICKNAME_KEY]).toBe('Sora');
     expect(soloPlayerOf(id)).toEqual({ deviceToken: TOKEN, nickname: 'Sora', level: 'L2' });
@@ -87,5 +89,35 @@ describe('player identity (lesson code > linked device > guest)', () => {
   it('falls back to L1 for an unknown level', async () => {
     const id = await resolveIdentity('', memStore({ [DEVICE_TOKEN_KEY]: TOKEN }), fetchReturning(200, { nickname: 'Mo', level: 'L9' }));
     expect(id).toMatchObject({ kind: 'child', level: 'L1' });
+  });
+
+  it('reads the seat: play_allowed=false stops solo play and is remembered for an offline start (docs/19 6장)', async () => {
+    const store = memStore({ [DEVICE_TOKEN_KEY]: TOKEN });
+    const id = await resolveIdentity(
+      '',
+      store,
+      fetchReturning(200, { nickname: 'Sora', level: 'L1', voice_store: false, play_allowed: false, seat: { state: 'read_only', ends_at: 1790000000000 } })
+    );
+    expect(id).toMatchObject({ kind: 'child', playAllowed: false, seat: { state: 'read_only', endsAt: 1790000000000 } });
+    expect(soloPlayBlocked(id)).toBe(true);
+    expect(store.data[DEVICE_PLAY_BLOCKED_KEY]).toBe('1');
+    const off = await resolveIdentity('', store, async () => {
+      throw new TypeError('offline');
+    });
+    expect(off).toMatchObject({ kind: 'child', offline: true, playAllowed: false });
+    // seat renewed: the next online answer clears the flag
+    const back = await resolveIdentity('', store, fetchReturning(200, { nickname: 'Sora', play_allowed: true, seat: { state: 'active', ends_at: null } }));
+    expect(back).toMatchObject({ playAllowed: true, seat: { state: 'active', endsAt: null } });
+    expect(store.data[DEVICE_PLAY_BLOCKED_KEY]).toBeUndefined();
+  });
+
+  it('no seat yet (seat:null) and older servers without the field keep playing; lessons are never gated', async () => {
+    const a = await resolveIdentity('', memStore({ [DEVICE_TOKEN_KEY]: TOKEN }), fetchReturning(200, { nickname: 'Sora', play_allowed: true, seat: null }));
+    expect(soloPlayBlocked(a)).toBe(false);
+    const b = await resolveIdentity('', memStore({ [DEVICE_TOKEN_KEY]: TOKEN }), fetchReturning(200, { nickname: 'Sora' }));
+    expect(soloPlayBlocked(b)).toBe(false);
+    const lesson = await resolveIdentity('?code=123456', memStore({ [DEVICE_TOKEN_KEY]: TOKEN, [DEVICE_PLAY_BLOCKED_KEY]: '1' }), fetchReturning(200, {}));
+    expect(lesson).toEqual({ kind: 'lesson', code: '123456' });
+    expect(soloPlayBlocked(lesson)).toBe(false);
   });
 });

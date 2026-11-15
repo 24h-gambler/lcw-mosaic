@@ -411,7 +411,7 @@ const consoleAction = (base) => [{ type: 'open', url: `${base}/director`, label:
 const isStanding = (st, key, s) => st.lastTick.includes(key) || EVENT_ALERTS.has(s.kind);
 
 /** A fresh card state for one day and one spine. */
-export const emptyCardState = (dayStr, spine) => ({ day: dayStr, spine, seen: {}, posted: {}, lastTick: [], summary: null, boost: 0 });
+export const emptyCardState = (dayStr, spine) => ({ day: dayStr, spine, seen: {}, posted: {}, lastTick: [], summary: null });
 
 /** The card of one scope: every kind seen there today, standing or cleared (ids and counts only, nothing a child said). */
 export function scopeCard(st, scope, { base, out }) {
@@ -578,18 +578,27 @@ async function readBack(id) {
   return { state: one.body?.state ?? null, importance: null };
 }
 
-/** Post a card and check it landed as asked; a card the spine lowered is posted again, raised by what it lost. */
-async function postChecked(st, card, max) {
-  const asked = Math.min(max, card.importance + (st.boost ?? 0));
-  let r = await spine('POST', '/proposals', { ...card, importance: asked });
+/**
+ * Post a card at its own importance and read it back. The spine recomputes its source adjustment on every post
+ * (rewrites included), so nothing is carried over between posts: when the card landed off its importance, it is
+ * posted again shifted by the difference, read back again, at most twice. A lesson card that lands at 2 or more is
+ * brought back down this way at once (2 rings the phone). Still not shown afterwards: logged as card_hidden.
+ */
+async function postChecked(card, max) {
+  const target = card.importance;
+  let asked = target;
+  let r = await spine('POST', '/proposals', card);
   if (r.status !== 201 || !r.body?.id) return { r };
   let rb = await readBack(r.body.id);
-  if (typeof rb.importance === 'number' && rb.importance < card.importance && asked < max) {
-    st.boost = Math.min(2, (st.boost ?? 0) + (card.importance - rb.importance));
-    const again = Math.min(max, card.importance + st.boost);
-    write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_lowered', ref: card.ref, asked, got: rb.importance, repost: again });
-    r = await spine('POST', '/proposals', { ...card, importance: again });
-    if (r.status === 201 && r.body?.id) rb = await readBack(r.body.id);
+  for (let i = 0; i < 2 && typeof rb.importance === 'number' && rb.importance !== target; i++) {
+    const next = Math.max(0, Math.min(max, asked + (target - rb.importance)));
+    if (next === asked) break; // already at the edge (e.g. a muted source stays 0 whatever is asked)
+    write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_adjusted', ref: card.ref, asked, got: rb.importance, repost: next });
+    asked = next;
+    const again = await spine('POST', '/proposals', { ...card, importance: asked });
+    if (again.status !== 201 || !again.body?.id) break;
+    r = again;
+    rb = await readBack(r.body.id);
   }
   if (rb.state !== 'open' || (typeof rb.importance === 'number' && rb.importance < 1)) {
     write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_hidden', ref: card.ref, id: r.body?.id ?? null, ...rb });
@@ -598,20 +607,17 @@ async function postChecked(st, card, max) {
   return { r, rb };
 }
 
-/** Post the scope cards that changed this tick; a first post is read back (see postChecked). */
+/** Post the scope cards that changed this tick, each read back (see postChecked). */
 async function postTickCards(alerts, at) {
   const st = loadCards();
   for (const { card, sig } of planTick(st, alerts, at, { base: BASE, out: OUT })) {
-    const first = !st.posted[card.ref];
-    // Lesson cards never go above 2: 2 after a -1 lands as 1 (listed, no ring); 3 would ring the phone.
-    const { r, rb } = first
-      ? await postChecked(st, card, 2)
-      : { r: await spine('POST', '/proposals', { ...card, importance: Math.min(2, card.importance + (st.boost ?? 0)) }) };
+    // Lesson cards are never asked above 2 (a -1 source lands that at 1); 3 would ring the phone.
+    const { r, rb } = await postChecked(card, 2);
     if (r.status !== 201 || !r.body?.id) {
       write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_error', ref: card.ref, status: r.status, error: spineError(r) });
       continue;
     }
-    st.posted[card.ref] = { ...st.posted[card.ref], id: r.body.id, sig, at, ...(rb ? { state: rb.state, importance: rb.importance } : {}) };
+    st.posted[card.ref] = { ...st.posted[card.ref], id: r.body.id, sig, at, state: rb?.state ?? null, importance: rb?.importance ?? null };
   }
   saveCards();
 }
@@ -623,7 +629,7 @@ async function closeWindowCards() {
   if (plan.summary && !st.summary) {
     for (const wait of [0, 10_000, 30_000, 60_000]) {
       await sleep(wait);
-      const { r, rb } = await postChecked(st, plan.summary, 3);
+      const { r, rb } = await postChecked(plan.summary, 3);
       if (r.status === 201 && r.body?.id) {
         st.summary = { id: r.body.id, at: stamp(), state: rb?.state ?? null, importance: rb?.importance ?? null };
         break;

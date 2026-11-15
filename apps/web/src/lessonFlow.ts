@@ -268,6 +268,8 @@ export type JoinAction =
   | { type: 'state'; state: StudentLessonState }
   | { type: 'state_failed'; code: string }
   | { type: 'utterance_result'; result: UtteranceResult }
+  /** Answers sent from the device outbox: counters and coins move, the result panel's last answer does not. */
+  | { type: 'outbox_results'; results: UtteranceResult[] }
   | { type: 'leave' };
 
 export const INITIAL_JOIN_STATE: JoinState = {
@@ -342,6 +344,16 @@ export function joinReducer(s: JoinState, a: JoinAction): JoinState {
         saidCount: s.saidCount + 1,
         starsEarned: s.starsEarned + Math.max(0, a.result.stars)
       };
+    case 'outbox_results': {
+      const latest = a.results[a.results.length - 1];
+      if (!latest) return s;
+      return {
+        ...s,
+        coins: latest.coins_total,
+        saidCount: s.saidCount + a.results.length,
+        starsEarned: s.starsEarned + a.results.reduce((n, r) => n + Math.max(0, r.stars), 0)
+      };
+    }
     case 'leave':
       return INITIAL_JOIN_STATE;
     default:

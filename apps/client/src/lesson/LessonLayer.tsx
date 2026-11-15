@@ -123,8 +123,8 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   // Again when the world arrives: App's callback reaches the world's "수업 중" badge only once the world exists.
   useEffect(() => {
     onActive.current?.(live);
-    // Out of a lesson the star chip goes back to the world's own count.
-    if (!live) props.world?.setStars?.(null);
+    // In a lesson the chip shows this lesson's stars from the start (0 before the first); out of it, the world's own count.
+    props.world?.setStars?.(live ? ctl.state.lessonStars : null);
   }, [live, props.world]);
   // The world can load after the lesson joined (slow phones): give it the lesson's current scene, goal and possession.
   useEffect(() => {
@@ -190,7 +190,9 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     hint: view.hint,
     submit: ctl.submit,
     // The NPC opens with the stage's script line, not its solo greeting ("Where do you want to go?" at the warm-up).
-    ...(view.npcLineEn ? { npcLine: view.npcLineEn } : {}),
+    // After an answer the window opens again: then it says what the teacher last said as this NPC in this stage, so
+    // the script is not asked (and read aloud) again over a follow-up line.
+    ...(openingLine(view) ? { npcLine: openingLine(view) } : {}),
     // "완료" on a result: the window starts over for the next sentence (free talk takes many in one stage).
     onDone: () => setDoneSeq((n) => n + 1),
     // ✕ on the dialog window folds it away so the child can look at the world; "말하기" brings it back.
@@ -481,6 +483,18 @@ function EventEffect({ kind, id, handledByWorld }: { kind: LessonDirectorEventKi
     );
   }
   return null;
+}
+
+/**
+ * The dialog window's first NPC line: the newest line the teacher spoke as the stage NPC since this stage began, else
+ * the stage script.
+ */
+export function openingLine(view: Pick<LessonView, 'bubbles' | 'npcId' | 'npcLineEn' | 'stageStartedAt'>): string {
+  for (let i = view.bubbles.length - 1; i >= 0; i--) {
+    const b = view.bubbles[i]!;
+    if (b.npcId === view.npcId && b.possessed && b.at >= view.stageStartedAt) return b.text;
+  }
+  return view.npcLineEn;
 }
 
 /** How long the teacher's newest line shows over the dialog window. */

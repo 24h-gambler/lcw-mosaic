@@ -66,6 +66,8 @@ export interface StudentLessonState {
   lesson_stars?: number;
   /** The stage NPC's opening line for the dialog window (the stage script). */
   npc_line_en?: string;
+  /** When the current stage began (server clock). */
+  stage_started_at?: number | null;
   server_now: number;
 }
 
@@ -101,6 +103,8 @@ export interface UtteranceResult {
   stars: number;
   feedback_ko: string;
   coins_total: number;
+  /** This lesson's star sum after this answer (server); absent on an older server. */
+  lesson_stars?: number;
   utterances_today: number;
 }
 

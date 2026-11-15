@@ -86,8 +86,12 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
     // the dialog window opens with the stage's script line, not the NPC's solo greeting
     expect(first.body.npc_line_en).toBe('Hi! What is your name? What do you like to do after school?');
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
-    await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000 }, st);
+    const ans = await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000 }, st);
+    // the answer carries the lesson's star sum right after it was stored (the HUD takes it as is)
+    expect(ans.body.lesson_stars).toBe(2);
     const after = await call(p, 'GET', `/v1/lesson/state?cursor=${first.body.cursor}`, undefined, st);
+    expect(typeof after.body.stage_started_at).toBe('number');
+    expect(after.body.stage_started_at).toBeGreaterThanOrEqual(first.body.stage_started_at);
     expect(after.body.coins_balance).toBe(220);
     expect(after.body.lesson_stars).toBe(2);
     expect(after.body.npc_line_en).toBe('Welcome to the honey cafe! What would you like today?');

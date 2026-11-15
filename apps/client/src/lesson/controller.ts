@@ -81,6 +81,8 @@ export interface LessonView {
   lessonStars: number;
   /** The stage NPC's opening line for the dialog window. */
   npcLineEn: string;
+  /** Server time this client saw the stage begin (lines before it belong to the last stage). */
+  stageStartedAt: number;
   /** Bumps on every stage change so the dialog can reset. */
   stageSeq: number;
 }
@@ -127,6 +129,7 @@ export function initialLessonView(): LessonView {
     coins: null,
     lessonStars: 0,
     npcLineEn: '',
+    stageStartedAt: 0,
     stageSeq: 0
   };
 }
@@ -201,8 +204,9 @@ export class LessonController {
     // No celebrate here: whoever shows the result plays it (App's DialogHost, or the layer's own panel), once.
     this.set({ lastResult: { ...result, utterancesToday: r.utterances_today } });
     this.showCoins(r.coins_total);
-    // The star chip moves with the answer, not when the child taps "done" (the server sum confirms on the next poll).
-    if (r.pass && r.stars > 0) this.showStars(this.view.lessonStars + r.stars);
+    // The star chip moves with the answer, not when the child taps "done": the server's sum after this answer, as is.
+    if (typeof r.lesson_stars === 'number') this.showStars(r.lesson_stars);
+    else if (r.pass && r.stars > 0) this.showStars(this.view.lessonStars + r.stars);
     return result;
   };
 
@@ -292,6 +296,8 @@ export class LessonController {
       patch.stageId = st.stage_id;
       patch.sceneId = st.scene_id;
       patch.stageSeq = this.view.stageSeq + 1;
+      // server clock, the same one the NPC lines carry
+      patch.stageStartedAt = typeof st.stage_started_at === 'number' ? st.stage_started_at : st.server_now;
       patch.lastResult = null;
       if (w && st.scene_id !== this.view.sceneId) void w.goToScene(st.scene_id).catch(() => undefined);
     }

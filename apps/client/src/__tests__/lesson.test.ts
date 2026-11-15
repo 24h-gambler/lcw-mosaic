@@ -7,7 +7,7 @@ import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
 import { LESSON_BANNER_MS, LESSON_POLL_MS, LessonController, goalTargetEn, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
-import { LessonLayer, goToSceneChecked } from '../lesson/LessonLayer.js';
+import { LessonLayer, goToSceneChecked, openingLine } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
 
 // App mounts the layer through import.meta.glob (no compile-time check there): pin the docs/19 §5 contract here.
@@ -313,6 +313,38 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(calls).toBe(2);
     await goToSceneChecked(w, 'honey_cafe');
     expect(calls).toBe(3); // arrived: no extra walk
+  });
+
+  it("the dialog's first line: the teacher's newest line as this stage's NPC, else the stage script", () => {
+    const bubble = (id: string, npcId: string, text: string, at: number, possessed = true) => ({ id, npcId, npcNameKo: npcId, text, possessed, at });
+    const base = { npcId: 'guide', npcLineEn: 'Hi! What is your name?', stageStartedAt: 1000 };
+    expect(openingLine({ ...base, bubbles: [] })).toBe('Hi! What is your name?');
+    // a line from the last stage or another NPC does not count
+    expect(openingLine({ ...base, bubbles: [bubble('a', 'guide', 'Old stage line', 900), bubble('b', 'cafe_owner', 'Welcome!', 1200)] })).toBe('Hi! What is your name?');
+    // the follow-up the teacher just sent is what the window opens with after an answer
+    expect(openingLine({ ...base, bubbles: [bubble('c', 'guide', 'Hi! What is your name?', 1100), bubble('d', 'guide', 'How old are you?', 1500)] })).toBe('How old are you?');
+  });
+
+  it('the star chip takes the server sum from the answer, so a poll in between cannot count a star twice', async () => {
+    const calls: string[] = [];
+    const world = { ...fakeWorld().world, setStars: (n: number | null) => void calls.push(`stars:${n}`) };
+    const state = (lesson_stars: number) => ({
+      lesson_id: 'l', stage_id: 'cafe_order', stage_goal_ko: 'g', mode: 'guided', scene_id: 'honey_cafe', npc_id: 'cafe_owner', hint: 'full',
+      targets: ['Can I have a warm honey tea?'], offers: [{ stars: 2, text: 'Can I have a warm honey tea?', hintTags: ['can i have'] }],
+      possessed_npc_id: null, npc_lines: [], events: [], cursor: 1, ended: false, lesson_stars, server_now: 1
+    });
+    const api = {
+      join: async () => ({ student_token: 't'.repeat(48), lesson_id: 'l', player_id: 'p', nickname: 'n', level: 'L1' }),
+      state: async () => state(2),
+      utterance: async () => ({ pass: true, score: 1, stars: 2, feedback_ko: 'ok', coins_total: 220, lesson_stars: 2, utterances_today: 1 })
+    } as unknown as ConstructorParameters<typeof LessonController>[0]['api'];
+    const ctl = new LessonController({ api, world, store: memStore(), timers: fakeTimers({ now: 0 }) });
+    await ctl.start('123456');
+    // the poll already counted this answer (stored before the poll was read): the answer must not add it again
+    ctl.apply(state(2) as never);
+    await ctl.submit({ target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, hint_level: 'full', latency_ms: 1, dur_ms: 1, stt_source: 'keyboard', confidence: 1 });
+    expect(ctl.state.lessonStars).toBe(2);
+    expect(calls.filter((c) => c.startsWith('stars:'))).toEqual(['stars:2']);
   });
 
   it('the HUD goal shows the English sentence only with the full hint (recall must not give it away)', () => {

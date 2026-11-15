@@ -803,6 +803,13 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   });
 
   const student = (req: Request) => studentFromRequest(d, req);
+  const lessonStarsOf = (lessonId: string, playerId: string): number =>
+    Number(
+      d.sql.get<{ n: number | null }>('select coalesce(sum(stars), 0) as n from utterances where session_id = ? and player_id = ?', [
+        lessonId,
+        playerId
+      ])?.n ?? 0
+    );
 
   /* Polled every 3 s by the student client (docs/19 §4). `since` is the previous `server_now`; `scene` and `ui`
      tell the director console what the student's screen shows right now. */
@@ -847,12 +854,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       coins_balance: d.coins ? d.coins.balance(s.player_id) : null,
       // Stars this child earned in this lesson (the HUD star chip during a lesson), and the stage NPC's opening line
       // for the dialog window (the stage's script, not the NPC's solo greeting).
-      lesson_stars:
-        d.sql.get<{ n: number | null }>('select coalesce(sum(stars), 0) as n from utterances where session_id = ? and player_id = ?', [
-          s.lesson_id,
-          s.player_id
-        ])?.n ?? 0,
+      lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
       npc_line_en: stage?.teacherScriptEn ?? '',
+      // When the current stage began (server clock, same as npc_lines.at): lines before it belong to the last stage.
+      stage_started_at:
+        d.sql.get<{ at: number | null }>('select max(at) as at from lesson_stage_log where lesson_id = ?', [s.lesson_id])?.at ?? null,
       server_now: now
     });
   });
@@ -959,6 +965,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       stars,
       feedback_ko: feedbackKo({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
       coins_total: coinsTotal,
+      // This lesson's star sum right after this answer was stored: the HUD chip takes it as is (adding the answer's
+      // stars to its own count could count one twice when a poll lands between the store and this answer).
+      lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
       utterances_today: Number(today?.n ?? 0)
     });
   });

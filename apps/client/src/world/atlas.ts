@@ -547,12 +547,22 @@ export function tileBevel(name: TileName): number {
 
 /** RGBA texels for all tiles, layer-major: layer i occupies [i*S*S*4, (i+1)*S*S*4). */
 export function buildAtlasPixels(): Uint8Array<ArrayBuffer> {
+  const steps = atlasSteps();
+  for (;;) {
+    const r = steps.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** The same atlas one tile per step, so the start-up can hand frames back between tiles (no long main-thread task). */
+export function* atlasSteps(): Generator<void, Uint8Array<ArrayBuffer>> {
   const layerBytes = S * S * 4;
   const buf = new Uint8Array(layerBytes * TILE_NAMES.length);
-  TILE_NAMES.forEach((name, i) => {
+  for (let i = 0; i < TILE_NAMES.length; i++) {
     const p = makePainter(buf, i * layerBytes);
-    PAINT[name](p, i * 31 + 7);
-  });
+    PAINT[TILE_NAMES[i]!](p, i * 31 + 7);
+    yield;
+  }
   return buf;
 }
 

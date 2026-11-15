@@ -230,7 +230,7 @@ function gableRoofZ(set: Setter, x0: number, x1: number, z0: number, z1: number,
   return yBase + k;
 }
 
-function terrain(world: VoxelWorld, set: Setter): void {
+function* terrain(world: VoxelWorld, set: Setter): Generator<void> {
   for (let z = TERRAIN_MIN; z < TERRAIN_MAX; z++) {
     for (let x = TERRAIN_MIN; x < TERRAIN_MAX; x++) {
       const h = terrainHeight(x, z);
@@ -238,6 +238,8 @@ function terrain(world: VoxelWorld, set: Setter): void {
         set(x, y, z, y === h ? BK.grass : y >= h - 2 ? BK.dirt : BK.stone);
       }
     }
+    // a pause point every 16 rows (one chunk row of the 240 x 240 m ground)
+    if ((z - TERRAIN_MIN) % 16 === 15) yield;
   }
   void world;
 }
@@ -722,24 +724,43 @@ function scatter(world: VoxelWorld, set: Setter): void {
 }
 
 /** Build the whole town into `world`. Returns the number of setBlock calls (for the loading bar and tests). */
-export function buildTown(world: VoxelWorld): number {
+/**
+ * The town in small steps: every `yield` is a point where a caller on the main thread may hand the frame back (the
+ * client builds the town between frames so no single task blocks for long; docs/08 TBT). The order of writes is the
+ * same as `buildTown`, so both give the identical world.
+ */
+export function* buildTownSteps(world: VoxelWorld, counter?: { calls: number }): Generator<void, number> {
   let calls = 0;
   const raw = makeSetter(world);
   const set: Setter = (x, y, z, id) => {
     calls++;
     raw(x, y, z, id);
   };
-  terrain(world, set);
+  yield* terrain(world, set);
   roads(set);
   plaza(world, set);
+  yield;
   honeyCafe(set);
   tradeShop(set);
+  yield;
   buildPlot(world, set);
   openHill(world, set);
+  yield;
   cottage(set, 170, 152, 7, 8, BK.brick, BK.roofSlate, false);
   cottage(set, 160, 166, 8, 7, BK.oakPlank, BK.thatch, false);
   cottage(set, 110, 110, 8, 7, BK.birchPlank, BK.roofRed, true);
   cottage(set, 168, 108, 7, 8, BK.stoneBrick, BK.roofBlue, true);
+  yield;
   scatter(world, set);
+  if (counter) counter.calls = calls;
   return calls;
+}
+
+/** The whole town at once (server, tests, tools). */
+export function buildTown(world: VoxelWorld): number {
+  const steps = buildTownSteps(world);
+  for (;;) {
+    const r = steps.next();
+    if (r.done) return r.value;
+  }
 }

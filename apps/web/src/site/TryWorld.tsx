@@ -55,14 +55,10 @@ export function chooseTryStage(p: WorldProbe): { stage: '3d' | '2d'; tier: World
 
 export function probeWorld(): WorldProbe {
   const nav = navigator as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean } };
-  let webgl2 = false;
-  try {
-    webgl2 = !!document.createElement('canvas').getContext('webgl2');
-  } catch {
-    webgl2 = false;
-  }
   return {
-    webgl2,
+    // the API only, no probe context (a long task on phones, and a second context next to the town's); a device that
+    // cannot make the context fails in createWorld and keeps the 2D stage
+    webgl2: typeof WebGL2RenderingContext !== 'undefined',
     coarse: typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches,
     deviceMemory: nav.deviceMemory,
     hardwareConcurrency: nav.hardwareConcurrency,

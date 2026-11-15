@@ -517,11 +517,12 @@ export class WorldHud {
     }
   }
 
-  async fadeTo(titleKo: string, mid: () => void): Promise<void> {
+  /** Fade out, run `mid` (it may wait, e.g. for the ground at the new spot; the card stays up meanwhile), fade in. */
+  async fadeTo(titleKo: string, mid: () => void | Promise<void>): Promise<void> {
     this.fadeTitle.textContent = titleKo;
     this.fade.classList.add('on');
     await wait(360);
-    mid();
+    await mid();
     await wait(420);
     this.fade.classList.remove('on');
     await wait(340);

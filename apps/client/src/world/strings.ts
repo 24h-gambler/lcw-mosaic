@@ -75,6 +75,9 @@ export const NPC_GREETINGS_EN: Record<string, string> = {
   shop_owner: 'Hello! Do you want to trade something?'
 };
 
+/** The guide's first line for a linked child (target language, nickname as the guardian typed it). */
+export const welcomeBackEn = (name: string): string => `Hi, ${name}! Welcome back to our town.`;
+
 export function itemNameKo(key: string): string {
   return ITEM_NAMES_KO[key] ?? ITEM_NAMES_KO.gift!;
 }

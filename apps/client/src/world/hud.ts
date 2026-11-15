@@ -36,6 +36,8 @@ function css(): string {
 .lw-bub.pos .n::before{content:"\\2726 ";color:${C['sun-d']}}
 .lw-prompt{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;pointer-events:auto;cursor:pointer;background:${C['brand-d']};color:${C['paper-0']};border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;box-shadow:${S.shadowDefault};padding:8px 14px;font-weight:700;font-size:${T.scale.body.sizePx}px;min-height:${S.touchTargetMinPx}px;align-items:center;gap:8px}
 .lw-prompt.on{display:flex}
+.lw-plate{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;background:${C['ink-900']};color:${C['paper-0']};border-radius:${S.radiusButtonPx}px;padding:2px 8px;font-family:${T.fonts.ui};font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px;font-weight:700;opacity:.85;white-space:nowrap}
+.lw-plate.on{display:block}
 .lw-prompt kbd{font-family:${T.fonts.pixel};background:${C['paper-0']};color:${C['ink-900']};border-radius:2px;padding:0 6px;font-size:12px}
 .lw-prompt:active{box-shadow:${S.shadowPressed};transform:translate(-50%,-100%) translate(3px,3px)}
 .lw-hotbar{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:4px}
@@ -173,6 +175,7 @@ export class WorldHud {
   private starsEl: HTMLDivElement;
   private starsN: HTMLSpanElement;
   private prompt: HTMLDivElement;
+  private plate: HTMLDivElement;
   private slots: HTMLDivElement[] = [];
   private toast: HTMLDivElement;
   private toastTimer = 0;
@@ -224,6 +227,7 @@ export class WorldHud {
     this.starsN = el('span', '', this.starsEl);
     this.starsN.textContent = '0';
 
+    this.plate = el('div', 'lw-plate', this.root);
     this.prompt = el('div', 'lw-prompt', this.root);
     this.prompt.innerHTML = '';
     const kbd = el('kbd', '', this.prompt);
@@ -562,6 +566,18 @@ export class WorldHud {
   hasBubble(id: string, nowMs: number): boolean {
     const b = this.bubbles.get(id);
     return !!b && nowMs <= b.until;
+  }
+
+  /** Name plate over the player (linked child's nickname). */
+  setPlate(name: string | null): void {
+    this.plate.textContent = name ?? '';
+    this.plate.classList.toggle('on', !!name);
+  }
+
+  placePlate(sx: number, sy: number, visible: boolean): void {
+    if (!this.plate.textContent) return;
+    this.plate.style.visibility = visible ? 'visible' : 'hidden';
+    this.plate.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%)`;
   }
 
   showPrompt(on: boolean, sx = 0, sy = 0, touch = false): void {

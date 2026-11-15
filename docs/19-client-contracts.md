@@ -93,5 +93,7 @@ export interface DialogPanelProps {
 - 수업: `apps/client/src/lesson/LessonLayer.tsx`의 `LessonLayer`.
   - props: `{ world: WorldHandle; renderDialog: (cfg: DialogConfig) => ReactNode; onLessonActive?: (active: boolean) => void }`.
   - 수업이 시작되면 `onLessonActive(true)` → 앱이 `setLessonBadge(true)`, 혼자 대화 열기를 멈춥니다(대화는 수업이 `renderDialog`로 엶).
+- 누가 하나(`world/identity.ts`): ① 주소에 `?code=123456`(6자리)이 있으면 **수업**(`{kind:'lesson', code}`, 기기 확인 요청도 안 함) ② 아니면 `localStorage['lcw.deviceToken']`(보호자 `/link`가 저장)을 `GET /v1/device/me`(Bearer)로 확인해 **연결된 아이**(`{kind:'child', token, nickname, level, voiceStore, offline}`) — 401이면 토큰을 지우고 게스트, 네트워크 오류면 저장된 `lcw.deviceNickname`으로 오프라인 아이 ③ 둘 다 아니면 **게스트**. 저장소 접근이 막혀도 게스트로 시작합니다.
+  - 앱은 `LessonLayer`에 `identity`를 넘기고, 혼자 대화에는 `createSoloSubmit(npc, { deviceToken, nickname, level })`(게스트면 둘째 인자 없음)와 `cfg.level`을 넘깁니다. 월드는 `setPlayerName?(nickname)`으로 머리 위 이름표를 달고 안내인이 이름으로 한 번 인사합니다.
 - 화면 주소: `/game/?scene=<SceneId>`(시작 장면), `?tier=low|mid|high`(사양 강제), `?fps=1`(fps 표시). 디버그·검증용으로 `window.__lcwWorld`에 핸들을 둡니다.
 - 검증: `node tools/world-shots.mjs <url> <out> [desktop|tablet|phone|flow]` — 헤드리스 Chrome(swiftshader)으로 장면 5개 × 3 화면 크기 스크린샷, fps, 콘솔 오류, 흐름(목표·말풍선·걷기·멈춤·별·아이템·빙의·눈·키보드·E 키)을 `report.json`에.

@@ -15,7 +15,7 @@ import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveInt
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO } from './strings.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, welcomeBackEn } from './strings.js';
 import { NPCS, SCENES, WANDERERS, buildTown, standHeight, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
 
 export const TIER_SETTINGS: Readonly<Record<WorldTier, { viewChunks: number; pixelScale: number; shadows: boolean; particles: number; antialias: boolean }>> = {
@@ -233,6 +233,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let paused = false;
   let disposed = false;
   let focusNpc: NpcRt | null = null;
+  let playerName: string | null = null;
+  let greetedByName = false;
   let nearNpc: NpcRt | null = null;
   let autopilot: Array<[number, number]> = [];
   let autoStuck = 0;
@@ -740,6 +742,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       const p = project(body.x, body.y + CHAR_HEIGHT + 0.45, body.z);
       hud.updateBubble('player', p.sx, p.sy, p.vis, nowMs, dt);
     }
+    if (playerName) {
+      const p = project(body.x, body.y + CHAR_HEIGHT + 0.25, body.z);
+      hud.placePlate(p.sx, p.sy, p.vis && camMode !== 'first');
+    }
     hud.flushBubbles();
     if (nearNpc && !paused && autopilot.length === 0 && !hud.hasBubble(nearNpc.def.id, nowMs)) {
       const p = project(nearNpc.pos.x, nearNpc.pos.y + CHAR_HEIGHT + 0.35, nearNpc.pos.z);
@@ -881,6 +887,20 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     getScene: () => currentScene,
     listNpcs: () => [...npcs.values()].map((n) => n.ref),
     setLessonBadge: (on) => hud.setLessonBadge(on),
+    setPlayerName(name) {
+      const clean = name ? name.trim().slice(0, 16) : '';
+      playerName = clean || null;
+      hud.setPlate(playerName);
+      if (playerName && !greetedByName) {
+        greetedByName = true;
+        const guide = npcs.get('guide');
+        if (guide && Math.hypot(guide.pos.x - body.x, guide.pos.z - body.z) < 14) {
+          hud.bubble('guide', guide.def.nameKo, welcomeBackEn(playerName), {}, performance.now());
+          guide.char.wave();
+          sfx.play('mp.bubble');
+        }
+      }
+    },
     getStats(): WorldStats {
       return {
         fps,

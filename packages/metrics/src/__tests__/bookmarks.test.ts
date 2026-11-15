@@ -33,7 +33,7 @@ describe('bookmark windows (WP-304/305, report draft T03)', () => {
   it('proposes student phrases of 2+ words for expression marks, nearest-before first, none for coaching', () => {
     const expr = extractBookmarkWindows([{ kind: 'expression', at_ms: 50_000 }], T)[0]!;
     const coach = extractBookmarkWindows([{ kind: 'coaching', at_ms: 50_000 }], T)[0]!;
-    expect(expr.candidate_expressions).toEqual(['Can I have a warm honey tea', 'so I stay warm']);
+    expect(expr.candidate_expressions).toEqual(['Can I have a warm honey tea?', 'so I stay warm']);
     expect(coach.candidate_expressions).toEqual([]);
     expect(coach.lines.length).toBeGreaterThan(0);
   });
@@ -47,7 +47,7 @@ describe('bookmark windows (WP-304/305, report draft T03)', () => {
       [...T].reverse()
     );
     expect(out.map((w) => w.bookmark.at_ms)).toEqual([50_000, 200_000]);
-    expect(out[1]!.candidate_expressions).toEqual(['I want a red jetpack please']);
+    expect(out[1]!.candidate_expressions).toEqual(['I want a red jetpack please.']);
     expect(extractBookmarkWindows([], T)).toEqual([]);
     expect(extractBookmarkWindows([{ kind: 'expression', at_ms: 1 }], [])[0]!.candidate_expressions).toEqual([]);
   });
@@ -62,6 +62,6 @@ describe('bookmark windows (WP-304/305, report draft T03)', () => {
     );
     const flat = collectCandidateExpressions(windows);
     expect(new Set(flat.map((s) => s.toLowerCase())).size).toBe(flat.length);
-    expect(flat).toContain('Can I have a warm honey tea');
+    expect(flat).toContain('Can I have a warm honey tea?');
   });
 });

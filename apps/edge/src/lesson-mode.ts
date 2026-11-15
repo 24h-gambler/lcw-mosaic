@@ -5,6 +5,7 @@ import { scoreUtterance } from '@lcw/converse';
 import {
   computeLessonMetrics,
   extractBookmarkWindows,
+  meaningfulExpression,
   type BookmarkTranscriptLine,
   type LessonMinuteInput,
   type UtteranceMetricInput
@@ -284,6 +285,12 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     };
   };
 
+  /** The lesson plan's target sentences (with core-pattern tags): what a pinned fragment can grow into. */
+  const planTargetsOf = (id: string) =>
+    getLessonPlan(d.sql.get<{ plan: string }>('select plan from lessons where id = ?', [id])?.plan || undefined).stages.flatMap(
+      (s) => s.targets
+    );
+
   /** F1/F2 pin windows (docs/10 §2): 30 s either side of each pin over the student's and the teacher's lines. */
   const pinWindowsOf = (id: string) => {
     const l = lessonRow(id);
@@ -305,7 +312,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     );
     const windows = extractBookmarkWindows(
       pins.map((p) => ({ kind: p.kind === 'expression' ? ('expression' as const) : ('coaching' as const), at_ms: p.at_ms })),
-      transcript
+      transcript,
+      undefined,
+      planTargetsOf(id)
     );
     return pins.map((p, i) => {
       const w = windows[i]!;
@@ -598,10 +607,14 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     );
     const token = hex(d.randomBytes(16));
     const pinWindows = pinWindowsOf(id);
-    // F2 pins become lesson-born expressions (WP-310 transfer tracking): the teacher's note, else the top candidate.
+    // F2 pins become lesson-born expressions (WP-310 transfer tracking): the teacher's note, else the top candidate,
+    // as a whole unit ("Can I have" -> the child's "Can I have a warm honey tea?"); fragments nothing explains are dropped.
+    const targets = planTargetsOf(id);
     for (const w of pinWindows) {
       const note = /[A-Za-z]{2,}/.test(w.note) ? w.note.trim() : '';
-      const lemma = w.kind === 'expression' ? (note || w.candidate_expressions[0] || '').slice(0, 120) : '';
+      const said = w.lines.filter((x) => x.speaker === 'student').map((x) => x.text).reverse();
+      const whole = note ? meaningfulExpression(note, { utterances: said, targets }) : null;
+      const lemma = w.kind === 'expression' ? (whole || w.candidate_expressions[0] || '').slice(0, 120) : '';
       if (lemma) {
         d.db.registerLessonExpression({ id: `expr-${w.pin_id}`, playerId: l.player_id, lemmaKey: lemma, lessonId: id, nowMs: d.nowMs() });
       }

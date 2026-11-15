@@ -1,5 +1,6 @@
 import { getLessonPlan } from '@lcw/content';
 import { filterSpeechBubble } from '@lcw/converse';
+import { meaningfulExpression } from '@lcw/metrics';
 import type { SqliteExecutor } from './storage.js';
 
 /**
@@ -197,9 +198,10 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
      from utterances where session_id = ? and player_id = ? order by created_at`,
     [lessonId, lesson.player_id]
   );
-  const pins = sql.all<{ kind: string; note: string }>('select kind, note from pins where lesson_id = ? order by at_ms', [
-    lessonId
-  ]);
+  const pins = sql.all<{ kind: string; note: string; at_ms: number }>(
+    'select kind, note, at_ms from pins where lesson_id = ? order by at_ms',
+    [lessonId]
+  );
   const passes = rows.filter((u) => u.stars > 0);
   const sum = (xs: UttRow[], f: (u: UttRow) => number) => xs.reduce((a, u) => a + f(u), 0);
   const ended = lesson.ended_at ?? nowMs;
@@ -207,11 +209,19 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
   const names = childNames(sql, lesson.player_id).map(norm).filter(Boolean);
   const exprSeen = new Set<string>();
   const expressions: string[] = [];
+  const targets = plan.stages.flatMap((s) => s.targets);
   for (const p of pins) {
-    const note = p.note.trim();
-    // F2 notes default to the child's last utterance (docs/10 §2): same public filter as quotes.
-    if (p.kind !== 'expression' || !publicSafeText(note, names)) continue;
-    const k = note.toLowerCase();
+    if (p.kind !== 'expression') continue;
+    // F2 notes default to the child's last utterance (docs/10 §2) but teachers also type fragments ("Can I have",
+    // "for your"): grow each to a whole unit from the child's lines nearest the pin (before it first), then the plan.
+    const at = lesson.started_at + p.at_ms;
+    const near = [...rows]
+      .sort((a, b) => (a.created_at <= at ? at - a.created_at : a.created_at - at + 3_600_000) - (b.created_at <= at ? at - b.created_at : b.created_at - at + 3_600_000))
+      .map((u) => u.final_text);
+    const note = meaningfulExpression(p.note, { utterances: near, targets });
+    // Same public filter as quotes.
+    if (!note || !publicSafeText(note, names)) continue;
+    const k = note.toLowerCase().replace(/[.?!]$/, '');
     if (exprSeen.has(k)) continue;
     exprSeen.add(k);
     expressions.push(note);

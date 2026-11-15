@@ -243,7 +243,7 @@ describe('lesson mode (docs/18)', () => {
       const w = end.body.pin_windows.find((x: any) => x.kind === 'expression');
       expect(w.window_start_ms).toBe(62_000);
       expect(w.lines.map((l: any) => l.speaker)).toEqual(['teacher', 'student']);
-      expect(w.candidate_expressions[0]).toBe('can I have a warm honey tea');
+      expect(w.candidate_expressions[0]).toBe('Can I have a warm honey tea?');
       expect((await call(p, 'GET', `/v1/admin/lessons/${lessonId}/pin-windows`)).body).toHaveLength(2);
       const report = await call(p, 'GET', `/v1/reports/${end.body.share_token}`, undefined, {});
       expect(report.body.facts.progress).toMatchObject({ student_ms: 5000, exchanges: 2, long_silence_minutes: 1 });

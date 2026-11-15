@@ -168,31 +168,43 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   return (
     <Shell>
       <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
-      {/* One column: the top stack and the speaking panel share the height and each shrinks (the panel scrolls), so on a
-          short phone the panel never covers the teacher's bubble or the event banner. */}
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: SP[2], padding: SP[2] }}>
-        <div className="lcw-top" style={{ display: 'flex', flexDirection: 'column', gap: SP[2], flex: '0 1 auto', minHeight: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-            {props.world ? <span /> : <GoalBar goalKo={view.goalKo} />}
-            <StatusPill view={view} onLeave={() => ctl.leave()} />
+      {/* One column that shares the height (the panel scrolls when short), so nothing covers anything on a phone.
+          With the world: its HUD owns the top (scene chip, goal, bubbles over NPCs), so the banner sits just above our
+          status row and panel. Without it: our own goal bar, status and the teacher's bubbles go on top. */}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: SP[2], padding: SP[2] }}>
+        {props.world ? (
+          <div style={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflow: 'hidden' }}>
+            <EventBanner view={view} />
           </div>
-          {props.world ? null : <Bubbles view={view} />}
-          <EventBanner view={view} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'center', flex: '0 1 auto', minHeight: 0 }}>
-          <div className="lcw-panel" style={{ width: '100%', maxWidth: 720, pointerEvents: 'auto', overflowY: 'auto', maxHeight: '100%' }}>
+        ) : (
+          <div className="lcw-top" style={{ display: 'flex', flexDirection: 'column', gap: SP[2], flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <GoalBar goalKo={view.goalKo} />
+              <StatusPill view={view} onLeave={() => ctl.leave()} />
+            </div>
+            <Bubbles view={view} />
+            <EventBanner view={view} />
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[1], flex: '0 1 auto', minHeight: 0 }}>
+          {props.world ? (
+            <div style={{ width: '100%', maxWidth: 720, display: 'flex', justifyContent: 'flex-end' }}>
+              <StatusPill view={view} onLeave={() => ctl.leave()} />
+            </div>
+          ) : null}
+          <div className="lcw-panel" style={{ width: '100%', maxWidth: 720, pointerEvents: 'auto', overflowY: 'auto', minHeight: 0 }}>
             {external ?? (
-            <SpeakPanel
-              key={panelKey}
-              npc={npcRef}
-              view={view}
-              submit={ctl.submit}
-              onSaid={(text) => worldRef.current?.playerSay?.(text)}
-              onResult={(r) => {
-                if (r.pass) worldRef.current?.celebrate(Math.min(3, Math.max(0, Math.round(r.stars))) as 0 | 1 | 2 | 3);
-              }}
-            />
-          )}
+              <SpeakPanel
+                key={panelKey}
+                npc={npcRef}
+                view={view}
+                submit={ctl.submit}
+                onSaid={(text) => worldRef.current?.playerSay?.(text)}
+                onResult={(r) => {
+                  if (r.pass) worldRef.current?.celebrate(Math.min(3, Math.max(0, Math.round(r.stars))) as 0 | 1 | 2 | 3);
+                }}
+              />
+            )}
           </div>
         </div>
       </div>

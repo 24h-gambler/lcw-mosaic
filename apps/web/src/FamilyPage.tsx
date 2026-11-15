@@ -215,6 +215,15 @@ function ChildCard({
       <div style={{ display: 'grid', gap: sp(0), marginBottom: sp(3) }}>
         <h2 style={{ margin: 0, fontSize: px(T.scale.h2.sizePx), lineHeight: px(T.scale.h2.lineHeightPx) }}>{child.nickname}</h2>
         <span style={small}>{F.childMeta(child.level, child.birth_year, child.lessons)}</span>
+        {child.consents.lesson_window ? (
+          <a
+            href={`/window?child=${encodeURIComponent(child.player_id)}`}
+            data-testid={`open-window-${child.player_id}`}
+            style={{ marginTop: sp(2), fontWeight: 700, color: C['sky-d'] }}
+          >
+            {PARENT_STRINGS_KO.window.open}
+          </a>
+        ) : null}
       </div>
 
       <section style={{ display: 'grid', gap: sp(2) }} aria-labelledby={`consents-${child.player_id}`}>

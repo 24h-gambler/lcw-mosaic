@@ -2,6 +2,7 @@
  * Guardian and child-device API client (WP-301; server: apps/edge/src/family.ts). Tokens live on the device in
  * localStorage behind try/catch: a private window simply asks for the invite link again.
  */
+import type { LessonWindowStatus } from '@lcw/schemas';
 import { LessonApiError, NETWORK_ERROR_CODE, localStore, readKey, writeKey, type FetchLike, type KeyValue } from './lessonApi.js';
 
 export const GUARDIAN_TOKEN_KEY = 'lcw.guardianToken';
@@ -35,6 +36,26 @@ export interface FamilyChild {
   lessons: number;
   last_lesson_at: number | null;
   reports: FamilyReport[];
+}
+export interface LessonWindowCaption {
+  id: string;
+  at: number;
+  who: 'child' | 'teacher';
+  speaker_ko: string;
+  text: string;
+  pass?: boolean;
+  stars?: number;
+}
+export interface LessonWindowPayload {
+  live: boolean;
+  status: LessonWindowStatus | null;
+  started_at: number | null;
+  minutes: Array<{ minute: number; student_ms: number; teacher_ms: number }>;
+  captions: LessonWindowCaption[];
+  next_lesson_at: string | null;
+  audio: { direction: 'recvonly'; available: boolean; reason: string | null };
+  poll_ms: number;
+  server_now: number;
 }
 export interface FamilyMe {
   service_consented: boolean;
@@ -89,6 +110,8 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
       request<{ ok: boolean }>('POST', `/v1/family/reports/${enc(sharePath.replace(/^\/r\//, ''))}/revoke`, g, {}),
     linkDevice: (code: string, label: string) =>
       request<{ device_token: string; nickname: string; level: string }>('POST', '/v1/device/link', null, { code, label }),
+    lessonWindow: (g: string, playerId: string, after = 0) =>
+      request<LessonWindowPayload>('GET', `/v1/family/children/${enc(playerId)}/lesson-window${after > 0 ? `?after=${after}` : ''}`, g),
     deviceMe: (d: string) => request<{ nickname: string; level: string; voice_store: boolean }>('GET', '/v1/device/me', d)
   };
 }

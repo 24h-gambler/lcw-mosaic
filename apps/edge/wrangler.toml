@@ -1,32 +1,29 @@
-name = "lcw-edge"
-main = "src/index.ts"
+# Production: one Worker serves the site (apps/web at /), the game (apps/client at /game/) and the API (/v1/*, /health).
+# Relational data + worlds live in one SQLite Durable Object (PlatformDO) — see apps/edge/src/worker.ts and docs/09.
+# Deploy: `pnpm deploy:edge` (builds web+client into ./public, then wrangler deploy). Secret: `wrangler secret put LCW_OPERATOR_TOKEN`.
+name = "lcw"
+main = "src/worker.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
 
-[[d1_databases]]
-binding = "DB"
-database_name = "lcw-main"
-database_id = "00000000-0000-0000-0000-000000000000"
-migrations_dir = "migrations"
-
-[[r2_buckets]]
-binding = "R2"
-bucket_name = "lcw-artifacts"
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/v1/*", "/health"]
 
 [ai]
 binding = "AI"
 
-[durable_objects]
-bindings = [
-  { name = "WORLD_DO", class_name = "WorldDO" },
-  { name = "LESSON_DO", class_name = "LessonDO" },
-  { name = "QUOTA_DO", class_name = "QuotaDO" }
-]
+[[durable_objects.bindings]]
+name = "PLATFORM"
+class_name = "PlatformDO"
 
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["WorldDO", "LessonDO", "QuotaDO"]
+new_sqlite_classes = ["PlatformDO"]
 
 [triggers]
-# Daily 03:00 UTC maintenance & retention cleanup, hourly snapshot/quota rollup, Monday 06:00 weekly reports (docs/09 §2)
+# docs/09 §2: daily 03:00 UTC retention, hourly report reminders/quota, Monday 06:00 weekly reports
 crons = ["0 3 * * *", "0 * * * *", "0 6 * * 1"]

@@ -91,7 +91,6 @@ export interface LessonFeed {
 export interface EndLessonInput {
   teacher_comment?: string;
   next_lesson_at?: string;
-  expires_at?: number;
 }
 
 export interface EndLessonResult {
@@ -170,6 +169,8 @@ export interface SharedReport {
   created_at: number;
   teacher_comment?: string;
   next_lesson_at?: string;
+  /** Share links live 30 days (docs/16 §2-18). */
+  expires_at?: number;
 }
 
 /** Network failure (no response) uses this code so screens can say "check the connection". */

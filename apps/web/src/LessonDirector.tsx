@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, TOKENS } from '@lcw/ui';
-import type { LessonStage } from '@lcw/content';
+import { LESSON_PLANS, type LessonStage } from '@lcw/content';
 import {
   createLessonApi,
   errorCodeOf,
@@ -13,11 +13,13 @@ import {
   loadOperatorToken,
   saveDirectorLesson,
   saveOperatorToken,
+  recordFromLive,
   type AdminStudent,
   type DirectorLessonRecord,
   type FeedLive,
   type LessonApi,
   type LessonFeed,
+  type LiveLessonRow,
   type PinInput,
   type PinKind
 } from './lessonApi.js';
@@ -50,10 +52,35 @@ import {
   type NewStudentForm
 } from './lessonFlow.js';
 import { handleDirectorKeydown } from './director.js';
+import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView } from './directorLiveState.js';
+import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentScreenBox } from './DirectorLive.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 
 const S = LESSON_STRINGS_KO.director;
+
+const PLAN_KEY = 'lcw.director.plan';
+/** How often the first screen re-reads running lessons (another device may start one). */
+export const LIVE_LESSONS_POLL_MS = 15_000;
+
+/** The plan the teacher picked last on this device (first plan when none or storage is blocked). */
+export function loadPlanChoice(): string {
+  try {
+    const v = globalThis.localStorage?.getItem(PLAN_KEY);
+    if (v && LESSON_PLANS.some((p) => p.id === v)) return v;
+  } catch {
+    /* storage blocked: the default stands */
+  }
+  return LESSON_PLANS[0]!.id;
+}
+
+function savePlanChoice(id: string): void {
+  try {
+    globalThis.localStorage?.setItem(PLAN_KEY, id);
+  } catch {
+    /* storage blocked: the choice lasts this page */
+  }
+}
 const C = TOKENS.colors;
 const T = TOKENS.typography;
 
@@ -63,6 +90,8 @@ export interface LessonDirectorConsoleProps {
   initialToken?: string | null;
   initialLesson?: DirectorLessonRecord | null;
   initialStudents?: AdminStudent[];
+  /** Running lessons for the resume card; undefined → fetched. */
+  initialLive?: { lessons: LiveLessonRow[]; server_now: number };
   initialFeed?: LessonFeed;
   /** Shown under the key box while there is no key (the old demo console). */
   demo?: React.ReactNode;
@@ -129,6 +158,7 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
           now={now}
           onAuthError={onAuthError}
           initialStudents={props.initialStudents}
+          initialLive={props.initialLive}
           onStarted={setLesson}
         />
       )}
@@ -223,6 +253,7 @@ function StudentPicker({
   now,
   onAuthError,
   initialStudents,
+  initialLive,
   onStarted
 }: {
   api: LessonApi;
@@ -230,13 +261,47 @@ function StudentPicker({
   now: () => number;
   onAuthError: (code: string) => void;
   initialStudents: AdminStudent[] | undefined;
+  initialLive: { lessons: LiveLessonRow[]; server_now: number } | undefined;
   onStarted: (rec: DirectorLessonRecord) => void;
 }): React.ReactElement {
+  const [live, setLive] = useState<{ lessons: LiveLessonRow[]; server_now: number; at: number } | null>(
+    initialLive ? { ...initialLive, at: now() } : null
+  );
+  const liveGone = useRef(false);
+  const loadLive = useCallback(async () => {
+    try {
+      const r = await api.liveLessons(token);
+      if (!liveGone.current) setLive({ ...r, at: now() });
+    } catch (e) {
+      onAuthError(errorCodeOf(e));
+    }
+  }, [api, token, now, onAuthError]);
+  // A lesson started on another device after this screen opened shows up within seconds, and one ended meanwhile
+  // goes away: refetch every LIVE_LESSONS_POLL_MS and when the console comes back to the front.
+  useEffect(() => {
+    liveGone.current = false;
+    if (!initialLive) void loadLive();
+    const id = setInterval(() => void loadLive(), LIVE_LESSONS_POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadLive();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      liveGone.current = true;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [loadLive, initialLive]);
   const [students, setStudents] = useState<AdminStudent[] | null>(initialStudents ?? null);
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [startError, setStartError] = useState<{ id: string; text: string } | null>(null);
+  const [planId, setPlanId] = useState<string>(loadPlanChoice);
+  const choosePlan = (id: string) => {
+    setPlanId(id);
+    savePlanChoice(id);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -260,13 +325,13 @@ function StudentPicker({
     setStartingId(s.player_id);
     setStartError(null);
     try {
-      const res = await api.startLesson(token, { player_id: s.player_id, plan_id: 'first_lesson_v1' });
+      const res = await api.startLesson(token, { player_id: s.player_id, plan_id: planId });
       const t = now();
       onStarted({
         lesson_id: res.lesson_id,
         join_code: res.join_code,
         expires_at: res.expires_at,
-        plan_id: res.plan?.id ?? 'first_lesson_v1',
+        plan_id: res.plan?.id ?? planId,
         player_id: s.player_id,
         nickname: s.nickname,
         started_at: t,
@@ -290,15 +355,64 @@ function StudentPicker({
 
   return (
     <div style={{ display: 'grid', gap: sp(4) }}>
+      {live && live.lessons.length > 0 ? (
+        <Box title={S.resumeTitle} tone="tinted" testId="director-live-lessons">
+          <p style={{ margin: `0 0 ${sp(2)}` }}>{S.resumeHelp}</p>
+          <div style={{ display: 'grid', gap: sp(2) }}>
+            {live.lessons.map((l) => {
+              const plan = planById(l.plan_id);
+              const stage = plan.stages.find((s) => s.id === l.stage_id);
+              return (
+                <div key={l.lesson_id} data-testid="live-lesson" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: sp(2), justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 700 }}>
+                    {S.resumeLine(l.nickname, plan.titleKo, stage?.titleKo ?? '—', kstLabel(l.started_at), l.join_code)}
+                  </span>
+                  <Button type="button" variant="brand" data-testid={`resume-${l.lesson_id}`} onClick={() => onStarted(recordFromLive(l, live.server_now, live.at))}>
+                    {S.resumeButton}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </Box>
+      ) : null}
       <Box
         title={S.studentsTitle}
         testId="director-students"
         right={
-          <Button type="button" variant="paper" onClick={() => void load()} disabled={loading}>
+          <Button
+            type="button"
+            variant="paper"
+            onClick={() => {
+              void load();
+              void loadLive();
+            }}
+            disabled={loading}
+          >
             {loading ? S.loading : S.refresh}
           </Button>
         }
       >
+        <div role="radiogroup" aria-label={S.planTitle} data-testid="director-plan" style={{ marginBottom: sp(3) }}>
+          <div style={{ fontWeight: 700, marginBottom: sp(1) }}>{S.planTitle}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
+            {LESSON_PLANS.map((p) => (
+              <Button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={p.id === planId}
+                data-testid={`plan-${p.id}`}
+                variant={p.id === planId ? 'brand' : 'paper'}
+                onClick={() => choosePlan(p.id)}
+              >
+                {p.id === planId ? '✓ ' : ''}
+                {p.titleKo}
+              </Button>
+            ))}
+          </div>
+          <p style={{ margin: `${sp(1)} 0 0`, fontSize: `${T.scale.small.sizePx}px` }}>{S.planHint}</p>
+        </div>
         {listError ? <Notice onRetry={() => void load()} retryLabel={S.retry}>{listError}</Notice> : null}
         {students && students.length === 0 ? <p>{S.studentsEmpty}</p> : null}
         {students && students.length > 0 ? (
@@ -483,6 +597,11 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
   const [feedError, setFeedError] = useState<string | null>(null);
   const [viewStageId, setViewStageId] = useState<string>(lesson.stage_id ?? plan.stages[0]!.id);
 
+  const [liveX, setLiveX] = useState<DirectorLiveView>(() =>
+    initialFeed ? mergeDirectorLive(EMPTY_DIRECTOR_LIVE, initialFeed, now()) : EMPTY_DIRECTOR_LIVE
+  );
+  const liveCursorRef = useRef(liveX.liveCursor);
+  liveCursorRef.current = liveX.liveCursor;
   const lessonRef = useRef(lesson);
   lessonRef.current = lesson;
   const sinceRef = useRef(feed.since);
@@ -491,7 +610,11 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
   const ended = Boolean(lesson.report_path) || Boolean(serverLesson?.ended_at);
 
   // The server clock is the truth for "time since lesson start" (pins, feed times); local start until it arrives.
-  const startedAt = serverLesson?.started_at || lesson.started_at || clock;
+  // Moved onto this console's clock (the record and `clock` are local), so a device clock that is off does not shift
+  // elapsed time or pin at_ms.
+  const startedAt = (serverLesson?.started_at ? serverLesson.started_at - liveX.clockSkewMs : 0) || lesson.started_at || clock;
+  // Server-stamped times (utterances, the student's last line) subtract the start on the server's own clock.
+  const serverStartedAt = serverLesson?.started_at || startedAt;
 
   useEffect(() => {
     const id = setInterval(() => setClock(now()), 1000);
@@ -502,8 +625,9 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const f = await api.feed(token, lessonRef.current.lesson_id, sinceRef.current);
+      const f = await api.feed(token, lessonRef.current.lesson_id, sinceRef.current, liveCursorRef.current);
       setFeed((prev) => mergeFeed(prev, f));
+      setLiveX((prev) => mergeDirectorLive(prev, f, now()));
       setLive(f.live ?? EMPTY_LIVE);
       setServerLesson(f.lesson);
       setFeedFails(0);
@@ -584,16 +708,19 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
 
   const elapsed = clock - startedAt;
   const lastUtterances = [...feed.utterances].reverse();
+  const currentStage = stageById(plan, lesson.stage_id ?? serverLesson?.stage_id ?? undefined) ?? undefined;
+  const runningMinute = ended ? null : Math.max(0, Math.floor(elapsed / 60_000));
 
   return (
     <div style={{ display: 'grid', gap: sp(4) }} data-testid="director-live">
       <JoinCodeBar lesson={lesson} elapsedMs={elapsed} totalMinutes={plan.totalMinutes} />
+      <HelpsStrip utterances={live.utterances} pins={feed.pins.length} minutes={liveX.minutes.length} />
       {feedError ? (
         <Notice onRetry={() => void poll()} retryLabel={S.retry} testId="feed-error">
           {`${feedError} ${S.feedStale(feedFails)}`}
         </Notice>
       ) : null}
-      {ended && !lesson.report_path ? <Notice kind="info">{S.lessonEndedElsewhere}</Notice> : null}
+      {ended && !lesson.report_path ? <Notice kind="info">{S.endedElsewhereHelp}</Notice> : null}
       <div
         style={{
           display: 'grid',
@@ -627,8 +754,28 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
               void poll();
             }}
           />
+          <PossessBox
+            api={api}
+            token={token}
+            lessonId={lesson.lesson_id}
+            stage={currentStage}
+            live={liveX}
+            disabled={ended}
+            onSent={() => void poll()}
+            onAuthError={onAuthError}
+          />
+          <EventsBox
+            api={api}
+            token={token}
+            lessonId={lesson.lesson_id}
+            stage={currentStage}
+            disabled={ended}
+            onSent={() => void poll()}
+            onAuthError={onAuthError}
+          />
         </div>
         <div style={{ display: 'grid', gap: sp(4), minWidth: 0 }}>
+          <StudentScreenBox live={liveX} localNow={clock} startedAt={serverStartedAt} />
           <Box title={S.liveTitle} testId="director-counters">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
               <Stat label={S.countSaid} value={live.utterances} testId="count-said" />
@@ -638,6 +785,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
               <Stat label={S.countSpeaking} value={formatClock(live.student_speaking_ms)} />
             </div>
           </Box>
+          <ProgressBox minutes={liveX.minutes} live={liveX} plan={plan} runningMinute={runningMinute} />
           <Box title={S.pinsTitle} testId="director-pins">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), marginBottom: sp(2) }}>
               <Button type="button" variant="sky" disabled={ended} onClick={() => addPin('coaching')}>
@@ -694,7 +842,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
                   }}
                 >
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center', marginBottom: sp(1) }}>
-                    <span style={{ fontVariantNumeric: 'tabular-nums', color: C['ink-700'] }}>{formatClock(u.at - startedAt)}</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums', color: C['ink-700'] }}>{formatClock(u.at - serverStartedAt)}</span>
                     <span style={{ color: C['sun-d'], fontWeight: 700, letterSpacing: '2px' }}>{starsText(u.stars)}</span>
                     <span
                       style={{
@@ -727,7 +875,9 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
             onAuthError={onAuthError}
             onEnded={(path) => setLesson({ ...lessonRef.current, report_path: path })}
             onReset={() => setLesson(null)}
+            endedElsewhere={ended && !lesson.report_path}
           />
+          <NextLessonBox plan={plan} />
         </div>
       </div>
     </div>
@@ -1114,7 +1264,8 @@ function EndLessonBox({
   lesson,
   onAuthError,
   onEnded,
-  onReset
+  onReset,
+  endedElsewhere = false
 }: {
   api: LessonApi;
   token: string;
@@ -1122,6 +1273,8 @@ function EndLessonBox({
   onAuthError: (code: string) => void;
   onEnded: (reportPath: string) => void;
   onReset: () => void;
+  /** Ended on another device: no new report form, only the existing link (the server hands it back) or a new lesson. */
+  endedElsewhere?: boolean;
 }): React.ReactElement {
   const [comment, setComment] = useState('');
   const [next, setNext] = useState('');
@@ -1181,6 +1334,43 @@ function EndLessonBox({
               {S.newLesson}
             </Button>
           </div>
+        </div>
+      </Box>
+    );
+  }
+
+  if (endedElsewhere) {
+    const fetchReport = async () => {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await api.endLesson(token, lesson.lesson_id, {});
+        onEnded(res.report_path || `/r/${res.share_token}`);
+      } catch (e) {
+        const code = errorCodeOf(e);
+        onAuthError(code);
+        setError(directorErrorText(code));
+      } finally {
+        setBusy(false);
+      }
+    };
+    return (
+      <Box title={S.lessonEndedElsewhere} testId="director-ended-elsewhere" tone="tinted">
+        <div style={{ display: 'grid', gap: sp(2) }}>
+          <p style={{ margin: 0 }}>{S.endedElsewhereHelp}</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
+            <Button type="button" variant="brand" disabled={busy} onClick={() => void fetchReport()} data-testid="fetch-report">
+              {busy ? S.loading : S.fetchReport}
+            </Button>
+            <Button type="button" variant="paper" onClick={onReset} data-testid="new-lesson">
+              {S.newLesson}
+            </Button>
+          </div>
+          {error ? (
+            <Notice onRetry={() => void fetchReport()} retryLabel={S.retry}>
+              {error}
+            </Notice>
+          ) : null}
         </div>
       </Box>
     );

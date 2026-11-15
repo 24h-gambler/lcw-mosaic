@@ -495,6 +495,54 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   app.get('/v1/admin/lesson-npcs', (c) => c.json(LESSON_NPCS));
   app.get('/v1/admin/director-events', (c) => c.json(LESSON_DIRECTOR_EVENTS));
 
+  /**
+   * Lessons still running (no end, started within the join code's life), for a console opened on another device:
+   * the code, the plan, the current stage and the time per stage come from the server, not the starting browser.
+   */
+  app.get('/v1/admin/lessons/live', (c) => {
+    const now = d.nowMs();
+    const rows = d.sql.all<{ lesson_id: string; player_id: string; nickname: string | null; plan: string | null; started_at: number }>(
+      `select l.id as lesson_id, l.player_id, p.nickname, l.plan, l.started_at
+       from lessons l left join players p on p.id = l.player_id
+       where l.ended_at is null and l.started_at >= ? and l.player_id not like 'smoke-%' and l.player_id <> 'player-demo'
+       order by l.started_at desc limit 20`,
+      [now - JOIN_CODE_TTL_MS]
+    );
+    const lessons = rows.flatMap((r) => {
+      const join = d.sql.get<{ code: string; expires_at: number }>(
+        'select code, expires_at from lesson_joins where lesson_id = ? and expires_at > ? order by expires_at desc limit 1',
+        [r.lesson_id, now]
+      );
+      if (!join) return [];
+      const st = stateOf(r.lesson_id);
+      const log = d.sql.all<{ at: number; stage_id: string }>(
+        'select at, stage_id from lesson_stage_log where lesson_id = ? order by at, id',
+        [r.lesson_id]
+      );
+      const stageMs: Record<string, number> = {};
+      for (let i = 0; i + 1 < log.length; i++) {
+        const cur = log[i]!;
+        stageMs[cur.stage_id] = (stageMs[cur.stage_id] ?? 0) + Math.max(0, log[i + 1]!.at - cur.at);
+      }
+      const last = log[log.length - 1];
+      return [
+        {
+          lesson_id: r.lesson_id,
+          join_code: join.code,
+          expires_at: join.expires_at,
+          plan_id: getLessonPlan(st?.plan_id ?? r.plan ?? undefined).id,
+          player_id: r.player_id,
+          nickname: r.nickname ?? r.player_id,
+          started_at: r.started_at,
+          stage_id: st?.stage_id ?? last?.stage_id ?? null,
+          stage_started_at: last?.at ?? r.started_at,
+          stage_ms: stageMs
+        }
+      ];
+    });
+    return c.json({ lessons, server_now: now });
+  });
+
   /** Lessons of one KST day for the hub (report check, send to parent). */
   app.get('/v1/admin/lessons', (c) => {
     const day = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('day') ?? '') ? c.req.query('day')! : kstDay(d.nowMs());
@@ -610,6 +658,23 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     if (!l) return c.json({ error: 'lesson_not_found' }, 404);
     const p = EndSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    // Ended already (another device, a double tap): hand back the report that exists. A new one would replace the
+    // share token and the comment, and the link the teacher already sent to the parent would stop opening.
+    if (l.ended_at) {
+      const prev = d.sql.get<{ share_token: string; facts: string }>(
+        `select share_token, facts from reports where ref_id = ? and kind = 'lesson' and share_token is not null order by created_at desc limit 1`,
+        [id]
+      );
+      if (prev) {
+        let facts: unknown = null;
+        try {
+          facts = JSON.parse(prev.facts);
+        } catch {
+          facts = null;
+        }
+        return c.json({ report_path: `/r/${prev.share_token}`, share_token: prev.share_token, facts, pin_windows: pinWindowsOf(id), already_ended: true });
+      }
+    }
     const guardian = d.sql.get<{ id: string }>(
       'select g.id from guardians g join players p on p.family_id = g.family_id where p.id = ? limit 1',
       [l.player_id]
@@ -776,6 +841,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       events: live.events,
       cursor: live.cursor,
       ended: Boolean(l?.ended_at),
+      // The child's one coin balance (home-world ledger), so the 3D HUD and /join show it from the first poll.
+      coins_balance: d.coins ? d.coins.balance(s.player_id) : null,
       server_now: now
     });
   });

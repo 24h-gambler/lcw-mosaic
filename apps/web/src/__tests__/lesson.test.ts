@@ -5,7 +5,7 @@ import { FIRST_LESSON_PLAN } from '@lcw/content';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { App } from '../App.js';
 import { handleDirectorKeydown } from '../director.js';
-import { LessonDirectorConsole } from '../LessonDirector.js';
+import { LessonDirectorConsole, loadPlanChoice } from '../LessonDirector.js';
 import { ParentReportPage } from '../ParentReportPage.js';
 import { StudentJoin } from '../StudentJoin.js';
 import {
@@ -14,6 +14,7 @@ import {
   OPERATOR_TOKEN_KEY,
   STUDENT_TOKEN_KEY,
   createLessonApi,
+  recordFromLive,
   loadDirectorLesson,
   loadOperatorToken,
   loadStudentSession,
@@ -229,7 +230,7 @@ describe('lessonApi client (docs/18 §2)', () => {
     await api.studentDaily('op', 'stu-1');
     await api.daily('op', '2026-11-16');
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'GET /v1/admin/lessons/les-1/feed?since=1234',
+      'GET /v1/admin/lessons/les-1/feed?since=1234&live_cursor=0',
       'POST /v1/admin/lessons/les-1/pins',
       'POST /v1/admin/lessons/les-1/end',
       'GET /v1/admin/students/stu-1/daily?days=14',
@@ -368,9 +369,14 @@ describe('student join state machine', () => {
     expect(s.phase).toBe('joining');
     s = joinReducer(s, { type: 'join_ok', result: ok });
     expect(s).toMatchObject({ phase: 'lesson', token: ok.student_token, nickname: '지우', lessonId: 'les-1' });
-    s = joinReducer(s, { type: 'state', state: { lesson_id: 'les-1', stage_id: 'cafe_order', targets: ['Honey tea, please.'], ended: false } });
+    s = joinReducer(s, { type: 'state', state: { lesson_id: 'les-1', stage_id: 'cafe_order', targets: ['Honey tea, please.'], ended: false, coins_balance: 200 } });
     expect(s.phase).toBe('lesson');
-    s = joinReducer(s, { type: 'utterance_result', result: { pass: true, score: 1, stars: 2, feedback_ko: '통과!', coins_total: 20, utterances_today: 1 } });
+    expect(s.coins).toBe(200); // the ledger balance shows before the first answer
+    s = joinReducer(s, { type: 'utterance_result', result: { pass: true, score: 1, stars: 2, feedback_ko: '통과!', coins_total: 220, utterances_today: 1 } });
+    expect(s.coins).toBe(220);
+    // a server without the field keeps the last known balance
+    s = joinReducer(s, { type: 'state', state: { lesson_id: 'les-1', stage_id: 'cafe_order', targets: ['Honey tea, please.'], ended: false } });
+    expect(s.coins).toBe(220);
     s = joinReducer(s, { type: 'utterance_result', result: { pass: false, score: 0.2, stars: 0, feedback_ko: '한 번 더', coins_total: 20, utterances_today: 2 } });
     expect(s).toMatchObject({ saidCount: 2, starsEarned: 2 });
     s = joinReducer(s, { type: 'state', state: { lesson_id: 'les-1', stage_id: 'wrap_up', targets: [], ended: true } });
@@ -477,6 +483,7 @@ describe('/join child screen copy (AGENTS 4.9)', () => {
       saidCount: 3,
       starsEarned: 5,
       last: { pass: true, score: 1, stars: 3, feedback_ko: '완벽해요! 별 3개!', coins_total: 1250, utterances_today: 3 },
+      coins: 1250,
       lesson: {
         lesson_id: 'les-1',
         stage_id: 'cafe_order',
@@ -602,6 +609,62 @@ describe('/director live console', () => {
     expect(html).not.toContain('director-demo');
   });
 
+  it('running lessons from any device: a resume card on top, the record moves server times onto this clock', () => {
+    const row = {
+      lesson_id: 'les-1',
+      join_code: '482913',
+      expires_at: 99_000,
+      plan_id: 'second_lesson_v1',
+      player_id: 'stu-1',
+      nickname: '지우',
+      started_at: 10_000,
+      stage_id: 'shop_idea',
+      stage_started_at: 40_000,
+      stage_ms: { recall_last: 30_000 }
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: null, initialStudents: [], initialLive: { lessons: [row], server_now: 50_000 } })
+    );
+    expect(html).toContain('data-testid="director-live-lessons"');
+    expect(html.indexOf('director-live-lessons')).toBeLessThan(html.indexOf('director-students'));
+    expect(html).toContain('지우');
+    expect(html).toContain('② 빈 땅에 지을 가게 정하기');
+    expect(html).toContain('482913');
+    expect(html).toContain(LESSON_STRINGS_KO.director.resumeButton);
+    // nothing running: no card
+    const none = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: null, initialStudents: [], initialLive: { lessons: [], server_now: 1 } })
+    );
+    expect(none).not.toContain('director-live-lessons');
+
+    // this device's clock is 5 s ahead of the server: elapsed stays 10 s on the stage
+    const rec = recordFromLive(row, 50_000, 55_000);
+    expect(rec).toMatchObject({ lesson_id: 'les-1', join_code: '482913', plan_id: 'second_lesson_v1', stage_id: 'shop_idea', started_at: 15_000, stage_started_at: 45_000, report_path: null });
+    expect(55_000 - rec.stage_started_at!).toBe(10_000);
+    expect(rec.stage_ms).toEqual({ recall_last: 30_000 });
+  });
+
+  it('plan choice: both lessons offered, the remembered one is picked, unknown or blocked storage falls back to the first', () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) });
+    try {
+      expect(loadPlanChoice()).toBe('first_lesson_v1');
+      store.set('lcw.director.plan', 'second_lesson_v1');
+      expect(loadPlanChoice()).toBe('second_lesson_v1');
+      const html = renderToStaticMarkup(
+        React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: null, initialStudents: [] })
+      );
+      expect(html).toContain('data-testid="plan-first_lesson_v1"');
+      expect(html).toMatch(/aria-checked="true"[^>]*data-testid="plan-second_lesson_v1"/);
+      store.set('lcw.director.plan', 'gone_plan');
+      expect(loadPlanChoice()).toBe('first_lesson_v1');
+      vi.stubGlobal('localStorage', { getItem: () => { throw new Error('blocked'); }, setItem: () => undefined });
+      expect(loadPlanChoice()).toBe('first_lesson_v1');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters', () => {
     const html = renderToStaticMarkup(
       React.createElement(LessonDirectorConsole, {
@@ -680,5 +743,22 @@ describe('join links (docs/19 §4)', () => {
     );
     expect(dir).toContain('/join?code=482913');
     expect(dir).toContain('/game/?code=482913');
+  });
+
+  it('a lesson ended on another device offers its existing report link or a new lesson, never a second end form', () => {
+    const open = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: FEED })
+    );
+    expect(open).toContain('data-testid="director-end"');
+    expect(open).not.toContain('director-ended-elsewhere');
+    const endedFeed: LessonFeed = { ...FEED, lesson: { ...FEED.lesson, ended_at: FEED.lesson.started_at + 60_000 } };
+    const ended = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: endedFeed })
+    );
+    expect(ended).toContain('data-testid="director-ended-elsewhere"');
+    expect(ended).toContain('data-testid="fetch-report"');
+    expect(ended).toContain('data-testid="new-lesson"');
+    expect(ended).not.toContain('data-testid="director-end"');
+    expect(ended).not.toContain('data-testid="end-lesson"');
   });
 });

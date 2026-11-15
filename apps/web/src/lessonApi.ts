@@ -2,7 +2,8 @@
  * Typed client for the lesson-mode API (docs/18 §2). Same-origin JSON; every non-2xx response throws a LessonApiError
  * whose message is the server `error` code, so screens can map codes to friendly copy and offer a retry.
  */
-import type { LessonPlan, LessonUtteranceMode } from '@lcw/content';
+import type { LessonDirectorEventKind, LessonPlan, LessonUtteranceMode } from '@lcw/content';
+import type { FeedLiveExtra } from './directorLiveState.js';
 
 export type PlayerLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
 export type PinKind = 'expression' | 'coaching' | 'highlight';
@@ -17,6 +18,41 @@ export interface AdminStudent {
   family_id: string;
   last_lesson_at: number | null;
   utterances_7d: number;
+}
+
+/** GET /v1/admin/lessons/live row: a running lesson, whichever device started it (server clock). */
+export interface LiveLessonRow {
+  lesson_id: string;
+  join_code: string;
+  expires_at: number;
+  plan_id: string;
+  player_id: string;
+  nickname: string;
+  started_at: number;
+  stage_id: string | null;
+  stage_started_at: number | null;
+  stage_ms: Record<string, number>;
+}
+
+/**
+ * A running lesson as this console's record. The console counts elapsed time on its own clock, so server times move
+ * by (client now − server now): another device's clock being off does not show a wrong stage time.
+ */
+export function recordFromLive(row: LiveLessonRow, serverNow: number, clientNow: number): DirectorLessonRecord {
+  const shift = clientNow - serverNow;
+  return {
+    lesson_id: row.lesson_id,
+    join_code: row.join_code,
+    expires_at: row.expires_at,
+    plan_id: row.plan_id,
+    player_id: row.player_id,
+    nickname: row.nickname,
+    started_at: row.started_at + shift,
+    stage_id: row.stage_id,
+    stage_started_at: row.stage_started_at === null ? null : row.stage_started_at + shift,
+    stage_ms: { ...row.stage_ms },
+    report_path: null
+  };
 }
 
 export interface CreatePlayerInput {
@@ -138,6 +174,8 @@ export interface StudentLessonState {
   /** Extra fields the server sends for the child screen (docs/18 §2 keeps the core four). */
   mode?: LessonUtteranceMode;
   stage_goal_ko?: string;
+  /** The child's one coin balance (home-world ledger), same as the 3D HUD. */
+  coins_balance?: number | null;
 }
 
 export interface UtteranceInput {
@@ -253,6 +291,7 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
 
   return {
     listStudents: (op: string) => request<AdminStudent[]>('GET', '/v1/admin/students', op),
+    liveLessons: (op: string) => request<{ lessons: LiveLessonRow[]; server_now: number }>('GET', '/v1/admin/lessons/live', op),
     createPlayer: (op: string, input: CreatePlayerInput) =>
       request<{ ok: boolean }>('POST', '/v1/admin/players', op, input),
     startLesson: (op: string, input: { player_id: string; plan_id?: string }) =>
@@ -261,8 +300,20 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       request<{ ok: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/stage`, op, input),
     addPin: (op: string, lessonId: string, input: PinInput) =>
       request<{ ok: boolean; id: string }>('POST', `/v1/admin/lessons/${enc(lessonId)}/pins`, op, input),
-    feed: (op: string, lessonId: string, since: number) =>
-      request<LessonFeed>('GET', `/v1/admin/lessons/${enc(lessonId)}/feed?since=${Math.max(0, Math.floor(since))}`, op),
+    feed: (op: string, lessonId: string, since: number, liveCursor = 0) =>
+      request<LessonFeed & FeedLiveExtra>(
+        'GET',
+        `/v1/admin/lessons/${enc(lessonId)}/feed?since=${Math.max(0, Math.floor(since))}&live_cursor=${Math.max(0, Math.floor(liveCursor))}`,
+        op
+      ),
+    npcSay: (op: string, lessonId: string, input: { npc_id: string; text: string }) =>
+      request<{ ok: boolean; id: string; at: number }>('POST', `/v1/admin/lessons/${enc(lessonId)}/npc-say`, op, input),
+    possess: (op: string, lessonId: string, npcId: string | null) =>
+      request<{ ok: boolean; possessed_npc_id: string | null }>('POST', `/v1/admin/lessons/${enc(lessonId)}/possess`, op, {
+        npc_id: npcId
+      }),
+    fireEvent: (op: string, lessonId: string, input: { kind: LessonDirectorEventKind; detail?: string }) =>
+      request<{ ok: boolean; id: string; at: number }>('POST', `/v1/admin/lessons/${enc(lessonId)}/event`, op, input),
     endLesson: (op: string, lessonId: string, input: EndLessonInput) =>
       request<EndLessonResult>('POST', `/v1/admin/lessons/${enc(lessonId)}/end`, op, input),
     studentDaily: (op: string, playerId: string, days = 14) =>

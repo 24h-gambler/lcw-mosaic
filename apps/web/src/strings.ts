@@ -121,6 +121,13 @@ export const LESSON_STRINGS_KO = {
     keyNotStored: '이 브라우저는 저장을 막고 있어요. 새로 고치면 열쇠를 다시 넣어야 해요.',
     demoSummary: '데모 콘솔 둘러보기 (열쇠 없이, 저장되지 않음)',
     studentsTitle: '학생 고르기',
+    resumeTitle: '진행 중인 수업 이어 하기',
+    resumeHelp: '다른 기기에서 시작한 수업도 여기서 이어 받아요.',
+    resumeButton: '이어 하기',
+    resumeLine: (nickname: string, plan: string, stage: string, started: string, code: string) =>
+      `${nickname} · ${plan} · 지금 ${stage} · ${started} 시작 · 코드 ${code}`,
+    planTitle: '오늘 수업안',
+    planHint: '고른 수업안으로 시작해요. 이 기기에 기억돼요.',
     studentsEmpty: '아직 등록한 학생이 없어요. 아래에서 새 학생을 등록해 주세요.',
     refresh: '새로 고침',
     loading: '불러오는 중…',
@@ -216,6 +223,9 @@ export const LESSON_STRINGS_KO = {
     previewNote: '보내기 전에 한 번 읽어 보세요. 링크는 로그인 없이 열려요.',
     newLesson: '새 수업 준비',
     lessonEndedElsewhere: '이 수업은 이미 끝났어요.',
+    endedElsewhereHelp: '다른 기기에서 끝낸 수업이에요. 이미 만든 부모님 리포트 링크를 그대로 가져와요(새로 만들지 않아요).',
+    fetchReport: '리포트 링크 가져오기',
+    resumeRefresh: '다시 보기',
     resumeNote: '진행 중이던 수업을 이어서 보여 드려요.'
   },
   join: {

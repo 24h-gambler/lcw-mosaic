@@ -76,6 +76,57 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
     expect(b.body.coins_total).toBe(240 - starPrice(water.basePrice, 3) + 20);
     expect(p.coinBalance('kid-1')).toBe(b.body.coins_total);
   });
+
+  it('the state poll carries the balance from the start, before any answer', async () => {
+    const p = platform();
+    const { lessonId, st } = await startLesson(p);
+    const first = await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    expect(first.body.coins_balance).toBe(200);
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000 }, st);
+    const after = await call(p, 'GET', `/v1/lesson/state?cursor=${first.body.cursor}`, undefined, st);
+    expect(after.body.coins_balance).toBe(220);
+  });
+});
+
+describe('running lessons for a console on another device', () => {
+  it('lists unended lessons with code, plan, current stage and time per stage; smoke and ended lessons stay out; operator only', async () => {
+    const p = platform();
+    const { lessonId, code } = await startLesson(p);
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-smoke', guardian_id: 'g-smoke', player_id: 'smoke-1', nickname: 'Smoke', level: 'L1' });
+    const smoke = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'smoke-1' });
+    expect(smoke.status).toBe(201);
+    await new Promise((r) => setTimeout(r, 5));
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+
+    expect((await call(p, 'GET', '/v1/admin/lessons/live', undefined, { 'content-type': 'application/json' })).status).toBe(401);
+    const live = await call(p, 'GET', '/v1/admin/lessons/live');
+    expect(live.status).toBe(200);
+    expect(live.body.lessons).toHaveLength(1);
+    const l = live.body.lessons[0];
+    expect(l).toMatchObject({ lesson_id: lessonId, join_code: code, plan_id: 'first_lesson_v1', player_id: 'kid-1', nickname: 'Juno', stage_id: 'cafe_order' });
+    expect(l.stage_ms.warmup_anchor).toBeGreaterThanOrEqual(0);
+    expect(l.stage_started_at).toBeGreaterThanOrEqual(l.started_at);
+    expect(typeof live.body.server_now).toBe('number');
+
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { teacher_comment: '잘했어요.' });
+    expect((await call(p, 'GET', '/v1/admin/lessons/live')).body.lessons).toHaveLength(0);
+  });
+
+  it('ending twice (two consoles, a double tap) keeps the first report link and comment', async () => {
+    const p = platform();
+    const { lessonId } = await startLesson(p);
+    const e1 = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { teacher_comment: '노트북 코멘트' });
+    expect(e1.status).toBe(200);
+    const e2 = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { teacher_comment: '' });
+    expect(e2.status).toBe(200);
+    expect(e2.body).toMatchObject({ report_path: e1.body.report_path, share_token: e1.body.share_token, already_ended: true });
+    const sql = (p as unknown as { sql: { all<T>(q: string, a?: unknown[]): T[] } }).sql;
+    const rows = sql.all<{ share_token: string; teacher_comment: string | null }>('select share_token, teacher_comment from report_deliveries');
+    expect(rows).toEqual([{ share_token: e1.body.share_token, teacher_comment: '노트북 코멘트' }]);
+    const opened = await call(p, 'GET', `/v1/reports/${e1.body.share_token}`, undefined, {});
+    expect(opened.status).toBe(200);
+  });
 });
 
 describe('lesson mode (docs/18)', () => {

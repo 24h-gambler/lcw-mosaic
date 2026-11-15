@@ -62,7 +62,8 @@ function fakeWorld() {
     setGoal: (g, t) => void calls.push(`goal:${g}|${t ?? ''}`),
     celebrate: (s) => void calls.push(`celebrate:${s}`),
     setPossessed: (n) => void calls.push(`possess:${n}`),
-    playDirectorEvent: (k) => void calls.push(`event:${k}`)
+    playDirectorEvent: (k) => void calls.push(`event:${k}`),
+    setCoins: (n) => void calls.push(`coins:${n}`)
   };
   return { world, calls };
 }
@@ -102,6 +103,9 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(ctl.state.nickname).toBe('Juno');
     expect(getStudentToken(store)).toMatch(/^[0-9a-f]{48}$/);
     expect(calls).toContain('scene:plaza');
+    // the ledger balance is on the HUD from the first poll (starter purse), before any answer
+    expect(calls).toContain('coins:200');
+    expect(ctl.state.coins).toBe(200);
     expect(calls.find((c) => c.startsWith('goal:'))).toContain('My name is ___.');
 
     // the teacher moves to the cafe, possesses the owner, speaks and fires a blackout
@@ -136,6 +140,7 @@ describe('client lesson module (docs/19 §4)', () => {
       confidence: 0.92
     });
     expect(r).toMatchObject({ pass: true, stars: 2, coinsTotal: 220 }); // the child's one ledger: starting 200 + 2★ × 10
+    expect(calls.filter((c) => c.startsWith('coins:'))).toEqual(['coins:200', 'coins:220']); // once per change
     // the DialogPanel's payload carries solo meta; the strict lesson body must not (it would be a 400)
     const viaPanel = await ctl.submit({
       target_text: 'Can I have a warm honey tea?',

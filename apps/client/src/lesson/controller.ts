@@ -31,6 +31,8 @@ export interface LessonWorld {
   celebrate(stars: 0 | 1 | 2 | 3): void;
   setPossessed?(npcId: string | null): void;
   playDirectorEvent?(kind: LessonDirectorEventKind, detail: string): void;
+  /** HUD coin chip (WorldHandle.setCoins): the ledger balance from the first poll on. */
+  setCoins?(n: number | null): void;
 }
 
 export type LessonPhase = 'needs_code' | 'joining' | 'live' | 'ended';
@@ -71,6 +73,8 @@ export interface LessonView {
   bubbles: LessonBubble[];
   banner: LessonBanner | null;
   lastResult: (DialogResult & { utterancesToday: number }) | null;
+  /** Ledger balance shown on the HUD (state poll, then each answer). */
+  coins: number | null;
   /** Bumps on every stage change so the dialog can reset. */
   stageSeq: number;
 }
@@ -114,6 +118,7 @@ export function initialLessonView(): LessonView {
     bubbles: [],
     banner: null,
     lastResult: null,
+    coins: null,
     stageSeq: 0
   };
 }
@@ -187,6 +192,7 @@ export class LessonController {
     const result: DialogResult = { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, coinsTotal: r.coins_total };
     // No celebrate here: whoever shows the result plays it (App's DialogHost, or the layer's own panel), once.
     this.set({ lastResult: { ...result, utterancesToday: r.utterances_today } });
+    this.showCoins(r.coins_total);
     return result;
   };
 
@@ -249,10 +255,17 @@ export class LessonController {
     this.timer = this.timers.setTimeout(() => this.poll(), this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
   }
 
+  private showCoins(n: number | null | undefined): void {
+    if (typeof n !== 'number' || !Number.isFinite(n) || n === this.view.coins) return;
+    this.opts.world?.setCoins?.(n);
+    this.set({ coins: n });
+  }
+
   /** Applies one state response. Exposed for tests and for the cards fallback. */
   apply(st: StudentLessonState): void {
     const w = this.opts.world;
     this.cursor = st.cursor;
+    this.showCoins(st.coins_balance);
     const patch: Partial<LessonView> = {};
     const stageChanged = st.stage_id !== this.view.stageId;
     const targetsChanged = JSON.stringify(st.offers) !== JSON.stringify(this.view.offers);

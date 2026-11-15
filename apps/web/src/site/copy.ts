@@ -47,8 +47,7 @@ export const LOOP = {
 export const TOUR = {
   label: '실제 게임 화면: 광장에서 마을 길을 따라 꿀 카페까지 걸어가는 장면',
   captions: [
-    ['plaza', '광장에서 시작해요'],
-    ['street', '마을 길을 따라 걸어가요'],
+    ['plaza', '광장에서 마을 길을 따라 걸어가요'],
     ['cafe', '꿀 카페 도착. 이제 영어로 주문할 차례']
   ] as ReadonlyArray<readonly [string, string]>
 } as const;
@@ -239,7 +238,7 @@ export const TUTORING = {
   windowTitle: '수업 중에 들어와 보세요',
   windowBody:
     '수업 창문은 지금 아이가 어디서 무엇을 하는지, 화면의 목표 문장이 무엇인지 10초마다 글로 알려 드려요. 영상은 보내지 않습니다. 음성 청취는 동의하신 경우에만 열려요.',
-  windowSample: { place: '꿀벌 카페 · 광장', situation: '카페 주인과 주문 중', target: 'Can I have a warm honey tea so that I stay warm?' },
+  windowSample: { place: '꿀 카페 · 광장', situation: '카페 주인과 주문 중', target: 'Can I have a warm honey tea so that I stay warm?' },
   reportTitle: '수업이 끝나면',
   reportBody: '선생님이 확인한 뒤 링크로 보내 드려요. 로그인 없이 열리고, 30일 뒤 닫힙니다. 숫자는 기록과 자동으로 대조해 틀린 문장이 나가지 않게 했어요.',
   monthTitle: '한 달이 지나면',
@@ -467,7 +466,7 @@ export const LEARN_PAGES = [
     slug: 'order-a-drink',
     ctx: 'cafe',
     title: '카페에서 음료 주문하기',
-    scene: '꿀벌 카페 주인에게 따뜻한 음료를 시켜요.',
+    scene: '꿀 카페 주인에게 따뜻한 음료를 시켜요.',
     explain: [
       'please 하나만 붙여도 주문이 돼요. "Honey tea, please."',
       'Can I have ~? 는 "~ 주실 수 있어요?"에 가까운 부드러운 부탁이에요.',

@@ -5,6 +5,13 @@ import { describe, expect, it } from 'vitest';
 import {
   AUDIO_LIMITS,
   BUS_CAPS,
+  BUS_DEFAULT_VOLUMES,
+  BUS_PRIORITY,
+  DUCK_RELEASE_MS,
+  DUCK_TABLE_DB,
+  PROCEDURAL_SFX_PRESETS,
+  dbToGain,
+  duckDbFor,
   applyHearingProtectionLimiter,
   createAudioEngine,
   encodeWavBytes,
@@ -19,69 +26,138 @@ import {
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('packages/audio (WP-110, docs/12 §12)', () => {
-  it('Test 1: unlock is idempotent and enforces 12 SFX cap + 100ms explosion coalescing', () => {
+  // docs/12 12장 자동 시험 1: 덕킹 상태 기계.
+  it('ducking: overlapping reasons apply only the deepest cut per bus, and every bus returns when all end', () => {
+    const engine = createAudioEngine(1000);
+    const base = Object.fromEntries((['bgm', 'amb', 'sfx', 'ui', 'voice_npc', 'voice_lesson'] as const).map((b) => [b, engine.getEffectiveBusGain(b)]));
+    expect(base.bgm).toBeCloseTo(BUS_DEFAULT_VOLUMES.bgm, 4);
+    engine.duck('lesson_active', true); // -9 / -6 / -3
+    engine.duck('npc_speaking', true); // -12 / -9 / -6
+    engine.duck('mic_open', true); // -24 / -18 / -12
+    expect(engine.getEffectiveBusGain('bgm')).toBeCloseTo(base.bgm! * dbToGain(-24), 5);
+    expect(engine.getEffectiveBusGain('amb')).toBeCloseTo(base.amb! * dbToGain(-18), 5);
+    expect(engine.getEffectiveBusGain('sfx')).toBeCloseTo(base.sfx! * dbToGain(-12), 5);
+    // never the sum (-24 -12 -9 = -45 dB would be near silence)
+    expect(engine.getEffectiveBusGain('bgm')).toBeGreaterThan(base.bgm! * dbToGain(-25));
+    expect(engine.getEffectiveBusGain('voice_lesson')).toBeCloseTo(base.voice_lesson!, 5);
+    engine.duck('mic_open', false);
+    expect(engine.getEffectiveBusGain('bgm')).toBeCloseTo(base.bgm! * dbToGain(-12), 5);
+    engine.duck('npc_speaking', false);
+    engine.duck('lesson_active', false);
+    for (const [bus, g] of Object.entries(base)) expect(engine.getEffectiveBusGain(bus as keyof typeof BUS_CAPS)).toBeCloseTo(g, 6);
+    expect(duckDbFor('bgm', [])).toBe(0);
+    // the guardian lesson window: no game sound, the call bus only
+    engine.lesson.setListenOnly(true);
+    for (const bus of ['bgm', 'amb', 'sfx', 'ui', 'voice_npc'] as const) expect(engine.getEffectiveBusGain(bus)).toBe(0);
+    expect(engine.getEffectiveBusGain('voice_lesson')).toBeGreaterThan(0);
+    // docs/12 3장 table values and release times
+    expect(DUCK_TABLE_DB.skill_or_bubble).toEqual({ bgm: -18, amb: -12, sfx: -6 });
+    expect(DUCK_TABLE_DB.lesson_vad).toEqual({ bgm: -24, amb: -18, sfx: -9 });
+    expect(DUCK_RELEASE_MS).toMatchObject({ mic_open: 400, npc_speaking: 300, lesson_vad: 600, skill_or_bubble: 300 });
+  });
+
+  // docs/12 12장 자동 시험 2: 동시 재생 상한.
+  it('caps: 100 requests at once never exceed any bus cap; lower priority and older sounds go first', () => {
     const engine = createAudioEngine(1000);
     engine.unlock();
     engine.unlock();
     expect(engine.getSnapshot().unlocked).toBe(true);
-
-    // Attempt 50 SFX calls simultaneously on sfx bus (cap = 12)
-    for (let i = 0; i < 50; i++) {
-      engine.play('blk.place', { bus: 'sfx', nowMs: 1000, durationMs: 500, priority: 5 });
+    expect(BUS_CAPS).toEqual({ ui: 4, sfx: 16, amb: 4, bgm: 3, voice_npc: 2, voice_lesson: 8 });
+    for (const bus of Object.keys(BUS_CAPS) as Array<keyof typeof BUS_CAPS>) {
+      for (let i = 0; i < 100; i++) engine.play(`${bus}.tone.${i}`, { bus, nowMs: 1000, durationMs: 5000 });
+      expect(engine.getSnapshot().activeVoices.filter((v) => v.bus === bus).length).toBe(BUS_CAPS[bus]);
     }
-    const sfxVoices = engine.getSnapshot().activeVoices.filter((v) => v.bus === 'sfx');
-    expect(sfxVoices.length).toBeLessThanOrEqual(BUS_CAPS.sfx);
-
-    // 8 explosions within 100ms coalesce down to <= 3 (AUDIO_LIMITS.EXPLOSION_MAX_SIMULTANEOUS)
-    let exploded = 0;
-    for (let i = 0; i < 8; i++) {
-      const r = engine.play('fx.explode', { bus: 'sfx', nowMs: 1010 + i * 5, priority: 10 });
-      if (r.played) exploded += 1;
-    }
-    expect(exploded).toBe(AUDIO_LIMITS.EXPLOSION_MAX_SIMULTANEOUS);
+    // a higher-priority sound replaces the oldest low one; an equal one cannot push out the oldest of a full bus
+    const e2 = createAudioEngine(0);
+    for (let i = 0; i < 16; i++) e2.play(`blk.place.${i}`, { bus: 'sfx', nowMs: i, durationMs: 5000, priority: 1 });
+    const r = e2.play('exp.boom.m', { bus: 'sfx', nowMs: 20, durationMs: 600, priority: 9 });
+    expect(r.played).toBe(true);
+    const ids = e2.getSnapshot().activeVoices.filter((v) => v.bus === 'sfx').map((v) => v.soundId);
+    expect(ids).not.toContain('blk.place.0');
+    expect(ids).toContain('blk.place.1');
+    expect(BUS_PRIORITY.voice_lesson).toBeGreaterThan(BUS_PRIORITY.voice_npc);
+    expect(BUS_PRIORITY.voice_npc).toBeGreaterThan(BUS_PRIORITY.ui);
+    expect(BUS_PRIORITY.ui).toBeGreaterThan(BUS_PRIORITY.sfx);
+    expect(BUS_PRIORITY.sfx).toBeGreaterThan(BUS_PRIORITY.amb);
   });
 
-  it('Test 2: enforces strict NPC end -> 150ms -> dlg.mic_on -> mic record sequence and blocks NPC while mic open', () => {
-    const engine = createAudioEngine(2000);
-    engine.voice.say('What drink would you like?', { nowMs: 2000, durationMs: 500 });
-    const schedule = engine.voice.notifyNpcEnded(2500);
-    expect(schedule.micOnCueAtMs).toBe(2650);
-
-    // Before 150ms elapsed, mic cannot open
-    expect(engine.voice.completeMicOpenDelay(2600)).toBe(false);
-    expect(engine.getSnapshot().micOpen).toBe(false);
-
-    // At >= 2650ms, dlg.mic_on fires BEFORE mic recording opens, then NPC speech is blocked
-    expect(engine.voice.completeMicOpenDelay(2650)).toBe(true);
-    expect(engine.getSnapshot().micOpen).toBe(true);
-
-    const blockedNpc = engine.voice.say('Interrupting NPC', { nowMs: 2700 });
-    expect(blockedNpc.played).toBe(false);
-    expect(blockedNpc.reason).toBe('blocked_while_mic_open');
-
-    const log = engine.getSnapshot().eventLog;
-    const npcEndIdx = log.findIndex((e) => e.event === 'npc_end');
-    const cueIdx = log.findIndex((e) => e.event === 'play' && e.id === 'dlg.mic_on');
-    const recIdx = log.findIndex((e) => e.event === 'mic_record_start');
-    expect(npcEndIdx).toBeGreaterThan(-1);
-    expect(cueIdx).toBeGreaterThan(npcEndIdx);
-    expect(recIdx).toBeGreaterThan(cueIdx);
-  });
-
-  it('Test 3: mic_open and npc_speaking apply ducking attenuation and restore when ended', () => {
+  // docs/12 12장 자동 시험 3: 폭발 묶기.
+  it('explosions: 20 within 100 ms play once (+3 dB at most); at most 3 explosion sounds at a time', () => {
     const engine = createAudioEngine(1000);
-    const baseBgm = engine.getEffectiveBusGain('bgm');
-    engine.duck('npc_speaking', true);
-    const duckedNpc = engine.getEffectiveBusGain('bgm');
-    expect(duckedNpc).toBeLessThan(baseBgm);
+    const results = Array.from({ length: 20 }, (_, i) => engine.play('exp.boom.m', { nowMs: 1000 + i * 5, durationMs: 600 }));
+    expect(results.filter((r) => r.played)).toHaveLength(1);
+    expect(results.slice(1).every((r) => r.reason === 'explosion_coalesced' && r.mergedInto === results[0]!.handleId)).toBe(true);
+    const voice = engine.getSnapshot().activeVoices.find((v) => v.handleId === results[0]!.handleId)!;
+    expect(voice.boostDb).toBe(AUDIO_LIMITS.EXPLOSION_MERGE_MAX_BOOST_DB);
+    // separate blasts 150 ms apart: three play, the fourth waits for one to end
+    const e2 = createAudioEngine(0);
+    const apart = [0, 150, 300, 450].map((t) => e2.play('exp.boom.m', { nowMs: t, durationMs: 600 }).played);
+    expect(apart).toEqual([true, true, true, false]);
+    expect(e2.play('exp.boom.m', { nowMs: 700, durationMs: 600 }).played).toBe(true);
+  });
 
-    engine.duck('mic_open', true);
-    const duckedMic = engine.getEffectiveBusGain('bgm');
-    expect(duckedMic).toBeLessThan(duckedNpc);
+  // docs/12 12장 자동 시험 4: 마이크 순서.
+  it('mic order: no recording before the NPC voice ends; then 150 ms, the cue, and recording after the cue', () => {
+    const engine = createAudioEngine(2000);
+    expect(engine.voice.say('What drink would you like?', { nowMs: 2000, durationMs: 1500 }).played).toBe(true);
+    expect(engine.voice.npcSpeaking(2100)).toBe(true);
+    for (const t of [2000, 2500, 3000, 3499]) expect(engine.voice.completeMicOpenDelay(t)).toBe(false);
+    expect(engine.getSnapshot().micOpen).toBe(false);
+    // the voice ends on its own at 3500 -> cue at 3650 -> recording at 3710
+    expect(engine.voice.npcSpeaking(3500)).toBe(false);
+    const s = engine.voice.requestMic(3550);
+    expect(s).toEqual({ npcEndedAtMs: 3500, micOnCueAtMs: 3650, recordingStartedAtMs: 3650 + PROCEDURAL_SFX_PRESETS['dlg.mic_on']!.durationMs });
+    expect(engine.voice.completeMicOpenDelay(3660)).toBe(false); // the cue is playing
+    expect(engine.voice.completeMicOpenDelay(3710)).toBe(true);
+    expect(engine.getSnapshot().micOpen).toBe(true);
+    expect(engine.getSnapshot().activeDuckReasons).toContain('mic_open');
+    // while the mic is open NPC voice and UI sounds do not play
+    expect(engine.voice.say('Interrupting NPC', { nowMs: 3800 }).reason).toBe('blocked_while_mic_open');
+    expect(engine.play('ui.click', { nowMs: 3800 }).played).toBe(false);
+    const log = engine.getSnapshot().eventLog;
+    const at = (ev: string) => log.find((e) => e.event === ev)!.atMs;
+    expect(at('mic_cue')).toBeGreaterThanOrEqual(at('npc_end') + AUDIO_LIMITS.NPC_END_TO_MIC_ON_MS);
+    expect(at('mic_record_start')).toBeGreaterThanOrEqual(at('mic_cue') + PROCEDURAL_SFX_PRESETS['dlg.mic_on']!.durationMs);
+    engine.voice.stopMic(4000);
+    expect(engine.getSnapshot().activeDuckReasons).not.toContain('mic_open');
 
-    engine.duck('mic_open', false);
-    engine.duck('npc_speaking', false);
-    expect(engine.getEffectiveBusGain('bgm')).toBeCloseTo(baseBgm, 4);
+    // a tap while the NPC talks cuts the voice first, then waits the same 150 ms + cue
+    const e2 = createAudioEngine(0);
+    e2.voice.say('Hello there, what would you like today?', { nowMs: 0, durationMs: 3000 });
+    const cut = e2.voice.requestMic(800);
+    expect(cut.npcEndedAtMs).toBe(800);
+    expect(e2.voice.npcSpeaking(801)).toBe(false);
+    expect(e2.voice.completeMicOpenDelay(800 + 150 + 59)).toBe(false);
+    expect(e2.voice.completeMicOpenDelay(cut.recordingStartedAtMs)).toBe(true);
+  });
+
+  // docs/12 12장 자동 시험 5: 라이선스 검사 — an audio file not in assets/audio/LICENSES.md fails the test run.
+  it('license gate: every audio file shipped in the repo is listed in assets/audio/LICENSES.md', () => {
+    const ledger = fs.readFileSync(path.join(ROOT_DIR, 'assets', 'audio', 'LICENSES.md'), 'utf8');
+    const AUDIO = /\.(ogg|opus|mp3|wav|webm|m4a|aac|flac)$/i;
+    const SKIP = new Set(['node_modules', '.git', 'dist', '.wrangler', '.turbo']);
+    const found: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (SKIP.has(e.name)) continue;
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (AUDIO.test(e.name)) found.push(path.relative(ROOT_DIR, full).split(path.sep).join('/'));
+      }
+    };
+    for (const top of ['assets', 'apps', 'packages']) if (fs.existsSync(path.join(ROOT_DIR, top))) walk(path.join(ROOT_DIR, top));
+    const missing = found.filter((f) => !ledger.includes(path.basename(f)));
+    expect(missing).toEqual([]);
+  });
+
+  it('a hidden tab stops music and ambience and keeps the call bus', () => {
+    const engine = createAudioEngine(0);
+    engine.setHidden(true);
+    expect(engine.getEffectiveBusGain('bgm')).toBe(0);
+    expect(engine.getEffectiveBusGain('amb')).toBe(0);
+    expect(engine.getEffectiveBusGain('voice_lesson')).toBeGreaterThan(0);
+    engine.setHidden(false);
+    expect(engine.getEffectiveBusGain('bgm')).toBeGreaterThan(0);
   });
 
   it('Test 4: synthesizes procedural WAV & climbs semitone ladder without external files', () => {

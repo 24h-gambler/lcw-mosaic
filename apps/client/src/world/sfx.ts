@@ -3,13 +3,27 @@
  * IDs follow docs/12 6.2. Footsteps and the build ladder vary pitch so repetition does not sound mechanical (6.1, 6.3).
  * Silent (no-op) where WebAudio is missing; nothing plays before the first user gesture (autoplay rules).
  */
-import { PROCEDURAL_SFX_PRESETS, getLadderSemitoneOffset } from '@lcw/audio';
+import { PROCEDURAL_SFX_PRESETS, dbToGain, getLadderSemitoneOffset, type AudioBusName } from '@lcw/audio';
+import { getAudioRuntime } from '../audio/runtime.js';
 
 type Ctx = AudioContext;
 
+/** World UI cues go to the UI bus (blocked while the mic is open); everything else is the effects bus (docs/12 2장). */
+function busFor(id: string): AudioBusName {
+  return /^(ui|dlg|item|eco)\./.test(id) ? 'ui' : 'sfx';
+}
+
+/**
+ * Bus wiring (WP-110): the world no longer owns a context or a limiter. It plays into the page's one audio graph
+ * (`audio/runtime.ts`): effects -> sfx bus, cues -> ui bus, the outdoor bed -> ambience bus, so the dialog mic and
+ * the NPC voice duck them (docs/12 3장) and explosions merge (6.3).
+ */
 export class Sfx {
   private ctx: Ctx | null = null;
   private master: GainNode | null = null;
+  private uiOut: GainNode | null = null;
+  private ambOut: GainNode | null = null;
+  private lastBoom: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   private ambient: { stop(): void } | null = null;
   private ladderStep = 0;
@@ -22,20 +36,24 @@ export class Sfx {
       if (this.ctx.state === 'suspended') void this.ctx.resume();
       return;
     }
-    const AC: typeof AudioContext | undefined =
-      typeof window !== 'undefined'
-        ? (window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
-        : undefined;
-    if (!AC) return;
+    const rt = getAudioRuntime();
+    const ctx = rt.unlock();
+    const sfxBus = rt.bus('sfx');
+    const uiBus = rt.bus('ui');
+    const ambBus = rt.bus('amb');
+    if (!ctx || !sfxBus || !uiBus || !ambBus) return;
     try {
-      this.ctx = new AC();
-      this.master = this.ctx.createGain();
+      this.ctx = ctx;
+      // Same relative level as before; the runtime's master, ducking and -1 dB limiter sit after the buses.
+      this.master = ctx.createGain();
       this.master.gain.value = 0.55;
-      // Gentle limiter so stacked effects never clip (docs/12 4장 청력 보호).
-      const comp = this.ctx.createDynamicsCompressor();
-      comp.threshold.value = -10;
-      comp.ratio.value = 8;
-      this.master.connect(comp).connect(this.ctx.destination);
+      this.master.connect(sfxBus);
+      this.uiOut = ctx.createGain();
+      this.uiOut.gain.value = 0.55;
+      this.uiOut.connect(uiBus);
+      this.ambOut = ctx.createGain();
+      this.ambOut.gain.value = 0.55;
+      this.ambOut.connect(ambBus);
       const len = this.ctx.sampleRate;
       this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const d = this.noiseBuf.getChannelData(0);
@@ -49,9 +67,13 @@ export class Sfx {
     }
   }
 
+  /** Where the sound being played right now goes (set per `play`). */
+  private out: GainNode | null = null;
+
   private tone(freqStart: number, freqEnd: number, dur: number, type: OscillatorType, gain: number, delay = 0): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master || this.muted) return;
+    const dest = this.out ?? this.master;
+    if (!ctx || !dest || this.muted) return;
     const t0 = ctx.currentTime + delay;
     const o = ctx.createOscillator();
     const g = ctx.createGain();
@@ -61,14 +83,15 @@ export class Sfx {
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(gain, t0 + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    o.connect(g).connect(this.master);
+    o.connect(g).connect(dest);
     o.start(t0);
     o.stop(t0 + dur + 0.02);
   }
 
   private noise(dur: number, gain: number, filter: BiquadFilterType, freq: number, delay = 0, q = 1): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master || !this.noiseBuf || this.muted) return;
+    const dest = this.out ?? this.master;
+    if (!ctx || !dest || !this.noiseBuf || this.muted) return;
     const t0 = ctx.currentTime + delay;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuf;
@@ -80,12 +103,35 @@ export class Sfx {
     const g = ctx.createGain();
     g.gain.setValueAtTime(gain, t0);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    src.connect(f).connect(g).connect(this.master);
+    src.connect(f).connect(g).connect(dest);
     src.start(t0, (t0 * 0.37) % 0.5);
     src.stop(t0 + dur + 0.02);
   }
 
   play(id: string, opts: { pitch?: number } = {}): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const bus = busFor(id);
+    const boom = id.startsWith('exp.boom');
+    const adm = getAudioRuntime().admit(id, bus, boom ? 600 : 150);
+    if (!adm.ok) {
+      // docs/12 6.3: a blast inside 100 ms of the last one joins it (louder, at most +3 dB) instead of stacking.
+      if (boom && adm.boostDb !== undefined && this.lastBoom) this.lastBoom.gain.value = dbToGain(adm.boostDb);
+      return;
+    }
+    const target = bus === 'ui' ? this.uiOut : this.master;
+    if (boom && this.ctx) {
+      this.lastBoom = this.ctx.createGain();
+      this.lastBoom.connect(this.master);
+    }
+    this.out = boom ? this.lastBoom : target;
+    try {
+      this.playInto(id, opts);
+    } finally {
+      this.out = null;
+    }
+  }
+
+  private playInto(id: string, opts: { pitch?: number }): void {
     if (!this.ctx) return;
     const p = Math.pow(2, (opts.pitch ?? 0) / 12);
     switch (id) {
@@ -177,7 +223,7 @@ export class Sfx {
   /** Soft outdoor bed: wind and an occasional bird (docs/12 5장 앰비언스 대체). */
   startAmbient(): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master || !this.noiseBuf || this.ambient) return;
+    if (!ctx || !this.ambOut || !this.noiseBuf || this.ambient) return;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuf;
     src.loop = true;
@@ -186,12 +232,14 @@ export class Sfx {
     f.frequency.value = 420;
     const g = ctx.createGain();
     g.gain.value = 0.035;
-    src.connect(f).connect(g).connect(this.master);
+    src.connect(f).connect(g).connect(this.ambOut);
     src.start();
     const birds = setInterval(() => {
       if (this.muted || !this.ctx) return;
       const base = 2200 + ((this.ctx.currentTime * 331) % 1) * 1400;
+      this.out = this.ambOut;
       for (let i = 0; i < 3; i++) this.tone(base, base * 1.25, 0.07, 'sine', 0.035, i * 0.11);
+      this.out = null;
     }, 5200);
     this.ambient = {
       stop: () => {
@@ -208,7 +256,15 @@ export class Sfx {
   dispose(): void {
     this.ambient?.stop();
     this.ambient = null;
-    void this.ctx?.close();
+    // The context is the page's shared one: disconnect this world's nodes, never close it.
+    for (const n of [this.master, this.uiOut, this.ambOut]) {
+      try {
+        n?.disconnect();
+      } catch {
+        /* already gone */
+      }
+    }
+    this.master = this.uiOut = this.ambOut = this.lastBoom = null;
     this.ctx = null;
   }
 }

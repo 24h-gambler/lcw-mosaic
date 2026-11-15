@@ -1,0 +1,90 @@
+[
+ {
+  "view": "desktop",
+  "errs": [],
+  "before": {
+   "npc": true,
+   "bgm": 0.1507131858905748,
+   "ctx": null
+  },
+  "log": [
+   {
+    "atMs": 314,
+    "event": "npc_start",
+    "id": "voice.npc"
+   },
+   {
+    "atMs": 1569,
+    "event": "npc_end",
+    "id": "voice.npc"
+   },
+   {
+    "atMs": 1719,
+    "event": "mic_cue",
+    "id": "dlg.mic_on"
+   },
+   {
+    "atMs": 1779,
+    "event": "mic_record_start",
+    "id": "mic"
+   },
+   {
+    "atMs": 2994.0999999940395,
+    "event": "mic_stop",
+    "id": "mic"
+   }
+  ],
+  "firstOpenMs": 411.7999999821186,
+  "bgmWhileOpen": 0.037857440668811596,
+  "after": {
+   "open": false,
+   "bgm": 0.6,
+   "ducks": []
+  },
+  "text": "🧑‍🍳 꿀벌 카페 주인 · Honey Welcome to the honey cafe! What would you like today? 🔊 🧊 💧 꼬리표를 꾹 누르면 뜻이 보여요 water cold 내 말: “Can I get some cold water?” 말하고 싶은 문장을 "
+ },
+ {
+  "view": "phone",
+  "errs": [],
+  "before": {
+   "npc": true,
+   "bgm": 0.1507131858905748,
+   "ctx": null
+  },
+  "log": [
+   {
+    "atMs": 278.40000000596046,
+    "event": "npc_start",
+    "id": "voice.npc"
+   },
+   {
+    "atMs": 1413.300000011921,
+    "event": "npc_end",
+    "id": "voice.npc"
+   },
+   {
+    "atMs": 1563.300000011921,
+    "event": "mic_cue",
+    "id": "dlg.mic_on"
+   },
+   {
+    "atMs": 1623.300000011921,
+    "event": "mic_record_start",
+    "id": "mic"
+   },
+   {
+    "atMs": 2835,
+    "event": "mic_stop",
+    "id": "mic"
+   }
+  ],
+  "firstOpenMs": 262.40000000596046,
+  "bgmWhileOpen": 0.037857440668811596,
+  "after": {
+   "open": false,
+   "bgm": 0.6,
+   "ducks": []
+  },
+  "text": "🧑‍🍳 꿀벌 카페 주인 · Honey Welcome to the honey cafe! What would you like today? 🔊 water cold 내 말: “Can I get some cold water?” 말하고 싶은 문장을 골라요 ✕ 잠깐 문제가 생겼어요. 한 번 더"
+ }
+]

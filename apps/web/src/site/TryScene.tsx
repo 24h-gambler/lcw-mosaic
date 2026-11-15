@@ -25,6 +25,8 @@ import {
   type TryState
 } from './tryState.js';
 import { track } from './track.js';
+import type { WorldHandle } from '../../../client/src/world/api.js';
+import { TRY_CAFE_NPC, TRY_ITEM, TRY_WORLD_FPS_CHECK_MS, TRY_WORLD_MIN_FPS, TryWorldStage, chooseTryStage, probeWorld, worldCueFor, type TryWorldStatus } from './TryWorld.js';
 import { Toast, useShareToParent } from './widgets.js';
 import { IsoGroup, box, cafe, grass, honeyCup, isoPoint, merge, miniCharacter as character, placeAt, projectIso, road, shift, tree, type Vox } from './voxel.js';
 
@@ -146,10 +148,10 @@ function CupIcon(): React.ReactElement {
   );
 }
 
-function Hud({ s, onDrink }: { s: TryState; onDrink: () => void }): React.ReactElement {
+function Hud({ s, onDrink, inPanel = false }: { s: TryState; onDrink: () => void; inPanel?: boolean }): React.ReactElement {
   const thirst = s.drank ? 95 : 35;
   const warm = s.drank ? 90 : 40;
-  return (
+  const inner = (
     <>
       <div className="s-gauges" aria-label="상태">
         <span className="s-gauge">
@@ -168,6 +170,7 @@ function Hud({ s, onDrink }: { s: TryState; onDrink: () => void }): React.ReactE
       <div className="s-coins" aria-label={TRY.coins(s.coins)}>
         ◆ {s.coins}
       </div>
+      {inPanel ? null : (
       <div className="s-hud" role="group" aria-label="소지품 칸">
         {[1, 2, 3, 4, 5].map((n) => {
           const cup = n === 1 && s.cup;
@@ -188,7 +191,15 @@ function Hud({ s, onDrink }: { s: TryState; onDrink: () => void }): React.ReactE
           );
         })}
       </div>
+      )}
     </>
+  );
+  return inPanel ? (
+    <div className="s-status-row" data-testid="try-status">
+      {inner}
+    </div>
+  ) : (
+    inner
   );
 }
 
@@ -219,11 +230,54 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
   const { share, toast, clear } = useShareToParent();
   const walkTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // 3D town (docs/19 createWorld) when the device can run it; the 2D stage stays as the always-working fallback.
+  const [stage, setStage] = useState<ReturnType<typeof chooseTryStage>>({ stage: '2d', tier: 'mid', forced: false });
+  const [wstatus, setWstatus] = useState<TryWorldStatus>('off');
+  const worldRef = useRef<WorldHandle | null>(null);
+  const use3d = stage.stage === '3d' && wstatus === 'ready';
+  const phaseRef = useRef(s.phase);
+  phaseRef.current = s.phase;
 
   useEffect(() => {
     const d = detectPath();
     setEnv({ path: pathOverride ?? d.path, ua: d.ua });
+    if (!initial) setStage(chooseTryStage(probeWorld()));
   }, [pathOverride]);
+  // The town joins only before the child starts (never swaps stages mid-order) and only if it runs smoothly here.
+  const onWorldStatus = useCallback(
+    (st: TryWorldStatus) => {
+      if (st !== 'ready') {
+        setWstatus(st);
+        return;
+      }
+      if (phaseRef.current !== 'start') {
+        setWstatus('failed');
+        return;
+      }
+      if (stage.forced) {
+        setWstatus('ready');
+        return;
+      }
+      // Measure behind the 2D stage first, so a slow device never sees the town flash in and out.
+      setWstatus('checking');
+      setTimeout(() => {
+        const fps = worldRef.current?.getStats?.().fps;
+        const smooth = fps === undefined || fps >= TRY_WORLD_MIN_FPS;
+        setWstatus(smooth && phaseRef.current === 'start' ? 'ready' : 'failed');
+      }, TRY_WORLD_FPS_CHECK_MS);
+    },
+    [stage.forced]
+  );
+  const onWorld = useCallback((w: WorldHandle | null) => {
+    worldRef.current = w;
+    if (!w) return;
+    // Walking up to the owner and pressing E / tapping them counts as arriving (the button autopilots instead).
+    w.onNpcInteract((npc) => {
+      if (npc.id !== TRY_CAFE_NPC) return;
+      if (phaseRef.current === 'walk') dispatch({ type: 'walk', steps: TRY_WALK_STEPS });
+      else if (phaseRef.current === 'greet') dispatch({ type: 'greeted' });
+    });
+  }, []);
   useEffect(() => () => {
     if (recording) URL.revokeObjectURL(recording);
   }, [recording]);
@@ -248,7 +302,7 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
   // keyboard: → / D walks, 1 drinks
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (s.phase === 'walk' && (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D')) {
+      if (!use3d && s.phase === 'walk' && (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D')) {
         e.preventDefault();
         blip('step');
         dispatch({ type: 'walk' });
@@ -260,7 +314,41 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [s.phase]);
+  }, [s.phase, use3d]);
+
+  // 3D: the world mirrors each phase (goal line, pause/two-shot, owner's bubbles, tea in hand, stars).
+  const aimText = (TRY_OFFERS.find((o) => o.stars === s.aim) ?? TRY_OFFERS[TRY_OFFERS.length - 1]!).text;
+  useEffect(() => {
+    const w = worldRef.current;
+    if (!use3d || !w) return undefined;
+    const cue = worldCueFor(s.phase, TRY.goals, aimText);
+    w.setGoal(cue.goalKo, cue.targetEn);
+    let cancelled = false;
+    if (s.phase === 'greet') {
+      const arrive = w.getScene?.() === 'honey_cafe' ? Promise.resolve() : w.goToScene('honey_cafe');
+      void arrive.then(() => {
+        if (cancelled) return;
+        w.setPaused(true);
+        w.npcSay(TRY_CAFE_NPC, TRY_NPC.welcome);
+      });
+    } else w.setPaused(cue.paused);
+    if (s.phase === 'receive') {
+      w.npcSay(TRY_CAFE_NPC, TRY_NPC.serve(s.stars));
+      w.giveItem(TRY_ITEM);
+      if (s.stars > 0) w.celebrate(s.stars as 1 | 2 | 3);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [use3d, s.phase, s.stars, aimText]);
+  const autoWalk3d = useCallback(() => {
+    const w = worldRef.current;
+    if (!w) return;
+    w.setPaused(false);
+    void w.goToScene('honey_cafe').then(() => {
+      if (phaseRef.current === 'walk') dispatch({ type: 'walk', steps: TRY_WALK_STEPS });
+    });
+  }, []);
 
   // phase side effects
   useEffect(() => {
@@ -332,9 +420,12 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
         </div>
       ) : null}
       <main id="main" className="s-try-body">
-        <div className="s-try-stage">
-          <TryStage2D s={s} bubble={bubble} onCafeTap={() => s.phase === 'walk' && startWalk()} />
-          {s.phase !== 'start' ? <Hud s={s} onDrink={() => dispatch({ type: 'drink' })} /> : null}
+        <div className="s-try-stage" data-stage={use3d ? '3d' : '2d'}>
+          {stage.stage === '3d' && wstatus !== 'failed' ? (
+            <TryWorldStage tier={stage.tier} label={TRY.stageLabel3d} onStatus={onWorldStatus} onWorld={onWorld} />
+          ) : null}
+          {use3d ? null : <TryStage2D s={s} bubble={bubble} onCafeTap={() => s.phase === 'walk' && startWalk()} />}
+          {s.phase !== 'start' && !use3d ? <Hud s={s} onDrink={() => dispatch({ type: 'drink' })} /> : null}
           {s.phase === 'save' ? (
             <div className="s-overlay">
               <div className="s-card s-modal s-stack s-risein" role="dialog" aria-modal="true" aria-labelledby="save-title">
@@ -370,7 +461,9 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
           ) : null}
         </div>
         <section className="s-try-panel" aria-label="체험 진행">
+          {use3d && s.phase !== 'start' ? <Hud s={s} onDrink={() => dispatch({ type: 'drink' })} inPanel /> : null}
           <Panel
+            world3d={use3d}
             s={s}
             path={path}
             sound={sound}
@@ -382,7 +475,7 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
             }}
             onHold={startWalk}
             onRelease={stopWalk}
-            onAuto={startWalk}
+            onAuto={use3d ? autoWalk3d : startWalk}
             onGreeted={() => dispatch({ type: 'greeted' })}
             onPick={(n) => {
               blip('tap');
@@ -408,6 +501,8 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
 
 interface PanelProps {
   s: TryState;
+  /** The 3D town is showing: walking happens in the world (keys, stick or the autopilot button). */
+  world3d?: boolean;
   path: TryPath;
   sound: boolean;
   recording: string | null;
@@ -440,6 +535,16 @@ function Panel(p: PanelProps): React.ReactElement {
           {TRY.startQuiet}
         </button>
         <p className="s-note">{TRY.localOnly}</p>
+      </div>
+    );
+  if (phase === 'walk' && p.world3d)
+    return (
+      <div className="s-stack" style={{ gap: 16 }}>
+        <p className="s-lead">{TRY.walkHint3d}</p>
+        <button type="button" className="s-btn s-btn-brand s-btn-lg" onClick={p.onAuto} autoFocus style={{ justifySelf: 'start' }}>
+          {TRY.autoWalk} →
+        </button>
+        <p className="s-small">{TRY.walkKeys3d}</p>
       </div>
     );
   if (phase === 'walk')
@@ -528,7 +633,7 @@ function Panel(p: PanelProps): React.ReactElement {
         <button type="button" className="s-btn s-btn-brand s-btn-mic" onClick={p.onDrink} autoFocus>
           {TRY.drinkBtn}
         </button>
-        <p className="s-small">{TRY.drinkHint}</p>
+        <p className="s-small">{p.world3d ? TRY.drinkHint3d : TRY.drinkHint}</p>
       </div>
     );
   if (phase === 'drink' || phase === 'save')

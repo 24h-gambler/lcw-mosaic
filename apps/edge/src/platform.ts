@@ -22,7 +22,7 @@ import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
 import { handleServerStt } from './stt.js';
-import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaView, readQuotaSettings, rollupQuota } from './quota.js';
+import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaHealth, readQuotaSettings, rollupQuota } from './quota.js';
 import {
   createDurableSqliteExecutor,
   prefixedExecutor,
@@ -459,9 +459,7 @@ export class PlatformDO {
           utcDay(Date.now())
         ])?.used ?? 0,
       ai_daily_cap: AI_DAILY_CALL_CAP,
-      quota: (({ stage, neurons_used, neurons_limit, bank_only, lesson_reserve_active }) => ({ stage, neurons_used, neurons_limit, bank_only, lesson_reserve_active }))(
-        quotaView(this.sql, this.quota, Date.now()) as { stage: number; neurons_used: number; neurons_limit: number; bank_only: boolean; lesson_reserve_active: boolean }
-      )
+      quota: quotaHealth(this.sql, this.quota, Date.now())
     };
   }
 
@@ -671,6 +669,8 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     return c.json({ ok: true, id: p.data.id }, 201);
   });
   app.get('/v1/admin/health', (c) => c.json(platform.health()));
+  // Same body for the ops keeper (operator token): `quota.alert` / `quota.over_85` feed the hub card (docs/09 P9).
+  app.get('/v1/ops/health', (c) => c.json(platform.health()));
   app.route('/', buildQuotaAdminApp({ sql: platform.sql, meter: () => platform.quota, nowMs: () => Date.now(), onSettings: () => platform.applyQuotaSettings() }));
   // Public share link: strong tokens only, 30-day life, guardian revocation, allow-listed parent fields (family.ts).
   app.get('/v1/reports/:token', (c) => {

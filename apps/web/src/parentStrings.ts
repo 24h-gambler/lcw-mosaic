@@ -31,7 +31,14 @@ export const PARENT_STRINGS_KO = {
     detailsTitle: '숫자 자세히 보기',
     summaryTitle: '요약',
     footerExpires: (date: string) => `이 링크는 ${date}까지 열립니다.`,
-    footerPrivacy: '아이의 음성 원본은 저장하지 않으며, 리포트에는 아이 이름을 싣지 않습니다.',
+    footerPrivacy: '아이 목소리는 보호자가 음성 저장을 켠 경우에만 저장하고, 이 링크로는 들을 수 없습니다. 리포트에는 아이 이름을 싣지 않습니다.',
+    voiceTitle: '아이 목소리로 다시 듣기',
+    voiceNote: '이 기기에 로그인한 보호자에게만 보입니다. 링크를 전달받은 사람에게는 보이지 않습니다.',
+    voiceOff: '음성 저장이 꺼져 있어 들을 목소리가 없습니다. 우리 가족 화면의 선택 동의에서 켤 수 있습니다.',
+    voiceEmpty: '이 기간에 저장된 목소리가 없습니다.',
+    voiceError: '목소리를 불러오지 못했습니다.',
+    voiceRetry: '다시 불러오기',
+    voiceAt: (time: string) => `${time}에 말함`,
     goneTitle: '열 수 없는 리포트입니다',
     goneBody: '리포트 링크는 30일 동안 열리며, 보호자가 링크를 닫으면 바로 열리지 않습니다. 새 링크가 필요하면 선생님께 요청해 주세요.',
     weekday: ['일', '월', '화', '수', '목', '금', '토'] as const
@@ -58,7 +65,7 @@ export const PARENT_STRINGS_KO = {
     consents: {
       voice_store: {
         title: '음성 저장',
-        body: '아이의 발화 음성을 저장해 보호자가 다시 들을 수 있게 합니다. 끄면 저장된 음성도 바로 지웁니다.',
+        body: '아이가 말한 영어 문장을 짧은 음성으로 저장해 보호자가 수업 리포트에서 다시 들을 수 있게 합니다. 보호자만 들을 수 있고, 이용 기간이 끝나고 12개월이 지나면 지웁니다. 끄면 저장된 음성도 바로 지웁니다.',
         refuse: '글자 기록과 지표만 남고 아이 목소리 클립은 없습니다.'
       },
       lesson_window: {
@@ -196,7 +203,7 @@ export const PARENT_STRINGS_KO = {
     childCol: '아이(초)',
     teacherCol: '선생님(초)',
     captionsTitle: '자막',
-    captionsNote: '인식된 말을 글자로 보여 드립니다. 음성은 저장하지 않습니다.',
+    captionsNote: '인식된 말을 글자로 보여 드립니다. 이 화면의 소리와 자막은 따로 저장하지 않습니다.',
     captionsEmpty: '아직 들어온 말이 없습니다.',
     passed: (stars: number) => `통과 · 별 ${stars}개`,
     notPassed: '다시 도전',

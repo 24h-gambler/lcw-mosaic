@@ -14,6 +14,7 @@ import {
   splitWords,
   type MixedSpeech
 } from './hints.js';
+import { createMediaClipRecorder } from '@lcw/audio';
 import { MicController, type MicView } from './mic-controller.js';
 import { isKakaoInApp, kakaoOpenExternalUrl, type MicIssue, type SpeechEngine } from './speech.js';
 import { createDialogSpeechEngine } from './server-stt.js';
@@ -113,6 +114,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const fontScale = Math.max(1, Math.min(1.5, props.fontScale ?? 1));
   const engine: SpeechEngine = useMemo(() => props.speech ?? createDialogSpeechEngine(), [props.speech]);
   const availability = useMemo(() => engine.availability(), [engine]);
+  // voice_store on (the world says so): record the spoken turn for the guardian's replay (clip-recorder.ts).
+  const recordClip = props.recordClip === true;
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
 
   // Offers: from the caller, else the bank for this NPC (docs/19 3). In free mode with nothing given, the first
@@ -223,7 +226,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   );
 
   const sendSpoken = useCallback(
-    (transcript: string, source: SttSource, confidence: number, durMs: number) => {
+    (transcript: string, source: SttSource, confidence: number, durMs: number, clip?: Promise<Blob | null>) => {
       const ech = echoRef.current;
       if (ech) {
         // ECHO: each phrase is checked locally only to move on (never to reward); after two tries it moves on anyway.
@@ -280,6 +283,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         dur_ms: durMs,
         stt_source: source,
         confidence,
+        ...(clip ? { clip } : {}),
         attempt: (misses[selected] ?? 0) + 1
       });
     },
@@ -292,12 +296,13 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const fallbackRef = useRef<Phase>('board');
   fallbackRef.current = offers.length > 0 ? 'board' : 'keyboard';
   useEffect(() => {
+    const recorder = recordClip && engine.source !== 'workers_ai' ? createMediaClipRecorder() : null;
     const c = new MicController(engine, {
       onView: (v) => {
         setMic(v);
         if (!v.recording) micClosed();
       },
-      onFinal: (r, durMs) => {
+      onFinal: (r, durMs, clip) => {
         playSfx('dlg.mic_off');
         if (!r) {
           noSpeechRun.current += 1;
@@ -314,7 +319,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         }
         noSpeechRun.current = 0;
         setHeard(convertMixedSpeech(r.transcript));
-        sendRef.current(r.transcript, engine.source, r.confidence, durMs);
+        sendRef.current(r.transcript, engine.source, r.confidence, durMs, clip);
       },
       onIssue: (issue) => {
         playSfx('dlg.mic_off');
@@ -338,7 +343,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         setEcho(null);
         setPhase(fallbackRef.current);
       }
-    });
+    }, undefined, recorder);
     ctrl.current = c;
     return () => {
       // Only this window's own pending cue / open mic (the audio runtime is shared by the page).
@@ -347,7 +352,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       if (c.recording) micClosed();
       c.dispose();
     };
-  }, [engine]);
+  }, [engine, recordClip]);
 
   const micDisabled = !!micIssue || phase === 'scoring' || (offers.length === 0 && !needsUnderstand);
   const toggleMic = useCallback(() => {

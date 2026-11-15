@@ -20,6 +20,19 @@ export interface FamilyReport {
   expired: boolean;
   revoked: boolean;
 }
+/** A voice clip under a report (edge voice.ts reportClips): the guardian's own device only, URL valid 15 minutes. */
+export interface ReportClip {
+  id: string;
+  text: string;
+  at: number;
+  dur_ms: number;
+  stars: number;
+  url: string;
+}
+export interface ReportClips {
+  voice_store: boolean;
+  clips: ReportClip[];
+}
 export interface FamilyDevice {
   id: string;
   label: string;
@@ -236,6 +249,8 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
     deviceCode: (g: string, playerId: string) =>
       request<{ code: string; expires_at: number }>('POST', `/v1/family/children/${enc(playerId)}/device-code`, g, {}),
     removeDevice: (g: string, id: string) => request<{ ok: boolean }>('DELETE', `/v1/family/devices/${enc(id)}`, g),
+    reportClips: (g: string, shareToken: string) =>
+      request<ReportClips>('GET', `/v1/family/reports/${enc(shareToken.replace(/^\/r\//, ''))}/clips`, g),
     revokeReport: (g: string, sharePath: string) =>
       request<{ ok: boolean }>('POST', `/v1/family/reports/${enc(sharePath.replace(/^\/r\//, ''))}/revoke`, g, {}),
     linkDevice: (code: string, label: string) =>

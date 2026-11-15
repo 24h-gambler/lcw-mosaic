@@ -5,7 +5,8 @@ import {
   ScoreRequestSchema,
   ScoreResponseSchema,
   UnderstandRequestSchema,
-  type LlmConverseInput
+  type LlmConverseInput,
+  type VoiceUploadOffer
 } from '@lcw/schemas';
 import { converseFeedbackKo, decideConverseReward, scoreUtterance, understandUtterance } from '@lcw/converse';
 import { LESSON_ARC_STAGE_GUIDES, TEACHER_STUDENT_TRADE_SCENARIOS } from '@lcw/content';
@@ -36,6 +37,8 @@ export interface EdgeRuntimeDeps {
   runWorkersAi?: (model: string, input: LlmConverseInput) => Promise<unknown>;
   /** docs/09 P7: the world's weekly price index (1 when absent). Multiplies that world's shop prices. */
   priceIndex?: (worldId: string) => number;
+  /** Voice clips (voice.ts offerVoiceUpload): an upload token for a speech turn with voice_store on, else null. */
+  offerVoiceUpload?: (p: { playerId: string; utteranceId: string; source: string; nowMs: number }) => Promise<VoiceUploadOffer | null>;
 }
 
 const ConsentUpdateBodySchema = z
@@ -370,10 +373,14 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       score: decision.score,
       confidence: req.confidence,
       source: req.stt_source,
-      audio_first: req.audio_key ?? null,
-      audio_final: req.audio_key ?? null,
+      // Audio is attached only by the server after an upload (voice.ts); a client-chosen key is never stored.
+      audio_first: null,
+      audio_final: null,
       created_at: nowMs
     });
+    const audioUpload = deps.offerVoiceUpload
+      ? await deps.offerVoiceUpload({ playerId: req.player_id, utteranceId: uttId, source: req.stt_source, nowMs })
+      : null;
 
     if (decision.pass && req.session_kind !== 'lesson') {
       deps.db.recordSoloExpressionReuse(req.player_id, req.transcript, nowMs);
@@ -419,7 +426,8 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       read_aloud_discount_pct: grantedItem && readAloudPct > 0 ? readAloudPct : undefined,
       errand,
       target_text: decision.targetText !== req.target_text ? decision.targetText : undefined,
-      memory_card: card ? { id: card.id, next_review_at: new Date(card.next_review_at).toISOString() } : null
+      memory_card: card ? { id: card.id, next_review_at: new Date(card.next_review_at).toISOString() } : null,
+      audio_upload: audioUpload ?? undefined
     });
 
     return c.json(out);

@@ -168,8 +168,12 @@ describe('apps/edge (WP-003, WP-205, WP-301, WP-304, WP-501)', () => {
         item_id: 'honey_tea'
       })
     });
+    // Even with consent a client-chosen key is never stored: audio is attached by the server after an upload
+    // (voice.ts /v1/voice/upload, covered in voice.test.ts).
     const rowsAfterConsent = db.listUtterancesForPlayer('child-1');
-    expect(rowsAfterConsent[1]!.audio_final).toBe('r2://voice/raw-2.opus');
+    expect(rowsAfterConsent[1]!.audio_final).toBeNull();
+    // Simulate an uploaded clip on that turn, then check the revoke scrubs it.
+    db.sql.run('update utterances set audio_final = ? where id = ?', ['0123456789abcdef01234567', rowsAfterConsent[1]!.id]);
 
     // Revoke consent -> previously stored audio links are scrubbed immediately
     await app.request('/v1/consents', {

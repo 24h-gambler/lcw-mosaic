@@ -1,5 +1,6 @@
 import { converseFeedbackKo, decideConverseReward } from '@lcw/converse';
 import type { Level } from '@lcw/schemas';
+import { uploadClip } from '@lcw/audio';
 import type { DialogResult, NpcRef, UtteranceSubmit } from './types.js';
 
 /**
@@ -46,9 +47,23 @@ function errandOf(v: unknown): DialogResult['errand'] {
   return { state: e.state as NonNullable<DialogResult['errand']>['state'], rewardCoins: num(e.reward_coins) };
 }
 
-export function lessonBody(u: UtteranceSubmit): Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId'> {
-  const { echo: _e, attempt: _a, dialogId: _d, ...body } = u;
+export function lessonBody(u: UtteranceSubmit): Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId' | 'clip'> {
+  const { echo: _e, attempt: _a, dialogId: _d, clip: _c, ...body } = u;
   return body;
+}
+
+/** The server's `audio_upload` answer (edge voice.ts), or null. */
+export function audioUploadOf(j: Record<string, unknown>): { token: string; max_bytes: number; expires_at: number } | null {
+  const a = j.audio_upload as { token?: unknown; max_bytes?: unknown; expires_at?: unknown } | undefined;
+  if (!a || typeof a.token !== 'string' || !/^[0-9a-f]{48}$/.test(a.token)) return null;
+  if (typeof a.max_bytes !== 'number' || typeof a.expires_at !== 'number') return null;
+  return { token: a.token, max_bytes: a.max_bytes, expires_at: a.expires_at };
+}
+
+/** Uploads the turn's clip in the background when the server asked for it; the dialog never waits for this. */
+function sendClipIfAsked(j: Record<string, unknown>, u: UtteranceSubmit, baseUrl: string | undefined, f: Fetch): void {
+  const offer = audioUploadOf(j);
+  if (offer && u.clip) void uploadClip(offer, u.clip, { baseUrl, fetchImpl: f });
 }
 
 export function newDialogId(): string {
@@ -63,6 +78,7 @@ export function createLessonSubmit(opts: { token: string; baseUrl?: string; fetc
   const f = opts.fetchImpl ?? fetch.bind(globalThis);
   return async (u: UtteranceSubmit): Promise<DialogResult> => {
     const j = await postJson(f, `${opts.baseUrl ?? ''}/v1/lesson/utterance`, opts.token, lessonBody(u));
+    sendClipIfAsked(j, u, opts.baseUrl, f);
     return {
       pass: j.pass === true,
       stars: num(j.stars) ?? 0,
@@ -100,6 +116,7 @@ export function createSoloSubmitWith(opts: {
       attempts: u.attempt ?? 1,
       mode: u.hint_level === 'full' ? 'read' : u.hint_level === 'none' ? 'free' : 'guided'
     });
+    sendClipIfAsked(j, u, opts.baseUrl, f);
     return {
       pass: j.pass === true,
       stars: num(j.stars) ?? 0,

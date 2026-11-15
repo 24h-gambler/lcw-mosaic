@@ -34,6 +34,7 @@ import { WEB_UX_STRINGS_KO as UX } from './strings.js';
 import { LessonDirectorConsole } from './LessonDirector.js';
 import { StudentJoin } from './StudentJoin.js';
 import { ParentReportPage } from './ParentReportPage.js';
+import { DeviceLinkPage, FamilyPage } from './FamilyPage.js';
 import { reportTokenFromPath } from './lessonFlow.js';
 
 /** Public site menu (docs/14 §2). Signed-in screens (dashboard, report, window, director, claim) are reached by link, not listed. */
@@ -99,7 +100,9 @@ export type AppRoute =
   | '/claim'
   | '/window'
   | '/join'
-  | '/r';
+  | '/r'
+  | '/family'
+  | '/link';
 
 export type ConsentScope = 'voice_store' | 'ai_report_draft' | 'peer_multiplayer' | 'clip_share';
 
@@ -1050,6 +1053,8 @@ export function App({
       : null,
     route === '/play' && React.createElement(ChildPlayPortal),
     route === '/join' && React.createElement(StudentJoin, null),
+    route === '/family' && React.createElement(FamilyPage, null),
+    route === '/link' && React.createElement(DeviceLinkPage, null),
     route === '/r' &&
       (reportToken
         ? React.createElement(ParentReportPage, { key: reportToken, token: reportToken })

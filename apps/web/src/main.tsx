@@ -18,7 +18,9 @@ const KNOWN_ROUTES: readonly AppRoute[] = [
   '/guest-end',
   '/claim',
   '/window',
-  '/join'
+  '/join',
+  '/family',
+  '/link'
 ];
 
 /** Deep links (e.g. a KakaoTalk share of /try) open the matching page instead of always the intro. */

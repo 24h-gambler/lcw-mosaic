@@ -178,7 +178,40 @@ export const SCENES: Readonly<Record<SceneId, SceneDef>> = {
   }
 };
 
-/** Topmost walkable surface at a column at or below `fromY` (for spawning and NPC placement). */
+/**
+ * The auto-walk to a scene (goToScene): out along the current scene's path, in along the target's, starting from
+ * where the player actually is. Already in the target scene (talked to 미나 by the cafe door, then "카페로 걸어가기"),
+ * only the rest of that scene's own path, never out to the plaza and back in. A route starts at the waypoint nearest
+ * the player, or the next one when the player already stands on the stretch between them (no corner is cut).
+ */
+export function sceneRoute(from: SceneId, to: SceneId, x: number, z: number): Array<[number, number]> {
+  const src = SCENES[from];
+  const dst = SCENES[to];
+  let pts: Array<[number, number]>;
+  if (to === from) pts = [...dst.path];
+  else if (to === 'plaza') pts = [...src.path].reverse().slice(1).concat([[dst.player.x, dst.player.z]]);
+  else if (from === 'plaza') pts = [...dst.path];
+  else pts = [...src.path].reverse().slice(1).concat(dst.path);
+  let i = 0;
+  let best = Infinity;
+  for (let k = 0; k < pts.length; k++) {
+    const d = Math.hypot(pts[k]![0] - x, pts[k]![1] - z);
+    if (d < best) {
+      best = d;
+      i = k;
+    }
+  }
+  if (i + 1 < pts.length) {
+    const [ax, az] = pts[i]!;
+    const [bx, bz] = pts[i + 1]!;
+    const len = Math.hypot(bx - ax, bz - az) || 1;
+    const t = ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / (len * len);
+    const off = Math.abs((x - ax) * (bz - az) - (z - az) * (bx - ax)) / len;
+    if (t > 0 && t < 1 && off < 1) i++;
+  }
+  return pts.slice(i);
+}
+
 /** Who E or a tap may reach: everyone in solo play, only lesson NPCs while a lesson runs. */
 export function npcTalkable(def: Pick<NpcDef, 'soloOnly'>, lesson: boolean): boolean {
   return !(lesson && def.soloOnly);
@@ -207,6 +240,7 @@ export function talkSpotFor(world: VoxelWorld, npc: { x: number; y: number; z: n
   return null;
 }
 
+/** Topmost walkable surface at a column at or below `fromY` (for spawning and NPC placement). */
 export function standHeight(world: VoxelWorld, x: number, z: number, fromY = 40): number {
   const bx = Math.floor(x);
   const bz = Math.floor(z);

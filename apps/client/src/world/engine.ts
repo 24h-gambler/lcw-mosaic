@@ -24,7 +24,7 @@ import { BuildView } from './build-view.js';
 import { PlotSync } from './plot-sync.js';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
-import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
+import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
 
 export { TIER_SETTINGS };
 
@@ -710,12 +710,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
   // ---- Scene travel.
   function pathTo(target: SceneId): Array<[number, number]> | null {
-    const dst = SCENES[target];
-    const from = SCENES[currentScene];
-    let pts: Array<[number, number]>;
-    if (target === 'plaza') pts = [...from.path].reverse().slice(1).concat([[dst.player.x, dst.player.z]]);
-    else if (currentScene === 'plaza') pts = [...dst.path];
-    else pts = [...from.path].reverse().slice(1).concat(dst.path);
+    const pts = sceneRoute(currentScene, target, body.x, body.z);
     let len = 0;
     let px = body.x;
     let pz = body.z;

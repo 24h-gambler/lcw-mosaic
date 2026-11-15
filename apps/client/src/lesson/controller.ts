@@ -83,6 +83,8 @@ export interface LessonView {
   npcLineEn: string;
   /** Server time this client saw the stage begin (lines before it belong to the last stage). */
   stageStartedAt: number;
+  /** The teacher's newest line as the stage NPC in this stage, from the server (older than the bubbles kept). */
+  stageLastLineEn: string;
   /** Bumps on every stage change so the dialog can reset. */
   stageSeq: number;
 }
@@ -130,6 +132,7 @@ export function initialLessonView(): LessonView {
     lessonStars: 0,
     npcLineEn: '',
     stageStartedAt: 0,
+    stageLastLineEn: '',
     stageSeq: 0
   };
 }
@@ -184,6 +187,13 @@ export class LessonController {
     try {
       const r = await this.opts.api.join(code);
       if (run !== this.run) return;
+      // Another lesson in the same tab (a new code without "나가기"): nothing of the last one carries over (stars,
+      // stage, lines, coins until the first poll).
+      if (this.session && this.session.lessonId !== r.lesson_id) {
+        this.view = initialLessonView();
+        this.seenLines.clear();
+        this.seenEvents.clear();
+      }
       this.session = { token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, level: r.level };
       saveStudentSession(this.session, this.store());
       this.cursor = null;
@@ -199,8 +209,12 @@ export class LessonController {
   readonly submit = async (u: UtteranceSubmit | unknown): Promise<DialogResult> => {
     const s = this.session;
     if (!s) throw new LessonHttpError(401, 'student_only');
+    const run = this.run;
     const r = await this.opts.api.utterance(s.token, readUtteranceSubmit(u));
     const result: DialogResult = { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, coinsTotal: r.coins_total };
+    // An answer that lands after "나가기", a new code or stop belongs to a lesson this screen no longer shows: the
+    // panel still gets its result, the HUD chips do not move.
+    if (run !== this.run || this.session !== s) return result;
     // No celebrate here: whoever shows the result plays it (App's DialogHost, or the layer's own panel), once.
     this.set({ lastResult: { ...result, utterancesToday: r.utterances_today } });
     this.showCoins(r.coins_total);
@@ -289,8 +303,13 @@ export class LessonController {
     this.showCoins(st.coins_balance);
     this.showStars(st.lesson_stars);
     if (typeof st.npc_line_en === 'string' && st.npc_line_en !== this.view.npcLineEn) this.set({ npcLineEn: st.npc_line_en });
+    const lastLine = st.stage_last_line_en ?? '';
+    if (lastLine !== this.view.stageLastLineEn) this.set({ stageLastLineEn: lastLine });
     const patch: Partial<LessonView> = {};
-    const stageChanged = st.stage_id !== this.view.stageId;
+    // A → B → A between two polls is a new stage start too (the stage log's time moved), not "nothing changed".
+    const stageChanged =
+      st.stage_id !== this.view.stageId ||
+      (typeof st.stage_started_at === 'number' && this.view.stageStartedAt > 0 && st.stage_started_at > this.view.stageStartedAt);
     const targetsChanged = JSON.stringify(st.offers) !== JSON.stringify(this.view.offers);
     if (stageChanged) {
       patch.stageId = st.stage_id;

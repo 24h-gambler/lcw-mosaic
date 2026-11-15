@@ -188,14 +188,14 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       minutes: 20,
       mode: 'recall',
       teacherGuideKo:
-        '오늘 나온 문장을 힌트 없이 다시 말하게 하세요. 화면은 문장을 첫 글자만 보여 줍니다. 여기서 통과한 문장이 다음 수업의 복습 카드가 됩니다.',
+        '오늘 나온 문장을 힌트 없이 다시 말하게 하세요. 화면은 단어마다 첫 글자만 보여 줍니다. 여기서 통과한 문장이 다음 수업의 복습 카드가 됩니다.',
       teacherScriptEn: 'Do you remember how to order your honey tea? Try it without looking!',
       studentGoalKo: '오늘 배운 문장을 기억해서 말해요',
       sceneId: 'honey_cafe',
       npcId: 'cafe_owner',
       hint: 'initial',
       stepsKo: [
-        '0–3분 · 카페로 돌아와 화면이 문장을 첫 글자만 보여 준다고 알려 줘요.',
+        '0–3분 · 카페로 돌아와 화면이 단어마다 첫 글자만 보여 준다고 알려 줘요.',
         '3–12분 · 2성 문장부터. 막히면 카페 주인으로 첫 단어만 말해 주고, 그래도 막히면 「복습 상자」(5).',
         '12–18분 · 물물교환 3성(because) 문장을 기억해 말하게 해요. 통과한 문장이 다음 수업 복습 카드가 돼요.',
         '18–20분 · 「별 축하」(6) 뒤 ⑥으로.'
@@ -247,14 +247,14 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       minutes: 15,
       mode: 'recall',
       teacherGuideKo:
-        '지난 수업에서 통과한 문장을 힌트 없이 다시 말하게 하세요. 화면은 문장을 첫 글자만 보여 줍니다. 막히면 카페 주인으로 빙의해 첫 단어만 말해 주세요(대사 칸에 쓰고 Enter). 통과하면 바로 다음 문장으로 넘어가세요.',
+        '지난 수업에서 통과한 문장을 힌트 없이 다시 말하게 하세요. 화면은 단어마다 첫 글자만 보여 줍니다. 막히면 카페 주인으로 빙의해 첫 단어만 말해 주세요(대사 칸에 쓰고 Enter). 통과하면 바로 다음 문장으로 넘어가세요.',
       teacherScriptEn: 'Welcome back to the honey cafe! Do you remember how to order your drink?',
       studentGoalKo: '지난 시간에 배운 문장을 기억해서 말해요',
       sceneId: 'honey_cafe',
       npcId: 'cafe_owner',
       hint: 'initial',
       stepsKo: [
-        '0–3분 · 꿀 카페에서 다시 만나요. 화면이 문장을 첫 글자만 보여 준다고 알려 줘요.',
+        '0–3분 · 꿀 카페에서 다시 만나요. 화면이 단어마다 첫 글자만 보여 준다고 알려 줘요.',
         '3–10분 · 1성 → 2성 순서로. 막히면 카페 주인으로 첫 단어만 말해 주세요.',
         '10–14분 · 지난 물물교환 3성(because) 문장을 떠올리게 해요.',
         '14–15분 · 「별 축하」(6) 뒤 ② 빈 땅으로.'
@@ -376,7 +376,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       minutes: 12,
       mode: 'recall',
       teacherGuideKo:
-        '오늘 나온 문장을 힌트 없이 다시 말하게 하세요. 화면은 문장을 첫 글자만 보여 줍니다. 여기서 통과한 문장이 다음 수업의 복습 카드가 됩니다.',
+        '오늘 나온 문장을 힌트 없이 다시 말하게 하세요. 화면은 단어마다 첫 글자만 보여 줍니다. 여기서 통과한 문장이 다음 수업의 복습 카드가 됩니다.',
       teacherScriptEn: 'Can you tell me again what you bought for your shop? Try it without looking!',
       studentGoalKo: '오늘 배운 문장을 기억해서 말해요',
       sceneId: 'trade_shop',
@@ -418,6 +418,23 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
 
 /** In teaching order: the console offers them in this order and shows the one after the current as "next lesson". */
 export const LESSON_PLANS: readonly LessonPlan[] = [FIRST_LESSON_PLAN, SECOND_LESSON_PLAN];
+
+/**
+ * Recall (hint 'initial'): every word keeps its first letter, the rest are blanks (at least one, as dialog/hints maskWord: "C__ I_ h___ …"). The
+ * one rule for the 3D dialog window (dialog/hints maskWord), the lesson layer's own panel and the /join cards.
+ */
+export function maskInitials(text: string): string {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => {
+      const m = /^([^A-Za-z0-9']*)([A-Za-z0-9']+)(.*)$/.exec(w);
+      if (!m) return w;
+      const [, pre, core, post] = m;
+      return `${pre}${core![0]}${'_'.repeat(Math.max(1, core!.length - 1))}${post}`;
+    })
+    .join(' ');
+}
 
 export function getLessonPlan(id: string | undefined): LessonPlan {
   return LESSON_PLANS.find((p) => p.id === id) ?? FIRST_LESSON_PLAN;

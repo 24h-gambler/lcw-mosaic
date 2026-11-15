@@ -68,6 +68,8 @@ export interface StudentLessonState {
   npc_line_en?: string;
   /** When the current stage began (server clock). */
   stage_started_at?: number | null;
+  /** The teacher's newest line as the stage NPC in this stage (any age), or null. */
+  stage_last_line_en?: string | null;
   server_now: number;
 }
 

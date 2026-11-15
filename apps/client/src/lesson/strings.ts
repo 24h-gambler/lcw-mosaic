@@ -47,7 +47,8 @@ export const LESSON_STRINGS_KO = {
   ended: {
     title: '오늘 수업 끝! 정말 잘했어요',
     body: '다음 수업에서 또 만나요.',
-    today: (n: number) => `오늘 영어로 말한 문장 ${n}개`
+    today: (n: number) => `오늘 영어로 말한 문장 ${n}개`,
+    stars: (n: number) => `이번 수업에서 받은 별 ⭐ ${n}개`
   },
   lowTier: '이 기기에서는 단어 카드 화면으로 수업해요…'
 } as const;

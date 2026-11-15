@@ -835,6 +835,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       ]
     );
     const live = liveForStudent(s.lesson_id, c.req.query('cursor'), now);
+    const stageStartedAt =
+      d.sql.get<{ at: number | null }>('select max(at) as at from lesson_stage_log where lesson_id = ?', [s.lesson_id])?.at ?? null;
+    const stageNpc = stage?.npcId ?? 'guide';
     return c.json({
       lesson_id: s.lesson_id,
       stage_id: st?.stage_id ?? null,
@@ -857,8 +860,16 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
       npc_line_en: stage?.teacherScriptEn ?? '',
       // When the current stage began (server clock, same as npc_lines.at): lines before it belong to the last stage.
-      stage_started_at:
-        d.sql.get<{ at: number | null }>('select max(at) as at from lesson_stage_log where lesson_id = ?', [s.lesson_id])?.at ?? null,
+      stage_started_at: stageStartedAt,
+      // The teacher's newest line as the stage NPC in this stage, however old: after a reload the first poll only
+      // carries the last 20 s of lines, and the dialog window must still open with the follow-up, not the script.
+      stage_last_line_en:
+        stageStartedAt === null
+          ? null
+          : (d.sql.get<{ text: string }>(
+              "select text from lesson_live where lesson_id = ? and type = 'line' and npc_id = ? and at >= ? order by seq desc limit 1",
+              [s.lesson_id, stageNpc, stageStartedAt]
+            )?.text ?? null),
       server_now: now
     });
   });

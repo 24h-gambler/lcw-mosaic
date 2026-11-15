@@ -1,5 +1,5 @@
 import React from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, hydrateRoot } from 'react-dom/client';
 import { App, type AppRoute } from './App.js';
 import { reportTokenFromPath } from './lessonFlow.js';
 import { isSitePath } from './site/routes.js';
@@ -37,11 +37,14 @@ export function routeFromPath(pathname: string): AppRoute {
 if (typeof document !== 'undefined') {
   const rootEl = document.getElementById('root');
   if (rootEl) {
-    createRoot(rootEl).render(
-      React.createElement(App, {
-        initialRoute: routeFromPath(window.location.pathname),
-        initialReportToken: reportTokenFromPath(window.location.pathname)
-      })
-    );
+    const initialRoute = routeFromPath(window.location.pathname);
+    const app = React.createElement(App, {
+      initialRoute,
+      initialReportToken: reportTokenFromPath(window.location.pathname)
+    });
+    // Public pages arrive pre-rendered (tools/prerender-site.mjs): attach to that HTML instead of rebuilding it.
+    // Any other address gets an empty root (the file's guard clears it), so it renders from scratch.
+    if (rootEl.firstElementChild && isSitePath(initialRoute)) hydrateRoot(rootEl, app);
+    else createRoot(rootEl).render(app);
   }
 }

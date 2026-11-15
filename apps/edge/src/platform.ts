@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
+import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
 import { createInitialPlayerState } from '@lcw/sim-core';
 import { z } from 'zod';
@@ -71,6 +72,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (FAMILY_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Public site (docs/14): cookie-free counters and the tutoring consult form, see site.ts.
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
+  if (SHOWROOM_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   return false;
 }
 
@@ -481,6 +484,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   };
   app.route('/', buildFamilyApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
+  app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))
   );

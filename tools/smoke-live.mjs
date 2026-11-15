@@ -37,9 +37,13 @@ await check('health', async () => {
   const r = await req('/health');
   expect(r.status === 200, `status ${r.status}`);
   const j = await r.json();
-  expect(j.ok === true && j.storage === 'durable-object-sqlite', 'unexpected health body');
-  expect(j.operator_token === true, 'operator token secret not configured');
-  return { build: j.build, counts: j.counts, last_runs: j.last_runs };
+  expect(j.ok === true, 'unexpected health body');
+  if (!token) return { build: j.build };
+  const a = await req('/v1/admin/health', {}, { auth: true });
+  expect(a.status === 200, `admin health ${a.status}`);
+  const d = await a.json();
+  expect(d.storage === 'durable-object-sqlite' && d.operator_token === true, 'admin health body');
+  return { build: d.build, counts: d.counts, last_runs: d.last_runs };
 });
 for (const page of ['/', '/try', '/parents', '/game/']) {
   await check(`page ${page}`, async () => {
@@ -123,7 +127,7 @@ if (token) {
     expect(j.pass === true, 'expected pass for exact target');
     return { score: j.score, stars: j.stars };
   });
-  const shareToken = `smoke-${day}-${Math.random().toString(36).slice(2, 8)}`;
+  const shareToken = `smoke-${day}-${crypto.randomUUID()}`;
   await check('operator: weekly report', async () => {
     const r = await req(
       '/v1/reports/weekly',

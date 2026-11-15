@@ -1,6 +1,30 @@
 /** Korean UI copy for the web UX additions (AGENTS.md 6: no inline screen strings). Child screens carry no price, payment or deadline. */
 
 export const WEB_UX_STRINGS_KO = {
+  site: {
+    nav: {
+      home: '소개',
+      try: '5분 체험',
+      parents: '학부모',
+      teachers: '과외',
+      safety: '안전·개인정보',
+      worlds: '월드 구경'
+    },
+    backHome: '← 처음으로',
+    heroTitle: '말하면 생기는 세계',
+    heroBody: '짓고, 싸우고, 탐험하는 모든 순간에 영어로 말합니다. 더 좋은 문장이 더 좋은 장비가 됩니다.',
+    forParents: '학부모님이세요?',
+    forPlayers: '플레이어세요?',
+    steps: [
+      { title: '① 말한다', body: '"I want a jetpack"' },
+      { title: '② 문장이 자란다', body: '★★★ so that I can fly' },
+      { title: '③ 세계가 넓어진다', body: '하늘섬, 우주 정거장' }
+    ],
+    tryCta: '지금 5분 체험: 설치도 가입도 없이 음료 한 잔 주문해 보기',
+    openGame: '게임 열기',
+    sendToParent: '부모님께 소개 보내기',
+    linkCopied: '소개 링크를 복사했어요. 부모님께 보내 주세요.'
+  },
   inApp: {
     bannerTitle: '크롬/사파리로 열기',
     bannerBodyAndroid: '지금 앱 안의 브라우저라 마이크가 막힐 수 있어요. 크롬에서 다시 열어 주세요.',
@@ -20,7 +44,14 @@ export const WEB_UX_STRINGS_KO = {
     heardShort: '조금 더 크게, 길게 말해 볼까요?',
     playback: '내 목소리 다시 듣기',
     noMicNote: '마이크를 쓸 수 없어 카드 조립으로 진행해요.',
-    localOnly: '체험에서는 목소리가 이 기기 안에서만 쓰이고 저장되지 않아요.'
+    localOnly: '체험에서는 목소리가 이 기기 안에서만 쓰이고 저장되지 않아요.',
+    recognitionTitle: '카페 주인에게 영어로 주문해 보세요',
+    recognitionHint: '아래 문장을 소리 내어 말해요. 막히면 단어 카드를 눌러 순서를 맞춰 봐도 돼요.',
+    listening: '듣고 있어요… 다 말하면 잠깐 기다려요',
+    heardPrefix: '들린 문장:',
+    recognitionPass: '주문 성공! 따뜻한 꿀차가 나왔어요.',
+    recognitionRetry: '조금만 더 또박또박 말해 볼까요? 다시 눌러 말해 보세요.',
+    recognitionFallback: '이 브라우저에서는 음성 인식이 막혀 있어요. 카드로 문장을 만들고 말해 봐요.'
   },
   guestEnd: {
     stored: (itemNameWithParticle: string) => `방금 만든 ${itemNameWithParticle} 임시 보관함에 들어갔어!`,

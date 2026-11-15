@@ -19,7 +19,9 @@ import {
   sentenceWords,
   shuffleWords,
   type EnergySample,
-  type SpeechSupport
+  type SpeechSupport,
+  transcriptMatchRatio,
+  TRY_RECOGNITION_PASS_RATIO
 } from './tryFlow.js';
 import {
   claimGuestKeepsake,
@@ -115,7 +117,18 @@ export function TryExperience({
   // iOS WebViews expose the constructor but the permission popup never appears (docs/14 section 8).
   const effective: SpeechSupport =
     detection.kind && detection.isIOS ? { ...rawSupport, recognition: false } : rawSupport;
-  const path = chooseTryPath(effective);
+  const basePath = chooseTryPath(effective);
+  // Recognition can still fail at runtime (permission denied, offline recognizer): fall back to cards + loudness.
+  const [recBlocked, setRecBlocked] = useState(false);
+  const path: ReturnType<typeof chooseTryPath> =
+    basePath === 'recognition' && recBlocked
+      ? effective.getUserMedia
+        ? 'wordcards_with_loudness'
+        : 'wordcards_only'
+      : basePath;
+  const [listening, setListening] = useState(false);
+  const [heardText, setHeardText] = useState<string | null>(null);
+  const [recOk, setRecOk] = useState(false);
 
   const words = useMemo(() => shuffleWords(sentenceWords(targetSentence), 7), [targetSentence]);
   const [picked, setPicked] = useState<number[]>([]);
@@ -135,7 +148,7 @@ export function TryExperience({
   const passedRef = useRef(false);
 
   const loudnessNeeded = path === 'wordcards_with_loudness';
-  const passed = assembled && (!loudnessNeeded || heard === true);
+  const passed = path === 'recognition' ? recOk : assembled && (!loudnessNeeded || heard === true);
   useEffect(() => {
     if (passed && !passedRef.current) {
       passedRef.current = true;
@@ -194,6 +207,47 @@ export function TryExperience({
     }
   };
 
+  const startRecognition = () => {
+    type Rec = {
+      lang: string;
+      interimResults: boolean;
+      maxAlternatives: number;
+      onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+      onerror: ((e: { error?: string }) => void) | null;
+      onend: (() => void) | null;
+      start(): void;
+    };
+    const w = window as unknown as { SpeechRecognition?: new () => Rec; webkitSpeechRecognition?: new () => Rec };
+    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!Ctor) {
+      setRecBlocked(true);
+      return;
+    }
+    const r = new Ctor();
+    r.lang = 'en-US';
+    r.interimResults = false;
+    r.maxAlternatives = 3;
+    r.onresult = (e) => {
+      const alts = Array.from(e.results[0] ?? []).map((a) => a.transcript);
+      const best = alts.reduce(
+        (acc, t) => (transcriptMatchRatio(t, targetSentence) > transcriptMatchRatio(acc, targetSentence) ? t : acc),
+        alts[0] ?? ''
+      );
+      setHeardText(best);
+      if (transcriptMatchRatio(best, targetSentence) >= TRY_RECOGNITION_PASS_RATIO) setRecOk(true);
+    };
+    r.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'network') setRecBlocked(true);
+    };
+    r.onend = () => setListening(false);
+    try {
+      r.start();
+      setListening(true);
+      setHeardText(null);
+    } catch {
+      setRecBlocked(true);
+    }
+  };
   const stopRecording = () => {
     const h = handles.current;
     if (h.timer) clearInterval(h.timer);
@@ -209,9 +263,42 @@ export function TryExperience({
     { 'data-testid': 'try-experience', 'data-try-path': path },
     detection.kind ? React.createElement(InAppBrowserBanner, { detection, pageUrl: url }) : null,
     React.createElement('p', null, S.tryFlow.localOnly),
+    basePath === 'recognition' && recBlocked
+      ? React.createElement('p', { role: 'status' }, S.tryFlow.recognitionFallback)
+      : null,
     path === 'recognition'
-      ? null
-      : React.createElement(
+      ? React.createElement(
+          Card,
+          { title: S.tryFlow.recognitionTitle },
+          React.createElement('p', { style: { marginBottom: gap(1) } }, S.tryFlow.recognitionHint),
+          React.createElement(
+            'p',
+            { 'data-testid': 'try-target', lang: 'en', style: { fontWeight: 700, marginBottom: gap(2) } },
+            targetSentence
+          ),
+          recOk
+            ? React.createElement('p', { role: 'status', style: { fontWeight: 700 } }, S.tryFlow.recognitionPass)
+            : React.createElement(
+                Button,
+                {
+                  type: 'button',
+                  variant: 'brand',
+                  size: 'mic',
+                  disabled: listening,
+                  onClick: startRecognition
+                },
+                listening ? S.tryFlow.listening : S.tryFlow.startSpeak
+              ),
+          heardText !== null
+            ? React.createElement(
+                'p',
+                { role: 'status', 'data-testid': 'heard-text' },
+                `${S.tryFlow.heardPrefix} "${heardText}"${recOk ? '' : ` — ${S.tryFlow.recognitionRetry}`}`
+              )
+            : null
+        )
+      : null,
+    React.createElement(
           Card,
           { title: S.tryFlow.cardsTitle },
           React.createElement('p', { style: { marginBottom: gap(1) } }, S.tryFlow.cardsHint),

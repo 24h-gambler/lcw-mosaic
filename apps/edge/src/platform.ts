@@ -6,6 +6,7 @@ import { createEdgeApp } from './app.js';
 import {
   createDurableSqliteExecutor,
   prefixedExecutor,
+  PrefixedStore,
   SqliteBlobStore,
   worldPrefix,
   type DurableStorageLike
@@ -47,6 +48,10 @@ interface DoState {
 /** AI calls per UTC day. Workers AI free tier is 10,000 neurons/day; ~100 neurons per short call. */
 export const AI_DAILY_CALL_CAP = Math.floor(FREE_TIER_LIMITS.dailyNeurons / 100);
 export const DEMO_WORLD_ID = 'world-demo';
+/** Worlds kept in memory at once inside the platform DO (128MB isolate); older ones are rebuilt from SQLite on demand. */
+export const MAX_RESIDENT_WORLDS = 16;
+/** Share tokens shorter than this are never served (guessable). Server-made tokens are 32+ chars. */
+export const MIN_SHARE_TOKEN_CHARS = 16;
 
 /** Routes anyone may call. Everything else under /v1 needs the operator token until guardian OAuth (WP-301) exists. */
 export function isPublicRoute(method: string, path: string): boolean {
@@ -81,7 +86,12 @@ class LazyWorlds extends Map<string, WorldDO> {
   }
   override get(id: string): WorldDO | undefined {
     const hit = super.get(id);
-    if (hit) return hit;
+    if (hit) {
+      // refresh LRU position
+      super.delete(id);
+      super.set(id, hit);
+      return hit;
+    }
     const row = this.sql.get<{ seed: string; gen_version: number }>(
       'select seed, gen_version from worlds where id = ?',
       [id]
@@ -89,11 +99,18 @@ class LazyWorlds extends Map<string, WorldDO> {
     if (!row) return undefined;
     const w = new WorldDO({
       sql: prefixedExecutor(this.sql, worldPrefix(id)),
-      r2: this.blobs,
+      r2: new PrefixedStore(this.blobs, worldPrefix(id)),
       seed: row.seed,
       genVersion: row.gen_version
     });
+    // Rebuild saved chunks/objects over the generated terrain. The success path of loadWorldWithRecovery has no
+    // await, so the world is fully hydrated before this returns; only the safe-mode fallback continues async.
+    void w.loadWorldWithRecovery();
     super.set(id, w);
+    while (this.size > MAX_RESIDENT_WORLDS) {
+      const oldest = this.keys().next().value as string;
+      super.delete(oldest);
+    }
     return w;
   }
 }
@@ -172,7 +189,9 @@ export class PlatformDO {
       lessons: this.lessons,
       quota: new QuotaMeter(day),
       nowMs: () => Date.now(),
-      runWorkersAi: this.env.AI ? (model, input) => this.runAiCapped(model, input) : undefined
+      // The understand route awaits the model but does not use its answer yet, so calling it would only burn the
+      // daily Workers AI budget. Wire runAiCapped back in when the LLM reply is consumed (docs/04 §4.4).
+      runWorkersAi: undefined
     });
     return buildGatedApp(inner, this.env, this);
   }
@@ -297,8 +316,13 @@ function utcDay(ms: number): string {
 
 export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): Hono {
   const app = new Hono();
-  app.get('/health', (c) => c.json(platform.health()));
-  app.get('/v1/health', (c) => c.json(platform.health()));
+  const publicHealth = () => ({ ok: true, service: 'lcw-edge', build: env.BUILD_SHA ?? 'dev' });
+  app.get('/health', (c) => c.json(publicHealth()));
+  app.get('/v1/health', (c) => c.json(publicHealth()));
+  app.onError((err, c) => {
+    if (err instanceof SyntaxError) return c.json({ error: 'invalid_json' }, 400);
+    return c.json({ error: 'internal_error' }, 500);
+  });
   app.post('/internal/cron', async (c) => {
     if (c.req.header('x-lcw-internal') !== 'cron') return c.json({ error: 'forbidden' }, 403);
     const body = (await c.req.json()) as { cron: string };
@@ -338,6 +362,29 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     new LessonDO(p.data.id, platform.db, p.data.player_id, p.data.world_id, Date.now());
     return c.json({ ok: true, id: p.data.id }, 201);
+  });
+  app.get('/v1/admin/health', (c) => c.json(platform.health()));
+  // Public share link: strong tokens only, and only the parent-facing fields (no player/guardian ids).
+  app.get('/v1/reports/:token', (c) => {
+    const token = c.req.param('token');
+    if (token === 'weekly' || token.length < MIN_SHARE_TOKEN_CHARS) return c.json({ error: 'report_not_found' }, 404);
+    const r = platform.db.openSharedReport(token, Date.now());
+    if (!r) return c.json({ error: 'report_not_found' }, 404);
+    const parse = (v: unknown) => {
+      try {
+        return typeof v === 'string' ? JSON.parse(v) : v;
+      } catch {
+        return v;
+      }
+    };
+    return c.json({
+      kind: r.kind,
+      ref_id: r.ref_id,
+      facts: parse(r.facts),
+      body: r.body,
+      clips: parse(r.clips),
+      created_at: r.created_at
+    });
   });
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))

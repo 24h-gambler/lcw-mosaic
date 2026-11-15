@@ -30,6 +30,29 @@ import {
   TryExperience
 } from './WebUx.js';
 import { handleDirectorKeydown } from './director.js';
+import { WEB_UX_STRINGS_KO as UX } from './strings.js';
+
+/** Public site menu (docs/14 §2). Signed-in screens (dashboard, report, window, director, claim) are reached by link, not listed. */
+export const PUBLIC_NAV: ReadonlyArray<{ route: AppRoute; label: string }> = [
+  { route: '/', label: UX.site.nav.home },
+  { route: '/try', label: UX.site.nav.try },
+  { route: '/parents', label: UX.site.nav.parents },
+  { route: '/teachers', label: UX.site.nav.teachers },
+  { route: '/safety', label: UX.site.nav.safety },
+  { route: '/worlds', label: UX.site.nav.worlds }
+];
+
+function shareToParent(): void {
+  const url = typeof window !== 'undefined' ? `${window.location.origin}/parents` : '/parents';
+  const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & { share?: (d: { url: string; title?: string }) => Promise<void> }) : undefined;
+  if (nav?.share) {
+    void nav.share({ url, title: 'LCW' }).catch(() => undefined);
+    return;
+  }
+  void nav?.clipboard?.writeText(url).then(() => {
+    if (typeof window !== 'undefined') window.alert(UX.site.linkCopied);
+  });
+}
 
 export interface ParentReportState {
   reportId: string;
@@ -143,7 +166,22 @@ export function ChildPlayPortal(): React.ReactElement {
         { style: { marginBottom: `${TOKENS.spacing[2]}px` } },
         '영어로 말해서 꿀차를 주문하고 내 부지에 집을 지어 보세요.'
       ),
-      React.createElement(GuestPassEndModal, { shareUrl: '/report' })
+      React.createElement(
+        'div',
+        { style: { display: 'flex', flexWrap: 'wrap', gap: `${TOKENS.spacing[2]}px` } },
+        React.createElement(
+          Button,
+          {
+            variant: 'brand',
+
+            onClick: () => {
+              if (typeof window !== 'undefined') window.location.assign('/game/');
+            }
+          },
+          UX.site.openGame
+        ),
+        React.createElement(Button, { variant: 'paper', onClick: shareToParent }, UX.site.sendToParent)
+      )
     )
   );
 }
@@ -929,25 +967,27 @@ export function App({
   initialShowChartTables = false,
   initialReportState
 }: AppProps): React.ReactElement {
-  const [route, setRoute] = useState<AppRoute>(initialRoute);
+  const [route, setRouteState] = useState<AppRoute>(initialRoute);
+  const [tryPassed, setTryPassed] = useState(false);
+  const setRoute = (r: AppRoute) => {
+    setRouteState(r);
+    if (typeof window !== 'undefined' && window.location.pathname !== r) window.history.pushState(null, '', r);
+  };
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onPop = () => {
+      const p = (window.location.pathname.replace(/\/+$/, '') || '/') as AppRoute;
+      setRouteState(p);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
   const [reportState, setReportState] = useState<ParentReportState>(
     initialReportState ?? DEFAULT_PARENT_REPORT_STATE
   );
 
-  const navItems: Array<{ route: AppRoute; label: string }> = [
-    { route: '/', label: '소개 (W01)' },
-    { route: '/try', label: '5분 바로 체험 (W02)' },
-    { route: '/play', label: '아이 화면 (W03)' },
-    { route: '/parents', label: '부모 안내 (W04)' },
-    { route: '/safety', label: '안전·개인정보 (W05)' },
-    { route: '/teachers', label: '선생님 안내 (W06)' },
-    { route: '/worlds', label: '월드 구경 (W07)' },
-    { route: '/report', label: '수업 리포트 (W09)' },
-    { route: '/dashboard', label: '부모 대시보드 (P01)' },
-    { route: '/window', label: '수업 창문 (P04)' },
-    { route: '/claim', label: '게스트 보관함 이어받기' },
-    { route: '/director', label: '디렉터 콘솔 (T02)' }
-  ];
+  const isPublic = PUBLIC_NAV.some((n) => n.route === route);
+  const navItems = PUBLIC_NAV;
 
   const handleMarkReportOpened = () => {
     setReportState((prev) => ({
@@ -981,17 +1021,19 @@ export function App({
               marginBottom: `${TOKENS.spacing[3]}px`
             }
           },
-          navItems.map((item) =>
-            React.createElement(
-              Button,
-              {
-                key: item.route,
-                variant: route === item.route ? 'brand' : 'paper',
-                onClick: () => setRoute(item.route)
-              },
-              item.label
-            )
-          )
+          isPublic
+            ? navItems.map((item) =>
+                React.createElement(
+                  Button,
+                  {
+                    key: item.route,
+                    variant: route === item.route ? 'brand' : 'paper',
+                    onClick: () => setRoute(item.route)
+                  },
+                  item.label
+                )
+              )
+            : React.createElement(Button, { variant: 'paper', onClick: () => setRoute('/') }, UX.site.backHome)
         )
       : null,
     route === '/play' && React.createElement(ChildPlayPortal),
@@ -1001,8 +1043,8 @@ export function App({
         null,
         React.createElement('h1', null, '가입 없이 5분 브라우저 체험'),
         React.createElement('p', null, '찻집에서 영어로 주문하고 내 부지에 집을 지어 보세요.'),
-        React.createElement(TryExperience, null),
-        React.createElement(GuestPassEndModal, { shareUrl: '/report' })
+        React.createElement(TryExperience, { onPassed: () => setTryPassed(true) }),
+        tryPassed ? React.createElement(GuestPassEndModal, { shareUrl: '/parents' }) : null
       ),
     route === '/guest-end' && React.createElement(GuestPassEndScreen, null),
     route === '/claim' && React.createElement(GuestClaimCard, null),
@@ -1097,12 +1139,29 @@ export function App({
       React.createElement(
         Panel,
         null,
-        React.createElement('h1', null, 'LCW — 말하면 생기는 3D 영어 회화 세계'),
+        React.createElement('h1', null, UX.site.heroTitle),
+        React.createElement('p', { style: { marginBottom: `${TOKENS.spacing[3]}px` } }, UX.site.heroBody),
         React.createElement(
-          'p',
-          null,
-          '필요할 때 직접 영어로 주문하고, 블록을 쌓고, 안전하게 다시 쓰는 개방형 세계입니다.'
-        )
+          'div',
+          { style: { display: 'flex', flexWrap: 'wrap', gap: `${TOKENS.spacing[2]}px`, marginBottom: `${TOKENS.spacing[3]}px` } },
+          React.createElement(Button, { variant: 'brand', onClick: () => setRoute('/parents') }, UX.site.forParents),
+          React.createElement(Button, { variant: 'sky', onClick: () => setRoute('/play') }, UX.site.forPlayers)
+        ),
+        React.createElement(
+          'div',
+          {
+            style: {
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: `${TOKENS.spacing[2]}px`,
+              marginBottom: `${TOKENS.spacing[3]}px`
+            }
+          },
+          UX.site.steps.map((st) =>
+            React.createElement(Card, { key: st.title, title: st.title }, React.createElement('p', { lang: 'en' }, st.body))
+          )
+        ),
+        React.createElement(Button, { variant: 'leaf', onClick: () => setRoute('/try') }, UX.site.tryCta)
       )
   );
 }

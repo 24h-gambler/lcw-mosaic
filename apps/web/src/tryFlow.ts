@@ -8,6 +8,8 @@ export const TRY_SPEECH_RMS_THRESHOLD = 0.04;
 export const TRY_SPEECH_MAX_GAP_MS = 400;
 /** Target 3-star sentence for the /try cafe order. */
 export const TRY_TARGET_SENTENCE = 'Can I have a warm honey tea so I stay warm?';
+/** Share of target words the browser recognizer must hear for the recognition path to pass. */
+export const TRY_RECOGNITION_PASS_RATIO = 0.6;
 /** Analyser poll interval. */
 export const TRY_ANALYSER_INTERVAL_MS = 50;
 
@@ -97,4 +99,27 @@ export function isSentenceAssembled(picked: readonly string[], target: string): 
   const norm = (w: string) => w.toLowerCase().replace(/[.,!?]+$/g, '');
   const t = sentenceWords(target).map(norm);
   return picked.length === t.length && picked.every((w, i) => norm(w) === t[i]);
+}
+
+const normWords = (t: string): string[] =>
+  t
+    .toLowerCase()
+    .replace(/[^a-z' ]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+
+/** Share of the target's words heard in the transcript (order-free, each target word counted once). */
+export function transcriptMatchRatio(transcript: string, target: string): number {
+  const want = normWords(target);
+  if (want.length === 0) return 0;
+  const heard = normWords(transcript);
+  let hit = 0;
+  for (const w of want) {
+    const i = heard.indexOf(w);
+    if (i >= 0) {
+      hit++;
+      heard.splice(i, 1);
+    }
+  }
+  return hit / want.length;
 }

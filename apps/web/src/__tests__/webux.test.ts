@@ -13,7 +13,9 @@ import {
   isSentenceAssembled,
   rmsOfTimeDomain,
   sentenceWords,
-  shuffleWords
+  shuffleWords,
+  transcriptMatchRatio,
+  TRY_RECOGNITION_PASS_RATIO
 } from '../tryFlow.js';
 import {
   GUEST_CLAIM_KEY_STORAGE_KEY,
@@ -184,7 +186,7 @@ describe('item 1: /try in-app browser and speech fallback', () => {
     expect(noMic).not.toContain('in-app-banner');
   });
 
-  it('shows no banner and no cards in normal Chrome with recognition', () => {
+  it('runs the spoken order in normal Chrome with recognition (cards stay as a hint)', () => {
     const html = renderToStaticMarkup(
       React.createElement(TryExperience, {
         userAgent: UA_CHROME_DESKTOP,
@@ -193,7 +195,14 @@ describe('item 1: /try in-app browser and speech fallback', () => {
     );
     expect(html).toContain('data-try-path="recognition"');
     expect(html).not.toContain('in-app-banner');
-    expect(html).not.toContain('assembled-sentence');
+    expect(html).toContain('data-testid="try-target"');
+    expect(html).toContain('말하기 시작');
+  });
+
+  it('scores recognizer transcripts by share of target words heard', () => {
+    expect(transcriptMatchRatio('can I have a warm honey tea so I stay warm', TRY_TARGET_SENTENCE)).toBe(1);
+    expect(transcriptMatchRatio('honey tea please', TRY_TARGET_SENTENCE)).toBeLessThan(TRY_RECOGNITION_PASS_RATIO);
+    expect(transcriptMatchRatio('', TRY_TARGET_SENTENCE)).toBe(0);
   });
 });
 

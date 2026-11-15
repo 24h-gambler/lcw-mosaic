@@ -80,22 +80,51 @@ export function worldPrefix(worldId: string): string {
   return `w_${slug}`;
 }
 
+/** DO SQLite rows are capped at 2MB; blobs are split into parts well below that. */
+export const BLOB_PART_CHARS = 512 * 1024;
+
 /**
  * ObjectStore kept in the same SQLite database (R2 needs a payment method on the account;
- * snapshots are small JSON). Swap for the R2 binding when R2 is enabled.
+ * snapshots are JSON). Values are split into parts so a large world snapshot never hits the row cap.
+ * Swap for the R2 binding when R2 is enabled.
  */
 export class SqliteBlobStore implements ObjectStore {
   constructor(private readonly sql: SqliteExecutor) {
-    sql.exec('create table if not exists blobs (k text primary key, v text not null)');
+    sql.exec('create table if not exists blob_parts (k text not null, part integer not null, v text not null, primary key (k, part))');
   }
   put(key: string, value: string | Uint8Array): void {
     const v = typeof value === 'string' ? value : new TextDecoder().decode(value);
-    this.sql.run('insert or replace into blobs (k, v) values (?, ?)', [key, v]);
+    const write = () => {
+      this.sql.run('delete from blob_parts where k = ?', [key]);
+      for (let i = 0, part = 0; i < Math.max(1, v.length); i += BLOB_PART_CHARS, part++) {
+        this.sql.run('insert into blob_parts (k, part, v) values (?, ?, ?)', [key, part, v.slice(i, i + BLOB_PART_CHARS)]);
+      }
+    };
+    if (this.sql.transaction) this.sql.transaction(write);
+    else write();
   }
   get(key: string): string | null {
-    return this.sql.get<{ v: string }>('select v from blobs where k = ?', [key])?.v ?? null;
+    const rows = this.sql.all<{ v: string }>('select v from blob_parts where k = ? order by part', [key]);
+    return rows.length ? rows.map((r) => r.v).join('') : null;
   }
   delete(key: string): void {
-    this.sql.run('delete from blobs where k = ?', [key]);
+    this.sql.run('delete from blob_parts where k = ?', [key]);
+  }
+}
+
+/** Gives each world its own key space in a shared ObjectStore (snapshot ids are only unique per world). */
+export class PrefixedStore implements ObjectStore {
+  constructor(
+    private readonly base: ObjectStore,
+    private readonly prefix: string
+  ) {}
+  put(key: string, value: string | Uint8Array) {
+    return this.base.put(`${this.prefix}/${key}`, value);
+  }
+  get(key: string) {
+    return this.base.get(`${this.prefix}/${key}`);
+  }
+  delete(key: string) {
+    return this.base.delete(`${this.prefix}/${key}`);
   }
 }

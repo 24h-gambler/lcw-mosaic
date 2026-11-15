@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import type { DurableStorageLike } from '../do-sqlite.js';
-import { prefixedExecutor, splitStatements, worldPrefix } from '../do-sqlite.js';
+import { BLOB_PART_CHARS, prefixedExecutor, SqliteBlobStore, splitStatements, worldPrefix } from '../do-sqlite.js';
 import { createNodeSqliteExecutor } from '../node-sqlite.js';
 import { WorldDO, InMemoryR2Store } from '../storage.js';
 import { AI_DAILY_CALL_CAP, isOperator, isPublicRoute, PlatformDO, workerHandler as worker, type LcwEnv } from '../platform.js';
@@ -77,7 +77,9 @@ describe('production worker (Durable Object SQLite wiring)', () => {
 
   it('boots the platform schema on DO SQLite and reports health without auth', async () => {
     const { platform, storage } = makePlatform();
-    const res = await platform.fetch(new Request('https://x/health'));
+    const pub = (await (await platform.fetch(new Request('https://x/health'))).json()) as Record<string, unknown>;
+    expect(Object.keys(pub).sort()).toEqual(['build', 'ok', 'service']);
+    const res = await platform.fetch(new Request('https://x/v1/admin/health', { headers: auth }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok: boolean; counts: { players: number; worlds: number } };
     expect(body.ok).toBe(true);
@@ -163,10 +165,56 @@ describe('production worker (Durable Object SQLite wiring)', () => {
     expect((await post('/v1/admin/lessons', { id: 'lesson-001', player_id: 'kid-1', world_id: 'kid-town' })).status).toBe(201);
     // new DO instance on the same storage = eviction + restart
     const p2 = new PlatformDO({ storage }, env);
-    const h = (await (await p2.fetch(new Request('https://x/health'))).json()) as {
+    const h = (await (await p2.fetch(new Request('https://x/v1/admin/health', { headers: auth }))).json()) as {
       counts: { players: number; worlds: number; lessons: number };
     };
     expect(h.counts).toMatchObject({ players: 2, worlds: 2, lessons: 1 });
+  });
+
+  it('keeps built blocks after the DO restarts (worlds rehydrate from SQLite)', async () => {
+    const storage = fakeDurableStorage();
+    const env = { PLATFORM: undefined as never, LCW_OPERATOR_TOKEN: TOKEN } as LcwEnv;
+    const edit = (p: PlatformDO, x: number) =>
+      p.fetch(
+        new Request('https://x/v1/worlds/world-demo/edits', {
+          method: 'POST',
+          headers: auth,
+          body: JSON.stringify({ actor_id: 'player-demo', is_owner: true, edits: [{ x, y: 2, z: 164, block_id: 2 }] })
+        })
+      );
+    const p1 = new PlatformDO({ storage }, env);
+    expect((await edit(p1, 108)).status).toBe(200);
+    const p2 = new PlatformDO({ storage }, env);
+    expect((await edit(p2, 109)).status).toBe(200);
+    const p3 = new PlatformDO({ storage }, env);
+    const world = (p3 as unknown as { worlds: Map<string, { world: { getBlock(x: number, y: number, z: number): number } }> }).worlds.get('world-demo')!;
+    expect(world.world.getBlock(108, 2, 164)).toBe(2);
+    expect(world.world.getBlock(109, 2, 164)).toBe(2);
+  });
+
+  it('stores blobs larger than one DO row in parts and isolates worlds by key prefix', () => {
+    const base = createNodeSqliteExecutor(':memory:');
+    const store = new SqliteBlobStore(base);
+    const big = 'x'.repeat(BLOB_PART_CHARS * 2 + 10);
+    store.put('w_a/snapshots/s1.json', big);
+    expect(store.get('w_a/snapshots/s1.json')).toBe(big);
+    expect(base.get<{ n: number }>('select count(*) as n from blob_parts')?.n).toBe(3);
+    expect(store.get('w_b/snapshots/s1.json')).toBeNull();
+  });
+
+  it('serves shared reports only for strong tokens and without family ids', async () => {
+    const { platform } = makePlatform();
+    const short = await platform.fetch(new Request('https://x/v1/reports/abc'));
+    expect(short.status).toBe(404);
+    const token = 'tok-0123456789abcdefXYZ';
+    platform.db.saveReport({ id: 'r1', playerId: 'player-demo', kind: 'weekly', refId: 'w1', facts: { a: 1 }, body: 'hi', clips: [], shareToken: token, nowMs: 1 });
+    const res = await platform.fetch(new Request(`https://x/v1/reports/${token}`));
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as Record<string, unknown>;
+    expect(j).not.toHaveProperty('player_id');
+    expect(j.facts).toEqual({ a: 1 });
+    const bad = await platform.fetch(new Request('https://x/v1/converse/understand', { method: 'POST', body: '{not json' }));
+    expect(bad.status).toBe(400);
   });
 
   it('records cron runs so a keeper can detect silent failures', async () => {
@@ -185,6 +233,9 @@ describe('production worker (Durable Object SQLite wiring)', () => {
   it('caps Workers AI calls per day durably', async () => {
     let calls = 0;
     const { platform } = makePlatform({ AI: { run: async () => { calls++; return {}; } } });
+    // the public understand route must not spend AI while its answer is unused
+    await platform.fetch(new Request('https://x/v1/converse/understand', { method: 'POST', body: JSON.stringify({ dialog_id: 'd', npc_ctx: 'cafe', level: 'L1', transcript: 'zzz qqq unknown words', stt: { source: 'keyboard', confidence: 1 } }) }));
+    expect(calls).toBe(0);
     for (let i = 0; i < AI_DAILY_CALL_CAP + 5; i++) {
       await platform.runAiCapped('@cf/meta/llama-3.1-8b-instruct-fast', {} as never);
     }

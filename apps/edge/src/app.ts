@@ -105,7 +105,7 @@ const CompleteLessonSendReportSchema = z
     draft_body: z.string().default(''),
     teacher_comment: z.string().max(400).default(''),
     next_lesson_at: z.string().min(1).default('일요일 오전 10:00'),
-    share_token: z.string().min(4),
+    share_token: z.string().min(16),
     share_url: z.string().min(1).optional(),
     clips: z.array(z.unknown()).default([])
   })

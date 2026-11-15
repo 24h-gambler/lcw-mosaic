@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { filterSpeechBubble } from '@lcw/converse';
 import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
 import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicReportView } from './parent-report.js';
+import { buildLessonWindow } from './lesson-window.js';
 
 /**
  * Guardian domain (WP-301, docs/16 §3, docs/10 §5): family account, child profiles, separate consents, device link
@@ -32,6 +33,7 @@ export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', /^\/v1\/family\/children\/[^/]+\/device-code$/],
   ['DELETE', /^\/v1\/family\/devices\/[^/]+$/],
   ['POST', /^\/v1\/family\/reports\/[^/]+\/revoke$/],
+  ['GET', /^\/v1\/family\/children\/[^/]+\/lesson-window$/],
   ['POST', /^\/v1\/device\/link$/],
   ['GET', /^\/v1\/device\/me$/]
 ];
@@ -376,6 +378,19 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
   });
 
   /** docs/16 §2-18: the guardian can kill a report link at once (e.g. forwarded by mistake). */
+  /* ---------- WP-307 lesson window: text status, density band, captions; listen-only (no guardian mic) ---------- */
+
+  app.get('/v1/family/children/:pid/lesson-window', async (c) => {
+    const g = await withGuardian(c, true);
+    if (g instanceof Response) return g;
+    const kid = childOf(g, c.req.param('pid'));
+    if (!kid) return c.json({ error: 'child_not_found' }, 404);
+    // docs/16 §3 row 6: the window opens only with this child's lesson_window consent; nothing about the lesson leaks without it.
+    if (!d.db.listConsents(kid.id).lesson_window) return c.json({ error: 'lesson_window_consent_required' }, 403);
+    c.header('cache-control', 'private, no-store');
+    return c.json(buildLessonWindow(d.sql, kid.id, d.nowMs(), { after: Number(c.req.query('after') ?? 0) }));
+  });
+
   app.post('/v1/family/reports/:token/revoke', async (c) => {
     const g = await withGuardian(c, false);
     if (g instanceof Response) return g;

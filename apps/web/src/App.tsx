@@ -23,7 +23,6 @@ import {
   DirectorBookmarkPanel,
   GuestClaimCard,
   GuestPassEndScreen,
-  ParentLessonWindowView,
   PossessionPanel
 } from './WebUx.js';
 import { handleDirectorKeydown } from './director.js';
@@ -32,6 +31,7 @@ import { LessonDirectorConsole } from './LessonDirector.js';
 import { StudentJoin } from './StudentJoin.js';
 import { ParentReportPage } from './ParentReportPage.js';
 import { DeviceLinkPage, FamilyPage } from './FamilyPage.js';
+import { LessonWindowPage } from './LessonWindowPage.js';
 import { reportTokenFromPath } from './lessonFlow.js';
 import { SiteRoot } from './site/SiteRoot.js';
 import { isSitePath } from './site/routes.js';
@@ -1003,7 +1003,7 @@ export function App({
           })),
     route === '/guest-end' && React.createElement(GuestPassEndScreen, null),
     route === '/claim' && React.createElement(GuestClaimCard, null),
-    route === '/window' && React.createElement(ParentLessonWindowView, null),
+    route === '/window' && React.createElement(LessonWindowPage, null),
     route === '/report' &&
       React.createElement(ParentReportView, {
         report: reportState,

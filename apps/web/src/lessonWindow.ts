@@ -12,7 +12,10 @@ export const LESSON_SCENE_ICON_GLYPH: Record<LessonWindowStatus['scene_icon'], s
   boutique: '옷가게',
   makers_lab: '메이커스',
   dungeon: '던전',
-  home: '내 집'
+  home: '내 집',
+  shop: '상점',
+  hill: '언덕',
+  build: '건축'
 };
 
 export type LessonWindowView =

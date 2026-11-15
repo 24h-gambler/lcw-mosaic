@@ -178,7 +178,7 @@ export type ServerRoomMessage = z.infer<typeof ServerRoomMessageSchema>;
  * Text-only status line for the parent lesson window (docs/08 P04, WP-307).
  * No video or audio frames: LessonDO sends these few strings every ~10 seconds.
  */
-export const LESSON_WINDOW_SCENE_ICONS = ['cafe', 'plaza', 'boutique', 'makers_lab', 'dungeon', 'home'] as const;
+export const LESSON_WINDOW_SCENE_ICONS = ['cafe', 'plaza', 'boutique', 'makers_lab', 'dungeon', 'home', 'shop', 'hill', 'build'] as const;
 
 export const LessonWindowStatusSchema = z
   .object({

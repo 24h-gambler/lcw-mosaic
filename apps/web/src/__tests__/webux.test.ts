@@ -332,8 +332,9 @@ describe('item 3: parent lesson window status bar', () => {
     const html = renderToStaticMarkup(React.createElement(ParentLessonWindowView, { nowMs: NOW }));
     expect(html).toContain('수업 창문');
     expect(html).toContain('10초마다');
+    // /window is the real guardian page now (WP-307, lesson-window-page.test.ts); this demo view stays for the bar.
     const app = renderToStaticMarkup(React.createElement(App, { initialRoute: '/window' }));
-    expect(app).toContain('lesson-window-bar');
+    expect(app).toContain('lesson-window-page');
   });
 });
 

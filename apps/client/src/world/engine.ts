@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { VoxelWorld } from '@lcw/sim-core';
 import type { CreateWorldOptions, DirectorEventKind, NpcRef, SceneId, WorldHandle, WorldStats } from './api.js';
-import { buildAtlasPixels, TILE_PX } from './atlas.js';
+import { atlasSteps, TILE_PX } from './atlas.js';
 import { TILE_NAMES, blockLook } from './blocks.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import { ChunkRenderer } from './chunks.js';
@@ -18,7 +18,7 @@ import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
 import { Sky } from './sky.js';
 import { NPC_GREETINGS_EN, SCENE_TITLES_KO, welcomeBackEn } from './strings.js';
-import { NPCS, SCENES, WANDERERS, buildTown, standHeight, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
+import { NPCS, SCENES, WANDERERS, buildTownSteps, standHeight, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
 
 export { TIER_SETTINGS };
 
@@ -65,8 +65,40 @@ export const FIRST_RING = 2;
 /** Longest the first-ring meshing may hold the loading card (the rest of the 3 s budget is town + first frame). */
 export const FIRST_SCREEN_CAP_MS = 2000;
 
+/**
+ * Longest the start-up waits for the ground around the player before showing the world anyway (a child must never
+ * sit on the loading card forever; under normal load the ground is ready in well under a second).
+ */
+export const GROUND_CAP_MS = 30_000;
+/** Main-thread slice for start-up work between handing the frame back (well under the 50 ms long-task line). */
+export const START_SLICE_MS = 12;
+
 function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Hand the main thread back for a moment (input, paint) between start-up slices. */
+function yieldToMain(): Promise<void> {
+  const s = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  if (s?.yield) return s.yield();
+  return new Promise((r) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => r();
+    ch.port2.postMessage(0);
+  });
+}
+
+/** Run a step generator in slices of about START_SLICE_MS, yielding to the main thread in between. */
+async function runSliced<T>(steps: Generator<void, T>): Promise<T> {
+  let t0 = performance.now();
+  for (;;) {
+    const r = steps.next();
+    if (r.done) return r.value;
+    if (performance.now() - t0 >= START_SLICE_MS) {
+      await yieldToMain();
+      t0 = performance.now();
+    }
+  }
 }
 
 export async function createWorldEngine(opts: CreateWorldOptions): Promise<WorldHandle> {
@@ -76,6 +108,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const startup: Record<string, number> = {};
   const mark = (k: string): void => {
     startup[k] = Math.round(performance.now() - tStart);
+    // also on the page timeline, so a trace (Lighthouse, DevTools) shows where each start-up phase ends
+    try {
+      performance.mark(`lcw:${k}`);
+    } catch {
+      /* marks unsupported */
+    }
   };
   const tier = TIER_SETTINGS[opts.tier];
   const hudParent = opts.hudRoot ?? canvas.parentElement ?? document.body;
@@ -115,8 +153,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   await wait(16);
 
   // ---- Town (deterministic, system actor through setBlock).
+  // Built in slices between frames (~12 ms each): one 300–900 ms task froze the page and the loading bar on tablets.
   const world = new VoxelWorld();
-  buildTown(world);
+  await runSliced(buildTownSteps(world));
   mark('town');
   hud.setLoading(0.45, false);
   await wait(0);
@@ -148,7 +187,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     sky.sun.shadow.normalBias = 0.04;
   }
 
-  const atlasPixels = buildAtlasPixels();
+  const atlasPixels = await runSliced(atlasSteps());
   const atlas = new THREE.DataArrayTexture(atlasPixels, TILE_PX, TILE_PX, TILE_NAMES.length);
   atlas.format = THREE.RGBAFormat;
   atlas.type = THREE.UnsignedByteType;
@@ -185,6 +224,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   scene.add(VoxelCharacter.shadows.mesh);
   const player = new VoxelCharacter(PLAYER_LOOK);
   scene.add(player.root);
+  // one character per task (each is a few dozen boxes; all of them at once was a 150 ms task on a throttled tablet)
+  await yieldToMain();
   let heldItem: THREE.Group | null = null;
 
   const npcs = new Map<string, NpcRt>();
@@ -206,13 +247,16 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       speed: 0,
       greeted: false
     });
+    await yieldToMain();
   }
-  const walkers: WalkerRt[] = WANDERERS.map((w, k) => {
+  const walkers: WalkerRt[] = [];
+  for (const [k, w] of WANDERERS.entries()) {
     const char = new VoxelCharacter(w.look);
     scene.add(char.root);
     const [x, z] = w.route[0]!;
-    return { char, route: w.route, i: 1, pos: new THREE.Vector3(x + 0.5, standHeight(world, x, z, terrainHeight(x, z) + 2), z + 0.5), yaw: 0, pause: k * 1.5 };
-  });
+    walkers.push({ char, route: w.route, i: 1, pos: new THREE.Vector3(x + 0.5, standHeight(world, x, z, terrainHeight(x, z) + 2), z + 0.5), yaw: 0, pause: k * 1.5 });
+    await yieldToMain();
+  }
   const windmill = new Windmill(137.5, standHeight(world, 137, 98) + 6.4, 99.9);
   scene.add(windmill.root);
   const butterflies = new Butterflies([
@@ -247,25 +291,28 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const showFps = new URLSearchParams(location.search).has('fps');
   hud.setScene(SCENE_TITLES_KO[currentScene]);
 
-  // ---- Initial meshing: only the chunks right around the start spot (FIRST_RING) before revealing, nearest first;
-  // the rest of the view streams in behind the first frame (the frame loop keeps calling chunks.update), so the
-  // first screen stays inside the 3 s budget whatever the start scene is.
-  const meshUntilReady = async (): Promise<void> => {
+  // ---- Initial meshing: the chunks right around the start spot (FIRST_RING) are meshed and merged before the world
+  // shows, nearest first; the rest of the view streams in behind the first frame (the frame loop keeps calling
+  // chunks.update). The loading card stays until that ground is there — never a child standing in the air over an
+  // empty town (live check 11-16: a busy tablet showed the plaza empty 10 s after entering). FIRST_SCREEN_CAP_MS only
+  // marks a slow start in the stats; GROUND_CAP_MS is the last-resort cap.
+  const meshUntilReady = async (onProgress: (done: number) => void): Promise<void> => {
     const t0 = performance.now();
     let total = -1;
-    // hard cap: on a busy or slow device show what is ready rather than keep the child on the loading card
-    while (performance.now() - t0 < FIRST_SCREEN_CAP_MS) {
+    while (performance.now() - t0 < GROUND_CAP_MS) {
       chunks.update(body.x, body.z, FIRST_RING, 24);
       const left = chunks.outstanding(body.x, body.z, FIRST_RING);
       if (total < 0) total = Math.max(1, left);
-      hud.setLoading(0.45 + 0.55 * (1 - left / total), false);
-      if (left === 0) break;
+      onProgress(1 - left / total);
+      if (left === 0) return;
       await wait(30);
     }
+    startup.groundCapped = 1;
   };
   mark('characters');
-  await meshUntilReady();
+  await meshUntilReady((done) => hud.setLoading(0.45 + 0.55 * done, false));
   mark('mesh');
+  if (startup.mesh! - startup.characters! > FIRST_SCREEN_CAP_MS) startup.slowGround = 1;
 
   // ---- Input.
   const keyDown = (e: KeyboardEvent): void => {
@@ -456,6 +503,29 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
   }
 
+  let lastArrival: { scene: SceneId; groundMs: number } | null = null;
+  /**
+   * The jump to a scene while the fade card is up: the card lifts only once the ground around the new spot is meshed
+   * (a scene change must not show an empty town either; the frame loop streams it, nearest first).
+   */
+  const arriveBehindFade =
+    (target: SceneId) =>
+    async (): Promise<void> => {
+      snapToScene(target);
+      placeNpcForScene(target, false);
+      chunks.update(body.x, body.z, FIRST_RING, 24);
+      if (paused) {
+        focusNpc = null;
+        focusNearest();
+      }
+      const t0 = performance.now();
+      while (!disposed && chunks.outstanding(body.x, body.z, FIRST_RING) > 0 && performance.now() - t0 < GROUND_CAP_MS) {
+        chunks.update(body.x, body.z, FIRST_RING, 24);
+        await wait(30);
+      }
+      lastArrival = { scene: target, groundMs: Math.round(performance.now() - t0) };
+    };
+
   let travel: Promise<void> | null = null;
   async function goToScene(target: SceneId): Promise<void> {
     if (disposed) return;
@@ -483,15 +553,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         const spot = SCENES[target].player;
         if (Math.hypot(body.x - spot.x, body.z - spot.z) > 1.5) {
           sfx.play('wld.door');
-          await hud.fadeTo(SCENE_TITLES_KO[target], () => {
-            snapToScene(target);
-            placeNpcForScene(target, false);
-            chunks.update(body.x, body.z, tier.viewChunks, 32);
-            if (paused) {
-              focusNpc = null;
-              focusNearest();
-            }
-          });
+          await hud.fadeTo(SCENE_TITLES_KO[target], arriveBehindFade(target));
         } else {
           // settle on the exact spot and facing
           playerYaw = SCENES[target].player.yaw;
@@ -501,15 +563,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         }
       } else {
         sfx.play('wld.door');
-        await hud.fadeTo(SCENE_TITLES_KO[target], () => {
-          snapToScene(target);
-          placeNpcForScene(target, false);
-          chunks.update(body.x, body.z, tier.viewChunks, 32);
-          if (paused) {
-            focusNpc = null;
-            focusNearest();
-          }
-        });
+        await hud.fadeTo(SCENE_TITLES_KO[target], arriveBehindFade(target));
       }
       currentScene = target;
     })();
@@ -796,6 +850,48 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
     forward.set(0, 0, 0);
   };
+  // The atlas upload and the shader programs go to the GPU before the first frame, each in its own task: done inside
+  // the first render they were one 400–500 ms task on a throttled tablet (the loading bar froze at the end). A program
+  // links on its first draw (compileAsync alone does not link without the parallel-compile extension), so each
+  // material is drawn once on its own behind the loading card, one task per material.
+  const warmPrograms = async (): Promise<void> => {
+    const drawables: THREE.Object3D[] = [];
+    scene.traverse((o) => {
+      const d = o as THREE.Object3D & { isMesh?: boolean; isPoints?: boolean; isLine?: boolean; isSprite?: boolean };
+      if (d.isMesh || d.isPoints || d.isLine || d.isSprite) drawables.push(o);
+    });
+    const saved = drawables.map((o) => ({ o, visible: o.visible, culled: o.frustumCulled }));
+    const firstByMaterial = new Map<THREE.Material, THREE.Object3D>();
+    for (const { o, visible } of saved) {
+      if (!visible) continue;
+      const m = (o as THREE.Mesh).material;
+      for (const mm of Array.isArray(m) ? m : [m]) if (mm && !firstByMaterial.has(mm)) firstByMaterial.set(mm, o);
+    }
+    try {
+      for (const o of new Set(firstByMaterial.values())) {
+        for (const d of drawables) d.visible = false;
+        o.visible = true;
+        o.frustumCulled = false;
+        renderer.render(scene, camera);
+        o.frustumCulled = saved.find((x) => x.o === o)!.culled;
+        await yieldToMain();
+        if (disposed) return;
+      }
+    } finally {
+      for (const { o, visible, culled } of saved) {
+        o.visible = visible;
+        o.frustumCulled = culled;
+      }
+    }
+  };
+  try {
+    renderer.initTexture(atlas);
+  } catch {
+    /* uploaded by the first render instead */
+  }
+  await yieldToMain();
+  await warmPrograms();
+  mark('gpu');
   hud.setLoading(1, true);
   raf = requestAnimationFrame(() => {
     frame();
@@ -948,6 +1044,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         triangles: lastStats.tris,
         chunksMeshed: chunks.meshed,
         chunksVisible: chunks.visible,
+        arrival: lastArrival ?? undefined,
+        ground: { near: chunks.outstanding(body.x, body.z, FIRST_RING), view: chunks.outstanding(body.x, body.z, tier.viewChunks) },
         scene: currentScene,
         player: { x: body.x, y: body.y, z: body.z },
         startup: { ...startup }

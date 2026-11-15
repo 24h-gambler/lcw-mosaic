@@ -38,6 +38,13 @@ export interface WorldStats {
   tier?: WorldTier;
   /** start-up phases in ms since createWorld (town, atlas, characters, mesh, firstFrame) */
   startup?: Record<string, number>;
+  /**
+   * Chunks (and region merges) still missing: `near` = around the player (FIRST_RING, what the first screen and every
+   * scene arrival wait for), `view` = the whole view distance. 0 / 0 = the ground is complete.
+   */
+  ground?: { near: number; view: number };
+  /** the last scene jump: how long the fade card waited for the ground at the new spot */
+  arrival?: { scene: SceneId; groundMs: number };
 }
 
 export interface WorldHandle {
@@ -96,13 +103,11 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 
 export const SCENE_IDS: readonly SceneId[] = ['plaza', 'honey_cafe', 'trade_shop', 'build_plot', 'open_hill'];
 
-/** True when the browser can run the 3D world (WebGL2). Otherwise send the student to /join (docs/19 4장). */
+/**
+ * True when the browser has WebGL2 (docs/19 4장; otherwise the student goes to /join). No probe context is made: one
+ * cost 50–200 ms of main thread on a tablet and stayed alive next to the world's own context. A device that has the
+ * API but cannot make the context fails in createWorld, which every shell already treats as "no 3D".
+ */
 export function canRunWorld(): boolean {
-  if (typeof document === 'undefined') return false;
-  try {
-    const c = document.createElement('canvas');
-    return !!c.getContext('webgl2');
-  } catch {
-    return false;
-  }
+  return typeof document !== 'undefined' && typeof WebGL2RenderingContext !== 'undefined';
 }

@@ -139,6 +139,129 @@ export function getDueCardsForSession(cards: MemoryCardState[], nowMs: number): 
     .slice(0, TUNING.memory.maxDuePerSession);
 }
 
+export interface ReviewSignInput {
+  /** Cards that may produce a wear sign. */
+  cards: readonly MemoryCardState[];
+  /** itemIds currently equipped or socketed. */
+  equippedItemIds: ReadonlySet<string>;
+  /** itemId -> last time the item was used (ms). */
+  lastUsedMs: Readonly<Record<string, number>>;
+  nowMs: number;
+}
+
+const DAY_MS_SIM = 86_400_000;
+
+/** True when the item is equipped/socketed now or was used within the active-gear window. */
+export function isActiveGear(
+  itemId: string,
+  equippedItemIds: ReadonlySet<string>,
+  lastUsedMs: Readonly<Record<string, number>>,
+  nowMs: number
+): boolean {
+  if (equippedItemIds.has(itemId)) return true;
+  const used = lastUsedMs[itemId];
+  return used !== undefined && nowMs - used <= TUNING.memory.activeGearWindowMs;
+}
+
+/**
+ * docs/09 P4 / docs/03 D8: choose up to 3 wear signs per session.
+ * priority = (used_or_equipped_in_last_7d ? 10 : 0) + days_overdue.
+ * Gear that is only stored in the chest (not equipped, not used in 7 days) gets no sign;
+ * it is reviewed only when the player picks it at the repair NPC (see selectRepairPickCards).
+ */
+export function selectReviewSigns(
+  cards: readonly MemoryCardState[],
+  equippedItemIds: ReadonlySet<string>,
+  lastUsedMs: Readonly<Record<string, number>>,
+  nowMs: number
+): MemoryCardState[] {
+  const scored: Array<{ card: MemoryCardState; priority: number }> = [];
+  for (const card of cards) {
+    if (card.masteredAtMs !== null || card.nextReviewAtMs > nowMs) continue;
+    if (!isActiveGear(card.itemId, equippedItemIds, lastUsedMs, nowMs)) continue;
+    const daysOverdue = (nowMs - card.nextReviewAtMs) / DAY_MS_SIM;
+    scored.push({ card, priority: TUNING.memory.activeGearPriorityBonus + daysOverdue });
+  }
+  scored.sort((a, b) => b.priority - a.priority || a.card.id.localeCompare(b.card.id));
+  return scored.slice(0, TUNING.memory.maxDuePerSession).map((s) => s.card);
+}
+
+/** Repair-NPC path: any due card whose item the player explicitly picked, chest gear included. */
+export function selectRepairPickCards(
+  cards: readonly MemoryCardState[],
+  pickedItemIds: ReadonlySet<string>,
+  nowMs: number
+): MemoryCardState[] {
+  return cards.filter(
+    (c) => c.masteredAtMs === null && c.nextReviewAtMs <= nowMs && pickedItemIds.has(c.itemId)
+  );
+}
+
+export interface WorldEconomyFlow {
+  worldId: string;
+  /** Cumulative coins earned in THIS world over the period. */
+  income: number;
+  /** Cumulative coins spent (sinks) in THIS world over the period. */
+  spend: number;
+}
+
+/**
+ * docs/09 P7: weekly price-index step for ONE world, from that world's own income vs spend.
+ * Never takes server-wide or other-mode aggregates, so 2x-reward role-play towns cannot
+ * inflate prices in survival-city worlds.
+ */
+export function updateWorldPriceIndex(currentIndex: number, flow: WorldEconomyFlow): number {
+  const gross = Math.max(1, flow.income + flow.spend);
+  const net = (flow.income - flow.spend) / gross; // -1..1, positive = coins piling up
+  const step = Math.max(
+    -TUNING.economy.priceIndexWeeklyStepMax,
+    Math.min(TUNING.economy.priceIndexWeeklyStepMax, net * TUNING.economy.priceIndexWeeklyStepMax * 2)
+  );
+  const next = currentIndex * (1 + step);
+  return Number(
+    Math.max(TUNING.economy.marketIndexMin, Math.min(TUNING.economy.marketIndexMax, next)).toFixed(4)
+  );
+}
+
+/** Weekly cron body: each world is computed independently from its own flow only. */
+export function computeWeeklyPriceIndexes(
+  currentIndexByWorld: ReadonlyMap<string, number>,
+  flows: readonly WorldEconomyFlow[]
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const flow of flows) {
+    out.set(flow.worldId, updateWorldPriceIndex(currentIndexByWorld.get(flow.worldId) ?? 1.0, flow));
+  }
+  return out;
+}
+
+/** player|furnitureKind -> day key of the last read-aloud discount. */
+export type ReadAloudDiscountState = Readonly<Record<string, number>>;
+
+export function readAloudDayKey(nowMs: number): number {
+  return Math.floor((nowMs + TUNING.economy.dayBoundaryOffsetMs) / DAY_MS_SIM);
+}
+
+/**
+ * docs/03 D13 / docs/08 8.3: reading the missing-condition sentence aloud gives 10% off a furniture
+ * kind, at most once per kind per day per player. Repeats never stack. Pure: returns the next state.
+ */
+export function claimReadAloudDiscount(
+  state: ReadAloudDiscountState,
+  playerId: string,
+  furnitureKind: string,
+  nowMs: number
+): { discountPct: number; state: ReadAloudDiscountState } {
+  const key = `${playerId}|${furnitureKind}`;
+  const day = readAloudDayKey(nowMs);
+  if (state[key] === day) return { discountPct: 0, state };
+  return { discountPct: TUNING.economy.readAloudDiscountPct, state: { ...state, [key]: day } };
+}
+
+export function applyReadAloudDiscount(price: number, discountPct: number): number {
+  return Math.max(0, Math.round(price * (1 - discountPct)));
+}
+
 export interface CareerState {
   rank: 'intern' | 'staff' | 'manager' | 'director';
   daysWorked: number;

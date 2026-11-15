@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Served by the edge Worker under /game/ (tools/build-site.mjs).
+  base: '/game/',
   plugins: [react()],
   resolve: {
     alias: {

@@ -191,3 +191,5 @@ export class QuotaMeter {
     };
   }
 }
+
+export * from './duo.js';

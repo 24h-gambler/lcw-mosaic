@@ -404,7 +404,7 @@ describe('apps/edge (WP-003, WP-205, WP-301, WP-304, WP-501)', () => {
         draft_body: '오늘 999문장을 발화했습니다.',
         teacher_comment: '물물교환에서 스스로 조건절을 사용했습니다.',
         next_lesson_at: '2026-11-22 오전 10:00',
-        share_token: 'tok-lesson-1'
+        share_token: 'tok-lesson-1-0123456789'
       })
     });
     expect(sendRes.status).toBe(200);
@@ -430,11 +430,11 @@ describe('apps/edge (WP-003, WP-205, WP-301, WP-304, WP-501)', () => {
     const remDueBody = (await remDue.json()) as { remindedCount: number; reportIds: string[] };
     expect(remDueBody.remindedCount).toBe(1);
     expect(remDueBody.reportIds).toContain('rep-lesson-1');
-    expect(env.db.getReportDeliveryByToken('tok-lesson-1')?.status).toBe('reminder_sent');
+    expect(env.db.getReportDeliveryByToken('tok-lesson-1-0123456789')?.status).toBe('reminder_sent');
 
     // Guardian opens report -> opened_at recorded, delivery_status -> opened, nextTargetsUpdated -> true
     env.advanceClock(10_000);
-    const openRes = await env.app.request('/v1/reports/tok-lesson-1');
+    const openRes = await env.app.request('/v1/reports/tok-lesson-1-0123456789');
     expect(openRes.status).toBe(200);
     const openedBody = (await openRes.json()) as {
       opened_at: number | null;
@@ -444,6 +444,6 @@ describe('apps/edge (WP-003, WP-205, WP-301, WP-304, WP-501)', () => {
     expect(openedBody.opened_at).not.toBeNull();
     expect(openedBody.delivery_status).toBe('opened');
     expect(openedBody.nextTargetsUpdated).toBe(true);
-    expect(env.db.getReportDeliveryByToken('tok-lesson-1')?.status).toBe('opened');
+    expect(env.db.getReportDeliveryByToken('tok-lesson-1-0123456789')?.status).toBe('opened');
   });
 });

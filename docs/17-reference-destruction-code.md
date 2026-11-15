@@ -9,6 +9,18 @@
 | `fuzz.mjs` | 무작위 실행과 불변식 검사 | `node fuzz.mjs 24 1000` |
 | `mutants.mjs` | 결함 주입 | `node mutants.mjs` |
 
+## 방문자 권한 보강 (피드백 반영)
+
+| 항목 | 규칙 | 코드 위치 |
+|---|---|---|
+| 월드 설정 `visitorBuild` | 기본 `false`. 소유자·허가자(`owner`/`permitted`)가 아닌 방문자는 부지·자유·도시 어디서도 블록을 못 바꾼다(목록에 없는 행위자도 방문자). `true`면 자유·도시만 허용하고 부지는 여전히 소유자·허가자만 | `canEdit` |
+| 도시 금고 금지 | 누구도 도시 구역에 `B.VAULT`를 놓지 못한다(부지·자유 구역은 가능) | `canEdit(…, id)` |
+| 상점 출입구 보호 | `settings.shops`에 선언한 출입구 앞 `SHOP_FRONT_CELLS`(2)칸 × 높이 `SHOP_DOOR_HEIGHT`(3)칸은 `zone()`이 보호 코어를 반환 | `zone`, 생성자 |
+| 폭발·로켓·유체 | 폭발 광선(`runExplosion`)과 `waterBomb`도 같은 `canEdit(actor, …)`를 지나므로 방문자의 연쇄 폭발·로켓·물이 우회로가 되지 못한다. 연쇄 상한은 그대로 | `runExplosion`, `waterBomb` |
+| 결함 주입 | `noEditPerm`, `noCityVault`, `noShopGuard` 3종 추가. 퍼즈는 홀수 시드에서 `visitorBuild=false`, 짝수 시드에서 `true`로 돌리고 불변식 I9(방문자 편집·도시 금고·상점 앞 편집 0)를 검사 | `fuzz.mjs`, `mutants.mjs` |
+
+구현체(`packages/destruction/src/kernel.ts`)에서는 `World(seed, mut, settings)`의 세 번째 인자로 설정을 받고, 상수 `SHOP_FRONT_CELLS`, `SHOP_DOOR_HEIGHT`는 `CFG`에 있습니다. 위 코드 블록의 `canEdit`, `zone`, `waterBomb`은 이 규칙을 반영한 상태입니다.
+
 참조 구현의 좌표(도로 위치, 건물 상자, 부지 범위)와 높이 범위(−32 ~ +64)는 시험용 예시입니다. 상수 `CFG`의 상한값은 `13`의 5장 표와 같습니다.
 
 ## `kernel.mjs`
@@ -31,6 +43,7 @@ export const CFG = {
   HEAL_TICKS: 1200,                                // 60초
   MAX_TEMP: 60000,
   MAX_DELTA: 200000,                               // 참조 실행용. 실제 값은 저장 20MB 에서 역산
+  SHOP_FRONT_CELLS: 2, SHOP_DOOR_HEIGHT: 3,        // 상점 출입구 앞 보호 칸 수와 높이
   MAX_FLUID: 4096, FLUID_PER_BOMB: 256, FLUID_TTL: 400, FLUID_STEP: 5, MAX_FLUID_UPDATES: 512,
   MAX_PROJECTILES: 32, ACTOR_PROJECTILES: 4, PROJ_MAX_SPEED: 2.0, PROJ_TTL: 120, ROCKET_POWER: 3,
   MAX_SPEED: 3.0,                                  // 60 m/s
@@ -67,12 +80,20 @@ for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) for (let k = 0; k < 16
 export const RAY_COUNT = RAYS.length;
 
 export class World {
-  constructor(seed = 1, mut = {}) {
+  constructor(seed = 1, mut = {}, settings = {}) {
     this.seed = seed; this.mut = mut;               // mut: 검증용 결함 주입 스위치
+    // 월드 설정: visitorBuild=false(기본, 안전)면 소유자·허가자가 아닌 방문자는 어디서도 블록을 못 바꾼다.
+    // shops: 상점 출입구 [{x,y,z,dx,dz}] — 문 칸 (x,y,z)에서 바깥 방향 (dx,dz)로 SHOP_FRONT_CELLS칸, 높이 SHOP_DOOR_HEIGHT칸이 보호 코어.
+    this.settings = { visitorBuild: settings.visitorBuild === true, shops: settings.shops || [] };
+    this.shopFront = new Set();
+    for (const s of this.settings.shops) for (let i = 1; i <= CFG.SHOP_FRONT_CELLS; i++) for (let h = 0; h < CFG.SHOP_DOOR_HEIGHT; h++) {
+      const sx = s.x + s.dx * i, sy = s.y + h, sz = s.z + s.dz * i;
+      if (this.inb(sx, sy, sz)) this.shopFront.add(this.key(sx, sy, sz));
+    }
     this.tick = 0;
     this.delta = new Map();                         // L2 영구 편집
     this.temp = new Map();                          // L4 임시 편집 key -> {id, exp, defers}
-    this.journal = [];                              // [key, prevId|undefined]
+    this.journal = [];                              // [key, prevId|undefined, actor]
     this.fluid = new Map();                         // key -> {lvl, exp, bomb}
     this.fluidFront = [];
     this.bombs = new Map();                         // bombId -> 남은 셀 수
@@ -95,6 +116,7 @@ export class World {
   zone(x, y, z) {
     if (!this.inb(x, y, z)) return Z.OOB;
     if (y === CFG.YMIN) return Z.CORE;
+    if (!this.mut.noShopGuard && this.shopFront.has(this.key(x, y, z))) return Z.CORE;   // 상점 출입구 앞 2칸
     if ((isRoadCoord(x) || isRoadCoord(z)) && y >= -2 && y < 5) return Z.CORE;
     if (x >= 128 && x < 160 && z >= 128 && z < 160 && y >= -4 && y < 24) return Z.CORE;
     if (y >= -2 && y < 14) for (const [bx, bz] of CITY_BOXES) if (x >= bx - 2 && x < bx + 14 && z >= bz - 2 && z < bz + 14) return Z.CITY;
@@ -124,18 +146,23 @@ export class World {
   rej(why) { this.stats.rejected[why] = (this.stats.rejected[why] || 0) + 1; return false; }
   clamp(why) { this.stats.clamped[why] = (this.stats.clamped[why] || 0) + 1; }
   playerAt(x, y, z) { for (const p of this.players) { const px = Math.floor(p.x), py = Math.floor(p.y), pz = Math.floor(p.z); if (px === x && pz === z && (py === y || py + 1 === y)) return p; } return null; }
-  canEdit(actor, x, y, z) {
+  // 권한 판정의 유일한 입구. 손·도구·폭발·로켓·유체 모두 여기를 지난다. 반환: 구역 번호, 거절이면 0.
+  canEdit(actor, x, y, z, id = B.AIR) {
     const zn = this.zone(x, y, z);
     if (zn === Z.OOB) return 0;
     if (zn === Z.CORE) return this.mut.noCoreGuard ? Z.WILD : 0;
-    if (zn === Z.PLOT) { const p = this.players[actor]; return (p && (p.owner || p.permitted)) ? Z.PLOT : 0; }
-    return zn;
+    if (id === B.VAULT && zn === Z.CITY && !this.mut.noCityVault) return 0;   // 도시 구역에는 누구도 금고 블록을 못 놓는다
+    if (this.mut.noEditPerm) return zn;
+    const p = this.players.find((q) => q.id === actor);                      // 목록에 없는 행위자는 방문자
+    const allowed = !!p && (p.owner === true || p.permitted === true);
+    if (zn === Z.PLOT) return allowed ? Z.PLOT : 0;                           // 부지: 소유자·허가자만
+    return (allowed || this.settings.visitorBuild) ? zn : 0;                  // 자유·도시: 방문자는 월드 설정이 켜졌을 때만
   }
   // 모든 블록 변경의 유일한 입구
   setBlock(actor, x, y, z, id) {
     if (!this.inb(x, y, z)) return this.rej('oob');
     if (!(id >= 0 && id <= 10) || !Number.isInteger(id)) return this.rej('bad_block');
-    const zn = this.canEdit(actor, x, y, z);
+    const zn = this.canEdit(actor, x, y, z, id);
     if (!zn) return this.rej(this.zone(x, y, z) === Z.CORE ? 'core' : 'no_permission');
     if (id !== B.AIR && this.playerAt(x, y, z)) return this.rej('occupied');
     const k = this.key(x, y, z);
@@ -150,7 +177,7 @@ export class World {
         return true;
       }
     }
-    this.journal.push([k, this.delta.get(k)]);
+    this.journal.push([k, this.delta.get(k), actor]);
     if (id === this.base(x, y, z)) this.delta.delete(k); else this.delta.set(k, id);
     this.temp.delete(k);
     return true;
@@ -222,6 +249,7 @@ export class World {
     const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
     if (!this.inb(bx, by, bz)) return this.rej('oob');
     if (!this.allow(actor)) return this.rej('rate');
+    if (!this.canEdit(actor, bx, by, bz)) return this.rej('no_permission');   // 방문자는 막힌 칸에 물을 못 띄운다
     const id = this.tick * 1000 + this.bombs.size;
     this.bombs.set(id, CFG.FLUID_PER_BOMB);
     this.addFluid(bx, by, bz, 7, id);
@@ -341,7 +369,8 @@ import { World, CFG, B, Z, ANCHORS } from './kernel.mjs';
 import { check } from './fuzz.mjs';
 const mut = process.argv[2] ? { [process.argv[2]]: true } : {};
 const saved = { ...CFG }; const res = []; let failed = 0;
-function mk(n = 3) { const w = new World(7, mut); for (let i = 0; i < n; i++) w.players.push({ id: i, x: 20.5 + i * 9, y: 30, z: 20.5, vx: 0, vy: 0, vz: 0, owner: i === 0 }); return w; }
+function mk(n = 3) { const w = new World(7, mut, { visitorBuild: true });   // 기존 시나리오 1~16은 방문자 편집을 켠 월드에서 돌린다. 방문자 권한 시나리오는 기본 설정(꺼짐)으로 따로 둔다
+   for (let i = 0; i < n; i++) w.players.push({ id: i, x: 20.5 + i * 9, y: 30, z: 20.5, vx: 0, vy: 0, vz: 0, owner: i === 0 }); return w; }
 function snapCore(w) { let h = 0; for (let x = 120; x < 168; x++) for (let z = 120; z < 168; z++) for (let y = -4; y < 24; y++) if (w.zone(x, y, z) === Z.CORE) h = (Math.imul(h, 31) + w.get(x, y, z) + 1) | 0; return h; }
 function T(name, fn) { Object.assign(CFG, saved); let ok, info; try { [ok, info] = fn(); } catch (e) { ok = false; info = 'EXC ' + e.message; } if (!ok) failed++; res.push({ name, ok, info }); }
 const steps = (w, n) => { for (let i = 0; i < n; i++) w.step(); };
@@ -393,6 +422,8 @@ function roadsConnected(w) {                            // I2: 스폰에서 9개
 }
 export function check(w, ref) {
   const v = [];
+  // I9: 방문자 편집 꺼짐이면 방문자의 변경 0, 도시 금고 0, 상점 출입구 앞 변경 0 (행위자 허용 여부는 owner/permitted만 본다)
+  for (const j of w.journal) { const [x, y, z] = w.unkey(j[0]); if ((!w.settings.visitorBuild && !(w.players.find((q) => q.id === j[2])?.owner || w.players.find((q) => q.id === j[2])?.permitted)) || w.shopFront.has(j[0]) || (w.get(x, y, z) === B.VAULT && w.zone(x, y, z) === Z.CITY)) { v.push('I9 forbidden edit'); break; } }
   const [sx, sy, sz] = CFG.SPAWN;
   if (w.get(sx, sy - 1, sz) === B.AIR || w.get(sx, sy, sz) !== B.AIR || w.get(sx, sy + 1, sz) !== B.AIR) v.push('I1 spawn');
   if (ref.deep && !roadsConnected(w)) v.push('I2 roads');
@@ -419,9 +450,10 @@ const HOT = [[144, 2, 144], [144, 1, 100], [48, 1, 48], [60, 4, 60], [106, 4, 10
 const BAD = [NaN, Infinity, -Infinity, 1e12, -1e12, -1, 1e9, 0.5, -0.0];
 
 export function run(seed, actions, mut = {}, trace = null) {
-  const w = new World(seed, mut); const r = mulberry32(seed * 7919 + 13);
+  const w = new World(seed, mut, { visitorBuild: seed % 2 === 0, shops: [{ x: 56, y: 1, z: 54, dx: 0, dz: -1 }, { x: 62, y: 1, z: 66, dx: 0, dz: 1 }] });   // 홀수 시드는 방문자 편집 꺼짐
+  const r = mulberry32(seed * 7919 + 13);
   w.players.push({ id: 0, x: 144.5, y: 1, z: 144.5, vx: 0, vy: 0, vz: 0, owner: true });
-  w.players.push({ id: 1, x: 60.5, y: 12, z: 100.5, vx: 0, vy: 0, vz: 0 });
+  w.players.push({ id: 1, x: 60.5, y: 12, z: 100.5, vx: 0, vy: 0, vz: 0, permitted: true });
   w.players.push({ id: 2, x: 116.5, y: 1, z: 170.5, vx: 0, vy: 0, vz: 0 });
   for (let id = 3; id < 8; id++) w.players.push({ id, x: 20.5 + id * 30, y: 20, z: 20.5, vx: 0, vy: 0, vz: 0 });   // 정원 8명
   const ref = { core: coreHash(w), city: cityHash(w), deep: true };
@@ -481,7 +513,7 @@ if (process.argv[1].endsWith('fuzz.mjs')) {
 ```js
 // 검증의 검증: 방어 장치를 하나씩 끄고 퍼즈가 그 결함을 잡아내는지 확인한다.
 import { run } from './fuzz.mjs';
-const MUT = ['noCoreGuard', 'noFluidCaps', 'noQueueCap', 'noSanitize'];
+const MUT = ['noCoreGuard', 'noFluidCaps', 'noQueueCap', 'noSanitize', 'noEditPerm', 'noCityVault', 'noShopGuard'];
 const out = {};
 for (const m of MUT) {
   let caught = null;

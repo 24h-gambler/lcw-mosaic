@@ -105,7 +105,7 @@ const CompleteLessonSendReportSchema = z
     draft_body: z.string().default(''),
     teacher_comment: z.string().max(400).default(''),
     next_lesson_at: z.string().min(1).default('일요일 오전 10:00'),
-    share_token: z.string().min(4),
+    share_token: z.string().min(16),
     share_url: z.string().min(1).optional(),
     clips: z.array(z.unknown()).default([])
   })
@@ -193,7 +193,8 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       targetText: req.target_text,
       spokenTranscript: req.transcript,
       level: req.level,
-      hintLevel: req.hint_level
+      hintLevel: req.hint_level,
+      stars: req.chosen_stars
     });
 
     let coinsDelta = 0;
@@ -231,7 +232,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       l1_words: 0,
       dur_ms: req.dur_ms,
       latency_ms: req.latency_ms,
-      stars: scored.pass ? req.chosen_stars : 0,
+      stars: scored.pass ? Math.min(req.chosen_stars, scored.starCap) : 0,
       hint_level: req.hint_level,
       attempts: 1,
       score: scored.score,

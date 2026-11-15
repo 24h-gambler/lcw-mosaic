@@ -8,7 +8,9 @@ describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
   it('enforces zero payment/price/deadline copy on child /play and /try routes (AGENTS.md 4.9)', () => {
     for (const route of ['/play', '/try'] as const) {
       const html = renderToStaticMarkup(React.createElement(App, { initialRoute: route }));
-      expect(html).toContain('부모님께 소개 보내기');
+      // /play always offers the parent hand-off; /try shows it only after the child finishes the order
+      if (route === '/play') expect(html).toContain('부모님께 소개 보내기');
+      else expect(html).not.toContain('오늘 체험이 끝났어요');
       for (const pattern of FORBIDDEN_PLAYER_UI_PATTERNS) {
         expect(html).not.toContain(pattern);
       }

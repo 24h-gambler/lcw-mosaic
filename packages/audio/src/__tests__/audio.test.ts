@@ -8,6 +8,10 @@ import {
   applyHearingProtectionLimiter,
   createAudioEngine,
   encodeWavBytes,
+  MIC_CAPTURE_IDLE,
+  micInputModeFor,
+  reduceDialogMic,
+  vadHangoverMs,
   getLadderSemitoneOffset,
   synthesizeProceduralPcm
 } from '../index.js';
@@ -109,5 +113,32 @@ describe('packages/audio (WP-110, docs/12 §12)', () => {
     expect(fs.existsSync(licensePath)).toBe(true);
     const content = fs.readFileSync(licensePath, 'utf8');
     expect(content).toContain('CC0-1.0');
+  });
+
+  it('feedback: VAD hold is 1500ms for conversation, 500ms for combat skills', () => {
+    expect(vadHangoverMs('conversation')).toBe(1500);
+    expect(vadHangoverMs('skill')).toBe(500);
+    const engine = createAudioEngine(0);
+    // 1.0s mid-clause pause after speech: conversation keeps listening, skill ends
+    expect(engine.lesson.evaluateVadFrame(0, 600, 1000)).toBe('speech');
+    expect(engine.lesson.evaluateVadFrame(0, 600, 1000, 'conversation')).toBe('speech');
+    expect(engine.lesson.evaluateVadFrame(0, 600, 1000, 'skill')).toBe('silence');
+    expect(engine.lesson.evaluateVadFrame(0, 600, 1500, 'conversation')).toBe('silence');
+    expect(engine.lesson.evaluateVadFrame(0, 600, 400, 'skill')).toBe('speech');
+  });
+
+  it('feedback: dialog mic is tap-toggle with 2.5s silence auto-stop; V skill stays hold', () => {
+    expect(micInputModeFor('dialog')).toBe('tap_toggle');
+    expect(micInputModeFor('combat_skill')).toBe('hold');
+    let s = reduceDialogMic(MIC_CAPTURE_IDLE, { type: 'tap' });
+    expect(s.recording).toBe(true);
+    s = reduceDialogMic(s, { type: 'frame', speaking: true, frameMs: 20 });
+    for (let i = 0; i < 100; i++) s = reduceDialogMic(s, { type: 'frame', speaking: false, frameMs: 20 });
+    expect(s.recording).toBe(true); // 2000ms silence
+    for (let i = 0; i < 25; i++) s = reduceDialogMic(s, { type: 'frame', speaking: false, frameMs: 20 });
+    expect(s.recording).toBe(false); // >= 2500ms
+    // second tap finishes manually
+    s = reduceDialogMic(reduceDialogMic(MIC_CAPTURE_IDLE, { type: 'tap' }), { type: 'tap' });
+    expect(s.recording).toBe(false);
   });
 });

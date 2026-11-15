@@ -129,6 +129,11 @@ export const FUNCTION_WORDS = new Set([
  * Keys are matched longest-first during mixed-utterance normalization.
  */
 export const LEXICON_L1_KO_EN: Record<string, string> = {
+  // Speech-bubble chatter (docs/04 4.12)
+  '이거': 'this',
+  '어디': 'where',
+  '놔': 'put',
+  '놓아': 'put',
   // Colors
   '빨간색': 'red',
   '빨강': 'red',
@@ -620,8 +625,19 @@ export const CONTENT_FILTERS = {
   ]
 } as const;
 
+/**
+ * NPC line spoken on the REPEAT -> ECHO transition (docs/04 4.1, docs/08 8.2).
+ * Blames the environment, not the child, so the step down never feels like a demotion.
+ */
+export const ECHO_TRANSITION_LINE = {
+  id: 'npc.echo.noisy',
+  text: "It's a bit noisy here! Let's take it step by step.",
+  ko: '여기가 좀 시끄럽네! 조금씩 끊어서 들어볼게.'
+} as const;
+
 export const UI_STRINGS_KO = {
   player: {
+    bubbleSubstituted: '이렇게 바뀌어 전달됐어요!',
     micPrompt: 'Space를 누르고 고른 문장을 말해 보세요.',
     tryAgain: '한 번 더 말해 볼까요?',
     poorAudio: '잘 안 들렸어요. 마이크 가까이에서 다시 말해 주세요.',

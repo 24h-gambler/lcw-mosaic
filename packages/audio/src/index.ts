@@ -8,6 +8,46 @@ export type DuckReason =
   | 'skill_or_bubble'
   | 'lesson_window';
 
+export type VadMode = 'conversation' | 'skill';
+
+export function vadHangoverMs(mode: VadMode): number {
+  return mode === 'skill' ? AUDIO_LIMITS.VAD_HANGOVER_MS : AUDIO_LIMITS.VAD_HANGOVER_CONVERSATION_MS;
+}
+
+export type MicContext = 'dialog' | 'combat_skill';
+export type MicInputMode = 'tap_toggle' | 'hold';
+
+/** docs/08 7.1-7.2: dialog = tap to start + tap to finish; only combat voice skill (V) is push-to-hold. */
+export function micInputModeFor(context: MicContext): MicInputMode {
+  return context === 'combat_skill' ? 'hold' : 'tap_toggle';
+}
+
+export interface MicCaptureState {
+  recording: boolean;
+  silenceMs: number;
+}
+
+export type MicCaptureEvent =
+  | { type: 'tap' }
+  | { type: 'frame'; speaking: boolean; frameMs: number };
+
+export const MIC_CAPTURE_IDLE: MicCaptureState = { recording: false, silenceMs: 0 };
+
+/**
+ * Pure reducer for the dialog mic (tap-to-start, tap-to-finish, or auto-stop after
+ * DIALOG_MIC_AUTO_STOP_SILENCE_MS of trailing silence once the child has spoken).
+ */
+export function reduceDialogMic(state: MicCaptureState, event: MicCaptureEvent): MicCaptureState {
+  if (event.type === 'tap') {
+    return state.recording ? { recording: false, silenceMs: 0 } : { recording: true, silenceMs: 0 };
+  }
+  if (!state.recording) return state;
+  if (event.speaking) return { recording: true, silenceMs: 0 };
+  const silenceMs = state.silenceMs + event.frameMs;
+  if (silenceMs >= AUDIO_LIMITS.DIALOG_MIC_AUTO_STOP_SILENCE_MS) return { recording: false, silenceMs: 0 };
+  return { recording: true, silenceMs };
+}
+
 export type MusicSector = 'plaza' | 'market' | 'wilds' | 'shelter' | 'mentor_dungeon';
 export type MusicMoodState = 'calm' | 'explore' | 'tense' | 'celebrate';
 
@@ -19,7 +59,12 @@ export const AUDIO_LIMITS = {
   EXPLOSION_MAX_SIMULTANEOUS: 3,
   VAD_FRAME_MS: 20,
   VAD_SPEECH_START_MS: 300,
+  /** Combat voice skills (docs/04 4.11): fast end-of-utterance. */
   VAD_HANGOVER_MS: 500,
+  /** General conversation / lessons (docs/12 9): L2 children pause 1.0-1.8s mid-clause. */
+  VAD_HANGOVER_CONVERSATION_MS: 1500,
+  /** Dialog window (G02) tap-to-talk auto-stop after this much silence (docs/08 7.1). */
+  DIALOG_MIC_AUTO_STOP_SILENCE_MS: 2500,
   TURN_TAKING_MAX_GAP_MS: 2000,
   OPUS_SAMPLE_RATE_HZ: 16_000,
   SPATIAL_MAX_DISTANCE: 28
@@ -239,7 +284,12 @@ export interface AudioEngine {
   lesson: {
     setListenOnly(enabled: boolean): void;
     canGuardianTransmitVoice(): boolean;
-    evaluateVadFrame(rmsEnergy: number, speechMs: number, silenceMs: number): 'speech' | 'silence';
+    evaluateVadFrame(
+      rmsEnergy: number,
+      speechMs: number,
+      silenceMs: number,
+      mode?: VadMode
+    ): 'speech' | 'silence';
   };
   setListener(pos: [number, number, number], yaw: number): void;
   setBusVolume(bus: AudioBusName, volume: number): void;
@@ -515,11 +565,17 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
       canGuardianTransmitVoice(): boolean {
         return !listenOnlyMode;
       },
-      evaluateVadFrame(rmsEnergy: number, speechMs: number, silenceMs: number): 'speech' | 'silence' {
+      evaluateVadFrame(
+        rmsEnergy: number,
+        speechMs: number,
+        silenceMs: number,
+        mode: VadMode = 'conversation'
+      ): 'speech' | 'silence' {
+        const hangoverMs = vadHangoverMs(mode);
         if (rmsEnergy >= 0.02 && speechMs >= AUDIO_LIMITS.VAD_SPEECH_START_MS) {
           return 'speech';
         }
-        if (silenceMs < AUDIO_LIMITS.VAD_HANGOVER_MS && speechMs >= AUDIO_LIMITS.VAD_SPEECH_START_MS) {
+        if (silenceMs < hangoverMs && speechMs >= AUDIO_LIMITS.VAD_SPEECH_START_MS) {
           return 'speech';
         }
         return 'silence';

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BiomeManifestSchema,
   ClientRoomMessageSchema,
+  ItemPreviewSchema,
   ItemSpecV2Schema,
   LegacyItemSpecSchema,
   LlmConverseInputSchema,
@@ -82,9 +83,18 @@ describe('@lcw/schemas WP-002 acceptance', () => {
       ],
       hint_tags: ['fuel-efficient', 'so that', 'space station'],
       item_spec_preview: {
-        base_mesh: 'item_jetpack_01',
+        kind: 'item',
+        v: 2,
+        name: 'Red Jetpack',
         socket: 'Back_Socket',
-        shader_params: { primary_color: '#C0392B' }
+        parts: [
+          { id: 'barrel_tube', pos: [-0.2, 0, 0], color: '#C0392B' },
+          { id: 'barrel_tube', pos: [0.2, 0, 0], color: '#C0392B' },
+          { id: 'nozzle_flare', pos: [0, -0.5, 0], color: '#F5B041', glow: 0.2 }
+        ],
+        tags: ['flight_jetpack'],
+        tier: 2,
+        power: { limit: 10, used: 5 }
       },
       source: 'bank'
     };
@@ -148,6 +158,29 @@ describe('@lcw/schemas WP-002 acceptance', () => {
     expect(() =>
       ItemSpecV2Schema.parse({ ...waterBalloon, maliciousScript: 'alert(1)' })
     ).toThrow();
+  });
+
+  it('validates the v2 jetpack ItemSpec used by docs/03 D2 and docs/04 4.5 (no legacy base_mesh)', () => {
+    const jetpack = {
+      kind: 'item',
+      v: 2,
+      name: 'Red Jetpack',
+      socket: 'Back_Socket',
+      parts: [
+        { id: 'barrel_tube', pos: [-0.2, 0, 0], color: '#C0392B' },
+        { id: 'barrel_tube', pos: [0.2, 0, 0], color: '#C0392B' },
+        { id: 'nozzle_flare', pos: [0, -0.5, 0], color: '#F5B041', glow: 0.2 }
+      ],
+      tags: ['flight_jetpack', 'fuel_x2'],
+      tier: 2,
+      power: { limit: 10, used: 9 }
+    };
+    expect(ItemSpecV2Schema.parse(jetpack)).toEqual(jetpack);
+    // the 04 4.5 preview is the same shape with a smaller tag set
+    const preview = { ...jetpack, tags: ['flight_jetpack'], power: { limit: 10, used: 5 } };
+    expect(ItemPreviewSchema.parse(preview)).toEqual(preview);
+    expect(() => ItemSpecV2Schema.parse({ ...jetpack, base_mesh: 'item_jetpack_01' })).toThrow();
+    expect(() => ItemSpecV2Schema.parse({ ...jetpack, power: { limit: 6, used: 9 } })).toThrow();
   });
 
   it('migrates v1 ItemSpec cleanly to v2 and rejects PII in LLM input', () => {

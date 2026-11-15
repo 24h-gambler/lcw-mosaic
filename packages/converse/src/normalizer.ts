@@ -53,7 +53,10 @@ function stripKoreanParticle(token: string): string {
 /**
  * Normalizes mixed Korean-English transcripts into clean target-language tokens (WP-105).
  */
-export function normalizeMixedUtterance(rawTranscript: string): NormalizationResult {
+export function normalizeMixedUtterance(
+  rawTranscript: string,
+  opts: { keepUnknownKorean?: boolean } = {}
+): NormalizationResult {
   const cleaned = rawTranscript.trim().replace(/\s+/g, ' ');
   if (!cleaned) {
     return {
@@ -100,6 +103,7 @@ export function normalizeMixedUtterance(rawTranscript: string): NormalizationRes
         continue;
       } else {
         unknownKoreanTokens.push(w);
+        if (opts.keepUnknownKorean) outputTokens.push(w);
       }
     } else {
       outputTokens.push(w.toLowerCase());

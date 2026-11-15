@@ -25,6 +25,24 @@ export interface SqliteExecutor {
   get<T extends Record<string, unknown>>(sql: string, params?: unknown[]): T | undefined;
   all<T extends Record<string, unknown>>(sql: string, params?: unknown[]): T[];
   close?(): void;
+  /**
+   * Runs fn atomically. Durable Object SQLite forbids BEGIN/COMMIT through exec(),
+   * so the DO executor supplies storage.transactionSync here; Node falls back to SQL statements.
+   */
+  transaction?<T>(fn: () => T): T;
+}
+
+export function runInTransaction<T>(sql: SqliteExecutor, fn: () => T): T {
+  if (sql.transaction) return sql.transaction(fn);
+  sql.exec('BEGIN TRANSACTION');
+  try {
+    const out = fn();
+    sql.exec('COMMIT');
+    return out;
+  } catch (err) {
+    sql.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 export interface ObjectStore {
@@ -632,8 +650,8 @@ export class WorldDO {
       touchedChunks.add(`${cx},${cy},${cz}`);
     }
 
-    this.sql.exec('BEGIN TRANSACTION');
     try {
+      runInTransaction(this.sql, () => {
       for (const ck of touchedChunks) {
         const [cx, cy, cz] = ck.split(',').map(Number) as [number, number, number];
         const chunk = this.world.getOrCreateChunk(cx, cy, cz);
@@ -654,10 +672,9 @@ export class WorldDO {
           JSON.stringify(inverse)
         ]
       );
-      this.sql.exec('COMMIT');
+      });
       return { ok: true, appliedCount: params.edits.length };
     } catch (err) {
-      this.sql.exec('ROLLBACK');
       // Restore in-memory world via setBlock as well
       for (let i = inverse.length - 1; i >= 0; i--) {
         const inv = inverse[i]!;
@@ -825,8 +842,8 @@ export class WorldDO {
       };
     }
 
-    this.sql.exec('BEGIN TRANSACTION');
     try {
+      runInTransaction(this.sql, () => {
       if (settlement.feeCoins > 0) {
         this.sql.run(
           'insert into ledger (player, delta, reason, ref, at) values (?, ?, ?, ?, ?)',
@@ -862,7 +879,7 @@ export class WorldDO {
           })
         ]
       );
-      this.sql.exec('COMMIT');
+      });
       return {
         ok: true,
         feeCoins: settlement.feeCoins,
@@ -870,7 +887,6 @@ export class WorldDO {
         swappedItemIds: [params.studentGiveItemId, params.teacherGiveItemId]
       };
     } catch (err) {
-      this.sql.exec('ROLLBACK');
       return {
         ok: false,
         reason: err instanceof Error ? err.message : 'trade_tx_failed',
@@ -1056,8 +1072,8 @@ export class WorldDO {
     const parsed = JSON.parse(raw) as {
       chunks: Array<{ cx: number; cy: number; cz: number; rev: number; data: string }>;
     };
-    this.sql.exec('BEGIN TRANSACTION');
     try {
+      runInTransaction(this.sql, () => {
       this.sql.run('delete from chunks');
       for (const c of parsed.chunks) {
         this.sql.run('insert into chunks (cx, cy, cz, rev, data) values (?, ?, ?, ?, ?)', [
@@ -1073,11 +1089,10 @@ export class WorldDO {
         "insert or replace into meta (k, v) values ('consecutive_load_failures', '0')",
         []
       );
-      this.sql.exec('COMMIT');
+      });
       this.safeMode = false;
       return true;
     } catch {
-      this.sql.exec('ROLLBACK');
       return false;
     }
   }

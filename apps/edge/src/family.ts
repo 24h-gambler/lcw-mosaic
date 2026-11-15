@@ -458,14 +458,15 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     if (!dev || now - dev.created_at > DEVICE_TOKEN_TTL_MS) return c.json({ error: 'device_only' }, 401);
     d.sql.run('update devices set last_seen_at = ? where id = ?', [now, dev.id]);
     const kid = d.sql.get<{ nickname: string; level: string }>('select nickname, level from players where id = ?', [dev.player_id]);
-    // Seat gate for solo play (docs/09 5): read-only/archived/refunded seat -> play_allowed false; lessons are not gated here.
+    // Seat gate for solo play (docs/09 5): read-only/archived/refunded seat -> play_allowed false; lessons are not gated.
+    // The child device gets the state only, never a date (AGENTS 4.9: no deadlines on child screens).
     const seat = playAllowed(d.sql, dev.player_id, now);
     return c.json({
       nickname: kid?.nickname ?? '',
       level: kid?.level ?? 'L1',
       voice_store: d.db.hasActiveConsent(dev.player_id, 'voice_store'),
       play_allowed: seat.allowed,
-      seat: seat.seat
+      seat: seat.seat ? { state: seat.seat.state } : null
     });
   });
 

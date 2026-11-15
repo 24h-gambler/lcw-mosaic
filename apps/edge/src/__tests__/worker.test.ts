@@ -226,8 +226,17 @@ describe('production worker (Durable Object SQLite wiring)', () => {
     expect(Object.keys(h.last_runs).sort()).toEqual([
       'daily_retention_cleanup',
       'hourly_quota_rollup',
+      'hourly_seat_notices',
       'weekly_parent_reports'
     ]);
+  });
+
+  it('drains request bodies a route never read, so a kept-alive connection survives an early answer', async () => {
+    const { platform } = makePlatform();
+    const req = new Request('https://x/v1/family/children/kid-x/device-code', { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } });
+    const res = await platform.fetch(req);
+    expect(res.status).toBe(401);
+    expect(req.bodyUsed).toBe(true);
   });
 
   it('caps Workers AI calls per day durably', async () => {

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
-import { sweepSeatNotices } from './seats.js';
+import { playAllowed, sweepSeatNotices } from './seats.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
@@ -314,6 +314,19 @@ export class PlatformDO {
     this.sql.run('delete from ops_runs where at < ?', [Date.now() - 90 * 86_400_000]);
   }
 
+  /** Hourly seat notices (docs/09 시간별 "좌석 만료 안내"), recorded as their own ops run. */
+  runSeatNotices(now: number): number | { error: string } {
+    try {
+      const n = sweepSeatNotices(this.sql, now);
+      this.recordRun('hourly_seat_notices', true, { recorded: n });
+      return n;
+    } catch (err) {
+      const detail = { error: err instanceof Error ? err.message : String(err) };
+      this.recordRun('hourly_seat_notices', false, detail);
+      return detail;
+    }
+  }
+
   runCron(cron: string): { task: string; ok: boolean; detail: unknown } {
     const now = Date.now();
     let task = 'hourly_quota_rollup';
@@ -338,8 +351,10 @@ export class PlatformDO {
         const prices = runWeeklyPriceIndexes(this.sql, now);
         detail = { players_with_speech: players.length, price_index: prices };
       } else {
+        // Seat notices run in their own try: a failure there never hides the report reminders, and the reverse.
+        const seats = this.runSeatNotices(now);
         const r = this.db.processPendingReportReminders(now);
-        detail = { reminded: r.remindedCount, seat_notices: sweepSeatNotices(this.sql, now) };
+        detail = { reminded: r.remindedCount, seat_notices: seats };
       }
       this.recordRun(task, true, detail);
       return { task, ok: true, detail };
@@ -385,7 +400,11 @@ export class PlatformDO {
       this.appDay = day;
       this.app = this.buildApp(day);
     }
-    return this.app.fetch(request);
+    const res = await this.app.fetch(request);
+    // Drain a body the route never read (early 401/403/404 answers, `{}` on bodyless POSTs): workerd otherwise fails
+    // the next request on the same kept-alive connection ("Can't read from request stream after response has been sent").
+    if (request.body && !request.bodyUsed) await request.arrayBuffer().catch(() => undefined);
+    return res;
   }
 }
 
@@ -419,11 +438,20 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
   // or outside a lesson with their linked device token. Who, which world and which level come from the token and
   // the server, never from the body (AGENTS 4.7).
-  const soloPlayer = async (req: Request): Promise<{ player_id: string; session_id: string } | null> => {
+  const soloPlayer = async (req: Request): Promise<{ player_id: string; session_id: string; device: boolean } | null> => {
     const student = await platform.studentFromRequest(req);
-    if (student) return { player_id: student.player_id, session_id: `solo-${student.lesson_id}` };
+    if (student) return { player_id: student.player_id, session_id: `solo-${student.lesson_id}`, device: false };
     const device = await platform.deviceFromRequest(req);
-    return device ? { player_id: device.player_id, session_id: `solo-${device.device_id}` } : null;
+    return device ? { player_id: device.player_id, session_id: `solo-${device.device_id}`, device: true } : null;
+  };
+  /**
+   * Seat gate for solo play (WP-704): a device-token write while the child's seat is read-only/archived/refunded
+   * answers 403. Reads stay open for the 30 read-only days; lesson tokens are never gated by seats.
+   */
+  const seatBlocked = (s: { player_id: string; device: boolean }): Response | null => {
+    if (!s.device) return null;
+    const gate = playAllowed(platform.sql, s.player_id, Date.now());
+    return gate.allowed ? null : Response.json({ error: 'seat_inactive', seat: { state: gate.seat?.state ?? null } }, { status: 403 });
   };
   /** Forwards a child's own request to the inner app with who/which world/level filled in by the server. */
   const forwardSolo = (
@@ -461,7 +489,10 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await soloPlayer(c.req.raw);
     if (!s) return next();
+    // Read the body first: answering a POST before draining it breaks the next request on a kept-alive connection (workerd).
     const body = await readBody(c);
+    const blocked = seatBlocked(s);
+    if (blocked) return blocked;
     if (!body) return c.json({ error: 'invalid_score_request' }, 400);
     return forwardSolo(c.req.url, s, body, (p) => ({
       strict_bank: true,
@@ -498,7 +529,10 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await soloPlayer(c.req.raw);
     if (!s) return next();
+    // Read the body first: answering a POST before draining it breaks the next request on a kept-alive connection (workerd).
     const body = await readBody(c);
+    const blocked = seatBlocked(s);
+    if (blocked) return blocked;
     if (!body) return c.json({ error: 'invalid_review_request' }, 400);
     return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
   });

@@ -65,7 +65,7 @@ describe('seats (WP-704, docs/01 §4, docs/09 P6)', () => {
     expect(mine.status).toBe(200);
     expect(mine.body.seats).toHaveLength(1);
     expect(mine.body.seats[0]).toMatchObject({ plan: 'solo', state: 'active', is_payer: true, can_request_refund: true, child: { nickname: 'Juno' } });
-    expect(mine.body.seats[0].payment.amount_krw).toBe(14_900);
+    expect(mine.body.seats[0].payments[0].amount_krw).toBe(14_900);
 
     const sid = issued.body.seat_ids[0];
     const req = await call(p, 'POST', `/v1/family/seats/${sid}/refund-request`, {}, g);
@@ -83,7 +83,7 @@ describe('seats (WP-704, docs/01 §4, docs/09 P6)', () => {
     expect((await call(p, 'GET', '/v1/device/me', undefined, dev)).body).toMatchObject({ play_allowed: false, seat: { state: 'refunded' } });
     const after = (await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0];
     expect(after).toMatchObject({ state: 'refunded', can_request_refund: false });
-    expect(after.payment.refunded_krw).toBe(14_900);
+    expect(after.payments[0].refunded_krw).toBe(14_900);
   });
 
   it('outside 7 days: no automatic refund, goes to the operator inbox for review', async () => {
@@ -92,7 +92,10 @@ describe('seats (WP-704, docs/01 §4, docs/09 P6)', () => {
     const paid = Date.now() - 8 * DAY;
     const issued = await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-fam-a', plan: 'solo', term: 'month', player_ids: ['kid-1'], paid_at: paid });
     const sid = issued.body.seat_ids[0];
-    expect((await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0].can_request_refund).toBe(false);
+    // the guardian can still ask (it goes to the operator), and the screen knows the window has closed
+    const view = (await call(p, 'GET', '/v1/family/seats', undefined, g)).body;
+    expect(view.seats[0].can_request_refund).toBe(true);
+    expect(view.seats[0].refund_until).toBeLessThanOrEqual(view.server_now);
     expect((await call(p, 'POST', `/v1/family/seats/${sid}/refund-request`, {}, g)).body.status).toBe('review');
     expect((await call(p, 'POST', `/v1/family/seats/${sid}/refund-request`, {}, g)).status).toBe(409);
     expect((await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0].pending_request.status).toBe('review');
@@ -113,7 +116,7 @@ describe('seats (WP-704, docs/01 §4, docs/09 P6)', () => {
     expect((await call(p, 'GET', '/v1/admin/seat-inbox')).body.requests).toHaveLength(0);
     const after = (await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0];
     expect(after).toMatchObject({ state: 'refunded' });
-    expect(after.payment.refunded_krw).toBe(7_000);
+    expect(after.payments[0].refunded_krw).toBe(7_000);
   });
 
   it('issue by the payer child: the family guardian becomes the payer; decline leaves the seat alone', async () => {
@@ -135,7 +138,7 @@ describe('seats (WP-704, docs/01 §4, docs/09 P6)', () => {
     expect((await call(p, 'POST', `/v1/admin/seat-refunds/${req.body.id}/decide`, { decision: 'decline' })).body.status).toBe('declined');
     const s = (await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0];
     expect(s).toMatchObject({ state: 'active', is_payer: true });
-    expect(s.payment.refunded_krw).toBe(0);
+    expect(s.payments[0].refunded_krw).toBe(0);
   });
 
   it('Duo: one payer; one seat refunded → payer gets the difference, the other seat becomes Solo, other family sees no name or money', async () => {
@@ -163,18 +166,25 @@ describe('seats (WP-704, docs/01 §4, docs/09 P6)', () => {
     // non-payer family sees only its own seat, without payment
     const bView = (await call(p, 'GET', '/v1/family/seats', undefined, gb)).body.seats;
     expect(bView).toHaveLength(1);
-    expect(bView[0]).toMatchObject({ id: seatB, is_payer: false, payment: null, duo_options: null, child: { nickname: 'Mina' } });
+    expect(bView[0]).toMatchObject({ id: seatB, is_payer: false, payments: null, duo_options: null, child: { nickname: 'Mina' } });
     expect(JSON.stringify(bView)).not.toContain('Juno');
     expect(JSON.stringify(bView)).not.toContain('g-fam-a');
     // a third family cannot touch either seat
     const gc = await family(p, 'kid-d', 'fam-d', 'Bo');
     expect((await call(p, 'POST', `/v1/family/seats/${seatB}/refund-request`, {}, gc)).status).toBe(404);
 
-    // family B asks to leave; the payer is refunded the Duo − Solo difference, seat A turns Solo for the full term
-    expect((await call(p, 'POST', `/v1/family/seats/${seatB}/refund-request`, { mode: 'convert_to_solo_days' }, gb)).body.status).toBe('pending');
+    // family B asks to leave; a non-payer cannot pick the settlement, so the request waits for the payer
+    const asked = await call(p, 'POST', `/v1/family/seats/${seatB}/refund-request`, { mode: 'convert_to_solo_days' }, gb);
+    expect(asked.body).toMatchObject({ status: 'pending', awaiting_payer_choice: true });
+    expect((await call(p, 'POST', `/v1/admin/seats/${seatB}/refund`, {})).body.error).toBe('awaiting_payer_choice');
+    const payerSees = (await call(p, 'GET', '/v1/family/seats', undefined, ga)).body.seats.find((s: any) => s.id === seatB);
+    expect(payerSees).toMatchObject({ can_choose_mode: true, pending_request: { awaiting_payer_choice: true } });
+    expect(JSON.stringify(payerSees.pending_request)).not.toContain('g-fam-b');
+    // the payer chooses the difference: the payer is refunded Duo − Solo, seat A turns Solo for the full term
+    expect((await call(p, 'POST', `/v1/family/seats/${seatB}/refund-request`, { mode: 'refund_difference' }, ga)).body.mode).toBe('refund_difference');
+    expect((await call(p, 'POST', `/v1/family/seats/${seatB}/refund-request`, { mode: 'convert_to_solo_days' }, ga)).status).toBe(409);
     const r = await call(p, 'POST', `/v1/admin/seats/${seatB}/refund`, {});
     expect(r.status).toBe(200);
-    // a non-payer cannot pick the settlement → default refund_difference
     expect(r.body.refund_krw).toBe(PLAN_PRICES_KRW.duo.month - PLAN_PRICES_KRW.solo.month);
     expect(r.body.remaining_seat).toMatchObject({ id: seatA, plan: 'solo', solo_days: 30 });
     const aSeat = (await call(p, 'GET', '/v1/family/seats', undefined, ga)).body.seats.find((s: any) => s.id === seatA);
@@ -184,7 +194,7 @@ describe('seats (WP-704, docs/01 §4, docs/09 P6)', () => {
     // the last seat refunded within 7 days returns the rest of the payment
     const last = await call(p, 'POST', `/v1/admin/seats/${seatA}/refund`, {});
     expect(last.body.refund_krw).toBe(PLAN_PRICES_KRW.solo.month);
-    const total = (await call(p, 'GET', '/v1/family/seats', undefined, ga)).body.seats[0].payment.refunded_krw;
+    const total = (await call(p, 'GET', '/v1/family/seats', undefined, ga)).body.seats[0].payments[0].refunded_krw;
     expect(total).toBe(PLAN_PRICES_KRW.duo.month);
   });
 

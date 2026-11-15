@@ -15,6 +15,7 @@ import {
   type FamilySeat,
   type SeatInbox,
   type SeatInboxItem,
+  type SeatPayment,
   type SeatRefundMode,
   type SeatState
 } from './familyApi.js';
@@ -33,7 +34,8 @@ const small: React.CSSProperties = { fontSize: px(T.scale.small.sizePx), lineHei
 const won = (n: number) => n.toLocaleString('ko-KR');
 const day = (ms: number | null) => kstLabel(ms, false).replace(/^\d{4}년 /, '');
 /** What the operator must do next after a rule refund (money is sent by hand). */
-export function doneText(r: { refund_krw: number; remaining_seat: { solo_days: number } | null }): string {
+export function doneText(r: { refund_krw: number; removed_days?: number; remaining_seat: { solo_days: number } | null }): string {
+  if (r.removed_days) return A.refundDoneExtend(won(r.refund_krw), r.removed_days);
   if (!r.remaining_seat) return A.refundDone(won(r.refund_krw));
   return r.refund_krw > 0 ? A.refundDoneDuoKeep(won(r.refund_krw)) : A.refundDoneDuoDays(r.remaining_seat.solo_days);
 }
@@ -89,7 +91,7 @@ export function FamilySeatsView({
   seats: readonly FamilySeat[];
   now: number;
   busy?: boolean;
-  sent?: { seatId: string; status: 'pending' | 'review' } | null;
+  sent?: { seatId: string; status: SeatSent } | null;
   onRequest: (seatId: string, input: SeatRequestInput) => void;
 }): React.ReactElement | null {
   if (seats.length === 0) return null;
@@ -105,6 +107,58 @@ export function FamilySeatsView({
   );
 }
 
+function DuoChoice({
+  seatId,
+  options,
+  mode,
+  setMode
+}: {
+  seatId: string;
+  options: { refund_difference_krw: number; solo_days: number };
+  mode: SeatRefundMode;
+  setMode: (m: SeatRefundMode) => void;
+}): React.ReactElement {
+  return (
+    <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'grid', gap: sp(1) }}>
+      {(
+        [
+          ['refund_difference', S.duoDiff(won(options.refund_difference_krw))],
+          ['convert_to_solo_days', S.duoDays(options.solo_days)]
+        ] as const
+      ).map(([m, label]) => (
+        <label key={m} style={{ display: 'flex', gap: sp(2), alignItems: 'flex-start', minHeight: px(TOKENS.shape.touchTargetMinPx) }}>
+          <input type="radio" name={`mode-${seatId}`} checked={mode === m} onChange={() => setMode(m)} style={{ width: 22, height: 22, flex: 'none' }} />
+          <span>{label}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+function PaymentLines({ payments }: { payments: readonly SeatPayment[] }): React.ReactElement {
+  return (
+    <div style={{ ...small, display: 'grid', gap: '2px' }} data-testid="seat-payment">
+      {payments.map((p) => (
+        <span key={p.order_id}>
+          {p.kind === 'extend'
+            ? S.paymentLineExtend(p.days ?? 0, won(p.amount_krw), day(p.paid_at))
+            : (p.plan === 'duo' ? S.paymentLineDuo : S.paymentLine)(won(p.amount_krw), day(p.paid_at))}
+          {p.refunded_krw > 0 ? ` · ${S.refundedLine(won(p.refunded_krw))}` : ''}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export type SeatSent = 'pending' | 'review' | 'awaiting' | 'chosen';
+
+/** Which confirmation to show after a request: a payer's choice on a waiting Duo request, a waiting request, or the status. */
+export function sentKind(r: { status: 'pending' | 'review'; mode?: string; awaiting_payer_choice?: boolean }): SeatSent {
+  if (r.awaiting_payer_choice === undefined && r.mode) return 'chosen';
+  if (r.awaiting_payer_choice) return 'awaiting';
+  return r.status;
+}
+
 function SeatItem({
   seat: s,
   now,
@@ -115,16 +169,16 @@ function SeatItem({
   seat: FamilySeat;
   now: number;
   busy: boolean;
-  sent: 'pending' | 'review' | null;
+  sent: SeatSent | null;
   onRequest: (seatId: string, input: SeatRequestInput) => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<SeatRefundMode>('refund_difference');
   const [note, setNote] = useState('');
-  const inWindow = s.refund_until !== null && now <= s.refund_until;
-  const live = s.state === 'active' || s.state === 'expiring';
-  const canAsk = !s.pending_request && s.state !== 'refunded' && (s.is_payer || s.child !== null) && live;
+  const inWindow = s.refund_until !== null && now < s.refund_until;
+  const canAsk = s.can_request_refund;
   const planText = `${S.plan[s.plan] ?? s.plan} · ${S.term[s.term] ?? s.term}`;
+  const pr = s.pending_request;
   return (
     <li
       data-testid={`seat-${s.id}`}
@@ -143,25 +197,41 @@ function SeatItem({
       {s.state === 'read_only' ? <p style={{ margin: 0 }}>{S.readOnlyBody(day(s.read_only_until))}</p> : null}
       {s.state === 'archived' ? <p style={{ margin: 0 }}>{S.archivedBody}</p> : null}
       {s.state === 'refunded' ? <p style={{ margin: 0 }}>{S.refundedBody}</p> : null}
-      {s.payment ? (
-        <div style={{ ...small, display: 'grid', gap: '2px' }} data-testid="seat-payment">
-          <span>{(s.payment.plan === 'duo' ? S.paymentLineDuo : S.paymentLine)(won(s.payment.amount_krw), day(s.payment.paid_at))}</span>
-          {s.payment.refunded_krw > 0 ? <span>{S.refundedLine(won(s.payment.refunded_krw))}</span> : null}
-        </div>
-      ) : null}
-      {s.pending_request ? (
+      {s.payments && s.payments.length > 0 ? <PaymentLines payments={s.payments} /> : null}
+      {pr ? (
         <Notice kind="info" testId="seat-pending">
-          {(s.pending_request.status === 'review' ? S.refundReview : S.refundPending)(day(s.pending_request.requested_at))}
+          {(pr.status === 'review' ? S.refundReview : pr.awaiting_payer_choice ? S.refundAwaiting : S.refundPending)(day(pr.requested_at))}
         </Notice>
+      ) : null}
+      {s.can_choose_mode && s.duo_options ? (
+        <form
+          data-testid={`seat-choose-${s.id}`}
+          onSubmit={(e) => {
+            e.preventDefault();
+            onRequest(s.id, { mode });
+          }}
+          style={{ display: 'grid', gap: sp(2), borderTop: `1px solid ${C['line-200']}`, paddingTop: sp(2) }}
+        >
+          <strong>{S.chooseTitle}</strong>
+          <p style={{ margin: 0 }}>{S.chooseBody}</p>
+          <DuoChoice seatId={s.id} options={s.duo_options} mode={mode} setMode={setMode} />
+          <div>
+            <Button type="submit" variant="brand" disabled={busy}>
+              {S.chooseSubmit}
+            </Button>
+          </div>
+        </form>
       ) : null}
       {sent ? (
         <Notice kind="ok" testId="seat-sent">
-          {sent === 'pending' ? S.sentPending : S.sentReview}
+          {sent === 'pending' ? S.sentPending : sent === 'awaiting' ? S.sentAwaiting : sent === 'chosen' ? S.sentChosen : S.sentReview}
         </Notice>
       ) : null}
       {canAsk && !open ? (
         <div style={{ display: 'grid', gap: sp(1) }}>
-          <span style={small}>{inWindow && s.refund_until ? S.refundUntil(day(s.refund_until)) : S.refundClosed}</span>
+          <span style={small} data-testid="seat-refund-until">
+            {inWindow && s.refund_until ? S.refundUntil(day(s.refund_until - 1)) : S.refundClosed}
+          </span>
           <div>
             <Button type="button" variant="paper" disabled={busy} onClick={() => setOpen(true)} data-testid={`seat-ask-${s.id}`}>
               {S.refundAsk}
@@ -180,22 +250,12 @@ function SeatItem({
           style={{ display: 'grid', gap: sp(2), borderTop: `1px solid ${C['line-200']}`, paddingTop: sp(2) }}
         >
           <strong>{S.formTitle}</strong>
-          {s.plan === 'duo' && s.duo_options ? (
-            <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'grid', gap: sp(1) }}>
-              <legend style={{ marginBottom: sp(1) }}>{S.duoPayerBody}</legend>
-              {(
-                [
-                  ['refund_difference', S.duoDiff(won(s.duo_options.refund_difference_krw))],
-                  ['convert_to_solo_days', S.duoDays(s.duo_options.solo_days)]
-                ] as const
-              ).map(([m, label]) => (
-                <label key={m} style={{ display: 'flex', gap: sp(2), alignItems: 'flex-start', minHeight: px(TOKENS.shape.touchTargetMinPx) }}>
-                  <input type="radio" name={`mode-${s.id}`} checked={mode === m} onChange={() => setMode(m)} style={{ width: 22, height: 22, flex: 'none' }} />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </fieldset>
-          ) : s.plan === 'duo' ? (
+          {s.duo_options ? (
+            <>
+              <p style={{ margin: 0 }}>{S.duoPayerBody}</p>
+              <DuoChoice seatId={s.id} options={s.duo_options} mode={mode} setMode={setMode} />
+            </>
+          ) : s.plan === 'duo' && inWindow ? (
             <p style={{ margin: 0 }}>{S.duoOtherBody}</p>
           ) : inWindow ? (
             <p style={{ margin: 0 }}>{S.soloBody}</p>
@@ -225,7 +285,7 @@ export function FamilySeats({ api, token }: { api: FamilyApi; token: string }): 
   const [data, setData] = useState<{ seats: FamilySeat[]; server_now: number } | null>(null);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState<{ seatId: string; status: 'pending' | 'review' } | null>(null);
+  const [sent, setSent] = useState<{ seatId: string; status: SeatSent } | null>(null);
   const load = useCallback(async () => {
     try {
       setData(await api.seats(token));
@@ -254,7 +314,7 @@ export function FamilySeats({ api, token }: { api: FamilyApi; token: string }): 
         setBusy(true);
         void api
           .requestRefund(token, seatId, input)
-          .then((r) => setSent({ seatId, status: r.status }))
+          .then((r) => setSent({ seatId, status: sentKind(r) }))
           .catch(() => setError(true))
           .finally(() => {
             setBusy(false);
@@ -343,7 +403,7 @@ export function SeatsAdminPage({ api, initialToken, now = Date.now }: { api?: Fa
             now={now()}
             onRule={(it) =>
               run(async (op) => {
-                const r = await apiRef.current.adminRefundSeat(op, it.seat_id, it.mode ?? undefined);
+                const r = await apiRef.current.adminRefundSeat(op, it.seat_id);
                 return doneText(r);
               }, undefined, A.confirmRefund)
             }
@@ -359,8 +419,11 @@ export function SeatsAdminPage({ api, initialToken, now = Date.now }: { api?: Fa
                 return A.refundDone(won(amount));
               }, undefined, A.confirmRefund)
             }
-            onExtend={(seatId, days) =>
-              run(async (op) => A.extended(day((await apiRef.current.adminExtendSeat(op, seatId, days)).ends_at)))
+            onExtend={(seatId, input) =>
+              run(
+                async (op) => A.extended(day((await apiRef.current.adminExtendSeat(op, seatId, input)).ends_at)),
+                (code) => A.issueErr[code]
+              )
             }
           />
           <IssueForm
@@ -386,8 +449,11 @@ export function SeatsAdminPage({ api, initialToken, now = Date.now }: { api?: Fa
                 return doneText(r);
               }, undefined, A.confirmRefund)
             }
-            onExtend={(seatId, days) =>
-              run(async (op) => A.extended(day((await apiRef.current.adminExtendSeat(op, seatId, days)).ends_at)))
+            onExtend={(seatId, input) =>
+              run(
+                async (op) => A.extended(day((await apiRef.current.adminExtendSeat(op, seatId, input)).ends_at)),
+                (code) => A.issueErr[code]
+              )
             }
           />
         </>
@@ -411,7 +477,7 @@ function Inbox({
   onRule: (it: SeatInboxItem) => void;
   onDecline: (it: SeatInboxItem) => void;
   onException: (it: SeatInboxItem, amount: number) => void;
-  onExtend: (seatId: string, days: number) => void;
+  onExtend: (seatId: string, input: ExtendInput) => void;
 }): React.ReactElement {
   return (
     <Box title={A.inboxTitle} tone="tinted" testId="seats-inbox">
@@ -430,9 +496,7 @@ function Inbox({
             <span style={small}>
               {day(e.ends_at)} · {S.state.expiring(daysLeft(e.ends_at, now))}
             </span>
-            <Button type="button" variant="paper" disabled={busy} onClick={() => onExtend(e.id, 30)}>
-              {A.extend30}
-            </Button>
+            <ExtendForm seatId={e.id} defaultDays={e.term === 'year' ? 365 : 30} busy={busy} onExtend={onExtend} />
           </li>
         ))}
       </ul>
@@ -460,7 +524,7 @@ function InboxItem({
       <div style={{ display: 'flex', gap: sp(2), alignItems: 'baseline', flexWrap: 'wrap' }}>
         <strong>{it.nickname ?? '—'}</strong>
         <span style={{ fontWeight: 700, color: review ? C['danger-d'] : C['sky-d'] }}>
-          {review ? `${A.reqReview} · ${A.reason[it.reason ?? ''] ?? it.reason ?? ''}` : A.reqPending}
+          {review ? `${A.reqReview} · ${A.reason[it.reason ?? ''] ?? it.reason ?? ''}` : it.awaiting_payer_choice ? `${A.reqPending} · ${A.awaiting}` : A.reqPending}
         </span>
         <span style={small}>
           {S.plan[it.plan] ?? it.plan}
@@ -468,10 +532,11 @@ function InboxItem({
         </span>
       </div>
       <span style={small}>{A.reqMeta(day(it.paid_at), won(it.amount_krw), it.usage.lessons, it.usage.utterances)}</span>
+      <span style={small}>{A.reqDeadline(day(it.refund_until - 1))}</span>
       {it.note ? <span style={small}>{A.reqNote(it.note)}</span> : null}
       <div style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap', alignItems: 'end' }}>
         {!review ? (
-          <Button type="button" variant="brand" disabled={busy} onClick={() => onRule(it)}>
+          <Button type="button" variant="brand" disabled={busy || it.awaiting_payer_choice} onClick={() => onRule(it)}>
             {A.refundRule}
           </Button>
         ) : (
@@ -500,7 +565,14 @@ function IssueForm({
 }: {
   kids: Array<{ player_id: string; nickname: string; family_id: string }>;
   busy: boolean;
-  onIssue: (input: { payer_player_id: string; plan: 'solo' | 'duo' | 'tutoring'; term: 'month' | 'year'; player_ids: string[]; amount_krw?: number }) => void;
+  onIssue: (input: {
+    payer_player_id: string;
+    plan: 'solo' | 'duo' | 'tutoring';
+    term: 'month' | 'year';
+    player_ids: string[];
+    amount_krw?: number;
+    paid_at?: number;
+  }) => void;
 }): React.ReactElement {
   const [plan, setPlan] = useState<'solo' | 'duo' | 'tutoring'>('solo');
   const [term, setTerm] = useState<'month' | 'year'>('month');
@@ -508,6 +580,7 @@ function IssueForm({
   const [kid2, setKid2] = useState('');
   const [payer, setPayer] = useState<'kid' | 'kid2'>('kid');
   const [amount, setAmount] = useState('');
+  const [paidAt, setPaidAt] = useState('');
   const name = (id: string) => kids.find((k) => k.player_id === id)?.nickname ?? '';
   // Same nickname in two families: add the end of the id so the operator picks the right child.
   const optionLabel = (k: { player_id: string; nickname: string }) =>
@@ -537,7 +610,8 @@ function IssueForm({
             plan,
             term,
             player_ids: plan === 'duo' ? [kid, kid2] : [kid],
-            ...(amount !== '' ? { amount_krw: Number(amount) } : {})
+            ...(amount !== '' ? { amount_krw: Number(amount) } : {}),
+            ...(kstInputToMs(paidAt) !== null ? { paid_at: kstInputToMs(paidAt)! } : {})
           });
         }}
         style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'end' }}
@@ -577,6 +651,10 @@ function IssueForm({
           {A.issueAmount}
           <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))} style={inputStyle} />
         </label>
+        <label style={{ ...labelStyle, flex: '1 1 200px' }}>
+          {A.issuePaidAt}
+          <input type="datetime-local" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} style={inputStyle} data-testid="issue-paid-at" />
+        </label>
         <Button type="submit" variant="brand" disabled={busy || !ready}>
           {A.issueSubmit}
         </Button>
@@ -596,7 +674,7 @@ function SeatList({
   now: number;
   busy: boolean;
   onRule: (s: AdminSeat) => void;
-  onExtend: (seatId: string, days: number) => void;
+  onExtend: (seatId: string, input: ExtendInput) => void;
 }): React.ReactElement {
   const th: React.CSSProperties = { textAlign: 'left', padding: sp(1), borderBottom: border, whiteSpace: 'nowrap' };
   const td: React.CSSProperties = { padding: sp(1), borderBottom: `1px solid ${C['line-200']}`, verticalAlign: 'top' };
@@ -618,7 +696,6 @@ function SeatList({
             </thead>
             <tbody>
               {seats.map((s) => {
-                const inWindow = s.order ? now <= s.order.refund_until : false;
                 return (
                   <tr key={s.id}>
                     <td style={td}>{s.nickname}</td>
@@ -630,20 +707,24 @@ function SeatList({
                       <SeatBadge state={s.state} endsAt={s.ends_at} now={now} />
                     </td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                      {s.order ? `${won(s.order.amount_krw)}원 · ${day(s.order.paid_at)}` : '—'}
-                      {s.order && s.order.refunded_krw > 0 ? <div style={small}>{S.refundedLine(won(s.order.refunded_krw))}</div> : null}
+                      {s.payments.length === 0 ? '—' : null}
+                      {s.payments.map((pm) => (
+                        <div key={pm.order_id}>
+                          {pm.kind === 'extend' ? A.payExtend(pm.days ?? 0, won(pm.amount_krw), day(pm.paid_at)) : A.payIssue(won(pm.amount_krw), day(pm.paid_at))}
+                          {pm.refunded_krw > 0 ? <div style={small}>{S.refundedLine(won(pm.refunded_krw))}</div> : null}
+                        </div>
+                      ))}
                     </td>
                     <td style={td}>
                       {s.state !== 'refunded' ? (
                         <div style={{ display: 'flex', gap: sp(1), flexWrap: 'wrap' }}>
-                          <Button type="button" variant="paper" disabled={busy} onClick={() => onExtend(s.id, s.term === 'year' ? 365 : 30)}>
-                            {s.term === 'year' ? A.extend365 : A.extend30}
-                          </Button>
-                          {inWindow ? (
+                          <ExtendForm seatId={s.id} defaultDays={s.term === 'year' ? 365 : 30} busy={busy} onExtend={onExtend} />
+                          {s.rule_refund_open && !s.awaiting_payer_choice ? (
                             <Button type="button" variant="paper" disabled={busy} onClick={() => onRule(s)}>
                               {A.refundRule}
                             </Button>
                           ) : null}
+                          {s.awaiting_payer_choice && s.rule_refund_open ? <span style={small}>{A.awaiting}</span> : null}
                         </div>
                       ) : null}
                     </td>
@@ -655,5 +736,68 @@ function SeatList({
         </div>
       )}
     </Box>
+  );
+}
+
+export interface ExtendInput {
+  days: number;
+  amount_krw?: number;
+  paid_at?: number;
+}
+
+/** `datetime-local` value read as KST wall time → ms; empty or malformed → null. */
+export function kstInputToMs(v: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(v);
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])) - 9 * 3_600_000;
+}
+
+/** Extension = a payment: days, amount (empty → list price for a whole term), and when the money arrived. */
+function ExtendForm({
+  seatId,
+  defaultDays,
+  busy,
+  onExtend
+}: {
+  seatId: string;
+  defaultDays: number;
+  busy: boolean;
+  onExtend: (seatId: string, input: ExtendInput) => void;
+}): React.ReactElement {
+  const [days, setDays] = useState(String(defaultDays));
+  const [amount, setAmount] = useState('');
+  const [paidAt, setPaidAt] = useState('');
+  return (
+    <details data-testid={`extend-${seatId}`}>
+      <summary style={{ cursor: 'pointer', fontWeight: 700, minHeight: px(TOKENS.shape.touchTargetMinPx), display: 'flex', alignItems: 'center' }}>{A.extendTitle}</summary>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          const d = Number(days);
+          if (!Number.isInteger(d) || d < 1) return;
+          const at = kstInputToMs(paidAt);
+          onExtend(seatId, { days: d, ...(amount !== '' ? { amount_krw: Number(amount) } : {}), ...(at !== null ? { paid_at: at } : {}) });
+        }}
+        style={{ display: 'grid', gap: sp(1), marginTop: sp(1), minWidth: '200px' }}
+      >
+        <label style={labelStyle}>
+          {A.extendDays}
+          <input inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value.replace(/[^0-9]/g, ''))} style={inputStyle} />
+        </label>
+        <label style={labelStyle}>
+          {A.extendAmount}
+          <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))} style={inputStyle} />
+        </label>
+        <label style={labelStyle}>
+          {A.extendPaidAt}
+          <input type="datetime-local" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} style={inputStyle} />
+        </label>
+        <div>
+          <Button type="submit" variant="brand" disabled={busy}>
+            {A.extendSubmit}
+          </Button>
+        </div>
+      </form>
+    </details>
   );
 }

@@ -1,19 +1,29 @@
 /**
- * Seats (WP-704, docs/01 §4, docs/09 P6): manual issuance after a bank transfer, extension, expiry (30 days read-only,
- * then archived), the 7-day refund rule as one operator button, and the Duo partial refund through
+ * Seats (WP-704, docs/01 §4, docs/09 P6): manual issuance after a bank transfer, paid extension, expiry (30 days
+ * read-only, then archived), the refund rule as one operator button, and the Duo partial refund through
  * `settleDuoSeatRefund` / `hasSingleDuoPayer` (packages/quota). Money never moves here: a refund records the amount
  * the operator transfers back to the single payer.
  *
- * Who may ask: the payer, or the guardian of that seat's child. One family's request never touches the other
- * Duo seat's data (docs/01 §4 "결제자는 1명").
+ * Payments: every payment is a `seat_orders` row linked to its seats in `seat_order_links` — the first issue
+ * ('issue', one order for both Duo seats) and each paid extension ('extend', one seat, `days`). The refund window is
+ * per payment: KST, from the day after payment to 24:00 of the 7th day (`refundDeadlineMs`).
+ *
+ * Who may ask: the payer, or the guardian of that seat's child. Only the payer chooses how a Duo partial refund is
+ * settled; another family's request waits for that choice. One family's request never touches the other Duo seat's
+ * data (docs/01 §4 "결제자는 1명").
+ *
+ * Play: `playAllowed` is the server-side gate. Device-token solo writes (platform.ts: converse/score incl. purchases,
+ * review attempts; showroom publish) answer 403 `seat_inactive` while the newest seat is read-only/archived/refunded.
+ * Lesson paths (/v1/join, /v1/lesson/*, lesson student tokens) never look at seats.
  */
 import type { Hono, Context } from 'hono';
 import { z } from 'zod';
 import {
   PLAN_PRICES_KRW,
-  REFUND_WINDOW_MS,
   TERM_DAYS,
   hasSingleDuoPayer,
+  inRefundWindow,
+  refundDeadlineMs,
   settleDuoSeatRefund,
   type BillingTerm,
   type DuoRefundMode
@@ -23,12 +33,20 @@ import { runInTransaction, type SqliteExecutor } from './storage.js';
 const DAY = 86_400_000;
 export const SEAT_READ_ONLY_MS = 30 * DAY;
 export const SEAT_EXPIRING_MS = 7 * DAY;
+/** A payment time may be a little ahead of the server clock (typing), not more. */
+export const PAID_AT_FUTURE_SLACK_MS = 10 * 60_000;
 
+/**
+ * `seat_order_seats` (first version, one order per seat) is kept for old rows and copied into `seat_order_links`,
+ * which allows several payments per seat.
+ */
 export const SEATS_SCHEMA = `
 create table if not exists seat_orders (id text primary key, payer_id text not null, plan text not null, term text not null, amount_krw integer not null, paid_at integer not null, created_at integer not null, note text not null default '');
 create table if not exists seat_order_seats (seat_id text primary key, order_id text not null);
+create table if not exists seat_order_links (seat_id text not null, order_id text not null, kind text not null, days integer, refunded_at integer, primary key (seat_id, order_id));
 create table if not exists seat_refunds (id text primary key, seat_id text not null, order_id text not null, requested_by text not null, requested_at integer not null, mode text, status text not null, refund_krw integer, remaining_solo_days integer, decided_at integer, reason text, note text not null default '');
 create table if not exists seat_notices (seat_id text not null, kind text not null, at integer not null, primary key (seat_id, kind));
+insert or ignore into seat_order_links (seat_id, order_id, kind, days, refunded_at) select l.seat_id, l.order_id, 'issue', null, case when s.status = 'refunded' then s.ends_at end from seat_order_seats l left join seats s on s.id = l.seat_id
 `;
 
 export type SeatPlan = 'solo' | 'duo' | 'tutoring';
@@ -44,11 +62,22 @@ type SeatRow = {
   ends_at: number;
   status: string;
 };
+type OrderRow = { id: string; payer_id: string; plan: string; term: BillingTerm; amount_krw: number; paid_at: number; created_at: number };
+type LinkRow = OrderRow & { seat_id: string; order_id: string; kind: 'issue' | 'extend'; days: number | null; refunded_at: number | null };
 
 export function duoOptions(term: BillingTerm, paidAtMs: number, paidAmountKrw: number, nowMs: number): { refund_difference_krw: number; solo_days: number } | null {
   const a = settleDuoSeatRefund({ term, paidAtMs, refundRequestedAtMs: nowMs, paidAmountKrw, mode: 'refund_difference' });
   const b = settleDuoSeatRefund({ term, paidAtMs, refundRequestedAtMs: nowMs, paidAmountKrw, mode: 'convert_to_solo_days' });
   return a.eligible && b.eligible ? { refund_difference_krw: a.refundKrw, solo_days: b.remainingSoloDays } : null;
+}
+
+/** Default price of an extension: the plan price when `days` is a whole term (Duo: one seat's half), otherwise 0. */
+export function extensionPriceKrw(plan: string, days: number): number {
+  const term: BillingTerm | null = days === TERM_DAYS.month ? 'month' : days === TERM_DAYS.year ? 'year' : null;
+  if (!term) return 0;
+  if (plan === 'solo') return PLAN_PRICES_KRW.solo[term];
+  if (plan === 'duo') return Math.round(PLAN_PRICES_KRW.duo[term] / 2);
+  return 0;
 }
 
 /** Time-derived state (docs/09 §5: expiry → 30 days read-only, then archived). */
@@ -58,9 +87,12 @@ export function seatState(s: Pick<SeatRow, 'ends_at' | 'status'>, nowMs: number)
   return nowMs < s.ends_at + SEAT_READ_ONLY_MS ? 'read_only' : 'archived';
 }
 
-/** Play is allowed while a seat is active/expiring; a child who never had a seat (pre-sale, tutoring) keeps playing. */
+/**
+ * Server-side play gate. The newest seat decides: active/expiring → play; read-only/archived/refunded → no solo play.
+ * A child who never had a seat (pre-sale, lesson-only) keeps playing.
+ */
 export function playAllowed(sql: SqliteExecutor, playerId: string, nowMs: number): { allowed: boolean; seat: { state: SeatState; ends_at: number } | null } {
-  const s = sql.get<SeatRow>('select * from seats where player_id = ? order by ends_at desc limit 1', [playerId]);
+  const s = sql.get<SeatRow>('select * from seats where player_id = ? order by starts_at desc, ends_at desc limit 1', [playerId]);
   if (!s) return { allowed: true, seat: null };
   const state = seatState(s, nowMs);
   return { allowed: state === 'active' || state === 'expiring', seat: { state, ends_at: s.ends_at } };
@@ -82,6 +114,7 @@ export function sweepSeatNotices(sql: SqliteExecutor, nowMs: number): number {
   return n;
 }
 
+const Mode = z.enum(['refund_difference', 'convert_to_solo_days']);
 const IssueSchema = z
   .object({
     /** The guardian who transferred the money; or `payer_player_id` → that child's family guardian. */
@@ -90,21 +123,28 @@ const IssueSchema = z
     plan: z.enum(['solo', 'duo', 'tutoring']),
     term: z.enum(['month', 'year']),
     player_ids: z.array(z.string().min(1).max(64)).min(1).max(2),
+    /** When the transfer arrived (ms). The refund window counts from this, not from when the seat was typed in. */
     paid_at: z.number().int().positive().optional(),
     amount_krw: z.number().int().min(0).max(10_000_000).optional(),
     note: z.string().max(200).optional()
   })
   .strict()
   .refine((v) => Boolean(v.payer_guardian_id) !== Boolean(v.payer_player_id), { message: 'one payer' });
-const ExtendSchema = z.object({ days: z.number().int().min(1).max(400) }).strict();
+const ExtendSchema = z
+  .object({
+    days: z.number().int().min(1).max(400),
+    amount_krw: z.number().int().min(0).max(10_000_000).optional(),
+    paid_at: z.number().int().positive().optional(),
+    note: z.string().max(200).optional()
+  })
+  .strict();
 const DecideSchema = z.discriminatedUnion('decision', [
   z.object({ decision: z.literal('decline') }).strict(),
   z.object({ decision: z.literal('refund'), refund_krw: z.number().int().min(0).max(10_000_000) }).strict()
 ]);
-const RefundSchema = z.object({ mode: z.enum(['refund_difference', 'convert_to_solo_days']).optional() }).strict();
-const RefundRequestSchema = z
-  .object({ mode: z.enum(['refund_difference', 'convert_to_solo_days']).optional(), note: z.string().trim().max(200).optional() })
-  .strict();
+/** The operator presses the rule; the Duo settlement is the payer's choice from their request, never the operator's. */
+const RefundSchema = z.object({}).strict();
+const RefundRequestSchema = z.object({ mode: Mode.optional(), note: z.string().trim().max(200).optional() }).strict();
 
 export interface SeatDeps {
   sql: SqliteExecutor;
@@ -117,6 +157,7 @@ export interface GuardianRef {
 }
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+type Out = { status: 200 | 201 | 400 | 404 | 409; body: Record<string, unknown> };
 
 /** Operator routes (behind the operator gate) and guardian routes (behind `withGuardian`). */
 export function mountSeatRoutes(
@@ -127,89 +168,141 @@ export function mountSeatRoutes(
   d.sql.exec(SEATS_SCHEMA);
   const id = (p: string) => `${p}-${hex(d.randomBytes(6))}`;
   const seatRow = (sid: string) => d.sql.get<SeatRow>('select * from seats where id = ?', [sid]);
-  const orderOf = (sid: string) =>
-    d.sql.get<{ id: string; payer_id: string; plan: string; term: BillingTerm; amount_krw: number; paid_at: number }>(
-      'select o.* from seat_orders o join seat_order_seats l on l.order_id = o.id where l.seat_id = ?',
+  const nickOf = (pid: string) => d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [pid])?.nickname ?? '';
+  const familyOfPlayer = (pid: string) => d.sql.get<{ family_id: string }>('select family_id from players where id = ?', [pid])?.family_id;
+  /** All payments of a seat, newest first. */
+  const linksOf = (sid: string) =>
+    d.sql.all<LinkRow>(
+      'select o.*, l.seat_id, l.order_id, l.kind, l.days, l.refunded_at from seat_order_links l join seat_orders o on o.id = l.order_id where l.seat_id = ? order by o.paid_at desc, o.created_at desc',
       [sid]
     );
+  const issueLink = (sid: string) => linksOf(sid).find((l) => l.kind === 'issue');
   const orderSeats = (oid: string) =>
-    d.sql.all<SeatRow>('select s.* from seats s join seat_order_seats l on l.seat_id = s.id where l.order_id = ? order by s.id', [oid]);
+    d.sql.all<SeatRow>('select s.* from seats s join seat_order_links l on l.seat_id = s.id where l.order_id = ? order by s.id', [oid]);
   const refundedSoFar = (oid: string) =>
-    Number(
-      d.sql.get<{ s: number | null }>("select sum(refund_krw) as s from seat_refunds where order_id = ? and status = 'done'", [oid])?.s ?? 0
-    );
-  const familyOfPlayer = (pid: string) => d.sql.get<{ family_id: string }>('select family_id from players where id = ?', [pid])?.family_id;
-  const describe = (s: SeatRow, now: number) => {
-    const o = orderOf(s.id);
-    return {
-      id: s.id,
-      player_id: s.player_id,
-      plan: s.plan,
-      term: s.period,
-      starts_at: s.starts_at,
-      ends_at: s.ends_at,
-      state: seatState(s, now),
-      payer_id: s.payer_id,
-      order: o
-        ? { id: o.id, plan: o.plan, amount_krw: o.amount_krw, paid_at: o.paid_at, refunded_krw: refundedSoFar(o.id), refund_until: o.paid_at + REFUND_WINDOW_MS }
-        : null,
-      requests: d.sql.all('select id, requested_by, requested_at, mode, status, refund_krw, reason from seat_refunds where seat_id = ? order by requested_at', [s.id])
-    };
+    Number(d.sql.get<{ s: number | null }>("select sum(refund_krw) as s from seat_refunds where order_id = ? and status = 'done'", [oid])?.s ?? 0);
+  const leftOf = (o: Pick<OrderRow, 'id' | 'amount_krw'>) => Math.max(0, o.amount_krw - refundedSoFar(o.id));
+  /** The other, still-live seat of a Duo issue order, if the Duo is whole. */
+  const duoPartner = (sid: string): SeatRow | null => {
+    const l = issueLink(sid);
+    if (!l || l.plan !== 'duo') return null;
+    const others = orderSeats(l.order_id).filter((x) => x.id !== sid && x.status !== 'refunded');
+    return others.length === 1 ? others[0]! : null;
   };
+  const openRequest = (sid: string) =>
+    d.sql.get<{ id: string; requested_at: number; status: 'pending' | 'review'; mode: DuoRefundMode | null; requested_by: string }>(
+      "select id, requested_at, status, mode, requested_by from seat_refunds where seat_id = ? and status in ('pending', 'review') order by requested_at limit 1",
+      [sid]
+    );
+  /** Which payment the refund rule looks at: the issue payment while its window is open, else the newest open extension. */
+  const ruleTarget = (sid: string, now: number) => {
+    const live = linksOf(sid).filter((l) => l.refunded_at === null);
+    const inWin = live.filter((l) => inRefundWindow(l.paid_at, now));
+    return inWin.find((l) => l.kind === 'issue') ?? inWin[0] ?? live[0] ?? null;
+  };
+  const describePayments = (sid: string) =>
+    linksOf(sid).map((l) => ({
+      order_id: l.order_id,
+      kind: l.kind,
+      plan: l.plan,
+      days: l.kind === 'extend' ? l.days : TERM_DAYS[l.term],
+      amount_krw: l.amount_krw,
+      paid_at: l.paid_at,
+      refund_until: refundDeadlineMs(l.paid_at),
+      refunded_krw: refundedSoFar(l.order_id),
+      refunded: l.refunded_at !== null
+    }));
 
-  /** The one refund rule, used by the operator button (docs/09 P6). */
-  const executeRefund = (sid: string, mode: DuoRefundMode, now: number, requestedBy: string) => {
+  /** The one refund rule, used by the operator button (docs/09 P6). Runs inside a transaction. */
+  const executeRefund = (sid: string, now: number, requestedBy: string): Out => {
     const s = seatRow(sid);
-    const o = orderOf(sid);
-    if (!s || !o) return { status: 404 as const, body: { error: 'seat_not_found' } };
-    if (s.status === 'refunded') return { status: 409 as const, body: { error: 'already_refunded' } };
-    const record = (fields: { status: string; refund_krw: number | null; remaining_solo_days: number | null; reason: string | null }) =>
+    if (!s) return { status: 404, body: { error: 'seat_not_found' } };
+    if (s.status === 'refunded') return { status: 409, body: { error: 'already_refunded' } };
+    const target = ruleTarget(sid, now);
+    if (!target) return { status: 404, body: { error: 'payment_not_found' } };
+    const open = openRequest(sid);
+    const record = (orderId: string, refund: number, soloDays: number | null, mode: DuoRefundMode | null) =>
       d.sql.run(
         'insert into seat_refunds (id, seat_id, order_id, requested_by, requested_at, mode, status, refund_krw, remaining_solo_days, decided_at, reason) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [id('rf'), sid, o.id, requestedBy, now, mode, fields.status, fields.refund_krw, fields.remaining_solo_days, now, fields.reason]
+        [id('rf'), sid, orderId, requestedBy, now, mode, 'done', refund, soloDays, now, null]
       );
-    // close any guardian request for this seat
-    const closePending = (status: string) =>
-      d.sql.run("update seat_refunds set status = ?, decided_at = ? where seat_id = ? and status = 'pending'", [status, now, sid]);
+    // Every open request on this seat (pending or review) is answered by the rule refund.
+    const closeOpen = () =>
+      d.sql.run("update seat_refunds set status = 'closed', decided_at = ? where seat_id = ? and status in ('pending', 'review')", [now, sid]);
     // Outside the rule → one open review item per seat in the operator inbox; the seat itself does not change.
     const toReview = (reason: string) => {
-      const open = d.sql.get<{ id: string }>("select id from seat_refunds where seat_id = ? and status in ('pending', 'review') limit 1", [sid]);
-      if (open) d.sql.run("update seat_refunds set status = 'review', reason = ? where id = ?", [reason, open.id]);
-      else record({ status: 'review', refund_krw: null, remaining_solo_days: null, reason });
+      if (open) d.sql.run("update seat_refunds set status = 'review', reason = ?, order_id = ? where id = ?", [reason, target.order_id, open.id]);
+      else
+        d.sql.run(
+          'insert into seat_refunds (id, seat_id, order_id, requested_by, requested_at, mode, status, refund_krw, remaining_solo_days, decided_at, reason) values (?, ?, ?, ?, ?, ?, ?, null, null, null, ?)',
+          [id('rf'), sid, target.order_id, requestedBy, now, null, 'review', reason]
+        );
     };
-    const inWindow = now - o.paid_at >= 0 && now - o.paid_at <= REFUND_WINDOW_MS;
-    if (!inWindow || o.plan === 'tutoring') {
-      // Tutoring is priced by the teacher, so it never follows the automatic rule either.
-      toReview(inWindow ? 'tutoring_priced_by_teacher' : 'outside_refund_window');
-      return { status: 409 as const, body: { error: inWindow ? 'needs_review' : 'outside_refund_window' } };
-    }
-    const seats = orderSeats(o.id);
-    const others = seats.filter((x) => x.id !== sid && x.status !== 'refunded');
-    if (o.plan === 'duo' && others.length === 1) {
-      if (!hasSingleDuoPayer(seats.map((x) => ({ seatId: x.id, payerId: x.payer_id })))) {
-        toReview('duo_payer_mismatch');
-        return { status: 409 as const, body: { error: 'duo_payer_mismatch' } };
+    // Ending a seat: every payment still open on it is returned in full (what is left of each), the seat stops now.
+    const endSeat = (): number => {
+      let total = 0;
+      for (const l of linksOf(sid).filter((x) => x.refunded_at === null && x.kind === 'extend')) {
+        const left = leftOf(l);
+        if (left > 0) record(l.order_id, left, null, null);
+        total += left;
       }
-      const r = settleDuoSeatRefund({ term: o.term, paidAtMs: o.paid_at, refundRequestedAtMs: now, paidAmountKrw: o.amount_krw, mode });
-      if (!r.eligible) return { status: 409 as const, body: { error: r.reason } };
-      const keep = others[0]!;
       d.sql.run("update seats set status = 'refunded', ends_at = ? where id = ?", [now, sid]);
-      const newEnd = mode === 'convert_to_solo_days' ? keep.starts_at + r.remainingSoloDays * DAY : keep.ends_at;
-      // The remaining seat becomes Solo; its family's data is untouched.
-      d.sql.run("update seats set plan = 'solo', ends_at = ? where id = ?", [newEnd, keep.id]);
-      record({ status: 'done', refund_krw: r.refundKrw, remaining_solo_days: r.remainingSoloDays, reason: null });
-      closePending('done');
+      d.sql.run('update seat_order_links set refunded_at = ? where seat_id = ? and refunded_at is null', [now, sid]);
+      return total;
+    };
+
+    if (!inRefundWindow(target.paid_at, now) || target.plan === 'tutoring') {
+      // Tutoring is priced by the teacher, so it never follows the automatic rule either.
+      const reason = !inRefundWindow(target.paid_at, now) ? 'outside_refund_window' : 'tutoring_priced_by_teacher';
+      toReview(reason);
+      return { status: 409, body: { error: reason === 'outside_refund_window' ? reason : 'needs_review' } };
+    }
+
+    if (target.kind === 'extend') {
+      // An extension paid within the window: return it and take its days back.
+      const refund = leftOf(target);
+      d.sql.run('update seats set ends_at = ends_at - ? where id = ?', [(target.days ?? 0) * DAY, sid]);
+      d.sql.run('update seat_order_links set refunded_at = ? where seat_id = ? and order_id = ?', [now, sid, target.order_id]);
+      record(target.order_id, refund, null, null);
+      closeOpen();
+      return { status: 200, body: { refund_krw: refund, payer_id: target.payer_id, remaining_seat: null, removed_days: target.days ?? 0 } };
+    }
+
+    const partner = target.plan === 'duo' ? duoPartner(sid) : null;
+    if (partner) {
+      if (!hasSingleDuoPayer([{ seatId: s.id, payerId: s.payer_id }, { seatId: partner.id, payerId: partner.payer_id }])) {
+        toReview('duo_payer_mismatch');
+        return { status: 409, body: { error: 'duo_payer_mismatch' } };
+      }
+      // Only the payer decides how a Duo partial refund is settled (docs/01 §4).
+      const mode = open?.mode ?? null;
+      if (!mode) return { status: 409, body: { error: 'awaiting_payer_choice' } };
+      const r = settleDuoSeatRefund({ term: target.term, paidAtMs: target.paid_at, refundRequestedAtMs: now, paidAmountKrw: target.amount_krw, mode });
+      if (!r.eligible) return { status: 409, body: { error: r.reason } };
+      const cash = Math.min(r.refundKrw, leftOf(target));
+      record(target.order_id, cash, r.remainingSoloDays, mode);
+      const extra = endSeat();
+      // The remaining seat becomes Solo; convert mode swaps the Duo term for the Solo days and keeps any extension.
+      const newEnd = mode === 'convert_to_solo_days' ? partner.ends_at - (TERM_DAYS[target.term] - r.remainingSoloDays) * DAY : partner.ends_at;
+      d.sql.run("update seats set plan = 'solo', ends_at = ? where id = ?", [newEnd, partner.id]);
+      closeOpen();
       return {
-        status: 200 as const,
-        body: { refund_krw: r.refundKrw, payer_id: o.payer_id, remaining_seat: { id: keep.id, plan: 'solo', ends_at: newEnd, solo_days: r.remainingSoloDays } }
+        status: 200,
+        body: {
+          refund_krw: cash + extra,
+          payer_id: target.payer_id,
+          mode,
+          remaining_seat: { id: partner.id, plan: 'solo', ends_at: newEnd, solo_days: r.remainingSoloDays }
+        }
       };
     }
+
     // Solo, or the last seat of a Duo: the rest of what was paid (docs/01 §4: 7일 이내 전액).
-    const refund = Math.max(0, o.amount_krw - refundedSoFar(o.id));
-    d.sql.run("update seats set status = 'refunded', ends_at = ? where id = ?", [now, sid]);
-    record({ status: 'done', refund_krw: refund, remaining_solo_days: null, reason: null });
-    closePending('done');
-    return { status: 200 as const, body: { refund_krw: refund, payer_id: o.payer_id, remaining_seat: null } };
+    const left = leftOf(target);
+    record(target.order_id, left, null, null);
+    const extra = endSeat();
+    closeOpen();
+    return { status: 200, body: { refund_krw: left + extra, payer_id: target.payer_id, remaining_seat: null } };
   };
 
   /* ---------- operator ---------- */
@@ -232,6 +325,7 @@ export function mountSeatRoutes(
     // A minor seat lives under a guardian account (docs/16 #1): the payer's own child must be among the seats.
     if (!fams.includes(payer.family_id)) return c.json({ error: 'payer_not_guardian_of_any_seat' }, 400);
     const now = d.nowMs();
+    if (q.paid_at !== undefined && q.paid_at > now + PAID_AT_FUTURE_SLACK_MS) return c.json({ error: 'paid_at_in_future' }, 400);
     for (const pid of q.player_ids) {
       const live = d.sql.get<SeatRow>("select * from seats where player_id = ? and status <> 'refunded' and ends_at > ?", [pid, now]);
       if (live) return c.json({ error: 'seat_exists', seat_id: live.id }, 409);
@@ -263,70 +357,126 @@ export function mountSeatRoutes(
           ends,
           'active'
         ]);
-        d.sql.run('insert into seat_order_seats (seat_id, order_id) values (?, ?)', [sid, oid]);
+        d.sql.run("insert into seat_order_links (seat_id, order_id, kind, days, refunded_at) values (?, ?, 'issue', null, null)", [sid, oid]);
         return sid;
       });
     });
-    return c.json({ order_id: oid, seat_ids: seats, amount_krw: amount, ends_at: ends }, 201);
+    return c.json({ order_id: oid, seat_ids: seats, amount_krw: amount, ends_at: ends, refund_until: refundDeadlineMs(paidAt) }, 201);
   });
 
+  /** A paid (or free) extension of one seat: recorded as its own payment with its own refund window. */
   app.post('/v1/admin/seats/:id/extend', async (c) => {
     const s = seatRow(c.req.param('id'));
     if (!s) return c.json({ error: 'seat_not_found' }, 404);
     if (s.status === 'refunded') return c.json({ error: 'already_refunded' }, 409);
     const p = ExtendSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
-    const ends = Math.max(d.nowMs(), s.ends_at) + p.data.days * DAY;
-    d.sql.run("update seats set ends_at = ?, status = 'active' where id = ?", [ends, s.id]);
-    d.sql.run('delete from seat_notices where seat_id = ?', [s.id]);
-    return c.json({ id: s.id, ends_at: ends, state: seatState({ ends_at: ends, status: 'active' }, d.nowMs()) });
+    const now = d.nowMs();
+    if (p.data.paid_at !== undefined && p.data.paid_at > now + PAID_AT_FUTURE_SLACK_MS) return c.json({ error: 'paid_at_in_future' }, 400);
+    const paidAt = p.data.paid_at ?? now;
+    const amount = p.data.amount_krw ?? extensionPriceKrw(s.plan, p.data.days);
+    const ends = Math.max(now, s.ends_at) + p.data.days * DAY;
+    const oid = id('ord');
+    runInTransaction(d.sql, () => {
+      d.sql.run('insert into seat_orders (id, payer_id, plan, term, amount_krw, paid_at, created_at, note) values (?, ?, ?, ?, ?, ?, ?, ?)', [
+        oid,
+        s.payer_id,
+        s.plan,
+        p.data.days >= TERM_DAYS.year ? 'year' : 'month',
+        amount,
+        paidAt,
+        now,
+        p.data.note ?? ''
+      ]);
+      d.sql.run("insert into seat_order_links (seat_id, order_id, kind, days, refunded_at) values (?, ?, 'extend', ?, null)", [s.id, oid, p.data.days]);
+      d.sql.run("update seats set ends_at = ?, status = 'active' where id = ?", [ends, s.id]);
+      d.sql.run('delete from seat_notices where seat_id = ?', [s.id]);
+    });
+    return c.json({ id: s.id, order_id: oid, amount_krw: amount, ends_at: ends, refund_until: refundDeadlineMs(paidAt), state: seatState({ ends_at: ends, status: 'active' }, now) });
   });
 
   app.post('/v1/admin/seats/:id/refund', async (c) => {
     const p = RefundSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
-    const pending = d.sql.get<{ mode: string | null }>("select mode from seat_refunds where seat_id = ? and status = 'pending' order by requested_at limit 1", [
-      c.req.param('id')
-    ]);
-    const mode = (p.data.mode ?? pending?.mode ?? 'refund_difference') as DuoRefundMode;
-    // Seat, the other Duo seat and the refund record change together or not at all.
-    const r = runInTransaction(d.sql, () => executeRefund(c.req.param('id'), mode, d.nowMs(), 'operator'));
+    // Seat, the other Duo seat and the refund records change together or not at all.
+    const r = runInTransaction(d.sql, () => executeRefund(c.req.param('id'), d.nowMs(), 'operator'));
     return c.json(r.body, r.status);
   });
 
   /**
-   * Operator decision on an inbox item outside the rule: decline (nothing changes), or an exception refund of the
-   * amount the operator actually sends back (the seat ends now). Rule refunds use POST /v1/admin/seats/:id/refund.
+   * Operator decision on a 'review' inbox item (outside the rule): decline (nothing changes), or an exception refund of
+   * the amount the operator actually sends back (the seat ends now). Never more than is left of the seat's payments.
+   * Requests inside the rule ('pending') go through POST /v1/admin/seats/:id/refund instead.
    */
   app.post('/v1/admin/seat-refunds/:id/decide', async (c) => {
     const p = DecideSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
-    const r = d.sql.get<{ id: string; seat_id: string; order_id: string }>(
-      "select id, seat_id, order_id from seat_refunds where id = ? and status in ('pending', 'review')",
-      [c.req.param('id')]
-    );
-    if (!r) return c.json({ error: 'request_not_found' }, 404);
     const now = d.nowMs();
-    if (p.data.decision === 'decline') {
-      d.sql.run("update seat_refunds set status = 'declined', decided_at = ? where id = ?", [now, r.id]);
-      return c.json({ id: r.id, status: 'declined' });
-    }
-    const o = d.sql.get<{ amount_krw: number }>('select amount_krw from seat_orders where id = ?', [r.order_id]);
-    const left = Math.max(0, (o?.amount_krw ?? 0) - refundedSoFar(r.order_id));
-    if (p.data.refund_krw > left) return c.json({ error: 'refund_exceeds_paid', max_krw: left }, 400);
-    d.sql.run("update seats set status = 'refunded', ends_at = ? where id = ? and status <> 'refunded'", [now, r.seat_id]);
-    d.sql.run("update seat_refunds set status = 'done', refund_krw = ?, decided_at = ? where id = ?", [p.data.refund_krw, now, r.id]);
-    return c.json({ id: r.id, status: 'done', refund_krw: p.data.refund_krw });
+    const out = runInTransaction(d.sql, (): Out => {
+      const r = d.sql.get<{ id: string; seat_id: string; order_id: string; status: string }>(
+        'select id, seat_id, order_id, status from seat_refunds where id = ?',
+        [c.req.param('id')]
+      );
+      if (!r || (r.status !== 'review' && r.status !== 'pending')) return { status: 404, body: { error: 'request_not_found' } };
+      if (r.status === 'pending') return { status: 409, body: { error: 'use_rule_refund' } };
+      const s = seatRow(r.seat_id);
+      if (!s || s.status === 'refunded') {
+        d.sql.run("update seat_refunds set status = 'closed', decided_at = ? where id = ?", [now, r.id]);
+        return { status: 409, body: { error: 'already_refunded' } };
+      }
+      if (p.data.decision === 'decline') {
+        d.sql.run("update seat_refunds set status = 'declined', decided_at = ? where id = ?", [now, r.id]);
+        return { status: 200, body: { id: r.id, status: 'declined' } };
+      }
+      const open = linksOf(s.id).filter((l) => l.refunded_at === null);
+      const max = open.reduce((sum, l) => sum + leftOf(l), 0);
+      if (p.data.refund_krw > max) return { status: 400, body: { error: 'refund_exceeds_paid', max_krw: max } };
+      // Book the amount against the seat's payments, newest first, so no single payment goes below zero.
+      let rest = p.data.refund_krw;
+      let first = true;
+      for (const l of open) {
+        const take = Math.min(rest, leftOf(l));
+        if (first) {
+          d.sql.run("update seat_refunds set status = 'done', refund_krw = ?, order_id = ?, decided_at = ? where id = ?", [take, l.order_id, now, r.id]);
+          first = false;
+        } else if (take > 0) {
+          d.sql.run(
+            "insert into seat_refunds (id, seat_id, order_id, requested_by, requested_at, mode, status, refund_krw, remaining_solo_days, decided_at, reason) values (?, ?, ?, 'operator', ?, null, 'done', ?, null, ?, 'exception')",
+            [id('rf'), s.id, l.order_id, now, take, now]
+          );
+        }
+        rest -= take;
+      }
+      if (first) d.sql.run("update seat_refunds set status = 'done', refund_krw = 0, decided_at = ? where id = ?", [now, r.id]);
+      d.sql.run("update seats set status = 'refunded', ends_at = ? where id = ?", [now, s.id]);
+      d.sql.run('update seat_order_links set refunded_at = ? where seat_id = ? and refunded_at is null', [now, s.id]);
+      d.sql.run("update seat_refunds set status = 'closed', decided_at = ? where seat_id = ? and status in ('pending', 'review')", [now, s.id]);
+      return { status: 200, body: { id: r.id, status: 'done', refund_krw: p.data.refund_krw } };
+    });
+    return c.json(out.body, out.status);
   });
 
   app.get('/v1/admin/seats', (c) => {
     const now = d.nowMs();
     const rows = d.sql.all<SeatRow>('select * from seats order by ends_at desc limit 500');
     return c.json(
-      rows.map((s) => ({
-        ...describe(s, now),
-        nickname: d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [s.player_id])?.nickname ?? ''
-      }))
+      rows.map((s) => {
+        const target = s.status === 'refunded' ? null : ruleTarget(s.id, now);
+        return {
+          id: s.id,
+          player_id: s.player_id,
+          nickname: nickOf(s.player_id),
+          plan: s.plan,
+          term: s.period,
+          starts_at: s.starts_at,
+          ends_at: s.ends_at,
+          state: seatState(s, now),
+          payer_id: s.payer_id,
+          payments: describePayments(s.id),
+          rule_refund_open: Boolean(target && target.plan !== 'tutoring' && inRefundWindow(target.paid_at, now)),
+          awaiting_payer_choice: Boolean(target && target.kind === 'issue' && duoPartner(s.id) && !openRequest(s.id)?.mode)
+        };
+      })
     );
   });
 
@@ -339,22 +489,21 @@ export function mountSeatRoutes(
        from seat_refunds r join seats s on s.id = r.seat_id join seat_orders o on o.id = r.order_id left join players p on p.id = s.player_id
        where r.status in ('pending', 'review') order by r.requested_at`
     );
-    // docs/09 확인함 "환불 요청: 사유, 결제일, 사용 기록" — usage since payment, counted not quoted.
     for (const r of requests) {
+      // docs/09 확인함 "환불 요청: 사유, 결제일, 사용 기록" — usage since payment, counted not quoted.
       const since = Number(r.paid_at);
       r.usage = {
         lessons: Number(d.sql.get<{ n: number }>('select count(*) as n from lessons where player_id = ? and started_at >= ?', [r.player_id, since])?.n ?? 0),
         utterances: Number(d.sql.get<{ n: number }>('select count(*) as n from utterances where player_id = ? and created_at >= ?', [r.player_id, since])?.n ?? 0)
       };
+      const target = ruleTarget(String(r.seat_id), now);
+      r.refund_until = refundDeadlineMs(Number(r.paid_at));
+      // A Duo partial refund waits until the payer has chosen (refund the difference, or convert to Solo days).
+      r.awaiting_payer_choice = r.status === 'pending' && !r.mode && Boolean(target?.kind === 'issue' && duoPartner(String(r.seat_id)));
     }
     const expiring = d.sql
       .all<SeatRow>("select * from seats where status <> 'refunded' and ends_at > ? and ends_at <= ? order by ends_at", [now, now + SEAT_EXPIRING_MS])
-      .map((s) => ({
-        id: s.id,
-        player_id: s.player_id,
-        nickname: d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [s.player_id])?.nickname ?? '',
-        ends_at: s.ends_at
-      }));
+      .map((s) => ({ id: s.id, player_id: s.player_id, nickname: nickOf(s.player_id), plan: s.plan, term: s.period, ends_at: s.ends_at }));
     return c.json({ requests, expiring });
   });
 
@@ -373,19 +522,19 @@ export function mountSeatRoutes(
     const seats = visibleSeats(g).map((s) => {
       const mine = familyOfPlayer(s.player_id) === g.family_id;
       const isPayer = s.payer_id === g.guardian_id;
-      const o = orderOf(s.id);
-      // An open request: 'pending' (inside the rule, waiting for the button) or 'review' (outside it, decided by hand).
-      const pending = d.sql.get<{ id: string; requested_at: number; status: 'pending' | 'review' }>(
-        "select id, requested_at, status from seat_refunds where seat_id = ? and status in ('pending', 'review') order by requested_at limit 1",
-        [s.id]
-      );
+      const target = s.status === 'refunded' ? null : ruleTarget(s.id, now);
+      const partner = target?.kind === 'issue' ? duoPartner(s.id) : null;
+      const open = openRequest(s.id);
       const notice = d.sql.get<{ kind: string; at: number }>('select kind, at from seat_notices where seat_id = ? order by at desc limit 1', [s.id]);
       const state = seatState(s, now);
-      const refundUntil = o ? o.paid_at + REFUND_WINDOW_MS : null;
+      const live = state === 'active' || state === 'expiring';
+      const refundUntil = target ? refundDeadlineMs(target.paid_at) : null;
+      const inWindow = Boolean(target && inRefundWindow(target.paid_at, now));
+      const awaiting = Boolean(open && open.status === 'pending' && !open.mode && partner);
       return {
         id: s.id,
         // Another family's Duo seat shows no child name or id (docs/01 §4).
-        child: mine ? { player_id: s.player_id, nickname: d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [s.player_id])?.nickname ?? '' } : null,
+        child: mine ? { player_id: s.player_id, nickname: nickOf(s.player_id) } : null,
         plan: s.plan,
         term: s.period,
         starts_at: s.starts_at,
@@ -394,16 +543,17 @@ export function mountSeatRoutes(
         read_only_until: state === 'read_only' ? s.ends_at + SEAT_READ_ONLY_MS : null,
         is_payer: isPayer,
         // Payment history only to the payer.
-        payment: isPayer && o ? { amount_krw: o.amount_krw, paid_at: o.paid_at, refunded_krw: refundedSoFar(o.id), plan: o.plan } : null,
+        payments: isPayer ? describePayments(s.id) : null,
+        /** Exclusive end of the refund window of the payment the rule would look at (KST 24:00 of the 7th day). */
         refund_until: refundUntil,
-        can_request_refund: (isPayer || mine) && state !== 'refunded' && !pending && refundUntil !== null && now <= refundUntil,
-        pending_request: pending ?? null,
+        can_request_refund: (isPayer || mine) && live && !open,
+        // Open request; the requester's identity and note stay with the operator.
+        pending_request: open ? { id: open.id, requested_at: open.requested_at, status: open.status, awaiting_payer_choice: awaiting } : null,
+        /** The payer must still choose how the Duo partial refund is settled (another family asked first). */
+        can_choose_mode: isPayer && awaiting,
         notice: notice ?? null,
         // The payer's two choices for leaving one Duo seat (docs/01 §4), computed by the same rule the operator runs.
-        duo_options:
-          isPayer && s.plan === 'duo' && o && state !== 'refunded' && refundUntil !== null && now <= refundUntil
-            ? duoOptions(o.term, o.paid_at, o.amount_krw, now)
-            : null
+        duo_options: isPayer && partner && target && inWindow ? duoOptions(target.term, target.paid_at, target.amount_krw, now) : null
       };
     });
     return c.json({ seats, server_now: now });
@@ -417,19 +567,36 @@ export function mountSeatRoutes(
     if (!s || !(mine || s.payer_id === g.guardian_id)) return c.json({ error: 'seat_not_found' }, 404);
     const p = RefundRequestSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
-    if (s.status === 'refunded') return c.json({ error: 'already_refunded' }, 409);
-    if (d.sql.get("select 1 as x from seat_refunds where seat_id = ? and status in ('pending', 'review')", [s.id])) return c.json({ error: 'already_requested' }, 409);
-    const o = orderOf(s.id);
-    if (!o) return c.json({ error: 'seat_not_found' }, 404);
     const now = d.nowMs();
-    // Only the payer picks how a Duo partial refund is settled; anyone else's request uses the default.
-    const mode = s.payer_id === g.guardian_id ? (p.data.mode ?? 'refund_difference') : 'refund_difference';
-    const inWindow = now - o.paid_at <= REFUND_WINDOW_MS;
-    const rid = id('rf');
-    d.sql.run(
-      'insert into seat_refunds (id, seat_id, order_id, requested_by, requested_at, mode, status, refund_krw, remaining_solo_days, decided_at, reason, note) values (?, ?, ?, ?, ?, ?, ?, null, null, null, ?, ?)',
-      [rid, s.id, o.id, g.guardian_id, now, mode, inWindow ? 'pending' : 'review', inWindow ? null : 'outside_refund_window', p.data.note ?? '']
-    );
-    return c.json({ id: rid, status: inWindow ? 'pending' : 'review' }, 201);
+    const out = runInTransaction(d.sql, (): Out => {
+      if (s.status === 'refunded') return { status: 409, body: { error: 'already_refunded' } };
+      const target = ruleTarget(s.id, now);
+      if (!target) return { status: 404, body: { error: 'seat_not_found' } };
+      const isPayer = s.payer_id === g.guardian_id;
+      const duo = target.kind === 'issue' && Boolean(duoPartner(s.id));
+      const open = openRequest(s.id);
+      if (open) {
+        // The payer answers a waiting Duo request with the settlement choice; nothing else changes an open request.
+        if (isPayer && duo && open.status === 'pending' && p.data.mode && !open.mode) {
+          d.sql.run('update seat_refunds set mode = ? where id = ?', [p.data.mode, open.id]);
+          return { status: 200, body: { id: open.id, status: open.status, mode: p.data.mode } };
+        }
+        return { status: 409, body: { error: 'already_requested' } };
+      }
+      // Only the payer chooses the Duo settlement; another family's request waits for it (mode null).
+      const mode = isPayer && duo ? (p.data.mode ?? null) : null;
+      // Inside the rule → 'pending' (the operator's one button); outside it, or tutoring (priced by the teacher) → 'review'.
+      const reason = !inRefundWindow(target.paid_at, now) ? 'outside_refund_window' : target.plan === 'tutoring' ? 'tutoring_priced_by_teacher' : null;
+      const rid = id('rf');
+      d.sql.run(
+        'insert into seat_refunds (id, seat_id, order_id, requested_by, requested_at, mode, status, refund_krw, remaining_solo_days, decided_at, reason, note) values (?, ?, ?, ?, ?, ?, ?, null, null, null, ?, ?)',
+        [rid, s.id, target.order_id, g.guardian_id, now, mode, reason ? 'review' : 'pending', reason, p.data.note ?? '']
+      );
+      return {
+        status: 201,
+        body: { id: rid, status: reason ? 'review' : 'pending', awaiting_payer_choice: !reason && duo && !mode }
+      };
+    });
+    return c.json(out.body, out.status);
   });
 }

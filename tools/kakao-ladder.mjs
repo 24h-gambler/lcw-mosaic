@@ -1,6 +1,6 @@
 // KakaoTalk in-app ladder check (docs/19 입력 사다리): a phone-size headless Chrome with the KAKAOTALK user agent and
 // no browser SpeechRecognition (like the in-app web view) plays a linked child's first visit by voice only:
-// the "Hello!" mic check, Luna's errand, the cafe order and the hand-over. The microphone is a WebAudio stream of
+// the "Hello!" mic check, the neighbour Mina's errand at the honey cafe door, the cafe order and the hand-over. The microphone is a WebAudio stream of
 // synthetic WAV clips (one per turn); MediaRecorder, /v1/converse/stt (Workers AI) and scoring are the real ones.
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/kakao-ladder.mjs <base> dev.json <clips dir> <out dir>
@@ -101,20 +101,34 @@ mark('mic_check', { note: micNote });
 await page.click('.lcw-firstvisit-go');
 await page.waitForTimeout(800);
 
-async function talk() {
+// Talk to the NPC whose name matches: a dialog with someone else is closed (nothing bought) and the walk goes on.
+async function talk(name) {
   for (let i = 0; i < 12; i++) {
-    if (await page.$('.lcw-dlg')) return true;
+    if (await page.$('.lcw-dlg')) {
+      const who = await page.$eval('.lcw-dlg', (d) => d.innerText.split(/\n/).slice(0, 2).join(' '));
+      if (name.test(who)) return true;
+      await page.click('.lcw-dlg__x').catch(() => page.keyboard.press('Escape'));
+      await page.waitForTimeout(700);
+    }
     const btn = page.getByRole('button', { name: /말 걸기/ }).first();
     if (await btn.count()) await btn.click({ timeout: 1500 }).catch(() => {});
     else await page.keyboard.press('KeyE');
     await page.waitForTimeout(700);
-    if (await page.$('.lcw-dlg')) return true;
+    if (await page.$('.lcw-dlg')) continue;
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(180);
     await page.keyboard.up('KeyW');
     await page.waitForTimeout(300);
   }
   return Boolean(await page.$('.lcw-dlg'));
+}
+async function walk() {
+  await page.waitForSelector('.lcw-errand-walk', { timeout: 15000 });
+  const label = await page.$eval('.lcw-errand-walk', (b) => b.innerText);
+  await page.click('.lcw-errand-walk');
+  await page.waitForFunction(() => window.__lcwWorld.getScene?.() === 'honey_cafe', null, { timeout: 60000 });
+  await page.waitForTimeout(3500);
+  return label;
 }
 // TAP=1: the child taps the sentence first; default: just speaks one of the sentences on screen (voice picks it).
 const TAP = process.env.TAP === '1';
@@ -135,19 +149,14 @@ async function speak(clip, label, text) {
   return { said: text, offers, res, kakaoNotice: issue, closed: !(await page.$('.lcw-dlg')) };
 }
 
-mark('luna_open', { ok: await talk() });
+mark('to_mina', { walk: await walk() });
+mark('mina_open', { ok: await talk(/미나|Mina/) });
 mark('accept', await speak('accept', '81-kakao-accept', 'Yes, I can help you.'));
-await page.waitForSelector('.lcw-errand-walk', { timeout: 15000 });
-await page.click('.lcw-errand-walk');
-await page.waitForFunction(() => window.__lcwWorld.getScene?.() === 'honey_cafe', null, { timeout: 60000 });
-await page.waitForTimeout(2500);
-mark('hani_open', { ok: await talk() });
+mark('to_cafe', { walk: await walk() });
+mark('hani_open', { ok: await talk(/하니|Hani/) });
 mark('first_order', await speak('order', '82-kakao-order', 'Cold water, please.'));
-await page.waitForSelector('.lcw-errand-walk', { timeout: 15000 });
-await page.click('.lcw-errand-walk');
-await page.waitForFunction(() => window.__lcwWorld.getScene?.() === 'plaza', null, { timeout: 60000 });
-await page.waitForTimeout(2500);
-mark('luna2_open', { ok: await talk() });
+mark('back_to_mina', { walk: await walk() });
+mark('mina2_open', { ok: await talk(/미나|Mina/) });
 mark('deliver', await speak('deliver', '83-kakao-deliver', 'Here is your cold water. Enjoy!'));
 await page.waitForSelector('.lcw-errand-toast', { timeout: 6000 }).catch(() => {});
 await shot('84-kakao-reward');

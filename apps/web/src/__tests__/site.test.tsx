@@ -266,6 +266,8 @@ describe('static pages for crawlers and first paint (docs/14 §11)', () => {
     }
     const parents = fillShell(shell, prerenderPage('/parents'));
     expect(parents).toContain(PARENTS.title.slice(0, 8));
+    // hydrateRoot needs renderToString's text separators; renderToStaticMarkup output fails hydration on every page.
+    expect(prerenderPage('/pass').body).toContain('<!-- -->');
   });
 
   it('clears the pre-rendered page before paint when the file is served for another address', () => {

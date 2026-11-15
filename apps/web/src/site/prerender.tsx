@@ -3,7 +3,7 @@
  * page before the script runs. tools/prerender-site.mjs builds this file for node and writes dist/<path>.html.
  */
 import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { renderToString } from 'react-dom/server';
 import { SiteRoot } from './SiteRoot.js';
 import { metaFor, parseSitePath, prerenderPaths } from './routes.js';
 
@@ -21,7 +21,7 @@ export function prerenderPage(path: string): PrerenderedPage {
   const loc = parseSitePath(path);
   if (!loc) throw new Error(`not a site path: ${path}`);
   const meta = metaFor(loc);
-  return { path: loc.path, ...meta, body: renderToStaticMarkup(<SiteRoot initialPath={loc.path} />) };
+  return { path: loc.path, ...meta, body: renderToString(<SiteRoot initialPath={loc.path} />) };
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

@@ -3,10 +3,12 @@ import {
   CONTENT_FILTERS,
   LEXICON_L1_KO_EN,
   OPEN_ENDED_PROMPTS,
+  UI_STRINGS_KO,
   VOICE_SKILL_DATA,
   type LangLevel
 } from '@lcw/content';
 import type { NpcContext, UtteranceMode } from '@lcw/schemas';
+import { normalizeMixedUtterance } from './normalizer.js';
 import { tokenizeForScoring } from './scoring.js';
 
 const LEVELS_ORDERED: readonly LangLevel[] = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6'];
@@ -148,17 +150,27 @@ export function recognizeVoiceSkill(transcript: string): VoiceSkillMatch {
   return { matched: true, verb, target, adjective, grade };
 }
 
+/** Korean name + vocative suffix (지우야, 민준아): addressing a friend, not a language-mix. */
+const VOCATIVE_NAME_RE = /^[가-힣]{1,4}[야아]$/;
+
 export interface SpeechBubbleCheckResult {
   allowed: boolean;
   text: string;
   targetLangRatio: number;
   reason?: string;
   hintKo?: string;
+  /** True when Korean words were swapped for English via the dictionary before sending. */
+  substituted?: boolean;
+  /** Shown on the sender's own screen when the text was substituted (language-pack string). */
+  noticeKo?: string;
 }
 
 /**
  * Multiplayer speech bubble filter (docs/04 4.12 & WP-502).
- * Rejects bubbles with <70% target language tokens, profanity, or PII.
+ * Profanity and PII are hard blocks. Korean words are first substituted with English via the
+ * 4.4 dictionary (normalizeMixedUtterance) and the substituted text is sent with a notice for
+ * the sender; only a bubble still <70% target language after substitution is blocked.
+ * Korean vocative names (e.g. 지우야) are left as-is and excluded from the ratio.
  */
 export function filterSpeechBubble(transcript: string): SpeechBubbleCheckResult {
   const trimmed = transcript.trim();
@@ -191,15 +203,29 @@ export function filterSpeechBubble(transcript: string): SpeechBubbleCheckResult 
     }
   }
 
-  const words = trimmed.replace(/[.,!?]+/g, ' ').split(/\s+/).filter(Boolean);
+  const norm = normalizeMixedUtterance(trimmed, { keepUnknownKorean: true });
+  const substituted = norm.replacedCount > 0;
+  const endPunct = /[.!?]+$/.exec(trimmed)?.[0] ?? '';
+  const sendText = norm.normalized + (substituted ? endPunct : '');
+  const outText = substituted ? sendText : trimmed;
+
+  const words = (substituted ? norm.tokens : trimmed.replace(/[.,!?]+/g, ' ').split(/\s+/).filter(Boolean));
   let englishCount = 0;
+  let counted = 0;
   let firstKoWord: string | null = null;
   for (const w of words) {
-    if (/^[A-Za-z0-9'-]+$/.test(w)) englishCount++;
-    else if (firstKoWord === null) firstKoWord = w;
+    if (/^[A-Za-z0-9'-]+$/.test(w)) {
+      englishCount++;
+      counted++;
+    } else if (VOCATIVE_NAME_RE.test(w)) {
+      continue;
+    } else {
+      counted++;
+      if (firstKoWord === null) firstKoWord = w;
+    }
   }
 
-  const ratio = words.length > 0 ? Number((englishCount / words.length).toFixed(4)) : 0;
+  const ratio = counted > 0 ? Number((englishCount / counted).toFixed(4)) : 0;
   if (ratio < 0.7) {
     const suggestion = firstKoWord ? LEXICON_L1_KO_EN[firstKoWord] : undefined;
     return {
@@ -213,5 +239,13 @@ export function filterSpeechBubble(transcript: string): SpeechBubbleCheckResult 
     };
   }
 
-  return { allowed: true, text: trimmed, targetLangRatio: ratio };
+  return substituted
+    ? {
+        allowed: true,
+        text: outText,
+        targetLangRatio: ratio,
+        substituted: true,
+        noticeKo: UI_STRINGS_KO.player.bubbleSubstituted
+      }
+    : { allowed: true, text: outText, targetLangRatio: ratio };
 }

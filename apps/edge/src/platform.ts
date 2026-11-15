@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp } from './lesson-mode.js';
-import { buildFamilyApp, openPublicReport } from './family.js';
+import { FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { injectReportShareMeta } from './report-page.js';
 import { z } from 'zod';
 import { FREE_TIER_LIMITS, QuotaMeter } from '@lcw/quota';
@@ -66,7 +66,7 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (method === 'POST' && path === '/v1/join') return true;
   if (path.startsWith('/v1/lesson/')) return true;
   // Guardian (WP-301): /v1/family/* checks its own guardian session token, /v1/device/* the child device token.
-  if (path.startsWith('/v1/family/') || path.startsWith('/v1/device/')) return true;
+  if (FAMILY_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   return false;
 }
 

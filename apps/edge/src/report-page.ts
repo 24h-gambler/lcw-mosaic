@@ -42,10 +42,9 @@ export function rewriteReportShell(html: string, origin: string): string {
 }
 
 export async function injectReportShareMeta(shell: Response, url: URL): Promise<Response> {
-  if (!shell.ok) return shell;
-  const html = rewriteReportShell(await shell.text(), url.origin);
+  const html = shell.ok ? rewriteReportShell(await shell.text(), url.origin) : await shell.text();
   return new Response(html, {
-    status: 200,
+    status: shell.ok ? 200 : shell.status,
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'private, no-store',

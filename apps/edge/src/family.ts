@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { filterSpeechBubble } from '@lcw/converse';
 import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
-import { REPORT_SHARE_TTL_MS, kstDayOf, stripIdentifiers, type PublicReportView } from './parent-report.js';
+import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicReportView } from './parent-report.js';
 
 /**
  * Guardian domain (WP-301, docs/16 §3, docs/10 §5): family account, child profiles, separate consents, device link
@@ -19,6 +19,22 @@ export const DEVICE_CODE_TTL_MS = 10 * 60_000;
 export const DEVICE_TOKEN_TTL_MS = 365 * 86_400_000;
 /** Wrong invite/device codes per hour before the public exchange routes answer 429. */
 export const FAMILY_FAILS_PER_HOUR = 20;
+/** All clients together: 6-digit device codes stay unguessable (1e6 space, 10-minute life) even across many addresses. */
+export const FAMILY_FAILS_GLOBAL_PER_HOUR = 500;
+/** Public routes this module serves; each checks its own token (platform.ts isPublicRoute lists exactly these). */
+export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
+  ['POST', /^\/v1\/family\/session$/],
+  ['POST', /^\/v1\/family\/logout$/],
+  ['POST', /^\/v1\/family\/service-consent$/],
+  ['GET', /^\/v1\/family\/me$/],
+  ['POST', /^\/v1\/family\/children$/],
+  ['PUT', /^\/v1\/family\/children\/[^/]+\/consents\/[^/]+$/],
+  ['POST', /^\/v1\/family\/children\/[^/]+\/device-code$/],
+  ['DELETE', /^\/v1\/family\/devices\/[^/]+$/],
+  ['POST', /^\/v1\/family\/reports\/[^/]+\/revoke$/],
+  ['POST', /^\/v1\/device\/link$/],
+  ['GET', /^\/v1\/device\/me$/]
+];
 
 /**
  * Consents a guardian toggles one by one (docs/16 §3; docs/07 §4.5 lists the first four). `service` is the required one
@@ -80,7 +96,10 @@ export function openPublicReport(
   /** Teacher preview (operator token): show the page without recording a parent open. */
   preview = false
 ): { status: 200; view: PublicReportView } | { status: 404 | 410; error: string } {
-  const row = sql.get<{ created_at: number }>('select created_at from reports where share_token = ?', [token]);
+  const row = sql.get<{ created_at: number; nickname: string | null }>(
+    'select r.created_at, p.nickname from reports r left join players p on p.id = r.player_id where r.share_token = ?',
+    [token]
+  );
   if (!row) return { status: 404, error: 'report_not_found' };
   if (sql.get('select share_token from report_revocations where share_token = ?', [token])) {
     return { status: 410, error: 'report_revoked' };
@@ -98,18 +117,19 @@ export function openPublicReport(
     }
   };
   const clips = parse(r.clips);
+  const nick = row.nickname ?? '';
   return {
     status: 200,
     view: {
       kind: String(r.kind),
       ref_id: String(r.ref_id),
-      facts: stripIdentifiers(parse(r.facts)),
+      facts: publicFacts(parse(r.facts), nick ? [nick, ...nick.split(/\s+/)] : []),
       body: String(r.body),
       clips: Array.isArray(clips) ? clips : [],
       created_at: Number(r.created_at),
       expires_at: Number(r.created_at) + REPORT_SHARE_TTL_MS,
-      teacher_comment: delivery?.teacher_comment ?? '',
-      next_lesson_at: delivery?.next_lesson_at ?? ''
+      teacher_comment: maskNickname(delivery?.teacher_comment ?? '', nick),
+      next_lesson_at: maskNickname(delivery?.next_lesson_at ?? '', nick)
     }
   };
 }
@@ -119,11 +139,18 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
   const app = new Hono();
 
   const hour = () => Math.floor(d.nowMs() / 3_600_000);
-  const tooManyFails = (k: string) =>
-    (d.sql.get<{ n: number }>('select n from family_failures where k = ? and hour = ?', [k, hour()])?.n ?? 0) >=
-    FAMILY_FAILS_PER_HOUR;
+  const tooManyFails = (k: string, cap = FAMILY_FAILS_PER_HOUR) =>
+    (d.sql.get<{ n: number }>('select n from family_failures where k = ? and hour = ?', [k, hour()])?.n ?? 0) >= cap;
   const fail = (k: string) =>
     d.sql.run('insert into family_failures (k, hour, n) values (?, ?, 1) on conflict(k, hour) do update set n = n + 1', [k, hour()]);
+  // Wrong-code counting per client address, so one caller cannot lock every family out (plus a high global cap).
+  const clientKey = (req: Request, kind: string) => `${kind}:${req.headers.get('cf-connecting-ip') ?? 'local'}`;
+  const limited = (req: Request, kind: string) =>
+    tooManyFails(clientKey(req, kind)) || tooManyFails(`${kind}:*`, FAMILY_FAILS_GLOBAL_PER_HOUR);
+  const failed = (req: Request, kind: string) => {
+    fail(clientKey(req, kind));
+    fail(`${kind}:*`);
+  };
   const bearer = (req: Request) => {
     const h = req.headers.get('authorization') ?? '';
     return h.startsWith('Bearer ') ? h.slice(7) : '';
@@ -188,7 +215,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
   /* ---------- guardian sign-in ---------- */
 
   app.post('/v1/family/session', async (c) => {
-    if (tooManyFails('invite')) return c.json({ error: 'too_many_attempts' }, 429);
+    if (limited(c.req.raw, 'invite')) return c.json({ error: 'too_many_attempts' }, 429);
     const p = SessionSchema.safeParse(await c.req.json().catch(() => ({})));
     const now = d.nowMs();
     const inv = p.success
@@ -198,7 +225,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
         )
       : undefined;
     if (!inv) {
-      fail('invite');
+      failed(c.req.raw, 'invite');
       return c.json({ error: 'invalid_invite' }, 404);
     }
     d.sql.run('update guardian_invites set used_at = ? where code_hash = ?', [now, inv.code_hash]);
@@ -365,7 +392,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
   /* ---------- child device ---------- */
 
   app.post('/v1/device/link', async (c) => {
-    if (tooManyFails('device')) return c.json({ error: 'too_many_attempts' }, 429);
+    if (limited(c.req.raw, 'device')) return c.json({ error: 'too_many_attempts' }, 429);
     const p = DeviceLinkSchema.safeParse(await c.req.json().catch(() => ({})));
     const now = d.nowMs();
     const row = p.success
@@ -375,7 +402,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
         )
       : undefined;
     if (!p.success || !row) {
-      fail('device');
+      failed(c.req.raw, 'device');
       return c.json({ error: 'invalid_code' }, 404);
     }
     d.sql.run('update device_link_codes set used_at = ? where code = ?', [now, p.data.code]);

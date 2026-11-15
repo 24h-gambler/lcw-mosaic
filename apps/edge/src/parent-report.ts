@@ -75,24 +75,54 @@ export function tidyQuote(t: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9' ]+/g, '').replace(/\s+/g, ' ').trim();
+/** Lowercase words only; apostrophes and hyphens split words so "Juno's" and "JUNO-KIM" still show "juno". */
+const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 /**
  * Self-introductions name the child, the school or where they live ("My name is Jiwoo", "I live in Mapo"): never
- * quoted on a link that can be forwarded (docs/16 §1 "실명 없음").
+ * shown on a link that can be forwarded (docs/16 §1 "실명 없음"). Tested on norm()-ed text.
  */
 export const SELF_IDENTIFYING_PATTERN =
-  /(?:name(?:'s| is)|call me|i live|i'm from|i am from|my school|my teacher is|my address|years old)/i;
+  /\b(?:my name|name s|names is|call me|i live|live in|i m from|i am from|come from|my school|elementary|middle school|my class is|my teacher is|my address|my phone|my number|years old|my birthday|my mom is|my dad is|my brother is|my sister is|my friend is)\b/;
 
-/** Sentences safe to quote on a public page: passed, heard clearly, English, no PII/profanity/names (docs/16 §1). */
+/**
+ * "I'm Jiwoo", "this is Juno": after these openers only ordinary words may follow (a name would come next).
+ * Over-blocking is fine — there are always other passed sentences to quote.
+ */
+const INTRO_OPENER = /\b(?:i m|i am|this is|it s me|me is)\s+([a-z]+)/g;
+const INTRO_SAFE_NEXT = new Set(
+  (
+    'a an the so very not really too just going gonna trying looking playing eating drinking reading drawing making ' +
+    'happy hungry thirsty tired sad sorry fine good ok okay ready cold hot warm full sleepy excited busy here home ' +
+    'my your his her our their it this that what how in on at with for from to sure done back late first next'
+  ).split(' ')
+);
+/** Proper nouns kept by the recognizer (names, places, schools). Days, months and languages are ordinary words. */
+const COMMON_CAPITALISED = new Set(
+  (
+    'i im ill ive id ok english korean korea mr mrs ms monday tuesday wednesday thursday friday saturday sunday ' +
+    'january february march april may june july august september october november december'
+  ).split(' ')
+);
+
+/** Text that may appear on the public report: English, no PII/profanity, no names, no self-introduction. */
+export function publicSafeText(text: string, names: string[]): boolean {
+  const t = text.trim();
+  if (!t || /[가-힣]/.test(t) || t.includes('___')) return false;
+  const n = ` ${norm(t)} `;
+  if (SELF_IDENTIFYING_PATTERN.test(n)) return false;
+  for (const m of n.matchAll(INTRO_OPENER)) if (!INTRO_SAFE_NEXT.has(m[1]!)) return false;
+  if (names.some((x) => x.length >= 2 && n.includes(` ${x} `))) return false;
+  const words = t.split(/\s+/).slice(1);
+  if (words.some((w) => /^[A-Z]/.test(w) && !COMMON_CAPITALISED.has(norm(w).replace(/ /g, '')))) return false;
+  const f = filterSpeechBubble(t);
+  return f.allowed && !f.substituted;
+}
+
+/** Sentences safe to quote: passed, heard clearly, and publicSafeText. */
 function quotable(u: UttRow, names: string[]): boolean {
   if (u.stars <= 0 || u.confidence < MIN_QUOTE_CONFIDENCE || u.words < 2) return false;
-  if (SELF_IDENTIFYING_PATTERN.test(u.final_text)) return false;
-  const lower = ` ${norm(u.final_text)} `;
-  if (names.some((n) => n.length >= 2 && lower.includes(` ${n} `))) return false;
-  if (/[가-힣]/.test(u.final_text) || u.final_text.includes('___')) return false;
-  const f = filterSpeechBubble(u.final_text);
-  return f.allowed && !f.substituted;
+  return publicSafeText(u.final_text, names);
 }
 
 function quoteScore(u: UttRow): number {
@@ -171,16 +201,16 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
     lessonId
   ]);
   const passes = rows.filter((u) => u.stars > 0);
-  const counted = rows.filter((u) => u.confidence >= MIN_QUOTE_CONFIDENCE);
   const sum = (xs: UttRow[], f: (u: UttRow) => number) => xs.reduce((a, u) => a + f(u), 0);
   const ended = lesson.ended_at ?? nowMs;
 
+  const names = childNames(sql, lesson.player_id).map(norm).filter(Boolean);
   const exprSeen = new Set<string>();
   const expressions: string[] = [];
   for (const p of pins) {
     const note = p.note.trim();
-    if (p.kind !== 'expression' || !note || /[가-힣]/.test(note) || SELF_IDENTIFYING_PATTERN.test(note)) continue;
-    if (!filterSpeechBubble(note).allowed) continue;
+    // F2 notes default to the child's last utterance (docs/10 §2): same public filter as quotes.
+    if (p.kind !== 'expression' || !publicSafeText(note, names)) continue;
     const k = note.toLowerCase();
     if (exprSeen.has(k)) continue;
     exprSeen.add(k);
@@ -211,14 +241,15 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
     stars_total: sum(passes, (u) => u.stars),
     three_star_passes: passes.filter((u) => u.stars >= 3).length,
     hintless_passes: passes.filter((u) => u.hint_level === 'none' || u.mode === 'free' || u.mode === 'recall').length,
-    words_spoken: sum(counted, (u) => u.words),
+    // Same base as utterances and speaking_sec (every recorded utterance of this lesson), so the numbers add up.
+    words_spoken: sum(rows, (u) => u.words),
     free_words: sum(
-      counted.filter((u) => u.mode === 'free'),
+      rows.filter((u) => u.mode === 'free'),
       (u) => u.words
     ),
     speaking_sec: Math.round(sum(rows, (u) => u.dur_ms) / 1000),
     longest_words: rows.reduce((m, u) => Math.max(m, u.stars > 0 ? u.words : 0), 0),
-    quotes: pickQuotes(rows, titleOf, childNames(sql, lesson.player_id)),
+    quotes: pickQuotes(rows, titleOf, names),
     expressions,
     coaching_moments: pins.filter((p) => p.kind === 'coaching').length,
     stages
@@ -239,17 +270,85 @@ export interface PublicReportView {
   next_lesson_at: string;
 }
 
-const IDENTIFYING_FACT_KEYS = new Set(['player_id', 'guardian_id', 'family_id', 'nickname', 'name']);
+const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
 
-/** Defence in depth: strips identifier keys anywhere in the facts tree before it leaves the server. */
-export function stripIdentifiers(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(stripIdentifiers);
-  if (v && typeof v === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-      if (!IDENTIFYING_FACT_KEYS.has(k)) out[k] = stripIdentifiers(x);
-    }
-    return out;
+/** Only numbers (and nested objects of numbers) — e.g. the lesson lane's facts.progress. Strings and arrays are dropped. */
+function numbersOnly(v: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+    if (isNum(x) || x === null || typeof x === 'boolean') out[k] = x;
+    else if (x && typeof x === 'object' && !Array.isArray(x)) out[k] = numbersOnly(x);
   }
-  return v;
+  return out;
+}
+
+const LESSON_NUMBER_KEYS = [
+  'lesson_number',
+  'started_at',
+  'ended_at',
+  'duration_min',
+  'utterances',
+  'passes',
+  'stars_total',
+  'three_star_passes',
+  'hintless_passes',
+  'words_spoken',
+  'free_words',
+  'speaking_sec',
+  'longest_words',
+  'coaching_moments'
+] as const;
+
+/**
+ * Allow-list of what a public share link may carry (docs/16 §1): top-level numbers, facts.lesson's known fields with
+ * its texts re-checked, and numbers-only facts.progress. Anything else a lane adds later (raw transcripts such as
+ * pin_windows, teacher notes, ids) is not public until it is added here on purpose.
+ */
+export function publicFacts(facts: unknown, names: string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!facts || typeof facts !== 'object') return out;
+  const f = facts as Record<string, unknown>;
+  for (const [k, v] of Object.entries(f)) if (isNum(v) || v === null) out[k] = v;
+  if (f.progress && typeof f.progress === 'object') out.progress = numbersOnly(f.progress);
+  const l = f.lesson as Record<string, unknown> | undefined;
+  if (l && typeof l === 'object') {
+    const keyNames = names.map(norm).filter(Boolean);
+    const lesson: Record<string, unknown> = {};
+    for (const k of LESSON_NUMBER_KEYS) if (isNum(l[k]) || l[k] === null) lesson[k] = l[k];
+    if (typeof l.lesson_day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(l.lesson_day)) lesson.lesson_day = l.lesson_day;
+    if (typeof l.summary_ko === 'string') lesson.summary_ko = l.summary_ko;
+    const arr = (v: unknown) => (Array.isArray(v) ? v : []);
+    lesson.quotes = arr(l.quotes)
+      .map((q) => (q ?? {}) as Record<string, unknown>)
+      .filter((q) => typeof q.text === 'string' && publicSafeText(q.text, keyNames))
+      .map((q) => ({
+        text: q.text,
+        stars: isNum(q.stars) ? q.stars : 0,
+        mode: typeof q.mode === 'string' ? q.mode : '',
+        stage_title_ko: typeof q.stage_title_ko === 'string' ? q.stage_title_ko : '',
+        hintless: q.hintless === true
+      }));
+    lesson.expressions = arr(l.expressions).filter((e): e is string => typeof e === 'string' && publicSafeText(e, keyNames));
+    lesson.stages = arr(l.stages)
+      .map((x) => (x ?? {}) as Record<string, unknown>)
+      .map((x) => ({
+        id: typeof x.id === 'string' ? x.id : '',
+        title_ko: typeof x.title_ko === 'string' ? x.title_ko : '',
+        utterances: isNum(x.utterances) ? x.utterances : 0,
+        passes: isNum(x.passes) ? x.passes : 0
+      }));
+    out.lesson = lesson;
+  }
+  return out;
+}
+
+/**
+ * Free text the teacher typed (comment, next lesson) is public too: the child's nickname becomes "아이"
+ * ("지우가 잘했어요" → "아이가 잘했어요"), the rest is left as written.
+ */
+export function maskNickname(text: string, nickname: string): string {
+  const n = nickname.trim();
+  if (n.length < 2) return text;
+  return text.split(n).join('아이');
 }

@@ -12,6 +12,7 @@ import { formatLessonFact, kstLabel, reportFactRows } from './lessonFlow.js';
 import { LessonStyle, border, sp } from './lessonUi.js';
 import { PARENT_STRINGS_KO } from './parentStrings.js';
 import { LESSON_STRINGS_KO } from './strings.js';
+import { VoiceClips } from './VoiceClips.js';
 
 const S = LESSON_STRINGS_KO.report;
 const P = PARENT_STRINGS_KO.report;
@@ -98,7 +99,7 @@ export function ParentReportPage({ token, api, initial }: ParentReportPageProps)
           </Button>
         </Card>
       ) : null}
-      {load.status === 'ok' ? <ReportBody report={load.report} preview={load.preview} /> : null}
+      {load.status === 'ok' ? <ReportBody report={load.report} preview={load.preview} token={token} /> : null}
     </main>
   );
 }
@@ -260,8 +261,10 @@ export function lessonDayLabel(day: string): string {
   return `${Number(m[2])}월 ${Number(m[3])}일 (${P.weekday[wd]})`;
 }
 
-export function ReportBody({ report, preview = false }: { report: SharedReport; preview?: boolean }): React.ReactElement {
+export function ReportBody({ report, preview = false, token }: { report: SharedReport; preview?: boolean; token?: string }): React.ReactElement {
   const lesson = lessonFactsOf(report.facts);
+  // The guardian's own device hears the child's turns (edge voice.ts); the teacher's preview and forwarded links do not.
+  const voice = !preview && token ? <VoiceClips token={token} /> : null;
   return (
     <>
       {preview ? (
@@ -269,7 +272,14 @@ export function ReportBody({ report, preview = false }: { report: SharedReport; 
           {P.previewBanner}
         </p>
       ) : null}
-      {lesson ? <LessonReport report={report} lesson={lesson} /> : <FactTableReport report={report} />}
+      {lesson ? (
+        <LessonReport report={report} lesson={lesson} voice={voice} />
+      ) : (
+        <>
+          <FactTableReport report={report} />
+          {voice}
+        </>
+      )}
       <footer style={{ ...small, display: 'grid', gap: sp(1), padding: `0 ${sp(1)} ${sp(5)}` }}>
         {report.expires_at ? <span>{P.footerExpires(kstLabel(report.expires_at, false))}</span> : null}
         <span>{P.footerPrivacy}</span>
@@ -278,7 +288,7 @@ export function ReportBody({ report, preview = false }: { report: SharedReport; 
   );
 }
 
-function LessonReport({ report, lesson }: { report: SharedReport; lesson: LessonFactsView }): React.ReactElement {
+function LessonReport({ report, lesson, voice }: { report: SharedReport; lesson: LessonFactsView; voice?: React.ReactNode }): React.ReactElement {
   const dayLabel = lesson.lesson_day ? lessonDayLabel(lesson.lesson_day) : kstLabel(report.created_at, false);
   return (
     <>
@@ -348,6 +358,7 @@ function LessonReport({ report, lesson }: { report: SharedReport; lesson: Lesson
           ))}
         </ol>
       </Card>
+      {voice}
 
       <Card testId="report-numbers">
         <h2 style={h2}>{P.numbersTitle}</h2>

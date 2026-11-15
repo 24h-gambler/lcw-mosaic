@@ -194,7 +194,7 @@ export class LessonController {
         this.seenLines.clear();
         this.seenEvents.clear();
       }
-      this.session = { token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, level: r.level };
+      this.session = { token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, level: r.level, voiceStore: r.voice_store === true };
       saveStudentSession(this.session, this.store());
       this.cursor = null;
       this.set({ phase: 'live', nickname: r.nickname, level: r.level });

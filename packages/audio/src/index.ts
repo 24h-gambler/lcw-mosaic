@@ -732,3 +732,5 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
   };
   return engine;
 }
+
+export * from './clip-recorder.js';

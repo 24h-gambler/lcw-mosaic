@@ -37,6 +37,8 @@ export interface DialogResult {
   matchedText?: string;
   /** Guest practice (no lesson, no linked device): checked on the device, nothing is granted. */
   practice?: boolean;
+  /** First-visit errand step this sentence moved (server state), and coins it paid on hand-over (docs/03 D1). */
+  errand?: { state: 'offered' | 'accepted' | 'carrying' | 'done'; rewardCoins?: number };
 }
 
 /**
@@ -56,6 +58,11 @@ export interface UtteranceSubmit {
   attempt?: number;
   /** One id per opened dialog window: retries and resends of the same order are one purchase on the server. */
   dialogId?: string;
+  /**
+   * The recorded turn (only with `recordClip`). Never sent in the scoring body: uploaded once afterwards, and only when
+   * the server answers with `audio_upload` (voice_store on, edge voice.ts).
+   */
+  clip?: Promise<Blob | null>;
 }
 
 export interface DialogPanelProps {
@@ -75,4 +82,6 @@ export interface DialogPanelProps {
   listen?: boolean;
   /** Test/preview seam: replaces the browser speech engine. */
   speech?: import('./speech.js').SpeechEngine;
+  /** The guardian turned voice_store on (device /v1/device/me or lesson /v1/join): record spoken turns for replay. */
+  recordClip?: boolean;
 }

@@ -164,6 +164,8 @@ export interface JoinResult {
   player_id: string;
   nickname: string;
   level: string;
+  /** The guardian's voice_store consent (edge voice.ts): record spoken turns for the guardian's replay. */
+  voice_store?: boolean;
 }
 
 export interface StudentLessonState {
@@ -196,6 +198,8 @@ export interface UtteranceResult {
   feedback_ko: string;
   coins_total: number;
   utterances_today: number;
+  /** Speech turn with voice_store on: POST the recorded turn once to /v1/voice/upload/<token> (edge voice.ts). */
+  audio_upload?: { token: string; max_bytes: number; expires_at: number };
 }
 
 export interface SharedReport {
@@ -352,6 +356,8 @@ export const OPERATOR_TOKEN_KEY = 'lcw.operatorToken';
 export const STUDENT_TOKEN_KEY = 'lcw.studentToken';
 export const STUDENT_LESSON_KEY = 'lcw.studentLessonId';
 export const STUDENT_NICKNAME_KEY = 'lcw.studentNickname';
+/** '1' when /v1/join said voice_store is on (same key as apps/client lesson/api.ts). */
+export const STUDENT_VOICE_KEY = 'lcw.studentVoice';
 /** The teacher's running lesson survives a page reload during class. */
 export const DIRECTOR_LESSON_KEY = 'lcw.directorLesson';
 
@@ -406,19 +412,21 @@ export interface StudentSession {
   token: string;
   lessonId: string;
   nickname: string;
+  voiceStore?: boolean;
 }
 
 export function loadStudentSession(store: KeyValue | null = sessionStore()): StudentSession | null {
   const token = readKey(store, STUDENT_TOKEN_KEY);
   const lessonId = readKey(store, STUDENT_LESSON_KEY);
   if (!token || !lessonId) return null;
-  return { token, lessonId, nickname: readKey(store, STUDENT_NICKNAME_KEY) ?? '' };
+  return { token, lessonId, nickname: readKey(store, STUDENT_NICKNAME_KEY) ?? '', voiceStore: readKey(store, STUDENT_VOICE_KEY) === '1' };
 }
 
 export function saveStudentSession(s: StudentSession | null, store: KeyValue | null = sessionStore()): void {
   writeKey(store, STUDENT_TOKEN_KEY, s ? s.token : null);
   writeKey(store, STUDENT_LESSON_KEY, s ? s.lessonId : null);
   writeKey(store, STUDENT_NICKNAME_KEY, s ? s.nickname : null);
+  writeKey(store, STUDENT_VOICE_KEY, s?.voiceStore ? '1' : null);
 }
 
 export interface DirectorLessonRecord {

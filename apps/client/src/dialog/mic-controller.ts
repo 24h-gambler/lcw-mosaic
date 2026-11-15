@@ -1,4 +1,12 @@
-import { AUDIO_LIMITS, MIC_CAPTURE_IDLE, reduceDialogMic, vadHangoverMs, type MicCaptureState } from '@lcw/audio';
+import {
+  AUDIO_LIMITS,
+  MIC_CAPTURE_IDLE,
+  reduceDialogMic,
+  turnClipRecordingOff,
+  vadHangoverMs,
+  type ClipRecorder,
+  type MicCaptureState
+} from '@lcw/audio';
 import type { MicIssue, SpeechEngine, SpeechFinal, SpeechSession } from './speech.js';
 
 /**
@@ -24,7 +32,8 @@ export interface MicView {
 
 export interface MicControllerEvents {
   onView(v: MicView): void;
-  onFinal(r: SpeechFinal | null, durMs: number): void;
+  /** `clip`: the recorded turn when a recorder was given and something was heard (resolves null if nothing usable). */
+  onFinal(r: SpeechFinal | null, durMs: number, clip?: Promise<Blob | null>): void;
   onIssue(i: MicIssue): void;
 }
 
@@ -58,11 +67,15 @@ export class MicController {
   private gen = 0;
   /** Stop was sent and the engine's final result is still on its way; taps wait for it. */
   private finishing = false;
+  /** The turn's clip, cut when the child stops (finish) or when the engine ends by itself (deliver). */
+  private clip: Promise<Blob | null> | null = null;
 
   constructor(
     private readonly engine: SpeechEngine,
     private readonly ev: MicControllerEvents,
-    private readonly clock: Clock = realClock
+    private readonly clock: Clock = realClock,
+    /** voice_store on: records the turn alongside recognition (clip-recorder.ts). Optional, never blocks recognition. */
+    private readonly recorder: ClipRecorder | null = null
   ) {}
 
   get recording(): boolean {
@@ -87,6 +100,8 @@ export class MicController {
     this.stopTicker = null;
     this.session?.abort();
     this.session = null;
+    this.recorder?.abort();
+    this.clip = null;
     this.state = MIC_CAPTURE_IDLE;
   }
 
@@ -98,6 +113,7 @@ export class MicController {
     this.startedAt = this.clock.now();
     this.lastActivityAt = this.startedAt;
     const gen = ++this.gen;
+    this.clip = null;
     this.session = this.engine.start({
       onInterim: (text) => {
         if (gen === this.gen) this.interim = text;
@@ -108,6 +124,12 @@ export class MicController {
       onError: (issue) => {
         if (gen !== this.gen) return;
         this.finishing = false;
+        if (this.recorder) {
+          this.recorder.abort();
+          // The mic was refused while the recorder held it too: never record on this device again (recognition wins).
+          if (issue === 'denied') turnClipRecordingOff();
+        }
+        this.clip = null;
         this.cleanup();
         this.state = MIC_CAPTURE_IDLE;
         // The view must leave "recording" too, or the mic button and the live caption stay stuck on.
@@ -115,6 +137,8 @@ export class MicController {
         this.ev.onIssue(issue);
       }
     });
+    // After the engine took the mic, so recognition always gets it first.
+    this.recorder?.start();
     this.stopTicker = this.clock.every(MIC_FRAME_MS, () => this.frame());
     this.emit();
   }
@@ -159,15 +183,16 @@ export class MicController {
   private finish(): void {
     this.stopTicker?.();
     this.stopTicker = null;
+    if (this.recorder && !this.clip) this.clip = this.recorder.stop();
     const s = this.session;
     if (s) {
       this.finishing = true;
       const gen = this.gen;
-      const cancel = this.clock.every(STOP_GRACE_MS, () => {
+      const cancel = this.clock.every(this.engine.stopGraceMs ?? STOP_GRACE_MS, () => {
         cancel();
         if (gen !== this.gen || !this.finishing) return;
-        // Use what was heard live rather than nothing.
-        const said = this.interim.trim();
+        // Use what was heard live rather than nothing (only when the live text is words, not a level signal).
+        const said = this.engine.interimIsText === false ? '' : this.interim.trim();
         this.deliver(said ? { transcript: said, confidence: 0.5 } : null);
       });
       s.stop();
@@ -182,7 +207,12 @@ export class MicController {
     this.cleanup();
     this.state = MIC_CAPTURE_IDLE;
     this.ev.onView({ recording: false, interim: r?.transcript ?? this.interim, hangover: false, level: 0 });
-    this.ev.onFinal(r && r.transcript.trim() ? r : null, dur);
+    const heard = r && r.transcript.trim() ? r : null;
+    if (this.recorder && !this.clip) this.clip = this.recorder.stop();
+    const clip = this.clip;
+    this.clip = null;
+    if (heard && clip) this.ev.onFinal(heard, dur, clip);
+    else this.ev.onFinal(heard, dur);
   }
 
   private cleanup(): void {

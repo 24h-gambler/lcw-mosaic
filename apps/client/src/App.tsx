@@ -37,6 +37,31 @@ export interface DialogResultLike {
   askedKey?: string;
   /** Guest practice on the device: nothing granted. */
   practice?: boolean;
+  /** First-visit errand step this answer moved (server state, docs/03 D1). */
+  errand?: { state: ErrandState; rewardCoins?: number };
+}
+
+type ErrandState = 'offered' | 'accepted' | 'carrying' | 'done';
+/** The first-visit errand as the server reports it (dialog domain, `dialog/errand.ts`). */
+interface ErrandLike {
+  state: ErrandState;
+  [k: string]: unknown;
+}
+interface ErrandDialogLike {
+  npc: NpcRef;
+  offers: NonNullable<DialogConfig['offers']>;
+  npcLine: string;
+}
+interface FirstVisitModule {
+  /** docs/08 G15 first-visit guide + the 1-minute errand's goal and way (dialog domain). */
+  FirstVisitGuide?: React.ComponentType<{
+    world: WorldHandle | null;
+    player?: SoloPlayer;
+    errand: ErrandLike | null;
+    onErrand: (e: ErrandLike | null) => void;
+    hidden?: boolean;
+  }>;
+  errandDialogFor?: (npc: NpcRef, errand: ErrandLike | null, level: Level) => ErrandDialogLike | null;
 }
 
 /** Props the shell passes to the lesson layer (docs/19 5장). */
@@ -61,6 +86,27 @@ export interface SoloPlayer {
 /** docs/19 6장: a linked child whose seat stopped (play_allowed=false) may look around but not play solo. */
 export function soloPlayBlocked(id: PlayerIdentity | null): boolean {
   return id?.kind === 'child' && !id.playAllowed;
+}
+
+/**
+ * Record spoken turns for the guardian's replay (edge voice.ts)? In a lesson: the /v1/join answer kept in this tab;
+ * otherwise the linked child device's voice_store from /v1/device/me. A guest never records. The server checks again.
+ */
+export function recordClipFor(id: PlayerIdentity | null, store: Pick<Storage, 'getItem'> | null = sessionStoreOrNull()): boolean {
+  try {
+    if (store?.getItem('lcw.studentToken')) return store.getItem('lcw.studentVoice') === '1';
+  } catch {
+    /* storage blocked: fall through to the device identity */
+  }
+  return id?.kind === 'child' && id.voiceStore === true;
+}
+
+function sessionStoreOrNull(): Pick<Storage, 'getItem'> | null {
+  try {
+    return typeof sessionStorage !== 'undefined' ? sessionStorage : null;
+  } catch {
+    return null;
+  }
 }
 
 export function soloPlayerOf(id: PlayerIdentity | null): SoloPlayer | undefined {
@@ -98,6 +144,7 @@ const dialogLoaders = import.meta.glob<DialogModule>('./dialog/DialogPanel.tsx')
 const lessonLoaders = import.meta.glob<LessonModule>('./lesson/LessonLayer.tsx');
 const reviewLoaders = import.meta.glob<ReviewModule>('./dialog/ReviewDock.tsx');
 const readAloudLoaders = import.meta.glob<ReadAloudModule>('./dialog/ReadAloudPrompt.tsx');
+const firstVisitLoaders = import.meta.glob<FirstVisitModule>('./dialog/FirstVisitGuide.tsx');
 
 /** Guide answers name a place (`askedKey`); the solo world walks the child there after the window closes. */
 const PLACE_SCENES: Readonly<Record<string, SceneId>> = { cafe: 'honey_cafe', honey_cafe: 'honey_cafe', trade_shop: 'trade_shop', plaza: 'plaza', build_plot: 'build_plot', open_hill: 'open_hill' };
@@ -172,6 +219,7 @@ function DialogHost(props: {
   cfg: DialogConfig;
   submit: NonNullable<DialogConfig['submit']>;
   onClose: (lastResult: DialogResultLike | null) => void;
+  recordClip?: boolean;
 }): React.ReactElement {
   const { Panel, world, npc, cfg, submit, onClose } = props;
   useEffect(() => {
@@ -180,13 +228,16 @@ function DialogHost(props: {
   }, [world]);
   const play = useMemo(() => createResultPlayer(world), [world]);
   const last = useRef<DialogResultLike | null>(null);
+  // The panel reports the window's best result once it is finished (완료, or ✕/Esc after a pass, docs/19 3장), and
+  // then never calls onClose; the window ends here so a passed solo dialog can close (lesson hosts ignore onClose).
   const onDone = useCallback(
     (r: DialogResultLike) => {
       last.current = r;
       play(r);
       cfg.onDone?.(r);
+      onClose(r);
     },
-    [play, cfg]
+    [play, cfg, onClose]
   );
   const close = useCallback(() => {
     cfg.onClose?.();
@@ -203,6 +254,7 @@ function DialogHost(props: {
       submit={submit}
       onDone={onDone}
       onClose={close}
+      recordClip={props.recordClip === true}
     />
   );
 }
@@ -220,6 +272,10 @@ export function App(): React.ReactElement {
   // The kind the child last read aloud for (kept after the build screen closes, until the next room check).
   const [readKind, setReadKind] = useState<'light' | 'rest' | 'flat' | null>(null);
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
+  const [firstVisitMod, setFirstVisitMod] = useState<FirstVisitModule | null>(null);
+  const [errand, setErrand] = useState<ErrandLike | null>(null);
+  // The errand shape of a solo dialog is fixed when its window opens (a step it moves must not swap its sentences).
+  const errandDialog = useRef<{ npc: NpcRef | null; ed: ErrandDialogLike | null }>({ npc: null, ed: null });
   const [failed, setFailed] = useState(false);
   const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
   const [tooSlow, setTooSlow] = useState(false);
@@ -248,6 +304,7 @@ export function App(): React.ReactElement {
     for (const load of Object.values(lessonLoaders)) void load().then(setLessonMod);
     for (const load of Object.values(reviewLoaders)) void load().then(setReviewMod);
     for (const load of Object.values(readAloudLoaders)) void load().then(setReadAloudMod);
+    for (const load of Object.values(firstVisitLoaders)) void load().then(setFirstVisitMod);
   }, []);
 
   useEffect(() => {
@@ -337,7 +394,9 @@ export function App(): React.ReactElement {
       if (!Panel || !world) return null;
       const submit = cfg.submit ?? dialogMod?.createSoloSubmit?.(npc, soloPlayerOf(identity));
       if (!submit) return null;
-      return <DialogHost key={npc.id} Panel={Panel} world={world} npc={npc} cfg={cfg} submit={submit} onClose={() => undefined} />;
+      return (
+        <DialogHost key={npc.id} Panel={Panel} world={world} npc={npc} cfg={cfg} submit={submit} onClose={() => undefined} recordClip={recordClipFor(identity)} />
+      );
     },
     [dialogMod, world, identity]
   );
@@ -345,13 +404,31 @@ export function App(): React.ReactElement {
   if (!ok || failed) return <NoWorld />;
   const Lesson = lessonMod?.LessonLayer;
   const SoloPanel = dialogMod?.DialogPanel;
-  const soloSubmit = soloNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(soloNpc, soloPlayerOf(identity)) : null;
   const soloLevel = identity?.kind === 'child' ? identity.level : undefined;
+  // docs/03 D1 first-visit errand: the giver (Luna) and the cafe speak the errand's sentences while it runs.
+  if (errandDialog.current.npc !== soloNpc) {
+    errandDialog.current = {
+      npc: soloNpc,
+      ed: soloNpc && firstVisitMod?.errandDialogFor ? firstVisitMod.errandDialogFor(soloNpc, errand, soloLevel ?? 'L1') : null
+    };
+  }
+  const ed = errandDialog.current.ed;
+  const dialogNpc = ed?.npc ?? soloNpc;
+  const soloSubmit = dialogNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(dialogNpc, soloPlayerOf(identity)) : null;
   // docs/03 D13: while the room lacks a kind of furniture (or the child just read it aloud), Toby sells that kind.
   const shopKind = room?.missing[0] ?? readKind;
   const shopOffers =
     soloNpc?.ctx === 'trade_shop' && shopKind && readAloudMod?.furnitureOffersFor ? readAloudMod.furnitureOffersFor(shopKind, soloLevel ?? 'L1') : [];
-  const soloCfg: DialogConfig = { ...(soloLevel ? { level: soloLevel } : {}), ...(shopOffers.length > 0 ? { offers: shopOffers } : {}) };
+  const soloCfg: DialogConfig = {
+    ...(soloLevel ? { level: soloLevel } : {}),
+    ...(shopOffers.length > 0 ? { offers: shopOffers } : {}),
+    ...(ed ? { offers: ed.offers, npcLine: ed.npcLine } : {}),
+    onDone: (r) => {
+      const step = r.errand;
+      if (step) setErrand((prev) => (prev && prev.state !== step.state ? { ...prev, state: step.state } : prev));
+    }
+  };
+  const FirstVisit = firstVisitMod?.FirstVisitGuide;
   const Review = reviewMod?.ReviewDock;
   const ReadAloud = readAloudMod?.ReadAloudPrompt;
   return (
@@ -391,8 +468,19 @@ export function App(): React.ReactElement {
               />
             </div>
           ) : null}
-          {world && !soloBlocked && SoloPanel && soloNpc && soloSubmit ? (
-            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloCfg} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />
+          {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (
+            <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null} />
+          ) : null}
+          {world && !soloBlocked && SoloPanel && soloNpc && dialogNpc && soloSubmit ? (
+            <DialogHost
+              Panel={SoloPanel}
+              world={world}
+              npc={dialogNpc}
+              cfg={soloCfg}
+              submit={soloSubmit}
+              onClose={(last) => closeSolo(soloNpc, last)}
+              recordClip={recordClipFor(identity)}
+            />
           ) : null}
         </div>
       </div>

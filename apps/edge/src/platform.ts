@@ -1,16 +1,28 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
 import { playAllowed, sweepSeatNotices } from './seats.js';
+import {
+  VOICE_PUBLIC_ROUTES,
+  buildVoiceApp,
+  drainVoicePurge,
+  offerVoiceUpload,
+  queueExpiredVoice,
+  r2VoiceStore,
+  type R2BucketLike,
+  type VoiceBlobStore
+} from './voice.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
 import { createInitialPlayerState } from '@lcw/sim-core';
 import { z } from 'zod';
-import { FREE_TIER_LIMITS, QuotaMeter } from '@lcw/quota';
+import { FREE_TIER_LIMITS, type QuotaMeter } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
+import { handleServerStt } from './stt.js';
+import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaView, readQuotaSettings, rollupQuota } from './quota.js';
 import {
   createDurableSqliteExecutor,
   prefixedExecutor,
@@ -48,6 +60,8 @@ export interface LcwEnv {
   /** Operator (teacher) token — `wrangler secret put LCW_OPERATOR_TOKEN`. Unset → gated routes fail closed. */
   LCW_OPERATOR_TOKEN?: string;
   BUILD_SHA?: string;
+  /** R2 bucket for children's voice clips (voice.ts). Unbound → uploads answer 503 and nothing is stored. */
+  VOICE?: R2BucketLike;
 }
 interface DoState {
   storage: DurableStorageLike;
@@ -76,6 +90,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
   if (SHOWROOM_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Voice clips (voice.ts): upload checks its one-use token, playback its signature.
+  if (VOICE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   return false;
 }
 
@@ -183,6 +199,8 @@ export class PlatformDO {
   readonly db: EdgePlatformDb;
   private app: Hono;
   private appDay: string;
+  /** Today's quota meter (WP-112): counters in `quota_daily`, limit/outage from `quota_settings`. */
+  quota!: QuotaMeter;
   private readonly worlds: LazyWorlds;
   private readonly lessons: LazyLessons;
 
@@ -190,6 +208,7 @@ export class PlatformDO {
     this.sql = createDurableSqliteExecutor(state.storage);
     this.db = new EdgePlatformDb(this.sql);
     this.sql.exec(OPS_SCHEMA);
+    ensureQuotaSchema(this.sql);
     const blobs = new SqliteBlobStore(this.sql);
     this.ensureDemo();
     this.worlds = new LazyWorlds(this.sql, blobs);
@@ -200,28 +219,50 @@ export class PlatformDO {
 
   /** The QuotaMeter is per UTC day; a DO can live for days, so the app is rebuilt when the day changes. */
   private buildApp(day: string): Hono {
+    this.quota = createDayMeter(this.sql, day);
     const inner = createEdgeApp({
       db: this.db,
       worlds: this.worlds,
       lessons: this.lessons,
-      quota: new QuotaMeter(day),
+      quota: this.quota,
       nowMs: () => Date.now(),
       // The understand route awaits the model but does not use its answer yet, so calling it would only burn the
       // daily Workers AI budget. Wire runAiCapped back in when the LLM reply is consumed (docs/04 §4.4).
       runWorkersAi: undefined,
-      priceIndex: (worldId) => priceIndexOf(this.sql, worldId)
+      priceIndex: (worldId) => priceIndexOf(this.sql, worldId),
+      // No R2 binding → no offer: the device then records nothing.
+      offerVoiceUpload: async (p) =>
+        this.env.VOICE
+          ? offerVoiceUpload({ sql: this.sql, db: this.db, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)), sha256Hex }, p)
+          : null
     });
     return buildGatedApp(inner, this.env, this);
   }
 
-  /** Durable per-day AI counter: the in-memory QuotaMeter resets when the DO is evicted, this does not. */
-  async runAiCapped(model: string, input: LlmConverseInput): Promise<unknown> {
+  /** Operator settings changed: today's meter follows at once (the next day's meter reads them when it is built). */
+  applyQuotaSettings(): void {
+    const s = readQuotaSettings(this.sql);
+    this.quota.setDailyNeuronsLimit(s.dailyNeurons);
+    this.quota.setProviderOutage(s.outage);
+  }
+
+  /**
+   * Every Workers AI call goes through the meter (AGENTS 4.8): the degrade ladder decides (stage 1+ keeps creative
+   * AI for lesson rooms, stage 3+ and limit 0 are bank only), the neurons are counted before the call so a failed
+   * call never overshoots, and the durable per-day call count stays as a second cap. Null = use the bank.
+   */
+  async runAiCapped(model: string, input: LlmConverseInput, opts: { seatId?: string; isLesson?: boolean; neurons?: number } = {}): Promise<unknown> {
     const day = utcDay(Date.now());
     const used = this.sql.get<{ used: number }>(
       "select used from quota_daily where day = ? and k = 'ai_calls'",
       [day]
     )?.used ?? 0;
     if (used >= AI_DAILY_CALL_CAP || !this.env.AI) return null;
+    const now = Date.now();
+    this.quota.setScheduledLessons(activeLessonStarts(this.sql, now));
+    const seatId = opts.seatId ?? 'server';
+    if (!this.quota.canUseCreativeLlm({ seatId, isLesson: opts.isLesson ?? false, nowMs: now })) return null;
+    if (!this.quota.consumeNeurons(seatId, opts.neurons ?? 100, 'llm')) return null;
     this.sql.run(
       "insert into quota_daily (day, k, used) values (?, 'ai_calls', 1) on conflict(day, k) do update set used = used + 1",
       [day]
@@ -314,6 +355,31 @@ export class PlatformDO {
     this.sql.run('delete from ops_runs where at < ?', [Date.now() - 90 * 86_400_000]);
   }
 
+  voiceStore(): VoiceBlobStore | null {
+    return this.env.VOICE ? r2VoiceStore(this.env.VOICE) : null;
+  }
+
+  /**
+   * Voice clip deletion (voice.ts), its own ops run: hourly drains the purge queue into R2 (consent revocations R2
+   * refused at the time), daily 03:00 first queues clips past retention (last seat end + 12 months).
+   */
+  async runVoiceCron(cron: string, now: number): Promise<unknown> {
+    if (cron === '0 6 * * 1') return null;
+    const task = cron === '0 3 * * *' ? 'daily_voice_retention' : 'hourly_voice_purge';
+    try {
+      const expired = cron === '0 3 * * *' ? queueExpiredVoice(this.sql, now) : {};
+      const store = this.voiceStore();
+      const purge = await drainVoicePurge(this.sql, store);
+      const detail = { ...expired, ...purge, store_bound: store !== null };
+      this.recordRun(task, purge.failed === 0, detail);
+      return detail;
+    } catch (err) {
+      const detail = { error: err instanceof Error ? err.message : String(err) };
+      this.recordRun(task, false, detail);
+      return detail;
+    }
+  }
+
   /** Hourly seat notices (docs/09 시간별 "좌석 만료 안내"), recorded as their own ops run. */
   runSeatNotices(now: number): number | { error: string } {
     try {
@@ -354,7 +420,9 @@ export class PlatformDO {
         // Seat notices run in their own try: a failure there never hides the report reminders, and the reverse.
         const seats = this.runSeatNotices(now);
         const r = this.db.processPendingReportReminders(now);
-        detail = { reminded: r.remindedCount, seat_notices: seats };
+        // docs/09 P9: the day's stage; a day that reached 85% is kept as an alert day.
+        const quota = rollupQuota(this.sql, this.quota, now);
+        detail = { reminded: r.remindedCount, seat_notices: seats, quota };
       }
       this.recordRun(task, true, detail);
       return { task, ok: true, detail };
@@ -390,7 +458,10 @@ export class PlatformDO {
         this.sql.get<{ used: number }>("select used from quota_daily where day = ? and k = 'ai_calls'", [
           utcDay(Date.now())
         ])?.used ?? 0,
-      ai_daily_cap: AI_DAILY_CALL_CAP
+      ai_daily_cap: AI_DAILY_CALL_CAP,
+      quota: (({ stage, neurons_used, neurons_limit, bank_only, lesson_reserve_active }) => ({ stage, neurons_used, neurons_limit, bank_only, lesson_reserve_active }))(
+        quotaView(this.sql, this.quota, Date.now()) as { stage: number; neurons_used: number; neurons_limit: number; bank_only: boolean; lesson_reserve_active: boolean }
+      )
     };
   }
 
@@ -400,6 +471,8 @@ export class PlatformDO {
       this.appDay = day;
       this.app = this.buildApp(day);
     }
+    // The lesson reserve follows the lessons table (a lesson started from any device holds it at once).
+    if (new URL(request.url).pathname.startsWith('/v1/converse/')) this.quota.setScheduledLessons(activeLessonStarts(this.sql, Date.now()));
     const res = await this.app.fetch(request);
     // Drain a body the route never read (early 401/403/404 answers, `{}` on bodyless POSTs): workerd otherwise fails
     // the next request on the same kept-alive connection ("Can't read from request stream after response has been sent").
@@ -433,7 +506,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.post('/internal/cron', async (c) => {
     if (c.req.header('x-lcw-internal') !== 'cron') return c.json({ error: 'forbidden' }, 403);
     const body = (await c.req.json()) as { cron: string };
-    return c.json(platform.runCron(body.cron));
+    const r = platform.runCron(body.cron);
+    const voice = await platform.runVoiceCron(body.cron, Date.now());
+    return c.json({ ...r, voice });
   });
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
   // or outside a lesson with their linked device token. Who, which world and which level come from the token and
@@ -519,6 +594,12 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (!body) return c.json({ error: 'invalid_read_aloud_request' }, 400);
     return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
   });
+  app.get('/v1/errand', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id }));
+  });
   app.get('/v1/furniture/discounts', async (c, next) => {
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await soloPlayer(c.req.raw);
@@ -535,6 +616,24 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (blocked) return blocked;
     if (!body) return c.json({ error: 'invalid_review_request' }, 400);
     return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
+  });
+  // Server speech recognition for the child's own dialog turn (docs/02 6장): lesson or device token only, through
+  // the quota meter, audio never kept (stt.ts).
+  app.post('/v1/converse/stt', async (c) => {
+    const drain = () => (c.req.raw.body && !c.req.raw.bodyUsed ? c.req.raw.body.cancel().catch(() => undefined) : undefined);
+    const student = await platform.studentFromRequest(c.req.raw);
+    const device = student ? null : await platform.deviceFromRequest(c.req.raw);
+    const playerId = student?.player_id ?? device?.player_id;
+    if (!playerId) {
+      await drain();
+      return c.json({ error: 'child_token_required' }, 401);
+    }
+    const blocked = device ? seatBlocked({ player_id: playerId, device: true }) : null;
+    if (blocked) {
+      await drain();
+      return blocked;
+    }
+    return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota: () => platform.quota, ai: env.AI, nowMs: () => Date.now() });
   });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();
@@ -572,6 +671,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     return c.json({ ok: true, id: p.data.id }, 201);
   });
   app.get('/v1/admin/health', (c) => c.json(platform.health()));
+  app.route('/', buildQuotaAdminApp({ sql: platform.sql, meter: () => platform.quota, nowMs: () => Date.now(), onSettings: () => platform.applyQuotaSettings() }));
   // Public share link: strong tokens only, 30-day life, guardian revocation, allow-listed parent fields (family.ts).
   app.get('/v1/reports/:token', (c) => {
     const token = c.req.param('token');
@@ -589,9 +689,11 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     db: platform.db,
     nowMs: () => Date.now(),
     randomBytes: (n: number) => crypto.getRandomValues(new Uint8Array(n)),
-    sha256Hex
+    sha256Hex,
+    voiceStore: () => platform.voiceStore()
   };
   app.route('/', buildFamilyApp(familyDeps));
+  app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
   app.get('/v1/admin/ops-runs', (c) =>
@@ -605,6 +707,10 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       nowMs: () => Date.now(),
       randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
       sha256Hex,
+      offerVoiceUpload: async (p) =>
+        platform.voiceStore()
+          ? offerVoiceUpload({ sql: platform.sql, db: platform.db, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)), sha256Hex }, p)
+          : null,
       coins: {
         credit: (playerId, delta, ref, nowMs) => platform.creditCoins(playerId, delta, 'lesson_stars', ref, nowMs),
         balance: (playerId) => platform.coinBalance(playerId)

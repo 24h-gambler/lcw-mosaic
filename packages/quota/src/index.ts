@@ -13,6 +13,27 @@ export const SEAT_FAIR_USE_LIMITS = {
   maxObjectsPerWorld: 300
 } as const;
 
+/**
+ * Server speech recognition (docs/02 6장: Workers AI Whisper for devices without on-device recognition, Opus at
+ * 16 kbps). One dialog turn is at most 12 s (docs/04 4.1), so a request carries at most 15 s. Neurons are counted
+ * from the audio length before the call: Whisper large-v3-turbo is priced about 46 neurons per audio minute.
+ */
+export const SERVER_STT = {
+  model: '@cf/openai/whisper-large-v3-turbo',
+  maxSec: 15,
+  /** 15 s of Opus at up to 64 kbps plus container overhead; larger bodies are refused unread. */
+  maxBytes: 160_000,
+  /** 16 kbps Opus: the length estimate from the size when it is longer than the client says. */
+  opusBytesPerSec: 2_000,
+  neuronsPerMinute: 46,
+  /** Transcripts longer than this are cut (a dialog sentence is far shorter). */
+  maxTranscriptChars: 400
+} as const;
+
+export function serverSttNeurons(sec: number): number {
+  return Math.max(1, Math.ceil((Math.max(0, sec) * SERVER_STT.neuronsPerMinute) / 60));
+}
+
 export type DegradeStage = 0 | 1 | 2 | 3 | 4;
 
 export interface QuotaStatus {
@@ -26,22 +47,53 @@ export interface QuotaStatus {
   opsAlert: boolean;
 }
 
+/**
+ * Where the day's counters live. The default keeps them in memory (tests, one isolate); the edge passes a store
+ * backed by its Durable Object SQLite (`quota_daily`), so an evicted or restarted object keeps counting the same
+ * day instead of starting from zero (docs/02 5장: one counter for the whole service).
+ */
+export interface QuotaStore {
+  get(key: string): number;
+  add(key: string, n: number): void;
+}
+
+export class MemoryQuotaStore implements QuotaStore {
+  private m = new Map<string, number>();
+  get(key: string): number {
+    return this.m.get(key) ?? 0;
+  }
+  add(key: string, n: number): void {
+    this.m.set(key, this.get(key) + n);
+  }
+}
+
+/** Counter keys in a QuotaStore (one day per store). */
+export const QUOTA_KEYS = {
+  neurons: 'neurons',
+  doRequests: 'do_requests',
+  d1Writes: 'd1_writes',
+  seat: (seatId: string, kind: 'llm' | 'craft' | 'stt_sec') => `seat:${seatId}:${kind}`
+} as const;
+
 export class QuotaMeter {
   private day: string;
   private neuronsLimit: number;
-  private neuronsUsed = 0;
-  private doRequestsUsed = 0;
-  private d1WritesUsed = 0;
   private providerOutage = false;
   private scheduledLessonStartsAtMs: number[] = [];
-  private seatUsage = new Map<
-    string,
-    { creativeAi: number; aiCraft: number; serverSttSec: number }
-  >();
+  private store: QuotaStore;
 
-  constructor(day: string, neuronsLimit: number = FREE_TIER_LIMITS.dailyNeurons) {
+  constructor(day: string, neuronsLimit: number = FREE_TIER_LIMITS.dailyNeurons, store: QuotaStore = new MemoryQuotaStore()) {
     this.day = day;
     this.neuronsLimit = Math.max(0, neuronsLimit);
+    this.store = store;
+  }
+
+  private get neuronsUsed(): number {
+    return this.store.get(QUOTA_KEYS.neurons);
+  }
+
+  getDay(): string {
+    return this.day;
   }
 
   setProviderOutage(outage: boolean): void {
@@ -54,6 +106,11 @@ export class QuotaMeter {
 
   registerScheduledLesson(startsAtMs: number): void {
     this.scheduledLessonStartsAtMs.push(startsAtMs);
+  }
+
+  /** Replace the known lesson start times (the edge reads them from its lessons tables on each request). */
+  setScheduledLessons(startsAtMs: readonly number[]): void {
+    this.scheduledLessonStartsAtMs = [...startsAtMs];
   }
 
   isLessonReservationWindow(nowMs: number): boolean {
@@ -110,12 +167,11 @@ export class QuotaMeter {
   }
 
   private getSeat(seatId: string) {
-    let s = this.seatUsage.get(seatId);
-    if (!s) {
-      s = { creativeAi: 0, aiCraft: 0, serverSttSec: 0 };
-      this.seatUsage.set(seatId, s);
-    }
-    return s;
+    return {
+      creativeAi: this.store.get(QUOTA_KEYS.seat(seatId, 'llm')),
+      aiCraft: this.store.get(QUOTA_KEYS.seat(seatId, 'craft')),
+      serverSttSec: this.store.get(QUOTA_KEYS.seat(seatId, 'stt_sec'))
+    };
   }
 
   canUseCreativeLlm(params: { seatId: string; isLesson: boolean; nowMs: number }): boolean {
@@ -168,26 +224,25 @@ export class QuotaMeter {
     if (this.neuronsUsed + neurons > this.neuronsLimit) {
       return false; // Never allow overage billing (AGENTS.md 4.8)
     }
-    this.neuronsUsed += neurons;
-    const seat = this.getSeat(seatId);
-    if (kind === 'llm') seat.creativeAi++;
-    else if (kind === 'craft') seat.aiCraft++;
-    else if (kind === 'stt') seat.serverSttSec += sttSec;
+    this.store.add(QUOTA_KEYS.neurons, neurons);
+    if (kind === 'llm') this.store.add(QUOTA_KEYS.seat(seatId, 'llm'), 1);
+    else if (kind === 'craft') this.store.add(QUOTA_KEYS.seat(seatId, 'craft'), 1);
+    else if (kind === 'stt') this.store.add(QUOTA_KEYS.seat(seatId, 'stt_sec'), Math.max(0, Math.round(sttSec)));
     return true;
   }
 
   recordDoRequest(count = 1): void {
-    this.doRequestsUsed += count;
+    this.store.add(QUOTA_KEYS.doRequests, count);
   }
 
   recordD1Write(rows = 1): void {
-    this.d1WritesUsed += rows;
+    this.store.add(QUOTA_KEYS.d1Writes, rows);
   }
 
   getInfraCounts() {
     return {
-      doRequestsUsed: this.doRequestsUsed,
-      d1WritesUsed: this.d1WritesUsed
+      doRequestsUsed: this.store.get(QUOTA_KEYS.doRequests),
+      d1WritesUsed: this.store.get(QUOTA_KEYS.d1Writes)
     };
   }
 }

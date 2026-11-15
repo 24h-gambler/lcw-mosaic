@@ -78,6 +78,14 @@ export interface LessonModeDeps {
     credit: (playerId: string, delta: number, ref: string, nowMs: number) => number;
     balance: (playerId: string) => number;
   };
+  /** Voice clips (voice.ts offerVoiceUpload): an upload token for a speech turn with voice_store on, else null. */
+  offerVoiceUpload?: (p: { playerId: string; utteranceId: string; source: string; nowMs: number }) => Promise<VoiceUploadOfferLike | null>;
+}
+
+export interface VoiceUploadOfferLike {
+  token: string;
+  max_bytes: number;
+  expires_at: number;
 }
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
@@ -798,7 +806,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       lesson_id: row.lesson_id,
       player_id: row.player_id,
       nickname: pl?.nickname ?? '',
-      level: pl?.level ?? 'L1'
+      level: pl?.level ?? 'L1',
+      // The device records a turn only when the guardian turned voice_store on (voice.ts); the server checks again.
+      voice_store: d.db.hasActiveConsent(row.player_id, 'voice_store')
     });
   });
 
@@ -947,6 +957,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       created_at: now
     });
     recordMinuteAt(s.lesson_id, now);
+    const audioUpload = d.offerVoiceUpload
+      ? await d.offerVoiceUpload({ playerId: s.player_id, utteranceId: uttId, source: u.stt_source, nowMs: now })
+      : null;
     // One balance everywhere (coordinator 11-16): the ledger, credited once per utterance id.
     const coinsTotal = d.coins
       ? d.coins.credit(s.player_id, stars * COINS_PER_STAR, `lesson:${uttId}`, now)
@@ -979,7 +992,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       // This lesson's star sum right after this answer was stored: the HUD chip takes it as is (adding the answer's
       // stars to its own count could count one twice when a poll lands between the store and this answer).
       lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
-      utterances_today: Number(today?.n ?? 0)
+      utterances_today: Number(today?.n ?? 0),
+      ...(audioUpload ? { audio_upload: audioUpload } : {})
     });
   });
 

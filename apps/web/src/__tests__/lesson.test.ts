@@ -260,9 +260,14 @@ describe('lessonApi client (docs/18 §2)', () => {
     const session = memStore();
     saveStudentSession({ token: 'stok', lessonId: 'les-1', nickname: '지우' }, session);
     expect(session.data.get(STUDENT_TOKEN_KEY)).toBe('stok');
-    expect(loadStudentSession(session)).toEqual({ token: 'stok', lessonId: 'les-1', nickname: '지우' });
+    expect(loadStudentSession(session)).toEqual({ token: 'stok', lessonId: 'les-1', nickname: '지우', voiceStore: false });
+    // /v1/join said voice_store is on → the device records spoken turns for the guardian's replay
+    saveStudentSession({ token: 'stok', lessonId: 'les-1', nickname: '지우', voiceStore: true }, session);
+    expect(session.data.get('lcw.studentVoice')).toBe('1');
+    expect(loadStudentSession(session)?.voiceStore).toBe(true);
     saveStudentSession(null, session);
     expect(loadStudentSession(session)).toBeNull();
+    expect(session.data.has('lcw.studentVoice')).toBe(false);
     saveDirectorLesson(LESSON_REC, local);
     expect(loadDirectorLesson(local)).toEqual(LESSON_REC);
     // private mode / blocked storage: no throw, just "nothing stored"

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp } from './lesson-mode.js';
 import { FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
+import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { injectReportShareMeta } from './report-page.js';
 import { z } from 'zod';
 import { FREE_TIER_LIMITS, QuotaMeter } from '@lcw/quota';
@@ -67,6 +68,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (path.startsWith('/v1/lesson/')) return true;
   // Guardian (WP-301): /v1/family/* checks its own guardian session token, /v1/device/* the child device token.
   if (FAMILY_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Public site (docs/14): cookie-free counters and the tutoring consult form, see site.ts.
+  if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   return false;
 }
 
@@ -397,6 +400,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     sha256Hex
   };
   app.route('/', buildFamilyApp(familyDeps));
+  app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))
   );

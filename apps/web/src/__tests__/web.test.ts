@@ -78,7 +78,7 @@ describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
     expect(openedHtml).toContain('다음 수업 타깃 반영: 완료');
   });
 
-  it('displays transparent pricing without dark patterns on /parents and 0% commission on /teachers (docs/14)', () => {
+  it('displays transparent pricing without dark patterns on /parents and the tutoring page on /teachers (docs/14)', () => {
     const parentsHtml = renderToStaticMarkup(React.createElement(App, { initialRoute: '/parents' }));
     expect(parentsHtml).toContain('14,900원');
     expect(parentsHtml).toContain('119,000원');
@@ -86,8 +86,11 @@ describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
     expect(parentsHtml).toContain('159,000원');
     expect(parentsHtml).toContain('7일 이내 전액 환불');
 
+    // /teachers is the old link to the tutoring page (docs/14 W04). The tutoring fee is set by the teacher
+    // (docs/01 §4), so the page shows the lesson arc and the consult form instead of an invented seat price.
     const teachersHtml = renderToStaticMarkup(React.createElement(App, { initialRoute: '/teachers' }));
-    expect(teachersHtml).toContain('25,000원');
-    expect(teachersHtml).toContain('0%');
+    expect(teachersHtml).toContain('120분');
+    expect(teachersHtml).toContain('상담 신청');
+    expect(teachersHtml).not.toContain('25,000원');
   });
 });

@@ -123,3 +123,52 @@ export function transcriptMatchRatio(transcript: string, target: string): number
   }
   return hit / want.length;
 }
+
+/** Per target word: was it heard in the transcript (order-free, each heard word used once)? Drives the green/underline paint. */
+export function wordHits(transcript: string, target: string): boolean[] {
+  const heard = normWords(transcript);
+  return sentenceWords(target).map((raw) => {
+    const w = normWords(raw)[0];
+    if (!w) return true;
+    const i = heard.indexOf(w);
+    if (i < 0) return false;
+    heard.splice(i, 1);
+    return true;
+  });
+}
+
+export interface TryOffer {
+  stars: 1 | 2 | 3;
+  text: string;
+  /** Words that must be heard for this star level (the connector that makes it a 3-star sentence). */
+  required?: readonly string[];
+}
+
+export interface OfferMatch {
+  stars: 0 | 1 | 2 | 3;
+  /** The offer the transcript matched (or the closest one when nothing passed). */
+  offer: TryOffer;
+  ratio: number;
+}
+
+/**
+ * Scores a transcript against every offer and keeps the highest star level that passes, so a child who aimed at
+ * ★★★ but said the ★ sentence still gets their drink (forgiving, 08 §10). A level only passes when its required
+ * connector words were heard.
+ */
+export function bestOfferMatch(
+  transcript: string,
+  offers: readonly TryOffer[],
+  passRatio = TRY_RECOGNITION_PASS_RATIO
+): OfferMatch {
+  let best: OfferMatch | null = null;
+  let closest: OfferMatch | null = null;
+  const heard = normWords(transcript);
+  for (const o of offers) {
+    const ratio = transcriptMatchRatio(transcript, o.text);
+    const reqOk = (o.required ?? []).every((w) => heard.includes(w.toLowerCase()));
+    if (!closest || ratio > closest.ratio) closest = { stars: 0, offer: o, ratio };
+    if (ratio >= passRatio && reqOk && (!best || o.stars > best.stars)) best = { stars: o.stars, offer: o, ratio };
+  }
+  return best ?? closest ?? { stars: 0, offer: offers[0]!, ratio: 0 };
+}

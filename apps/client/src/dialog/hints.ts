@@ -9,7 +9,7 @@ import {
   type CafeModifier,
   type LangLevel
 } from '@lcw/content';
-import { normalizeMixedUtterance, tokenizeForScoring, wordsMatch } from '@lcw/converse';
+import { normalizeMixedUtterance, scoreUtterance, tokenizeForScoring, wordsMatch } from '@lcw/converse';
 import type { DialogHint, DialogOffer, NpcRef } from './types.js';
 
 /** One display token of a target sentence at a hint level (docs/08 8.2: full → keyword → initial → picture). */
@@ -55,7 +55,8 @@ function maskWord(word: string, keepFirst: boolean): string {
   if (!m) return word;
   const [, pre, core, post] = m;
   if (!core) return word;
-  const body = keepFirst ? core[0] + '_'.repeat(Math.max(1, core.length - 1)) : '_'.repeat(Math.max(2, core.length));
+  // keepFirst is the recall mask (content maskInitials): blanks of the word's length, so "I" stays "I", never "I_"
+  const body = keepFirst ? core[0] + '_'.repeat(core.length - 1) : '_'.repeat(Math.max(2, core.length));
   return `${pre}${body}${post}`;
 }
 
@@ -236,4 +237,29 @@ export function heardMask(target: string, transcript: string): boolean[] {
 export function isCoreWord(w: string): boolean {
   const n = normWord(w);
   return CONNECTORS.includes(n as (typeof CONNECTORS)[number]) || !FUNCTION_WORDS.has(n);
+}
+
+/**
+ * Which on-screen sentence did the child say? Children read the sentence they like without tapping it first
+ * (KakaoTalk in-app run 2026-11-16: "Yes, I can help you." said while the 1-star "Okay, I can go." was selected
+ * failed). Among the sentences the transcript passes, the closest one is scored; a tie goes to more stars (every word
+ * of the longer sentence was said too). Nothing passes → the selected one (its misses get highlighted). The server scores the transcript
+ * against the chosen sentence again (strict bank), so this never grants more than was said.
+ */
+export function spokenOffer(
+  offers: readonly DialogOffer[],
+  selected: 1 | 2 | 3,
+  transcript: string,
+  level: LangLevel,
+  hint: DialogHint
+): DialogOffer | undefined {
+  const own = offers.find((o) => o.stars === selected) ?? offers[0];
+  if (!own || !transcript.trim()) return own;
+  let best: { offer: DialogOffer; score: number } | null = null;
+  for (const o of offers) {
+    const r = scoreUtterance({ targetText: o.text, spokenTranscript: transcript, level, hintLevel: hint });
+    if (!r.pass) continue;
+    if (!best || r.score > best.score + 1e-9 || (r.score > best.score - 1e-9 && o.stars > best.offer.stars)) best = { offer: o, score: r.score };
+  }
+  return best?.offer ?? own;
 }

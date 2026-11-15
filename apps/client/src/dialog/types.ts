@@ -75,6 +75,11 @@ export interface DialogPanelProps {
   submit: (u: UtteranceSubmit) => Promise<DialogResult>;
   onDone: (r: DialogResult) => void;
   onClose: () => void;
+  /**
+   * Every scored result the moment it shows (pass or not), before 좋아요: the world plays stars, coins and the item
+   * then, not on close (outsider capture 2026-11-16). onDone still reports the window's best at the end.
+   */
+  onResult?: (r: DialogResult) => void;
   /** Optional extras (not in the docs/19 minimum): the NPC's question and accessibility font scale (1~1.5). */
   npcLine?: string;
   fontScale?: number;

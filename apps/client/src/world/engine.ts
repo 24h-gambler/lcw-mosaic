@@ -31,6 +31,9 @@ export { TIER_SETTINGS };
 const PLAYER_LOOK: NpcLook = { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3fa9f5, pants: 0x2f3b52, shoes: 0xff6b4a, hairStyle: 'short' };
 const TALK_RANGE = 3.6;
 const CAM_DIST_DEFAULT = 6.2;
+/** Dialog shot: metres above and below the look point that fit the visible strip, and the camera's downward pitch. */
+const DIALOG_SHOT_HALF_HEIGHT = 1.05;
+const DIALOG_SHOT_PITCH = 0.2;
 
 type CamMode = 'third' | 'first' | 'mirror';
 
@@ -816,19 +819,26 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     let wantPos: THREE.Vector3;
     let wantLook: THREE.Vector3;
     if (paused && focusNpc) {
-      // Dialog framing (docs/08 5장 slow 320 ms): side-on two-shot of player and NPC.
-      const mx = (body.x + focusNpc.pos.x) / 2;
-      const mz = (body.z + focusNpc.pos.z) / 2;
+      // Dialog framing (docs/08 5장 slow 320 ms): over the player's shoulder onto the NPC's face, far enough that the
+      // NPC from head to waist fits the strip above the dialog window (setViewInset; ~30% of a phone screen). The
+      // side-on two-shot sat behind the panel on phones and showed profiles (outsider capture 2026-11-16).
       const dx = focusNpc.pos.x - body.x;
       const dz = focusNpc.pos.z - body.z;
       const len = Math.hypot(dx, dz) || 1;
-      const sideX = -dz / len;
-      const sideZ = dx / len;
-      const behindX = -dx / len;
-      const behindZ = -dz / len;
-      const dist = Math.max(3.2, len * 1.2);
-      wantPos = new THREE.Vector3(mx + sideX * dist + behindX * 1.6, body.y + 2.1, mz + sideZ * dist + behindZ * 1.6);
-      wantLook = new THREE.Vector3(mx, body.y + 1.35, mz);
+      const ux = dx / len;
+      const uz = dz / len;
+      const lookX = body.x + ux * len * 0.6;
+      const lookZ = body.z + uz * len * 0.6;
+      const visible = Math.min(1, Math.max(0.22, (viewH - viewInset) / Math.max(1, viewH)));
+      const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const dist = Math.min(9, Math.max(3.2, DIALOG_SHOT_HALF_HEIGHT / (tanHalf * visible)));
+      // camera direction from the look point: behind the player, off to the side (the player's head clears the NPC)
+      const hx = -ux * 0.8 - uz * 0.6;
+      const hz = -uz * 0.8 + ux * 0.6;
+      const up = Math.sin(DIALOG_SHOT_PITCH);
+      const flat = Math.cos(DIALOG_SHOT_PITCH);
+      wantLook = new THREE.Vector3(lookX, body.y + 1.35, lookZ);
+      wantPos = new THREE.Vector3(lookX + hx * dist * flat, wantLook.y + dist * up, lookZ + hz * dist * flat);
       // keep the camera out of walls
       const ddx = wantPos.x - wantLook.x;
       const ddy = wantPos.y - wantLook.y;
@@ -870,6 +880,13 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // layout per frame (the largest main-thread cost in a profile on a fast GPU).
   let viewW = window.innerWidth;
   let viewH = window.innerHeight;
+  // Bottom pixels a panel covers (setViewInset): the projection's centre moves up into the strip above it.
+  let viewInset = 0;
+  const applyViewInset = (): void => {
+    const inset = Math.min(viewH * 0.78, Math.max(0, viewInset));
+    if (inset > 0) camera.setViewOffset(viewW, viewH, 0, inset / 2, viewW, viewH);
+    else camera.clearViewOffset();
+  };
   const resize = (): void => {
     const w = canvas.clientWidth || hudParent.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || hudParent.clientHeight || window.innerHeight;
@@ -878,6 +895,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(1, h);
     camera.fov = camera.aspect < 0.8 ? 80 : 70;
+    applyViewInset();
     camera.updateProjectionMatrix();
   };
   resize();
@@ -1296,8 +1314,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       }
       return true;
     },
-    celebrate(stars) {
-      hud.celebrate(stars, reduceMotion);
+    celebrate(stars, opts) {
+      hud.celebrate(stars, reduceMotion, Math.max(0, Math.round(opts?.add ?? stars)));
       if (stars === 0) {
         sfx.play('dlg.again');
         return;
@@ -1314,6 +1332,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     },
     setGoal(goalKo, targetEn) {
       hud.setGoal(goalKo, targetEn);
+    },
+    setViewInset(px) {
+      viewInset = Number.isFinite(px) ? px : 0;
+      applyViewInset();
     },
     setPaused(p) {
       paused = p;

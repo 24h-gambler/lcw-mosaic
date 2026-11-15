@@ -185,8 +185,9 @@ export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveI
     if (r.pass) {
       const stars = Math.max(1, Math.min(3, Math.round(r.stars))) as 1 | 2 | 3;
       if (stars > best) {
+        // the chip gains only what beats this window's last pass (1 star, then 2 on a retry → +1)
+        world.celebrate(stars, { add: stars - Math.max(0, best) });
         best = stars;
-        world.celebrate(stars);
       }
       if (r.itemKey && !r.practice && !given.has(r.itemKey)) {
         given.add(r.itemKey);
@@ -261,6 +262,38 @@ function DialogHost(props: {
     cfg.onClose?.();
     onClose(last.current);
   }, [cfg, onClose]);
+  // The world frames the NPC in the strip above the dialog window (it covers ~70% of a phone screen).
+  useEffect(() => {
+    if (!world.setViewInset) return;
+    let obs: ResizeObserver | null = null;
+    let raf = 0;
+    const measure = () => {
+      const el = document.querySelector('.lcw-dlg');
+      if (!el) return false;
+      world.setViewInset?.(Math.max(0, window.innerHeight - el.getBoundingClientRect().top));
+      return true;
+    };
+    const attach = () => {
+      const el = document.querySelector('.lcw-dlg');
+      if (!el) {
+        raf = requestAnimationFrame(attach);
+        return;
+      }
+      measure();
+      if (typeof ResizeObserver !== 'undefined') {
+        obs = new ResizeObserver(() => measure());
+        obs.observe(el);
+      }
+    };
+    attach();
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(raf);
+      obs?.disconnect();
+      window.removeEventListener('resize', measure);
+      world.setViewInset?.(0);
+    };
+  }, [world]);
   return (
     <Panel
       npc={npc}
@@ -271,6 +304,7 @@ function DialogHost(props: {
       {...(cfg.npcLine ? { npcLine: cfg.npcLine } : {})}
       submit={submit}
       onDone={onDone}
+      onResult={play}
       onClose={close}
       recordClip={props.recordClip === true}
     />

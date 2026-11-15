@@ -22,9 +22,9 @@ export interface WorldHandle {
   npcSay(npcId: string, text: string, opts?: { possessed?: boolean }): void; // 말풍선(빙의 중엔 반짝임)
   playerSay(text: string): void;
   giveItem(itemKey: string): void;                  // 주문한 음료·교환한 물건이 손/슬롯에
-  celebrate(stars: 0 | 1 | 2 | 3): void;            // 별 연출·효과음 (0 = '다시 해 볼까요')
+  celebrate(stars: 0 | 1 | 2 | 3, opts?: { add?: number }): void; // 별 연출·효과음 (0 = '다시 해 볼까요'), add = 별 칩 증가분(기본 stars)
   setGoal(goalKo: string, targetEn?: string): void; // 화면 맨 위 목표 한 줄
-  setPaused(paused: boolean): void;                 // 대화창이 열리면 이동 멈춤 + 가까운 NPC와 투샷
+  setPaused(paused: boolean): void;                 // 대화창이 열리면 이동 멈춤 + 플레이어 어깨 너머 NPC 얼굴 구도
   dispose(): void;
   // 선택(월드가 구현, 다른 도메인은 있으면 씀)
   setPossessed?(npcId: string | null): void;        // 교사 빙의 표시(머리 위 반짝임)
@@ -34,6 +34,7 @@ export interface WorldHandle {
   setLessonBadge?(on: boolean): void;               // 장면 이름 옆 '수업 중'
   setCoins?(total: number | null): void;           // 별 옆 코인 칩(서버 장부 잔액), null 이면 숨김
   getStats?(): WorldStats;                          // fps·draw call·삼각형·청크 수(검증용)
+  setViewInset?(bottomPx: number): void;            // 화면 아래를 덮은 패널 높이: 대화 구도를 그 위 띠 가운데에(0 = 없음)
 }
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
 export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
@@ -65,6 +66,7 @@ export interface DialogPanelProps {
   submit: (u: UtteranceSubmit) => Promise<DialogResult>; // 수업이면 /v1/lesson/utterance, 혼자면 /v1/converse/*
   onDone: (r: DialogResult) => void;
   onClose: () => void;
+  onResult?: (r: DialogResult) => void;   // 결과가 뜨는 순간마다(통과·실패) — 별·코인·아이템을 '좋아요' 전에 반영
 }
 ```
 
@@ -123,9 +125,10 @@ export interface DialogPanelProps {
 
 - 대화: `apps/client/src/dialog/DialogPanel.tsx`의 이름 있는 내보내기 `DialogPanel`(3장 props)과, 수업이 아닐 때 쓸 `createSoloSubmit(npc: NpcRef)`.
   - NPC에게 말을 걸면(`onNpcInteract`) 수업 중이 아닐 때 앱이 `DialogPanel`을 엽니다. 열리면 `setPaused(true)`, 닫히면 `setPaused(false)`.
-  - `onDone(r)`: 앱(`createResultPlayer`)이 결과를 월드에 틉니다. `DialogPanel`은 `celebrate`·`giveItem`을 직접 부르지 않습니다.
+  - `onResult(r)`(결과 화면이 뜨는 순간)와 `onDone(r)`(창을 끝낼 때 최고 결과): 앱(`createResultPlayer`)이 결과를 월드에 틉니다. 별 연출·별 칩·코인·아이템은 결과가 뜨는 순간 반영되고(외부인 캡처 2026-11-16: '좋아요'를 눌러야 올라가던 것), `onDone`으로 같은 결과가 다시 와도 두 번 반영하지 않습니다. `DialogPanel`은 `celebrate`·`giveItem`을 직접 부르지 않습니다.
+    - 열려 있는 동안 앱이 대화창(`.lcw-dlg`) 높이를 재어 `setViewInset?(px)`로 넘기고 닫히면 0 — 폰에서 화면의 70%를 덮는 창 위 띠에 NPC 얼굴이 보이게 합니다.
     - 아이템은 `r.itemKey`가 **있을 때만** 손에 줍니다. 장면 기본값은 없습니다. 수업이든 혼자든 같고, `practice`(게스트 연습)면 주지 않습니다. 한 창에서 한 번만 줍니다.
-    - 별은 그 창에서 보여 준 것보다 높을 때만 축하합니다. 실패의 '다시 해 봐요'(0)는 아직 통과 전일 때만 보여 줍니다. ✕·Esc 로 닫을 때 최고 결과로 `onDone`이 다시 와도 두 번 축하하지 않습니다.
+    - 별은 그 창에서 보여 준 것보다 높을 때만 축하하고, 별 칩에는 늘어난 만큼만 더합니다(1★ 뒤 재도전 2★ → `celebrate(2, {add: 1})`). 실패의 '다시 해 봐요'(0)는 아직 통과 전일 때만 보여 줍니다. ✕·Esc 로 닫을 때 최고 결과로 `onDone`이 다시 와도 두 번 축하하지 않습니다.
     - `r.coinsTotal`(서버 장부 잔액)이 오면 `setCoins?(n)`으로 HUD 의 별 옆 코인 칩에 보여 줍니다. 장부는 서버 하나이고, 수업 도메인이 맞춘 잔액을 `world.setCoins?.(n)`으로 직접 넣어도 됩니다.
     - 혼자 대화: 안내인(`ctx:'guide'`)이 통과한 답의 `askedKey`가 장소(`'cafe'|'trade_shop'`, 장면 id 도 됨)면 창을 닫은 뒤 그 장면으로 걸어갑니다(`goToScene`). 수업 중에는 수업이 장면을 정하므로 걷지 않습니다.
 - 복습: `apps/client/src/dialog/ReviewDock.tsx`의 `ReviewDock`(게스트가 아닐 때, 수업 중이거나 혼자 대화창이 열려 있으면 `hidden`). 자리는 오른쪽 위 별·코인 칩 아래: 터치(`pointer: coarse`)면 시점 버튼(약 60~116px) 아래 `top:128px`, 아니면 `top:60px`.

@@ -1,0 +1,174 @@
+{
+ "base": "https://lcw.worldwidesomething.com",
+ "ua": "Mozilla/5.0 (Linux; Android 14; SM-S918N Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0.6668.100 Mobile Safari/537.36 KAKAOTALK/25.8.2 (INAPP)",
+ "tap": true,
+ "steps": [
+  {
+   "name": "spawn",
+   "t": 183,
+   "ua_kakao": true,
+   "browser_sr": false
+  },
+  {
+   "name": "mic_check",
+   "t": 189.4,
+   "note": "🎤 \"Hello!\" 하고 말해 보기 | 잘 들려요! \"Hello.\" | 건너뛰기 | 좋아요, 출발!"
+  },
+  {
+   "name": "luna_open",
+   "t": 191,
+   "ok": true
+  },
+  {
+   "name": "accept",
+   "t": 200.8,
+   "said": "Yes, I can help you.",
+   "offers": [
+    {
+     "text": "★ Okay, I can go. 🔊",
+     "on": true
+    },
+    {
+     "text": "★★ Yes, I can help you. 🔊",
+     "on": false
+    },
+    {
+     "text": "★★★ Yes, I can help you. I will go now. 🔊",
+     "on": false
+    }
+   ],
+   "res": "★ ★ ★ Yes,Icanhelpyou. 통과! 다음엔 별 하나 더 도전해 볼까요? 🪙 200 코인 별 하나 더 도전 좋아요!",
+   "kakaoNotice": false,
+   "closed": true
+  },
+  {
+   "name": "hani_open",
+   "t": 210,
+   "ok": true
+  },
+  {
+   "name": "first_order",
+   "t": 219.2,
+   "said": "Cold water, please.",
+   "offers": [
+    {
+     "text": "★ Water, please. 🔊",
+     "on": true
+    },
+    {
+     "text": "★★ Cold water, please. 🔊",
+     "on": false
+    },
+    {
+     "text": "★★★ Can I have some cold water, please? 🔊",
+     "on": false
+    }
+   ],
+   "res": "★ ★ ★ Coldwater,please. 통과! 다음엔 별 하나 더 도전해 볼까요? 🪙 184 코인 별 하나 더 도전 좋아요!",
+   "kakaoNotice": false,
+   "closed": true
+  },
+  {
+   "name": "luna2_open",
+   "t": 227.2,
+   "ok": true
+  },
+  {
+   "name": "deliver",
+   "t": 236.9,
+   "said": "Here is your cold water. Enjoy!",
+   "offers": [
+    {
+     "text": "★ Here you are. 🔊",
+     "on": true
+    },
+    {
+     "text": "★★ Here is your water. 🔊",
+     "on": false
+    },
+    {
+     "text": "★★★ Here is your cold water. Enjoy! 🔊",
+     "on": false
+    }
+   ],
+   "res": "★ ★ ★ Hereisyourcoldwater.Enjoy! 완벽해요! 별 3개! 🪙 234 코인 좋아요!",
+   "kakaoNotice": false,
+   "closed": true
+  },
+  {
+   "name": "reward",
+   "t": 237.1,
+   "toast": "🪙 +50 코인! 심부름 완료"
+  }
+ ],
+ "stt": [
+  {
+   "status": 200,
+   "body": {
+    "transcript": "Hello.",
+    "confidence": 0.513,
+    "stt_sec": 3.6,
+    "source": "workers_ai"
+   }
+  },
+  {
+   "status": 200,
+   "body": {
+    "transcript": "Yes, I can help you.",
+    "confidence": 0.722,
+    "stt_sec": 5.38,
+    "source": "workers_ai"
+   }
+  },
+  {
+   "status": 200,
+   "body": {
+    "transcript": "Cold water, please",
+    "confidence": 0.609,
+    "stt_sec": 5.27,
+    "source": "workers_ai"
+   }
+  },
+  {
+   "status": 200,
+   "body": {
+    "transcript": "Here is your cold water. Enjoy!",
+    "confidence": 0.69,
+    "stt_sec": 6.36,
+    "source": "workers_ai"
+   }
+  }
+ ],
+ "scores": [
+  {
+   "status": 200,
+   "pass": true,
+   "stars": 2,
+   "stt_source": "workers_ai",
+   "errand": {
+    "state": "accepted"
+   }
+  },
+  {
+   "status": 200,
+   "pass": true,
+   "stars": 2,
+   "stt_source": "workers_ai",
+   "errand": {
+    "state": "carrying"
+   }
+  },
+  {
+   "status": 200,
+   "pass": true,
+   "stars": 3,
+   "stt_source": "workers_ai",
+   "errand": {
+    "state": "done",
+    "reward_coins": 50
+   }
+  }
+ ],
+ "mic_opens": 4,
+ "errs": []
+}

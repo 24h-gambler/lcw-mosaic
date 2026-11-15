@@ -13,7 +13,8 @@ import {
   heardMask,
   listenAllowed,
   picturesFor,
-  renderHintTokens
+  renderHintTokens,
+  spokenOffer
 } from '../dialog/hints.js';
 import { FIRST_SPEECH_WAIT_MS, MAX_TURN_MS, MIC_FRAME_MS, MicController, STOP_GRACE_MS, type Clock, type MicView } from '../dialog/mic-controller.js';
 import {
@@ -109,6 +110,24 @@ describe('dialog hints (WP-109, docs/08 8.2)', () => {
     // near words count like on the server (lenient match): "code" for cold, "smoothies" for smoothie
     expect(heardMask('Cold water, please.', 'Code water please')).toEqual([true, true, true]);
     expect(heardMask('Smoothie, please.', 'smoothies')).toEqual([true, false]);
+  });
+
+  it('the sentence the child says is the one scored, the selected one first (KakaoTalk run 2026-11-16)', () => {
+    const offers = [
+      { stars: 1 as const, text: 'Okay, I can go.', hintTags: [] },
+      { stars: 2 as const, text: 'Yes, I can help you.', hintTags: [] },
+      { stars: 3 as const, text: 'Yes, I can help you. I will go now.', hintTags: [] }
+    ];
+    expect(spokenOffer(offers, 1, 'Yes, I can help you.', 'L1', 'full')?.stars).toBe(2);
+    expect(spokenOffer(offers, 1, 'yes I can help you I will go now', 'L1', 'full')?.stars).toBe(3);
+    expect(spokenOffer(offers, 1, 'okay I can go', 'L1', 'full')?.stars).toBe(1);
+    // the closest passing sentence wins ("Okay, I can go." also passes the 3-star reading at 0.6); a tie goes to
+    // the longer sentence; nothing that passes keeps the selection (and its misses)
+    expect(spokenOffer(offers, 3, 'Yes, I can help you.', 'L1', 'full')?.stars).toBe(2);
+    expect(spokenOffer(offers, 2, 'Yes, I can help you. I will go now.', 'L1', 'full')?.stars).toBe(3);
+    expect(spokenOffer(offers, 3, 'Yes, I can help you. I will go now.', 'L1', 'full')?.stars).toBe(3);
+    expect(spokenOffer(offers, 2, 'banana', 'L1', 'full')?.stars).toBe(2);
+    expect(spokenOffer(offers, 2, '', 'L1', 'full')?.stars).toBe(2);
   });
 
   it('finds offers for an NPC from the bank when the caller passes none, at the right level', () => {

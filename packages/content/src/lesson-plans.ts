@@ -428,8 +428,9 @@ export function maskInitials(text: string): string {
     .split(/\s+/)
     .filter(Boolean)
     .map((w) => {
-      const m = /^([^A-Za-z0-9']*)([A-Za-z0-9']+)(.*)$/.exec(w);
-      if (!m) return w;
+      // Same split as dialog/hints PUNCT_RE: punctuation inside a word ("ice-cream", "3:30") is masked with it.
+      const m = /^([^A-Za-z0-9']*)(.*?)([^A-Za-z0-9']*)$/.exec(w);
+      if (!m || !m[2]) return w;
       const [, pre, core, post] = m;
       return `${pre}${core![0]}${'_'.repeat(Math.max(1, core!.length - 1))}${post}`;
     })

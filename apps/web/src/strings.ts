@@ -265,6 +265,8 @@ export const LESSON_STRINGS_KO = {
     nextOne: '다음 문장도 해 볼까?',
     reconnecting: '선생님 화면과 다시 연결하는 중이에요…',
     sendFailed: '보내지 못했어요. 다시 눌러 볼까요?',
+    savedOffline: '인터넷이 잠깐 끊겼어요. 말한 건 저장해 두었다가 연결되면 선생님께 보낼게요.',
+    queued: (n: number) => `보낼 말 ${n}개 · 연결되면 보내요`,
     endTitle: (nick: string) => (nick ? `${nick}, 오늘 정말 멋졌어요!` : '오늘 정말 멋졌어요!'),
     endSaid: (n: number) => `오늘 영어로 말한 문장 ${n}개`,
     endStars: (n: number) => `모은 별 ${n}개`,

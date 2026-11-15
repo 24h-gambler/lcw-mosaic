@@ -87,3 +87,12 @@ describe('lesson plans', () => {
     expect(SECOND_LESSON_PLAN.stages.some((s) => s.sceneId === 'build_plot')).toBe(true);
   });
 });
+
+describe('recall mask (maskInitials)', () => {
+  it('keeps the first letter of each word and hides the rest, punctuation inside a word too', async () => {
+    const { maskInitials } = await import('../lesson-plans.js');
+    expect(maskInitials('Can I have a warm honey tea?')).toBe('C__ I_ h___ a_ w___ h____ t__?');
+    expect(maskInitials('An ice-cream at 3:30, please.')).toBe('A_ i________ a_ 3___, p_____.');
+    expect(maskInitials('"Hi!"')).toBe('"H_!"');
+  });
+});

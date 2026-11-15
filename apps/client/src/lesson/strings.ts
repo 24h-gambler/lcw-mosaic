@@ -16,6 +16,7 @@ export const LESSON_STRINGS_KO = {
   status: {
     ok: (nickname: string) => (nickname ? `${nickname} · 선생님과 연결됨` : '선생님과 연결됨'),
     retrying: '다시 연결하는 중…',
+    queued: (n: number) => `보낼 말 ${n}개 · 연결되면 보내요`,
     leave: '나가기',
     leaveAsk: '수업에서 나갈까요?',
     leaveYes: '나가기',
@@ -38,7 +39,8 @@ export const LESSON_STRINGS_KO = {
     free: '정답은 없어요. 하고 싶은 말을 영어로 길게 해 봐요!',
     notHeard: '잘 안 들렸어요. 한 번 더 크게 말해 볼까요?',
     micBlocked: '마이크를 쓸 수 없어서 글자로 써요.',
-    failed: '보내지 못했어요. 한 번 더 눌러 볼까요?'
+    failed: '보내지 못했어요. 한 번 더 눌러 볼까요?',
+    queued: '인터넷이 잠깐 끊겼어요. 말한 건 저장해 두었다가 연결되면 선생님께 보낼게요.'
   },
   result: {
     coins: (n: number) => `코인 ${n}`

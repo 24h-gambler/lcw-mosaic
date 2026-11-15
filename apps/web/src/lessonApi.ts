@@ -189,6 +189,10 @@ export interface UtteranceInput {
   dur_ms: number;
   stt_source: SttSource;
   confidence: number;
+  /** One id per answer (packages/content lesson-outbox): a resend is the same answer on the server. */
+  client_id?: string;
+  /** The stage the child answered in (an answer kept offline may arrive after the teacher moved on). */
+  stage_id?: string;
 }
 
 export interface UtteranceResult {

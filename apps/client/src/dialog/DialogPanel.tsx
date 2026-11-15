@@ -214,8 +214,13 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         setPhase('result');
       } catch (err) {
         const auth = err instanceof SubmitError && err.kind === 'auth';
+        const queued = err instanceof SubmitError && err.kind === 'queued';
         setAuthLost(auth);
-        setNotice(auth ? S.sessionEnded : err instanceof SubmitError && err.kind === 'network' ? S.networkError : S.submitError);
+        // Kept on the device (lesson outbox): no "try again" — a second send would be a second answer.
+        if (queued) setPending(null);
+        setNotice(
+          auth ? S.sessionEnded : queued ? S.savedOffline : err instanceof SubmitError && err.kind === 'network' ? S.networkError : S.submitError
+        );
         setPhase('result');
         setResult(null);
       } finally {

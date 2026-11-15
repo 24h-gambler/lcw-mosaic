@@ -179,7 +179,7 @@ export function HeroLoop({ autoPlay = true }: { autoPlay?: boolean }): React.Rea
       </svg>
 
       {phase === 0 ? (
-        <div className="s-bubble" lang="en" style={{ ...kidHead, transform: 'translate(-10%, -120%)' }} key="b0">
+        <div className="s-bubble" lang="en" style={{ ...kidHead, transform: 'translate(-55%, -125%)' }} key="b0">
           {LOOP.hesitant}
         </div>
       ) : null}

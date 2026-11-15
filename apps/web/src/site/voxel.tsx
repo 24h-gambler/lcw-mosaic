@@ -282,7 +282,7 @@ export function character(o: CharacterOpts = {}): Vox[] {
     box(-0, 0, 9, 4, 4, 4, 'paper-100'),
     box(0, 0, 12, 4, 4, 1, hair),
     box(0, 0, 10, 4, 1, 3, hair),
-    box(0, 0, 9, 1, 4, 3, hair),
+    box(0, 0, 10, 1, 2, 3, hair),
     // eyes and mouth on the +y face
     [
       { x: 1, y: 3, z: 11, c: 'ink-900' },
@@ -306,6 +306,39 @@ export function character(o: CharacterOpts = {}): Vox[] {
   if (o.cup) {
     parts.push(box(4, 3, 5, 2, 2, 2, 'paper-0', 'cup'), box(4, 3, 7, 2, 2, 1, 'sun-d', 'cup'));
   }
+  return merge(...parts);
+}
+
+/**
+ * Small figure for scenes with buildings, so a person is about two thirds of a storey instead of towering over the
+ * cafe. Faces +y like `character`.
+ */
+export function miniCharacter(o: CharacterOpts = {}): Vox[] {
+  const shirt = o.shirt ?? 'brand';
+  const pants = o.pants ?? 'sky-d';
+  const hair = o.hair ?? 'ink-700';
+  const parts: Vox[][] = [
+    box(0, 0, 0, 1, 1, 2, pants),
+    box(2, 0, 0, 1, 1, 2, pants),
+    box(0, 0, 2, 3, 1, 2, shirt),
+    o.waveArm ? box(3, 0, 4, 1, 1, 2, shirt) : box(3, 0, 2, 1, 1, 2, shirt),
+    box(-1, 0, 2, 1, 1, 2, shirt),
+    box(0, -1, 4, 3, 3, 3, 'paper-100'),
+    box(0, -1, 6, 3, 3, 1, hair),
+    box(0, -1, 4, 3, 1, 3, hair),
+    [
+      { x: 0, y: 1, z: 5, c: 'ink-900' },
+      { x: 2, y: 1, z: 5, c: 'ink-900' }
+    ]
+  ];
+  if (o.cup) parts.push(box(3, 1, 3, 1, 1, 1, 'paper-0', 'cup'), box(3, 1, 4, 1, 1, 1, 'sun-d', 'cup'));
+  if (o.jetpack)
+    parts.push(
+      box(0, -1, 2, 1, 1, 2, 'silver', 'jetpack'),
+      box(2, -1, 2, 1, 1, 2, 'silver', 'jetpack'),
+      box(0, -1, 1, 1, 1, 1, 'sun', 'flame'),
+      box(2, -1, 1, 1, 1, 1, 'sun', 'flame')
+    );
   return merge(...parts);
 }
 

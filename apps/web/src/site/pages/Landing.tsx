@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { HERO, LANDING, LOOP_OFFERS, STEPS, STEP_GROW } from '../copy.js';
 import { HeroLoop } from '../HeroLoop.js';
 import { SLink } from '../SiteShell.js';
@@ -18,7 +18,6 @@ function WorldBands(): React.ReactElement {
 }
 
 export function LandingPage(): React.ReactElement {
-  const [pickStep] = useState(0);
   return (
     <>
       <section className="s-hero">
@@ -43,7 +42,7 @@ export function LandingPage(): React.ReactElement {
       </section>
 
       <section className="s-wrap" style={{ paddingBottom: 48 }} aria-label="어떻게 하나요">
-        <ol className="s-steps" style={{ listStyle: 'none', padding: 0 }} data-step={pickStep}>
+        <ol className="s-steps" style={{ listStyle: 'none', padding: 0 }}>
           {STEPS.map((s, i) => (
             <li key={s.n} className="s-step">
               <span className="s-row" style={{ gap: 10 }}>

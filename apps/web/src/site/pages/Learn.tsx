@@ -3,7 +3,7 @@ import React from 'react';
 import { LEARN, LEARN_PAGES } from '../copy.js';
 import { SLink } from '../SiteShell.js';
 import { OfferList } from '../widgets.js';
-import { VoxelSvg, box, cafe, character, floatingIsland, grass, merge, placeAt, shift, tree, type Vox } from '../voxel.js';
+import { VoxelSvg, box, cafe, floatingIsland, grass, merge, miniCharacter as character, placeAt, shift, tree, type Vox } from '../voxel.js';
 
 const ART: Readonly<Record<string, Vox[]>> = {
   cafe: merge(grass(14, 12), shift(cafe(), 2, 1, 0), placeAt(character({}), 7, 10)),

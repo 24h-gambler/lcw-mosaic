@@ -13,6 +13,7 @@ import { SitePageView } from '../site/SiteRoot.js';
 import { SAMPLE_SNAPSHOTS, parseShowroomSnapshot } from '../site/showroom.js';
 import { siteCss } from '../site/siteCss.js';
 import { TryScene } from '../site/TryScene.js';
+import { TRY_LOUDNESS_TRIES, TRY_RECOGNITION_ANSWER_MS, TRY_RECOGNITION_AUDIO_MS, cardOrderStars } from '../site/TrySpeak.js';
 import { TRY_INITIAL, TRY_OFFERS, TRY_PRICES, TRY_WALK_STEPS, TRY_WALLET, tryReducer, type TryPhase, type TryState } from '../site/tryState.js';
 import { eventPayload } from '../site/track.js';
 import { validateConsult } from '../site/pages/Tutoring.js';
@@ -196,6 +197,16 @@ describe('W06 /try flow (WP-702: one order, no server)', () => {
     expect(bestOfferMatch('can I have a warm honey tea I stay warm', TRY_OFFERS).stars).toBe(2);
     expect(bestOfferMatch('honey tea please', TRY_OFFERS).stars).toBe(1);
     expect(bestOfferMatch('banana', TRY_OFFERS).stars).toBe(0);
+  });
+
+  it('caps card-only orders at two stars and never strands a child on a silent recognizer (docs/04 4.1)', () => {
+    expect(cardOrderStars(3, true)).toBe(3);
+    expect(cardOrderStars(3, false)).toBe(2);
+    expect(cardOrderStars(2, false)).toBe(2);
+    expect(cardOrderStars(1, false)).toBe(1);
+    expect(TRY_LOUDNESS_TRIES).toBe(3);
+    expect(TRY_RECOGNITION_AUDIO_MS).toBeLessThan(TRY_RECOGNITION_ANSWER_MS);
+    expect(TRY_RECOGNITION_ANSWER_MS).toBeLessThanOrEqual(12_000);
   });
 
   it('marks which target words were heard', () => {

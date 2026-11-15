@@ -24,6 +24,22 @@ import { track } from './track.js';
 /** Silence after speech that ends a take on its own (08 §7.1: 2.5 s). */
 export const TRY_AUTO_STOP_SILENCE_MS = 2_500;
 export const TRY_MAX_TAKE_MS = 12_000;
+/** No audio from the recognizer by then: treat it as unavailable and hand over to word cards. */
+export const TRY_RECOGNITION_AUDIO_MS = 4_000;
+/** Quiet takes before the cards finish the order anyway (docs/04 4.1: 2 retries, then ECHO). */
+export const TRY_LOUDNESS_TRIES = 3;
+/** Audio but no answer by then: count a miss so the cards offer appears instead of an endless wait. */
+export const TRY_RECOGNITION_ANSWER_MS = 12_000;
+
+/** Stars for an order finished on word cards: a confirmed voice keeps the chosen level, cards alone stop at two (docs/04 4.1). */
+export function cardOrderStars(aim: 1 | 2 | 3, spoke: boolean): 1 | 2 | 3 {
+  return spoke ? aim : aim >= 2 ? 2 : 1;
+}
+
+function closeAudio(ctx: AudioContext | undefined): void {
+  if (!ctx || ctx.state === 'closed') return;
+  ctx.close().catch(() => undefined);
+}
 
 type RecLike = {
   lang: string;
@@ -36,6 +52,7 @@ type RecLike = {
   onaudiostart: (() => void) | null;
   start(): void;
   stop(): void;
+  abort?(): void;
 };
 
 function MicIcon(): React.ReactElement {
@@ -70,20 +87,36 @@ export function TrySpeak({ offers, aim, path: basePath, onDone, onRepick }: TryS
   const [misses, setMisses] = useState(0);
   const [passed, setPassed] = useState<1 | 2 | 3 | null>(null);
   const recording = useRef<string | null>(null);
+  const passedText = useRef<string | null>(null);
+  const [capped, setCapped] = useState(false);
   const recRef = useRef<RecLike | null>(null);
   const micTracked = useRef(false);
 
   const hits = useMemo(() => (heard === null ? null : wordHits(heard, target.text)), [heard, target.text]);
 
-  useEffect(() => () => recRef.current?.stop(), []);
+  const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearWatchdog = () => {
+    if (watchdog.current) clearTimeout(watchdog.current);
+    watchdog.current = null;
+  };
+  useEffect(
+    () => () => {
+      clearWatchdog();
+      recRef.current?.abort?.();
+      recRef.current?.stop();
+    },
+    []
+  );
   useEffect(() => {
     if (passed === null) return undefined;
-    const id = setTimeout(() => onDone(passed, (offers.find((o) => o.stars === passed) ?? target).text, recording.current), 1_300);
+    const said = passedText.current ?? (offers.find((o) => o.stars === passed) ?? target).text;
+    const id = setTimeout(() => onDone(passed, said, recording.current), 1_300);
     return () => clearTimeout(id);
   }, [passed, onDone, offers, target]);
 
-  const finish = (stars: 1 | 2 | 3, rec: string | null = null) => {
+  const finish = (stars: 1 | 2 | 3, rec: string | null = null, text: string | null = null) => {
     recording.current = rec;
+    passedText.current = text;
     blip('star');
     setPassed(stars);
   };
@@ -100,13 +133,16 @@ export function TrySpeak({ offers, aim, path: basePath, onDone, onRepick }: TryS
     r.interimResults = false;
     r.maxAlternatives = 3;
     r.continuous = false;
+    let heardAudio = false;
     r.onaudiostart = () => {
+      heardAudio = true;
       if (!micTracked.current) {
         micTracked.current = true;
         track('mic_allowed');
       }
     };
     r.onresult = (e) => {
+      clearWatchdog();
       const alts = Array.from(e.results[0] ?? []).map((a) => a.transcript);
       let best = bestOfferMatch(alts[0] ?? '', offers);
       let bestText = alts[0] ?? '';
@@ -122,15 +158,36 @@ export function TrySpeak({ offers, aim, path: basePath, onDone, onRepick }: TryS
       else setMisses((m) => m + 1);
     };
     r.onerror = (e) => {
+      clearWatchdog();
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'network' || e.error === 'audio-capture') setBlocked(true);
       else if (e.error === 'no-speech') setMisses((m) => m + 1);
     };
-    r.onend = () => setListening(false);
+    r.onend = () => {
+      clearWatchdog();
+      setListening(false);
+    };
     try {
       r.start();
       recRef.current = r;
       setListening(true);
       setHeard(null);
+      // Some browsers (in-app webviews, offline, headless) start but never answer: never leave the child waiting.
+      clearWatchdog();
+      watchdog.current = setTimeout(() => {
+        watchdog.current = setTimeout(() => {
+          r.onresult = null;
+          r.abort?.();
+          setListening(false);
+          setMisses((m) => m + 1);
+        }, TRY_RECOGNITION_ANSWER_MS - TRY_RECOGNITION_AUDIO_MS);
+        if (heardAudio) return;
+        if (watchdog.current) clearTimeout(watchdog.current);
+        watchdog.current = null;
+        r.onresult = null;
+        r.abort?.();
+        setListening(false);
+        setBlocked(true);
+      }, TRY_RECOGNITION_AUDIO_MS);
     } catch {
       setBlocked(true);
     }
@@ -162,6 +219,7 @@ export function TrySpeak({ offers, aim, path: basePath, onDone, onRepick }: TryS
       {passed ? (
         <div className="s-note s-ok s-popin" role="status" style={{ fontSize: 18, lineHeight: '28px', fontWeight: 800 }}>
           {'★'.repeat(passed)} {TRY.passed}
+          {capped ? <span className="s-small" style={{ display: 'block', fontWeight: 600 }}>{TRY.cappedNote}</span> : null}
         </div>
       ) : path === 'recognition' ? (
         <div className="s-stack" style={{ gap: 10 }}>
@@ -195,7 +253,13 @@ export function TrySpeak({ offers, aim, path: basePath, onDone, onRepick }: TryS
           {blocked ? <p className="s-note s-warn">{TRY.blocked}</p> : null}
         </div>
       ) : (
-        <WordCards target={target} withLoudness={path === 'wordcards_with_loudness'} onPassed={(rec) => finish(target.stars, rec)} />
+        <WordCards target={target} withLoudness={path === 'wordcards_with_loudness'} onPassed={(rec, spoke) => {
+            // docs/04 4.1: input without a confirmed voice counts up to two stars.
+            const stars = cardOrderStars(target.stars, spoke);
+            setCapped(stars < target.stars);
+            finish(stars, rec, target.text);
+          }}
+        />
       )}
     </div>
   );
@@ -208,13 +272,15 @@ function WordCards({
 }: {
   target: TryOffer;
   withLoudness: boolean;
-  onPassed: (recording: string | null) => void;
+  onPassed: (recording: string | null, spoke: boolean) => void;
 }): React.ReactElement {
   const words = useMemo(() => shuffleWords(sentenceWords(target.text), 7), [target.text]);
   const [picked, setPicked] = useState<number[]>([]);
   const assembled = isSentenceAssembled(picked.map((i) => words[i]!), target.text);
   const [rec, setRec] = useState<'idle' | 'on' | 'done'>('idle');
   const [loudOk, setLoudOk] = useState<boolean | null>(null);
+  const [loudFails, setLoudFails] = useState(0);
+  const spoke = useRef(false);
   const [level, setLevel] = useState(0);
   const [playback, setPlayback] = useState<string | null>(null);
   const h = useRef<{ stream?: MediaStream; ctx?: AudioContext; timer?: ReturnType<typeof setInterval>; recorder?: MediaRecorder; samples: EnergySample[] }>({ samples: [] });
@@ -224,7 +290,7 @@ function WordCards({
     if (!assembled || done.current) return;
     if (!withLoudness) {
       done.current = true;
-      onPassed(null);
+      onPassed(null, false);
     }
   }, [assembled, withLoudness, onPassed]);
   useEffect(() => {
@@ -234,12 +300,12 @@ function WordCards({
       const id = setTimeout(() => {
         if (done.current) return;
         done.current = true;
-        onPassed(null);
+        onPassed(null, spoke.current);
       }, 1_000);
       return () => clearTimeout(id);
     }
     done.current = true;
-    onPassed(playback);
+    onPassed(playback, spoke.current);
     return undefined;
   }, [loudOk, playback, onPassed]);
   useEffect(
@@ -247,7 +313,7 @@ function WordCards({
       const x = h.current;
       if (x.timer) clearInterval(x.timer);
       x.stream?.getTracks().forEach((t) => t.stop());
-      void x.ctx?.close();
+      closeAudio(x.ctx);
     },
     []
   );
@@ -257,10 +323,21 @@ function WordCards({
     if (x.timer) clearInterval(x.timer);
     if (x.recorder && x.recorder.state !== 'inactive') x.recorder.stop();
     x.stream?.getTracks().forEach((t) => t.stop());
-    void x.ctx?.close();
+    closeAudio(x.ctx);
     setLevel(0);
     setRec('done');
-    setLoudOk(evaluateSpeechEnergy(x.samples).passed);
+    const ok = evaluateSpeechEnergy(x.samples).passed;
+    spoke.current = ok;
+    if (ok) {
+      setLoudOk(true);
+      return;
+    }
+    // docs/04 4.1 ECHO: never leave empty-handed; blame the room, not the child, and finish one grade lower.
+    setLoudFails((n) => {
+      if (n + 1 >= TRY_LOUDNESS_TRIES) setLoudOk(true);
+      else setLoudOk(false);
+      return n + 1;
+    });
   };
 
   const start = async () => {
@@ -354,6 +431,7 @@ function WordCards({
         </div>
       ) : null}
       {rec === 'done' && loudOk === false ? <p className="s-note" role="status">{TRY.louder}</p> : null}
+      {loudOk && !spoke.current && loudFails >= TRY_LOUDNESS_TRIES ? <p className="s-note" role="status">{TRY.noisy}</p> : null}
     </div>
   );
 }

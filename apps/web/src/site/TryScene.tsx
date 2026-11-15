@@ -26,7 +26,7 @@ import {
 } from './tryState.js';
 import { track } from './track.js';
 import { Toast, useShareToParent } from './widgets.js';
-import { IsoGroup, box, cafe, character, grass, honeyCup, isoPoint, merge, placeAt, projectIso, road, shift, tree, type Vox } from './voxel.js';
+import { IsoGroup, box, cafe, grass, honeyCup, isoPoint, merge, miniCharacter as character, placeAt, projectIso, road, shift, tree, type Vox } from './voxel.js';
 
 const U = 10;
 const WALK_TICK_MS = 170;
@@ -76,6 +76,14 @@ function pctOf(vb: { x: number; y: number; w: number; h: number }, x: number, y:
   return { left: `${((sx - vb.x) / vb.w) * 100}%`, top: `${((sy - vb.y) / vb.h) * 100}%` };
 }
 
+/** Anchors the NPC bubble above the head but keeps it inside the stage, clear of the HUD corners. */
+function bubbleAt(vb: { x: number; y: number; w: number; h: number }, x: number, y: number, z: number) {
+  const [sx, sy] = isoPoint(x, y, z, U);
+  const left = Math.min(68, Math.max(32, ((sx - vb.x) / vb.w) * 100));
+  const top = Math.max(34, ((sy - vb.y) / vb.h) * 100);
+  return { left: `${left}%`, top: `${top}%` };
+}
+
 function TryStage2D({ s, onCafeTap, bubble }: { s: TryState; onCafeTap: () => void; bubble: string | null }): React.ReactElement {
   const plaza = usePlaza();
   const inside = useCafeInside();
@@ -115,7 +123,7 @@ function TryStage2D({ s, onCafeTap, bubble }: { s: TryState; onCafeTap: () => vo
         <IsoGroup voxels={holding ? inside.kidCup : inside.kid} unit={U} className={s.phase === 'end' || s.phase === 'drink' ? 's-bob' : undefined} />
       </svg>
       {bubble ? (
-        <div className="s-bubble" lang="en" style={{ ...pctOf(vb, 8, 1, 16), transform: 'translate(-50%, -100%)', maxWidth: '70%', fontSize: 15, lineHeight: '20px' }} key={bubble}>
+        <div className="s-bubble s-stage-bubble" lang="en" style={{ ...bubbleAt(vb, 8, 1, 16), transform: 'translate(-50%, -100%)', width: 'max-content', maxWidth: 'min(60%, 320px)', fontSize: 15, lineHeight: '20px' }} key={bubble}>
           {bubble}
         </div>
       ) : null}
@@ -482,6 +490,9 @@ function Panel(p: PanelProps): React.ReactElement {
       <div className="s-stack" style={{ gap: 12 }}>
         <div className="s-npcline">
           <span className="s-who">{TRY.npc}</span>
+          <span className="s-en-sm" lang="en">
+            {TRY_NPC.welcome}
+          </span>
           <span className="s-small">{TRY.welcomeKo}</span>
         </div>
         <h2 className="s-h3">{TRY.chooseTitle}</h2>

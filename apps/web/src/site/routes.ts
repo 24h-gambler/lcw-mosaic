@@ -80,3 +80,28 @@ export function metaFor(loc: SiteLocation): { title: string; description: string
 export function prerenderPaths(): string[] {
   return [...Object.keys(EXACT), ...LEARN_PAGES.map((p) => `/learn/${p.slug}`)];
 }
+
+/**
+ * Share picture per page (docs/14 §11 "페이지별 대표 그림"): 1200×630 JPEGs captured from the real /game
+ * (tools/site-captures.mjs). Stable names under /og/ so KakaoTalk and search keep their cached copies valid.
+ */
+export type ShareImage = 'home' | 'parents' | 'play' | 'try' | 'tutoring' | 'learn-cafe' | 'learn-trade' | 'learn-build' | 'showroom';
+export const SHARE_IMAGES: readonly ShareImage[] = ['home', 'parents', 'play', 'try', 'tutoring', 'learn-cafe', 'learn-trade', 'learn-build', 'showroom'];
+export const SHARE_IMAGE_SIZE = { width: 1200, height: 630 } as const;
+const LEARN_SHARE: Readonly<Record<string, ShareImage>> = { cafe: 'learn-cafe', trade: 'learn-trade', open_question: 'learn-build' };
+
+export function shareImageFor(loc: SiteLocation): ShareImage {
+  if (loc.page === 'learnPage') {
+    const ctx = LEARN_PAGES.find((x) => x.slug === loc.param)?.ctx;
+    return (ctx && LEARN_SHARE[ctx]) || 'learn-cafe';
+  }
+  if (loc.page === 'showroom' || loc.page === 'worlds') return 'showroom';
+  if (loc.page === 'parents' || loc.page === 'play' || loc.page === 'try' || loc.page === 'tutoring') return loc.page;
+  if (loc.page === 'pass') return 'play';
+  return 'home';
+}
+
+/** Pages search engines should list. The invite page only makes sense with a code from a friend. */
+export function indexable(loc: SiteLocation): boolean {
+  return loc.page !== 'pass' && loc.page !== 'showroom';
+}

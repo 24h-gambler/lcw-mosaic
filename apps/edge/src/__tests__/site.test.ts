@@ -4,6 +4,7 @@ import { CONSULTS_PER_HOUR_PER_CLIENT, SITE_EVENTS, counterPath } from '../site.
 import { SITE_EVENTS as WEB_SITE_EVENTS } from '../../../web/src/site/track.js';
 import { fakeDurableStorage } from './fake-do.js';
 import { rewriteReportShell } from '../report-page.js';
+import { injectShowroomShareMeta, showroomTokenFromPath } from '../showroom-page.js';
 import { fillShell, prerenderPage } from '../../../web/src/site/prerender.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
@@ -99,5 +100,43 @@ describe('tutoring consult form (W04)', () => {
     expect(isPublicRoute('POST', '/v1/site/consult')).toBe(true);
     expect(isPublicRoute('GET', '/v1/site/consult')).toBe(false);
     expect(isPublicRoute('GET', '/v1/admin/site/consults')).toBe(false);
+  });
+});
+
+describe('showroom share links (WP-703)', () => {
+  const shell = () => new Response(fillShell('<!doctype html><html><head><title>x</title></head><body><div id="root"></div></body></html>', prerenderPage('/')), { status: 200 });
+  const token = 'a'.repeat(32);
+
+  it("previews the world's own title with noindex and no landing tags", async () => {
+    const res = await injectShowroomShareMeta(shell(), new URL(`https://lcw.example/s/${token}`), async () => ({ title: '하늘 <카페> 마을' }));
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain('<title>하늘 &lt;카페&gt; 마을 — LCW 쇼룸</title>');
+    expect(html).toContain('og:image" content="https://lcw.example/og/showroom.jpg"');
+    expect(html).toContain('noindex');
+    expect(html).not.toContain('rel="canonical"');
+    expect(html.match(/property="og:title"/g)).toHaveLength(1);
+    expect(res.headers.get('x-robots-tag')).toContain('noindex');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+  });
+
+  it('answers 404 with a neutral title once the link is gone (consent withdrawn or unknown)', async () => {
+    const res = await injectShowroomShareMeta(shell(), new URL(`https://lcw.example/s/${token}`), async () => null);
+    expect(res.status).toBe(404);
+    const html = await res.text();
+    expect(html).toContain('찾을 수 없는 쇼룸');
+    expect(res.headers.get('cache-control')).toContain('no-store');
+    const bad = await injectShowroomShareMeta(shell(), new URL('https://lcw.example/s/not-a-token'), async () => ({ title: 'x' }));
+    expect(bad.status).toBe(404);
+  });
+
+  it('serves the sample world without a lookup, and only matches /s/<one segment>', async () => {
+    let asked = false;
+    const res = await injectShowroomShareMeta(shell(), new URL('https://lcw.example/s/demo'), async () => ((asked = true), null));
+    expect(res.status).toBe(200);
+    expect(asked).toBe(false);
+    expect(showroomTokenFromPath('/s/abc/')).toBe('abc');
+    expect(showroomTokenFromPath('/s/abc/def')).toBeNull();
+    expect(showroomTokenFromPath('/showroom')).toBeNull();
   });
 });

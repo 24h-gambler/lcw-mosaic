@@ -15,7 +15,7 @@ export const TRY = {
     end: '주문 성공!'
   },
   startTitle: '카페에서 영어로 주문해 볼까요?',
-  startBody: '광장을 지나 꿀벌 카페까지 가서, 영어로 꿀차를 주문하면 끝이에요.',
+  startBody: '광장을 지나 꿀 카페까지 가서, 영어로 꿀차를 주문하면 끝이에요.',
   startBtn: '시작하기 (소리 켜기)',
   startQuiet: '소리 없이 시작',
   localOnly: '체험에서는 브라우저의 음성 인식을 써요. 목소리는 저장되지 않아요.',
@@ -23,10 +23,10 @@ export const TRY = {
   walkKeys: '키보드 → 나 D 키도 돼요',
   walkBtn: '앞으로',
   autoWalk: '카페로 가기',
-  walkHint3d: '꿀벌 카페까지 걸어가서 카페 주인에게 말을 걸어요.',
+  walkHint3d: '꿀 카페까지 걸어가서 카페 주인에게 말을 걸어요.',
   walkKeys3d: '키보드는 W A S D·화살표, 휴대폰은 왼쪽 아래 조이스틱으로 걸어요. 주인 앞에서 E 키나 말 걸기 버튼을 눌러요.',
   npc: '카페 주인',
-  welcomeKo: '꿀벌 카페에 온 걸 환영해요! 오늘은 뭘 마실래요?',
+  welcomeKo: '꿀 카페에 온 걸 환영해요! 오늘은 뭘 마실래요?',
   next: '다음',
   chooseTitle: '어떤 문장으로 말할래요?',
   chooseHint: '별이 많을수록 길지만 더 싸요. 별 3개에 도전해 볼까요?',
@@ -72,6 +72,6 @@ export const TRY = {
   warm: '체온',
   slotCup: '꿀차',
   slotCookie: '꿀 쿠키',
-  stageLabel: '체험 장면: 광장과 꿀벌 카페',
-  stageLabel3d: '3D 체험 장면: 광장과 꿀벌 카페'
+  stageLabel: '체험 장면: 광장과 꿀 카페',
+  stageLabel3d: '3D 체험 장면: 광장과 꿀 카페'
 } as const;

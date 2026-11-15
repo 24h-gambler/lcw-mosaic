@@ -32,22 +32,38 @@ export const HERO = {
 } as const;
 
 /** 15-second loop (docs/14 §3): understandable with the sound off, captions on screen. */
+/** Landing clip (docs/14 §3): a real /game capture of one cafe order, captions carry it with the sound off. */
 export const LOOP = {
-  label: '게임 장면 15초 반복: 아이가 영어로 주문하자 문장이 자라고 제트팩이 생깁니다',
-  hesitant: 'I want... jetpack?',
-  npcAsk: 'What kind of gear do you want?',
-  spoken: "I'm looking for a red jetpack so that I can fly to the sky island!",
+  label: '실제 게임 화면 반복 영상: 카페 주인에게 영어로 주문하면 문장이 자라고 별 3개를 받습니다',
   captions: [
-    '단어는 아는데, 말이 잘 안 나와요',
-    '여기서는 말해야 얻어요. 문장은 세 가지',
-    '더 좋은 문장을 소리 내어 말하면',
-    '더 좋은 장비가 됩니다'
-  ],
-  pause: '일시 정지',
+    ['approach', '카페 주인이 영어로 말을 걸어요'],
+    ['offers', '여기서는 말해야 얻어요. 문장은 세 가지'],
+    ['speak', '더 좋은 문장을 소리 내어 말하면'],
+    ['stars', '별 3개. 더 좋은 문장이 더 큰 보상이 됩니다']
+  ] as ReadonlyArray<readonly [string, string]>
+} as const;
+
+/** Player page clip: the world's own auto-walk from the plaza to the cafe. */
+export const TOUR = {
+  label: '실제 게임 화면: 광장에서 마을 길을 따라 꿀 카페까지 걸어가는 장면',
+  captions: [
+    ['plaza', '광장에서 마을 길을 따라 걸어가요'],
+    ['cafe', '꿀 카페 도착. 이제 영어로 주문할 차례']
+  ] as ReadonlyArray<readonly [string, string]>
+} as const;
+
+/** Labels on the real-game pictures (GameMedia.tsx). */
+export const MEDIA = {
+  realTag: '실제 게임 화면 · 시연',
   play: '재생',
-  prev: '이전 장면',
-  next: '다음 장면',
-  sample: '게임 화면 재현'
+  pause: '일시 정지',
+  cafeOffers: '실제 게임 화면: 카페 주인 하니가 묻고, 별 1개부터 3개까지 세 가지 영어 문장이 펼쳐진 대화창',
+  cafeStars: '실제 게임 화면: 별 3개 문장 "Can I have some cold water, please?"를 말해 별 3개를 받은 대화창',
+  tradeOffers: '실제 게임 화면: 물물교환 상점 주인 토비와 헬멧을 바꾸는 세 가지 영어 문장',
+  buildPlot: '실제 게임 화면: 울타리와 벽돌이 놓인 내 부지',
+  guideOffers: '실제 게임 화면: 안내인 선생님 루나가 어디로 가고 싶은지 묻는 대화창',
+  cafeFront: '실제 게임 화면: 꿀 카페 앞에 선 플레이어',
+  plaza: '실제 게임 화면: 분수가 있는 중앙 광장'
 } as const;
 
 export const LOOP_OFFERS = [
@@ -222,7 +238,7 @@ export const TUTORING = {
   windowTitle: '수업 중에 들어와 보세요',
   windowBody:
     '수업 창문은 지금 아이가 어디서 무엇을 하는지, 화면의 목표 문장이 무엇인지 10초마다 글로 알려 드려요. 영상은 보내지 않습니다. 음성 청취는 동의하신 경우에만 열려요.',
-  windowSample: { place: '꿀벌 카페 · 광장', situation: '카페 주인과 주문 중', target: 'Can I have a warm honey tea so that I stay warm?' },
+  windowSample: { place: '꿀 카페 · 광장', situation: '카페 주인과 주문 중', target: 'Can I have a warm honey tea so that I stay warm?' },
   reportTitle: '수업이 끝나면',
   reportBody: '선생님이 확인한 뒤 링크로 보내 드려요. 로그인 없이 열리고, 30일 뒤 닫힙니다. 숫자는 기록과 자동으로 대조해 틀린 문장이 나가지 않게 했어요.',
   monthTitle: '한 달이 지나면',
@@ -450,7 +466,7 @@ export const LEARN_PAGES = [
     slug: 'order-a-drink',
     ctx: 'cafe',
     title: '카페에서 음료 주문하기',
-    scene: '꿀벌 카페 주인에게 따뜻한 음료를 시켜요.',
+    scene: '꿀 카페 주인에게 따뜻한 음료를 시켜요.',
     explain: [
       'please 하나만 붙여도 주문이 돼요. "Honey tea, please."',
       'Can I have ~? 는 "~ 주실 수 있어요?"에 가까운 부드러운 부탁이에요.',

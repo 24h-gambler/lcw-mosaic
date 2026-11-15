@@ -80,7 +80,8 @@ export function scanSourceForInvariants(code, filename) {
   const isUiComponentFile =
     norm.includes('packages/ui/src/components') ||
     norm.includes('apps/web/src/') ||
-    norm.includes('apps/client/src/Hud');
+    norm.includes('apps/client/src/Hud') ||
+    norm.includes('apps/client/src/dialog/');
   if (isUiComponentFile && !isTestFile) {
     const lines = code.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {

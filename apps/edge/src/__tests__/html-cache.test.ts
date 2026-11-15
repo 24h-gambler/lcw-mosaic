@@ -1,11 +1,11 @@
 // Cloudflare Web Analytics injects a third-party beacon into proxied HTML unless the response says no-transform
 // (docs/14 §11 forbids third-party scripts; seen on / and /game/ in production 11-16). Static pages get it from the
 // _headers file (tools/site-headers.mjs), Worker-built pages from html-cache.ts.
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { HTML_CACHE_CONTROL, htmlNoTransform } from '../html-cache.js';
+import { HTML_CACHE_CONTROL, htmlEncodingFor, htmlForClient, htmlNoTransform } from '../html-cache.js';
 import { workerHandler, type LcwEnv } from '../platform.js';
 import { HTML_CACHE_CONTROL as STATIC_HTML_CACHE_CONTROL, NON_HTML_CACHE, siteHeadersFile } from '../../../../tools/site-headers.mjs';
 
@@ -54,7 +54,8 @@ describe('HTML responses opt out of Cloudflare rewrites (no analytics beacon)', 
   });
 
   it('every public file outside the detached paths is HTML', () => {
-    // A new non-HTML file at an open path would silently pick up the HTML cache value: list it in site-headers.mjs.
+    // A new non-HTML file at an open path would silently pick up the HTML cache value: list it in site-headers.mjs
+    // (and in wrangler.toml run_worker_first, checked below).
     const covered = NON_HTML_CACHE.map(([path]) => path);
     const isCovered = (p: string) => covered.some((c) => (c.endsWith('/*') ? p.startsWith(c.slice(0, -1)) : p === c));
     const files = [
@@ -91,5 +92,47 @@ describe('HTML responses opt out of Cloudflare rewrites (no analytics beacon)', 
     expect(demo.headers.get('cache-control')).toBe('public, max-age=60, no-transform');
     const fallback = await workerHandler.fetch(new Request('https://lcw.example/s/a/b'), env);
     expect(fallback.headers.get('cache-control')).toBe(HTML_CACHE_CONTROL);
+  });
+
+  it('the Worker compresses HTML itself, because no-transform also stops Cloudflare compressing it', async () => {
+    expect(htmlEncodingFor('gzip, deflate, br, zstd')).toBe('br');
+    expect(htmlEncodingFor('gzip;q=1.0, br;q=0')).toBe('gzip');
+    expect(htmlEncodingFor('identity')).toBeNull();
+    expect(htmlEncodingFor(null)).toBeNull();
+    const page = () => new Response('<!doctype html><p>x</p>', { headers: { 'content-type': 'text/html', 'content-length': '22' } });
+    const get = (ae?: string) => new Request('https://lcw.example/play', { headers: ae ? { 'accept-encoding': ae } : {} });
+    const br = htmlForClient(page(), get('gzip, br'));
+    expect(br.headers.get('content-encoding')).toBe('br');
+    expect(br.headers.get('content-length')).toBeNull();
+    expect(br.headers.get('vary')).toBe('Accept-Encoding');
+    expect(br.headers.get('cache-control')).toBe(HTML_CACHE_CONTROL);
+    expect(await br.text()).toBe('<!doctype html><p>x</p>');
+    const plain = htmlForClient(page(), get());
+    expect(plain.headers.get('content-encoding')).toBeNull();
+    expect(plain.headers.get('vary')).toBe('Accept-Encoding');
+    // HEAD, 304 and non-HTML keep their bytes and headers.
+    expect(htmlForClient(page(), new Request('https://lcw.example/', { method: 'HEAD', headers: { 'accept-encoding': 'br' } })).headers.get('content-encoding')).toBeNull();
+    expect(htmlForClient(new Response(null, { status: 304, headers: { 'content-type': 'text/html' } }), get('br')).headers.get('content-encoding')).toBeNull();
+    const js = new Response('x', { headers: { 'content-type': 'text/javascript' } });
+    expect(htmlForClient(js, get('br'))).toBe(js);
+    const pre = new Response('x', { headers: { 'content-type': 'text/html', 'content-encoding': 'gzip' } });
+    expect(htmlForClient(pre, get('br')).headers.get('content-encoding')).toBe('gzip');
+
+    const env = {
+      PLATFORM: undefined as never,
+      ASSETS: { fetch: async () => new Response('<!doctype html><title>LCW</title>', { headers: { 'content-type': 'text/html' } }) }
+    } as LcwEnv;
+    const res = await workerHandler.fetch(new Request('https://lcw.example/parents', { headers: { 'accept-encoding': 'gzip' } }), env);
+    expect(res.headers.get('content-encoding')).toBe('gzip');
+    expect(res.headers.get('cache-control')).toBe(HTML_CACHE_CONTROL);
+  });
+
+  it('every path the Worker skips (wrangler run_worker_first) is a detached non-HTML path, and the other way round', () => {
+    const toml = readFileSync(fileURLToPath(new URL('../../wrangler.toml', import.meta.url)), 'utf8');
+    const line = toml.split(/\r?\n/).find((l) => l.startsWith('run_worker_first'));
+    const patterns = JSON.parse(line?.split('=')[1]?.trim() ?? '[]') as string[];
+    expect(patterns[0]).toBe('/*');
+    const skipped = patterns.filter((p) => p.startsWith('!')).map((p) => p.slice(1)).sort();
+    expect(skipped).toEqual(NON_HTML_CACHE.map(([path]) => path).sort());
   });
 });

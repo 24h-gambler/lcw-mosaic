@@ -1,5 +1,6 @@
 import {
-  CAFE_DRINKS,
+  CAFE_MENU,
+  TRADE_SHOP_GOODS,
   CAFE_MODIFIERS,
   lookupPhraseBank,
   type LangLevel
@@ -16,7 +17,8 @@ import { normalizeMixedUtterance } from './normalizer.js';
 const COLOR_WORDS = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'black', 'white', 'silver', 'gold'];
 
 const KNOWN_ITEMS_BY_CTX: Record<string, string[]> = {
-  cafe: CAFE_DRINKS.map((d) => d.label),
+  cafe: CAFE_MENU.map((d) => d.label),
+  trade_shop: TRADE_SHOP_GOODS.map((g) => g.label),
   makers_lab: ['jetpack', 'iron pickaxe', 'pickaxe', 'drill', 'boots', 'helmet', 'water balloon', 'dynamite', 'sword', 'wand', 'bow', 'winter coat', 'heat suit', 'space suit'],
   boutique: ['raincoat', 'umbrella', 'coat', 'suit', 'boots', 'winter coat', 'desert cloak'],
   exchange: ['coal', 'iron', 'gold', 'ruby', 'diamond', 'nether crystal'],
@@ -68,6 +70,7 @@ export function parseIntentAndSlots(ctx: NpcContext, transcript: string): Parsed
   if (ctx === 'cafe') intent = 'order_drink';
   else if (ctx === 'boutique') intent = 'order_outfit';
   else if (ctx === 'exchange') intent = 'sell_ore';
+  else if (ctx === 'trade_shop') intent = 'trade_item';
   else if (ctx === 'court') intent = 'defend';
   else if (ctx === 'lottery') intent = 'pledge';
   else if (ctx === 'repair_shop') intent = 'recall';
@@ -87,7 +90,9 @@ export function parseIntentAndSlots(ctx: NpcContext, transcript: string): Parsed
               ? 'ticket'
               : ctx === 'repair_shop'
                 ? 'repair'
-                : 'jetpack');
+                : ctx === 'trade_shop'
+                  ? 'helmet'
+                  : 'jetpack');
 
   return {
     intent,

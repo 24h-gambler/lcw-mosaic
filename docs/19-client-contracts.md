@@ -67,6 +67,21 @@ export interface DialogPanelProps {
 
 `UtteranceSubmit`은 `/v1/lesson/utterance` 본문(`18` 2장)과 같은 모양입니다. 채점·코인은 언제나 서버 값입니다.
 
+구현(2026-11-16, 대화 도메인):
+
+- 타입은 `apps/client/src/dialog/types.ts`. `DialogResult`의 선택 필드:
+  - `missed?: string[]`: 서버가 못 들은 단어(밑줄 표시용).
+  - `itemKey?: string`: 서버가 실제로 주고 월드 `items` 표에 적은 아이템. 월드는 **있을 때만** 이것을 `giveItem` 합니다. 없으면(코인 부족·실패·가격 0 문장) 아무것도 주지 않습니다 — 장면 기본값으로 대신 주지 않습니다(AGENTS 4.7).
+  - `askedKey?: string`: 가격 0 문장(물물교환·길 묻기)에서 아이가 말한 대상. 교환 상점이면 바꿀 물건(교환 자체는 `/v1/worlds/:id/trades` 정산), 안내인이면 가리킬 장소.
+  - `matchedText?: string`: 자유 대화에서 서버가 맞춰 채점한 뱅크 문장.
+- `UtteranceSubmit`의 선택 필드 `echo?`·`attempt?`·`dialogId?`는 혼자 경로용 메타입니다. 수업 submit은 이 셋을 빼고 보냅니다(수업 본문은 strict).
+- 한 번 연 대화창 = 한 번의 구매(`dialogId`): "별 하나 더"로 다시 말하면 가격이 최고 별 기준으로 내려가 차액을 돌려받고, 응답을 못 받아 다시 보내도 두 번 빠지지 않습니다. 통과한 뒤 "별 하나 더"에 실패하거나 창을 닫아도(✕·Esc) `onDone`에 그 창의 최고 결과가 갑니다. `onClose`는 아무것도 사지 않았을 때만 불립니다.
+- 서버만 정하는 것: ECHO(같은 창에서 서버가 실패 2번을 기록한 뒤에만 낮은 통과선), 별 등급(아이 레벨의 뱅크 문장만 — 그 NPC에 그 레벨 문장이 있으면 다른 레벨 문장은 인정 안 함), 학생 경로에서 뱅크에 없는 문장은 별 0. 음성인지(`stt_source`)·받아쓴 글은 브라우저 STT 구조상 클라가 보내므로, 서버 Whisper(`/v1/converse/stt`)가 붙으면 그 결과로 바꿉니다.
+- `DialogPanelProps`에 선택 필드 `npcLine?`(NPC 첫 질문, 없으면 맥락별 기본 대사), `fontScale?`(1~1.5), `speech?`(시험·미리보기용 음성 엔진).
+- `DialogPanel.tsx`는 `DialogPanel`과 함께 `createSoloSubmit(npc)`(학생 토큰으로 `/v1/converse/score`), `createLessonSubmit({token})`을 내보냅니다. 혼자 경로에서 서버는 토큰에서 학생·집 월드(`home-<player>`, 처음에 시작 코인 1회)·레벨을 정하고, 별·가격·아이템을 문장 뱅크에서 정합니다(요청의 `price`·`item_id`는 무시).
+- 입력 사다리: 브라우저 음성 인식(en-US) → 안 되면(카카오톡 등 인앱 브라우저, 미지원, 권한 거부, 2회 연속 못 들음) 단어 카드 조합판 → 글자 입력. 카드·글자 입력은 별 2개까지(`04` 4.1). 기기 내·서버 Whisper는 같은 `SpeechEngine` 인터페이스로 붙습니다.
+- NPC 맥락: 카페 주인 `cafe`, 물물교환 상점 주인 `trade_shop`(상점 거래 뱅크, 가격 0), 광장 안내인 `guide`(길 묻기 뱅크 — 카페·교환 상점, 가격 0).
+
 ## 4. 수업 → 다른 도메인 (`apps/client/src/lesson/`)
 
 - `/game/?code=123456` 또는 첫 화면의 코드 입력 → `POST /v1/join` → 학생 토큰은 `sessionStorage`.

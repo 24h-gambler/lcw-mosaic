@@ -744,4 +744,21 @@ describe('join links (docs/19 §4)', () => {
     expect(dir).toContain('/join?code=482913');
     expect(dir).toContain('/game/?code=482913');
   });
+
+  it('a lesson ended on another device offers its existing report link or a new lesson, never a second end form', () => {
+    const open = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: FEED })
+    );
+    expect(open).toContain('data-testid="director-end"');
+    expect(open).not.toContain('director-ended-elsewhere');
+    const endedFeed: LessonFeed = { ...FEED, lesson: { ...FEED.lesson, ended_at: FEED.lesson.started_at + 60_000 } };
+    const ended = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: endedFeed })
+    );
+    expect(ended).toContain('data-testid="director-ended-elsewhere"');
+    expect(ended).toContain('data-testid="fetch-report"');
+    expect(ended).toContain('data-testid="new-lesson"');
+    expect(ended).not.toContain('data-testid="director-end"');
+    expect(ended).not.toContain('data-testid="end-lesson"');
+  });
 });

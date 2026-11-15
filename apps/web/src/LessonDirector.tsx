@@ -60,6 +60,8 @@ import { LESSON_STRINGS_KO } from './strings.js';
 const S = LESSON_STRINGS_KO.director;
 
 const PLAN_KEY = 'lcw.director.plan';
+/** How often the first screen re-reads running lessons (another device may start one). */
+export const LIVE_LESSONS_POLL_MS = 15_000;
 
 /** The plan the teacher picked last on this device (first plan when none or storage is blocked). */
 export function loadPlanChoice(): string {
@@ -265,19 +267,31 @@ function StudentPicker({
   const [live, setLive] = useState<{ lessons: LiveLessonRow[]; server_now: number; at: number } | null>(
     initialLive ? { ...initialLive, at: now() } : null
   );
+  const liveGone = useRef(false);
+  const loadLive = useCallback(async () => {
+    try {
+      const r = await api.liveLessons(token);
+      if (!liveGone.current) setLive({ ...r, at: now() });
+    } catch (e) {
+      onAuthError(errorCodeOf(e));
+    }
+  }, [api, token, now, onAuthError]);
+  // A lesson started on another device after this screen opened shows up within seconds, and one ended meanwhile
+  // goes away: refetch every LIVE_LESSONS_POLL_MS and when the console comes back to the front.
   useEffect(() => {
-    if (initialLive) return;
-    let gone = false;
-    api
-      .liveLessons(token)
-      .then((r) => {
-        if (!gone) setLive({ ...r, at: now() });
-      })
-      .catch((e) => onAuthError(errorCodeOf(e)));
-    return () => {
-      gone = true;
+    liveGone.current = false;
+    if (!initialLive) void loadLive();
+    const id = setInterval(() => void loadLive(), LIVE_LESSONS_POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadLive();
     };
-  }, [api, token, initialLive, now, onAuthError]);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      liveGone.current = true;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [loadLive, initialLive]);
   const [students, setStudents] = useState<AdminStudent[] | null>(initialStudents ?? null);
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -366,7 +380,15 @@ function StudentPicker({
         title={S.studentsTitle}
         testId="director-students"
         right={
-          <Button type="button" variant="paper" onClick={() => void load()} disabled={loading}>
+          <Button
+            type="button"
+            variant="paper"
+            onClick={() => {
+              void load();
+              void loadLive();
+            }}
+            disabled={loading}
+          >
             {loading ? S.loading : S.refresh}
           </Button>
         }
@@ -588,7 +610,9 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
   const ended = Boolean(lesson.report_path) || Boolean(serverLesson?.ended_at);
 
   // The server clock is the truth for "time since lesson start" (pins, feed times); local start until it arrives.
-  const startedAt = serverLesson?.started_at || lesson.started_at || clock;
+  // Moved onto this console's clock (the record and `clock` are local), so a device clock that is off does not shift
+  // elapsed time or pin at_ms.
+  const startedAt = (serverLesson?.started_at ? serverLesson.started_at - liveX.clockSkewMs : 0) || lesson.started_at || clock;
 
   useEffect(() => {
     const id = setInterval(() => setClock(now()), 1000);
@@ -694,7 +718,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
           {`${feedError} ${S.feedStale(feedFails)}`}
         </Notice>
       ) : null}
-      {ended && !lesson.report_path ? <Notice kind="info">{S.lessonEndedElsewhere}</Notice> : null}
+      {ended && !lesson.report_path ? <Notice kind="info">{S.endedElsewhereHelp}</Notice> : null}
       <div
         style={{
           display: 'grid',
@@ -849,6 +873,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
             onAuthError={onAuthError}
             onEnded={(path) => setLesson({ ...lessonRef.current, report_path: path })}
             onReset={() => setLesson(null)}
+            endedElsewhere={ended && !lesson.report_path}
           />
           <NextLessonBox plan={plan} />
         </div>
@@ -1237,7 +1262,8 @@ function EndLessonBox({
   lesson,
   onAuthError,
   onEnded,
-  onReset
+  onReset,
+  endedElsewhere = false
 }: {
   api: LessonApi;
   token: string;
@@ -1245,6 +1271,8 @@ function EndLessonBox({
   onAuthError: (code: string) => void;
   onEnded: (reportPath: string) => void;
   onReset: () => void;
+  /** Ended on another device: no new report form, only the existing link (the server hands it back) or a new lesson. */
+  endedElsewhere?: boolean;
 }): React.ReactElement {
   const [comment, setComment] = useState('');
   const [next, setNext] = useState('');
@@ -1304,6 +1332,43 @@ function EndLessonBox({
               {S.newLesson}
             </Button>
           </div>
+        </div>
+      </Box>
+    );
+  }
+
+  if (endedElsewhere) {
+    const fetchReport = async () => {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await api.endLesson(token, lesson.lesson_id, {});
+        onEnded(res.report_path || `/r/${res.share_token}`);
+      } catch (e) {
+        const code = errorCodeOf(e);
+        onAuthError(code);
+        setError(directorErrorText(code));
+      } finally {
+        setBusy(false);
+      }
+    };
+    return (
+      <Box title={S.lessonEndedElsewhere} testId="director-ended-elsewhere" tone="tinted">
+        <div style={{ display: 'grid', gap: sp(2) }}>
+          <p style={{ margin: 0 }}>{S.endedElsewhereHelp}</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
+            <Button type="button" variant="brand" disabled={busy} onClick={() => void fetchReport()} data-testid="fetch-report">
+              {busy ? S.loading : S.fetchReport}
+            </Button>
+            <Button type="button" variant="paper" onClick={onReset} data-testid="new-lesson">
+              {S.newLesson}
+            </Button>
+          </div>
+          {error ? (
+            <Notice onRetry={() => void fetchReport()} retryLabel={S.retry}>
+              {error}
+            </Notice>
+          ) : null}
         </div>
       </Box>
     );

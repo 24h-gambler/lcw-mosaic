@@ -223,6 +223,9 @@ export const LESSON_STRINGS_KO = {
     previewNote: '보내기 전에 한 번 읽어 보세요. 링크는 로그인 없이 열려요.',
     newLesson: '새 수업 준비',
     lessonEndedElsewhere: '이 수업은 이미 끝났어요.',
+    endedElsewhereHelp: '다른 기기에서 끝낸 수업이에요. 이미 만든 부모님 리포트 링크를 그대로 가져와요(새로 만들지 않아요).',
+    fetchReport: '리포트 링크 가져오기',
+    resumeRefresh: '다시 보기',
     resumeNote: '진행 중이던 수업을 이어서 보여 드려요.'
   },
   join: {

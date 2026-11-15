@@ -202,7 +202,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       minutes: 15,
       mode: 'recall',
       teacherGuideKo:
-        '지난 수업에서 통과한 문장을 힌트 없이 다시 말하게 하세요. 화면은 첫 단어만 보여 줍니다. 막히면 힌트를 「핵심 단어」로 한 칸 올려 주고, 통과하면 바로 다음 문장으로 넘어가세요.',
+        '지난 수업에서 통과한 문장을 힌트 없이 다시 말하게 하세요. 화면은 첫 단어만 보여 줍니다. 막히면 카페 주인으로 빙의해 첫 단어만 말해 주세요(대사 칸에 쓰고 Enter). 통과하면 바로 다음 문장으로 넘어가세요.',
       teacherScriptEn: 'Welcome back to the honey cafe! Do you remember how to order your drink?',
       studentGoalKo: '지난 시간에 배운 문장을 기억해서 말해요',
       sceneId: 'honey_cafe',

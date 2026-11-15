@@ -657,6 +657,23 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     if (!l) return c.json({ error: 'lesson_not_found' }, 404);
     const p = EndSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    // Ended already (another device, a double tap): hand back the report that exists. A new one would replace the
+    // share token and the comment, and the link the teacher already sent to the parent would stop opening.
+    if (l.ended_at) {
+      const prev = d.sql.get<{ share_token: string; facts: string }>(
+        `select share_token, facts from reports where ref_id = ? and kind = 'lesson' and share_token is not null order by created_at desc limit 1`,
+        [id]
+      );
+      if (prev) {
+        let facts: unknown = null;
+        try {
+          facts = JSON.parse(prev.facts);
+        } catch {
+          facts = null;
+        }
+        return c.json({ report_path: `/r/${prev.share_token}`, share_token: prev.share_token, facts, pin_windows: pinWindowsOf(id), already_ended: true });
+      }
+    }
     const guardian = d.sql.get<{ id: string }>(
       'select g.id from guardians g join players p on p.family_id = g.family_id where p.id = ? limit 1',
       [l.player_id]

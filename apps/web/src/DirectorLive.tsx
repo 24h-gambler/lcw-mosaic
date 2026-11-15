@@ -140,8 +140,9 @@ export function PossessBox(p: {
   }, [stageNpc]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName ?? '';
-      if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName ?? '';
+      if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT' && !el?.isContentEditable) {
         e.preventDefault();
         inputRef.current?.focus();
       }
@@ -227,6 +228,10 @@ export function PossessBox(p: {
       >
         <input
           ref={inputRef}
+          // Enter that only finishes Korean/Japanese composition (Safari sends it) must not send a half line.
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault();
+          }}
           data-testid="npc-say-input"
           lang="en"
           value={text}
@@ -325,6 +330,7 @@ export function EventsBox(p: {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.repeat) return; // a held key fires one event, not a burst
       const ev = eventForKey(e.key, e.target as HTMLElement | null);
       if (!ev) return;
       e.preventDefault();

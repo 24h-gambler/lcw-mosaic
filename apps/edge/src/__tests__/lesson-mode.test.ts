@@ -112,6 +112,21 @@ describe('running lessons for a console on another device', () => {
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { teacher_comment: '잘했어요.' });
     expect((await call(p, 'GET', '/v1/admin/lessons/live')).body.lessons).toHaveLength(0);
   });
+
+  it('ending twice (two consoles, a double tap) keeps the first report link and comment', async () => {
+    const p = platform();
+    const { lessonId } = await startLesson(p);
+    const e1 = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { teacher_comment: '노트북 코멘트' });
+    expect(e1.status).toBe(200);
+    const e2 = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { teacher_comment: '' });
+    expect(e2.status).toBe(200);
+    expect(e2.body).toMatchObject({ report_path: e1.body.report_path, share_token: e1.body.share_token, already_ended: true });
+    const sql = (p as unknown as { sql: { all<T>(q: string, a?: unknown[]): T[] } }).sql;
+    const rows = sql.all<{ share_token: string; teacher_comment: string | null }>('select share_token, teacher_comment from report_deliveries');
+    expect(rows).toEqual([{ share_token: e1.body.share_token, teacher_comment: '노트북 코멘트' }]);
+    const opened = await call(p, 'GET', `/v1/reports/${e1.body.share_token}`, undefined, {});
+    expect(opened.status).toBe(200);
+  });
 });
 
 describe('lesson mode (docs/18)', () => {

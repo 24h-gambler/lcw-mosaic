@@ -126,8 +126,12 @@ describe('lesson mode (docs/18)', () => {
     expect((await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1' }, { 'content-type': 'application/json' })).status).toBe(401);
     const anon = { 'content-type': 'application/json' };
     let last = 0;
-    for (let i = 0; i <= JOIN_FAILS_PER_HOUR; i++) last = (await call(p, 'POST', '/v1/join', { code: '999999' }, anon)).status;
+    const fromA = { ...anon, 'cf-connecting-ip': '203.0.113.7' };
+    for (let i = 0; i <= JOIN_FAILS_PER_HOUR; i++) last = (await call(p, 'POST', '/v1/join', { code: '999999' }, fromA)).status;
     expect(last).toBe(429);
+    // another device (the real student) is not locked out by someone else's wrong codes
+    const fromB = { ...anon, 'cf-connecting-ip': '198.51.100.9' };
+    expect((await call(p, 'POST', '/v1/join', { code: '999999' }, fromB)).status).toBe(404);
   });
 
   describe('director: possession, events, progress table, pin windows (WP-304/305)', () => {

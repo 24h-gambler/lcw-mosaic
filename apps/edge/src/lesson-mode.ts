@@ -20,7 +20,10 @@ import { buildLessonParentFacts } from './parent-report.js';
 
 export const JOIN_CODE_TTL_MS = 12 * 3_600_000;
 export const STUDENT_TOKEN_TTL_MS = 12 * 3_600_000;
+/** Wrong codes one device (client IP) may try per hour; a typo-prone child never locks out other lessons. */
 export const JOIN_FAILS_PER_HOUR = 10;
+/** Wrong codes all devices together may try per hour (6-digit codes live 12 h: guessing stays far below 1%). */
+export const JOIN_FAILS_PER_HOUR_ALL = 200;
 export const COINS_PER_STAR = 10;
 /** A student client that has not polled state for this long shows as disconnected on the director console. */
 export const STUDENT_PRESENCE_TTL_MS = 10_000;
@@ -45,6 +48,7 @@ create table if not exists lesson_joins (code text primary key, lesson_id text n
 create table if not exists student_tokens (token_hash text primary key, lesson_id text not null, player_id text not null, expires_at integer not null);
 create table if not exists lesson_state (lesson_id text primary key, plan_id text not null, stage_id text not null, targets text not null, updated_at integer not null);
 create table if not exists join_failures (hour integer primary key, n integer not null);
+create table if not exists join_failures_by_client (hour integer not null, client text not null, n integer not null, primary key (hour, client));
 create table if not exists lesson_live (seq integer primary key autoincrement, id text not null unique, lesson_id text not null, at integer not null, type text not null, npc_id text, kind text, text text not null);
 create index if not exists lesson_live_by_lesson on lesson_live (lesson_id, seq);
 create index if not exists utterances_by_session on utterances (session_id, created_at);
@@ -669,8 +673,10 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   app.post('/v1/join', async (c) => {
     const now = d.nowMs();
     const hour = Math.floor(now / 3_600_000);
+    const client = (c.req.header('cf-connecting-ip') ?? 'local').slice(0, 64);
     const fails = d.sql.get<{ n: number }>('select n from join_failures where hour = ?', [hour])?.n ?? 0;
-    if (fails >= JOIN_FAILS_PER_HOUR) return c.json({ error: 'too_many_attempts' }, 429);
+    const mine = d.sql.get<{ n: number }>('select n from join_failures_by_client where hour = ? and client = ?', [hour, client])?.n ?? 0;
+    if (fails >= JOIN_FAILS_PER_HOUR_ALL || mine >= JOIN_FAILS_PER_HOUR) return c.json({ error: 'too_many_attempts' }, 429);
     const p = JoinSchema.safeParse(await c.req.json());
     const row = p.success
       ? d.sql.get<{ lesson_id: string; player_id: string }>(
@@ -680,6 +686,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       : undefined;
     if (!row) {
       d.sql.run('insert into join_failures (hour, n) values (?, 1) on conflict(hour) do update set n = n + 1', [hour]);
+      d.sql.run(
+        'insert into join_failures_by_client (hour, client, n) values (?, ?, 1) on conflict(hour, client) do update set n = n + 1',
+        [hour, client]
+      );
+      d.sql.run('delete from join_failures_by_client where hour < ?', [hour - 1]);
       return c.json({ error: 'invalid_code' }, 404);
     }
     const token = hex(d.randomBytes(24));

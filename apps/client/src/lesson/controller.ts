@@ -128,6 +128,8 @@ export class LessonController {
   private readonly seenEvents = new Set<string>();
   private stopped = false;
   private polling = false;
+  /** Bumps on start/stop/leave; a poll that began in an older run drops its answer (StrictMode, HMR, re-mount). */
+  private run = 0;
   private readonly timers: LessonTimers;
 
   constructor(private readonly opts: LessonControllerOptions) {
@@ -140,6 +142,8 @@ export class LessonController {
 
   /** Starts from a code in the URL, else from a session kept in this tab, else asks for the code. */
   async start(code: string | null): Promise<void> {
+    this.halt();
+    this.stopped = false;
     if (code) return this.join(code);
     const s = loadStudentSession(this.store());
     if (!s) return this.set({ phase: 'needs_code' });
@@ -151,14 +155,17 @@ export class LessonController {
   async join(code: string): Promise<void> {
     if (!/^\d{6}$/.test(code)) return this.set({ phase: 'needs_code', errorCode: 'invalid_code' });
     this.set({ phase: 'joining', errorCode: null });
+    const run = this.run;
     try {
       const r = await this.opts.api.join(code);
+      if (run !== this.run) return;
       this.session = { token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, level: r.level };
       saveStudentSession(this.session, this.store());
       this.cursor = null;
       this.set({ phase: 'live', nickname: r.nickname, level: r.level });
       await this.poll();
     } catch (e) {
+      if (run !== this.run) return;
       this.set({ phase: 'needs_code', errorCode: e instanceof LessonHttpError ? e.code : 'network' });
     }
   }
@@ -184,17 +191,25 @@ export class LessonController {
   };
 
   stop(): void {
+    this.halt();
     this.stopped = true;
+  }
+
+  private halt(): void {
+    this.run++;
+    this.polling = false;
     if (this.timer !== null) this.timers.clearTimeout(this.timer);
     if (this.bannerTimer !== null) this.timers.clearTimeout(this.bannerTimer);
     this.timer = null;
+    this.bannerTimer = null;
   }
 
   /** Leave the lesson on this device (wrong child, shared tablet). */
   leave(): void {
-    this.stop();
+    this.halt();
     saveStudentSession(null, this.store());
     this.session = null;
+    this.cursor = null;
     this.stopped = false;
     this.view = { ...initialLessonView() };
     this.emit();
@@ -203,6 +218,7 @@ export class LessonController {
   async poll(): Promise<void> {
     const s = this.session;
     if (!s || this.stopped || this.polling) return;
+    const run = this.run;
     this.polling = true;
     try {
       const st = await this.opts.api.state(s.token, {
@@ -210,10 +226,12 @@ export class LessonController {
         scene: this.view.sceneId ?? undefined,
         ui: this.opts.ui ?? '3d'
       });
+      if (run !== this.run) return;
       this.retryMs = LESSON_POLL_MS;
       this.apply(st);
       if (this.view.connection !== 'ok' || this.view.errorCode) this.set({ connection: 'ok', errorCode: null });
     } catch (e) {
+      if (run !== this.run) return;
       if (e instanceof LessonHttpError && e.status === 401) {
         // The token expired (lesson ended more than 10 minutes ago, or 12 h passed): ask for a new code.
         saveStudentSession(null, this.store());
@@ -224,9 +242,10 @@ export class LessonController {
       this.retryMs = Math.min(LESSON_RETRY_MAX_MS, this.retryMs * 2);
       this.set({ connection: 'retrying' });
     } finally {
-      this.polling = false;
+      if (run === this.run) this.polling = false;
     }
-    if (this.view.phase === 'ended' || this.stopped || !this.session) return;
+    if (run !== this.run || this.view.phase === 'ended' || this.stopped || !this.session) return;
+    if (this.timer !== null) this.timers.clearTimeout(this.timer);
     this.timer = this.timers.setTimeout(() => this.poll(), this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
   }
 
@@ -262,7 +281,9 @@ export class LessonController {
     for (const line of st.npc_lines) {
       if (this.seenLines.has(line.id)) continue;
       this.seenLines.add(line.id);
-      const possessed = line.npc_id === st.possessed_npc_id;
+      // Lines only come from the director's npc-say, which possesses that NPC as it speaks: always the teacher's voice,
+      // even if the teacher switched NPC before this poll.
+      const possessed = line.possessed ?? true;
       w?.npcSay(line.npc_id, line.text, { possessed });
       fresh.push({
         id: line.id,

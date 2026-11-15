@@ -9,9 +9,9 @@ import { getLessonNpc, type LessonDirectorEventKind, type LessonHintLevel, type 
 import { TOKENS } from '@lcw/ui';
 import { codeFromSearch, createStudentLessonApi, loadStudentSession, type DialogResult, type LessonOffer, type StudentLessonApi, type UtteranceSubmit } from './api.js';
 import { LessonController, initialLessonView, type LessonView, type LessonWorld } from './controller.js';
-import { maskTarget } from './hint.js';
+import { MIC_BLOCKING_ERRORS, maskTarget, micUnreliable, pickHeard, type HeardAlternative } from './hint.js';
 import { LESSON_STRINGS_KO as S } from './strings.js';
-import { playLessonSfx } from './sfx.js';
+import { playLessonSfx, unlockLessonAudio } from './sfx.js';
 
 const C = TOKENS.colors;
 const T = TOKENS.typography;
@@ -48,7 +48,10 @@ export function hasWebGL(): boolean {
   try {
     if (typeof document === 'undefined') return true;
     const c = document.createElement('canvas');
-    return Boolean(c.getContext('webgl2') ?? c.getContext('webgl'));
+    const gl = (c.getContext('webgl2') ?? c.getContext('webgl')) as WebGLRenderingContext | null;
+    // Give the probe context back at once: browsers keep ~16 and drop the oldest (the game's renderer) first.
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return Boolean(gl);
   } catch {
     return false;
   }
@@ -88,7 +91,19 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     [api]
   );
 
-  const lowTier = props.canRender3d === false || (active && !hasWebGL());
+  // Probed once per page: re-probing on every 3-second render would make a WebGL context each time.
+  const [webgl] = useState(() => !active || props.canRender3d === false || hasWebGL());
+  const lowTier = props.canRender3d === false || !webgl;
+  useEffect(() => {
+    if (!active) return;
+    const unlock = () => unlockLessonAudio();
+    window.addEventListener('pointerdown', unlock, { passive: true });
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, [active]);
   useEffect(() => {
     if (!active) return;
     if (lowTier) {
@@ -134,21 +149,26 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   };
   const external = props.renderDialog?.(npcRef, cfg) ?? null;
 
+  // New stage or new sentences from the teacher: the panel starts fresh (selection, heard text, open microphone).
+  const panelKey = `${view.stageSeq}:${view.offers.map((o) => o.text).join('|')}`;
   return (
     <Shell>
       <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
-      {/* top stack: goal + connection, the teacher's bubbles, the event banner — in flow so nothing overlaps on a phone */}
-      <div style={{ position: 'absolute', top: SP[2], left: SP[2], right: SP[2], display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-        <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-          {props.world ? <span /> : <GoalBar goalKo={view.goalKo} />}
-          <StatusPill view={view} onLeave={() => ctl.leave()} />
+      {/* One column: the top stack and the speaking panel share the height and each shrinks (the panel scrolls), so on a
+          short phone the panel never covers the teacher's bubble or the event banner. */}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: SP[2], padding: SP[2] }}>
+        <div className="lcw-top" style={{ display: 'flex', flexDirection: 'column', gap: SP[2], flex: '0 1 auto', minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            {props.world ? <span /> : <GoalBar goalKo={view.goalKo} />}
+            <StatusPill view={view} onLeave={() => ctl.leave()} />
+          </div>
+          {props.world ? null : <Bubbles view={view} />}
+          <EventBanner view={view} />
         </div>
-        {props.world ? null : <Bubbles view={view} />}
-        <EventBanner view={view} />
-      </div>
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none', padding: `0 ${SP[3]}px ${SP[3]}px` }}>
-        <div style={{ width: '100%', maxWidth: 720, pointerEvents: 'auto' }}>
-          {external ?? <SpeakPanel key={view.stageSeq} npc={npcRef} view={view} submit={ctl.submit} />}
+        <div style={{ display: 'flex', justifyContent: 'center', flex: '0 1 auto', minHeight: 0 }}>
+          <div className="lcw-panel" style={{ width: '100%', maxWidth: 720, pointerEvents: 'auto', overflowY: 'auto', maxHeight: '100%' }}>
+            {external ?? <SpeakPanel key={panelKey} npc={npcRef} view={view} submit={ctl.submit} />}
+          </div>
         </div>
       </div>
     </Shell>
@@ -177,7 +197,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function CenterCard({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'rgba(20,24,36,0.55)', pointerEvents: 'auto', padding: SP[3] }}>
+    <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: `${C['night-900']}8C`, pointerEvents: 'auto', padding: SP[3] }}>
       <div style={{ ...card, background: C['paper-50'], padding: SP[5], maxWidth: 520, width: '100%', textAlign: 'center' }}>{children}</div>
     </div>
   );
@@ -261,6 +281,18 @@ function bigButton(bg: string): React.CSSProperties {
 
 function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }) {
   const ok = view.connection === 'ok';
+  const [asking, setAsking] = useState(false);
+  const small: React.CSSProperties = { ...card, boxShadow: 'none', padding: `${SP[1]}px ${SP[2]}px`, fontSize: T.scale.small.sizePx, cursor: 'pointer', minHeight: TOKENS.shape.touchTargetMinPx, color: C['ink-900'] };
+  if (asking) {
+    // Two taps to leave: a stray tap on a phone must not drop the child out of the lesson.
+    return (
+      <div role="group" aria-label={S.status.leaveAsk} style={{ ...card, display: 'flex', gap: SP[1], alignItems: 'center', padding: SP[1], pointerEvents: 'auto', marginLeft: 'auto' }}>
+        <span style={{ fontSize: T.scale.small.sizePx, fontWeight: 700, padding: `0 ${SP[1]}px` }}>{S.status.leaveAsk}</span>
+        <button type="button" onClick={() => setAsking(false)} style={{ ...small, background: C['leaf-d'], color: C['paper-0'], fontWeight: 800 }}>{S.status.leaveNo}</button>
+        <button type="button" onClick={onLeave} style={small}>{S.status.leaveYes}</button>
+      </div>
+    );
+  }
   return (
     <div style={{ display: 'flex', gap: SP[1], pointerEvents: 'auto', marginLeft: 'auto' }}>
       <span
@@ -280,7 +312,7 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
         <span className={ok ? '' : 'lcw-blink'} style={{ width: 10, height: 10, borderRadius: 5, background: ok ? C.leaf : C.sun, display: 'inline-block' }} />
         {ok ? S.status.ok(view.nickname) : S.status.retrying}
       </span>
-      <button type="button" onClick={onLeave} style={{ ...card, boxShadow: 'none', padding: `${SP[1]}px ${SP[2]}px`, fontSize: T.scale.small.sizePx, cursor: 'pointer', minHeight: TOKENS.shape.touchTargetMinPx }}>
+      <button type="button" onClick={() => setAsking(true)} style={small}>
         {S.status.leave}
       </button>
     </div>
@@ -356,15 +388,21 @@ interface SpeechRecognitionLike {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
+  maxAlternatives: number;
   onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string; confidence: number }> & { isFinal: boolean }> }) => void) | null;
   onend: (() => void) | null;
-  onerror: ((e: unknown) => void) | null;
+  onerror: ((e: { error?: string }) => void) | null;
   start(): void;
   stop(): void;
+  abort(): void;
 }
+
+/** A recognizer that neither ends nor answers within this long is stopped (iOS Safari sometimes never fires onend). */
+export const MIC_WATCHDOG_MS = 10_000;
 
 function speechRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
   const g = globalThis as unknown as Record<string, unknown>;
+  if (typeof navigator !== 'undefined' && micUnreliable(navigator.userAgent)) return null;
   return (g.SpeechRecognition ?? g.webkitSpeechRecognition ?? null) as (new () => SpeechRecognitionLike) | null;
 }
 
@@ -380,13 +418,30 @@ function SpeakPanel({ npc, view, submit }: { npc: LessonNpcRef; view: LessonView
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DialogResult | null>(null);
   const [failed, setFailed] = useState(false);
+  const [micNote, setMicNote] = useState<'not_heard' | 'blocked' | null>(null);
   const shownAt = useRef(Date.now());
   const recRef = useRef<SpeechRecognitionLike | null>(null);
+  const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alive = useRef(true);
   const offer = offers[Math.min(pick, Math.max(0, offers.length - 1))];
-  const canSpeak = Boolean(speechRecognitionCtor());
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      // Stage changed or the lesson ended mid-sentence: close the microphone and drop what it would have sent.
+      alive.current = false;
+      if (watchdog.current) clearTimeout(watchdog.current);
+      const r = recRef.current;
+      recRef.current = null;
+      try {
+        r?.abort();
+      } catch {
+        /* already closed */
+      }
+    };
+  }, []);
 
   const send = async (transcript: string, source: UtteranceSubmit['stt_source'], startedAt: number, confidence: number) => {
-    if (!transcript.trim()) return;
+    if (!transcript.trim() || !alive.current) return;
     setBusy(true);
     setFailed(false);
     try {
@@ -400,50 +455,98 @@ function SpeakPanel({ npc, view, submit }: { npc: LessonNpcRef; view: LessonView
         stt_source: source,
         confidence
       });
+      if (!alive.current) return;
       setResult(r);
       if (r.pass) playLessonSfx('pass');
       shownAt.current = Date.now();
     } catch {
-      setFailed(true);
+      if (alive.current) setFailed(true);
     } finally {
-      setBusy(false);
+      if (alive.current) setBusy(false);
     }
   };
 
   const toggleMic = () => {
     const Ctor = speechRecognitionCtor();
     if (!Ctor) return setTyping(true);
-    if (listening) return recRef.current?.stop();
+    if (listening) {
+      try {
+        recRef.current?.stop();
+      } catch {
+        setListening(false);
+      }
+      return;
+    }
     const rec = new Ctor();
     rec.lang = 'en-US';
     rec.interimResults = true;
     rec.continuous = false;
+    rec.maxAlternatives = 3;
     const startedAt = Date.now();
+    let finals: HeardAlternative[] = [];
     let finalText = '';
-    let conf = 1;
+    let interim = '';
+    let error: string | null = null;
     rec.onresult = (e) => {
-      let interim = '';
+      interim = '';
+      finalText = '';
       for (let i = 0; i < e.results.length; i++) {
         const r = e.results[i]!;
-        const alt = r[0]!;
         if (r.isFinal) {
-          finalText += `${alt.transcript} `;
-          conf = alt.confidence || conf;
-        } else interim += alt.transcript;
+          const alts = Array.from(r, (x) => ({ transcript: x.transcript ?? '', confidence: typeof x.confidence === 'number' ? x.confidence : 0 }));
+          finals = alts;
+          finalText += `${alts[0]?.transcript ?? ''} `;
+        } else interim += r[0]?.transcript ?? '';
       }
-      setHeard((finalText + interim).trim());
+      if (alive.current) setHeard((finalText + interim).trim());
     };
-    rec.onerror = () => setListening(false);
+    rec.onerror = (e) => {
+      error = e?.error ?? 'unknown';
+    };
     rec.onend = () => {
+      if (watchdog.current) clearTimeout(watchdog.current);
+      watchdog.current = null;
+      if (recRef.current !== rec) return;
+      recRef.current = null;
+      if (!alive.current) return;
       setListening(false);
-      void send(finalText, 'browser', startedAt, conf);
+      if (error && MIC_BLOCKING_ERRORS.has(error)) {
+        setMicNote('blocked');
+        setTyping(true);
+        return;
+      }
+      // Best final alternative; if the recognizer stopped before a final result, what the child saw as heard counts.
+      const best = finals.length > 1 ? pickHeard(finals, free ? '' : (offer?.text ?? ''), free) : null;
+      const text = (best?.transcript ?? (finalText.trim() || interim)).trim();
+      if (!text) {
+        setMicNote('not_heard');
+        return;
+      }
+      void send(text, 'browser', startedAt, best?.confidence ?? finals[0]?.confidence ?? 0.5);
     };
     recRef.current = rec;
     setHeard('');
     setResult(null);
+    setMicNote(null);
+    try {
+      rec.start();
+    } catch {
+      recRef.current = null;
+      setMicNote('blocked');
+      setTyping(true);
+      return;
+    }
     setListening(true);
     playLessonSfx('mic_on');
-    rec.start();
+    watchdog.current = setTimeout(() => {
+      try {
+        rec.stop();
+      } catch {
+        /* fall through to the forced end below */
+      }
+      // If even stop() brings no onend, end it here so the button never stays on '다 말했어요'.
+      watchdog.current = setTimeout(() => rec.onend?.(), 1500);
+    }, MIC_WATCHDOG_MS);
   };
 
   return (
@@ -503,6 +606,11 @@ function SpeakPanel({ npc, view, submit }: { npc: LessonNpcRef; view: LessonView
         </div>
       ) : null}
       {failed ? <p role="alert" style={{ ...bodyL, color: C['danger-d'], marginBottom: SP[2] }}>{S.speak.failed}</p> : null}
+      {micNote ? (
+        <p role="status" style={{ ...bodyL, color: C['ink-700'], marginBottom: SP[2] }}>
+          {micNote === 'blocked' ? S.speak.micBlocked : S.speak.notHeard}
+        </p>
+      ) : null}
       {typing ? (
         <form
           onSubmit={(e) => {
@@ -527,7 +635,6 @@ function SpeakPanel({ npc, view, submit }: { npc: LessonNpcRef; view: LessonView
         </div>
       )}
       {listening ? <p style={{ ...bodyL, color: C['ink-500'], marginTop: SP[1] }}>{S.speak.listening}</p> : null}
-      {!canSpeak && !typing ? null : null}
     </div>
   );
 }
@@ -546,7 +653,7 @@ const LESSON_CSS = `
 @keyframes lcwDark { 0% { opacity: 0; } 8% { opacity: 0.82; } 70% { opacity: 0.82; } 100% { opacity: 0; } }
 .lcw-fall { position: absolute; top: -40px; animation: lcwFall 3.6s linear 2 forwards; }
 @keyframes lcwFall { to { transform: translateY(110vh) rotate(220deg); } }
-@media (max-width: 600px) {
+@media (max-width: 600px), (max-height: 720px) {
   .lcw-older, .lcw-hint-note { display: none; }
   .lcw-offers { max-height: 30vh; overflow-y: auto; }
   .lcw-offers button { min-height: 48px !important; }

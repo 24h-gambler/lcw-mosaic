@@ -27,11 +27,30 @@ const EXTRA: Record<'pass' | 'mic_on', SynthParams[]> = {
 
 let ctx: AudioContext | null = null;
 
+function audio(): AudioContext | null {
+  const AC = (globalThis as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
+  if (!AC) return null;
+  ctx ??= new AC();
+  return ctx;
+}
+
+/**
+ * Call from a tap or key press: a context first made by a poll (no gesture, e.g. joined by `?code=`) starts
+ * suspended, and only resume() inside a gesture lets event sounds play for the rest of the lesson.
+ */
+export function unlockLessonAudio(): void {
+  try {
+    const a = audio();
+    if (a && a.state === 'suspended') void a.resume().catch(() => undefined);
+  } catch {
+    /* no audio on this device */
+  }
+}
+
 function play(seq: SynthParams[]): void {
   try {
-    const AC = (globalThis as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
-    if (!AC) return;
-    ctx ??= new AC();
+    const ctx = audio();
+    if (!ctx) return;
     let t = ctx.currentTime;
     for (const p of seq) {
       const g = ctx.createGain();

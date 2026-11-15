@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
-import { codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
+import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
 import { LESSON_BANNER_MS, LESSON_POLL_MS, LessonController, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
-import { maskTarget } from '../lesson/hint.js';
+import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
 import { LessonLayer } from '../lesson/LessonLayer.js';
 import { LESSON_STRINGS_KO } from '../lesson/strings.js';
 
@@ -174,6 +174,95 @@ describe('client lesson module (docs/19 §4)', () => {
     await timers.run(15_000);
     expect(ctl.state.connection).toBe('ok');
     ctl.stop();
+  });
+
+  it('restarts cleanly after stop (StrictMode/HMR), drops answers of an older run, and asks for a code when the token expires', async () => {
+    const clock = { now: Date.parse('2026-11-16T15:00:00+09:00') };
+    const { fetch, admin } = server(clock);
+    const { lesson_id, join_code } = await openLesson(admin);
+    const timers = fakeTimers(clock);
+    const store = memStore();
+    let stateCalls = 0;
+    let hold: (() => void) | null = null;
+    const counting = async (i: string, init?: RequestInit) => {
+      if (i.startsWith('/v1/lesson/state')) {
+        stateCalls++;
+        if (hold === null && stateCalls === 3) await new Promise<void>((r) => (hold = r));
+      }
+      return fetch(i, init);
+    };
+    const ctl = new LessonController({ api: createStudentLessonApi({ fetch: counting }), world: null, store, timers });
+    await ctl.start(join_code);
+    ctl.stop();
+    expect(timers.pending()).toBe(0);
+    // effect cleanup + effect again: the same controller polls again
+    await ctl.start(null);
+    expect(ctl.state.phase).toBe('live');
+    expect(stateCalls).toBe(2);
+    expect(timers.pending()).toBe(1);
+
+    // a poll is in flight when the child leaves: its late answer must not bring the lesson back
+    const late = timers.run(LESSON_POLL_MS);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(hold).not.toBeNull();
+    ctl.leave();
+    hold!();
+    await late;
+    expect(ctl.state.phase).toBe('needs_code');
+    expect(ctl.state.stageId).toBeNull();
+    expect(timers.pending()).toBe(0);
+
+    // rejoin, then the lesson ends and the token is refused later: the screen asks for a new code
+    await ctl.join(join_code);
+    expect(ctl.state.phase).toBe('live');
+    await admin('POST', `/v1/admin/lessons/${lesson_id}/end`, {});
+    const expired = new LessonController({
+      api: { ...createStudentLessonApi({ fetch }), state: async () => Promise.reject(new LessonHttpError(401, 'student_only')) },
+      world: null,
+      store,
+      timers: fakeTimers(clock)
+    });
+    await expired.start(null);
+    expect(expired.state).toMatchObject({ phase: 'needs_code', errorCode: 'expired' });
+    expect(getStudentToken(store)).toBeNull();
+    ctl.stop();
+  });
+
+  it('backs off 6 s, 12 s, 15 s while offline and keeps 3 s once back', async () => {
+    const clock = { now: Date.parse('2026-11-16T15:00:00+09:00') };
+    const { fetch, admin } = server(clock);
+    const { join_code } = await openLesson(admin);
+    const timers = fakeTimers(clock);
+    const at: number[] = [];
+    let offline = false;
+    const t0 = clock.now;
+    const flaky = (i: string, init?: RequestInit) => {
+      if (i.startsWith('/v1/lesson/state')) at.push(clock.now - t0);
+      return offline ? Promise.reject(new Error('offline')) : fetch(i, init);
+    };
+    const ctl = new LessonController({ api: createStudentLessonApi({ fetch: flaky }), world: null, store: memStore(), timers });
+    await ctl.start(join_code);
+    offline = true;
+    await timers.run(3000 + 6000 + 12000 + 15000 - 1);
+    offline = false;
+    await timers.run(1 + 3000 + 3000);
+    expect(at).toEqual([0, 3000, 9000, 21000, 36000, 39000, 42000]);
+    ctl.stop();
+  });
+
+  it('speech: the alternative closest to the sentence wins; iOS in-app web views type instead', () => {
+    const alts = [
+      { transcript: 'can I have a warm honey', confidence: 0.9 },
+      { transcript: 'can I have a warm honey tea', confidence: 0.7 }
+    ];
+    expect(pickHeard(alts, 'Can I have a warm honey tea?', false)?.transcript).toBe('can I have a warm honey tea');
+    expect(pickHeard(alts, '', true)?.transcript).toBe('can I have a warm honey');
+    expect(pickHeard([{ transcript: '  ', confidence: 1 }], 'hi', false)).toBeNull();
+    const kakao = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.4.5';
+    const wk = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+    const safari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+    const android = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36 KAKAOTALK';
+    expect([kakao, wk, safari, android].map(micUnreliable)).toEqual([true, true, false, false]);
   });
 
   it('hints follow the stage ladder and the layer draws nothing outside a lesson', () => {

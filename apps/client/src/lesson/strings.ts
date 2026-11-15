@@ -3,7 +3,6 @@ export const LESSON_STRINGS_KO = {
   code: {
     title: '선생님이 알려 준 숫자 6개를 넣어요',
     sub: '수업 화면으로 바로 들어가요',
-    placeholder: '000000',
     enter: '들어가기',
     joining: '들어가는 중…',
     errors: {
@@ -17,11 +16,13 @@ export const LESSON_STRINGS_KO = {
   status: {
     ok: (nickname: string) => (nickname ? `${nickname} · 선생님과 연결됨` : '선생님과 연결됨'),
     retrying: '다시 연결하는 중…',
-    leave: '나가기'
+    leave: '나가기',
+    leaveAsk: '수업에서 나갈까요?',
+    leaveYes: '나가기',
+    leaveNo: '계속하기'
   },
   goal: {
-    label: '오늘의 목표',
-    sayThis: '이렇게 말해 봐요'
+    label: '오늘의 목표'
   },
   speak: {
     title: (npc: string) => `${npc}에게 말하기`,
@@ -35,12 +36,12 @@ export const LESSON_STRINGS_KO = {
     sending: '선생님께 보내는 중…',
     heard: '들린 말',
     free: '정답은 없어요. 하고 싶은 말을 영어로 길게 해 봐요!',
-    recallHint: (first: string) => `첫 단어: ${first} …`,
+    notHeard: '잘 안 들렸어요. 한 번 더 크게 말해 볼까요?',
+    micBlocked: '마이크를 쓸 수 없어서 글자로 써요.',
     failed: '보내지 못했어요. 한 번 더 눌러 볼까요?'
   },
   result: {
-    coins: (n: number) => `코인 ${n}`,
-    today: (n: number) => `오늘 말한 문장 ${n}개`
+    coins: (n: number) => `코인 ${n}`
   },
   possessed: '선생님',
   ended: {

@@ -32,6 +32,8 @@ export interface LessonNpcLine {
   at: number;
   npc_id: string;
   text: string;
+  /** Absent today: every line is the director speaking through that NPC (npc-say possesses it). */
+  possessed?: boolean;
 }
 
 export interface LessonEventRow {

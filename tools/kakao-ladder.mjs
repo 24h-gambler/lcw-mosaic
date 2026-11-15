@@ -102,25 +102,34 @@ await page.click('.lcw-firstvisit-go');
 await page.waitForTimeout(800);
 
 // Talk to the NPC whose name matches: a dialog with someone else is closed (nothing bought) and the walk goes on.
+// TALK_BY=E presses E instead of tapping the "말 걸기" button.
+const TALK_BY = process.env.TALK_BY ?? 'tap';
+// Reports how it got there: the first press (the "말 걸기" tap when shown, else E), who opened, wrong NPCs, steps.
 async function talk(name, move = true) {
+  const r = { ok: false, presses: [], wrong: [], steps: 0 };
   for (let i = 0; i < 12; i++) {
     if (await page.$('.lcw-dlg')) {
       const who = await page.$eval('.lcw-dlg', (d) => d.innerText.split(/\n/).slice(0, 2).join(' '));
-      if (name.test(who)) return true;
+      r.presses[r.presses.length - 1].opened = who.replace(/\s+/g, ' ').slice(0, 40);
+      if (name.test(who)) return { ...r, ok: true, first_try: r.presses.length === 1 && r.wrong.length === 0 };
+      r.wrong.push(who.slice(0, 30));
       await page.click('.lcw-dlg__x').catch(() => page.keyboard.press('Escape'));
       await page.waitForTimeout(700);
     }
-    const btn = page.getByRole('button', { name: /말 걸기/ }).first();
-    if (await btn.count()) await btn.click({ timeout: 1500 }).catch(() => {});
+    // the world's touch "말 걸기" button (hud .lw-btn.talk, shown with .on when an NPC is in reach)
+    const tap = TALK_BY !== 'E' && (await page.$('.lw-btn.talk.on')) !== null;
+    r.presses.push({ by: tap ? 'tap' : 'E' });
+    if (tap) await page.tap('.lw-btn.talk.on', { timeout: 1500 }).catch(() => {});
     else await page.keyboard.press('KeyE');
     await page.waitForTimeout(700);
     if (await page.$('.lcw-dlg') || !move) continue;
+    r.steps += 1;
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(180);
     await page.keyboard.up('KeyW');
     await page.waitForTimeout(300);
   }
-  return Boolean(await page.$('.lcw-dlg'));
+  return r;
 }
 // Mina's spot at the honey cafe door (apps/client/src/world/town.ts errand_neighbor).
 const MINA_SPOT = { x: 161, z: 139 };
@@ -168,11 +177,21 @@ async function walk() {
   const label = await page.$eval('.lcw-errand-walk', (b) => b.innerText);
   await page.click('.lcw-errand-walk');
   await page.waitForFunction(() => window.__lcwWorld.getScene?.() === 'honey_cafe', null, { timeout: 60000 });
-  await page.waitForTimeout(3500);
+  // the walk is over when the player stops (a same-scene walk can take a long way round)
+  const t0 = Date.now();
+  let last = await pos();
+  let still = 0;
+  while (Date.now() - t0 < 30000 && still < 3) {
+    await page.waitForTimeout(400);
+    const p = await pos();
+    still = p && last && Math.hypot(p.x - last.x, p.z - last.z) < 0.05 ? still + 1 : 0;
+    last = p;
+  }
+  const walkMs = Date.now() - t0;
   const toMina = /미나/.test(label);
   const byWorld = await page.evaluate(() => typeof window.__lcwWorld.walkToNpc === 'function');
   const left = toMina && !byWorld ? await approach(MINA_SPOT.x, MINA_SPOT.z) : null;
-  return { label, walkToNpc: byWorld, approach_left_m: left };
+  return { label, walkToNpc: byWorld, walk_s: Math.round(walkMs / 100) / 10, approach_left_m: left };
 }
 // TAP=1: the child taps the sentence first; default: just speaks one of the sentences on screen (voice picks it).
 const TAP = process.env.TAP === '1';
@@ -194,19 +213,19 @@ async function speak(clip, label, text) {
 }
 
 mark('to_mina', { walk: await walk() });
-mark('mina_open', { ok: await talk(/미나|Mina/, false) });
+mark('mina_open', await talk(/미나|Mina/, false));
 mark('accept', await speak('accept', '81-kakao-accept', 'Yes, I can help you.'));
 mark('to_cafe', { walk: await walk() });
-mark('hani_open', { ok: await talk(/하니|Hani/) });
+mark('hani_open', await talk(/하니|Hani/));
 mark('first_order', await speak('order', '82-kakao-order', 'Cold water, please.'));
 mark('back_to_mina', { walk: await walk() });
-mark('mina2_open', { ok: await talk(/미나|Mina/, false) });
+mark('mina2_open', await talk(/미나|Mina/, false));
 mark('deliver', await speak('deliver', '83-kakao-deliver', 'Here is your cold water. Enjoy!'));
 await page.waitForSelector('.lcw-errand-toast', { timeout: 6000 }).catch(() => {});
 await shot('84-kakao-reward');
 mark('reward', { toast: await page.$eval('.lcw-errand-toast', (t) => t.innerText).catch(() => null) });
 
-const report = { base, ua: UA, tap: TAP, steps, stt, scores, mic_opens: await page.evaluate(() => window.__gum), errs };
+const report = { base, ua: UA, tap: TAP, talk_by: TALK_BY, steps, stt, scores, mic_opens: await page.evaluate(() => window.__gum), errs };
 writeFileSync(`${out}/kakao-report.json`, JSON.stringify(report, null, 1));
 console.log(JSON.stringify({ stt: stt.map((s) => [s.status, s.body?.transcript]), scores, errs }));
 await browser.close();

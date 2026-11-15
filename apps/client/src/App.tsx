@@ -78,7 +78,14 @@ interface ReviewModule {
 }
 interface ReadAloudModule {
   /** Read-aloud furniture discount line under the room check (dialog domain, docs/03 D13). */
-  ReadAloudPrompt?: React.ComponentType<{ kind: 'light' | 'rest' | 'flat'; sentence: string; player?: SoloPlayer }>;
+  ReadAloudPrompt?: React.ComponentType<{
+    kind: 'light' | 'rest' | 'flat';
+    sentence: string;
+    player?: SoloPlayer;
+    onResult?: (r: { pass: boolean; discount_pct: number; already_claimed: boolean }) => void;
+  }>;
+  /** Toby's lines for that kind of furniture; the solo trade shop offers them while the room lacks it. */
+  furnitureOffersFor?: (kind: 'light' | 'rest' | 'flat', level: Level) => NonNullable<DialogConfig['offers']>;
 }
 interface LessonModule {
   LessonLayer?: React.ComponentType<LessonLayerProps>;
@@ -207,6 +214,8 @@ export function App(): React.ReactElement {
   const [lessonOn, setLessonOn] = useState(false);
   const [readAloudMod, setReadAloudMod] = useState<ReadAloudModule | null>(null);
   const [room, setRoom] = useState<{ missing: Array<'light' | 'rest' | 'flat'>; sentence: string } | null>(null);
+  // The kind the child last read aloud for (kept after the build screen closes, until the next room check).
+  const [readKind, setReadKind] = useState<'light' | 'rest' | 'flat' | null>(null);
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
   const [failed, setFailed] = useState(false);
   const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
@@ -335,6 +344,11 @@ export function App(): React.ReactElement {
   const SoloPanel = dialogMod?.DialogPanel;
   const soloSubmit = soloNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(soloNpc, soloPlayerOf(identity)) : null;
   const soloLevel = identity?.kind === 'child' ? identity.level : undefined;
+  // docs/03 D13: while the room lacks a kind of furniture (or the child just read it aloud), Toby sells that kind.
+  const shopKind = room?.missing[0] ?? readKind;
+  const shopOffers =
+    soloNpc?.ctx === 'trade_shop' && shopKind && readAloudMod?.furnitureOffersFor ? readAloudMod.furnitureOffersFor(shopKind, soloLevel ?? 'L1') : [];
+  const soloCfg: DialogConfig = { ...(soloLevel ? { level: soloLevel } : {}), ...(shopOffers.length > 0 ? { offers: shopOffers } : {}) };
   const Review = reviewMod?.ReviewDock;
   const ReadAloud = readAloudMod?.ReadAloudPrompt;
   return (
@@ -363,11 +377,19 @@ export function App(): React.ReactElement {
           {soloBlocked && world && !lessonOn && seatCard ? <SeatPausedCard onClose={() => setSeatCard(false)} /> : null}
           {ReadAloud && room && !lessonOn && !soloBlocked && soloNpc === null ? (
             <div style={{ position: 'absolute', left: '50%', bottom: 96, transform: 'translateX(-50%)' }}>
-              <ReadAloud key={`${room.missing[0]}|${room.sentence}`} kind={room.missing[0]!} sentence={room.sentence} player={soloPlayerOf(identity)} />
+              <ReadAloud
+                key={`${room.missing[0]}|${room.sentence}`}
+                kind={room.missing[0]!}
+                sentence={room.sentence}
+                player={soloPlayerOf(identity)}
+                onResult={(r) => {
+                  if (r.pass) setReadKind(room.missing[0]!);
+                }}
+              />
             </div>
           ) : null}
           {world && !soloBlocked && SoloPanel && soloNpc && soloSubmit ? (
-            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloLevel ? { level: soloLevel } : {}} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />
+            <DialogHost Panel={SoloPanel} world={world} npc={soloNpc} cfg={soloCfg} submit={soloSubmit} onClose={(last) => closeSolo(soloNpc, last)} />
           ) : null}
         </div>
       </div>

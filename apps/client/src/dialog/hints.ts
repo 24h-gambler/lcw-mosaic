@@ -3,6 +3,7 @@ import {
   CAFE_MODIFIER_INFO,
   CONNECTORS,
   FUNCTION_WORDS,
+  FURNITURE_SHOP_GOODS,
   TRADE_SHOP_GOODS,
   lookupPhraseBank,
   type CafeModifier,
@@ -92,6 +93,8 @@ export function picturesFor(text: string): string[] {
   }
   const good = TRADE_SHOP_GOODS.find((g) => new RegExp(`\\b${g.label}\\b`).test(lower));
   if (good) out.push(good.emoji);
+  const furniture = [...FURNITURE_SHOP_GOODS].sort((a, b) => b.label.length - a.label.length).find((g) => lower.includes(g.label));
+  if (furniture) out.push(furniture.emoji);
   if (/\bbecause\b|\bso that\b/.test(lower)) out.push('💬');
   return out.length > 0 ? out : ['💬'];
 }
@@ -105,6 +108,17 @@ export function bankOffersFor(npc: NpcRef, level: LangLevel, item?: string, modi
     text: o.text,
     hintTags: entry.hintTags.filter((t) => keywordPositions(splitWords(o.text), [t]).size > 0)
   }));
+}
+
+/**
+ * Toby's furniture lines for one kind of furniture (docs/03 D13): after the build screen says what the room lacks
+ * (or the child read it aloud), the trade shop offers that kind instead of its default barter lines. The first good
+ * of the kind is the one offered; the server prices it (and spends today's read-aloud discount on it).
+ */
+export function furnitureOffersFor(kind: 'light' | 'rest' | 'flat', level: LangLevel): DialogOffer[] {
+  const good = FURNITURE_SHOP_GOODS.find((g) => g.role === kind);
+  if (!good) return [];
+  return bankOffersFor({ id: 'shop_owner', ctx: 'trade_shop', nameKo: '토비', nameEn: 'Toby' }, level, good.key, good.adj);
 }
 
 const CHUNK_BREAKERS = new Set(['because', 'so', 'for', 'with', 'to', 'if', 'when', 'and']);

@@ -6,6 +6,9 @@ import { playSfx, unlockDialogAudio } from './sound.js';
 import { createBrowserSpeechEngine, type SpeechEngine } from './speech.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 
+/** The App loads this module lazily; the trade shop's furniture offers come with it (one slot, docs/19 3장). */
+export { furnitureOffersFor } from './hints.js';
+
 /**
  * docs/08 8.3 build screen line: the room check's missing-condition sentence with a [소리 내어 읽기] button
  * (docs/03 D13). The child reads it aloud; the server checks the reading and grants 10% off that furniture kind once
@@ -78,6 +81,9 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
   const [result, setResult] = useState<ReadAloudResultView | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const ctrl = useRef<MicController | null>(null);
+  // The shell re-renders often and passes fresh objects/callbacks; keep the mic controller alive across them.
+  const latest = useRef({ player, baseUrl, fetchImpl, onResult });
+  latest.current = { player, baseUrl, fetchImpl, onResult };
   const kindKo = R.kind[kind] ?? kind;
 
   useEffect(() => {
@@ -89,6 +95,7 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
           setNote(UI_STRINGS_KO.dialog.noSpeech);
           return;
         }
+        const { player, baseUrl, fetchImpl, onResult } = latest.current;
         const token = readStudentToken() || player?.deviceToken || '';
         if (!token) {
           setNote(UI_STRINGS_KO.dialog.practiceNote);
@@ -110,7 +117,7 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
     });
     ctrl.current = c;
     return () => c.dispose();
-  }, [engine, kind, player, baseUrl, fetchImpl, onResult]);
+  }, [engine, kind]);
 
   const tap = () => {
     unlockDialogAudio();

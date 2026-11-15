@@ -6,7 +6,8 @@ import { FURNITURE_SHOP_GOODS, PHRASE_BANK, UI_STRINGS_KO, starPrice } from '@lc
 import { ROOM_MISSING_SENTENCES, applyReadAloudDiscount } from '@lcw/sim-core';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
-import { ReadAloudPrompt, postReadAloud } from '../dialog/ReadAloudPrompt.js';
+import { ReadAloudPrompt, furnitureOffersFor, postReadAloud } from '../dialog/ReadAloudPrompt.js';
+import { picturesFor } from '../dialog/hints.js';
 import { createSoloSubmitWith } from '../dialog/submit.js';
 import { createScriptedSpeechEngine } from '../dialog/speech.js';
 
@@ -43,7 +44,13 @@ describe('ReadAloudPrompt', () => {
     expect(again).toMatchObject({ pass: true, discount_pct: 0, already_claimed: true });
 
     const lamp = FURNITURE_SHOP_GOODS.find((g) => g.role === 'light')!;
-    const text = PHRASE_BANK.find((b) => b.ctx === 'trade_shop' && b.level === 'L2' && b.slotsKey.startsWith(`item=${lamp.key}|`))!.offers[1].text;
+    // The solo trade shop offers Toby's lamp lines while the room lacks light (App passes these as cfg.offers).
+    const offers = furnitureOffersFor('light', 'L2');
+    expect(offers.map((o) => o.stars)).toEqual([1, 2, 3]);
+    expect(offers[1]!.text).toBe(PHRASE_BANK.find((b) => b.ctx === 'trade_shop' && b.level === 'L2' && b.slotsKey.startsWith(`item=${lamp.key}|`))!.offers[1].text);
+    expect(offers[1]!.hintTags).toContain(lamp.label);
+    expect(picturesFor(offers[1]!.text)).toContain(lamp.emoji);
+    const text = offers[1]!.text;
     const submit = createSoloSubmitWith({
       token: tok,
       npc: { id: 'shop_owner', ctx: 'trade_shop', nameKo: '토비', nameEn: 'Toby' },

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { COLOR_TOKENS } from '@lcw/ui';
 import { DialogPanel } from './DialogPanel.js';
 import { ROOM_MISSING_SENTENCES } from '@lcw/sim-core';
-import { ReadAloudPrompt, type FurnitureKind } from './ReadAloudPrompt.js';
+import { ReadAloudPrompt, furnitureOffersFor, type FurnitureKind } from './ReadAloudPrompt.js';
 import { createScriptedSpeechEngine, createBrowserSpeechEngine, type MicIssue } from './speech.js';
 import { createLessonSubmit, createSoloSubmitWith } from './submit.js';
 import type { DialogHint, DialogMode, DialogOffer, DialogResult, Level, NpcRef } from './types.js';
@@ -30,7 +30,9 @@ const fs = Number(q.get('fs') ?? '1');
 const say = q.get('say');
 const micOverride = q.get('mic') as MicIssue | null;
 const offersParam = q.get('offers');
-const offers: DialogOffer[] = offersParam ? (JSON.parse(offersParam) as DialogOffer[]) : [];
+// shop=light|rest|flat: the trade shop offers that kind of furniture, as App does while the room lacks it.
+const shopKind = q.get('shop') as FurnitureKind | null;
+const offers: DialogOffer[] = offersParam ? (JSON.parse(offersParam) as DialogOffer[]) : shopKind ? furnitureOffersFor(shopKind, (q.get('level') ?? 'L1') as Level) : [];
 
 const speech = micOverride
   ? { source: 'browser' as const, availability: () => ({ ok: false as const, issue: micOverride }), start: createScriptedSpeechEngine([]).start }

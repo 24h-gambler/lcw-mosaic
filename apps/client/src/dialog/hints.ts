@@ -9,7 +9,7 @@ import {
   type CafeModifier,
   type LangLevel
 } from '@lcw/content';
-import { normalizeMixedUtterance, tokenizeForScoring } from '@lcw/converse';
+import { normalizeMixedUtterance, tokenizeForScoring, wordsMatch } from '@lcw/converse';
 import type { DialogHint, DialogOffer, NpcRef } from './types.js';
 
 /** One display token of a target sentence at a hint level (docs/08 8.2: full → keyword → initial → picture). */
@@ -222,8 +222,13 @@ export function heardMask(target: string, transcript: string): boolean[] {
   return splitWords(target).map((w) => {
     const toks = tokenizeForScoring(w);
     if (toks.length === 0) return true;
-    const ok = toks.every((t) => pool.includes(t));
-    if (ok) for (const t of toks) pool.splice(pool.indexOf(t), 1);
+    // the server's word match (lenient for near words), so a word the server counted is not shown as missed
+    const at = (t: string) => {
+      const exact = pool.indexOf(t);
+      return exact >= 0 ? exact : pool.findIndex((s) => wordsMatch(t, s));
+    };
+    const ok = toks.every((t) => at(t) >= 0);
+    if (ok) for (const t of toks) pool.splice(at(t), 1);
     return ok;
   });
 }

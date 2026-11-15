@@ -58,7 +58,7 @@ function Preview() {
       }}
     >
       <div style={{ padding: 16, color: COLOR_TOKENS['ink-900'] }} id="preview-status">
-        {last ? `done: pass=${last.pass} stars=${last.stars} coins=${last.coinsTotal ?? '-'}` : 'preview'}
+        {last ? `done: pass=${last.pass} stars=${last.stars} coins=${last.coinsTotal ?? '-'} item=${last.itemKey ?? '-'} asked=${last.askedKey ?? '-'}` : 'preview'}
         {!open ? (
           <button type="button" style={{ marginLeft: 12 }} onClick={() => setOpen(true)}>
             open

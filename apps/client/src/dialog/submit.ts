@@ -8,7 +8,7 @@ import type { DialogResult, NpcRef, UtteranceSubmit } from './types.js';
 
 export class SubmitError extends Error {
   constructor(
-    readonly kind: 'network' | 'auth' | 'server',
+    readonly kind: 'network' | 'auth' | 'server' | 'invalid',
     message: string
   ) {
     super(message);
@@ -29,15 +29,24 @@ async function postJson(fetchImpl: Fetch, url: string, token: string, body: unkn
     throw new SubmitError('network', err instanceof Error ? err.message : String(err));
   }
   if (res.status === 401 || res.status === 403) throw new SubmitError('auth', `status ${res.status}`);
+  if (res.status === 400) throw new SubmitError('invalid', `status ${res.status}`);
   if (!res.ok) throw new SubmitError('server', `status ${res.status}`);
   return (await res.json()) as Record<string, unknown>;
 }
 
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
-export function lessonBody(u: UtteranceSubmit): Omit<UtteranceSubmit, 'echo' | 'attempt'> {
-  const { echo: _e, attempt: _a, ...body } = u;
+export function lessonBody(u: UtteranceSubmit): Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId'> {
+  const { echo: _e, attempt: _a, dialogId: _d, ...body } = u;
   return body;
+}
+
+export function newDialogId(): string {
+  const rand =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+      : Math.floor(Math.random() * 1e12).toString(36);
+  return `dlg_${Date.now().toString(36)}${rand}`;
 }
 
 export function createLessonSubmit(opts: { token: string; baseUrl?: string; fetchImpl?: Fetch }) {
@@ -58,16 +67,16 @@ export function createSoloSubmitWith(opts: {
   npc: NpcRef;
   baseUrl?: string;
   fetchImpl?: Fetch;
-  /** Injected for tests; one id per opened dialog. */
+  /** Fallback when the panel does not pass `u.dialogId` (older callers); one id per created submit. */
   dialogId?: string;
 }) {
   const f = opts.fetchImpl ?? fetch.bind(globalThis);
-  const dialogId = opts.dialogId ?? `dlg_${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+  const fallbackId = opts.dialogId ?? newDialogId();
   return async (u: UtteranceSubmit): Promise<DialogResult> => {
     if (!opts.token) throw new SubmitError('auth', 'no_student_token');
-    if (!u.target_text) throw new SubmitError('server', 'free_talk_needs_a_target');
+    // An empty target is free talk: the server matches it to the closest sentence of this NPC (strict bank).
     const j = await postJson(f, `${opts.baseUrl ?? ''}/v1/converse/score`, opts.token, {
-      dialog_id: dialogId,
+      dialog_id: u.dialogId ?? fallbackId,
       npc_ctx: opts.npc.ctx,
       target_text: u.target_text,
       transcript: u.transcript,
@@ -90,7 +99,9 @@ export function createSoloSubmitWith(opts: {
       itemKey:
         j.granted && typeof (j.granted as { item_id?: unknown }).item_id === 'string'
           ? (j.granted as { item_id: string }).item_id
-          : undefined
+          : undefined,
+      askedKey: typeof j.asked_key === 'string' ? j.asked_key : undefined,
+      matchedText: typeof j.target_text === 'string' ? j.target_text : undefined
     };
   };
 }

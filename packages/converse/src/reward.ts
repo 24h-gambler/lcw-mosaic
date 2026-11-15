@@ -1,4 +1,14 @@
-import { bankItemKey, findBankOffer, UI_STRINGS_KO, type LangLevel, type PhraseBankEntry } from '@lcw/content';
+import {
+  bankEntriesFor,
+  bankItemKey,
+  bankTextKey,
+  findBankOffer,
+  PATTERN_GLOSS_KO,
+  UI_STRINGS_KO,
+  type LangLevel,
+  type PhraseBankEntry,
+  type PhraseOffer
+} from '@lcw/content';
 import type { HintLevel } from '@lcw/schemas';
 import { scoreUtterance, type ScoringResult } from './scoring.js';
 
@@ -29,8 +39,17 @@ export interface ConverseRewardInput {
   transcript: string;
   hintLevel: HintLevel;
   inputSource?: InputSource;
-  /** The child finished the phrase-by-phrase ECHO step after 3 misses. */
+  /**
+   * The child finished the phrase-by-phrase ECHO step. The caller passes this only after it has checked on the
+   * server that the same dialog already missed twice (docs/04 4.1: ECHO from the 3rd miss); a client claim alone
+   * must never lower the pass line.
+   */
   echo?: boolean;
+  /**
+   * Student solo path: only bank sentences count (an unknown sentence gets nothing), and an empty target (free
+   * talk) is matched to the closest bank sentence of this NPC at the child's level.
+   */
+  strictBank?: boolean;
 }
 
 export interface ConverseRewardDecision {
@@ -46,14 +65,62 @@ export interface ConverseRewardDecision {
   priceCoins: number;
   capped: 'none' | 'core_pattern' | 'non_voice' | 'unknown_target' | 'echo';
   coreMissed: boolean;
+  /** The pattern phrase the feedback should name when the core pattern was missed (e.g. "because"). */
+  corePhrase: string | null;
+  /** The sentence actually scored (the matched bank sentence when the request came without a target). */
+  targetText: string;
   scoring: ScoringResult;
 }
 
+/** The pattern phrase (because, so that, can I have...) of a bank entry that appears in this sentence. */
+export function corePhraseOf(entry: PhraseBankEntry | undefined, text: string): string | null {
+  if (!entry) return null;
+  const key = ` ${bankTextKey(text)} `;
+  for (const tag of entry.hintTags) {
+    const t = tag.toLowerCase().trim();
+    if (PATTERN_GLOSS_KO[t] && key.includes(` ${bankTextKey(t)} `)) return tag;
+  }
+  return null;
+}
+
+/**
+ * Free talk with no chosen sentence: the closest bank sentence for this NPC at the child's level. A passing
+ * sentence with the most stars wins; with no pass, the best score (so the miss feedback is about something real).
+ */
+function closestBankSentence(input: ConverseRewardInput): { entry: PhraseBankEntry; offer: PhraseOffer } | null {
+  let best: { entry: PhraseBankEntry; offer: PhraseOffer; pass: boolean; score: number } | null = null;
+  for (const entry of bankEntriesFor(input.ctx, input.level)) {
+    for (const offer of entry.offers) {
+      const r = scoreUtterance({
+        targetText: offer.text,
+        spokenTranscript: input.transcript,
+        level: input.level,
+        hintLevel: input.hintLevel,
+        stars: offer.stars,
+        hintTags: entry.hintTags
+      });
+      let better = !best;
+      if (best) {
+        if (r.pass !== best.pass) better = r.pass;
+        else if (r.pass) better = offer.stars > best.offer.stars || (offer.stars === best.offer.stars && r.score > best.score);
+        else better = r.score > best.score;
+      }
+      if (better) best = { entry, offer, pass: r.pass, score: r.score };
+    }
+  }
+  return best ? { entry: best.entry, offer: best.offer } : null;
+}
+
 export function decideConverseReward(input: ConverseRewardInput): ConverseRewardDecision {
-  const hit = findBankOffer({ ctx: input.ctx, level: input.level, text: input.targetText });
+  const emptyTarget = input.targetText.trim() === '';
+  const hit =
+    input.strictBank && emptyTarget
+      ? closestBankSentence(input)
+      : findBankOffer({ ctx: input.ctx, level: input.level, text: input.targetText });
+  const targetText = hit && emptyTarget ? hit.offer.text : input.targetText;
   const targetStars: 1 | 2 | 3 = hit ? hit.offer.stars : (Math.min(input.chosenStars, UNKNOWN_TARGET_STAR_CAP) as 1);
   const scoring = scoreUtterance({
-    targetText: input.targetText,
+    targetText,
     spokenTranscript: input.transcript,
     level: input.level,
     hintLevel: input.hintLevel,
@@ -81,6 +148,12 @@ export function decideConverseReward(input: ConverseRewardInput): ConverseReward
     capped = 'non_voice';
   }
   if (!hit && input.chosenStars > UNKNOWN_TARGET_STAR_CAP && pass) capped = 'unknown_target';
+  if (!hit && input.strictBank) {
+    // Solo orders only count bank sentences: a made-up target ("hi" == "hi") earns nothing.
+    pass = false;
+    stars = 0;
+    capped = 'unknown_target';
+  }
 
   const granted = stars as 0 | 1 | 2 | 3;
   const priceCoins = hit && granted > 0 ? hit.entry.offers[granted - 1]!.price : 0;
@@ -94,21 +167,33 @@ export function decideConverseReward(input: ConverseRewardInput): ConverseReward
     priceCoins,
     capped,
     coreMissed: scoring.coreTotal > 0 && scoring.coreMatchRate === 0,
+    corePhrase: corePhraseOf(hit?.entry, targetText),
+    targetText,
     scoring
   };
 }
 
 /** Short, warm Korean feedback for the result card (docs/08 8.2; never blames the child, docs/04 4.1). */
-export function converseFeedbackKo(d: Pick<ConverseRewardDecision, 'pass' | 'stars' | 'targetStars' | 'capped' | 'coreMissed'> & {
-  bought?: boolean;
-  shortOfCoins?: boolean;
-}): string {
+export function converseFeedbackKo(
+  d: Pick<ConverseRewardDecision, 'pass' | 'stars' | 'targetStars' | 'capped' | 'coreMissed'> & {
+    corePhrase?: string | null;
+    inputSource?: InputSource;
+    bought?: boolean;
+    shortOfCoins?: boolean;
+  }
+): string {
   const s = UI_STRINGS_KO.dialog.feedback;
-  if (!d.pass) return d.coreMissed ? s.coreMissed : s.almost;
+  const phrase = d.corePhrase ?? null;
+  if (!d.pass) {
+    if (d.capped === 'unknown_target') return s.pickOffer;
+    if (d.coreMissed) return phrase ? s.coreMissedPhrase.replace('{p}', phrase) : s.coreMissed;
+    return s.almost;
+  }
+  // Not getting the item matters most to a child, so that reason comes first.
+  if (d.shortOfCoins) return d.stars >= 3 && d.capped === 'none' ? s.shortOfCoins : s.shortOfCoinsGood;
   if (d.capped === 'echo') return s.echoDone;
-  if (d.capped === 'core_pattern') return s.cappedCore;
-  if (d.capped === 'non_voice') return s.cappedNonVoice;
-  if (d.shortOfCoins) return s.shortOfCoins;
+  if (d.capped === 'core_pattern') return phrase ? s.cappedCorePhrase.replace('{p}', phrase) : s.cappedCore;
+  if (d.capped === 'non_voice') return d.inputSource === 'keyboard' ? s.cappedKeyboard : s.cappedNonVoice;
   if (d.stars >= 3) return s.perfect;
   return d.stars >= d.targetStars ? s.passNextUp : s.pass;
 }

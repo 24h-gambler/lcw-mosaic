@@ -31,13 +31,20 @@ export interface DialogResult {
   coinsTotal?: number;
   /** Words of the target the server did not hear (display only; optional — the lesson route does not send it). */
   missed?: string[];
-  /** Item the server actually granted (solo orders); the world gives this one, else the scene default. */
+  /**
+   * Item the server actually granted and recorded (solo orders). The world gives exactly this; when it is missing
+   * nothing was bought (short of coins, a miss, or a price-0 sentence) and the world gives nothing.
+   */
   itemKey?: string;
+  /** Price-0 sentences: what the child asked for (trade shop good to swap via /trades, guide place to point at). */
+  askedKey?: string;
+  /** Free talk: the bank sentence the server matched the child's words to (shown on the result card). */
+  matchedText?: string;
 }
 
 /**
- * Same shape as the POST /v1/lesson/utterance body (docs/18 2). `echo` and `attempt` are dialog meta for the solo
- * route (/v1/converse/score); the lesson submit leaves them out because that body is strict.
+ * Same shape as the POST /v1/lesson/utterance body (docs/18 2). `echo`, `attempt` and `dialogId` are dialog meta
+ * for the solo route (/v1/converse/score); the lesson submit leaves them out because that body is strict.
  */
 export interface UtteranceSubmit {
   target_text: string;
@@ -50,6 +57,8 @@ export interface UtteranceSubmit {
   confidence: number;
   echo?: boolean;
   attempt?: number;
+  /** One id per opened dialog window: retries and resends of the same order are one purchase on the server. */
+  dialogId?: string;
 }
 
 export interface DialogPanelProps {

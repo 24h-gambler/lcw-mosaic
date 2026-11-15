@@ -132,6 +132,13 @@ export const LEXICON_L1_KO_EN: Record<string, string> = {
   // Speech-bubble chatter (docs/04 4.12)
   '이거': 'this',
   '어디': 'where',
+  '어디예요': 'where is',
+  '어디에요': 'where is',
+  '카페': 'cafe',
+  '교환 상점': 'trade shop',
+  '상점': 'shop',
+  '보여주세요': 'show me',
+  '알려주세요': 'tell me',
   '놔': 'put',
   '놓아': 'put',
   // Colors
@@ -274,6 +281,8 @@ export interface CafeDrinkDef {
   /** Modifiers that read naturally with this drink; the others resolve to `defaultMod`. */
   mods: readonly CafeModifier[];
   defaultMod: CafeModifier;
+  /** Ordering article: 'some' for water and milk ("some cold water"), 'a' for a served drink ("a cold smoothie"). */
+  article?: 'a' | 'some';
 }
 
 export const CAFE_MODIFIERS = ['cold', 'warm', 'sweet', 'large', 'small', 'fresh'] as const;
@@ -292,8 +301,8 @@ const ALL_MODS = CAFE_MODIFIERS;
 const NO_WARM = ['cold', 'sweet', 'large', 'small', 'fresh'] as const;
 
 export const CAFE_DRINKS: readonly CafeDrinkDef[] = [
-  { key: 'water', label: 'water', nameKo: '물', emoji: '💧', basePrice: 20, mods: ['cold', 'warm', 'large', 'small', 'fresh'], defaultMod: 'cold' },
-  { key: 'milk', label: 'milk', nameKo: '우유', emoji: '🥛', basePrice: 25, mods: ALL_MODS, defaultMod: 'warm' },
+  { key: 'water', label: 'water', nameKo: '물', emoji: '💧', basePrice: 20, mods: ['cold', 'warm', 'large', 'small', 'fresh'], defaultMod: 'cold', article: 'some' },
+  { key: 'milk', label: 'milk', nameKo: '우유', emoji: '🥛', basePrice: 25, mods: ALL_MODS, defaultMod: 'warm', article: 'some' },
   { key: 'tea', label: 'tea', nameKo: '차', emoji: '🍵', basePrice: 30, mods: ['cold', 'warm', 'sweet', 'large', 'small'], defaultMod: 'warm' },
   { key: 'juice', label: 'juice', nameKo: '주스', emoji: '🧃', basePrice: 35, mods: NO_WARM, defaultMod: 'cold' },
   { key: 'smoothie', label: 'smoothie', nameKo: '스무디', emoji: '🥤', basePrice: 50, mods: NO_WARM, defaultMod: 'cold' },
@@ -327,8 +336,10 @@ function buildCafeOffers(
   drinkLabel: string,
   modifier: string,
   basePrice: number,
-  level: LangLevel
+  level: LangLevel,
+  art: 'a' | 'some' = 'a'
 ): [PhraseOffer, PhraseOffer, PhraseOffer] {
+  // "a cold smoothie" / "some cold water": full sentences keep the article; only the L1 fragments drop it.
   const p1 = starPrice(basePrice, 1);
   const p2 = starPrice(basePrice, 2);
   const p3 = starPrice(basePrice, 3);
@@ -339,7 +350,7 @@ function buildCafeOffers(
       { stars: 2, text: `${capitalize(modifier)} ${drinkLabel}, please.`, price: p2, bonus: null },
       {
         stars: 3,
-        text: `Can I have ${modifier} ${drinkLabel}, please?`,
+        text: `Can I have ${art} ${modifier} ${drinkLabel}, please?`,
         price: p3,
         bonus: 'thirst_buff_3m'
       }
@@ -347,32 +358,32 @@ function buildCafeOffers(
   }
   if (level === 'L2') {
     return [
-      { stars: 1, text: `I want ${modifier} ${drinkLabel}, please.`, price: p1, bonus: null },
+      { stars: 1, text: `I want ${art} ${modifier} ${drinkLabel}, please.`, price: p1, bonus: null },
       {
         stars: 2,
-        text: `Can I get a ${modifier} ${drinkLabel}?`,
+        text: `Can I get ${art} ${modifier} ${drinkLabel}?`,
         price: p2,
         bonus: null
       },
       {
         stars: 3,
-        text: `Can I get a ${modifier} ${drinkLabel} because I am thirsty?`,
+        text: `Can I get ${art} ${modifier} ${drinkLabel} because I am thirsty?`,
         price: p3,
         bonus: 'thirst_buff_3m'
       }
     ];
   }
   return [
-    { stars: 1, text: `I'd like a ${modifier} ${drinkLabel}, please.`, price: p1, bonus: null },
+    { stars: 1, text: `I'd like ${art} ${modifier} ${drinkLabel}, please.`, price: p1, bonus: null },
     {
       stars: 2,
-      text: `Could you make a ${modifier} ${drinkLabel} for me?`,
+      text: `Could you make ${art} ${modifier} ${drinkLabel} for me?`,
       price: p2,
       bonus: null
     },
     {
       stars: 3,
-      text: `I'd love a ${modifier} ${drinkLabel} so that I can keep exploring the town.`,
+      text: `I'd love ${art} ${modifier} ${drinkLabel} so that I can keep exploring the town.`,
       price: p3,
       bonus: 'thirst_buff_3m'
     }
@@ -404,7 +415,7 @@ for (const level of ['L1', 'L2', 'L3'] as const) {
         intent: 'order_drink',
         slotsKey: `item=${drink.key}|mod=${mod}`,
         level,
-        offers: buildCafeOffers(drink.label, mod, drink.basePrice, level),
+        offers: buildCafeOffers(drink.label, mod, drink.basePrice, level, drink.article ?? 'a'),
         hintTags: cafeHintTags(level, mod, drink.label),
         baseMesh: 'item_cup_01',
         socket: 'RightHand_Socket'
@@ -454,7 +465,7 @@ function buildShopOffers(g: ShopGoodDef, level: LangLevel): [PhraseOffer, Phrase
     return [
       { stars: 1, text: `I want the ${g.adj} ${g.label}.`, price: 0, bonus: null },
       { stars: 2, text: `Can I trade ${g.give} for the ${g.label}?`, price: 0, bonus: null },
-      { stars: 3, text: `I want to trade ${g.give} because ${g.need}.`, price: 0, bonus: 'trade_fee_off' }
+      { stars: 3, text: `I want to trade ${g.give} for the ${g.label} because ${g.need}.`, price: 0, bonus: 'trade_fee_off' }
     ];
   }
   return [
@@ -487,6 +498,66 @@ for (const level of ['L1', 'L2', 'L3'] as const) {
             ? [g.label, 'can I trade', 'because']
             : [g.label, 'could you', 'because'],
       baseMesh: 'item_crate_01',
+      socket: 'RightHand_Socket'
+    });
+  }
+}
+
+/**
+ * Plaza guide (docs/19 guide NPC, WP-111 first visit): asking the way. Nothing is sold (price 0, no item); the
+ * server answers with the place key so the world can point the way.
+ */
+export interface GuidePlaceDef {
+  key: string;
+  label: string;
+  nameKo: string;
+  emoji: string;
+  /** Why the child is going there (2-star L2 / 3-star clauses). */
+  why: string;
+  /** What the child will do there (L3 3-star "so that" clause). */
+  todo: string;
+}
+
+export const GUIDE_PLACES: readonly GuidePlaceDef[] = [
+  { key: 'cafe', label: 'cafe', nameKo: '카페', emoji: '☕', why: 'I am thirsty', todo: 'buy a drink' },
+  { key: 'trade_shop', label: 'trade shop', nameKo: '교환 상점', emoji: '🏪', why: 'I want to trade my stone', todo: 'trade my things' }
+];
+
+function buildGuideOffers(p: GuidePlaceDef, level: LangLevel): [PhraseOffer, PhraseOffer, PhraseOffer] {
+  if (level === 'L1') {
+    return [
+      { stars: 1, text: `The ${p.label}, please.`, price: 0, bonus: null },
+      { stars: 2, text: `Where is the ${p.label}?`, price: 0, bonus: null },
+      { stars: 3, text: `Excuse me, where is the ${p.label}?`, price: 0, bonus: null }
+    ];
+  }
+  if (level === 'L2') {
+    return [
+      { stars: 1, text: `Where is the ${p.label}?`, price: 0, bonus: null },
+      { stars: 2, text: `Can you show me the ${p.label}?`, price: 0, bonus: null },
+      { stars: 3, text: `Can you show me the ${p.label} because ${p.why}?`, price: 0, bonus: null }
+    ];
+  }
+  return [
+    { stars: 1, text: `I'm looking for the ${p.label}.`, price: 0, bonus: null },
+    { stars: 2, text: `Could you tell me where the ${p.label} is?`, price: 0, bonus: null },
+    { stars: 3, text: `Could you tell me where the ${p.label} is so that I can ${p.todo}?`, price: 0, bonus: null }
+  ];
+}
+
+const GENERATED_GUIDE_BANK: PhraseBankEntry[] = [];
+for (const level of ['L1', 'L2', 'L3'] as const) {
+  for (const p of GUIDE_PLACES) {
+    GENERATED_GUIDE_BANK.push({
+      id: `guide_${level}_${p.key}`,
+      lang: 'en',
+      ctx: 'guide',
+      intent: 'ask_way',
+      slotsKey: `item=${p.key}|kind=place`,
+      level,
+      offers: buildGuideOffers(p, level),
+      hintTags: level === 'L1' ? [p.label, 'where is'] : level === 'L2' ? [p.label, 'because'] : [p.label, 'could you', 'so that'],
+      baseMesh: 'item_signpost_01',
       socket: 'RightHand_Socket'
     });
   }
@@ -676,6 +747,7 @@ const DOMAIN_BANK_ENTRIES: PhraseBankEntry[] = [
 export const PHRASE_BANK: readonly PhraseBankEntry[] = [
   ...GENERATED_CAFE_BANK,
   ...GENERATED_SHOP_BANK,
+  ...GENERATED_GUIDE_BANK,
   ...DOMAIN_BANK_ENTRIES
 ];
 
@@ -785,7 +857,41 @@ export function findBankOffer(params: {
   }
   const hits = (bankTextIndex.get(bankTextKey(params.text)) ?? []).filter((h) => h.entry.ctx === params.ctx);
   if (hits.length === 0) return null;
-  return hits.find((h) => h.entry.level === params.level) ?? hits[0]!;
+  if (!params.level) return hits[0]!;
+  const same = hits.find((h) => h.entry.level === params.level);
+  if (same) return same;
+  // Another level's sentence only counts where this NPC has nothing at the child's level (lookupPhraseBank then
+  // serves the nearest level). Otherwise an L3 child could buy at the 3-star price with an L1 3-star line.
+  return bankHasLevel(params.ctx, params.level) ? null : hits[0]!;
+}
+
+let bankLevelIndex: Map<string, Set<LangLevel>> | null = null;
+
+/** True when the NPC context has at least one bank entry at this level. */
+export function bankHasLevel(ctx: string, level: LangLevel): boolean {
+  if (!bankLevelIndex) {
+    bankLevelIndex = new Map();
+    for (const e of PHRASE_BANK) {
+      const set = bankLevelIndex.get(e.ctx) ?? new Set<LangLevel>();
+      set.add(e.level);
+      bankLevelIndex.set(e.ctx, set);
+    }
+  }
+  return bankLevelIndex.get(ctx)?.has(level) ?? false;
+}
+
+/**
+ * Bank entries for one NPC at the child's level (nearest level when the NPC has none at it). The server picks
+ * the closest of these when a free-talk turn arrives without a target sentence.
+ */
+export function bankEntriesFor(ctx: string, level: LangLevel): PhraseBankEntry[] {
+  const all = PHRASE_BANK.filter((e) => e.ctx === ctx);
+  if (all.length === 0) return [];
+  if (bankHasLevel(ctx, level)) return all.filter((e) => e.level === level);
+  const rank = (l: LangLevel) => Number(l.slice(1));
+  const want = rank(level);
+  const nearest = all.reduce((best, e) => (Math.abs(rank(e.level) - want) < Math.abs(rank(best) - want) ? e.level : best), all[0]!.level);
+  return all.filter((e) => e.level === nearest);
 }
 
 /** Item key of a bank entry (`item=<key>|...`). */
@@ -811,7 +917,8 @@ export const PATTERN_GLOSS_KO: Record<string, string> = {
   with: '~가 있는 / ~와 함께',
   'see you': '또 만나요',
   'if i win': '내가 이기면',
-  'i will': '~할게요'
+  'i will': '~할게요',
+  'where is': '~는 어디예요?'
 };
 
 export function glossKo(tag: string): string | null {
@@ -825,7 +932,7 @@ export function glossKo(tag: string): string | null {
 export const NPC_OPENING_LINES: Record<string, string> = {
   cafe: 'Welcome to the honey cafe! What would you like today?',
   trade_shop: 'Hello! What would you like to trade today?',
-  guide: 'Hi there! What would you like to say?',
+  guide: 'Hi there! Where do you want to go?',
   makers_lab: 'What kind of gear do you want me to build?',
   boutique: 'Hello! What would you like to wear today?',
   exchange: 'What would you like to sell today?'
@@ -892,11 +999,16 @@ export const UI_STRINGS_KO = {
       passNextUp: '통과! 다음엔 별 하나 더 도전해 볼까요?',
       pass: '잘했어요! 통과!',
       almost: '거의 다 왔어요! 한 번 더 천천히 말해 볼까요?',
-      coreMissed: '내용은 좋아요! because · so that 같은 연결하는 말까지 넣어 볼까요?',
-      cappedCore: '좋아요! 연결하는 말까지 넣으면 별 3개예요.',
+      coreMissed: '내용은 좋아요! 문장 모양까지 그대로 말해 볼까요?',
+      coreMissedPhrase: "내용은 좋아요! '{p}'까지 넣어 볼까요?",
+      cappedCore: '좋아요! 문장 모양까지 그대로 말하면 별 3개예요.',
+      cappedCorePhrase: "좋아요! '{p}'까지 넣으면 별 3개예요.",
       cappedNonVoice: '카드로 잘 만들었어요! 다음엔 목소리로 말하면 별 3개도 받을 수 있어요.',
+      cappedKeyboard: '글자로 잘 썼어요! 다음엔 목소리로 말하면 별 3개도 받을 수 있어요.',
       echoDone: '끝까지 따라 말했어요! 정말 잘했어요.',
-      shortOfCoins: '말은 완벽해요! 코인을 조금 더 모으면 받을 수 있어요.'
+      shortOfCoins: '말은 완벽해요! 코인을 조금 더 모으면 받을 수 있어요.',
+      shortOfCoinsGood: '말은 잘했어요! 코인을 조금 더 모으면 받을 수 있어요.',
+      pickOffer: '여기 있는 문장 중 하나를 골라 말해 볼까요?'
     },
     chooseTitle: '말하고 싶은 문장을 골라요',
     starsAria: '별 {n}개',
@@ -930,6 +1042,8 @@ export const UI_STRINGS_KO = {
     noSpeech: '잘 안 들렸어요. 마이크 가까이에서 다시 말해 볼까요?',
     networkError: '연결이 잠깐 끊겼어요. 한 번 더 눌러 볼까요?',
     submitError: '잠깐 문제가 생겼어요. 한 번 더 해 볼까요?',
+    sessionEnded: '수업 시간이 끝나서 저장하지 못했어요. 선생님께 알려 주세요.',
+    keepBest: '이대로 받을게요',
     echoTitle: '조금씩 끊어서 따라 말해요',
     echoStep: '{i} / {n}',
     echoNext: '다음 조각',

@@ -59,6 +59,12 @@ export function scanSourceForInvariants(code, filename) {
   const lower = code.toLowerCase();
   const isTestFile = /\.test\.tsx?$/.test(norm);
 
+  // A lone CR (e.g. CR CR LF from a script that re-added CRLF) makes git store the file as non-text and turns
+  // every line of the PR diff into a change. Line ends are LF (CRLF only in a Windows checkout).
+  if (/\r(?!\n)/.test(code)) {
+    violations.push(`${norm}: lone CR line ending (CR CR LF?); rewrite the file with LF line ends`);
+  }
+
   if (!isTestFile) {
     for (const endpoint of FORBIDDEN_AI_ENDPOINTS) {
       if (lower.includes(endpoint)) {

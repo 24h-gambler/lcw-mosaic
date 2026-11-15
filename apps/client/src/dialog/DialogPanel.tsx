@@ -18,7 +18,7 @@ import { MicController, type MicView } from './mic-controller.js';
 import { createBrowserSpeechEngine, isKakaoInApp, kakaoOpenExternalUrl, type MicIssue, type SpeechEngine } from './speech.js';
 import { playAgain, playPass, playSfx, speakEnglish, stopSpeaking, unlockDialogAudio } from './sound.js';
 import { DIALOG_CSS } from './styles.js';
-import { SubmitError } from './submit.js';
+import { newDialogId, SubmitError } from './submit.js';
 import type { DialogOffer, DialogPanelProps, DialogResult, SttSource, UtteranceSubmit } from './types.js';
 
 export type { DialogOffer, DialogPanelProps, DialogResult, NpcRef, UtteranceSubmit } from './types.js';
@@ -142,6 +142,12 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const [cardsPicked, setCardsPicked] = useState<string[]>([]);
   const [typed, setTyped] = useState('');
   const [echo, setEcho] = useState<{ chunks: string[]; i: number; said: string[]; tries: number } | null>(null);
+  const [authLost, setAuthLost] = useState(false);
+  // One server-side purchase per opened window: "one more star" and resends after a network error reuse this id.
+  const dialogId = useRef(newDialogId());
+  // The best passed result of this window. A failed "one more star" try or closing the window still hands the
+  // world the item the server already granted and charged for.
+  const bestPass = useRef<DialogResult | null>(null);
   const noSpeechRun = useRef(0);
   const readyAt = useRef(Date.now());
   const micStartAt = useRef(0);
@@ -165,13 +171,18 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       setNotice(null);
       const slowTimer = setTimeout(() => setSlow(true), SLOW_PROCESSING_MS);
       try {
-        const r = await submit(u);
+        const r = await submit({ ...u, dialogId: dialogId.current });
         setResult(r);
-        setLastTarget(u.target_text);
+        setLastTarget(r.matchedText ?? u.target_text);
         setLastSpoken(u.transcript);
         setPending(null);
         const key = u.chosen_stars;
         if (r.pass) {
+          const prev = bestPass.current;
+          bestPass.current =
+            !prev || r.stars >= prev.stars
+              ? { ...r, itemKey: r.itemKey ?? prev?.itemKey, askedKey: r.askedKey ?? prev?.askedKey }
+              : { ...prev, coinsTotal: r.coinsTotal ?? prev.coinsTotal, itemKey: prev.itemKey ?? r.itemKey };
           playPass(Math.max(1, r.stars));
           setMisses((m) => ({ ...m, [key]: 0 }));
           setMissedWords(new Set());
@@ -197,7 +208,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         setPhase('result');
       } catch (err) {
         const auth = err instanceof SubmitError && err.kind === 'auth';
-        setNotice(auth ? S.submitError : err instanceof SubmitError && err.kind === 'network' ? S.networkError : S.submitError);
+        setAuthLost(auth);
+        setNotice(auth ? S.sessionEnded : err instanceof SubmitError && err.kind === 'network' ? S.networkError : S.submitError);
         setPhase('result');
         setResult(null);
       } finally {
@@ -286,6 +298,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
           setHeard(null);
           setNotice(S.noSpeech);
           if (noSpeechRun.current >= NO_SPEECH_BEFORE_BOARD) {
+            // The board builds a whole sentence, so a half-done ECHO ends here (cards never count as ECHO).
+            setEcho(null);
             setPhase(fallbackRef.current);
             return;
           }
@@ -301,7 +315,12 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         if (issue === 'no_speech') {
           noSpeechRun.current += 1;
           setNotice(S.noSpeech);
-          setPhase(noSpeechRun.current >= NO_SPEECH_BEFORE_BOARD ? fallbackRef.current : echoRef.current ? 'echo' : 'choose');
+          if (noSpeechRun.current >= NO_SPEECH_BEFORE_BOARD) {
+            setEcho(null);
+            setPhase(fallbackRef.current);
+            return;
+          }
+          setPhase(echoRef.current ? 'echo' : 'choose');
           return;
         }
         if (issue === 'network' || issue === 'aborted') {
@@ -335,6 +354,12 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
     c.tap();
   }, [micIssue]);
 
+  // Closing after a pass still finishes the order: the server already granted (and charged for) the item.
+  const closeWindow = useCallback(() => {
+    if (bestPass.current) onDone(bestPass.current);
+    else onClose();
+  }, [onDone, onClose]);
+
   // Space toggles the mic inside the dialog (docs/08 7.1), Esc closes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -343,11 +368,11 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       if (e.code === 'Space' && !micDisabled && (phase === 'choose' || phase === 'listening' || phase === 'echo')) {
         e.preventDefault();
         toggleMic();
-      } else if (e.key === 'Escape') onClose();
+      } else if (e.key === 'Escape') closeWindow();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [micDisabled, phase, toggleMic, onClose]);
+  }, [micDisabled, phase, toggleMic, closeWindow]);
 
   const cards = useMemo(() => (offer ? buildWordCards(offer.text, distractorsFor(offer.text)) : []), [offer]);
   const usedCards = new Set(cardsPicked);
@@ -414,7 +439,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               {offer.hintTags.map((t) => <HintTag key={t} tag={t} />)}
             </div>
           ) : null}
-          {heard || mic.recording ? (
+          {(heard || mic.recording) && phase !== 'board' && phase !== 'keyboard' ? (
             <div className="lcw-dlg__me" aria-live="polite">
               <b>{S.mySpeech}:</b> “{mic.recording ? mic.interim || '…' : heard?.raw}”
               {!mic.recording && heard?.converted ? (
@@ -430,7 +455,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         <section className="lcw-dlg__main">
           <div className="lcw-dlg__title">
             <span>{phase === 'echo' ? S.echoTitle : phase === 'board' ? S.boardTitle : freeTalk || needsUnderstand ? S.freePrompt : S.chooseTitle}</span>
-            <button type="button" className="lcw-dlg__x" aria-label={S.close} onClick={onClose}>✕</button>
+            <button type="button" className="lcw-dlg__x" aria-label={S.close} onClick={closeWindow}>✕</button>
           </div>
 
           {micIssue ? (
@@ -463,14 +488,23 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                     <button type="button" className="lcw-cta lcw-cta--go" onClick={() => onDone(result)}>{S.done}</button>
                   </>
                 ) : (
-                  <button type="button" className="lcw-cta lcw-cta--again" onClick={retry}>{S.retry}</button>
+                  <>
+                    <button type="button" className="lcw-cta lcw-cta--again" onClick={retry}>{S.retry}</button>
+                    {bestPass.current ? (
+                      <button type="button" className="lcw-cta lcw-cta--go" onClick={() => onDone(bestPass.current!)}>{S.keepBest}</button>
+                    ) : null}
+                  </>
                 )}
               </div>
             </div>
           ) : phase === 'result' && !result ? (
             <div className="lcw-row">
-              {pending ? <button type="button" className="lcw-cta lcw-cta--again" onClick={() => void doSubmit(pending)}>{S.retry}</button> : null}
-              <button type="button" className="lcw-cta lcw-cta--again" onClick={retry}>{S.close}</button>
+              {pending && !authLost ? <button type="button" className="lcw-cta lcw-cta--again" onClick={() => void doSubmit(pending)}>{S.retry}</button> : null}
+              {authLost ? (
+                <button type="button" className="lcw-cta lcw-cta--again" onClick={closeWindow}>{S.close}</button>
+              ) : (
+                <button type="button" className="lcw-cta lcw-cta--again" onClick={retry}>{S.close}</button>
+              )}
             </div>
           ) : phase === 'echo' && echo ? (
             <>

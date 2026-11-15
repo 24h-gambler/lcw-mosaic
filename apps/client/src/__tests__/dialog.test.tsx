@@ -15,7 +15,7 @@ import {
   picturesFor,
   renderHintTokens
 } from '../dialog/hints.js';
-import { FIRST_SPEECH_WAIT_MS, MAX_TURN_MS, MIC_FRAME_MS, MicController, type Clock, type MicView } from '../dialog/mic-controller.js';
+import { FIRST_SPEECH_WAIT_MS, MAX_TURN_MS, MIC_FRAME_MS, MicController, STOP_GRACE_MS, type Clock, type MicView } from '../dialog/mic-controller.js';
 import {
   createBrowserSpeechEngine,
   createScriptedSpeechEngine,
@@ -168,6 +168,37 @@ describe('dialog microphone (docs/08 7.1, docs/12 9)', () => {
     expect(finals).toEqual(['heard']);
   });
 
+  it('an engine that never answers after stop is given up on, keeping what was heard live', () => {
+    const clock = fakeClock();
+    let cb: SpeechCallbacks | null = null;
+    const silent: SpeechEngine = { source: 'browser', availability: () => ({ ok: true }), start: (c) => ((cb = c), { stop() {}, abort() {} }) };
+    const finals: Array<string | null> = [];
+    const c = new MicController(silent, { onView: () => {}, onFinal: (r) => finals.push(r?.transcript ?? null), onIssue: () => {} }, clock);
+    c.tap();
+    cb!.onInterim('cold water please');
+    clock.advance(300);
+    c.tap();
+    expect(finals).toEqual([]);
+    clock.advance(STOP_GRACE_MS + 20);
+    expect(finals).toEqual(['cold water please']);
+    c.tap();
+    expect(c.recording).toBe(true);
+  });
+
+  it('a recognition error turns the recording view off before reporting the issue', () => {
+    const clock = fakeClock();
+    const m = manualEngine();
+    const views: MicView[] = [];
+    const issues: string[] = [];
+    const c = new MicController(m.engine, { onView: (v) => views.push(v), onFinal: () => {}, onIssue: (i) => issues.push(i) }, clock);
+    c.tap();
+    expect(views.at(-1)!.recording).toBe(true);
+    m.cb().onError('no_speech');
+    expect(views.at(-1)!.recording).toBe(false);
+    expect(issues).toEqual(['no_speech']);
+    expect(c.recording).toBe(false);
+  });
+
   it('ends the turn after 6 s of nothing and never runs past 12 s', () => {
     const clock = fakeClock();
     const m = manualEngine();
@@ -184,6 +215,42 @@ describe('dialog microphone (docs/08 7.1, docs/12 9)', () => {
     }
     expect(finals.length).toBe(2);
     expect(MAX_TURN_MS).toBe(12_000);
+  });
+
+  it('a tap while the stopped session is still finishing is ignored; a late old result never kills the new session', () => {
+    const clock = fakeClock();
+    const sessions: SpeechCallbacks[] = [];
+    // Like the browser: stop() returns at once, onend arrives later.
+    const engine: SpeechEngine = {
+      source: 'browser',
+      availability: () => ({ ok: true }),
+      start(c) {
+        sessions.push(c);
+        return { stop: () => {}, abort: () => {} };
+      }
+    };
+    const finals: Array<string | null> = [];
+    const c = new MicController(engine, { onView: () => {}, onFinal: (r) => finals.push(r?.transcript ?? null), onIssue: () => {} }, clock);
+    c.tap();
+    sessions[0]!.onInterim('water');
+    clock.advance(300);
+    c.tap(); // stop sent, result not here yet
+    c.tap(); // impatient second tap: must not open a second session
+    expect(sessions).toHaveLength(1);
+    sessions[0]!.onEnd({ transcript: 'water please', confidence: 0.9 });
+    expect(finals).toEqual(['water please']);
+    // Next turn works, and a duplicate late event from the first session is ignored.
+    c.tap();
+    expect(sessions).toHaveLength(2);
+    sessions[0]!.onEnd({ transcript: 'stale', confidence: 0.9 });
+    expect(finals).toEqual(['water please']);
+    sessions[0]!.onError('network');
+    expect(c.recording).toBe(true);
+    sessions[1]!.onInterim('milk');
+    clock.advance(300);
+    c.tap();
+    sessions[1]!.onEnd({ transcript: 'milk please', confidence: 0.9 });
+    expect(finals).toEqual(['water please', 'milk please']);
   });
 
   it('sends in-app browsers, insecure pages and missing APIs to the word cards', () => {
@@ -228,6 +295,30 @@ describe('submit paths are server-scored (docs/19 3, AGENTS 4.7)', () => {
     expect(fetchImpl.mock.calls[0]![0]).toBe('/v1/lesson/utterance');
     expect(r).toEqual({ pass: true, stars: 3, feedbackKo: '완벽해요! 별 3개!', coinsTotal: 30 });
     expect(lessonBody(u)).not.toHaveProperty('echo');
+    expect(lessonBody({ ...u, dialogId: 'd' })).not.toHaveProperty('dialogId');
+  });
+
+  it('solo submit sends the panel dialog id, allows free talk (empty target) and maps asked_key / matched sentence', async () => {
+    const sent: Record<string, unknown>[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init!.body)));
+      return new Response(
+        JSON.stringify({ pass: true, score: 0.9, stars: 2, missed: [], feedback_ko: 'ok', granted: null, memory_card: null, asked_key: 'cafe', target_text: 'Where is the cafe?' })
+      );
+    });
+    const submit = createSoloSubmitWith({ token: 'tok', npc: cafe, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const r = await submit({ ...u, target_text: '', dialogId: 'dlg-panel-1' });
+    expect(sent[0]!.dialog_id).toBe('dlg-panel-1');
+    expect(sent[0]!.target_text).toBe('');
+    expect(r).toMatchObject({ pass: true, stars: 2, askedKey: 'cafe', matchedText: 'Where is the cafe?' });
+    expect(r.itemKey).toBeUndefined();
+  });
+
+  it('an expired lesson token is an auth error and a bad request is not retried as a network error', async () => {
+    const gone = vi.fn(async () => new Response('{}', { status: 401 }));
+    await expect(createSoloSubmitWith({ token: 'old', npc: cafe, fetchImpl: gone as unknown as typeof fetch })(u)).rejects.toMatchObject({ kind: 'auth' });
+    const bad = vi.fn(async () => new Response('{}', { status: 400 }));
+    await expect(createSoloSubmitWith({ token: 't', npc: cafe, fetchImpl: bad as unknown as typeof fetch })(u)).rejects.toMatchObject({ kind: 'invalid' });
   });
 
   it('solo submit posts to /v1/converse/score with no price/item/player and returns the server item', async () => {
@@ -275,7 +366,7 @@ describe('DialogPanel render (WP-109)', () => {
     const html = renderToStaticMarkup(<DialogPanel {...base} />);
     const text = textOf(html);
     expect(html).toContain('Welcome to the honey cafe!');
-    expect(text).toContain('Can I have cold water, please?');
+    expect(text).toContain('Can I have some cold water, please?');
     expect(html).toContain('단어 카드');
     expect(html).toContain('글자로 쓰기');
     expect(html).toContain('lcw-mic');

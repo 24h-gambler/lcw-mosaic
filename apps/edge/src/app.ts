@@ -122,7 +122,8 @@ const ScoreExtendedRequestSchema = ScoreRequestSchema.extend({
   session_kind: z.enum(['solo', 'multi', 'lesson']).default('solo'),
   npc_ctx: z.string().min(1),
   level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).default('L2'),
-  target_text: z.string().min(1),
+  /** Empty only on the student solo path (strict_bank): free talk is then matched to the closest bank sentence. */
+  target_text: z.string(),
   mode: z.enum(['free', 'guided', 'read', 'recall']).default('free'),
   interlocutor: z.enum(['npc', 'teacher', 'peer', 'self']).default('npc'),
   /**
@@ -132,7 +133,13 @@ const ScoreExtendedRequestSchema = ScoreRequestSchema.extend({
   price: z.number().int().min(0).optional(),
   item_id: z.string().min(1).optional(),
   stt_source: z.enum(['device', 'workers_ai', 'browser', 'keyboard', 'board']).default('browser'),
+  /**
+   * Client claim that this is the ECHO step. Honoured only when the server already logged two misses for the same
+   * dialog (docs/04 4.1: ECHO from the 3rd miss).
+   */
   echo: z.boolean().default(false),
+  /** Set by the platform on the student solo path: only bank sentences count; empty target = free talk. */
+  strict_bank: z.boolean().default(false),
   attempts: z.number().int().min(1).max(20).default(1),
   latency_ms: z.number().int().min(0).default(1500),
   dur_ms: z.number().int().min(0).default(3000),
@@ -192,13 +199,27 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
   });
 
   app.post('/v1/converse/score', async (c) => {
-    const raw = await c.req.json();
+    const raw = await c.req.json().catch(() => undefined);
     const parsed = ScoreExtendedRequestSchema.safeParse(raw);
     if (!parsed.success) {
       return c.json({ error: 'invalid_score_request', issues: parsed.error.issues }, 400);
     }
     const req = parsed.data;
+    if (!req.strict_bank && req.target_text.trim() === '') {
+      return c.json({ error: 'invalid_score_request', issues: [{ path: ['target_text'], message: 'required' }] }, 400);
+    }
     const nowMs = deps.nowMs();
+    const uttPrefix = `utt-${req.dialog_id}-`;
+
+    // ECHO lowers the pass line, so the server checks the dialog really missed twice before (docs/04 4.1).
+    let echo = false;
+    if (req.echo) {
+      const misses = deps.db.sql.get<{ n: number }>(
+        'select count(*) as n from utterances where player_id = ? and stars = 0 and substr(id, 1, ?) = ?',
+        [req.player_id, uttPrefix.length, uttPrefix]
+      );
+      echo = Number(misses?.n ?? 0) >= 2;
+    }
 
     // Stars, price and item are decided here from the server bank (AGENTS 4.7, docs/04 4.2/4.6).
     const decision = decideConverseReward({
@@ -209,31 +230,64 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       transcript: req.transcript,
       hintLevel: req.hint_level,
       inputSource: req.stt_source,
-      echo: req.echo
+      echo,
+      strictBank: req.strict_bank
     });
 
+    // One purchase per (dialog, item): trying again for more stars only lowers the price to the best grade
+    // reached (the difference is refunded), and a resent request after a network error is not charged twice.
+    // The item itself is written to the world's items table, keyed by the same purchase, so it cannot multiply.
+    // Sentences with price 0 (barter, asking the way) sell nothing: the swap is the /trades settlement.
     let coinsDelta = 0;
     let grantedItem: string | null = null;
+    let askedKey: string | undefined;
     let shortOfCoins = false;
     let coinsTotal: number | undefined;
     const worldDo = deps.worlds.get(req.world_id);
-    if (decision.stars > 0 && decision.bank && worldDo) {
-      const bal = worldDo.getPlayerBalance(req.player_id);
-      const price = decision.priceCoins;
-      if (bal >= price) {
-        grantedItem = decision.bank.itemKey;
-        if (price > 0) {
-          coinsDelta = -price;
-          worldDo.appendLedger(req.player_id, coinsDelta, `purchase:${req.npc_ctx}:${grantedItem}:${decision.stars}`, req.dialog_id, nowMs);
+    if (decision.stars > 0 && decision.bank) {
+      const listPrice = decision.bank.entry.offers[0]!.price;
+      if (listPrice <= 0) {
+        askedKey = decision.bank.itemKey;
+      } else if (worldDo) {
+        const itemKey = decision.bank.itemKey;
+        const ref = `${req.dialog_id}|${itemKey}`;
+        const paidRow = worldDo.sql.get<{ paid: number; n: number }>(
+          'select coalesce(-sum(delta), 0) as paid, count(*) as n from ledger where player = ? and ref = ?',
+          [req.player_id, ref]
+        );
+        const alreadyBought = Number(paidRow?.n ?? 0) > 0;
+        const paid = Number(paidRow?.paid ?? 0);
+        const price = decision.priceCoins;
+        const reason = `purchase:${req.npc_ctx}:${itemKey}:${decision.stars}`;
+        if (!alreadyBought) {
+          if (worldDo.getPlayerBalance(req.player_id) >= price) {
+            coinsDelta = -price;
+            worldDo.appendLedger(req.player_id, coinsDelta, reason, ref, nowMs);
+            grantedItem = itemKey;
+          } else {
+            shortOfCoins = true;
+          }
+        } else {
+          if (price < paid) {
+            coinsDelta = paid - price;
+            worldDo.appendLedger(req.player_id, coinsDelta, `${reason}:better_stars`, ref, nowMs);
+          }
+          grantedItem = itemKey;
         }
-      } else {
-        shortOfCoins = true;
+        if (grantedItem) {
+          worldDo.grantOrSetItem(
+            req.player_id,
+            `buy-${ref}`,
+            JSON.stringify({ kind: 'converse_purchase', item: itemKey, ctx: req.npc_ctx, stars: decision.stars }),
+            'bag'
+          );
+        }
       }
     }
     if (worldDo) coinsTotal = worldDo.getPlayerBalance(req.player_id);
 
     // A dialog can be scored several times in the same millisecond (retries, ECHO); the suffix keeps ids unique.
-    const uttId = `utt-${req.dialog_id}-${nowMs}-${crypto.randomUUID().slice(0, 8)}`;
+    const uttId = `${uttPrefix}${nowMs}-${crypto.randomUUID().slice(0, 8)}`;
     deps.db.logUtterance({
       id: uttId,
       player_id: req.player_id,
@@ -244,7 +298,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       mode: req.mode,
       interlocutor: req.interlocutor,
       first_text: req.transcript,
-      target_text: req.target_text,
+      target_text: decision.targetText,
       final_text: req.transcript,
       words: req.transcript.trim().split(/\s+/).filter(Boolean).length,
       l1_words: 0,
@@ -278,8 +332,10 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         : null,
       stars: decision.stars,
       target_stars: decision.targetStars,
-      feedback_ko: converseFeedbackKo({ ...decision, shortOfCoins }),
+      feedback_ko: converseFeedbackKo({ ...decision, inputSource: req.stt_source, shortOfCoins }),
       coins_total: coinsTotal,
+      asked_key: askedKey,
+      target_text: decision.targetText !== req.target_text ? decision.targetText : undefined,
       memory_card: decision.pass
         ? {
             id: `card-${req.dialog_id}`,

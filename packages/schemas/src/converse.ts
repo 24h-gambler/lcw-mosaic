@@ -135,7 +135,11 @@ export const ScoreResponseSchema = z
     stars: z.number().int().min(0).max(3).optional(),
     target_stars: z.number().int().min(1).max(3).optional(),
     feedback_ko: z.string().min(1).max(200).optional(),
-    coins_total: z.number().int().optional()
+    coins_total: z.number().int().optional(),
+    /** Price-0 sentences: what the child asked for (barter good, place to show); nothing is sold or granted. */
+    asked_key: z.string().min(1).optional(),
+    /** Free talk without a chosen sentence: the bank sentence the server matched and scored. */
+    target_text: z.string().min(1).optional()
   })
   .strict();
 export type ScoreResponse = z.infer<typeof ScoreResponseSchema>;

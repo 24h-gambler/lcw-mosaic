@@ -41,6 +41,9 @@ export const realClock: Clock = {
   }
 };
 
+/** After stop, an engine that never sends its final result is given up on after this long (the child is not stuck). */
+export const STOP_GRACE_MS = 3000;
+
 export class MicController {
   private state: MicCaptureState = MIC_CAPTURE_IDLE;
   private session: SpeechSession | null = null;
@@ -51,6 +54,10 @@ export class MicController {
   private interim = '';
   private lastInterim = '';
   private ended = false;
+  /** Bumped per session: late events from an older session (stopped, then tapped again) are ignored. */
+  private gen = 0;
+  /** Stop was sent and the engine's final result is still on its way; taps wait for it. */
+  private finishing = false;
 
   constructor(
     private readonly engine: SpeechEngine,
@@ -64,13 +71,18 @@ export class MicController {
 
   /** The one mic button: start when idle, finish when recording. */
   tap(): void {
+    if (this.finishing) return;
     const next = reduceDialogMic(this.state, { type: 'tap' });
-    if (next.recording && !this.state.recording) this.begin();
-    else if (!next.recording && this.state.recording) this.finish();
+    const was = this.state.recording;
+    // State first, so the first view begin() emits already says "recording".
     this.state = next;
+    if (next.recording && !was) this.begin();
+    else if (!next.recording && was) this.finish();
   }
 
   dispose(): void {
+    this.gen++;
+    this.finishing = false;
     this.stopTicker?.();
     this.stopTicker = null;
     this.session?.abort();
@@ -85,14 +97,21 @@ export class MicController {
     this.lastInterim = '';
     this.startedAt = this.clock.now();
     this.lastActivityAt = this.startedAt;
+    const gen = ++this.gen;
     this.session = this.engine.start({
       onInterim: (text) => {
-        this.interim = text;
+        if (gen === this.gen) this.interim = text;
       },
-      onEnd: (r) => this.deliver(r),
+      onEnd: (r) => {
+        if (gen === this.gen) this.deliver(r);
+      },
       onError: (issue) => {
+        if (gen !== this.gen) return;
+        this.finishing = false;
         this.cleanup();
         this.state = MIC_CAPTURE_IDLE;
+        // The view must leave "recording" too, or the mic button and the live caption stay stuck on.
+        this.ev.onView({ recording: false, interim: '', hangover: false, level: 0 });
         this.ev.onIssue(issue);
       }
     });
@@ -141,13 +160,24 @@ export class MicController {
     this.stopTicker?.();
     this.stopTicker = null;
     const s = this.session;
-    if (s) s.stop();
-    else this.deliver(null);
+    if (s) {
+      this.finishing = true;
+      const gen = this.gen;
+      const cancel = this.clock.every(STOP_GRACE_MS, () => {
+        cancel();
+        if (gen !== this.gen || !this.finishing) return;
+        // Use what was heard live rather than nothing.
+        const said = this.interim.trim();
+        this.deliver(said ? { transcript: said, confidence: 0.5 } : null);
+      });
+      s.stop();
+    } else this.deliver(null);
   }
 
   private deliver(r: SpeechFinal | null): void {
     if (this.ended) return;
     this.ended = true;
+    this.finishing = false;
     const dur = Math.round(this.clock.now() - this.startedAt);
     this.cleanup();
     this.state = MIC_CAPTURE_IDLE;

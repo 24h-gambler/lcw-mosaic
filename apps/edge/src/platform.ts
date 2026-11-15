@@ -381,9 +381,11 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await platform.studentFromRequest(c.req.raw);
     if (!s) return next();
-    const body = (await c.req.json()) as Record<string, unknown>;
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ error: 'invalid_score_request' }, 400);
     const forwarded = {
       ...body,
+      strict_bank: true,
       player_id: s.player_id,
       world_id: platform.ensureHomeWorld(s.player_id),
       session_kind: 'solo',

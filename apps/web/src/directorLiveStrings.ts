@@ -34,6 +34,7 @@ export const DIRECTOR_LIVE_STRINGS_KO = {
   sayPlaceholder: '영어로 한 줄 (예: What would you like today?)',
   say: '말하기',
   sending: '보내는 중…',
+  sayFollowUp: '이어서 말하기',
   sayScript: '대본 그대로 말하기',
   sayFailed: '보내지 못했어요. 다시 눌러 주세요.',
   recentLines: '방금 한 말',

@@ -745,6 +745,20 @@ describe('join links (docs/19 §4)', () => {
     expect(dir).toContain('/game/?code=482913');
   });
 
+  it('the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: FEED })
+    );
+    const stage = FIRST_LESSON_PLAN.stages.find((s) => s.id === LESSON_REC.stage_id)!;
+    expect(html).toContain('data-testid="stage-steps"');
+    for (const step of stage.stepsKo!) expect(html).toContain(step.replace(/"/g, '&quot;'));
+    expect(html).toContain('data-testid="npc-say-script"');
+    stage.followUpsEn!.forEach((line, i) => {
+      expect(html).toContain(`data-testid="npc-say-followup-${i + 1}"`);
+      expect(html).toContain(line);
+    });
+  });
+
   it('a lesson ended on another device offers its existing report link or a new lesson, never a second end form', () => {
     const open = renderToStaticMarkup(
       React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: FEED })

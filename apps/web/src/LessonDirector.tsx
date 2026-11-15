@@ -1126,6 +1126,15 @@ function StagePanel({
           <p style={{ margin: 0, fontSize: `${T.scale['body-l'].sizePx}px`, lineHeight: `${T.scale['body-l'].lineHeightPx}px` }}>
             {stage.teacherGuideKo}
           </p>
+          {stage.stepsKo?.length ? (
+            <ol data-testid="stage-steps" style={{ margin: `${sp(2)} 0 0`, paddingLeft: sp(4), display: 'grid', gap: sp(1) }}>
+              {stage.stepsKo.map((step) => (
+                <li key={step} style={{ fontSize: `${T.scale.body.sizePx}px`, lineHeight: `${T.scale.body.lineHeightPx}px` }}>
+                  {step}
+                </li>
+              ))}
+            </ol>
+          ) : null}
         </div>
         <div>
           <strong style={{ display: 'block', marginBottom: sp(1) }}>{S.scriptLabel}</strong>

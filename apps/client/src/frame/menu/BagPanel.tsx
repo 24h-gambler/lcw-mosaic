@@ -58,7 +58,7 @@ const THING_CSS = `
 .lcw-menu .lcw-thing .e{font-size:calc(32px * var(--fs));line-height:1.1;min-height:calc(36px * var(--fs))}
 .lcw-menu .lcw-thing .nm{font-weight:700;font-size:calc(14px * var(--fs));line-height:1.25;word-break:keep-all}
 .lcw-menu .lcw-thing .lb{font-size:calc(12px * var(--fs));color:var(--c-ink-700);font-weight:700}
-.lcw-menu .lcw-thing .tag{font-size:calc(12px * var(--fs));font-weight:800;padding:1px 6px;border-radius:999px;border:2px solid var(--c-ink-900)}
+.lcw-menu .lcw-thing .tag{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;font-size:calc(12px * var(--fs));font-weight:800;padding:1px 6px;border-radius:999px;border:2px solid var(--c-ink-900)}
 .lcw-menu .lcw-thing .tag.due{background:var(--c-sun)}
 .lcw-menu .lcw-thing .tag.master{background:var(--c-grape);color:var(--c-paper-0);box-shadow:0 0 0 2px var(--c-sun)}
 .lcw-menu .lcw-thing .btn{margin-top:auto;width:100%;padding:4px 8px;min-height:36px;box-shadow:none}

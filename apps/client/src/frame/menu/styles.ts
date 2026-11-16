@@ -15,7 +15,7 @@ const S = SHAPE_TOKENS;
 export const MENU_STYLE_ID = 'lcw-frame-menu-style';
 
 export const MENU_CSS = `
-.lcw-menu{${vars}--fs:var(--lcw-fs,1);--shadow:${S.shadowDefault};position:fixed;inset:0;z-index:35;display:flex;align-items:center;justify-content:center;
+.lcw-menu{${vars}--fs:var(--lcw-fs,1);--shadow:${S.shadowDefault};position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
   padding:24px;box-sizing:border-box;font-family:${TYPOGRAPHY_TOKENS.fonts.ui};color:var(--c-ink-900);
   background:color-mix(in srgb, var(--c-night-900) 55%, transparent);-webkit-tap-highlight-color:transparent;touch-action:auto}
 .lcw-menu *{box-sizing:border-box}

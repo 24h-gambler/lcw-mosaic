@@ -83,12 +83,11 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   onActive.current = props.onLessonActive;
   const search = props.search ?? (typeof location === 'undefined' ? '' : location.search);
   const code = codeFromSearch(search);
-  // A bare /world/ (no code in the address, no session in this tab) is solo play with a "수업 코드 넣기" button: the code
-  // typed there joins the lesson in the 3D world, and "돌아가기" goes back to solo play.
+  // A lesson is the teacher coming into the child's own world (Dan 11-16 12:10): nothing to type in the world. A
+  // signed-in child's lesson session is saved by the app (start/StartFlow LessonAutoJoin) and this layer resumes it;
+  // a ?code= address (a link) still joins. 6-digit codes are world invites, typed on the title, never here.
   const [active, setActive] = useState(() => Boolean(code ?? loadStudentSession()));
-  const [typedCode, setTypedCode] = useState<string | null>(null);
-  const [entryOpen, setEntryOpen] = useState(false);
-  const startCode = code ?? typedCode;
+  const startCode = code;
   const [view, setView] = useState<LessonView>(initialLessonView);
   const api = useMemo(() => props.api ?? createStudentLessonApi(), [props.api]);
   const worldRef = useRef<LayerWorld | null>(props.world);
@@ -193,44 +192,32 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     return () => ctl.stop();
   }, [active, lowTier, ctl, startCode]);
 
-  // Back to solo play on a bare /world/ (no code in the address): a wrong code, the child changed their mind, or a
-  // session kept in this tab that has expired. The view starts over so the "수업 코드 넣기" button shows again.
+  // Back to solo play in the child's world (no code in the address): the lesson ended or a session kept in this tab
+  // expired. The session is dropped so solo play and a refresh are the child's again.
   const backToSolo = !code ? () => {
-    ctl.stop();
-    setTypedCode(null);
+    ctl.leave();
     setActive(false);
     setView(initialLessonView());
   } : undefined;
-  if (!active && !code) {
-    return (
-      <Shell>
-        {entryOpen ? (
-          <CodeEntry
-            busy={false}
-            errorCode={null}
-            initial=""
-            onCancel={() => setEntryOpen(false)}
-            onSubmit={(c) => {
-              setEntryOpen(false);
-              setTypedCode(c);
-              setActive(true);
-            }}
-          />
-        ) : (
-          <button
-            type="button"
-            data-testid="lesson-code-open"
-            onClick={() => setEntryOpen(true)}
-            className="lcw-btn"
-            style={{ ...bigButton(C['leaf-d']), pointerEvents: 'auto', position: 'absolute', top: SP[2], left: '50%', transform: 'translateX(-50%)', minHeight: 44, padding: `${SP[1]}px ${SP[3]}px`, fontSize: T.scale.body.sizePx, whiteSpace: 'nowrap' }}
-          >
-            {S.code.openFromWorld}
-          </button>
-        )}
-      </Shell>
-    );
-  }
+  // The lesson ended: the end card stays a moment, then the child is back in their own world.
+  useEffect(() => {
+    if (view.phase !== 'ended' || code) return undefined;
+    const t = setTimeout(() => backToSolo?.(), LESSON_ENDED_BACK_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.phase, code]);
+  // A saved session that expired or a lesson that is gone: no code entry in the world, the child plays on. The
+  // controller's own phase decides, not the rendered one: on mount the view still shows the initial 'needs_code' while
+  // `start` has already resumed the saved session (live), and that session must not be dropped.
+  useEffect(() => {
+    if (!lessonGoneInWorld({ code, active, lowTier, viewPhase: view.phase, controllerPhase: ctl.state.phase })) return;
+    backToSolo?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.phase, active, code]);
+
+  if (!active && !code) return null;
   if (lowTier) return <Shell><CenterCard><p style={bodyL}>{S.lowTier}</p></CenterCard></Shell>;
+  if (!code && (view.phase === 'needs_code' || view.phase === 'joining')) return null;
   if (view.phase === 'needs_code' || view.phase === 'joining') {
     return (
       <Shell>
@@ -616,6 +603,18 @@ export function pinOpeningLine(
 
 /** After the lesson ends the HUD star chip keeps the lesson's stars this long, then shows the world's own count. */
 export const LESSON_STARS_HOLD_MS = 8_000;
+/** How long the end card stays before the child is back in their own world. */
+export const LESSON_ENDED_BACK_MS = 8_000;
+
+/**
+ * In the child's own world (no ?code=), a lesson that asks for a code is gone (expired session, ended lesson): back to
+ * solo play. Both phases must say so: right after mount the rendered view is still the initial 'needs_code' while the
+ * controller already resumed the saved session — dropping it there would undo every lesson that comes to the world.
+ * A low-tier device never starts the controller here (it goes to /join?lite=1 with the same session): never gone.
+ */
+export function lessonGoneInWorld(s: { code: string | null; active: boolean; lowTier?: boolean; viewPhase: LessonView['phase']; controllerPhase: LessonView['phase'] }): boolean {
+  return !s.code && s.active && !s.lowTier && s.viewPhase === 'needs_code' && s.controllerPhase === 'needs_code';
+}
 
 /** How long the teacher's newest line shows over the dialog window. */
 export const LATEST_LINE_MS = 8_000;

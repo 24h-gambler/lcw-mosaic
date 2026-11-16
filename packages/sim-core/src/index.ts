@@ -8,3 +8,4 @@ export * from './town.js';
 export * from './plot.js';
 export * from './play-sites.js';
 export * from './play.js';
+export * from './room.js';

@@ -10,10 +10,15 @@ import { WORLD_STRINGS as W } from './world/strings.js';
 import { resolveIdentity, browserStore, storedStudentToken, type PlayerIdentity } from './world/identity.js';
 import { onSeatInactive } from './world/seat.js';
 import type { BuildAccess } from './world/api.js';
-import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
+import { FrameFloorWatch, TIER_SETTINGS, gpuClassOf, readGpuRenderer, type GpuClass } from './world/tiers.js';
+import { RoomClient } from './world/room-client.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { FrameLayer } from './frame/FrameLayer.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
+import { DEFAULT_WORLD_CHOICE, type WorldSetupChoice } from '@lcw/content';
+import { codeFromSearch, loadStudentSession, saveStudentSession } from './lesson/api.js';
+import { LessonAutoJoin, StartFlow } from './start/StartFlow.js';
+import type { DeviceLessonSession } from './start/api.js';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
 export interface DialogConfig {
@@ -226,14 +231,17 @@ export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveI
   };
 }
 
-export function pickTier(search: string, nav: { deviceMemory?: number; hardwareConcurrency?: number }, coarse: boolean): WorldTier {
+export function pickTier(search: string, nav: { deviceMemory?: number; hardwareConcurrency?: number }, coarse: boolean, gpu: GpuClass = 'unknown'): WorldTier {
   const q = new URLSearchParams(search).get('tier');
   if (q === 'low' || q === 'mid' || q === 'high') return q;
+  // Software GL draws every pixel on the CPU; an integrated GPU does not carry sun shadows + MSAA (docs/02 §11).
+  if (gpu === 'software') return 'low';
   const mem = nav.deviceMemory ?? null;
   const cores = nav.hardwareConcurrency ?? 4;
   if (coarse) return mem !== null && mem < 4 ? 'low' : 'mid';
   if (mem !== null && mem < 4) return 'low';
-  return cores >= 8 && (mem === null || mem >= 8) ? 'high' : 'mid';
+  const byCpu: WorldTier = cores >= 8 && (mem === null || mem >= 8) ? 'high' : 'mid';
+  return byCpu === 'high' && gpu === 'integrated' ? 'mid' : byCpu;
 }
 
 function startSceneFrom(search: string): SceneId | undefined {
@@ -351,6 +359,15 @@ function DialogHost(props: {
   );
 }
 
+/**
+ * The start flow (title → make my world → reveal, docs/08 §8.4 G07, Dan 11-16 R2555) opens unless the address is a
+ * lesson (?code=, never blocked), this tab already holds a lesson session, or a test link names a scene (?scene=).
+ */
+export function startFlowFor(search: string, hasLessonSession: boolean): boolean {
+  if (codeFromSearch(search) || hasLessonSession) return false;
+  return !/[?&]scene=/.test(search);
+}
+
 export function App(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hudRef = useRef<HTMLDivElement | null>(null);
@@ -373,6 +390,11 @@ export function App(): React.ReactElement {
   const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
   const [tooSlow, setTooSlow] = useState(false);
   const [seatCard, setSeatCard] = useState(false);
+  const [startOpen, setStartOpen] = useState(() => startFlowFor(location.search, loadStudentSession() !== null));
+  // The child's world details once they enter it (season, sky, animal friend); null until then and in a lesson.
+  const [myLook, setMyLook] = useState<WorldSetupChoice | null>(null);
+  // '수업 들어가기' saved a student session: a new key mounts the lesson layer again, which reads it at mount.
+  const [lessonKey, setLessonKey] = useState(0);
   const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
@@ -391,6 +413,25 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (world && identity?.kind === 'child' && identity.nickname) world.setPlayerName?.(identity.nickname);
   }, [world, identity]);
+
+  // A lesson keeps the town's own look (daytime, no weather, no animal friend); my world shows its details.
+  const lastLook = useRef<{ world: WorldHandle | null; key: string }>({ world: null, key: '' });
+  useEffect(() => {
+    if (!world || startOpen) return;
+    const look = lessonOn ? null : myLook;
+    const key = JSON.stringify(look);
+    if (lastLook.current.world === world && lastLook.current.key === key) return;
+    lastLook.current = { world, key };
+    world.setWorldLook?.(look);
+  }, [world, startOpen, lessonOn, myLook]);
+
+  const onLessonSession = useCallback((s: DeviceLessonSession) => {
+    // the title closes either way; already in this lesson (a poll answered twice): keep the running layer
+    setStartOpen(false);
+    if (loadStudentSession()?.lessonId === s.lessonId) return;
+    saveStudentSession(s);
+    setLessonKey((k) => k + 1);
+  }, []);
 
   // Building on my plot: saved for a linked child, look-only while the seat is paused, device-only for a guest; in a
   // lesson, saved with the student token once the join gave one (lessonOn flips when it is live). Same access twice
@@ -430,8 +471,12 @@ export function App(): React.ReactElement {
     let handle: WorldHandle | null = null;
     let cancelled = false;
     const nav = navigator as Navigator & { deviceMemory?: number };
-    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches);
-    createWorld({ canvas: canvasRef.current, tier, startScene: startSceneFrom(location.search), hudRoot: hudRef.current ?? undefined })
+    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches, gpuClassOf(readGpuRenderer()));
+    // ?tier= pins the tier (headless checks); otherwise the world measures itself (G14 'auto'; the settings screen
+    // overrides it through setGraphics).
+    const pinned = new URLSearchParams(location.search).has('tier');
+    const graphics = { quality: pinned ? tier : ('auto' as const), viewChunks: null, shadows: null, renderScale: null };
+    createWorld({ canvas: canvasRef.current, tier, startScene: startSceneFrom(location.search), hudRoot: hudRef.current ?? undefined, graphics })
       .then((h) => {
         if (cancelled) {
           h.dispose();
@@ -450,6 +495,28 @@ export function App(): React.ReactElement {
       handle?.dispose();
     };
   }, [ok]);
+
+  // Multi room (docs/03 D11): lesson students meet in their lesson's room, linked children in their family's. The
+  // token is read on every (re)connect, so a lesson joined after the world opened is picked up by the next retry.
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  useEffect(() => {
+    if (!world?.multi || !world.multiPose) return;
+    const sink = world.multi;
+    const room = new RoomClient({
+      token: () => {
+        const st = storedStudentToken();
+        if (st && st.length >= 32) return st;
+        const id = identityRef.current;
+        return id?.kind === 'child' ? id.token : null;
+      },
+      source: { pose: () => world.multiPose?.() ?? null },
+      sink
+    });
+    room.start();
+    (window as unknown as { __lcwRoom?: RoomClient }).__lcwRoom = room;
+    return () => room.stop();
+  }, [world, identity?.kind]);
 
   // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
   useEffect(() => {
@@ -566,8 +633,10 @@ export function App(): React.ReactElement {
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
         <div style={{ pointerEvents: 'auto' }}>
           <FrameLayer world={world} identity={identity} />
-          {Lesson ? (
+          {/* The title is the whole screen: no lesson-layer button over it (a ?code= address never opens the title). */}
+          {Lesson && !startOpen ? (
             <Lesson
+              key={lessonKey}
               world={world}
               identity={identity ?? undefined}
               canRender3d={!tooSlow}
@@ -579,12 +648,26 @@ export function App(): React.ReactElement {
               }}
             />
           ) : null}
-          {Review && identity && identity.kind !== 'guest' && !soloBlocked ? (
+          {startOpen ? (
+            <StartFlow
+              world={world}
+              identity={identity}
+              onPlay={(w) => {
+                setMyLook(w ?? DEFAULT_WORLD_CHOICE);
+                setStartOpen(false);
+              }}
+              onLessonSession={onLessonSession}
+            />
+          ) : null}
+          {!startOpen && identity?.kind === 'child' ? (
+            <LessonAutoJoin identity={identity} onLessonSession={onLessonSession} />
+          ) : null}
+          {Review && identity && identity.kind !== 'guest' && !soloBlocked && !startOpen ? (
             <Review world={world} player={soloPlayerOf(identity)} hidden={lessonOn || soloNpc !== null} />
           ) : null}
-          {soloBlocked && world && !lessonOn ? <SeatPausedChip onOpen={() => setSeatCard(true)} /> : null}
+          {soloBlocked && world && !lessonOn && !startOpen ? <SeatPausedChip onOpen={() => setSeatCard(true)} /> : null}
           {soloBlocked && world && !lessonOn && seatCard ? <SeatPausedCard onClose={() => setSeatCard(false)} /> : null}
-          {ReadAloud && room && !lessonOn && !soloBlocked && soloNpc === null ? (
+          {ReadAloud && room && !lessonOn && !soloBlocked && soloNpc === null && !startOpen ? (
             <div style={{ position: 'absolute', left: '50%', bottom: 96, transform: 'translateX(-50%)' }}>
               <ReadAloud
                 key={`${room.missing[0]}|${room.sentence}`}
@@ -598,10 +681,10 @@ export function App(): React.ReactElement {
             </div>
           ) : null}
           {MicGate && world && identity ? (
-            <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null} />
+            <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null || startOpen} />
           ) : null}
           {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (
-            <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null} />
+            <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null || startOpen} />
           ) : null}
           {Play && world && !soloBlocked && !lessonOn && identity?.kind !== 'lesson' ? <Play world={world} deviceToken={soloPlayerOf(identity)?.deviceToken} hidden={soloNpc !== null} /> : null}
           {world && !soloBlocked && SoloPanel && soloNpc && dialogNpc && soloSubmit ? (

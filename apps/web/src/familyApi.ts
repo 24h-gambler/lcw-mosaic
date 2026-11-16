@@ -106,6 +106,28 @@ export interface DashboardPayload {
 }
 export type SeatState = 'active' | 'expiring' | 'read_only' | 'archived' | 'refunded';
 export type SeatRefundMode = 'refund_difference' | 'convert_to_solo_days';
+export type GuestPassState = 'ready' | 'active' | 'ended' | 'expired' | 'revoked';
+export interface GuestPass {
+  id: string;
+  /** Formatted for reading aloud / typing (e.g. 'ABCD-EFGH'). */
+  code: string;
+  /** Site path the friend opens (`/pass?code=…`). */
+  link: string;
+  state: GuestPassState;
+  issued_at: number;
+  /** Unused codes stop working after this. */
+  redeem_until: number;
+  started_at: number | null;
+  ends_at: number | null;
+}
+export interface GuestPassSummary {
+  per_month: number;
+  minutes: number;
+  left_this_month: number;
+  /** Start of the next KST month, when the count comes back. */
+  resets_at: number;
+  server_now: number;
+}
 export interface FamilySeat {
   id: string;
   /** null for the other family's Duo seat: no name, no id. */
@@ -300,6 +322,11 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
         d
       ),
     seats: (g: string) => request<{ seats: FamilySeat[]; server_now: number }>('GET', '/v1/family/seats', g),
+    /** Friend passes of one seat (edge free-play.ts): the list and what is left this KST month. */
+    guestPasses: (g: string, seatId: string) => request<{ passes: GuestPass[] } & GuestPassSummary>('GET', `/v1/family/seats/${enc(seatId)}/guest-passes`, g),
+    /** 409 monthly_limit when the month's passes are gone; 409 seat_inactive when the seat is not live. */
+    issueGuestPass: (g: string, seatId: string) => request<{ pass: GuestPass } & GuestPassSummary>('POST', `/v1/family/seats/${enc(seatId)}/guest-passes`, g, {}),
+    revokeGuestPass: (g: string, passId: string) => request<{ pass: GuestPass } & GuestPassSummary>('POST', `/v1/family/guest-passes/${enc(passId)}/revoke`, g, {}),
     requestRefund: (g: string, seatId: string, input: { mode?: SeatRefundMode; note?: string }) =>
       request<{ id: string; status: 'pending' | 'review'; mode?: SeatRefundMode; awaiting_payer_choice?: boolean }>(
         'POST',

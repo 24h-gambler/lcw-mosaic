@@ -38,7 +38,8 @@ const S = PANEL_STRINGS_KO;
 
 export interface PanelApi {
   unlock(op: string, lessonId: string, pin: string): Promise<'ok' | 'wrong_pin' | 'no_pin' | 'too_many_attempts' | 'error'>;
-  beat(op: string, lessonId: string, panel: 'open' | 'closed'): Promise<boolean>;
+  /** resume: the first beat after the lock number (brings the teacher back after a leave). 'left': the teacher left. */
+  beat(op: string, lessonId: string, panel: 'open' | 'closed', resume?: boolean): Promise<'ok' | 'left' | 'error'>;
   leave(op: string, lessonId: string): Promise<boolean>;
   pushStage(op: string, lessonId: string, stage: LessonStage): Promise<boolean>;
 }
@@ -62,11 +63,13 @@ export function createPanelApi(base = '', f: typeof fetch = (...a) => fetch(...a
         return 'error';
       }
     },
-    async beat(op, lessonId, panel) {
+    async beat(op, lessonId, panel, resume = false) {
       try {
-        return (await post(op, `/v1/admin/lessons/${enc(lessonId)}/presence`, { panel, source: 'panel' })).ok;
+        const r = await post(op, `/v1/admin/lessons/${enc(lessonId)}/presence`, { panel, source: 'panel', ...(resume ? { resume: true } : {}) });
+        if (!r.ok) return 'error';
+        return ((await r.json().catch(() => ({}))) as { left?: boolean }).left === true ? 'left' : 'ok';
       } catch {
-        return false;
+        return 'error';
       }
     },
     async leave(op, lessonId) {
@@ -132,6 +135,8 @@ export function TeacherPanel({
   const [msg, setMsg] = useState<string | null>(null);
   const op = operatorToken !== undefined ? operatorToken : readOperatorToken();
   const unlocked = phase === 'open' || phase === 'closed';
+  // Set by a correct lock number: the next beat says resume (the teacher is back, even after a leave).
+  const resumeNext = useRef(false);
 
   const toggle = useCallback(() => {
     setMsg(null);
@@ -156,9 +161,20 @@ export function TeacherPanel({
   useEffect(() => {
     if (!unlocked || !op || !lessonId) return undefined;
     const panel = phase === 'open' ? 'open' : 'closed';
-    void apiRef.current.beat(op, lessonId, panel);
-    const id = setInterval(() => void apiRef.current.beat(op, lessonId, panel), PANEL_BEAT_MS);
-    return () => clearInterval(id);
+    let live = true;
+    const beat = async () => {
+      const resume = resumeNext.current;
+      resumeNext.current = false;
+      const r = await apiRef.current.beat(op, lessonId, panel, resume);
+      // The teacher left (the console's "선생님 나가기"): this panel locks too, with nothing of the script left.
+      if (live && r === 'left') setPhase('locked');
+    };
+    void beat();
+    const id = setInterval(() => void beat(), PANEL_BEAT_MS);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
   }, [unlocked, phase, op, lessonId]);
 
   const submit = async () => {
@@ -167,6 +183,7 @@ export function TeacherPanel({
     setPin('');
     if (r === 'ok') {
       setMsg(null);
+      resumeNext.current = true;
       setPhase('open');
     } else setMsg(r === 'wrong_pin' ? S.wrongPin : r === 'no_pin' ? S.noPin : r === 'too_many_attempts' ? S.tooMany : S.failed);
   };

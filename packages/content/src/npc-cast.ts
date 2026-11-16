@@ -26,7 +26,7 @@ export function isLocalTtsEngine(engine: string): engine is LocalTtsEngine {
 /** A neural voice (edge tts.ts): a Workers AI speaker (Aura, MeloTTS) or a local open-weights speaker (Kokoro). */
 export interface NpcVoice {
   engine: WorkersAiTtsEngine | LocalTtsEngine;
-  /** Speaker id: Aura (athena, hera, luna...) or Kokoro (af_heart...). */
+  /** Speaker id: Aura (athena, hera, luna...) or Kokoro (af_sarah...). */
   speaker: string;
   /**
    * Local engines only: the Workers AI voice that reads a line the local engine has not made yet (a sentence added
@@ -73,7 +73,7 @@ const EN: NpcCastPack = {
     shop_owner: { nameEn: 'Toby', nameKo: '상점 주인 토비', nameKoShort: '토비', age: 'adult', voice: { engine: 'aura2', speaker: 'apollo' } },
     errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura2', speaker: 'delia' } }
   },
-  modelVoice: { engine: 'kokoro', speaker: 'af_heart', standIn: { engine: 'aura2', speaker: 'luna' } },
+  modelVoice: { engine: 'kokoro', speaker: 'af_sarah', standIn: { engine: 'aura2', speaker: 'luna' } },
   ctxNpc: { cafe: 'cafe_owner', trade_shop: 'shop_owner', guide: 'guide', errand: 'errand_neighbor' }
 };
 

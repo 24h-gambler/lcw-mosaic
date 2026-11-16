@@ -726,8 +726,9 @@ describe('/director live console', () => {
     expect(html).toContain(cafe.teacherScriptEn);
     expect(html).toContain('can I have a warm honey tea');
     expect((html.match(/data-testid="feed-item"/g) ?? []).length).toBe(2);
-    expect(html).toContain(LESSON_STRINGS_KO.director.pinCoaching);
-    expect(html).toContain(LESSON_STRINGS_KO.director.pinExpression);
+    // R2625 trim: no pin buttons on the console
+    expect(html).not.toContain(LESSON_STRINGS_KO.director.pinCoaching);
+    expect(html).not.toContain(LESSON_STRINGS_KO.director.pinExpression);
     expect(html).toContain(LESSON_STRINGS_KO.director.endButton);
     // per-stage elapsed: 75 s on the current stage, 15:00 banked on the first
     expect(html).toContain('01:15');
@@ -787,18 +788,20 @@ describe('join links (docs/19 §4)', () => {
     expect(dir).toContain('/world/?code=482913');
   });
 
-  it('the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines', () => {
+  it('the stage panel walks the teacher through the stage: timed steps (folded), the plan sentences, one move button', () => {
     const html = renderToStaticMarkup(
       React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: FEED })
     );
     const stage = FIRST_LESSON_PLAN.stages.find((s) => s.id === LESSON_REC.stage_id)!;
     expect(html).toContain('data-testid="stage-steps"');
     for (const step of stage.stepsKo!) expect(html).toContain(step.replace(/"/g, '&quot;'));
-    expect(html).toContain('data-testid="npc-say-script"');
-    stage.followUpsEn!.forEach((line, i) => {
-      expect(html).toContain(`data-testid="npc-say-followup-${i + 1}"`);
-      expect(html).toContain(line);
-    });
+    expect(html).toContain('data-testid="stage-targets"');
+    for (const t of stage.targets) expect(html).toContain(t.text);
+    // the running stage has one button: on to the next stage (no per-sentence checkboxes, no typed sentence)
+    expect(html).toContain('data-testid="push-next"');
+    expect(html).not.toContain('type="checkbox"');
+    // follow-up lines are the dialog's job now (talk lane followUps), not one-tap teacher buttons (R2625)
+    expect(html).not.toContain('data-testid="npc-say-script"');
   });
 
   it('a lesson ended on another device offers its existing report link or a new lesson, never a second end form', () => {

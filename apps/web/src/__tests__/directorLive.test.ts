@@ -108,22 +108,21 @@ describe('director live layer (WP-305)', () => {
     expect(currentSilenceMinutes(FEED.minutes!, null)).toBe(3);
   });
 
-  it('the console shows the student screen, possession, six event buttons, the progress chart and what the platform does', () => {
+  it('R2625 trim: the student screen and what the child said stay; possession, events, chart, helps, pins and the next-lesson box are gone', () => {
     const html = renderToStaticMarkup(
       React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: REC, initialFeed: FEED, now: () => T0 + 17 * 60_000 - 500 })
     );
     expect(html).toContain('data-testid="director-student-screen"');
     expect(html).toContain(L.sceneNames.honey_cafe);
     expect(html).toContain('can I have a warm honey tea');
-    expect(html).toContain(L.possessing('카페 주인'));
-    expect(html).toContain('data-testid="npc-say-script"');
-    expect(html).toContain('Welcome to the honey cafe! What would you like today?');
-    for (const ev of LESSON_DIRECTOR_EVENTS) expect(html).toContain(`data-testid="event-${ev.kind}"`);
-    expect(html).toContain('data-testid="director-progress"');
-    expect(html).toContain('<svg');
-    expect(html).toContain('data-testid="silence-nudge"');
-    expect(html).toContain('data-testid="director-helps"');
-    expect(html).toContain(L.helps.record(4));
-    expect(html).toContain('data-testid="director-next-lesson"');
+    expect(html).toContain('data-testid="director-feed"');
+    expect(html).toContain('아이가 한 말 · 말 4번 · 통과 3 · 별 7');
+    for (const gone of ['director-possess', 'npc-say-script', 'director-events', 'director-progress', 'director-helps', 'director-pins', 'director-next-lesson', 'director-counters']) {
+      expect(html).not.toContain(`data-testid="${gone}"`);
+    }
+    for (const ev of LESSON_DIRECTOR_EVENTS) expect(html).not.toContain(`data-testid="event-${ev.kind}"`);
+    // the guardians' lesson sound is kept, folded; the key box folds to the bottom once signed in
+    expect(html).toContain('data-testid="director-audio-more"');
+    expect(html).toContain('data-testid="director-key-more"');
   });
 });

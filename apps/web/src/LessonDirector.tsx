@@ -7,8 +7,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, TOKENS } from '@lcw/ui';
 import { LESSON_PLANS, type LessonStage } from '@lcw/content';
 import {
+  TEACHER_SIGN_IN_PATH,
   createLessonApi,
   errorCodeOf,
+  isOperatorSession,
+  operatorSignInFromHash,
+  operatorTokenFromResult,
   loadDirectorLesson,
   loadOperatorToken,
   saveDirectorLesson,
@@ -20,6 +24,7 @@ import {
   type LessonApi,
   type LessonFeed,
   type LiveLessonRow,
+  type OperatorSessions,
   type PinInput,
   type PinKind
 } from './lessonApi.js';
@@ -120,14 +125,50 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
     saveDirectorLesson(rec);
   }, []);
 
+  // Back from Google sign-in: /director#oauth=<one-use code> traded for the session from this browser only (the token
+  // never sits in the address bar), or #oauth_error=<code>.
+  useEffect(() => {
+    if (typeof location === 'undefined' || !location.hash) return;
+    const r = operatorSignInFromHash(location.hash);
+    if (!r) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    if ('error' in r) {
+      setKeyError(S.signInError(r.error));
+      return;
+    }
+    api
+      .oauthExchange(r.code)
+      .then((x) => {
+        const t = operatorTokenFromResult(x.result);
+        if (!t) {
+          const e = /^oauth_error=([a-z_]{1,40})$/.exec(x.result ?? '');
+          setKeyError(S.signInError(e?.[1] ?? 'handoff_invalid'));
+          return;
+        }
+        saveOperatorToken(t);
+        setToken(t);
+        setKeyError(null);
+      })
+      .catch((e: unknown) => setKeyError(S.signInError(errorCodeOf(e))));
+  }, [api]);
+
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
   const onAuthError = useCallback((code: string) => {
-    if (code === 'operator_only') setKeyError(S.errOperator);
+    if (code !== 'operator_only') return;
+    // A teacher sign-in that ended (logout elsewhere, 30 days, taken off the list): back to the sign-in box.
+    if (isOperatorSession(tokenRef.current)) {
+      saveOperatorToken(null);
+      setToken(null);
+      setKeyError(S.sessionEnded);
+    } else setKeyError(S.errOperator);
   }, []);
 
   return (
     <div className="lcw-lesson" data-testid="lesson-director" style={{ display: 'grid', gap: sp(4) }}>
       <LessonStyle />
       <KeyBox
+        api={api}
         token={token}
         error={keyError}
         onSave={(t) => {
@@ -166,12 +207,69 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
 
 /* ---------- operator key ---------- */
 
+/** A teacher signed in with Google: who, logout, and the other browsers signed in to the same account. */
+function TeacherAccount({ api, token, onSignedOut }: { api: LessonApi; token: string; onSignedOut: () => void }): React.ReactElement {
+  const [info, setInfo] = useState<OperatorSessions | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    api.operatorSessions(token).then(setInfo).catch(() => undefined);
+  }, [api, token]);
+  useEffect(load, [load]);
+  const me = info?.me ?? null;
+  const live = (info?.sessions ?? []).filter((s) => s.live);
+  const end = async (input: { id: string } | { all: true }, signOut: boolean) => {
+    setBusy(true);
+    try {
+      await api.revokeOperatorSession(token, input);
+    } catch {
+      /* already ended: signing out here still forgets it */
+    }
+    setBusy(false);
+    if (signOut) onSignedOut();
+    else load();
+  };
+  return (
+    <div data-testid="teacher-account" style={{ display: 'grid', gap: sp(2) }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
+        <span>{S.signedInAs(me?.name ?? '')}</span>
+        <Button type="button" variant="paper" disabled={busy} onClick={() => void (me ? end({ id: me.session_id }, true) : onSignedOut())}>
+          {S.logout}
+        </Button>
+      </div>
+      {live.length > 0 ? (
+        <details data-testid="teacher-devices">
+          <summary style={{ cursor: 'pointer' }}>{S.devicesTitle(live.length)}</summary>
+          <ul style={{ margin: `${sp(2)} 0 0`, paddingLeft: sp(4), display: 'grid', gap: sp(1) }}>
+            {live.map((s) => (
+              <li key={s.id} style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
+                <span>
+                  {s.id === me?.session_id ? S.thisDevice : s.label} · {S.deviceSeen(new Date(s.last_seen_at ?? s.created_at).toLocaleString('ko-KR'))}
+                </span>
+                {s.id === me?.session_id ? null : (
+                  <Button type="button" variant="paper" disabled={busy} onClick={() => void end({ id: s.id }, false)}>
+                    {S.deviceEnd}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <Button type="button" variant="paper" disabled={busy} onClick={() => void end({ all: true }, true)}>
+            {S.logoutAll}
+          </Button>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 function KeyBox({
+  api,
   token,
   error,
   onSave,
   onForget
 }: {
+  api: LessonApi;
   token: string | null;
   error: string | null;
   onSave: (t: string) => void;
@@ -191,6 +289,20 @@ function KeyBox({
   };
   return (
     <Box title={S.keyTitle} testId="director-key" tone="tinted">
+      {showForm ? (
+        <div style={{ display: 'grid', gap: sp(2), marginBottom: sp(3) }}>
+          <a
+            href={TEACHER_SIGN_IN_PATH}
+            data-testid="teacher-google"
+            className="lcw-btn"
+            style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: `0 ${sp(4)}`, borderRadius: 12, background: C['brand-d'], color: C['paper-0'], fontWeight: 700, textDecoration: 'none' }}
+          >
+            {S.googleSignIn}
+          </a>
+          <p style={{ margin: 0, fontSize: `${T.scale.small.sizePx}px` }}>{S.googleHelp}</p>
+          <strong style={{ marginTop: sp(2) }}>{S.keyOr}</strong>
+        </div>
+      ) : null}
       {showForm ? (
         <form
           onSubmit={(e) => {
@@ -215,6 +327,8 @@ function KeyBox({
           </Button>
           <p style={{ flexBasis: '100%', margin: 0, fontSize: `${T.scale.small.sizePx}px` }}>{S.keyHelp}</p>
         </form>
+      ) : isOperatorSession(token) && token ? (
+        <TeacherAccount api={api} token={token} onSignedOut={onForget} />
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
           <span>{S.keySaved}</span>

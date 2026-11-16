@@ -134,7 +134,7 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     expect(s.status).toBe(302);
     expect(s.headers.get('location')).toBe('/signup#oauth_error=not_configured');
     // a role nobody plugged in, or an unknown provider: 404
-    expect((await call(p, 'GET', '/v1/oauth/kakao/start?role=teacher', undefined, {})).status).toBe(404);
+    expect((await call(p, 'GET', '/v1/oauth/kakao/start?role=admin', undefined, {})).status).toBe(404);
     expect((await call(p, 'GET', '/v1/oauth/naver/start?role=guardian', undefined, {})).status).toBe(401); // not a public route at all
     for (const [m, path] of [['GET', '/v1/oauth/config'], ['GET', '/v1/oauth/kakao/start'], ['GET', '/v1/oauth/google/callback'], ['POST', '/v1/oauth/google/credential'], ['GET', '/v1/family/sign-in'], ['POST', '/v1/family/sign-in/link'], ['POST', '/v1/oauth/exchange']] as const)
       expect(isPublicRoute(m, path)).toBe(true);
@@ -303,10 +303,42 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     // the same credential a second time (copied): refused
     expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred, role: 'guardian' }, anon)).status).toBe(401);
     const cred2 = await idToken(claimsFor('google', 'g-cred', 'n2', { nonce: undefined }));
-    expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred2, role: 'teacher' }, anon)).status).toBe(400);
+    // teacher role is wired (operator-login.ts) but this account is not on the LCW_OPERATOR_GOOGLE_EMAILS secret
+    expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred2, role: 'teacher' }, anon)).status).toBe(403);
     const bad = await idToken(claimsFor('google', 'g-cred', 'n'), other.privateKey);
     expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: bad, role: 'guardian' }, anon)).status).toBe(401);
     expect((await call(platform({}), 'POST', '/v1/oauth/google/credential', { credential: cred, role: 'guardian' }, anon)).status).toBe(503);
+  });
+
+  it('teacher role: an allow-listed Google account gets an operator session by button or redirect; others refused', async () => {
+    provider();
+    const p = platform({ ...ENV, LCW_OPERATOR_GOOGLE_EMAILS: 'parent@example.com' });
+    const cred = await idToken(claimsFor('google', 'g-teacher', 'n', { nonce: undefined }));
+    const r = await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred, role: 'teacher' }, anon);
+    expect(r.status).toBe(200);
+    // no token in a URL: the console lands on /director and takes the session from the result
+    expect(r.body.redirect).toBe('/director');
+    const tok = /^op=(lcwop_[A-Za-z0-9_-]+)$/.exec(r.body.result)![1]!;
+    r.body.token = tok;
+    // the session acts as the operator on gated routes, and the account sees its own session
+    expect((await call(p, 'GET', '/v1/admin/students', undefined, bearer(r.body.token))).status).toBe(200);
+    const mine = await call(p, 'GET', '/v1/admin/operator-sessions', undefined, bearer(r.body.token));
+    expect(mine.body.me?.name).toBe('P');
+    expect(mine.body.sessions).toHaveLength(1);
+    // redirect flow lands on the console with the token in the fragment; the same Google account, same operator
+    const red = await signIn(p, 'google', 'g-teacher', 'role=teacher');
+    expect(red.raw).toMatch(/^\/director#oauth=[0-9a-f]{32}$/);
+    expect(red.location).toMatch(/^\/director#op=lcwop_/);
+    expect((await call(p, 'GET', '/v1/admin/operator-sessions', undefined, bearer(r.body.token))).body.sessions).toHaveLength(2);
+    // an unverified Google email never gets past the token check; Kakao is never a teacher login
+    const unverified = await idToken(claimsFor('google', 'g-teacher-2', 'n', { nonce: undefined, email_verified: false }));
+    expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: unverified, role: 'teacher' }, anon)).status).toBe(401);
+    const kakao = await signIn(p, 'kakao', 'k-teacher', 'role=teacher');
+    expect(kakao.location).not.toContain('#op=');
+    // logout ends the session: the token stops acting as the operator
+    const sid = mine.body.sessions[0].id;
+    expect((await call(p, 'POST', '/v1/admin/operator-sessions/revoke', { id: sid }, bearer(r.body.token))).status).toBe(200);
+    expect((await call(p, 'GET', '/v1/admin/students', undefined, bearer(r.body.token))).status).toBe(401);
   });
 
   it('verifyIdToken refetches the keys once for an unknown kid (rotation), and caches them otherwise', async () => {

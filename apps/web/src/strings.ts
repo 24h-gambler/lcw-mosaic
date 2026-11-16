@@ -118,6 +118,25 @@ export const LESSON_STRINGS_KO = {
     keyChange: '열쇠 바꾸기',
     keyForget: '열쇠 지우기',
     keySaved: '열쇠가 저장되어 있어요.',
+    googleSignIn: 'Google 계정으로 로그인',
+    googleHelp: '등록된 선생님 Google 계정만 들어올 수 있어요. 로그인은 이 브라우저에 30일 동안 남아요.',
+    keyOr: '운영 열쇠로 들어가기',
+    signedInAs: (name: string) => `${name || '선생님'} 계정으로 로그인됨`,
+    logout: '로그아웃',
+    logoutAll: '모든 기기에서 로그아웃',
+    devicesTitle: (n: number) => `로그인한 브라우저 ${n}곳`,
+    thisDevice: '이 브라우저',
+    deviceEnd: '끊기',
+    deviceSeen: (when: string) => `마지막 사용 ${when}`,
+    sessionEnded: '로그인이 끝났어요(로그아웃했거나 30일이 지났어요). 다시 로그인해 주세요.',
+    signInError: (code: string) =>
+      code === 'not_an_operator'
+        ? '이 Google 계정은 선생님으로 등록돼 있지 않아요. 등록된 계정으로 다시 로그인해 주세요.'
+        : code === 'not_configured'
+          ? 'Google 로그인이 아직 준비되지 않았어요. 아래 운영 열쇠로 들어가 주세요.'
+          : code === 'handoff_invalid'
+            ? '로그인 확인 시간이 지났거나 다른 브라우저에서 열렸어요. 이 브라우저에서 다시 로그인해 주세요.'
+            : 'Google 로그인이 끝나지 않았어요. 다시 해 주세요.',
     keyNotStored: '이 브라우저는 저장을 막고 있어요. 새로 고치면 열쇠를 다시 넣어야 해요.',
     studentsTitle: '학생 고르기',
     resumeTitle: '진행 중인 수업 이어 하기',

@@ -1126,6 +1126,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
 
 /** How often the live bar asks whether the child's world is open ('접속 중' / '접속 대기'). */
 export const WORLD_PRESENCE_POLL_MS = 5_000;
+const LINKED_REFRESH_TICKS = 6;
 
 /** The child's world for this lesson: open now, signed in but closed, or no signed-in device (code). */
 function useWorldPresence(
@@ -1138,9 +1139,11 @@ function useWorldPresence(
   useEffect(() => {
     let alive = true;
     let linked: number | null = null;
+    let ticks = 0;
     const tick = async () => {
       try {
-        if (linked === null) {
+        // The device count is read again every 30 s: a device linked or unlinked during the lesson shows.
+        if (linked === null || ticks++ % LINKED_REFRESH_TICKS === 0) {
           const rows = await api.listStudents(token);
           linked = rows.find((s) => s.player_id === playerId)?.linked_devices ?? 0;
         }
@@ -1189,7 +1192,7 @@ function JoinCodeBar({
           aria-label={code.split('').join(' ')}
           style={{
             fontFamily: T.fonts.target,
-            fontSize: signedIn ? `${T.scale.display.sizePx}px` : 'clamp(56px, 11vw, 112px)',
+            fontSize: presence === 'in_world' || presence === 'waiting' ? `${T.scale.display.sizePx}px` : 'clamp(56px, 11vw, 112px)',
             lineHeight: 1,
             letterSpacing: '0.12em',
             color: C.sun,
@@ -1257,10 +1260,18 @@ function JoinCodeBar({
             <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>
               {presence === 'in_world' ? S.worldInHelp : S.worldWaitingHelp}
             </span>
-            <details data-testid="join-code-fallback">
-              <summary style={{ cursor: 'pointer', fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>{S.codeFallback}</summary>
-              <div style={{ display: 'grid', gap: sp(1), marginTop: sp(2) }}>{codeBlock}</div>
-            </details>
+            {presence === 'in_world' ? (
+              <details data-testid="join-code-fallback">
+                <summary style={{ cursor: 'pointer', fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>{S.codeFallback}</summary>
+                <div style={{ display: 'grid', gap: sp(1), marginTop: sp(2) }}>{codeBlock}</div>
+              </details>
+            ) : (
+              // Not in the world yet: the child may come from another (not signed-in) device, so the code stays out.
+              <div data-testid="join-code-waiting" style={{ display: 'grid', gap: sp(1), marginTop: sp(2) }}>
+                <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>{S.codeOtherDevice}</span>
+                {codeBlock}
+              </div>
+            )}
           </>
         ) : (
           <>

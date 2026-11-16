@@ -1,7 +1,7 @@
 import { LEVEL_DEFINITIONS, type LangLevel, type NpcVoice } from '@lcw/content';
 import { PROCEDURAL_SFX_PRESETS, synthesizeProceduralPcm, type AudioBusName } from '@lcw/audio';
 import { getAudioRuntime, NPC_VOICE_CUT_EVENT } from '../audio/runtime.js';
-import { loadLine, loudnessGain, NEURAL_VOICE, neuralVoiceOn, within } from './neural-voice.js';
+import { loadLine, loudnessGain, NEURAL_VOICE, neuralVoiceStatus, neuralVoiceStatusKnown, within } from './neural-voice.js';
 
 /**
  * Dialog sounds (docs/12 6.2 `dlg.*`, temporary procedural sounds of 6.4) and the NPC/offer voice (4.8), on the
@@ -76,53 +76,46 @@ export function playAgain(): void {
  * speech rate.
  */
 let speechGen = 0;
-let neuralPlaying: HTMLAudioElement | null = null;
-/** Ends the playing line through its own promise (settles it exactly as the old load error did: resolve(started)). */
-let neuralEnd: (() => void) | null = null;
+/** The neural line now playing (an AudioBufferSource on the voice bus, or a plain <audio> when Web Audio is locked). */
+let neuralPlaying: { stop(): void } | null = null;
 
-/**
- * Lets go of a line's element and its blob URL. The element is detached from the URL first: revoking a URL the element
- * is still loading (autoplay blocked before the first tap, a newer line took over) made Chrome log
- * "Failed to load resource: net::ERR_FILE_NOT_FOUND" for the blob on the child's page.
- */
-function releaseNeural(a: HTMLAudioElement, url: string): void {
+function stopNeural(): void {
+  const p = neuralPlaying;
+  neuralPlaying = null;
   try {
-    a.onerror = null;
-    a.pause();
-    a.removeAttribute('src');
-    a.load();
+    p?.stop();
   } catch {
     /* ignore */
   }
-  URL.revokeObjectURL(url);
-}
-
-function stopNeural(): void {
-  const a = neuralPlaying;
-  const end = neuralEnd;
-  neuralPlaying = null;
-  neuralEnd = null;
-  // the line's own end() releases the element and settles its promise (a detached element fires no error to do it)
-  if (end) end();
-  else if (a) releaseNeural(a, a.src);
 }
 
 if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener(NPC_VOICE_CUT_EVENT, stopNeural);
 
 export function speakEnglish(text: string, level: LangLevel, voice?: NpcVoice): Promise<void> {
-  if (voice && neuralVoiceOn() && typeof Audio !== 'undefined') {
+  if (voice && typeof Audio !== 'undefined' && neuralVoiceStatusKnown() !== false) {
     const gen = ++speechGen;
-    return within(loadLine(voice, text), NEURAL_VOICE.waitMs).then((bytes) => {
-      if (gen !== speechGen) return; // a newer line (or stop) took over while this one loaded
-      if (!bytes) return speakDevice(text, level);
-      return playNeural(bytes, level, gen).then((ok) => (ok || gen !== speechGen ? undefined : speakDevice(text, level)));
+    // The first line of a page may come before the status answer: wait for it inside the same budget.
+    const t0 = Date.now();
+    return within(neuralVoiceStatus(), NEURAL_VOICE.waitMs).then((on) => {
+      if (gen !== speechGen) return;
+      if (!on) return speakDevice(text, level);
+      return within(loadLine(voice, text), Math.max(0, NEURAL_VOICE.waitMs - (Date.now() - t0))).then((bytes) => {
+        if (gen !== speechGen) return; // a newer line (or stop) took over while this one loaded
+        if (!bytes) return speakDevice(text, level);
+        return playNeural(bytes, gen).then((ok) => (ok || gen !== speechGen ? undefined : speakDevice(text, level)));
+      });
     });
   }
   return speakDevice(text, level);
 }
 
-/** Plays one neural line; false when it could not start (autoplay blocked, decode error) so the caller falls back. */
-async function playNeural(bytes: ArrayBuffer, level: LangLevel, gen: number): Promise<boolean> {
+/**
+ * Plays one neural line at its own pace (no time-stretch: stretching a natural voice to the level's 0.9 rate made it
+ * sound processed). Web Audio first: once the runtime's context runs (any earlier tap), a buffer source plays without
+ * the media autoplay rules that block a late `<audio>.play()` on phones. If the context cannot run, a plain `<audio>`
+ * plays it; false when neither could start, so the caller reads it with the device voice.
+ */
+async function playNeural(bytes: ArrayBuffer, gen: number): Promise<boolean> {
   const rt = getAudioRuntime();
   const c = rt.unlock();
   stopNeural();
@@ -131,52 +124,89 @@ async function playNeural(bytes: ArrayBuffer, level: LangLevel, gen: number): Pr
   } catch {
     /* ignore */
   }
+  if (c && c.state !== 'running') await within(c.resume().then(() => true).catch(() => null), 300);
+  if (gen !== speechGen) return true;
+  if (c && c.state === 'running') {
+    let decoded: AudioBuffer | null = null;
+    try {
+      decoded = await c.decodeAudioData(bytes.slice(0));
+    } catch {
+      decoded = null;
+    }
+    if (gen !== speechGen) return true;
+    if (decoded) {
+      const buf = decoded;
+      return new Promise<boolean>((resolve) => {
+        const src = c.createBufferSource();
+        src.buffer = buf;
+        const g = c.createGain();
+        g.gain.value = loudnessGain(buf.getChannelData(0));
+        src.connect(g).connect(rt.bus('voice_npc') ?? c.destination);
+        let finished = false;
+        const end = () => {
+          if (finished) return;
+          finished = true;
+          if (neuralPlaying === handle) neuralPlaying = null;
+          if (gen === speechGen) rt.npcVoiceEnded();
+          resolve(true);
+        };
+        const handle = {
+          stop() {
+            try {
+              src.stop();
+            } catch {
+              /* not started */
+            }
+            end();
+          }
+        };
+        neuralPlaying = handle;
+        src.onended = end;
+        rt.npcVoiceStarted(buf.duration * 1000);
+        src.start();
+      });
+    }
+  }
+  // Web Audio locked or the bytes would not decode there: a plain media element at its own level.
   const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
   const a = new Audio();
   a.preload = 'auto';
   a.src = url;
-  const rate = LEVEL_DEFINITIONS[level].speechRate;
-  a.preservesPitch = true;
-  a.playbackRate = rate;
-  if (c) {
-    try {
-      const decoded = await c.decodeAudioData(bytes.slice(0));
-      const g = c.createGain();
-      g.gain.value = loudnessGain(decoded.getChannelData(0));
-      c.createMediaElementSource(a).connect(g).connect(rt.bus('voice_npc') ?? c.destination);
-    } catch {
-      /* plays straight out at its own level */
-    }
-  }
-  if (gen !== speechGen) {
-    releaseNeural(a, url);
-    return true;
-  }
-  neuralPlaying = a;
   return new Promise<boolean>((resolve) => {
     let started = false;
     let finished = false;
     const end = (ok: boolean) => {
       if (finished) return;
       finished = true;
-      if (neuralPlaying === a) neuralPlaying = null;
-      if (neuralEnd === stop) neuralEnd = null;
-      releaseNeural(a, url);
+      if (neuralPlaying === handle) neuralPlaying = null;
+      // Detach the element before revoking: revoking a blob it is still loading (play blocked before the first tap, a
+      // newer line took over) made Chrome log "Failed to load resource: net::ERR_FILE_NOT_FOUND" on the child's page.
+      try {
+        a.onerror = null;
+        a.pause();
+        a.removeAttribute('src');
+        a.load();
+      } catch {
+        /* ignore */
+      }
+      URL.revokeObjectURL(url);
       if (started && gen === speechGen) rt.npcVoiceEnded();
       resolve(ok || started);
     };
-    const stop = (): void => end(false);
-    neuralEnd = stop;
+    const handle = {
+      stop() {
+        a.pause();
+        end(true);
+      }
+    };
+    neuralPlaying = handle;
     a.onplaying = () => {
       if (started) return;
       started = true;
-      rt.npcVoiceStarted(((Number.isFinite(a.duration) ? a.duration : 3) * 1000) / rate);
+      rt.npcVoiceStarted((Number.isFinite(a.duration) ? a.duration : 3) * 1000);
     };
     a.onended = () => end(true);
     a.onerror = () => end(false);
-    a.onpause = () => {
-      if (started && neuralPlaying !== a) end(true);
-    };
     a.play().catch(() => end(false));
   });
 }

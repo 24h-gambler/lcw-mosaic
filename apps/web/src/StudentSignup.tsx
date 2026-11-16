@@ -13,6 +13,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, TOKENS } from '@lcw/ui';
 import { createFamilyApi, loadDevice, saveDevice, takeOAuthResult, type FamilyApi } from './familyApi.js';
+import { LessonApiError } from './lessonApi.js';
 import { Box, LessonStyle, Notice, inputStyle, labelStyle, sp } from './lessonUi.js';
 import {
   StudentApiError,
@@ -44,7 +45,11 @@ export interface StudentSignupProps {
   hash?: string;
   /** Tests: the one-use code exchange (defaults to createFamilyApi()). */
   oauthApi?: Pick<FamilyApi, 'oauthExchange'>;
+  /** Tests: the saved device's check (defaults to createFamilyApi()). */
+  deviceApi?: Pick<FamilyApi, 'deviceMe'>;
   navigate?: (path: string) => void;
+  /** Tests: the address query at load (defaults to window.location.search); `?mode=signin` = '이미 가입했어요'. */
+  search?: string;
 }
 
 export function StudentSignupPage(props: StudentSignupProps): React.ReactElement {
@@ -64,6 +69,11 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
   const [who, setWho] = useState<AgeAttest | null>(null);
   const [check, setCheck] = useState<string | null>(() => loadSignupCheck());
   const [nickname, setNickname] = useState('');
+  const [ideas, setIdeas] = useState<string[]>([]);
+  const [teacherMatch, setTeacherMatch] = useState<string | null>(null);
+  const signinMode = useRef(
+    new URLSearchParams(props.search ?? (typeof window !== 'undefined' ? window.location.search : '')).get('mode') === 'signin'
+  ).current;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [doneName, setDoneName] = useState<string>(() => loadDevice().nickname ?? '');
@@ -85,6 +95,7 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
     if (e instanceof StudentApiError) {
       if (e.code === 'too_many_attempts' || e.code === 'too_many_pending') return S.errBusy;
       if (e.code === 'invalid') return S.errNickname;
+      if (e.code === 'nickname_taken') return S.errNickTaken;
       if (e.code === 'guardian_only' || e.status === 401) return S.errSignedOut;
       if (e.code === 'service_consent_required') return S.errConsent;
       if (e.code === 'age_attest_required') return S.errAttest;
@@ -119,6 +130,27 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
     },
     [api, signedOut]
   );
+  // A saved device that the server no longer knows (undone by the teacher, removed by the guardian, expired): forget
+  // it and start over, instead of showing '가입 끝!' for a token that can never work. Offline or other errors keep it.
+  const deviceChecked = useRef(false);
+  useEffect(() => {
+    if (step !== 'done' || deviceChecked.current) return;
+    const token = loadDevice().token;
+    if (!token) return;
+    deviceChecked.current = true;
+    void (props.deviceApi ?? createFamilyApi())
+      .deviceMe(token)
+      .then((me) => {
+        if (me.nickname) setDoneName(me.nickname);
+      })
+      .catch((e: unknown) => {
+        if (!(e instanceof LessonApiError) || e.status !== 401) return;
+        saveDevice(null, null);
+        setDoneName('');
+        setMsg(S.deviceGone);
+        setStep('start');
+      });
+  }, [step, props.deviceApi]);
   // Back from the provider: exchange the one-use code once (StrictMode runs effects twice; the code works once).
   useEffect(() => {
     if (!returned || exchanged.current) return;
@@ -183,8 +215,10 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
     if (!g) return signedOut();
     setBusy(true);
     setMsg(null);
+    setIdeas([]);
     try {
       const r = await api.signup(g, nickname.trim(), S.deviceLabel);
+      setTeacherMatch(r.teacher_match === true ? nickname.trim() : null);
       saveSignupClaim(r.claim_token);
       saveSignupCheck(r.check);
       setCheck(r.check);
@@ -192,6 +226,9 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
       setStep('waiting');
     } catch (e) {
       setMsg(errorText(e));
+      // One name, one student: the server offers free names close to this one.
+      const s = e instanceof StudentApiError && e.code === 'nickname_taken' ? e.body.suggestions : null;
+      if (Array.isArray(s)) setIdeas(s.filter((x): x is string => typeof x === 'string'));
     } finally {
       setBusy(false);
     }
@@ -251,8 +288,8 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
     >
       <LessonStyle />
       {step === 'start' ? (
-        <Box title={S.title} testId="signup-start">
-          <p style={{ marginTop: 0 }}>{S.startBody}</p>
+        <Box title={signinMode ? S.titleSignin : S.title} testId="signup-start">
+          <p style={{ marginTop: 0 }}>{signinMode ? S.signinBody : S.startBody}</p>
           <p style={small}>{S.startWho}</p>
           <div style={{ display: 'grid', gap: sp(2), marginTop: sp(3) }}>
             {providers === null ? <p>{S.loading}</p> : null}
@@ -347,6 +384,26 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
               />
             </label>
             <p style={small}>{S.nicknameHelp}</p>
+            {ideas.length ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }} data-testid="signup-ideas">
+                <span style={small}>{S.ideasLead}</span>
+                {ideas.map((idea) => (
+                  <Button
+                    key={idea}
+                    type="button"
+                    variant="paper"
+                    data-testid="signup-idea"
+                    onClick={() => {
+                      setNickname(idea);
+                      setIdeas([]);
+                      setMsg(null);
+                    }}
+                  >
+                    {idea}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
             <Button type="submit" variant="brand" size="game" style={big} disabled={!nickOk || busy} data-testid="signup-send">
               {busy ? S.sending : S.send}
             </Button>
@@ -377,6 +434,7 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
               </span>
             </div>
           ) : null}
+          {teacherMatch ? <Notice testId="signup-teacher-match">{S.teacherMatch(teacherMatch)}</Notice> : null}
           <Notice kind="ok">{S.waitingLesson}</Notice>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), marginTop: sp(3) }}>
             <Button

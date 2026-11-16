@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
-import { SIGNUP_PENDING_TTL_MS, maskIdentity } from '../student-account.js';
+import { SIGNUP_PENDING_TTL_MS, maskIdentity, nicknameKey } from '../student-account.js';
 import { DEVICE_TOKEN_TTL_MS } from '../family.js';
 import { LINKED_DEVICE_TTL_MS } from '../lesson-mode.js';
 import { fakeDurableStorage } from './fake-do.js';
@@ -115,14 +115,51 @@ describe('student sign-up on the guardian account (student-account.ts)', () => {
     expect((await call(p, 'POST', '/v1/family/children', { nickname: 'Juno', birth_year: 2016 }, bearer(g1))).status).toBe(201);
     const juno = (await call(p, 'GET', '/v1/family/me', undefined, bearer(g1))).body.children.find((k: any) => k.nickname === 'Juno').player_id;
     const g2 = await adultSignsIn(p, 'fam-other');
-    const s = await call(p, 'POST', '/v1/student/signup', { nickname: 'Juno' }, bearer(g2));
+    // 'Juno' is a student with a real guardian: the name is taken, three free ones are offered.
+    const taken = await call(p, 'POST', '/v1/student/signup', { nickname: ' juno ' }, bearer(g2));
+    expect(taken).toEqual({ status: 409, body: { error: 'nickname_taken', suggestions: ['juno2', 'juno3', 'juno4'] } });
+    const s = await call(p, 'POST', '/v1/student/signup', { nickname: 'Juno2' }, bearer(g2));
+    expect(s.body.teacher_match).toBe(false);
     const id = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups[0].id;
+    // The teacher picking the real Juno by mistake still cannot move him.
     expect((await call(p, 'POST', `/v1/admin/student-signups/${id}/approve`, { player_id: juno, check: s.body.check })).body).toEqual({ error: 'player_has_guardian' });
     expect(p.sql.get('select family_id from players where id = ?', [juno])).toEqual({ family_id: 'fam-real' });
     const made = await call(p, 'POST', `/v1/admin/student-signups/${id}/approve`, { new_student: { level: 'L2' }, check: s.body.check });
-    expect(made.body).toMatchObject({ ok: true, nickname: 'Juno' });
+    expect(made.body).toMatchObject({ ok: true, nickname: 'Juno2' });
     expect(p.sql.get('select family_id, level from players where id = ?', [made.body.player_id])).toEqual({ family_id: 'fam-other', level: 'L2' });
-    expect((await call(p, 'GET', '/v1/student/signup/status', undefined, bearer(s.body.claim_token))).body).toMatchObject({ state: 'approved', nickname: 'Juno' });
+    expect((await call(p, 'GET', '/v1/student/signup/status', undefined, bearer(s.body.claim_token))).body).toMatchObject({ state: 'approved', nickname: 'Juno2' });
+  });
+
+  it('one name, one student: a waiting name is taken; the teacher-made row with that name waits for the 4-digit check', async () => {
+    expect(nicknameKey(' O-reo ')).toBe(nicknameKey('ＯＲＥＯ'));
+    const p = platform();
+    await teacherRow(p);
+    const g = await adultSignsIn(p, 'fam-oreo');
+    const a = await call(p, 'POST', '/v1/student/signup', { nickname: 'oreo' }, bearer(g));
+    expect(a.status).toBe(201);
+    expect(a.body.teacher_match).toBe(true);
+    const row = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups[0];
+    expect(row.match).toEqual({ player_id: 'stu-29ddc960', nickname: 'Oreo' });
+    // A second 'Oreo' while the first waits: taken (no two requests for one row).
+    const g2 = await adultSignsIn(p, 'fam-oreo-2');
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'O reo' }, bearer(g2))).body).toMatchObject({ error: 'nickname_taken' });
+    // Not as a new student under the teacher's student's name: join the row (with the screen's 4 digits) or reject.
+    expect((await call(p, 'POST', `/v1/admin/student-signups/${row.id}/approve`, { new_student: { level: 'L1' }, check: a.body.check })).body).toEqual({
+      error: 'nickname_taken'
+    });
+    expect((await call(p, 'POST', `/v1/admin/student-signups/${row.id}/approve`, { player_id: 'stu-29ddc960', check: a.body.check })).body).toMatchObject({
+      ok: true,
+      player_id: 'stu-29ddc960'
+    });
+    // Linked now: the name belongs to a guardian's child, nobody else can sign up as Oreo.
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'OREO' }, bearer(g2))).body).toMatchObject({ error: 'nickname_taken', suggestions: ['OREO2', 'OREO3', 'OREO4'] });
+    // A rejected or expired request frees the name again.
+    const b = await call(p, 'POST', '/v1/student/signup', { nickname: 'Mint' }, bearer(g2));
+    const bid = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'Mint').id;
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'mint' }, bearer(g))).status).toBe(409);
+    await call(p, 'POST', `/v1/admin/student-signups/${bid}/reject`, {});
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'mint' }, bearer(g))).status).toBe(201);
+    expect(b.status).toBe(201);
   });
 
   it('a pending nickname is not kept: cleared on reject or after 3 hours; bad nicknames refused', async () => {

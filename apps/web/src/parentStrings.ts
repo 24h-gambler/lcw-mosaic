@@ -302,6 +302,9 @@ export const PARENT_STRINGS_KO = {
     lead: '선생님이 입금을 확인하면 좌석이 열립니다.',
     plan: { solo: '혼자 (Solo)', duo: '친구와 둘이 (Duo)', tutoring: '과외' } as Record<string, string>,
     term: { month: '월 이용권', year: '연 이용권' } as Record<string, string>,
+    tutoringPlan: '과외 구독 중',
+    tutoringIncluded: '과외비에 포함',
+    until: (date: string) => `${date}까지`,
     otherSeat: '함께하는 친구의 좌석',
     otherSeatNote: '다른 가족의 좌석이라 이름은 보이지 않습니다.',
     state: {
@@ -321,8 +324,11 @@ export const PARENT_STRINGS_KO = {
     paymentLineDuo: (amount: string, date: string) => `두 좌석 합계 ${amount}원 · ${date} 입금 확인`,
     paymentLineExtend: (days: number, amount: string, date: string) => `연장 ${days}일 · ${amount}원 · ${date} 입금 확인`,
     refundedLine: (amount: string) => `돌려드린 금액 ${amount}원`,
-    refundUntil: (date: string) => `${date} 24:00까지 환불을 요청할 수 있습니다. 결제 다음 날부터 7일 안의 요청은 규칙대로 돌려드립니다.`,
+    refundUntil: (date: string) => `환불 가능(아직 사용 전) · ${date} 24:00까지 요청할 수 있습니다. 아이가 이용을 시작하면 환불되지 않습니다.`,
     refundClosed: '환불 기간(결제 다음 날부터 7일)이 지났습니다. 환불이 필요하면 요청을 보내 주세요. 선생님이 직접 확인합니다.',
+    refundUsed: (date: string) => `사용 시작됨 · ${date}. 이용을 시작한 이용권은 환불되지 않습니다.`,
+    paymentUsed: '사용 시작됨',
+    refundRuleNote: '환불은 사용을 시작하기 전, 결제 다음 날부터 7일 안에만 됩니다. 아이 기기에서 월드를 열거나 과외 수업에 들어가면 사용을 시작한 것입니다. 사기 전에는 5분 체험과 60분 초대권으로 먼저 해 볼 수 있습니다.',
     refundAsk: '환불 요청하기',
     refundPending: (date: string) => `${date}에 환불을 요청했습니다. 선생님이 확인한 뒤 결제하신 계좌로 돌려드립니다.`,
     refundReview: (date: string) => `${date}에 환불을 요청했습니다. 규칙 밖의 요청이라 선생님이 직접 확인하고 연락드립니다.`,
@@ -336,7 +342,7 @@ export const PARENT_STRINGS_KO = {
     formNotePlaceholder: '예: 아이가 시간이 맞지 않아요',
     formSubmit: '요청 보내기',
     formCancel: '닫기',
-    soloBody: '7일 안의 요청은 결제하신 금액을 모두 돌려드립니다.',
+    soloBody: '사용을 시작하기 전, 7일 안의 요청은 결제하신 금액을 모두 돌려드립니다.',
     duoPayerBody: 'Duo의 한 좌석만 그만두면 남은 좌석은 Solo로 바뀝니다. 둘 중 하나를 골라 주세요.',
     duoDiff: (amount: string) => `차액 ${amount}원 돌려받기 (남은 좌석은 기간 그대로)`,
     duoDays: (days: number) => `돌려받지 않고 남은 좌석을 Solo ${days}일로 바꾸기`,
@@ -362,9 +368,13 @@ export const PARENT_STRINGS_KO = {
     reqReview: '규칙 밖 요청',
     reason: {
       outside_refund_window: '결제 7일 지남',
-      tutoring_priced_by_teacher: '과외는 직접 정산',
-      duo_payer_mismatch: 'Duo 결제자가 둘로 기록됨'
+      tutoring_priced_by_teacher: '과외는 직접 정산(이전 기록)',
+      duo_payer_mismatch: 'Duo 결제자가 둘로 기록됨',
+      seat_used: '사용 시작됨 · 환불 불가'
     } as Record<string, string>,
+    firstUsed: (date: string) => `첫 사용 ${date}`,
+    usedRefuse: '이 좌석은 이미 사용을 시작해 환불 규칙에 해당하지 않습니다. 열린 요청이 있었다면 거절로 닫았습니다.',
+    issueNote: '가족에게 함께 알려 주세요: 아이가 이용을 시작하면 환불되지 않습니다(사용 전, 결제 다음 날부터 7일 안에만 환불).',
     reqMeta: (paid: string, amount: string, lessons: number, utterances: number) =>
       `${paid} 입금 · ${amount}원 · 그 뒤 수업 ${lessons}회 · 발화 ${utterances}번`,
     reqNote: (note: string) => `보호자 사유: ${note}`,

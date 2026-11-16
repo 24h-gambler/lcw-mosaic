@@ -1,7 +1,7 @@
 // Headless real-screen check of the player menu (docs/08 8.6 G03 G04 G06 G10 G11 G14) at 1440 / 1024 / 390 / 844x390,
 // as a linked child whose server answers are fixtures (page.route): the server bag on the hotbar, the menu button by
 // the hotbar, every tab without sideways overflow, a bag → chest move request, the repair review window.
-// The menu words are in the screen language (English; FRAME_LANG=ko pins Korean); KO_HELP=1 turns Korean help on and checks the Korean lines under
+// The menu words are in the screen language (English, the learn language); KO_HELP=1 turns Korean help on and checks the Korean lines under
 // the tab labels and titles (expected words: tools/frame-lang-expect.mjs).
 // Fails (exit 1) on a broken rule. Headless only, audio muted, no window.
 //
@@ -49,8 +49,9 @@ function fixtures() {
         { id: 'blocks', total: 3, found: 0, entries: [e('b1', '돌', '🪨', false), e('b2', '나무', '🪵', false), e('b3', '벽돌', '🧱', false)] }
       ],
       achievements: [
-        { id: 'a1', name_ko: '첫 주문', done: true },
-        { id: 'a2', name_ko: '블록 100개 놓기', done: false, progress: 30, goal: 100 }
+        // the server's ids and Korean names (apps/edge/src/collection.ts); the screen shows English by id
+        { id: 'first_order', name_ko: '첫 주문', done: true, progress: 1, goal: 1 },
+        { id: 'blocks_100', name_ko: '블록 100개 설치', done: false, progress: 30, goal: 100 }
       ]
     },
     repair: {
@@ -204,8 +205,10 @@ for (const vp of VIEWPORTS) {
       check(vp.name, m.canvas && m.worn === 1, `mirror: 3D view ${m.canvas}, worn ${m.worn} (expected 1)`);
     }
     if (tab === 'book') {
-      const b = await page.evaluate(() => ({ books: document.querySelectorAll('.lcw-books button').length, found: document.querySelectorAll('.lcw-entries li:not(.no)').length, ach: document.querySelectorAll('.lcw-ach li').length }));
-      check(vp.name, b.books === 6 && b.found >= 1 && b.ach === 2, `book: 6 books / found / 2 achievements (${b.books}/${b.found}/${b.ach})`);
+      const b = await page.evaluate(() => ({ books: document.querySelectorAll('.lcw-books button').length, found: document.querySelectorAll('.lcw-entries li:not(.no)').length, ach: Array.from(document.querySelectorAll('.lcw-ach li')).map((li) => li.textContent ?? '') }));
+      check(vp.name, b.books === 6 && b.found >= 1 && b.ach.length === 2, `book: 6 books / found / 2 achievements (${b.books}/${b.found}/${b.ach.length})`);
+      check(vp.name, b.ach[0]?.includes('First order') && b.ach[1]?.includes('Place 100 blocks'), `achievements in English by id (${b.ach.join(' | ')})`);
+      check(vp.name, b.ach.every((t) => /[가-힣]/.test(t) === KO_HELP_SHOWN), `achievement Korean help ${KO_HELP_SHOWN ? 'missing' : 'shown while off'} (${b.ach.join(' | ')})`);
     }
     if (tab === 'repair') {
       const n = await page.evaluate(() => document.querySelectorAll('.lcw-repair li').length);

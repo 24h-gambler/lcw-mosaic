@@ -4,7 +4,7 @@
  * Colors, type and motion come from @lcw/ui tokens only (AGENTS 6). No prices or payment on this screen (AGENTS 4.9).
  */
 import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
-import { WORLD_STRINGS as W, itemGotText, itemNameKo, controlsDesktopFor, DEFAULT_KEY_HINTS, worldSay, type KeyHintLabels } from './strings.js';
+import { WORLD_STRINGS as W, itemGotText, itemTitle, controlsDesktopFor, DEFAULT_KEY_HINTS, worldSay, type KeyHintLabels } from './strings.js';
 import { onLearnLang } from './lang.js';
 import { bandOf, clockLabel, hotbarCaption, isNight, placeLabel, type BandId } from '../frame/status.js';
 import { refillOf } from '../frame/gauges.js';
@@ -708,7 +708,7 @@ export class WorldHud {
   putItem(slot: number, key: string): void {
     const s = this.slots[slot];
     if (!s) return;
-    this.itemSlots[slot] = { src: itemIconDataUrl(key), title: itemNameKo(key) };
+    this.itemSlots[slot] = { src: itemIconDataUrl(key), title: itemTitle(key) };
     this.itemKeys[slot] = key;
     if (!this.buildSlotsOn) this.drawSlot(slot, this.itemSlots[slot], null);
     const img = { src: this.itemSlots[slot]!.src };
@@ -735,7 +735,7 @@ export class WorldHud {
   /** Put the server's bag into a slot quietly (start of play, after a move in the bag screen): no toast, no select. */
   setItem(slot: number, key: string | null): void {
     if (!this.slots[slot]) return;
-    this.itemSlots[slot] = key ? { src: itemIconDataUrl(key), title: itemNameKo(key) } : null;
+    this.itemSlots[slot] = key ? { src: itemIconDataUrl(key), title: itemTitle(key) } : null;
     this.itemKeys[slot] = key;
     if (!this.buildSlotsOn) this.drawSlot(slot, this.itemSlots[slot] ?? null, null);
     // the "bag is empty" line from the start must not stay over a bag that just filled

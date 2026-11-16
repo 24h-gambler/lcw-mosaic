@@ -1,7 +1,7 @@
 // Headless real-screen check of the child's screen frame (docs/08 8.6, frame domain) at 1440 / 1024 / 390 / 844x390.
 // G01 HUD: place · band, weather · clock and coins always on; empty hotbar explained, never bare boxes; slot caption;
 // connection band "Offline for a moment · Keep playing on your own" without covering the chips or buttons;
-// first-person crosshair. The HUD frame words are in the screen language (English; FRAME_LANG=ko pins Korean);
+// first-person crosshair. The HUD frame words are in the screen language (English, the learn language);
 // KO_HELP=1 turns Korean help on and checks the Korean in parentheses (expected words: tools/frame-lang-expect.mjs).
 // Fails (exit 1) on a broken rule. Headless only, audio muted, no window.
 //
@@ -136,8 +136,9 @@ for (const vp of VIEWPORTS) {
     check(vp.name, t.help.includes(COPY.talkHelp(want)) && t.kbd === want, `remapped talk key not shown (${t.help} / ${t.kbd})`);
   }
   check(vp.name, !!a.cap && COPY.emptyBar.test(a.cap.text), `empty bar is not explained (${a.cap?.text})`);
-  // the frame's HUD words are in the learn language (the scene title and the lesson tag are the world lane's)
-  check(vp.name, [a.clock?.text, a.cap?.text].every((t) => inScreenLang(t ?? '')), `HUD frame words not in the screen language (${a.clock?.text} / ${a.cap?.text})`);
+  // the frame's HUD words are in the learn language; the Korean help may follow after a dot
+  const enPart = (t) => (t ?? '').split(' · ').filter((x) => !/[가-힣]/.test(x)).length > 0 && (KO_HELP_SHOWN || inScreenLang(t ?? ''));
+  check(vp.name, [a.clock?.text, a.cap?.text].every(enPart), `HUD frame words not in the screen language (${a.clock?.text} / ${a.cap?.text})`);
   check(vp.name, (await page.evaluate(() => document.documentElement.lang)) === FRAME_LANG, '<html lang> should be the screen language');
   check(vp.name, !overlap(a.cap, a.help), 'caption covers the controls help');
   check(vp.name, !overlap(a.cap, a.bar), 'caption covers the hotbar');
@@ -157,8 +158,8 @@ for (const vp of VIEWPORTS) {
   const b = await boxes(page);
   await page.screenshot({ path: `${out}/${vp.name}-2items.png` });
   check(vp.name, b.empties === 3, `expected 3 empty slots after two items, got ${b.empties}`);
-  // item names are the world lane's (ITEM_NAMES_KO), still Korean; a food in hand may add how to eat it (G01)
-  check(vp.name, (b.cap?.text ?? '').startsWith('쿠키') && (b.cap?.text === '쿠키' || COPY.useAgainFood.test(b.cap?.text ?? '')), `caption should name the selected slot (${b.cap?.text})`);
+  // the thing's name as a title (world/strings itemTitle); a food in hand adds how to eat it (G01)
+  check(vp.name, (b.cap?.text ?? '').startsWith(COPY.cookie) && COPY.useAgainFood.test(b.cap?.text ?? ''), `caption should name the selected slot (${b.cap?.text})`);
   check(vp.name, b.coins?.text === '120', `coins should read 120 (${b.coins?.text})`);
   // drink: the honey tea in slot 1, picked twice (the second pick uses the slot in hand)
   for (let n = 0; n < 2; n++) {

@@ -441,6 +441,12 @@ export function itemNameKo(key: string): string {
   return ITEM_NAMES_KO[key] ?? ITEM_NAMES_KO.gift!;
 }
 
+/** A thing's name as a title (hotbar caption, slot): "Honey latte" (no article), the Korean after it with the help on. */
+export function itemTitle(key: string): string {
+  const en = (ITEM_NAMES_KO_EN[key] ?? ITEM_NAMES_KO_EN.gift!).replace(/^(a|an) /, '');
+  return joinHelp(en.charAt(0).toUpperCase() + en.slice(1), ITEM_NAMES_KO_SRC[key] ?? ITEM_NAMES_KO_SRC.gift!);
+}
+
 /** "You got honey tea!" (and "· 꿀차를 받았어요" with the help on): each side gets the item name in its own language. */
 export function itemGotText(key: string): string {
   const en = ITEM_NAMES_KO_EN[key] ?? ITEM_NAMES_KO_EN.gift!;

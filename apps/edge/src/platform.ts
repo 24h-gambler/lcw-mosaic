@@ -48,6 +48,7 @@ import {
 } from './do-sqlite.js';
 import { EdgePlatformDb, LessonDO, WorldDO, type SqliteExecutor } from './storage.js';
 import { ROOM_CONNECT_PATH, ROOM_TICKET_SCHEMA, buildRoomApp, redeemRoomTicket, routeRoomConnect } from './room.js';
+import { OPS_CARD_ORIGIN, enqueueRecentStudentDays } from './ops-cards.js';
 
 /**
  * Production platform (entry module: worker.ts). One SQLite Durable Object ("platform") holds the relational
@@ -532,10 +533,18 @@ export class PlatformDO {
       } else {
         // Seat notices run in their own try: a failure there never hides the report reminders, and the reverse.
         const seats = this.runSeatNotices(now);
+        // docs/09-ops.md 15: each student's day record goes to the hub outbox every hour, lessons or not. Own try too.
+        let studentCards: unknown;
+        try {
+          studentCards = enqueueRecentStudentDays(this.sql, now, this.env.LCW_PUBLIC_ORIGIN ?? OPS_CARD_ORIGIN).length;
+        } catch (err) {
+          studentCards = { error: err instanceof Error ? err.message : String(err) };
+          this.recordRun('hourly_student_cards', false, studentCards);
+        }
         const r = this.db.processPendingReportReminders(now);
         // docs/09 P9: the day's stage; a day that reached 85% is kept as an alert day.
         const quota = rollupQuota(this.sql, this.quota, now);
-        detail = { reminded: r.remindedCount, seat_notices: seats, quota };
+        detail = { reminded: r.remindedCount, seat_notices: seats, quota, student_cards: studentCards };
       }
       this.recordRun(task, true, detail);
       return { task, ok: true, detail };

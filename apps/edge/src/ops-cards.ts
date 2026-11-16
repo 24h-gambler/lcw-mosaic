@@ -154,6 +154,31 @@ export function enqueueLessonEnd(sql: SqliteExecutor, lessonId: string, nowMs: n
   return out;
 }
 
+/** Production origin for cards made without a request (the hourly cron): the console button must open the real site. */
+export const OPS_CARD_ORIGIN = 'https://lcw.worldwidesomething.com';
+
+/**
+ * Hourly (docs/09-ops.md 15): the daily record of every student who spoke in the last two hours - in a lesson or in
+ * solo play. A lesson that closed itself (no teacher pressed end) or play outside a lesson still reaches the hub that
+ * day; two hours so the last minutes before midnight (KST) are still written to that day's card. An unchanged card
+ * stays as it is (enqueueCard), so an acked card goes again only when its numbers moved. Test students never.
+ */
+export function enqueueRecentStudentDays(sql: SqliteExecutor, nowMs: number, origin: string): string[] {
+  const rows = sql.all<{ player_id: string; d: number }>(
+    `select player_id, (created_at + 32400000) / 86400000 as d from utterances
+     where created_at >= ? and player_id is not null group by player_id, d`,
+    [nowMs - 2 * 3_600_000]
+  );
+  const out: string[] = [];
+  for (const r of rows) {
+    if (isTestPlayerId(r.player_id)) continue;
+    const day = new Date(Number(r.d) * 86_400_000).toISOString().slice(0, 10);
+    const card = studentDailyCard(sql, r.player_id, day, origin);
+    if (card && enqueueCard(sql, card, nowMs)) out.push(card.ref);
+  }
+  return out;
+}
+
 const AckSchema = z.object({
   items: z
     .array(z.object({ ref: z.string().min(1).max(200), updated_at: z.number().int(), spine_id: z.string().max(64).optional() }))

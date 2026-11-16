@@ -85,7 +85,8 @@ export function savePassSession(store: KeyStore | null, s: PassSession | null): 
  */
 export type PassRefusal = 'ended' | 'in_use' | 'not_found' | 'busy' | 'retry';
 
-const ENDED = new Set(['pass_ended', 'pass_expired', 'pass_revoked', 'seat_inactive']);
+// monthly_limit: the seat already played its passes this KST month (docs/19 §8) — nothing to retry today.
+const ENDED = new Set(['pass_ended', 'pass_expired', 'pass_revoked', 'seat_inactive', 'monthly_limit']);
 
 export async function redeemPass(
   code: string,

@@ -59,6 +59,8 @@ describe('guest pass in the world (docs/19 §8)', () => {
     expect(JSON.parse(String(sent?.body))).toEqual({ code: 'ABCDEFGH', device: 'd'.repeat(32) });
     for (const e of ['pass_ended', 'pass_expired', 'pass_revoked', 'seat_inactive']) expect(await redeemPass('ABCDEFGH', 'd', answer(410, { error: e }))).toEqual({ ok: false, why: 'ended' });
     expect(await redeemPass('ABCDEFGH', 'd', answer(409, { error: 'pass_in_use' }))).toEqual({ ok: false, why: 'in_use' });
+    // The seat already played its passes this month (docs/19 §8): the end screen, not an endless retry.
+    expect(await redeemPass('ABCDEFGH', 'd', answer(409, { error: 'monthly_limit', resets_at: 1 }))).toEqual({ ok: false, why: 'ended' });
     expect(await redeemPass('ABCDEFGH', 'd', answer(404, { error: 'pass_not_found' }))).toEqual({ ok: false, why: 'not_found' });
     expect(await redeemPass('ABCDEFGH', 'd', answer(429, { error: 'too_many_requests' }))).toEqual({ ok: false, why: 'busy' });
     expect(await redeemPass('ABCDEFGH', 'd', answer(400, { error: 'invalid' }))).toEqual({ ok: false, why: 'not_found' });

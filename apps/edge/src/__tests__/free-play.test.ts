@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FREE_PLAY_LIMITS, GUEST_PASS_HEADER, normalizeGuestPassCode } from '@lcw/schemas';
 import { TRY_CAFE_OFFERS, gradeTryOrder } from '@lcw/content';
 import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
-import { kstDay, kstMonth, newGuestPassCode, nextKstDayStart, nextKstMonthStart } from '../free-play.js';
+import { kstDay, kstMonth, newGuestPassCode, nextKstDayStart, nextKstMonthStart, passesPlayedThisMonth } from '../free-play.js';
 import { fakeDurableStorage } from './fake-do.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
@@ -171,7 +171,8 @@ describe('guest pass: 30 minutes from the first entry, 2 per seat per month', ()
     expect(b.body.left_this_month).toBe(0);
     const c = await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g);
     expect(c.status).toBe(409);
-    expect(c.body).toMatchObject({ error: 'monthly_limit', resets_at: nextKstMonthStart(T0) });
+    // Nothing played yet: the next slot opens when the first waiting code runs out of its 7 days, not at the month turn.
+    expect(c.body).toMatchObject({ error: 'monthly_limit', resets_at: T0 + FREE_PLAY_LIMITS.guestPassRedeemDays * DAY });
     // Revoking an unused pass gives the slot back.
     expect((await call(p, 'POST', `/v1/family/guest-passes/${b.body.pass.id}/revoke`, {}, g)).body.left_this_month).toBe(1);
     expect((await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).status).toBe(201);
@@ -242,6 +243,39 @@ describe('guest pass: 30 minutes from the first entry, 2 per seat per month', ()
     expect(list.left_this_month).toBe(1);
     expect((await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).status).toBe(201);
     expect((await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.error).toBe('monthly_limit');
+  });
+
+  it('passes count in the month a friend first enters: codes issued on the 30th and played on the 1st never make 3 played in one month', async () => {
+    const p = platform();
+    const { g, sid } = await guardianWithSeat(p);
+    const lastNight = nextKstMonthStart(T0) - 60 * MIN; // Nov 30, 23:00 KST
+    const dec1 = nextKstMonthStart(T0) + 60 * MIN; // Dec 1, 01:00 KST
+    at(lastNight);
+    const a = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass;
+    const b = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass;
+    expect((await call(p, 'POST', '/v1/guest-pass/redeem', { code: a.code, device: DEV_A })).status).toBe(201); // played in November
+    at(dec1);
+    // December: nothing played yet, b still waiting → one slot.
+    expect((await call(p, 'GET', `/v1/family/seats/${sid}/guest-passes`, undefined, g)).body.left_this_month).toBe(1);
+    const c = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass;
+    expect((await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.error).toBe('monthly_limit');
+    expect((await call(p, 'POST', '/v1/guest-pass/redeem', { code: b.code, device: DEV_A })).status).toBe(201);
+    expect((await call(p, 'POST', '/v1/guest-pass/redeem', { code: c.code, device: DEV_B })).status).toBe(201);
+    expect(passesPlayedThisMonth(p.sql, sid, dec1)).toBe(2);
+    // Both played this month and nothing waiting: the slot opens at the month turn.
+    expect((await call(p, 'GET', `/v1/family/seats/${sid}/guest-passes`, undefined, g)).body.resets_at).toBe(nextKstMonthStart(dec1));
+    expect(passesPlayedThisMonth(p.sql, sid, lastNight)).toBe(1);
+    expect((await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.error).toBe('monthly_limit');
+    // Second line: a waiting code left from the older count (issue month) cannot become a third played pass in December.
+    p.sql.run("insert into guest_pass_grants (id, seat_id, issued_by, code, month, issued_at, redeem_until) values ('gp-old', ?, 'g-fam-host', 'ZZZZ2345', '2026-11', ?, ?)", [
+      sid,
+      lastNight,
+      lastNight + 7 * DAY
+    ]);
+    const third = await call(p, 'POST', '/v1/guest-pass/redeem', { code: 'ZZZZ2345', device: 'device-cccccccccccccccc' });
+    expect(third).toMatchObject({ status: 409, body: { error: 'monthly_limit', resets_at: nextKstMonthStart(dec1) } });
+    // A new month starts the played count again (the month seat itself has run out by then, so only the count is checked).
+    expect(passesPlayedThisMonth(p.sql, sid, nextKstMonthStart(dec1) + MIN)).toBe(0);
   });
 
   it("a Duo payer cannot issue, list or revoke passes for the other family's child (only that child's guardians)", async () => {

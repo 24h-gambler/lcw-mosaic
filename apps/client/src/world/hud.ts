@@ -147,9 +147,10 @@ function css(): string {
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
 @media (max-width:600px),(max-height:500px){.lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.15)}}
-@media (max-width:600px){.lw-hud.gz .lw-goal{top:calc(84px + 64px * (var(--lcw-hs,1) - 1))}.lw-chip .gz{gap:6px}.lw-chip .gz b{width:calc(26px * var(--lcw-hs,1))}}
+@media (max-width:600px){.lw-chip .gz{gap:6px}.lw-chip .gz b{width:calc(26px * var(--lcw-hs,1))}}
 /* the lesson tag wraps under the status box on a phone (the chip leaves room for the stars): the goal card starts below it */
-@media (max-width:600px){.lw-hud:has(.lw-chip .l.on) .lw-goal{top:calc(114px + 90px * (var(--lcw-hs,1) - 1))}}
+/* phones: the goal card starts under the status chip's real height (gauges, a wrapped lesson tag, the Korean help line) */
+@media (max-width:600px){.lw-hud .lw-goal{top:calc(var(--lw-chip-b,74px) + 10px)}}
 /* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
 @media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}}
 @media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
@@ -268,7 +269,8 @@ export class WorldHud {
   private netText!: HTMLSpanElement;
   private net!: HTMLDivElement;
   /** Korean help switched (world/lang.ts): redraw the text built once */
-  private offLang: (() => void) | null = null;
+  private offLang: (() => void) | null = null;
+  private chipObs: ResizeObserver | null = null;
   private readonly onResizeNet = (): void => {
     if (this.root.classList.contains('off')) this.measureNet();
   };
@@ -318,6 +320,12 @@ export class WorldHud {
     this.gz = el('span', 'gz', sc);
     this.lessonChip = el('span', 'l', chip);
     this.lessonChip.textContent = W.lessonBadge;
+    // the chip's height (its top is 12px) for the goal card under it on a phone: it grows with the gauges, a wrapped
+    // lesson tag and the Korean help line, so it is measured instead of guessed
+    if (typeof ResizeObserver !== 'undefined') {
+      this.chipObs = new ResizeObserver(() => this.root.style.setProperty('--lw-chip-b', `${Math.ceil(12 + chip.offsetHeight)}px`));
+      this.chipObs.observe(chip);
+    }
     // G01 empty state: the connection dropped, the world keeps going on this device (docs/08 8.6).
     const net = el('div', 'lw-net', this.root);
     this.net = net;
@@ -1003,7 +1011,8 @@ export class WorldHud {
   }
 
   dispose(): void {
-    this.offLang?.();
+    this.offLang?.();
+    this.chipObs?.disconnect();
     window.removeEventListener('resize', this.onResizeNet);
     this.root.remove();
   }

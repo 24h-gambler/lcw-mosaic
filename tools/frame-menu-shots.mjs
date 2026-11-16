@@ -154,7 +154,7 @@ for (const vp of VIEWPORTS) {
 
   // 2. bag tab
   await page.click('.lcw-hudbtn--bag');
-  await page.waitForSelector('.lcw-menu__win', { timeout: 5000 });
+  await page.waitForSelector('.lcw-menu__win', { timeout: 15000 });
   await page.waitForFunction(() => document.querySelectorAll('.lcw-chest .lcw-thing').length > 0, null, { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(500);
   const bag = await page.evaluate(() => ({

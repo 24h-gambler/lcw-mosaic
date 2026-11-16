@@ -300,6 +300,30 @@ describe('guest pass: 30 minutes from the first entry, 2 per seat per month', ()
     expect((await call(p, 'GET', `/v1/guest-pass/check?code=${own.code}`)).body.state).toBe('ready');
   });
 
+  it('the guardian list keeps every waiting code however many were issued and taken back since (no push-out by a cap)', async () => {
+    const p = platform();
+    const { g, sid } = await guardianWithSeat(p);
+    const kept = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass;
+    // the other slot: issue and take back, 30 times, every row newer than the kept code
+    for (let i = 0; i < 30; i++) {
+      at(T0 + (i + 1) * MIN);
+      const x = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass;
+      expect((await call(p, 'POST', `/v1/family/guest-passes/${x.id}/revoke`, {}, g)).status).toBe(200);
+    }
+    // a played pass for the history
+    at(T0 + 40 * MIN);
+    const played = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass;
+    expect((await call(p, 'POST', '/v1/guest-pass/redeem', { code: played.code, device: DEV_A }, ip('198.51.100.70'))).status).toBe(201);
+    const list = (await call(p, 'GET', `/v1/family/seats/${sid}/guest-passes`, undefined, g)).body;
+    const ids = list.passes.map((x: { id: string }) => x.id);
+    expect(ids).toContain(kept.id);
+    expect(ids).toContain(played.id);
+    // passes taken back before anyone entered are not listed (they count for nothing)
+    expect(list.passes).toHaveLength(2);
+    expect(list.passes.map((x: { state: string }) => x.state)).toEqual(['active', 'ready']);
+    expect(list.left_this_month).toBe(0);
+  });
+
   it('wrong codes are limited per address per hour', async () => {
     const p = platform();
     for (let i = 0; i < 30; i++) await call(p, 'GET', '/v1/guest-pass/check?code=ABCD-EFGH', undefined, ip('198.51.100.66'));

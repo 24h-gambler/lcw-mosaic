@@ -22,6 +22,15 @@ const px = (n: number) => `${n}px`;
 const small: React.CSSProperties = { fontSize: px(T.scale.small.sizePx), lineHeight: px(T.scale.small.lineHeightPx), color: C['ink-700'] };
 const day = (ms: number | null) => kstLabel(ms, false).replace(/^\d{4}년 /, '');
 const when = (ms: number | null) => kstLabel(ms, true);
+/**
+ * When a slot opens again, as the server says (#98 resets_at: a waiting code's 7 days end, or the next KST month when
+ * something was played this month, whichever is first): the date alone at a month turn, the date and time otherwise.
+ */
+export function slotAt(ms: number): string {
+  const d = new Date(ms + 9 * 3_600_000);
+  const monthTurn = d.getUTCDate() === 1 && d.getUTCHours() === 0 && d.getUTCMinutes() === 0;
+  return monthTurn ? day(ms) : when(ms);
+}
 
 export type PassNotice = { kind: 'ok' | 'info' | 'error'; text: string };
 
@@ -88,7 +97,7 @@ export function revokeDone(after: GuestPass, leftBefore: number, leftAfter: numb
 
 /** A refused or failed action, in words. */
 export function actionNotice(code: string | null, s: Pick<GuestPassSummary, 'per_month' | 'resets_at'>): string {
-  if (code === 'monthly_limit') return P.limit(s.per_month, day(s.resets_at));
+  if (code === 'monthly_limit') return P.limit(s.per_month, slotAt(s.resets_at));
   if (code === 'seat_inactive') return P.seatInactive;
   if (code === 'service_consent_required') return P.needConsent;
   if (code === 'pass_not_found') return P.gone;
@@ -129,7 +138,7 @@ export function GuestPassesView({
       <strong>{P.title}</strong>
       <p style={{ margin: 0 }}>{P.body(summary.minutes)}</p>
       <span style={small} data-testid="guest-passes-left">
-        {none ? P.noneLeft(day(summary.resets_at)) : P.left(summary.left_this_month, summary.per_month)}
+        {none ? P.noneLeft(slotAt(summary.resets_at)) : P.left(summary.left_this_month, summary.per_month)}
       </span>
       {none && shown.some((p) => p.state === 'ready') ? (
         <span style={small} data-testid="guest-passes-ready-hint">
@@ -229,13 +238,16 @@ export function GuestPasses({ api, token, seatId }: { api: FamilyApi; token: str
   const run = async (fn: () => Promise<PassNotice | undefined>) => {
     if (busy) return;
     setBusy(true);
+    let refused: string | null = null;
     try {
       const n = await fn();
       if (n !== undefined) setNotice(n);
     } catch (e) {
-      setNotice({ kind: 'error', text: actionNotice(errorCodeOf(e), data) });
+      refused = errorCodeOf(e);
     } finally {
-      await load();
+      const fresh = await load();
+      // A refusal is worded from the list read after it (the 409 moved resets_at to when a slot really opens).
+      if (refused !== null) setNotice({ kind: 'error', text: actionNotice(refused, fresh ?? data) });
       setBusy(false);
     }
   };

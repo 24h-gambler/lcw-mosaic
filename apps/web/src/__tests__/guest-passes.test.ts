@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GuestPassesView, actionNotice, canTakeBack, confirmText, passBoxFor, passLine, revokeDone, shownPasses, takeBack, type PassNotice } from '../GuestPasses.js';
+import { GuestPassesView, actionNotice, canTakeBack, confirmText, passBoxFor, passLine, revokeDone, shownPasses, slotAt, takeBack, type PassNotice } from '../GuestPasses.js';
 import { createFamilyApi, type GuestPass, type GuestPassSummary } from '../familyApi.js';
 import type { FetchLike } from '../lessonApi.js';
 import { PARENT_STRINGS_KO } from '../parentStrings.js';
@@ -155,6 +155,30 @@ describe('/family friend pass box (free-play.ts guest passes)', () => {
     expect(html).toContain('data-testid="guest-passes-notice"');
     expect(html).toContain('role="alert"');
     expect(html).toContain('data-testid="guest-passes-stale"');
+  });
+
+  it('says when a slot opens as the server sends it (#98 resets_at): the end of a waiting code with its time, a month turn by date', () => {
+    // 12-01 00:00 KST
+    const monthTurn = Date.UTC(2026, 10, 30, 15, 0, 0);
+    expect(slotAt(monthTurn)).toBe('12월 1일');
+    // a waiting code issued 11-16 14:44 KST ends 11-23 14:44 KST
+    const codeEnd = Date.UTC(2026, 10, 23, 5, 44, 0);
+    expect(slotAt(codeEnd)).toBe('11월 23일 14:44');
+    const html = renderToStaticMarkup(
+      React.createElement(GuestPassesView, {
+        passes: [pass()],
+        summary: { ...sum(0), resets_at: codeEnd },
+        busy: false,
+        notice: null,
+        onIssue: () => undefined,
+        onRevoke: () => undefined,
+        onCopy: () => undefined,
+        copiedId: null,
+        origin: 'https://lcw.example'
+      })
+    );
+    expect(html).toContain(P.noneLeft('11월 23일 14:44'));
+    expect(actionNotice('monthly_limit', { per_month: 2, resets_at: codeEnd })).toBe(P.limit(2, '11월 23일 14:44'));
   });
 
   it('the box goes on live seats of the own child only (not another family\'s Duo seat, not ended seats)', () => {

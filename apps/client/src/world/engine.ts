@@ -13,7 +13,7 @@ import { makeBlockMaterials } from './materials.js';
 import { AutoTierPicker, ResolutionGovernor, TIER_SETTINGS, graphicsFor } from './tiers.js';
 import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
-import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
+import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, makeJumpView, pickVoxel, raycastDistance, stepBody, stepJumpView, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
@@ -39,8 +39,8 @@ export { TIER_SETTINGS };
 
 const PLAYER_LOOK: NpcLook = { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3fa9f5, pants: 0x2f3b52, shoes: 0xff6b4a, hairStyle: 'short' };
 export const TALK_RANGE = 3.6;
-/** R2625 ①: how much of a jump's rise the view follows (the rest stays at the take-off height, so the screen does not bob) */
-export const JUMP_VIEW_FOLLOW = 0.15;
+/** a hand turn of the view holds off the walk's own view pull and arrival turn this long (ms) */
+const LOOK_HOLD_MS = 800;
 const CAM_DIST_DEFAULT = 6.2;
 
 
@@ -183,6 +183,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     },
     onLook: (dx, dy) => {
       camYaw -= dx * 0.008 * lookTouch;
+      lookAt = performance.now();
       camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.006 * lookTouch * lookY));
     },
     onSlot: (i) => {
@@ -447,6 +448,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   /** For the real-play check (getStats().interact / motion): talks opened by E, by a click or tap, jumps and climbs */
   const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0 };
   let promptOn = false;
+  /** when the child last turned the view by hand (ms): the walk's view pull and arrival turn wait for it */
+  let lookAt = -Infinity;
+  /** when interact() last set the dialog focus (ms) */
+  let focusAt = 0;
   /** why the talk prompt is off ('' = shown): none / paused / walking / bubble / talked / behind */
   let promptWhy = 'none';
   let autopilot: Array<[number, number]> = [];
@@ -744,6 +749,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     lastY = e.clientY;
     dragMoved += Math.abs(dx) + Math.abs(dy);
     camYaw -= dx * 0.006 * lookMouse;
+    lookAt = performance.now();
     camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005 * lookMouse * lookY));
   };
   const pointerUp = (e: PointerEvent): void => {
@@ -874,6 +880,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     talkedTo.add(n.def.id);
     sfx.play('ui.open');
     focusNpc = n;
+    focusAt = performance.now();
     // NPC turns to the player and waves once.
     n.yaw = Math.atan2(body.x - n.pos.x, body.z - n.pos.z);
     playerYaw = Math.atan2(n.pos.x - body.x, n.pos.z - body.z);
@@ -1088,7 +1095,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
     if (disposed) return;
     playerYaw = Math.atan2(n.pos.x - body.x, n.pos.z - body.z);
-    camYaw = playerYaw;
+    if (performance.now() - lookAt > LOOK_HOLD_MS) camYaw = playerYaw;
     n.yaw = Math.atan2(body.x - n.pos.x, body.z - n.pos.z);
   }
 
@@ -1097,7 +1104,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const camPos = new THREE.Vector3();
   const camLook = new THREE.Vector3();
   let camInit = false;
-  let camGroundY = Number.NaN;
+  const jumpView = makeJumpView();
   /** Where the dialog NPC's face lands on screen (CSS px), for the headless framing check. */
   const dialogShotStats = (): { npc: string; face: [number, number] } | null => {
     if (!paused || !focusNpc) return null;
@@ -1107,11 +1114,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const updateCamera = (dt: number): void => {
     // R2625 ①: a jump does not throw the view up and down. The view keeps the height it took off from and follows the
     // body only a little; landing higher eases it up, dropping lower follows at once (never above the real eye).
-    const bodyY = body.y + body.stepOffset;
-    if (!Number.isFinite(camGroundY) || Math.abs(bodyY - camGroundY) > 4) camGroundY = bodyY;
-    else if (body.onGround) camGroundY += (bodyY - camGroundY) * (1 - Math.exp(-10 * dt));
-    if (bodyY < camGroundY) camGroundY = bodyY;
-    const viewY = camGroundY + (bodyY - camGroundY) * JUMP_VIEW_FOLLOW;
+    const viewY = stepJumpView(jumpView, body.y + body.stepOffset, body.onGround, dt);
     const headY = viewY + 1.45;
     camTarget.set(body.x, headY, body.z);
     let wantPos: THREE.Vector3;
@@ -1421,7 +1424,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       const moved = Math.hypot(body.x - lastAutoPos.x, body.z - lastAutoPos.z);
       autoStuck = moved < dt * 1.0 ? autoStuck + dt : Math.max(0, autoStuck - dt);
       lastAutoPos.set(body.x, body.y, body.z);
-      camYaw += wrapAngle(Math.atan2(intent.dx, intent.dz) - camYaw) * (1 - Math.exp(-3 * dt));
+      // the view leans into the walk unless the child is turning it (their drag wins for a moment, review R2625)
+      if ((intent.dx !== 0 || intent.dz !== 0) && performance.now() - lookAt > LOOK_HOLD_MS)
+        camYaw += wrapAngle(Math.atan2(intent.dx, intent.dz) - camYaw) * (1 - Math.exp(-3 * dt));
     } else if (!paused && !attract) {
       const k = input.keys;
       let f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
@@ -1600,7 +1605,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       ? 'none'
       : paused
         ? 'paused'
-        : autopilot.length > 0
+        : autopilot.length > 0 || travel !== null
           ? 'walking'
           : !touch && hud.hasBubble(nearNpc.def.id, nowMs)
             ? 'bubble'
@@ -1814,6 +1819,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         autopilot = [];
         body.vx = 0;
         body.vz = 0;
+        // a talk that opens now frames the NPC just touched; an older touch (a tap the lesson ignored) is stale, and the
+        // goal NPC in reach comes before whoever happens to be nearest
+        if (focusNpc && performance.now() - focusAt > 1500) focusNpc = null;
+        const g = goalNpcId ? npcs.get(goalNpcId) : undefined;
+        if (!focusNpc && g && g.char.root.visible && Math.hypot(g.pos.x - body.x, g.pos.z - body.z) < 6) focusNpc = g;
         if (!focusNpc && nearNpc) focusNpc = nearNpc;
         focusNearest();
       } else {
@@ -2040,7 +2050,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
           prompt: promptOn,
           promptWhy,
           paused,
-          walking: autopilot.length > 0,
+          // until the walk to an NPC has fully ended (arrival turn included), not only while the path has points (review)
+          walking: autopilot.length > 0 || travel !== null,
           talked: [...talkedTo],
           byKey: counts.talkE,
           byTap: counts.talkTap

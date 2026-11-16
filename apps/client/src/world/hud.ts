@@ -205,6 +205,37 @@ export interface HudHandlers {
   onSlot(i: number): void;
 }
 
+/**
+ * A talk control fires on a still tap (lifted near where it went down), not on the press: a look drag that happens to
+ * start on the button that just appeared turns the view, as it would one finger-width away (review R2625).
+ */
+function tapOnly(b: HTMLElement, fire: () => void, look: (dx: number, dy: number) => void): void {
+  let down: { id: number; x: number; y: number; lx: number; ly: number; far: boolean } | null = null;
+  b.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    down = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, far: false };
+    b.setPointerCapture?.(e.pointerId);
+  });
+  b.addEventListener('pointermove', (e) => {
+    if (!down || down.id !== e.pointerId) return;
+    e.stopPropagation();
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) >= 14) down.far = true;
+    if (down.far) look(e.clientX - down.lx, e.clientY - down.ly);
+    down.lx = e.clientX;
+    down.ly = e.clientY;
+  });
+  b.addEventListener('pointerup', (e) => {
+    if (!down || down.id !== e.pointerId) return;
+    e.stopPropagation();
+    const d = down;
+    down = null;
+    if (!d.far) fire();
+  });
+  b.addEventListener('pointercancel', (e) => {
+    if (down && down.id === e.pointerId) down = null;
+  });
+}
+
 export class WorldHud {
   readonly root: HTMLDivElement;
   private goal: HTMLDivElement;
@@ -315,10 +346,7 @@ export class WorldHud {
     kbd.textContent = W.talkKey;
     const pl = el('span', '', this.prompt);
     pl.textContent = W.talk;
-    this.prompt.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      this.h.onTalk();
-    });
+    tapOnly(this.prompt, () => this.h.onTalk(), (dx, dy) => this.h.onLook(dx, dy));
 
     const bar = el('div', 'lw-hotbar', this.root);
     for (let i = 0; i < 5; i++) {
@@ -370,10 +398,7 @@ export class WorldHud {
     this.talkBtn.textContent = W.talk;
     this.talkBtn.style.right = '96px';
     this.talkBtn.style.bottom = '160px';
-    this.talkBtn.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      this.h.onTalk();
-    });
+    tapOnly(this.talkBtn, () => this.h.onTalk(), (dx, dy) => this.h.onLook(dx, dy));
     this.bindTouch();
 
     this.fade = el('div', 'lw-fade', this.root);

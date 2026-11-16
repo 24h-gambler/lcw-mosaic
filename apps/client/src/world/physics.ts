@@ -292,3 +292,32 @@ export function pickVoxel(
   }
   return null;
 }
+
+/** R2625 ①: how much of a jump's rise the view follows (the rest stays at the take-off height, so the screen does not bob) */
+export const JUMP_VIEW_FOLLOW = 0.15;
+/** the view never sits more than this below the ground the body stands on (jumps held up a stair, review R2625) */
+export const CAM_FLOOR_LAG = 1.0;
+
+/** The jump view's memory: `floor` = the ground the body last stood on, `ground` = the height the view eases from. */
+export interface JumpView {
+  ground: number;
+  floor: number;
+}
+export function makeJumpView(): JumpView {
+  return { ground: Number.NaN, floor: Number.NaN };
+}
+
+/**
+ * The height the camera works from this frame (add the eye height on top). A jump keeps the take-off height and
+ * follows only JUMP_VIEW_FOLLOW of the rise; landing higher eases the view up (every frame, not only on the landing
+ * frame, so jumps held up a stair do not leave it behind), dropping lower follows at once, and a big move (a scene
+ * change, a teleport) snaps.
+ */
+export function stepJumpView(v: JumpView, bodyY: number, onGround: boolean, dt: number): number {
+  if (!Number.isFinite(v.ground) || Math.abs(bodyY - v.ground) > 4) v.ground = v.floor = bodyY;
+  if (onGround || bodyY < v.floor) v.floor = bodyY;
+  v.ground += (v.floor - v.ground) * (1 - Math.exp(-10 * dt));
+  if (v.ground < v.floor - CAM_FLOOR_LAG) v.ground = v.floor - CAM_FLOOR_LAG;
+  if (bodyY < v.ground) v.ground = bodyY;
+  return v.ground + (bodyY - v.ground) * JUMP_VIEW_FOLLOW;
+}

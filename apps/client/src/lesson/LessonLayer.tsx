@@ -123,8 +123,14 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   const [foldedKey, setFoldedKey] = useState<string | null>(null);
   const [doneSeq, setDoneSeq] = useState(0);
   // A click, tap or E on an NPC in the world during the lesson opens the folded dialog window again (Dan 11-16 R2625).
+  // Only the lesson's own NPC: a tap on a passer-by must not reopen the lesson window framed on someone else (review).
+  const lessonNpc = useRef(view.npcId);
+  lessonNpc.current = view.npcId;
   useEffect(() => {
-    const open = (): void => setFoldedKey(null);
+    const open = (e: Event): void => {
+      const id = (e as CustomEvent<{ npcId?: string }>).detail?.npcId;
+      if (!id || id === lessonNpc.current) setFoldedKey(null);
+    };
     window.addEventListener(LESSON_TALK_EVENT, open);
     return () => window.removeEventListener(LESSON_TALK_EVENT, open);
   }, []);

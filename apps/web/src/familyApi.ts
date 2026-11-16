@@ -121,6 +121,12 @@ export interface FamilySeat {
   payments: SeatPayment[] | null;
   /** Exclusive end of the refund window (KST 24:00 of the 7th day after payment); show `refund_until - 1`'s date. */
   refund_until: number | null;
+  /** First use of the seat (server record: world opened, solo play, or a tutoring lesson). From then on no refund. */
+  first_used_at: number | null;
+  /** In the refund window and not used yet. */
+  refundable: boolean;
+  /** Why a live seat cannot be refunded by the rule: used, or past the 7 days (null when refundable or not live). */
+  refund_block: 'seat_used' | 'outside_refund_window' | 'nothing_paid' | null;
   can_request_refund: boolean;
   pending_request: { id: string; requested_at: number; status: 'pending' | 'review'; awaiting_payer_choice: boolean } | null;
   /** The payer must choose how the Duo partial refund is settled (the other family asked). */
@@ -139,6 +145,8 @@ export interface SeatPayment {
   refund_until: number;
   refunded_krw: number;
   refunded: boolean;
+  /** This payment's days have been used (the seat's first use; for an extension, use from its first day). */
+  used: boolean;
 }
 export interface AdminSeat {
   id: string;
@@ -151,7 +159,10 @@ export interface AdminSeat {
   state: SeatState;
   payer_id: string;
   payments: SeatPayment[];
-  /** The rule refund button applies now (a payment is inside its window, not tutoring). */
+  /** First use of the seat (server record) and how ('world' | 'play' | 'lesson'); null before use. */
+  first_used_at: number | null;
+  first_used_via: string | null;
+  /** The rule refund button applies now (a payment is inside its window, not used, not tutoring). */
   rule_refund_open: boolean;
   /** Duo partial refund cannot run until the payer chooses the settlement. */
   awaiting_payer_choice: boolean;
@@ -172,6 +183,8 @@ export interface SeatInboxItem {
   term: string;
   usage: { lessons: number; utterances: number };
   refund_until: number;
+  /** First use of the seat; a request made after it never reaches the inbox, one made before is judged as of then. */
+  first_used_at: number | null;
   awaiting_payer_choice: boolean;
 }
 export interface SeatInbox {

@@ -364,6 +364,65 @@ function KeyBox({
 
 /* ---------- student list + registration + start ---------- */
 
+/** Saves a fetched file through a temporary object URL (the export needs the Bearer token, so no plain link). */
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** '오늘 기록 CSV 받기' (coordinator 11-16): today's utterance log and per-minute progress, operator only. */
+export function CsvExportRow({
+  api,
+  token,
+  onAuthError
+}: {
+  api: Pick<LessonApi, 'exportCsv'>;
+  token: string;
+  onAuthError: (code: string) => void;
+}): React.ReactElement {
+  const [busy, setBusy] = useState<null | 'utterances' | 'lesson-minutes'>(null);
+  const [error, setError] = useState<string | null>(null);
+  const get = async (kind: 'utterances' | 'lesson-minutes') => {
+    setBusy(kind);
+    setError(null);
+    try {
+      const f = await api.exportCsv(token, kind);
+      saveBlob(f.blob, f.filename);
+    } catch (e) {
+      const code = errorCodeOf(e);
+      onAuthError(code);
+      setError(S.csvFailed(code));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div data-testid="director-csv" style={{ marginBottom: sp(3) }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
+        <Button type="button" variant="paper" data-testid="csv-utterances" disabled={busy !== null} onClick={() => void get('utterances')}>
+          {busy === 'utterances' ? S.csvBusy : S.csvToday}
+        </Button>
+        <Button type="button" variant="paper" data-testid="csv-minutes" disabled={busy !== null} onClick={() => void get('lesson-minutes')}>
+          {busy === 'lesson-minutes' ? S.csvBusy : S.csvMinutes}
+        </Button>
+      </div>
+      <p style={{ margin: `${sp(1)} 0 0`, fontSize: `${T.scale.small.sizePx}px` }}>{S.csvHelp}</p>
+      {error ? (
+        <p role="alert" data-testid="csv-error" style={{ margin: `${sp(1)} 0 0` }}>
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function StudentPicker({
   api,
   token,
@@ -511,6 +570,7 @@ function StudentPicker({
           </Button>
         }
       >
+        <CsvExportRow api={api} token={token} onAuthError={onAuthError} />
         <div role="radiogroup" aria-label={S.planTitle} data-testid="director-plan" style={{ marginBottom: sp(3) }}>
           <div style={{ fontWeight: 700, marginBottom: sp(1) }}>{S.planTitle}</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>

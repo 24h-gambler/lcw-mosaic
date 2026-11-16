@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FAQ, LEARN_PAGES, MEDIA, PARENTS, PRICING, SITUATIONS } from '../copy.js';
+import { FAQ, LEARN_PAGES, MEDIA, NAV, PARENTS, PRICING, REFUND_RULE, SITUATIONS } from '../copy.js';
 import { GameShot } from '../GameMedia.js';
 import { SLink } from '../SiteShell.js';
 import { SITUATION_FEATURE, STATE_TAG } from '../copyNow.js';
@@ -112,7 +112,7 @@ export function ParentsPage(): React.ReactElement {
             </p>
             <div className="s-row">
               <SLink to="/try" className="s-btn s-btn-brand">
-                5분 체험해 보기
+                {NAV.try}해 보기
               </SLink>
               <SLink to="/pricing" className="s-btn">
                 요금 보기
@@ -289,7 +289,7 @@ export function ParentsPage(): React.ReactElement {
               </div>
             ))}
           </div>
-          <p style={{ marginTop: 16, fontWeight: 800 }}>결제 후 7일 이내 전액 환불 · Duo는 가족이 아니어도 돼요</p>
+          <p style={{ marginTop: 16, fontWeight: 800 }}>{REFUND_RULE.short} · Duo는 가족이 아니어도 돼요</p>
           <SLink to="/pricing" className="s-btn s-btn-brand" style={{ marginTop: 16 }}>
             {PARENTS.priceCta} →
           </SLink>

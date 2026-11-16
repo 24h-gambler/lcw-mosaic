@@ -197,13 +197,14 @@ describe('review WP-704 (R1–R10)', () => {
     expect((await call(p, 'GET', '/v1/family/seats', undefined, devB)).status).toBe(401);
     expect((await call(p, 'POST', `/v1/family/seats/${b}/refund-request`, {}, devB)).status).toBe(401);
     expect((await call(p, 'GET', '/v1/admin/seats', undefined, devB)).status).toBe(401);
-    const me = (await call(p, 'GET', '/v1/device/me', undefined, devB)).body;
-    expect(me).toEqual({ nickname: 'Mina', level: 'L2', voice_store: false, play_allowed: true, seat: { state: 'active' } });
     const fb = JSON.stringify((await call(p, 'GET', '/v1/family/seats', undefined, gb)).body);
     for (const x of ['Juno', 'kid-a', 'g-fam-a', '19900', '19,900']) expect(fb).not.toContain(x);
     const fa = JSON.stringify((await call(p, 'GET', '/v1/family/seats', undefined, ga)).body);
     expect(fa.includes('kid-b') || fa.includes('Mina')).toBe(false);
     await call(p, 'POST', `/v1/family/seats/${b}/refund-request`, { note: 'Mina 엄마 010-1234-5678' }, gb);
+    // the child device payload: state only (opened after the request, so the refund is still judged as of the request)
+    const me = (await call(p, 'GET', '/v1/device/me', undefined, devB)).body;
+    expect(me).toEqual({ nickname: 'Mina', level: 'L2', voice_store: false, play_allowed: true, seat: { state: 'active' } });
     const fa2 = JSON.stringify((await call(p, 'GET', '/v1/family/seats', undefined, ga)).body);
     expect(fa2).not.toContain('010-1234');
     expect(fa2).not.toContain('g-fam-b');
@@ -236,9 +237,9 @@ describe('review WP-704 (R1–R10)', () => {
       { plan: 'duo', status: 'active' }
     ]);
     expect(sql.all('select status from seat_refunds', [])).toEqual([{ status: 'pending' }]);
-    // exception path: a tutoring request goes straight to review; a failure mid-decision changes nothing
+    // exception path: a request outside the 7 days goes straight to review; a failure mid-decision changes nothing
     const gc = await family(p, 'kid-c', 'fam-c');
-    const t = await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-fam-c', plan: 'tutoring', term: 'month', player_ids: ['kid-c'], amount_krw: 50_000 });
+    const t = await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-fam-c', plan: 'tutoring', term: 'month', player_ids: ['kid-c'], amount_krw: 50_000, paid_at: Date.now() - 8 * 86_400_000 });
     const rq = await call(p, 'POST', `/v1/family/seats/${t.body.seat_ids[0]}/refund-request`, {}, gc);
     expect(rq.body.status).toBe('review');
     (globalThis as any).__boom2 = true;
@@ -287,6 +288,8 @@ describe('review WP-704 (R1–R10)', () => {
     const g = await family(p, 'kid-1', 'fam-a');
     const dev = await linkDevice(p, g, 'kid-1');
     const issued = await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-fam-a', plan: 'solo', term: 'month', player_ids: ['kid-1'] });
+    // asked before the first play, so the rule refund below still applies (seats.ts usedPayment asOf)
+    await call(p, 'POST', `/v1/family/seats/${issued.body.seat_ids[0]}/refund-request`, {}, g);
     const before = await call(p, 'POST', '/v1/converse/score', { text: 'hello', context: {} }, dev);
     expect(before.status).not.toBe(403);
     await call(p, 'POST', `/v1/admin/seats/${issued.body.seat_ids[0]}/refund`, {});

@@ -1,5 +1,5 @@
 /**
- * 1PC teacher panel (Dan 11-16): one PC for teacher and child. Over the child's own 3D screen, Ctrl+Shift+T (or the
+ * 1PC teacher panel (Dan 11-16): one PC for teacher and child. Over the child's own 3D screen, Ctrl+Alt+T (or the
  * small "선생님" button) opens a teacher panel after the lesson's lock number, checked on the server
  * (POST /v1/admin/lessons/:id/panel-unlock). It uses the operator sign-in this browser already holds from /director.
  *
@@ -21,7 +21,7 @@ export const PANEL_STRINGS_KO = {
   pinLabel: '1PC 잠금 번호',
   unlock: '열기',
   cancel: '취소',
-  close: '닫기 (Ctrl+Shift+T)',
+  close: '닫기 (Ctrl+Alt+T)',
   leave: '선생님 나가기',
   next: '다음 단계로',
   noSignIn: '이 PC 에서 먼저 /director 로 로그인하고 수업을 시작하세요.',
@@ -107,6 +107,11 @@ export function stageContext(planId: string | null, stageId: string | null): { s
 
 type Phase = 'locked' | 'asking' | 'open' | 'closed';
 
+/** The 1PC panel shortcut: Ctrl+Alt+T (no Shift, no Meta). */
+export function isPanelShortcut(e: Pick<KeyboardEvent, 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey' | 'code' | 'key'>): boolean {
+  return e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && (e.code === 'KeyT' || e.key === 't' || e.key === 'T');
+}
+
 export function TeacherPanel({
   lessonId,
   planId,
@@ -136,7 +141,9 @@ export function TeacherPanel({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+      // Ctrl+Alt+T, not Ctrl+Shift+T: browsers keep that one for "reopen closed tab", which could bring the console
+      // tab (script, answers) back in front of the child (review #70). Matched by key position, any layout.
+      if (isPanelShortcut(e)) {
         e.preventDefault();
         toggle();
       }

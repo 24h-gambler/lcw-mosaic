@@ -6,7 +6,7 @@ import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { createStudentLessonApi, readLessonMicStatus, type KeyValue } from '../lesson/api.js';
 import { LessonController, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
-import { TeacherPanel, createPanelApi, stageContext } from '../lesson/TeacherPanel.js';
+import { TeacherPanel, createPanelApi, isPanelShortcut, stageContext } from '../lesson/TeacherPanel.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
 const op = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
@@ -141,6 +141,15 @@ describe('1PC teacher panel (TeacherPanel.tsx)', () => {
       <TeacherPanel lessonId="les-1" planId={FIRST_LESSON_PLAN.id} stageId={stage.id} operatorToken={null} api={createPanelApi('', (async () => new Response('{}')) as never)} />
     );
     expect(html).toBe('');
+  });
+
+  it('shortcut is Ctrl+Alt+T: Ctrl+Shift+T stays the browser reopen-closed-tab key (review #70)', () => {
+    const k = (o: Partial<KeyboardEvent>) => ({ ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, code: 'KeyT', key: 't', ...o });
+    expect(isPanelShortcut(k({ ctrlKey: true, altKey: true }))).toBe(true);
+    expect(isPanelShortcut(k({ ctrlKey: true, altKey: true, key: 'ㅅ' }))).toBe(true); // Korean layout, same key
+    expect(isPanelShortcut(k({ ctrlKey: true, shiftKey: true, key: 'T' }))).toBe(false);
+    expect(isPanelShortcut(k({ ctrlKey: true }))).toBe(false);
+    expect(isPanelShortcut(k({ ctrlKey: true, altKey: true, code: 'KeyR', key: 'r' }))).toBe(false);
   });
 
   it('stage context: the server plan first, next stage, last stage has none', () => {

@@ -40,6 +40,16 @@ import { P } from './presenceStrings.js';
 // The same 1PC teacher panel as the 3D screen: a low-spec PC takes the lesson here (docs/19 §4).
 import { TeacherPanel } from '../../client/src/lesson/TeacherPanel.js';
 
+/** The lesson mic check this tab ran on the 3D screen (same keys as apps/client lesson/api.ts); null when none. */
+function readMicStatus(): string | null {
+  try {
+    const v = globalThis.sessionStorage?.getItem('lcw.micStatus') ?? null;
+    return v === 'ok' || v === 'quiet' || v === 'none' || v === 'skipped' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 const S = LESSON_STRINGS_KO.join;
 const C = TOKENS.colors;
 const T = TOKENS.typography;
@@ -128,7 +138,7 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
     let live = true;
     const tick = async () => {
       try {
-        const st = await api.lessonState(token);
+        const st = await api.lessonState(token, readMicStatus());
         if (live) dispatch({ type: 'state', state: st });
         // Back online: what the child said meanwhile goes now, in order.
         if (live && lessonId && !flushing.current && readOutbox(outboxSessionStore(), lessonId).length > 0) {

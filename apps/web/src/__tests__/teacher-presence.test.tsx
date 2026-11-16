@@ -18,6 +18,14 @@ describe('teacher presence on the director console', () => {
     for (const line of [...P.help1pc, ...P.help2pc]) expect(html).toContain(line.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
   });
 
+  it('help promises only what exists: no browser-reserved shortcut, no "teacher speaks" feature, warns about /director', () => {
+    const all = [...P.help1pc, ...P.help2pc].join(' ');
+    expect(all).not.toContain('Ctrl+Shift+T');
+    expect(all).toContain('Ctrl+Alt+T');
+    expect(all).not.toContain('선생님 말하기');
+    expect(all).toContain('/director');
+  });
+
   it('the live lesson box carries the status line, the 1PC lock number form and the help', () => {
     const api = { presence: vi.fn(), leave: vi.fn(), setPanelPin: vi.fn(), panelPinState: vi.fn(), panelUnlock: vi.fn() } as unknown as LessonApi;
     const html = renderToStaticMarkup(<TeacherPresenceBox api={api} token="op" lessonId="les-1" ended={false} />);

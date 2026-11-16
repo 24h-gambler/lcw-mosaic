@@ -14,6 +14,8 @@ import { P } from './presenceStrings.js';
  * still there with the console in a background tab. Worker timers are not throttled that way.
  */
 export const TEACHER_BEAT_MS = 15_000;
+/** A failed beat is sent again this soon (a blip must not cost the child the teacher at the 45 s mark). */
+export const TEACHER_RETRY_MS = 5_000;
 
 export interface Ticker {
   stop(): void;
@@ -48,13 +50,14 @@ export function startTicker(fn: () => void, ms: number, env: { Worker?: typeof W
  * and whether the last beat failed. `panel` is the 1PC teacher panel state ('open' on the director console).
  */
 export function useTeacherHeartbeat(o: {
-  api: Pick<LessonApi, 'presence'>;
+  api: Pick<LessonApi, 'presence'> & Partial<Pick<LessonApi, 'leave'>>;
   token: string | null;
   lessonId: string | null;
   active: boolean;
   panel?: 'open' | 'closed';
   ticker?: typeof startTicker;
-}): { teacher: TeacherPresence | null; failing: boolean; left: boolean; resume: () => Promise<void> } {
+  retryMs?: number;
+}): { teacher: TeacherPresence | null; failing: boolean; left: boolean; resume: () => Promise<void>; leave: () => Promise<void> } {
   const [teacher, setTeacher] = useState<TeacherPresence | null>(null);
   const [failing, setFailing] = useState(false);
   // The teacher pressed "선생님 나가기" on the 1PC panel: this console's beats no longer count until resume.
@@ -63,10 +66,14 @@ export function useTeacherHeartbeat(o: {
   panelRef.current = o.panel ?? 'open';
   const { api, token, lessonId, active } = o;
   const ticker = o.ticker ?? startTicker;
+  const retryMs = o.retryMs ?? TEACHER_RETRY_MS;
   useEffect(() => {
     if (!active || !token || !lessonId) return undefined;
     let live = true;
+    let retry: ReturnType<typeof setTimeout> | null = null;
     const beat = async () => {
+      if (retry !== null) clearTimeout(retry);
+      retry = null;
       try {
         const r = await api.presence(token, lessonId, panelRef.current);
         if (!live) return;
@@ -74,7 +81,9 @@ export function useTeacherHeartbeat(o: {
         setLeft(r.left === true);
         setFailing(false);
       } catch {
-        if (live) setFailing(true);
+        if (!live) return;
+        setFailing(true);
+        retry = setTimeout(() => void beat(), retryMs);
       }
     };
     void beat();
@@ -86,10 +95,11 @@ export function useTeacherHeartbeat(o: {
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
     return () => {
       live = false;
+      if (retry !== null) clearTimeout(retry);
       t.stop();
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [api, token, lessonId, active, ticker]);
+  }, [api, token, lessonId, active, ticker, retryMs]);
   const resume = async () => {
     if (!token || !lessonId) return;
     try {
@@ -101,7 +111,17 @@ export function useTeacherHeartbeat(o: {
       setFailing(true);
     }
   };
-  return { teacher, failing, left, resume };
+  const leave = async () => {
+    if (!token || !lessonId || !api.leave) return;
+    try {
+      const r = await api.leave(token, lessonId);
+      setTeacher(r.teacher);
+      setLeft(true);
+    } catch {
+      setFailing(true);
+    }
+  };
+  return { teacher, failing, left, resume, leave };
 }
 
 /** One line on the console: what the child's screen says about the teacher right now. */
@@ -137,12 +157,12 @@ export function TeacherPresenceBox({
   lessonId,
   ended
 }: {
-  api: Pick<LessonApi, 'presence' | 'setPanelPin' | 'panelPinState'>;
+  api: Pick<LessonApi, 'presence' | 'leave' | 'setPanelPin' | 'panelPinState'>;
   token: string;
   lessonId: string;
   ended: boolean;
 }): React.ReactElement {
-  const { teacher, failing, left, resume } = useTeacherHeartbeat({ api, token, lessonId, active: !ended });
+  const { teacher, failing, left, resume, leave } = useTeacherHeartbeat({ api, token, lessonId, active: !ended });
   const [pinSet, setPinSet] = useState<boolean | null>(null);
   const [pin, setPin] = useState('');
   const [pinMsg, setPinMsg] = useState<string | null>(null);
@@ -171,13 +191,19 @@ export function TeacherPresenceBox({
     <Box title={P.boxTitle} testId="teacher-presence-box">
       <div style={{ display: 'grid', gap: sp(2) }}>
         {ended ? null : <TeacherStatus teacher={teacher} failing={failing} left={left} />}
-        {!ended && left && !teacher?.present ? (
+        {ended ? null : left && !teacher?.present ? (
           <div>
             <Button type="button" variant="brand" data-testid="teacher-resume" onClick={() => void resume()}>
               {P.consoleResume}
             </Button>
           </div>
-        ) : null}
+        ) : (
+          <div>
+            <Button type="button" variant="paper" data-testid="teacher-leave" onClick={() => void leave()}>
+              {P.consoleLeave}
+            </Button>
+          </div>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();

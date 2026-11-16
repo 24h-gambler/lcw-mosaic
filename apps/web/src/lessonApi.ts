@@ -365,7 +365,9 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
     daily: (op: string, day?: string) =>
       request<DailySummary>('GET', `/v1/admin/daily${day ? `?day=${enc(day)}` : ''}`, op),
     join: (code: string) => request<JoinResult>('POST', '/v1/join', null, { code }),
-    lessonState: (studentToken: string) => request<StudentLessonState>('GET', '/v1/lesson/state', studentToken),
+    /** mic: this tab's one-time lesson mic check (sessionStorage lcw.micStatus, set by the 3D screen), for the console. */
+    lessonState: (studentToken: string, mic?: string | null) =>
+      request<StudentLessonState>('GET', `/v1/lesson/state${mic ? `?mic=${encodeURIComponent(mic)}` : ''}`, studentToken),
     postUtterance: (studentToken: string, input: UtteranceInput) =>
       request<UtteranceResult>('POST', '/v1/lesson/utterance', studentToken, input),
     /** With the operator token (director preview) the server does not record a parent open. */

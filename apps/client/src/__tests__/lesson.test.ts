@@ -14,7 +14,7 @@ import { SubmitError } from '../dialog/submit.js';
 // App mounts the layer through import.meta.glob (no compile-time check there): pin the docs/19 §5 contract here.
 const _slot: React.ComponentType<AppLessonSlotProps> = LessonLayer;
 void _slot;
-import { LESSON_STRINGS_KO } from '../lesson/strings.js';
+import { LESSON_STRINGS, LESSON_STRINGS_KO } from '../lesson/strings.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
 const op = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
@@ -447,7 +447,7 @@ describe('client lesson module (docs/19 §4)', () => {
     // a slow device hands the same session to /join?lite=1: the session must survive until that move
     expect(lessonGoneInWorld({ ...base, lowTier: true, viewPhase: 'needs_code', controllerPhase: 'needs_code' })).toBe(false);
     const html = renderToStaticMarkup(React.createElement(LessonLayer, { world: null, search: '?code=123456' }));
-    expect(html).toContain(LESSON_STRINGS_KO.code.title);
+    expect(html).toContain(LESSON_STRINGS.code.title);
     const all = JSON.stringify(LESSON_STRINGS_KO);
     for (const bad of FORBIDDEN_PLAYER_UI_PATTERNS) expect(all).not.toContain(bad);
     expect(all).not.toMatch(/원|결제|구매|가격/);

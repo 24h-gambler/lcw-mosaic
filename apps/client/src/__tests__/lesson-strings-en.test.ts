@@ -25,3 +25,20 @@ describe('lesson copy in English (the world speaks the language the child learns
     expect(LESSON_STRINGS_EN.status.ok('', null)).toBe('👩‍🏫 With Teacher');
   });
 });
+
+describe('the lesson layer reads the language the child learns, Korean only as the help line', () => {
+  it('English by default; with the Korean help on, the Korean follows after a dot (nested keys and functions too)', async () => {
+    const { LESSON_STRINGS } = await import('../lesson/strings.js');
+    const { setHelpKo, resetLangForTest } = await import('../world/lang.js');
+    resetLangForTest();
+    expect(LESSON_STRINGS.code.title).toBe(LESSON_STRINGS_EN.code.title);
+    expect(LESSON_STRINGS.status.ok('Oreo', 'Dan')).toBe('Oreo · 👩‍🏫 With Dan');
+    expect(LESSON_STRINGS.code.errors.invalid_code).toBe(LESSON_STRINGS_EN.code.errors.invalid_code);
+    setHelpKo(true);
+    expect(LESSON_STRINGS.ended.title).toBe(`${LESSON_STRINGS_EN.ended.title} · ${LESSON_STRINGS_KO.ended.title}`);
+    expect(LESSON_STRINGS.status.ok('Oreo', 'Dan')).toBe('Oreo · 👩‍🏫 With Dan · Dan 선생님과 함께');
+    expect(LESSON_STRINGS.code.errors.network).toContain(LESSON_STRINGS_KO.code.errors.network);
+    expect(LESSON_STRINGS.code.errors.nope).toBeUndefined();
+    resetLangForTest();
+  });
+});

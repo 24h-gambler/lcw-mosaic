@@ -1,5 +1,6 @@
-/** Korean copy for the lesson layer of the 3D client (AGENTS 6). No prices, payments or deadlines (AGENTS 4.9). */
+/** Korean copy for the lesson layer (the help line under the English, LESSON_STRINGS below) of the 3D client (AGENTS 6). No prices, payments or deadlines (AGENTS 4.9). */
 import { teacherLabel } from '@lcw/content';
+import { helpKoOn } from '../world/lang.js';
 export const LESSON_STRINGS_KO = {
   code: {
     title: '선생님이 알려 준 숫자 6개를 넣어요',
@@ -133,3 +134,35 @@ export const LESSON_STRINGS_EN: LessonStrings = {
   },
   lowTier: '🃏 This device does the lesson with word cards…'
 };
+
+/** "en · ko" when the Korean help is on and the two differ (world/lang.ts), else the English. */
+function joinHelp(en: string, ko: unknown): string {
+  if (!helpKoOn() || typeof ko !== 'string' || !ko || ko === en) return en;
+  // A shared lead ("Oreo · …") is said once: the Korean keeps only what differs.
+  const e = en.split(' · ');
+  const k = ko.split(' · ');
+  let i = 0;
+  while (i < e.length - 1 && i < k.length - 1 && e[i] === k[i]) i += 1;
+  return `${en} · ${k.slice(i).join(' · ')}`;
+}
+/** A nested table read through the language at the moment of use (like world/strings.ts biTable, all levels). */
+function biDeep<T extends object>(en: T, ko: object | undefined): T {
+  return new Proxy(en, {
+    get(target, key) {
+      const e = (target as Record<PropertyKey, unknown>)[key];
+      const k = ko ? (ko as Record<PropertyKey, unknown>)[key] : undefined;
+      if (typeof e === 'function') {
+        return (...a: unknown[]) => joinHelp(String((e as (...x: unknown[]) => unknown)(...a)), typeof k === 'function' ? (k as (...x: unknown[]) => unknown)(...a) : undefined);
+      }
+      if (typeof e === 'string') return joinHelp(e, k);
+      if (e && typeof e === 'object') return biDeep(e, k && typeof k === 'object' ? k : undefined);
+      return e;
+    }
+  });
+}
+
+/**
+ * What the lesson layer shows: the language the child learns (English is the only one open, so always English now),
+ * with the Korean after a dot when the child turned the Korean help on (Dan 11-16 14:3x, world/lang.ts).
+ */
+export const LESSON_STRINGS: LessonStrings = biDeep(LESSON_STRINGS_EN, LESSON_STRINGS_KO);

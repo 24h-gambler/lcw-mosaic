@@ -191,7 +191,10 @@ function SeatItem({
   const tutoring = s.plan === 'tutoring';
   const included = tutoring && (s.payments ?? []).every((p) => p.amount_krw === 0);
   const planText = tutoring
-    ? [S.tutoringPlan, included ? S.tutoringIncluded : null, S.until(day(s.ends_at))].filter(Boolean).join(' · ')
+    ? // '과외 구독 중' only while the seat runs; a stopped or ended one reads '과외' next to its state badge.
+      [s.state === 'active' || s.state === 'expiring' ? S.tutoringPlan : (S.plan.tutoring ?? s.plan), included ? S.tutoringIncluded : null, S.until(day(s.ends_at))]
+        .filter(Boolean)
+        .join(' · ')
     : `${S.plan[s.plan] ?? s.plan} · ${S.term[s.term] ?? s.term}`;
   const pr = s.pending_request;
   return (

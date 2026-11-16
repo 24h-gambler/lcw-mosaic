@@ -84,7 +84,9 @@ export interface WorldHandle {
   setLessonBadge?(on: boolean): void;
   /**
    * The teacher's name tag next to the lesson tag: present → "<name> 함께", absent → "혼자 놀기" (the teacher console
-   * stopped beating). null = no lesson (the plain lesson tag rules).
+   * stopped beating). null = no lesson (the plain lesson tag rules). While present, the teacher's avatar with a name
+   * plate also stands near the child in their world (world/visitor.ts, Dan 11-16 12:10; NPC id 'teacher' for npcSay
+   * and dialogs).
    */
   setTeacher?(t: { present: boolean; name: string | null } | null): void;
   /**
@@ -113,6 +115,10 @@ export interface WorldHandle {
    * dialog frames the NPC the shot is centred in the strip above it; 0 = nothing covers the world.
    */
   setViewInset?(bottomPx: number, rightPx?: number): void;
+  /** Start flow title screen: the camera circles the town, the HUD hides, the world takes no input (false = play). */
+  setAttract?(on: boolean): void;
+  /** The child's world details (G07, packages/content world-setup.ts): season weather, sky time, animal friend; null = none. */
+  setWorldLook?(look: import('@lcw/content').WorldSetupChoice | null): void;
   /**
    * Talk lane G02: a transparent square PNG (data URL) of a thing the sentence gets (the mesh `giveItem` puts in hand)
    * or of an NPC's head and shoulders, drawn with the world's own meshes and cached per (req, size); null when the

@@ -75,6 +75,8 @@ function readPage(markers) {
   // Korean keep-all: the body rule, and any visible text block that overrides it.
   const breakAll = [...document.querySelectorAll('p,li,h1,h2,h3,button,span,div')]
     .filter((el) => el.childElementCount === 0 && /[가-힣]{4,}/.test(el.textContent || ''))
+    // only what is on screen now (a hidden offline band is not read by anyone)
+    .filter((el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden')
     .filter((el) => getComputedStyle(el).wordBreak !== 'keep-all')
     .slice(0, 5)
     .map((el) => (el.textContent || '').trim().slice(0, 40));
@@ -179,6 +181,9 @@ export function summarize({ base, sha, plan, results, coverage, check = runCheck
     keepAll: results.filter((r) => r.hasKorean && (!r.keepAll || r.breakAll?.length)).map((r) => ({ route: r.route, size: r.size, body: r.keepAll, samples: r.breakAll })),
     frame: frameOutliers(results)
   };
+  // /r/x is opened with a made-up report token on purpose (the "link not found" screen): its 404 is the expected answer.
+  const expected = (r, m) => r.route === '/r/x' && /404/.test(m);
+  for (const r of results) for (const k of ['consoleErrors', 'httpErrors']) if (r[k]) r[k] = r[k].filter((m) => !expected(r, m));
   const consoleErrors = results.filter((r) => r.consoleErrors?.length || r.pageErrors?.length || r.httpErrors?.length).map((r) => ({ route: r.route, size: r.size, console: r.consoleErrors, page: r.pageErrors, http: r.httpErrors }));
   return {
     at: new Date().toISOString(),

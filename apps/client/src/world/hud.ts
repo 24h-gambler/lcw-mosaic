@@ -6,6 +6,7 @@
 import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { WORLD_STRINGS as W, itemNameKo, controlsDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
 import { bandOf, clockLabel, hotbarCaption, isNight, placeLabel, type BandId } from '../frame/status.js';
+import { refillOf } from '../frame/gauges.js';
 
 const STYLE_ID = 'lcw-world-hud-style';
 
@@ -35,6 +36,18 @@ function css(): string {
 .lw-chip .w.night i{background:transparent;box-shadow:inset -4px -2px 0 0 ${C.silver}}
 .lw-chip .w.snow i{background:${C['paper-0']};box-shadow:0 0 0 2px ${C.silver}}
 .lw-chip .s{white-space:nowrap}
+.lw-chip .gz{display:none;align-items:center;gap:10px;margin-top:2px}
+.lw-chip .gz.on{display:inline-flex}
+.lw-chip .gz span{display:inline-flex;align-items:center;gap:4px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:1}
+.lw-chip .gz b{display:block;width:calc(40px * var(--lcw-hs,1));height:8px;border-radius:999px;background:${C['night-700']};box-shadow:inset 0 0 0 1px ${C['paper-0']};overflow:hidden}
+.lw-chip .gz b i{display:block;height:100%;width:45%;background:var(--gz);transition:width ${M.slowMs}ms linear}
+.lw-chip .gz .h{--gz:${C.sun}}
+.lw-chip .gz .t{--gz:${C.sky}}
+.lw-chip .gz .low b i{background:var(--c-danger,${C.danger})}
+.lw-chip .gz .low{animation:lwGzLow 1.6s ease-in-out infinite}
+.lw-chip .gz em{display:none;font-style:normal;color:${C.sun};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
+.lw-chip .gz.slow em{display:inline}
+@keyframes lwGzLow{50%{opacity:.55}}
 .lw-net{position:absolute;top:0;left:0;right:0;display:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;align-items:center;justify-content:center;gap:8px;padding:4px 12px;background:${C.sun};color:${C['ink-900']};border-bottom:${S.borderWidthPx}px solid ${C['ink-900']};font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px}
 .lw-net i{width:10px;height:10px;border-radius:50%;background:${C['ink-900']};flex:none}
 .lw-hud.off .lw-net{display:flex}
@@ -129,9 +142,10 @@ function css(): string {
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
 @media (max-width:600px),(max-height:500px){.lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.15)}}
+@media (max-width:600px){.lw-hud.gz .lw-goal{top:calc(84px + 64px * (var(--lcw-hs,1) - 1))}}
 @media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
 .lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,32px)}}
-@media (prefers-reduced-motion:reduce){.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
+@media (prefers-reduced-motion:reduce){.lw-chip .gz .low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
 }
 
@@ -227,6 +241,9 @@ export class WorldHud {
   private slots: HTMLDivElement[] = [];
   /** item slot contents, kept while the hotbar shows build stacks */
   private itemSlots: Array<{ src: string; title: string } | null> = [null, null, null, null, null];
+  private itemKeys: Array<string | null> = [null, null, null, null, null];
+  private gz: HTMLElement | null = null;
+  private gzOn = false;
   private buildSlotsOn = false;
   private toast: HTMLDivElement;
   private toastTimer = 0;
@@ -281,6 +298,7 @@ export class WorldHud {
     this.clockChip = el('span', 'w none', sc);
     el('i', '', this.clockChip);
     this.clockText = el('span', '', this.clockChip);
+    this.gz = el('span', 'gz', sc);
     this.lessonChip = el('span', 'l', chip);
     this.lessonChip.textContent = W.lessonBadge;
     // G01 empty state: the connection dropped, the world keeps going on this device (docs/08 8.6).
@@ -511,12 +529,58 @@ export class WorldHud {
 
   /** Name of the selected slot over the bar (or what an empty bar is for); fades after `ms`. */
   private showCaption(ms = 2400): void {
-    const text = this.buildSlotsOn ? (this.slots[this.selected]?.title ?? '') : hotbarCaption(this.itemSlots, this.selected);
+    let text = this.buildSlotsOn ? (this.slots[this.selected]?.title ?? '') : hotbarCaption(this.itemSlots, this.selected);
+    const held = this.buildSlotsOn ? null : this.itemKeys[this.selected];
+    const r = held && this.gzOn ? refillOf(held) : null;
+    if (r) text = `${text} · ${r.kind === 'food' ? W.useAgainFood : W.useAgainDrink}`;
     window.clearTimeout(this.capTimer);
     if (!text) {
       this.cap.classList.remove('on');
       return;
     }
+    this.cap.textContent = text;
+    this.cap.classList.add('on');
+    this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
+  }
+
+  /**
+   * G01 게이지 (docs/03 D1): hunger and thirst bars on the status chip, red and pulsing at 20% or less, "느려짐" while
+   * walking is slower. null hides them (the frame decides when they run).
+   */
+  setGauges(g: { hunger: number; thirst: number; lowHunger: boolean; lowThirst: boolean; slow: boolean } | null): void {
+    const gz = this.gz;
+    if (!gz) return;
+    this.gzOn = g !== null;
+    this.root.classList.toggle('gz', this.gzOn);
+    gz.classList.toggle('on', this.gzOn);
+    if (!g) return;
+    if (!gz.firstChild) {
+      for (const [cls, icon, label] of [['h', '🍞', W.hunger], ['t', '💧', W.thirst]] as const) {
+        const s = el('span', cls, gz);
+        s.setAttribute('role', 'meter');
+        s.setAttribute('aria-label', label);
+        s.setAttribute('aria-valuemin', '0');
+        s.setAttribute('aria-valuemax', '100');
+        el('span', '', s).textContent = icon;
+        el('i', '', el('b', '', s));
+      }
+      el('em', '', gz).textContent = W.slowed;
+    }
+    const [h, t] = [gz.children[0] as HTMLElement, gz.children[1] as HTMLElement];
+    const put = (s: HTMLElement, v: number, low: boolean): void => {
+      const p = Math.round(Math.min(100, Math.max(0, v)));
+      (s.querySelector('b i') as HTMLElement).style.width = `${p}%`;
+      s.setAttribute('aria-valuenow', String(p));
+      s.classList.toggle('low', low);
+    };
+    put(h, g.hunger, g.lowHunger);
+    put(t, g.thirst, g.lowThirst);
+    gz.classList.toggle('slow', g.slow);
+  }
+
+  /** A one-off line over the bar (ate, drank, "a bit later"): same place and fade as the slot caption. */
+  notice(text: string, ms = 2400): void {
+    window.clearTimeout(this.capTimer);
     this.cap.textContent = text;
     this.cap.classList.add('on');
     this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
@@ -598,6 +662,7 @@ export class WorldHud {
     const s = this.slots[slot];
     if (!s) return;
     this.itemSlots[slot] = { src: itemIconDataUrl(key), title: itemNameKo(key) };
+    this.itemKeys[slot] = key;
     if (!this.buildSlotsOn) this.drawSlot(slot, this.itemSlots[slot], null);
     const img = { src: this.itemSlots[slot]!.src };
     s.classList.remove('pop');
@@ -624,6 +689,7 @@ export class WorldHud {
   setItem(slot: number, key: string | null): void {
     if (!this.slots[slot]) return;
     this.itemSlots[slot] = key ? { src: itemIconDataUrl(key), title: itemNameKo(key) } : null;
+    this.itemKeys[slot] = key;
     if (!this.buildSlotsOn) this.drawSlot(slot, this.itemSlots[slot] ?? null, null);
     // the "bag is empty" line from the start must not stay over a bag that just filled
     if (key && this.cap.textContent === W.hotbarAllEmpty) this.cap.classList.remove('on');
@@ -633,6 +699,7 @@ export class WorldHud {
   clearItem(slot: number): void {
     if (!this.slots[slot]) return;
     this.itemSlots[slot] = null;
+    this.itemKeys[slot] = null;
     if (!this.buildSlotsOn) this.drawSlot(slot, null, null);
   }
 

@@ -348,10 +348,20 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const hotbar: Array<string | null> = [null, null, null, null, null];
   // the child picked a slot holding a thing: a use of that thing (frame domain records it on the server, docs/09 P4)
   const holdListeners = new Set<(itemKey: string) => void>();
+  // picking the slot that is already in hand uses the thing (eat, drink: G01 gauges, frame/gauges.ts)
+  const useListeners = new Set<(itemKey: string) => void>();
+  let lastPicked = -1;
   const slotPicked = (i: number): void => {
     const k = hotbar[i];
-    if (k) for (const cb of holdListeners) cb(k);
+    const again = i === lastPicked;
+    lastPicked = i;
+    if (!k) return;
+    for (const cb of holdListeners) cb(k);
+    if (again) for (const cb of useListeners) cb(k);
   };
+  // G01 gauges: walking speed and running follow hunger/thirst (docs/03 D1); the frame sets them
+  let moveMult = 1;
+  let canRun = true;
   let possessedId: string | null = null;
   /** a lesson is live (setLessonBadge): solo-only NPCs (the errand giver) step out of it */
   let lessonMode = false;
@@ -1192,6 +1202,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       intent.dz = fz * f + fx * s;
       intent.run = k.has('ShiftLeft') || k.has('ShiftRight') || (input.stick && Math.hypot(input.stickX, input.stickZ) > 0.92);
       intent.jump = k.has('Space') || input.jump;
+      if (moveMult < 1) {
+        intent.dx *= moveMult;
+        intent.dz *= moveMult;
+      }
+      if (!canRun) intent.run = false;
     }
     const wasGround = body.onGround;
     const pushers = [...npcs.values()].map((n) => ({ x: n.pos.x, z: n.pos.z, r: 0.35 }));
@@ -1576,6 +1591,16 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     setReduceMotion: (on) => {
       reduceMotion = on;
     },
+    onUse: (cb) => {
+      useListeners.add(cb);
+      return () => useListeners.delete(cb);
+    },
+    setGauges: (g) => hud.setGauges(g),
+    setMove: (mult, run) => {
+      moveMult = Math.min(1, Math.max(0.3, Number.isFinite(mult) ? mult : 1));
+      canRun = run;
+    },
+    notice: (text) => hud.notice(text),
     setKeyHints: (k) => {
       keyHints = { ...k };
       hud.setKeyHints(keyHints);

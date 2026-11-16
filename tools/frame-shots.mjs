@@ -59,6 +59,7 @@ async function boxes(page) {
       help: q('.lw-help'),
       buttons: [...document.querySelectorAll('.lw-touch.on .lw-btn')].map(r).filter(Boolean),
       empties: document.querySelectorAll('.lw-slot.empty').length,
+      gauges: [...document.querySelectorAll('.lw-chip .gz [role="meter"]')].map((m) => Number(m.getAttribute('aria-valuenow'))),
       vw: innerWidth,
       vh: innerHeight
     };
@@ -101,6 +102,8 @@ for (const vp of VIEWPORTS) {
   check(vp.name, /\d\d:\d\d/.test(a.clock?.text ?? ''), `weather · clock missing (${a.clock?.text})`);
   check(vp.name, !!a.coins, 'coin count not shown for a guest');
   check(vp.name, a.empties === 5, `expected 5 empty slots, got ${a.empties}`);
+  // G01 gauges: hunger and thirst on the status chip from the start (45% on a new device)
+  check(vp.name, a.gauges.length === 2 && a.gauges.every((v) => v >= 40 && v <= 46), `gauges hunger/thirst near 45 (${a.gauges})`);
   if (SETTINGS?.textScale) {
     const fs = await page.evaluate(() => [parseFloat(getComputedStyle(document.querySelector('.lw-goal .g') ?? document.body).fontSize), parseFloat(getComputedStyle(document.querySelector('.lw-help')).fontSize)]);
     // the HUD follows the text size up to 125% (115% on phones and short landscape screens); menus and dialogs take all of it
@@ -133,6 +136,15 @@ for (const vp of VIEWPORTS) {
   check(vp.name, b.empties === 3, `expected 3 empty slots after two items, got ${b.empties}`);
   check(vp.name, b.cap?.text === '쿠키', `caption should name the selected slot (${b.cap?.text})`);
   check(vp.name, b.coins?.text === '120', `coins should read 120 (${b.coins?.text})`);
+  // drink: the honey tea in slot 1, picked twice (the second pick uses the slot in hand)
+  for (let n = 0; n < 2; n++) {
+    await page.evaluate(() => document.querySelectorAll('.lw-slot')[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+    await page.waitForTimeout(400);
+  }
+  await page.waitForTimeout(700);
+  const dr = await page.evaluate(() => ({ cap: document.querySelector('.lw-cap')?.textContent ?? '', thirst: Number(document.querySelectorAll('.lw-chip .gz [role="meter"]')[1]?.getAttribute('aria-valuenow')) }));
+  await page.screenshot({ path: `${out}/${vp.name}-2drink.png` });
+  check(vp.name, /꿀꺽/.test(dr.cap) && dr.thirst >= 70, `drinking the honey tea should fill thirst (${dr.cap} / ${dr.thirst})`);
 
   // 3. a lesson screen (tag, goal card, four-digit coins), then the connection band and snow: nothing covers anything
   await page.evaluate(() => {
@@ -172,6 +184,16 @@ for (const vp of VIEWPORTS) {
   await page.screenshot({ path: `${out}/${vp.name}-4aim.png` });
   check(vp.name, !d.net, 'connection band stays after coming back');
   check(vp.name, !!d.aim && Math.abs(d.aim.x + d.aim.w / 2 - d.vw / 2) < 2 && Math.abs(d.aim.y + d.aim.h / 2 - d.vh / 2) < 2, 'crosshair not centred');
+  if (vp.name === 'd1440' || vp.name === 'p390') {
+    // low gauges from the device record: slower walking is said once and shown on the chip
+    await page.evaluate(() => localStorage.setItem('lcw.gauges', JSON.stringify({ g: { hunger: 50, thirst: 12 }, used: [] })));
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
+    await page.waitForTimeout(1500);
+    const lo = await page.evaluate(() => ({ slow: !!document.querySelector('.lw-chip .gz.slow'), low: !!document.querySelector('.lw-chip .gz .t.low'), cap: document.querySelector('.lw-cap')?.textContent ?? '' }));
+    await page.screenshot({ path: `${out}/${vp.name}-5low.png` });
+    check(vp.name, lo.slow && lo.low && /목이 말라서/.test(lo.cap), `low thirst: slow ${lo.slow}, low ${lo.low}, said "${lo.cap}"`);
+  }
   check(vp.name, errs.length === 0, `console errors: ${errs.join(' | ')}`);
   report.push({ vp: vp.name, start: a, items: { cap: b.cap?.text, empties: b.empties, coins: b.coins?.text }, offline: { net: c.net?.text, clock: c.clock?.text }, errs });
   await ctx.close();

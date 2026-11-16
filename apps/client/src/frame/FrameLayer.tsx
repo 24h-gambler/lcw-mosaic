@@ -15,6 +15,7 @@ import { fetchItems, holdThing, type ItemsView } from './api.js';
 import { getAudioRuntime } from '../audio/runtime.js';
 import { frameSettings, graphicsOf, lookSettingsOf, motionReduced, onFrameSettings, sameGraphics, startFrameSettings, type GraphicsSettings } from './settings.js';
 import { startSettingsSync } from './settings-sync.js';
+import { useGauges } from './useGauges.js';
 import { keyLabel } from './menu/SettingsPanel.js';
 import type { KeyHintLabels } from '../world/strings.js';
 
@@ -220,6 +221,11 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   useEffect(() => {
     if (blocked) setMenu(null);
   }, [blocked]);
+
+  // G01 gauges: the clock stops for a lesson, a dialog and the menu; eating or drinking is a use on the server
+  useGauges(world, lessonOn || blocked || menu !== null, (key) => {
+    if (auth.kind !== 'guest') void holdThing(auth, key);
+  });
 
   ensureMenuStyle();
   if (!world) return null;

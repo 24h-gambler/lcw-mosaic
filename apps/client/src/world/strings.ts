@@ -33,6 +33,16 @@ export const WORLD_STRINGS = {
   seatPausedBody: '마을은 둘러볼 수 있어요. 다시 같이 놀고 싶으면 보호자에게 말해 주세요.',
   seatPausedOk: '알겠어요',
   seatPausedChip: '둘러보기만',
+  hunger: '배고픔',
+  thirst: '목마름',
+  slowed: '느려짐',
+  useAgainFood: '한 번 더 누르면 먹어요',
+  useAgainDrink: '한 번 더 누르면 마셔요',
+  ate: '냠냠! 배고픔이 채워졌어요',
+  drank: '꿀꺽! 목마름이 채워졌어요',
+  restLater: '조금 있다가 다시 먹을 수 있어요',
+  lowHunger: '배가 고파서 느려졌어요 · 카페에서 영어로 주문해 봐요',
+  lowThirst: '목이 말라서 느려졌어요 · 카페에서 음료를 주문해 봐요',
   controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
   controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기',
   // Building on my plot (docs/03 D13).

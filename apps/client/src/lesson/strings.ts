@@ -1,4 +1,5 @@
 /** Korean copy for the lesson layer of the 3D client (AGENTS 6). No prices, payments or deadlines (AGENTS 4.9). */
+import { teacherLabel } from '@lcw/content';
 export const LESSON_STRINGS_KO = {
   code: {
     title: '선생님이 알려 준 숫자 6개를 넣어요',
@@ -16,7 +17,7 @@ export const LESSON_STRINGS_KO = {
   },
   status: {
     ok: (nickname: string, teacher?: string | null) =>
-      `${nickname ? `${nickname} · ` : ''}${teacher && teacher !== '선생님' ? `${teacher} 선생님과 함께` : '선생님과 함께'}`,
+      `${nickname ? `${nickname} · ` : ''}${teacherLabel(teacher)}과 함께`,
     /** The teacher console stopped beating (teacher left, device asleep): the child plays on alone. */
     alone: (nickname: string) => `${nickname ? `${nickname} · ` : ''}혼자 놀기 — 선생님이 잠깐 자리를 비웠어요`,
     retrying: '다시 연결하는 중…',

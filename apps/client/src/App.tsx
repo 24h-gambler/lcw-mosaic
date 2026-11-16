@@ -10,7 +10,8 @@ import { WORLD_STRINGS as W } from './world/strings.js';
 import { resolveIdentity, browserStore, storedStudentToken, type PlayerIdentity } from './world/identity.js';
 import { onSeatInactive } from './world/seat.js';
 import type { BuildAccess } from './world/api.js';
-import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
+import { FrameFloorWatch, TIER_SETTINGS, gpuClassOf, readGpuRenderer, type GpuClass } from './world/tiers.js';
+import { RoomClient } from './world/room-client.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { FrameLayer } from './frame/FrameLayer.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
@@ -219,14 +220,17 @@ export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveI
   };
 }
 
-export function pickTier(search: string, nav: { deviceMemory?: number; hardwareConcurrency?: number }, coarse: boolean): WorldTier {
+export function pickTier(search: string, nav: { deviceMemory?: number; hardwareConcurrency?: number }, coarse: boolean, gpu: GpuClass = 'unknown'): WorldTier {
   const q = new URLSearchParams(search).get('tier');
   if (q === 'low' || q === 'mid' || q === 'high') return q;
+  // Software GL draws every pixel on the CPU; an integrated GPU does not carry sun shadows + MSAA (docs/02 §11).
+  if (gpu === 'software') return 'low';
   const mem = nav.deviceMemory ?? null;
   const cores = nav.hardwareConcurrency ?? 4;
   if (coarse) return mem !== null && mem < 4 ? 'low' : 'mid';
   if (mem !== null && mem < 4) return 'low';
-  return cores >= 8 && (mem === null || mem >= 8) ? 'high' : 'mid';
+  const byCpu: WorldTier = cores >= 8 && (mem === null || mem >= 8) ? 'high' : 'mid';
+  return byCpu === 'high' && gpu === 'integrated' ? 'mid' : byCpu;
 }
 
 function startSceneFrom(search: string): SceneId | undefined {
@@ -454,8 +458,12 @@ export function App(): React.ReactElement {
     let handle: WorldHandle | null = null;
     let cancelled = false;
     const nav = navigator as Navigator & { deviceMemory?: number };
-    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches);
-    createWorld({ canvas: canvasRef.current, tier, startScene: startSceneFrom(location.search), hudRoot: hudRef.current ?? undefined })
+    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches, gpuClassOf(readGpuRenderer()));
+    // ?tier= pins the tier (headless checks); otherwise the world measures itself (G14 'auto'; the settings screen
+    // overrides it through setGraphics).
+    const pinned = new URLSearchParams(location.search).has('tier');
+    const graphics = { quality: pinned ? tier : ('auto' as const), viewChunks: null, shadows: null, renderScale: null };
+    createWorld({ canvas: canvasRef.current, tier, startScene: startSceneFrom(location.search), hudRoot: hudRef.current ?? undefined, graphics })
       .then((h) => {
         if (cancelled) {
           h.dispose();
@@ -474,6 +482,28 @@ export function App(): React.ReactElement {
       handle?.dispose();
     };
   }, [ok]);
+
+  // Multi room (docs/03 D11): lesson students meet in their lesson's room, linked children in their family's. The
+  // token is read on every (re)connect, so a lesson joined after the world opened is picked up by the next retry.
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  useEffect(() => {
+    if (!world?.multi || !world.multiPose) return;
+    const sink = world.multi;
+    const room = new RoomClient({
+      token: () => {
+        const st = storedStudentToken();
+        if (st && st.length >= 32) return st;
+        const id = identityRef.current;
+        return id?.kind === 'child' ? id.token : null;
+      },
+      source: { pose: () => world.multiPose?.() ?? null },
+      sink
+    });
+    room.start();
+    (window as unknown as { __lcwRoom?: RoomClient }).__lcwRoom = room;
+    return () => room.stop();
+  }, [world, identity?.kind]);
 
   // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
   useEffect(() => {

@@ -4,13 +4,13 @@
  */
 import * as THREE from 'three';
 import { VoxelWorld, parseRef } from '@lcw/sim-core';
-import type { BuildAccess, CreateWorldOptions, DirectorEventKind, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats } from './api.js';
+import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
 import { TILE_NAMES, blockLook } from './blocks.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import { ChunkRenderer } from './chunks.js';
 import { makeBlockMaterials } from './materials.js';
-import { ResolutionGovernor, TIER_SETTINGS } from './tiers.js';
+import { AutoTierPicker, ResolutionGovernor, TIER_SETTINGS, graphicsFor } from './tiers.js';
 import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
@@ -24,6 +24,7 @@ import { BuildView } from './build-view.js';
 import { PlotSync } from './plot-sync.js';
 import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMirror, toggleThirdPerson, type CamMode } from './dialog-shot.js';
 import { FirstPersonHands } from './viewmodel.js';
+import { PeerAvatars, peerLook } from './peers.js';
 import { Buddy } from './buddy.js';
 import { SeasonWeather } from './season.js';
 import { TEACHER_NPC_ID, disposePlate, makePlate, pickableNpc, plateText, teacherDef, teacherTarget } from './visitor.js';
@@ -195,19 +196,28 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // ---- Renderer.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: tier.antialias, powerPreference: 'high-performance', alpha: false });
   const basePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-  const governor = new ResolutionGovernor(tier);
+  // G14 화면 설정 over the start tier (setGraphics changes these live). Antialias, block material and particle cap
+  // stay what the world started with; shadows need the lit material, so only a world started on high can show them.
+  let tierName: WorldTier = opts.tier;
+  const canShadow = tier.material === 'lit';
+  let gfxReq: GraphicsSettings = opts.graphics ?? { quality: opts.tier, viewChunks: null, shadows: null, renderScale: null };
+  if (gfxReq.quality !== 'auto') tierName = gfxReq.quality;
+  let gfx = graphicsFor(tierName, gfxReq, canShadow);
+  let autoPick: AutoTierPicker | null = gfxReq.quality === 'auto' ? new AutoTierPicker(tierName) : null;
+  let governor = new ResolutionGovernor({ pixelScale: gfx.renderScale, minScale: gfx.minScale, targetFps: gfx.targetFps });
   renderer.setPixelRatio(basePixelRatio * governor.scale);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = tier.shadows;
+  renderer.shadowMap.enabled = gfx.shadows;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 600);
-  const viewDistance = tier.viewChunks * 16;
+  let viewChunks = gfx.viewChunks;
+  let viewDistance = viewChunks * 16;
   const sky = new Sky(scene, viewDistance);
   const skyDefaultHour = sky.hour;
-  sky.clouds.visible = tier.clouds;
-  if (tier.shadows) {
-    sky.sun.castShadow = true;
+  sky.clouds.visible = gfx.clouds;
+  if (canShadow) {
+    sky.sun.castShadow = gfx.shadows;
     sky.sun.shadow.mapSize.set(2048, 2048);
     const c = sky.sun.shadow.camera;
     c.left = -45;
@@ -238,7 +248,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const chunks = new ChunkRenderer(world, chunkMats, workerCount, () =>
     new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module' })
   );
-  chunks.setShadows(tier.shadows);
+  chunks.setShadows(gfx.shadows);
   scene.add(chunks.group);
   const effects = new Effects(tier.particles);
   scene.add(effects.group);
@@ -279,10 +289,14 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   camYaw = playerYaw + startScene.cameraYaw;
   camPitch = startScene.camPitch ?? camPitch;
   camDist = startScene.camDist ?? camDist;
-  VoxelCharacter.shadows = new BlobShadows(24);
+  // player + NPCs + townsfolk + up to (room capacity - 1) people from a multi room
+  VoxelCharacter.shadows = new BlobShadows(40);
   scene.add(VoxelCharacter.shadows.mesh);
   const player = new VoxelCharacter(PLAYER_LOOK);
   scene.add(player.root);
+  // Other people in the same multi room (room-client.ts feeds them through handle.multi).
+  const peerShirts = NPCS.map((n) => n.look.shirt);
+  const peers = new PeerAvatars(scene, hud.root, (id) => peerLook(id, PLAYER_LOOK, peerShirts));
   const hands = new FirstPersonHands(PLAYER_LOOK);
   // one character per task (each is a few dozen boxes; all of them at once was a 150 ms task on a throttled tablet)
   await yieldToMain();
@@ -1069,6 +1083,34 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   window.addEventListener('resize', resize);
   // the canvas can also change size without a window resize (panels, rotation on some tablets)
   const resizeObs = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null;
+
+  /** Re-applies G14 graphics over the current tier (setGraphics, or quality 'auto' stepping down). */
+  const applyGraphics = (): void => {
+    const next = graphicsFor(tierName, gfxReq, canShadow);
+    if (next.viewChunks !== viewChunks) {
+      viewChunks = next.viewChunks;
+      viewDistance = viewChunks * 16;
+      sky.setViewDistance(viewDistance);
+    }
+    if (next.shadows !== gfx.shadows) {
+      renderer.shadowMap.enabled = next.shadows;
+      sky.sun.castShadow = next.shadows;
+      chunks.setShadows(next.shadows);
+      // lit programs compile with or without the shadow map: rebuild them once
+      scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        for (const mm of Array.isArray(m) ? m : m ? [m] : []) mm.needsUpdate = true;
+      });
+    }
+    sky.clouds.visible = next.clouds;
+    if (next.renderScale !== gfx.renderScale || next.minScale !== gfx.minScale || next.targetFps !== gfx.targetFps) {
+      governor = new ResolutionGovernor({ pixelScale: next.renderScale, minScale: next.minScale, targetFps: next.targetFps });
+      renderer.setPixelRatio(basePixelRatio * governor.scale);
+      resize();
+    }
+    gfx = next;
+  };
+  let autoAcc = 0;
   resizeObs?.observe(canvas);
 
   // ---- Building, per frame: plot entry/exit, aim outline, held break / place.
@@ -1215,6 +1257,16 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     last = now;
     fpsAcc += dt;
     fpsFrames++;
+    // quality 'auto': one sample a second; a tier that stays slow at the resolution floor steps down
+    autoAcc += dt;
+    if (autoAcc >= 1) {
+      autoAcc = 0;
+      const next = autoPick?.sample(fps, governor.scale <= gfx.minScale + 0.001);
+      if (next) {
+        tierName = next;
+        applyGraphics();
+      }
+    }
     if (fpsAcc >= 0.5) {
       fps = fpsFrames / fpsAcc;
       frameMs = (fpsAcc / fpsFrames) * 1000;
@@ -1380,7 +1432,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     buddy?.update(dt, body.x, body.y, body.z, viewYaw(), (x, z, fromY) => standHeight(world, x, z, fromY));
     weather?.update(dt, camera.position);
     chunkMats.sync(sky);
-    chunks.update(body.x, body.z, tier.viewChunks);
+    chunks.update(body.x, body.z, viewChunks);
     updateCamera(dt);
     updateBuild(dt, now);
 
@@ -1399,6 +1451,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       const p = project(body.x, body.y + CHAR_HEIGHT + 0.25, body.z);
       hud.placePlate(p.sx, p.sy, p.vis && camMode !== 'first');
     }
+    if (peers.count > 0) peers.update(dt, project, viewDistance, player.root.position, true);
     hud.flushBubbles();
     if (nearNpc && !paused && autopilot.length === 0 && !hud.hasBubble(nearNpc.def.id, nowMs)) {
       const p = project(nearNpc.pos.x, nearNpc.pos.y + CHAR_HEIGHT + 0.35, nearNpc.pos.z);
@@ -1599,6 +1652,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     },
     dispose() {
       disposed = true;
+      peers.clear();
       hands.dispose();
       if (teacherPlate) disposePlate(teacherPlate);
       buddy?.dispose();
@@ -1687,18 +1741,65 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         else greetByName();
       }
     },
+    setGraphics(g) {
+      const quality = g.quality === 'auto' || g.quality === 'low' || g.quality === 'mid' || g.quality === 'high' ? g.quality : 'auto';
+      gfxReq = { quality, viewChunks: g.viewChunks ?? null, shadows: g.shadows ?? null, renderScale: g.renderScale ?? null };
+      if (quality === 'auto') {
+        if (!autoPick) {
+          tierName = opts.tier;
+          autoPick = new AutoTierPicker(tierName);
+        }
+      } else {
+        tierName = quality;
+        autoPick = null;
+      }
+      applyGraphics();
+    },
+    multiPose() {
+      if (disposed) return null;
+      const sp = Math.hypot(body.vx, body.vz);
+      const anim = !body.onGround ? 3 : sp > 4.2 ? 2 : sp > 0.3 ? 1 : 0;
+      return [body.x, body.y + body.stepOffset, body.z, wrapAngle(playerYaw), anim];
+    },
+    multi: {
+      hello(_you, list) {
+        peers.clear();
+        for (const p of list) peers.add({ id: p.id, name: p.name, role: p.role }, p.pose);
+      },
+      join(id, name, role) {
+        peers.add({ id, name, role });
+      },
+      leave(id) {
+        peers.remove(id);
+      },
+      pose(id, x, y, z, yaw) {
+        peers.pose(id, x, y, z, yaw);
+      },
+      emote(id, e) {
+        peers.emote(id, e);
+      },
+      full() {
+        hud.bubble('player', '', W.roomFull, { me: true }, performance.now());
+      },
+      reset() {
+        peers.clear();
+      }
+    },
     getStats(): WorldStats {
       return {
         fps,
         frameMs,
         renderScale: governor.scale,
-        tier: opts.tier,
+        tier: tierName,
+        autoTier: autoPick ? autoPick.settled : null,
+        graphics: { viewChunks, shadows: gfx.shadows, renderScale: governor.scale },
         drawCalls: lastStats.draw,
+        peers: peers.count,
         triangles: lastStats.tris,
         chunksMeshed: chunks.meshed,
         chunksVisible: chunks.visible,
         arrival: lastArrival ?? undefined,
-        ground: { near: chunks.outstanding(body.x, body.z, FIRST_RING), view: chunks.outstanding(body.x, body.z, tier.viewChunks) },
+        ground: { near: chunks.outstanding(body.x, body.z, FIRST_RING), view: chunks.outstanding(body.x, body.z, viewChunks) },
         scene: currentScene,
         player: { x: body.x, y: body.y, z: body.z },
         dialogShot: dialogShotStats(),

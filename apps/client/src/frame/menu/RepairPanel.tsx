@@ -64,6 +64,7 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
     setBusy(false);
     if (r.ok) setOpen(r.data);
     else if (r.error === 'not_due') setResult({ pass: false, text: R.notDue });
+    else if (r.error === 'mastered') setResult({ pass: false, text: F.repairMastered });
     else setResult({ pass: false, text: F.offline });
   };
 

@@ -48,7 +48,7 @@ export interface RepairGearView {
   due: boolean;
 }
 
-export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: 'guest' | 'network' | 'auth' | 'seat' | 'bag_full' | 'not_found' | 'not_due' | 'server' };
+export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: 'guest' | 'network' | 'auth' | 'seat' | 'bag_full' | 'not_found' | 'not_due' | 'mastered' | 'server' };
 
 async function call<T>(auth: FrameAuth, path: string, init: RequestInit | undefined, f: Fetch | undefined, parse: (j: unknown) => T): Promise<ApiResult<T>> {
   if (!auth.token) return { ok: false, error: 'guest' };
@@ -64,7 +64,7 @@ async function call<T>(auth: FrameAuth, path: string, init: RequestInit | undefi
   if (res.status === 401 || res.status === 403) return { ok: false, error: 'auth' };
   const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (res.status === 404) return { ok: false, error: 'not_found' };
-  if (res.status === 409) return { ok: false, error: j.error === 'bag_full' ? 'bag_full' : 'not_due' };
+  if (res.status === 409) return { ok: false, error: j.error === 'bag_full' ? 'bag_full' : j.error === 'already_mastered' ? 'mastered' : 'not_due' };
   if (!res.ok) return { ok: false, error: 'server' };
   return { ok: true, data: parse(j) };
 }

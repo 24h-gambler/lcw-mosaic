@@ -50,7 +50,7 @@ function Thing(props: { t: ThingView | null; slot?: number; action?: React.React
 const THING_CSS = `
 .lcw-menu .lcw-bagrow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
 .lcw-menu .lcw-sockets{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
-.lcw-menu .lcw-chest{display:grid;grid-template-columns:repeat(auto-fill,minmax(calc(112px * var(--fs)),1fr));gap:8px}
+.lcw-menu .lcw-chest{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,calc(144px * var(--fs))),1fr));gap:8px}
 .lcw-menu .lcw-thing{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 6px 8px;min-height:calc(112px * var(--fs));
   background:var(--c-paper-0);border:2px solid var(--c-ink-900);border-radius:8px;text-align:center}
 .lcw-menu .lcw-thing.empty{background:transparent;border-style:dashed;border-color:var(--c-ink-500);color:var(--c-ink-500)}

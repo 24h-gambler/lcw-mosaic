@@ -53,7 +53,9 @@ export const MENU_CSS = `
 @media (max-width:600px){
   .lcw-menu{padding:0;align-items:stretch}
   .lcw-menu__win{width:100%;height:100%;border-radius:0;border:none;box-shadow:none}
-  .lcw-menu__tab{padding:6px 10px}
+  .lcw-menu__tabs{gap:2px}
+  .lcw-menu__tab{flex:1 1 0;min-width:0;flex-direction:column;gap:2px;padding:4px 2px;font-size:${px(t.micro.sizePx)};white-space:nowrap}
+  .lcw-menu__tab .ic{font-size:${px(18)}}
   .lcw-menu__tab kbd{display:none}
   .lcw-menu__body{padding:12px}
 }

@@ -36,6 +36,19 @@ import { detectInAppBrowser } from './inapp.js';
 import { InAppBrowserBanner } from './WebUx.js';
 import { LessonStyle, Notice, border, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
+import { P } from './presenceStrings.js';
+// The same 1PC teacher panel as the 3D screen: a low-spec PC takes the lesson here (docs/19 §4).
+import { TeacherPanel } from '../../client/src/lesson/TeacherPanel.js';
+
+/** The lesson mic check this tab ran on the 3D screen (same keys as apps/client lesson/api.ts); null when none. */
+function readMicStatus(): string | null {
+  try {
+    const v = globalThis.sessionStorage?.getItem('lcw.micStatus') ?? null;
+    return v === 'ok' || v === 'quiet' || v === 'none' || v === 'skipped' ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 const S = LESSON_STRINGS_KO.join;
 const C = TOKENS.colors;
@@ -144,7 +157,7 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
     let live = true;
     const tick = async () => {
       try {
-        const st = await api.lessonState(token);
+        const st = await api.lessonState(token, readMicStatus());
         if (live) dispatch({ type: 'state', state: st });
         // Back online: what the child said meanwhile goes now, in order.
         if (live && lessonId && !flushing.current && readOutbox(outboxSessionStore(), lessonId).length > 0) {
@@ -568,14 +581,25 @@ function LessonPlay({
         <h1 style={{ margin: 0, fontSize: `${T.scale.h2.sizePx}px`, lineHeight: `${T.scale.h2.lineHeightPx}px` }}>
           {S.hello(state.nickname)}
         </h1>
-        {state.coins !== null || last ? (
+        {state.coins !== null || last || lesson?.teacher ? (
           <div style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap' }}>
+            {lesson?.teacher ? (
+              <Chip testId="teacher">
+                {lesson.teacher.present ? `👩‍🏫 ${P.childWithTeacher(lesson.teacher.name ?? '선생님')}` : P.childAlone}
+              </Chip>
+            ) : null}
             {state.coins !== null ? <Chip testId="coins">{`${S.coins} ${state.coins.toLocaleString('ko-KR')}`}</Chip> : null}
             {last ? <Chip testId="said-today">{`${S.saidToday} ${last.utterances_today}`}</Chip> : null}
           </div>
         ) : null}
       </header>
+      <TeacherPanel lessonId={state.lessonId} planId={lesson?.plan_id ?? null} stageId={lesson?.stage_id ?? null} />
       {state.pollFailures >= 2 ? <Notice kind="info">{S.reconnecting}</Notice> : null}
+      {lesson?.teacher && !lesson.teacher.present ? (
+        <Notice kind="info" testId="alone-notice">
+          {P.childAloneDetail}
+        </Notice>
+      ) : null}
       {lesson?.stage_goal_ko ? (
         <p style={{ margin: 0, fontSize: `${T.scale['body-l'].sizePx}px`, fontWeight: 700 }} data-testid="stage-goal">
           {lesson.stage_goal_ko}

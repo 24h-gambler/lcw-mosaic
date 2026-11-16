@@ -109,7 +109,19 @@ export interface FeedLive {
   student_speaking_ms: number;
 }
 
+/** Whether a teacher is with the child (edge lesson-mode.ts TeacherPresence: the console heartbeat). */
+export interface TeacherPresence {
+  present: boolean;
+  name: string | null;
+  since: number | null;
+  /** Director feed only: false = a lesson from a console without heartbeat, present by rule. */
+  tracked?: boolean;
+  panel?: 'open' | 'closed' | null;
+}
+
 export interface LessonFeed {
+  /** Absent on an older server. */
+  teacher?: TeacherPresence;
   lesson: {
     id: string;
     player_id: string;
@@ -178,6 +190,10 @@ export interface StudentLessonState {
   stage_goal_ko?: string;
   /** The child's one coin balance (home-world ledger), same as the 3D HUD. */
   coins_balance?: number | null;
+  /** With the teacher now, or alone ("혼자 놀기"); absent on an older server = with the teacher. */
+  teacher?: TeacherPresence;
+  /** The lesson's plan (1PC teacher panel on this screen); absent on an older server. */
+  plan_id?: string;
 }
 
 export interface UtteranceInput {
@@ -303,8 +319,27 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       request<{ lessons: LiveLessonRow[]; server_now: number }>('GET', `/v1/admin/lessons/live${includeTest ? '?include_test=1' : ''}`, op),
     createPlayer: (op: string, input: CreatePlayerInput) =>
       request<{ ok: boolean }>('POST', '/v1/admin/players', op, input),
-    startLesson: (op: string, input: { player_id: string; plan_id?: string }) =>
+    startLesson: (op: string, input: { player_id: string; plan_id?: string; presence?: boolean }) =>
       request<StartLessonResult>('POST', '/v1/admin/lessons/start', op, input),
+    /** Teacher heartbeat (every TEACHER_BEAT_MS while the console shows the lesson). */
+    /** The console's heartbeat. After "선생님 나가기" it counts again only with resume (left: true until then). */
+    presence: (op: string, lessonId: string, panel: 'open' | 'closed' = 'open', resume = false) =>
+      request<{ teacher: TeacherPresence; left?: boolean; beat_ms: number; present_ms: number }>(
+        'POST',
+        `/v1/admin/lessons/${enc(lessonId)}/presence`,
+        op,
+        { panel, source: 'console', ...(resume ? { resume: true } : {}) }
+      ),
+    /** The teacher steps away on purpose: the child is alone at once. */
+    leave: (op: string, lessonId: string) =>
+      request<{ teacher: TeacherPresence }>('POST', `/v1/admin/lessons/${enc(lessonId)}/presence/leave`, op, {}),
+    /** 1PC teacher panel lock number (4-6 digits), checked on the server. */
+    setPanelPin: (op: string, lessonId: string, pin: string) =>
+      request<{ ok: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/panel-pin`, op, { pin }),
+    panelPinState: (op: string, lessonId: string) =>
+      request<{ set: boolean; set_at: number | null }>('GET', `/v1/admin/lessons/${enc(lessonId)}/panel-pin`, op),
+    panelUnlock: (op: string, lessonId: string, pin: string) =>
+      request<{ ok: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/panel-unlock`, op, { pin }),
     pushStage: (op: string, lessonId: string, input: StagePushInput) =>
       request<{ ok: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/stage`, op, input),
     addPin: (op: string, lessonId: string, input: PinInput) =>
@@ -330,7 +365,9 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
     daily: (op: string, day?: string) =>
       request<DailySummary>('GET', `/v1/admin/daily${day ? `?day=${enc(day)}` : ''}`, op),
     join: (code: string) => request<JoinResult>('POST', '/v1/join', null, { code }),
-    lessonState: (studentToken: string) => request<StudentLessonState>('GET', '/v1/lesson/state', studentToken),
+    /** mic: this tab's one-time lesson mic check (sessionStorage lcw.micStatus, set by the 3D screen), for the console. */
+    lessonState: (studentToken: string, mic?: string | null) =>
+      request<StudentLessonState>('GET', `/v1/lesson/state${mic ? `?mic=${encodeURIComponent(mic)}` : ''}`, studentToken),
     postUtterance: (studentToken: string, input: UtteranceInput) =>
       request<UtteranceResult>('POST', '/v1/lesson/utterance', studentToken, input),
     /** With the operator token (director preview) the server does not record a parent open. */

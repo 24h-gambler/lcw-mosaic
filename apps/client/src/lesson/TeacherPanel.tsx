@@ -64,7 +64,7 @@ export function createPanelApi(base = '', f: typeof fetch = (...a) => fetch(...a
     },
     async beat(op, lessonId, panel) {
       try {
-        return (await post(op, `/v1/admin/lessons/${enc(lessonId)}/presence`, { panel })).ok;
+        return (await post(op, `/v1/admin/lessons/${enc(lessonId)}/presence`, { panel, source: 'panel' })).ok;
       } catch {
         return false;
       }
@@ -188,6 +188,8 @@ export function TeacherPanel({
   const btn: React.CSSProperties = { minHeight: 40, padding: '6px 12px', borderRadius: 8, border: `2px solid ${C['ink-900']}`, background: C['paper-100'], fontWeight: 700, cursor: 'pointer' };
 
   const ctx = phase === 'open' ? stageContext(planId, stageId) : null;
+  // No operator sign-in in this browser (the child's own device in 2PC): no teacher button at all.
+  if (!op) return null;
   return (
     <>
       {/* Small and plain on purpose: a child tapping it only meets the lock number. */}

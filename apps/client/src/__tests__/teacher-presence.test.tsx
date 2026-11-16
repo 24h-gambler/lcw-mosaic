@@ -135,6 +135,14 @@ describe('1PC teacher panel (TeacherPanel.tsx)', () => {
     expect(html).not.toContain('teacher-panel"');
   });
 
+  it('2PC: the child device has no operator sign-in, so no teacher button at all (review #70 ②)', () => {
+    const stage = FIRST_LESSON_PLAN.stages[0]!;
+    const html = renderToStaticMarkup(
+      <TeacherPanel lessonId="les-1" planId={FIRST_LESSON_PLAN.id} stageId={stage.id} operatorToken={null} api={createPanelApi('', (async () => new Response('{}')) as never)} />
+    );
+    expect(html).toBe('');
+  });
+
   it('stage context: the server plan first, next stage, last stage has none', () => {
     const plan = FIRST_LESSON_PLAN;
     const c = stageContext(plan.id, plan.stages[0]!.id)!;

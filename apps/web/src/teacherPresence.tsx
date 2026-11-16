@@ -54,9 +54,11 @@ export function useTeacherHeartbeat(o: {
   active: boolean;
   panel?: 'open' | 'closed';
   ticker?: typeof startTicker;
-}): { teacher: TeacherPresence | null; failing: boolean } {
+}): { teacher: TeacherPresence | null; failing: boolean; left: boolean; resume: () => Promise<void> } {
   const [teacher, setTeacher] = useState<TeacherPresence | null>(null);
   const [failing, setFailing] = useState(false);
+  // The teacher pressed "선생님 나가기" on the 1PC panel: this console's beats no longer count until resume.
+  const [left, setLeft] = useState(false);
   const panelRef = useRef(o.panel ?? 'open');
   panelRef.current = o.panel ?? 'open';
   const { api, token, lessonId, active } = o;
@@ -69,6 +71,7 @@ export function useTeacherHeartbeat(o: {
         const r = await api.presence(token, lessonId, panelRef.current);
         if (!live) return;
         setTeacher(r.teacher);
+        setLeft(r.left === true);
         setFailing(false);
       } catch {
         if (live) setFailing(true);
@@ -87,12 +90,31 @@ export function useTeacherHeartbeat(o: {
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
     };
   }, [api, token, lessonId, active, ticker]);
-  return { teacher, failing };
+  const resume = async () => {
+    if (!token || !lessonId) return;
+    try {
+      const r = await api.presence(token, lessonId, panelRef.current, true);
+      setTeacher(r.teacher);
+      setLeft(r.left === true);
+      setFailing(false);
+    } catch {
+      setFailing(true);
+    }
+  };
+  return { teacher, failing, left, resume };
 }
 
 /** One line on the console: what the child's screen says about the teacher right now. */
-export function TeacherStatus({ teacher, failing }: { teacher: TeacherPresence | null; failing: boolean }): React.ReactElement {
-  const text = failing ? P.consoleBeatFailing : !teacher ? P.consoleBeatStarting : teacher.present ? P.consolePresent : P.consoleAbsent;
+export function TeacherStatus({ teacher, failing, left = false }: { teacher: TeacherPresence | null; failing: boolean; left?: boolean }): React.ReactElement {
+  const text = failing
+    ? P.consoleBeatFailing
+    : !teacher
+      ? P.consoleBeatStarting
+      : teacher.present
+        ? P.consolePresent
+        : left
+          ? P.consoleLeft
+          : P.consoleAbsent;
   return (
     <p
       data-testid="teacher-status"
@@ -120,7 +142,7 @@ export function TeacherPresenceBox({
   lessonId: string;
   ended: boolean;
 }): React.ReactElement {
-  const { teacher, failing } = useTeacherHeartbeat({ api, token, lessonId, active: !ended });
+  const { teacher, failing, left, resume } = useTeacherHeartbeat({ api, token, lessonId, active: !ended });
   const [pinSet, setPinSet] = useState<boolean | null>(null);
   const [pin, setPin] = useState('');
   const [pinMsg, setPinMsg] = useState<string | null>(null);
@@ -148,7 +170,14 @@ export function TeacherPresenceBox({
   return (
     <Box title={P.boxTitle} testId="teacher-presence-box">
       <div style={{ display: 'grid', gap: sp(2) }}>
-        {ended ? null : <TeacherStatus teacher={teacher} failing={failing} />}
+        {ended ? null : <TeacherStatus teacher={teacher} failing={failing} left={left} />}
+        {!ended && left && !teacher?.present ? (
+          <div>
+            <Button type="button" variant="brand" data-testid="teacher-resume" onClick={() => void resume()}>
+              {P.consoleResume}
+            </Button>
+          </div>
+        ) : null}
         <form
           onSubmit={(e) => {
             e.preventDefault();

@@ -88,7 +88,7 @@ create index if not exists lesson_stage_log_by_lesson on lesson_stage_log (lesso
 create table if not exists lesson_director (lesson_id text primary key, possessed_npc_id text, updated_at integer not null);
 create table if not exists lesson_presence (lesson_id text primary key, last_seen_at integer not null, scene_id text, ui text);
 create table if not exists lesson_utterance_clients (lesson_id text not null, client_id text not null, response text not null, at integer not null, primary key (lesson_id, client_id));
-create table if not exists lesson_teacher (lesson_id text primary key, first_beat_at integer not null, last_beat_at integer not null, present_since integer not null, panel text not null default 'open', op_session text, name text);
+create table if not exists lesson_teacher (lesson_id text primary key, first_beat_at integer not null, last_beat_at integer not null, present_since integer not null, panel text not null default 'open', op_session text, name text, left_at integer);
 create table if not exists lesson_panel_lock (lesson_id text primary key, pin_hash text not null, set_at integer not null, fails integer not null default 0, fail_since integer)
 `;
 
@@ -172,7 +172,15 @@ export function feedbackKo(r: {
 const StartSchema = z
   .object({ player_id: z.string().min(1).max(64), plan_id: z.string().max(64).optional(), presence: z.boolean().optional() })
   .strict();
-const PresenceSchema = z.object({ panel: z.enum(['open', 'closed']).default('open') }).strict();
+/**
+ * source: 'console' = the /director heartbeat, 'panel' = the 1PC teacher panel on the child's screen. After "선생님 나가기"
+ * (presence/leave) console beats no longer count until the teacher comes back on purpose: the panel is unlocked again
+ * (its beat) or the console sends resume. Otherwise a console left open on the same PC would undo the leave within 15 s.
+ * Only the panel's own beats set the panel state (open/closed).
+ */
+const PresenceSchema = z
+  .object({ panel: z.enum(['open', 'closed']).default('open'), source: z.enum(['console', 'panel']).default('console'), resume: z.boolean().optional() })
+  .strict();
 const PanelPinSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/) }).strict();
 const StageSchema = z
   .object({ stage_id: z.string().min(1).max(64), targets: z.array(z.string().min(1).max(200)).max(6) })
@@ -224,6 +232,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   if (!d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').some((col) => col.name === 'mic')) {
     d.sql.exec('alter table lesson_presence add column mic text');
   }
+  if (!d.sql.all<{ name: string }>('pragma table_info(lesson_teacher)').some((col) => col.name === 'left_at')) {
+    d.sql.exec('alter table lesson_teacher add column left_at integer');
+  }
   const app = new Hono();
 
   const lessonRow = (id: string) =>
@@ -247,7 +258,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     }
     return TEACHER_NAME_DEFAULT;
   };
-  const beat = (lessonId: string, now: number, panel: 'open' | 'closed', opSession: string | null) => {
+  /** panel null = keep the panel state (console beats); a beat always clears an earlier leave. */
+  const beat = (lessonId: string, now: number, panel: 'open' | 'closed' | null, opSession: string | null) => {
     const prev = d.sql.get<{ last_beat_at: number; present_since: number }>(
       'select last_beat_at, present_since from lesson_teacher where lesson_id = ?',
       [lessonId]
@@ -255,10 +267,10 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     // A gap longer than the present window starts a new stretch of presence.
     const since = prev && now - prev.last_beat_at <= TEACHER_PRESENT_MS ? prev.present_since : now;
     d.sql.run(
-      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel, op_session, name) values (?, ?, ?, ?, ?, ?, ?)
+      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel, op_session, name, left_at) values (?, ?, ?, ?, ?, ?, ?, null)
        on conflict(lesson_id) do update set last_beat_at = excluded.last_beat_at, present_since = excluded.present_since,
-         panel = excluded.panel, op_session = excluded.op_session, name = excluded.name`,
-      [lessonId, now, now, since, panel, opSession, teacherNameOf(opSession)]
+         panel = coalesce(?, lesson_teacher.panel), op_session = excluded.op_session, name = excluded.name, left_at = null`,
+      [lessonId, now, now, since, panel ?? 'open', opSession, teacherNameOf(opSession), panel]
     );
   };
   const teacherOf = (lessonId: string, now: number): TeacherPresence => {
@@ -577,11 +589,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const now = d.nowMs();
     const gone = now - TEACHER_PRESENT_MS - 1;
     d.sql.run(
-      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel) values (?, ?, ?, ?, 'closed')
-       on conflict(lesson_id) do update set last_beat_at = excluded.last_beat_at`,
-      [id, gone, gone, gone]
+      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel, left_at) values (?, ?, ?, ?, 'closed', ?)
+       on conflict(lesson_id) do update set last_beat_at = excluded.last_beat_at, panel = 'closed', left_at = excluded.left_at`,
+      [id, gone, gone, gone, now]
     );
-    return c.json({ teacher: teacherOf(id, now) });
+    return c.json({ teacher: teacherOf(id, now), left: true });
   });
 
   app.post('/v1/admin/lessons/:id/presence', async (c) => {
@@ -592,8 +604,14 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     if (l.ended_at) return c.json({ error: 'lesson_ended' }, 409);
     const now = d.nowMs();
-    beat(id, now, p.data.panel, c.req.header('x-lcw-op-session') ?? null);
-    return c.json({ teacher: teacherOf(id, now), beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
+    const fromPanel = p.data.source === 'panel';
+    const left = d.sql.get<{ left_at: number | null }>('select left_at from lesson_teacher where lesson_id = ?', [id])?.left_at ?? null;
+    // The teacher left on purpose: a console still beating in the background does not bring them back.
+    if (left !== null && !fromPanel && !p.data.resume) {
+      return c.json({ teacher: teacherOf(id, now), left: true, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
+    }
+    beat(id, now, fromPanel ? p.data.panel : null, c.req.header('x-lcw-op-session') ?? null);
+    return c.json({ teacher: teacherOf(id, now), left: false, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
   });
 
   app.post('/v1/admin/lessons/:id/stage', async (c) => {

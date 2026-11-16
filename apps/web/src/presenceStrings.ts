@@ -3,6 +3,8 @@ export const P = {
   consoleBeatStarting: '학생 화면에 선생님 표시를 켜는 중…',
   consolePresent: '학생 화면: 선생님과 함께 (이 콘솔이 켜져 있는 동안)',
   consoleAbsent: '학생 화면: 혼자 놀기 — 콘솔 신호가 끊겼어요',
+  consoleLeft: '학생 화면: 혼자 놀기 — 선생님 패널에서 「선생님 나가기」를 눌렀어요',
+  consoleResume: '다시 수업하기 (선생님 돌아옴)',
   consoleBeatFailing: '선생님 신호를 못 보냈어요. 인터넷을 확인하세요 — 45초가 지나면 학생 화면이 혼자 놀기로 바뀌어요',
   boxTitle: '선생님 표시 · 1PC 잠금',
   pinLabel: '1PC 잠금 번호 (4~6자리)',

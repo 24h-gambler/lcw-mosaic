@@ -83,8 +83,12 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
   it('panel open/closed is kept (1PC); the beat is operator-only, checked, and stops after the lesson ends', async () => {
     const p = platform();
     const { lessonId, st } = await start(p, true);
-    const closed = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed' });
+    const closed = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel' });
     expect(closed.body.teacher).toMatchObject({ present: true, panel: 'closed' });
+    // A console on the same PC beating 'open' does not reopen the panel state (review #70 ①).
+    const consoleBeat = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open' });
+    expect(consoleBeat.body.teacher).toMatchObject({ present: true, panel: 'closed' });
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open', source: 'phone' })).status).toBe(400);
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open' }, st)).status).toBe(401);
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open' }, anon)).status).toBe(401);
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'half' })).status).toBe(400);
@@ -113,7 +117,25 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     const left = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {});
     expect(left.body.teacher.present).toBe(false);
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(false);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed' });
+    // The console left open on the same PC keeps beating: it must not undo the leave (review #70 ①).
+    const consoleBeat = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open' });
+    expect(consoleBeat.body).toMatchObject({ left: true, teacher: { present: false } });
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {})).body.left).toBe(true);
+    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(false);
+    // Unlocking the panel again (its beat) brings the teacher back, and the console counts again.
+    const back = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel' });
+    expect(back.body).toMatchObject({ left: false, teacher: { present: true, panel: 'closed' } });
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {})).body.left).toBe(false);
+    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(true);
+  });
+
+  it('after "teacher leaves", the console comes back only on purpose (resume)', async () => {
+    const p = platform();
+    const { lessonId, st } = await start(p, true);
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {});
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open' })).body.teacher.present).toBe(false);
+    const resumed = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open', resume: true });
+    expect(resumed.body).toMatchObject({ left: false, teacher: { present: true } });
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(true);
   });
 

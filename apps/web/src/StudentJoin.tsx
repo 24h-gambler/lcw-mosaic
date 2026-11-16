@@ -37,6 +37,8 @@ import { InAppBrowserBanner } from './WebUx.js';
 import { LessonStyle, Notice, border, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 import { P } from './presenceStrings.js';
+// The same 1PC teacher panel as the 3D screen: a low-spec PC takes the lesson here (docs/19 §4).
+import { TeacherPanel } from '../../client/src/lesson/TeacherPanel.js';
 
 const S = LESSON_STRINGS_KO.join;
 const C = TOKENS.colors;
@@ -544,6 +546,7 @@ function LessonPlay({
           </div>
         ) : null}
       </header>
+      <TeacherPanel lessonId={state.lessonId} planId={lesson?.plan_id ?? null} stageId={lesson?.stage_id ?? null} />
       {state.pollFailures >= 2 ? <Notice kind="info">{S.reconnecting}</Notice> : null}
       {lesson?.teacher && !lesson.teacher.present ? (
         <Notice kind="info" testId="alone-notice">

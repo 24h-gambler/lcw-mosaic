@@ -192,6 +192,8 @@ export interface StudentLessonState {
   coins_balance?: number | null;
   /** With the teacher now, or alone ("혼자 놀기"); absent on an older server = with the teacher. */
   teacher?: TeacherPresence;
+  /** The lesson's plan (1PC teacher panel on this screen); absent on an older server. */
+  plan_id?: string;
 }
 
 export interface UtteranceInput {
@@ -320,12 +322,13 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
     startLesson: (op: string, input: { player_id: string; plan_id?: string; presence?: boolean }) =>
       request<StartLessonResult>('POST', '/v1/admin/lessons/start', op, input),
     /** Teacher heartbeat (every TEACHER_BEAT_MS while the console shows the lesson). */
-    presence: (op: string, lessonId: string, panel: 'open' | 'closed' = 'open') =>
-      request<{ teacher: TeacherPresence; beat_ms: number; present_ms: number }>(
+    /** The console's heartbeat. After "선생님 나가기" it counts again only with resume (left: true until then). */
+    presence: (op: string, lessonId: string, panel: 'open' | 'closed' = 'open', resume = false) =>
+      request<{ teacher: TeacherPresence; left?: boolean; beat_ms: number; present_ms: number }>(
         'POST',
         `/v1/admin/lessons/${enc(lessonId)}/presence`,
         op,
-        { panel }
+        { panel, source: 'console', ...(resume ? { resume: true } : {}) }
       ),
     /** The teacher steps away on purpose: the child is alone at once. */
     leave: (op: string, lessonId: string) =>

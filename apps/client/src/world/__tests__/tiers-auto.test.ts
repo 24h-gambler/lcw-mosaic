@@ -59,10 +59,11 @@ describe('start tier from the GPU (docs/02 §11: 16-core desktop on software GL 
   });
   it('software GL starts low, an integrated GPU never starts high, ?tier= still wins', () => {
     const big = { hardwareConcurrency: 16, deviceMemory: 16 };
-    expect(pickTier('', big, false, 'software')).toBe('low');
-    expect(pickTier('', big, false, 'integrated')).toBe('mid');
-    expect(pickTier('', big, false, 'discrete')).toBe('high');
+    expect(pickTier('', big, false, null, 'software')).toBe('low');
+    expect(pickTier('', big, false, null, 'integrated')).toBe('mid');
+    expect(pickTier('', big, false, null, 'discrete')).toBe('high');
     expect(pickTier('', big, false)).toBe('high');
-    expect(pickTier('?tier=high', big, false, 'software')).toBe('high');
+    expect(pickTier('?tier=high', big, false, null, 'software')).toBe('high');
+    expect(pickTier('', big, false, 'mid', 'software')).toBe('mid'); // the quality picked in settings beats the GPU guess
   });
 });

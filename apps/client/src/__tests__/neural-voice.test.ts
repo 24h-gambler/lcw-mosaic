@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { npcCast, voiceForCtx } from '@lcw/content';
-import { loadLine, loudnessGain, NEURAL_VOICE, neuralVoiceOn, neuralVoiceStatus, resetNeuralVoice, ttsUrl, within } from '../dialog/neural-voice.js';
+import { loadLine, loudnessGain, NEURAL_RETRY_METER_MS, NEURAL_RETRY_MS, NEURAL_VOICE, neuralVoiceOn, neuralVoiceStatus, resetNeuralVoice, ttsUrl, within } from '../dialog/neural-voice.js';
 
 /** Dan 11-16 "목소리 자연스러움": the client side of the neural NPC voice (server: edge tts.ts). */
 
@@ -24,8 +24,8 @@ describe('neural NPC voice (client)', () => {
   });
 
   it('builds the cached line URL from the cast voice and the normalized text', () => {
-    expect(ttsUrl('', voiceForCtx('cafe'), '  Welcome  to the honey cafe! ')).toBe('/v1/tts?v=aura-hera&t=Welcome%20to%20the%20honey%20cafe!');
-    expect(ttsUrl('', npcCast().modelVoice, 'Hi')).toContain('v=aura-luna');
+    expect(ttsUrl('', voiceForCtx('cafe'), '  Welcome  to the honey cafe! ')).toBe('/v1/tts?v=aura2-hera&t=Welcome%20to%20the%20honey%20cafe!');
+    expect(ttsUrl('', npcCast().modelVoice, 'Hi')).toContain('v=aura2-luna');
   });
 
   it('downloads a line once, and a refused line is tried again later', async () => {
@@ -41,10 +41,29 @@ describe('neural NPC voice (client)', () => {
     expect(b).toBe(a);
     expect(n).toBe(1);
     const no = vi.fn(async () => Response.json({ error: 'child_token_required', fallback: 'device' }, { status: 401 }));
-    expect(await loadLine(v, 'Not a fixed line', '', no as unknown as typeof fetch)).toBeNull();
-    await Promise.resolve();
-    expect(await loadLine(v, 'Not a fixed line', '', no as unknown as typeof fetch)).toBeNull();
-    expect(no).toHaveBeenCalledTimes(2);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      expect(await loadLine(v, 'Not a fixed line', '', no as unknown as typeof fetch)).toBeNull();
+      await Promise.resolve();
+      // not again at once (the dialog prefetches on every lesson poll): only after NEURAL_RETRY_MS
+      expect(await loadLine(v, 'Not a fixed line', '', no as unknown as typeof fetch)).toBeNull();
+      expect(no).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(Date.now() + NEURAL_RETRY_MS + 1);
+      expect(await loadLine(v, 'Not a fixed line', '', no as unknown as typeof fetch)).toBeNull();
+      expect(no).toHaveBeenCalledTimes(2);
+      // the meter's 429 waits five minutes
+      const meter = vi.fn(async () => Response.json({ error: 'tts_budget' }, { status: 429 }));
+      expect(await loadLine(v, 'Metered line', '', meter as unknown as typeof fetch)).toBeNull();
+      await Promise.resolve();
+      vi.setSystemTime(Date.now() + NEURAL_RETRY_MS + 1);
+      expect(await loadLine(v, 'Metered line', '', meter as unknown as typeof fetch)).toBeNull();
+      expect(meter).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(Date.now() + NEURAL_RETRY_METER_MS);
+      expect(await loadLine(v, 'Metered line', '', meter as unknown as typeof fetch)).toBeNull();
+      expect(meter).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a slow line gives way to the device voice after waitMs', async () => {

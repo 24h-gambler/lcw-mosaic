@@ -150,36 +150,50 @@ export interface ReviewSignInput {
 
 const DAY_MS_SIM = 86_400_000;
 
-/** True when the item is equipped/socketed now or was used within the active-gear window. */
+/**
+ * How long a use keeps a card's gear "recently used" (docs/09 P4's 7 days), stretched to the card's own review
+ * interval plus a day: the use that set a 7-, 16- or 35-day review is by construction that long ago when the card
+ * comes due, and must still count (the 12-week simulation found box 3 falling out of a fixed 7-day window).
+ */
+export function activeGearWindowMs(box: number): number {
+  const iv = TUNING.memory.intervalsMs;
+  const interval = iv[Math.max(0, Math.min(iv.length - 1, box))]!;
+  return Math.max(TUNING.memory.activeGearWindowMs, interval + DAY_MS_SIM);
+}
+
+/** True when the item is equipped/carried now or was used within the active-gear window (of that card's box). */
 export function isActiveGear(
   itemId: string,
   equippedItemIds: ReadonlySet<string>,
   lastUsedMs: Readonly<Record<string, number>>,
-  nowMs: number
+  nowMs: number,
+  windowMs: number = TUNING.memory.activeGearWindowMs
 ): boolean {
   if (equippedItemIds.has(itemId)) return true;
   const used = lastUsedMs[itemId];
-  return used !== undefined && nowMs - used <= TUNING.memory.activeGearWindowMs;
+  return used !== undefined && nowMs - used <= windowMs;
 }
 
 /**
  * docs/09 P4 / docs/03 D8: choose up to 3 wear signs per session.
- * priority = (used_or_equipped_in_last_7d ? 10 : 0) + days_overdue.
- * Gear that is only stored in the chest (not equipped, not used in 7 days) gets no sign;
- * it is reviewed only when the player picks it at the repair NPC (see selectRepairPickCards).
+ * priority = (equipped, or used within the card's window ? 10 : 0) + days_overdue.
+ * The 10 is a priority, not a gate: every due card gets its turn. Only gear stored in the chest (`storedItemIds`)
+ * gets no sign; it is reviewed when the player picks it at the repair NPC (see selectRepairPickCards).
  */
 export function selectReviewSigns(
   cards: readonly MemoryCardState[],
   equippedItemIds: ReadonlySet<string>,
   lastUsedMs: Readonly<Record<string, number>>,
-  nowMs: number
+  nowMs: number,
+  storedItemIds: ReadonlySet<string> = new Set()
 ): MemoryCardState[] {
   const scored: Array<{ card: MemoryCardState; priority: number }> = [];
   for (const card of cards) {
     if (card.masteredAtMs !== null || card.nextReviewAtMs > nowMs) continue;
-    if (!isActiveGear(card.itemId, equippedItemIds, lastUsedMs, nowMs)) continue;
+    const active = isActiveGear(card.itemId, equippedItemIds, lastUsedMs, nowMs, activeGearWindowMs(card.box));
+    if (!active && storedItemIds.has(card.itemId)) continue;
     const daysOverdue = (nowMs - card.nextReviewAtMs) / DAY_MS_SIM;
-    scored.push({ card, priority: TUNING.memory.activeGearPriorityBonus + daysOverdue });
+    scored.push({ card, priority: (active ? TUNING.memory.activeGearPriorityBonus : 0) + daysOverdue });
   }
   scored.sort((a, b) => b.priority - a.priority || a.card.id.localeCompare(b.card.id));
   return scored.slice(0, TUNING.memory.maxDuePerSession).map((s) => s.card);

@@ -374,6 +374,13 @@ LCW의 블록은 "칠한 나무 장난감 블록"입니다. 다른 복셀 게임
 
 ### 8.4 시작 화면과 내 월드 만들기
 
+> Dan 11-16 14:3x 개정 — **가입이 먼저, 게스트는 체험만, 화면은 배울 언어로.**
+> - 게스트(가입 안 한 기기)의 타이틀: `Sign up`(/signup) · `I have an account · Sign in`(/signup?mode=signin) · `Try it for 3 minutes`(/try) · 친구 월드 코드. 게스트는 월드를 만들지 않습니다(`makeMyWorld` 가 거절, 기기 월드 `lcw.myWorld` 없음).
+> - 가입한 아이가 배울 언어를 아직 안 골랐으면(기기·서버 둘 다 없음) 맨 먼저 "What language do you want to learn?": English 만 열림, 日本語·中文·Español 은 Coming soon. 기기(`world/lang.ts`, `lcw.learnLang`)와 서버(`POST /v1/my-world/lang`)에 함께 둡니다. 새 기기에서는 서버 값을 따르고, 오프라인에서 고른 값은 다음에 조용히 올립니다.
+> - 화면 글은 배울 언어(지금 English)로 나옵니다: 시작 화면·언어 단계·만들기·공개·패스 칩, 월드 HUD(`world/strings.ts` 표는 en·ko 쌍, 내보내는 이름의 `_KO` 는 호환용), 말풍선 이름, 선생님 이름표("Ms. Kim", 이름 없으면 "Teacher"). 한국어는 **켜고 끄는 도움말**(`lcw.helpKo`, 기본 꺼짐): 타이틀·언어 단계의 "한국어 도움말 켜기"로 켜면 영어 아래(HUD 는 " · " 뒤)에 한국어가 붙습니다.
+> - 수업이 열려 있으면 어느 단계(타이틀·언어·만들기)에서든 누르지 않고 합류합니다.
+> 아래 본문은 개정 전 설계이고, 위와 다르면 위를 따릅니다.
+
 원장 R2555(Dan 11-16): 월드 고르기 목록 대신 **무작위 "내 월드 만들기"**. 수업 구조(원장 Dan 11-16 12:10): 선생님이 학생의 내 월드로 들어오고 학생은 아무것도 누르지 않습니다. 6자리 코드는 월드 초대(친구 월드·게스트 패스) 전용입니다. 사용자 화면에 "게임"이라는 낱말은 쓰지 않습니다(Dan 11-16).
 
 ```text
@@ -540,6 +547,8 @@ LCW의 블록은 "칠한 나무 장난감 블록"입니다. 다른 복셀 게임
 | 읽기 | 읽기 쉬운 서체, 목표 문장 음절 구분 표시 옵션 |
 | 화면 낭독기 | 대시보드와 소개 사이트는 표준 마크업과 대체 문구. 그래프마다 표 보기 제공 |
 | 초점 | 키보드 초점 테두리 3px `sky-d`, 탭 순서는 시각 순서와 일치 |
+
+구현(G14 설정, 2026-11-16, `apps/client/src/frame/settings.ts` · `frame/menu/SettingsPanel.tsx`): 기기 `localStorage['lcw.settings']`(JSON 하나)에 저장하고, 연결된 아이 기기·수업 학생은 `GET/PUT /v1/settings`(평평한 객체, 새 쪽이 이김, `frame/settings-sync.ts`)로 기기 사이를 잇습니다. 반영 지점: 볼륨 4종은 오디오 런타임 버스(`AudioRuntime.setBusVolume`, 기본 음량 × 묶음 × 전체)와 기기 음성(`dialog/sound.ts` 의 utterance 음량), 주민 목소리 빠르기·자연스러운 목소리는 `speakEnglish`, 글자 크기는 `<html>` 의 `--lcw-fs`(메뉴와 대화창 `--fs`), 움직임 줄이기·읽기 쉬운 글자(OpenDyslexic, SIL OFL 1.1, 켤 때만 jsDelivr `@fontsource/opendyslexic@5.3.0` 에서 불러옴)·색각 보정 팔레트(`COLOR_ASSIST_TOKENS`: 성공 청록 · 경고 주황, 2.2 대비 규칙 시험)·초점 테두리 크게는 `<html>` 속성과 전역 스타일, 시점 감도(마우스·터치)·상하 반전·움직임·FPS 는 `WorldHandle.setLookSettings / setReduceMotion / setShowFps`, 화질은 다음 시작의 등급(`savedTier()` → `pickTier`)과 `WorldHandle.setGraphics?`(성능 레인), 키 바꾸기는 창 캡처 단계에서 바꾼 키를 월드의 원래 키로 바꿔 보내는 방식(대화창이 열려 있으면 끔), 마이크 버튼 누르고 있기는 대화창 마이크 버튼과 Space, 마이크 점검은 첫 방문 카드(`MicCheckCard`)를 다시 씁니다. 목표 문장 음절 구분은 `syllableHints()` 값만 두었고 대화창 표시는 대화 도메인이 붙입니다.
 
 ## 12. 산출물 목록
 

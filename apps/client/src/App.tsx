@@ -14,11 +14,15 @@ import { FrameFloorWatch, TIER_SETTINGS, gpuClassOf, readGpuRenderer, type GpuCl
 import { RoomClient } from './world/room-client.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { FrameLayer } from './frame/FrameLayer.js';
+import { savedTier } from './frame/settings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { DEFAULT_WORLD_CHOICE, type WorldSetupChoice } from '@lcw/content';
 import { codeFromSearch, loadStudentSession, saveStudentSession } from './lesson/api.js';
 import { LessonAutoJoin, StartFlow } from './start/StartFlow.js';
+import { GuestPassLayer } from './start/PassLayer.js';
+import { passFromSearch } from './start/guestPass.js';
 import type { DeviceLessonSession } from './start/api.js';
+import { TeacherBar, teachFrom, teachTicketBody } from './world/TeacherBar.js';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
 export interface DialogConfig {
@@ -231,9 +235,20 @@ export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveI
   };
 }
 
-export function pickTier(search: string, nav: { deviceMemory?: number; hardwareConcurrency?: number }, coarse: boolean, gpu: GpuClass = 'unknown'): WorldTier {
+/**
+ * Start tier: `?tier=` wins, then the quality the player picked in settings (`saved`, G14 화질, frame/settings.ts
+ * savedTier), then the device guess (GPU class, memory, cores, touch).
+ */
+export function pickTier(
+  search: string,
+  nav: { deviceMemory?: number; hardwareConcurrency?: number },
+  coarse: boolean,
+  saved: WorldTier | null = null,
+  gpu: GpuClass = 'unknown'
+): WorldTier {
   const q = new URLSearchParams(search).get('tier');
   if (q === 'low' || q === 'mid' || q === 'high') return q;
+  if (saved) return saved;
   // Software GL draws every pixel on the CPU; an integrated GPU does not carry sun shadows + MSAA (docs/02 §11).
   if (gpu === 'software') return 'low';
   const mem = nav.deviceMemory ?? null;
@@ -364,7 +379,9 @@ function DialogHost(props: {
  * lesson (?code=, never blocked), this tab already holds a lesson session, or a test link names a scene (?scene=).
  */
 export function startFlowFor(search: string, hasLessonSession: boolean): boolean {
-  if (codeFromSearch(search) || hasLessonSession) return false;
+  // a guest pass link (/world/?pass=) goes straight into the friend's world (docs/19 §8)
+  // the teacher walking in from the console (?teach=) goes straight into the world too
+  if (codeFromSearch(search) || hasLessonSession || passFromSearch(search) !== null || /[?&]teach=/.test(search)) return false;
   return !/[?&]scene=/.test(search);
 }
 
@@ -395,6 +412,10 @@ export function App(): React.ReactElement {
   const [myLook, setMyLook] = useState<WorldSetupChoice | null>(null);
   // '수업 들어가기' saved a student session: a new key mounts the lesson layer again, which reads it at mount.
   const [lessonKey, setLessonKey] = useState(0);
+  // A guest pass link (docs/19 §8): the friend's world for 30 minutes on the server clock.
+  const passCode = useMemo(() => passFromSearch(location.search), []);
+  // The teacher in the world (?teach=<lesson id> from the console, TeacherBar.tsx): lesson room as role 'teacher'.
+  const teach = useMemo(() => teachFrom(location.search, browserStore()), []);
   const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
@@ -471,10 +492,11 @@ export function App(): React.ReactElement {
     let handle: WorldHandle | null = null;
     let cancelled = false;
     const nav = navigator as Navigator & { deviceMemory?: number };
-    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches, gpuClassOf(readGpuRenderer()));
-    // ?tier= pins the tier (headless checks); otherwise the world measures itself (G14 'auto'; the settings screen
-    // overrides it through setGraphics).
-    const pinned = new URLSearchParams(location.search).has('tier');
+    const saved = savedTier();
+    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches, saved, gpuClassOf(readGpuRenderer()));
+    // ?tier= (headless checks) or a quality picked in settings pins the tier; otherwise the world measures itself
+    // (G14 'auto'; the settings screen changes it live through setGraphics).
+    const pinned = new URLSearchParams(location.search).has('tier') || saved !== null;
     const graphics = { quality: pinned ? tier : ('auto' as const), viewChunks: null, shadows: null, renderScale: null };
     createWorld({ canvas: canvasRef.current, tier, startScene: startSceneFrom(location.search), hudRoot: hudRef.current ?? undefined, graphics })
       .then((h) => {
@@ -504,19 +526,22 @@ export function App(): React.ReactElement {
     if (!world?.multi || !world.multiPose) return;
     const sink = world.multi;
     const room = new RoomClient({
+      // Lesson student token first, then the child's device token: an expired lesson token left in this tab answers
+      // {room:null} and the device token still finds the family room in the same attempt.
       token: () => {
+        if (teach) return teach.token;
         const st = storedStudentToken();
-        if (st && st.length >= 32) return st;
         const id = identityRef.current;
-        return id?.kind === 'child' ? id.token : null;
+        return [st && st.length >= 32 ? st : null, id?.kind === 'child' ? id.token : null];
       },
+      ...(teach ? { ticketBody: () => teachTicketBody(teach) } : {}),
       source: { pose: () => world.multiPose?.() ?? null },
       sink
     });
     room.start();
     (window as unknown as { __lcwRoom?: RoomClient }).__lcwRoom = room;
     return () => room.stop();
-  }, [world, identity?.kind]);
+  }, [world, identity?.kind, teach]);
 
   // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
   useEffect(() => {
@@ -632,9 +657,11 @@ export function App(): React.ReactElement {
       <div ref={hudRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
         <div style={{ pointerEvents: 'auto' }}>
-          <FrameLayer world={world} identity={identity} />
+          {/* the title screen holds the whole screen: the menu button and keys step aside like for a dialog */}
+          <FrameLayer world={world} identity={identity} lessonOn={lessonOn} dialogOpen={dialogNpc !== null || startOpen} />
           {/* The title is the whole screen: no lesson-layer button over it (a ?code= address never opens the title). */}
-          {Lesson && !startOpen ? (
+          {world && teach ? <TeacherBar world={world} session={teach} /> : null}
+          {Lesson && !startOpen && !teach ? (
             <Lesson
               key={lessonKey}
               world={world}
@@ -648,6 +675,7 @@ export function App(): React.ReactElement {
               }}
             />
           ) : null}
+          {passCode !== null && !codeFromSearch(location.search) ? <GuestPassLayer code={passCode} world={world} /> : null}
           {startOpen ? (
             <StartFlow
               world={world}
@@ -680,7 +708,7 @@ export function App(): React.ReactElement {
               />
             </div>
           ) : null}
-          {MicGate && world && identity ? (
+          {MicGate && world && identity && !teach ? (
             <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null || startOpen} />
           ) : null}
           {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (

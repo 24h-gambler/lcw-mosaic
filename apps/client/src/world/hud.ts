@@ -4,7 +4,7 @@
  * Colors, type and motion come from @lcw/ui tokens only (AGENTS 6). No prices or payment on this screen (AGENTS 4.9).
  */
 import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
-import { WORLD_STRINGS as W, itemNameKo } from './strings.js';
+import { WORLD_STRINGS as W, itemGotText, itemNameKo } from './strings.js';
 import { bandOf, clockLabel, hotbarCaption, isNight, placeLabel, type BandId } from '../frame/status.js';
 
 const STYLE_ID = 'lcw-world-hud-style';
@@ -218,6 +218,7 @@ export class WorldHud {
   private cap: HTMLDivElement;
   private capTimer = 0;
   private starsEl: HTMLDivElement;
+  private netText: HTMLElement;
   private starsN: HTMLSpanElement;
   private coinsN: HTMLSpanElement;
   private coinTotal: number | null = null;
@@ -283,7 +284,8 @@ export class WorldHud {
     const net = el('div', 'lw-net', this.root);
     net.setAttribute('role', 'status');
     el('i', '', net);
-    el('span', '', net).textContent = W.offlineBand;
+    // the words are written only while offline: hidden text still read as "혼자 모드" to page-text checks
+    this.netText = el('span', '', net);
     el('div', 'lw-aim', this.root);
 
     this.starsEl = el('div', 'lw-stars', this.root);
@@ -481,6 +483,7 @@ export class WorldHud {
   /** Connection to the server: false shows the "혼자 모드로 계속 중" band (the world keeps running). */
   setOnline(on: boolean): void {
     this.root.classList.toggle('off', !on);
+    this.netText.textContent = on ? '' : W.offlineBand;
   }
 
   /** Camera mode from the world: the centre crosshair shows only in first person (hidden under a dialog). */
@@ -600,11 +603,20 @@ export class WorldHud {
     ti.alt = '';
     this.toast.appendChild(ti);
     const tt = document.createElement('span');
-    tt.textContent = W.itemGot(itemNameKo(key));
+    tt.textContent = itemGotText(key);
     this.toast.appendChild(tt);
     this.toast.classList.add('on');
     window.clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toast.classList.remove('on'), 2600);
+  }
+
+  /** Put the server's bag into a slot quietly (start of play, after a move in the bag screen): no toast, no select. */
+  setItem(slot: number, key: string | null): void {
+    if (!this.slots[slot]) return;
+    this.itemSlots[slot] = key ? { src: itemIconDataUrl(key), title: itemNameKo(key) } : null;
+    if (!this.buildSlotsOn) this.drawSlot(slot, this.itemSlots[slot] ?? null, null);
+    // the "bag is empty" line from the start must not stay over a bag that just filled
+    if (key && this.cap.textContent === W.hotbarAllEmpty) this.cap.classList.remove('on');
   }
 
   /** Empty an item slot (the item was handed over); the build bar keeps drawing while building is on. */

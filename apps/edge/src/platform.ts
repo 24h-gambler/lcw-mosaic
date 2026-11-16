@@ -19,6 +19,7 @@ import { buildGuardianViewAdminApp } from './guardian-view.js';
 import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, linkIdentity, oauthConfigFrom } from './oauth.js';
 import { buildOperatorLoginApp, ensureOperatorLoginSchema, exchangeOperatorSession, teacherRoleHandler } from './operator-login.js';
 import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandler } from './guardian-oauth.js';
+import { STUDENT_PUBLIC_ROUTES, buildStudentAccountApp } from './student-account.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp } from './free-play.js';
@@ -128,6 +129,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   // check the guardian session (guardian-oauth.ts).
   if (OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   if (GUARDIAN_OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Student sign-up (student-account.ts): the adult's guardian session, or the waiting device's claim token.
+  if (STUDENT_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Public site (docs/14): cookie-free counters and the tutoring consult form, see site.ts.
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
@@ -739,6 +742,49 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (!body) return c.json({ error: 'invalid_review_request' }, 400);
     return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id, level: p.level }));
   });
+  // Repair NPC, the child's things, collection books and settings (docs/09 P4, G03/G04/G10): the same child tokens,
+  // the child's own records only. Reads stay open while a seat is paused; writes that are play (pick, carry, hold)
+  // are gated like a review attempt. Settings are not play, so a paused seat may still save them.
+  const soloRead = (path: string, extra?: (p: { player_id: string; world_id: string }) => Record<string, unknown>) =>
+    app.get(path, async (c, next) => {
+      if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+      const s = await soloPlayer(c.req.raw);
+      if (!s) return next();
+      return forwardSolo(c.req.url, s, null, (p) => extra?.(p) ?? { player_id: p.player_id, world_id: p.world_id });
+    });
+  const soloWrite = (path: string, invalid: string, pick: (b: Record<string, unknown>) => Record<string, unknown>) =>
+    app.post(path, async (c, next) => {
+      if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+      const s = await soloPlayer(c.req.raw);
+      if (!s) return next();
+      // Read the body first: answering a POST before draining it breaks the next request on a kept-alive connection (workerd).
+      const body = await readBody(c);
+      const blocked = seatBlocked(s);
+      if (blocked) return blocked;
+      if (!body) return c.json({ error: invalid }, 400);
+      return forwardSolo(c.req.url, s, pick(body), (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+    });
+  soloRead('/v1/review/repair');
+  soloWrite('/v1/review/repair/pick', 'invalid_repair_pick', (b) => ({ item_id: b.item_id }));
+  soloRead('/v1/items');
+  soloWrite('/v1/items/equip', 'invalid_equip_request', (b) => ({ item_id: b.item_id, to: b.to }));
+  soloWrite('/v1/items/use', 'invalid_use_request', (b) => ({ item_key: b.item_key }));
+  soloRead('/v1/collection');
+  soloRead('/v1/settings', (p) => ({ player_id: p.player_id }));
+  app.put('/v1/settings', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const body = await readBody(c);
+    if (!body) return c.json({ error: 'invalid_settings', reason: 'settings_not_object' }, 400);
+    return inner.fetch(
+      new Request(c.req.url, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ settings: body.settings, player_id: s.player_id })
+      })
+    );
+  });
   // Server speech recognition for the child's own dialog turn (docs/02 6장): lesson or device token only, through
   // the quota meter, audio never kept (stt.ts).
   app.post('/v1/converse/stt', async (c) => {
@@ -887,6 +933,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildFamilyApp(familyDeps));
   const operatorLogin = { ...familyDeps, allowedEmails: env.LCW_OPERATOR_GOOGLE_EMAILS };
   app.route('/', buildOperatorLoginApp(operatorLogin));
+  app.route('/', buildStudentAccountApp(familyDeps));
   app.route('/', buildPushAdminApp(familyDeps));
   app.route('/', buildGuardianViewAdminApp(familyDeps));
   const oauthConfig = oauthConfigFrom(env as unknown as Record<string, unknown>);

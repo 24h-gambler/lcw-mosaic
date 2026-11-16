@@ -127,7 +127,7 @@ export function applyErrandStep(
       if (Number(paid?.n ?? 0) === 0) world.appendLedger(s.playerId, reward, 'errand:first', ref, s.nowMs);
       // The drink leaves the bag: it was handed over (the newest one of that kind the child bought).
       const drink = world.sql.get<{ id: string }>(
-        "select id from items where owner = ? and location = 'bag' and id like ? order by rowid desc limit 1",
+        "select id from items where owner = ? and location in ('bag', 'chest') and id like ? order by rowid desc limit 1",
         [s.playerId, `buy-%|${r.item_key}`]
       );
       if (drink) world.sql.run("update items set location = 'given' where id = ?", [drink.id]);

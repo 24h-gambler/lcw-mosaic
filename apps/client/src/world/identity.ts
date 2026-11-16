@@ -100,8 +100,10 @@ export async function resolveIdentity(search: string, store: KeyStore | null, fe
   }
   if (res.status === 401) {
     // Revoked by the guardian or expired: the token can never work again, so the device starts as a guest.
+    // The saved name goes with it (the sign-up page does the same), so the next child on this device never sees it.
     try {
       store?.removeItem(DEVICE_TOKEN_KEY);
+      store?.removeItem(DEVICE_NICKNAME_KEY);
     } catch {
       /* storage blocked */
     }

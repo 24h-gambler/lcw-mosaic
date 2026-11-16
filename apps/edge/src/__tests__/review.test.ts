@@ -215,13 +215,17 @@ describe('review signs: equipped / recently used gear first, at most 3, chest ge
       dialogs.push(`d${i}`);
     }
     expect(dialogs.length).toBeGreaterThanOrEqual(5);
-    // 30 days later: everything is overdue, nothing was used since the purchase.
+    // 30 days later: everything is overdue, nothing was used since the purchase. The 10 is a priority, not a gate:
+    // things carried in the bag still come up (at most 3).
     e.advance(30 * DAY);
-    expect((await e.due()).signs).toHaveLength(0);
-
-    // Card 0 is in the hotbar (equipped); cards 1-3 were used yesterday; card 4 sits in the chest.
+    expect((await e.due()).signs).toHaveLength(TUNING.memory.maxDuePerSession);
     const itemId = (i: number) =>
       e.db.sql.get<{ item_id: string }>('select item_id from memory_cards where id = ?', [`mc-${dialogs[i]}`])!.item_id;
+    // Stored in the chest and not used for 30 days: no sign at all (the repair NPC reviews them).
+    for (const i of dialogs.keys()) e.world.sql.run("update items set location = 'chest' where id = ?", [itemId(i)]);
+    expect((await e.due()).signs).toHaveLength(0);
+
+    // Card 0 is in the hotbar (equipped); cards 1-3 (in the chest) were used yesterday; card 4 sits in the chest unused.
     e.world.sql.run("update items set location = 'hotbar' where id = ?", [itemId(0)]);
     for (const i of [1, 2, 3]) recordItemUse(e.db, 'kid', itemId(i), e.now() - DAY);
     // Card 2 is the most overdue of the used ones.

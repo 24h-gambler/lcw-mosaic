@@ -18,7 +18,7 @@ import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@l
 import type { NpcRef, SceneId, WorldHandle } from '../world/api.js';
 import { fetchPlayState, mineVein, playToken, type PlayState, type PlayStep } from './api.js';
 import { PLAY_NPC_IDS, playDialogFor as dialogFor, playStepKo } from './dialogs.js';
-import { MINE_FLOOR_KO, PLAY_KO, RANK_KO } from './strings.js';
+import { PLAY_KO } from './strings.js';
 
 /* ------------------------------------------------------------------ store (shared by the slot functions) */
 
@@ -77,7 +77,8 @@ export function playStoreState(): PlayState | null {
 
 /* ------------------------------------------------------------------ slot functions App.tsx calls */
 
-const rankKo = (r: string): string => RANK_KO[r as keyof typeof RANK_KO] ?? r;
+/** Rank keys go into the strings as they are: each language side names the rank itself. */
+const rankKo = (r: string): string => r;
 
 export function playIntercept(npc: NpcRef, world: Pick<WorldHandle, 'npcSay'> | null): boolean {
   if (!PLAY_NPC_IDS.has(npc.id)) return false;
@@ -363,7 +364,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
           ) : null}
           {MINE_FLOORS.filter((f) => f.id !== lift).map((f) => (
             <button key={f.id} type="button" data-floor={f.id} style={btn(C['paper-0'])} onClick={() => world && void world.goToScene(f.id)}>
-              {PLAY_KO.elevator.down(MINE_FLOOR_KO[f.id] ?? f.id)}
+              {PLAY_KO.elevator.down(f.id)}
             </button>
           ))}
         </div>

@@ -1,6 +1,7 @@
 import { normalizeTtsText, ttsVoiceId, type NpcVoice } from '@lcw/content';
 import { BUS_LUFS_TARGETS } from '@lcw/audio';
 import { readStudentToken } from './submit.js';
+import { frameSettings } from '../frame/settings.js';
 
 /**
  * The neural NPC voice on the client (edge tts.ts, docs/04 4.8): asks `/v1/tts/status` once; while the server says
@@ -10,8 +11,11 @@ import { readStudentToken } from './submit.js';
  */
 
 export const NEURAL_VOICE = {
-  /** A line not here by then is read by the device voice instead (measured: new line ~0.4-1.1 s, cached ~0.1 s). */
-  waitMs: 1500,
+  /**
+   * A line not here by then is read by the device voice instead. Aura-2 makes a new line in 1.3-2.3 s (measured
+   * 11-16), a cached one comes in ~0.1 s; NPC lines are prebuilt, so this only covers a first-time model sentence.
+   */
+  waitMs: 4000,
   /** Lines kept in memory (the dialog prefetches its NPC line and offers). */
   cacheLines: 24,
   /**
@@ -49,13 +53,21 @@ export function neuralVoiceStatus(base = '', fetchImpl: typeof fetch = (i, init)
   return statusP;
 }
 
-/** Sync view: true only once the server said on (the first line of a session may still be the device voice). */
+/** Sync view: true only once the server said on. */
 export function neuralVoiceOn(): boolean {
-  return statusKnown === true;
+  // the player's "자연스러운 목소리" switch (G14 설정) turns it off too (no line is fetched or prefetched then)
+  return statusKnown === true && frameSettings().neuralVoice;
+}
+
+/** true / false once the server answered (or `?voice=device`), null while unknown. */
+export function neuralVoiceStatusKnown(): boolean | null {
+  if (override() === 'device') return false;
+  return statusKnown;
 }
 
 /** Test seam. */
 export function resetNeuralVoice(): void {
+  failedUntil.clear();
   statusP = null;
   statusKnown = null;
   cache.clear();
@@ -75,18 +87,37 @@ export function ttsUrl(base: string, voice: NpcVoice, text: string): string {
 
 const cache = new Map<string, Promise<ArrayBuffer | null>>();
 
+/** After a failed line: ask again in 30 s; after the meter said no (429), in 5 minutes. */
+export const NEURAL_RETRY_MS = 30_000;
+export const NEURAL_RETRY_METER_MS = 300_000;
+const failedUntil = new Map<string, number>();
+
 /** Starts (or reuses) the download of one line; null when the server will not or cannot make it. */
 export function loadLine(voice: NpcVoice, text: string, base = '', fetchImpl: typeof fetch = (i, init) => fetch(i, init)): Promise<ArrayBuffer | null> {
   const url = ttsUrl(base, voice, text);
   const hit = cache.get(url);
   if (hit) return hit;
+  // A line that just failed waits before it is asked again: the dialog prefetches its lines on every lesson poll, and
+  // without this a refused line (429 meter, 5xx) was fetched again every few seconds by every child (33 times in 80 s).
+  const until = failedUntil.get(url);
+  if (until !== undefined && Date.now() < until) return Promise.resolve(null);
   const t = token();
+  let status = 0;
   const p = fetchImpl(url, t ? { headers: { authorization: `Bearer ${t}` } } : undefined)
-    .then((r) => (r.ok && (r.headers.get('content-type') ?? '').startsWith('audio/') ? r.arrayBuffer() : null))
+    .then((r) => {
+      status = r.status;
+      return r.ok && (r.headers.get('content-type') ?? '').startsWith('audio/') ? r.arrayBuffer() : null;
+    })
     .catch(() => null);
   cache.set(url, p);
   void p.then((b) => {
-    if (!b) cache.delete(url); // a refusal or failure is tried again next time
+    if (b) {
+      failedUntil.delete(url);
+      return;
+    }
+    cache.delete(url); // a refusal or failure is tried again, after a wait (the device voice reads it meanwhile)
+    failedUntil.set(url, Date.now() + (status === 429 ? NEURAL_RETRY_METER_MS : NEURAL_RETRY_MS));
+    while (failedUntil.size > 64) failedUntil.delete(failedUntil.keys().next().value!);
   });
   while (cache.size > NEURAL_VOICE.cacheLines) cache.delete(cache.keys().next().value!);
   return p;

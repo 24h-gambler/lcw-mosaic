@@ -16,12 +16,14 @@ import { WorldHud } from './hud.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
+import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, welcomeBackEn } from './strings.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn } from './strings.js';
 import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
 import { PlotSync } from './plot-sync.js';
+import { buildMapInfo } from './map-info.js';
 import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMirror, toggleThirdPerson, type CamMode } from './dialog-shot.js';
 import { FirstPersonHands } from './viewmodel.js';
 import { PeerAvatars, peerLook } from './peers.js';
@@ -148,7 +150,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const tier = TIER_SETTINGS[opts.tier];
   const hudParent = opts.hudRoot ?? canvas.parentElement ?? document.body;
   const touch = isTouchDevice();
-  const reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // G14 look settings (setLookSettings): mouse and touch drag speed, up/down inversion (-1).
+  let lookMouse = 1;
+  let lookTouch = 1;
+  let lookY = 1;
 
   // ---- HUD first so the loading card shows while the town is built.
   const input = { fwd: 0, side: 0, run: false, jump: false, stickX: 0, stickZ: 0, stick: false, keys: new Set<string>() };
@@ -172,12 +178,13 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       input.stick = active;
     },
     onLook: (dx, dy) => {
-      camYaw -= dx * 0.008;
-      camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.006));
+      camYaw -= dx * 0.008 * lookTouch;
+      camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.006 * lookTouch * lookY));
     },
     onSlot: (i) => {
       hud.selectSlot(i);
       sfx.play('ui.click');
+      slotPicked(i);
     }
   });
   hud.setTouch(touch);
@@ -296,7 +303,18 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   scene.add(player.root);
   // Other people in the same multi room (room-client.ts feeds them through handle.multi).
   const peerShirts = NPCS.map((n) => n.look.shirt);
-  const peers = new PeerAvatars(scene, hud.root, (id) => peerLook(id, PLAYER_LOOK, peerShirts));
+  // A teacher who walks in from the console (role 'teacher', docs/02 §11) looks and is named like the visiting teacher.
+  const peers = new PeerAvatars(
+    scene,
+    hud.root,
+    (p) => (p.role === 'teacher' ? teacherDef(p.name).look : peerLook(p.id, PLAYER_LOOK, peerShirts)),
+    (p) => (p.role === 'teacher' ? plateText(p.name) : p.name)
+  );
+  /** The lesson's last teacher presence; the visiting figure stays away while the real teacher is in the room. */
+  let teacherWanted: { present: boolean; name: string | null } | null = null;
+  const syncTeacherFigure = (): void => {
+    showTeacher(teacherWanted?.present && peers.countRole('teacher') === 0 ? (teacherWanted.name ?? '') : null);
+  };
   const hands = new FirstPersonHands(PLAYER_LOOK);
   // one character per task (each is a few dozen boxes; all of them at once was a 150 ms task on a throttled tablet)
   await yieldToMain();
@@ -409,7 +427,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     greetPending = false;
     const guide = npcs.get('guide');
     if (!playerName || !guide || Math.hypot(guide.pos.x - body.x, guide.pos.z - body.z) >= 14) return;
-    hud.bubble('guide', guide.def.nameKo, welcomeBackEn(playerName), {}, performance.now());
+    hud.bubble('guide', npcName(guide.def), welcomeBackEn(playerName), {}, performance.now());
     guide.char.wave();
     sfx.play('mp.bubble');
   };
@@ -420,6 +438,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let lastAutoPos = new THREE.Vector3();
   const interactCbs = new Set<(npc: NpcRef) => void>();
   const hotbar: Array<string | null> = [null, null, null, null, null];
+  // the child picked a slot holding a thing: a use of that thing (frame domain records it on the server, docs/09 P4)
+  const holdListeners = new Set<(itemKey: string) => void>();
+  const slotPicked = (i: number): void => {
+    const k = hotbar[i];
+    if (k) for (const cb of holdListeners) cb(k);
+  };
   let possessedId: string | null = null;
   /** a lesson is live (setLessonBadge): solo-only NPCs (the errand giver) step out of it */
   let lessonMode = false;
@@ -427,7 +451,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let fps = 60;
   let frameMs = 16.7;
   let lastStats = { draw: 0, tris: 0 };
-  const showFps = new URLSearchParams(location.search).has('fps');
+  let showFps = new URLSearchParams(location.search).has('fps');
   hud.setScene(SCENE_TITLES_KO[currentScene]);
 
   // ---- Initial meshing: the chunks right around the start spot (FIRST_RING) are meshed and merged before the world
@@ -597,11 +621,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       camMode = toggleMirror(camMode, camBeforeMirror);
       hud.setCamMode(camMode);
     }
-    if (e.code.startsWith('Digit')) {
+    if (e.code.startsWith('Digit') && !paused) {
       const n = Number(e.code.slice(5)) - 1;
       if (n >= 0 && n < 5) {
         hud.selectSlot(n);
         refreshBuildSlots();
+        slotPicked(n);
       }
     }
     // Space jumps; keep the page from scrolling only when nothing on the page has focus (or the canvas has).
@@ -696,8 +721,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     lastX = e.clientX;
     lastY = e.clientY;
     dragMoved += Math.abs(dx) + Math.abs(dy);
-    camYaw -= dx * 0.006;
-    camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005));
+    camYaw -= dx * 0.006 * lookMouse;
+    camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005 * lookMouse * lookY));
   };
   const pointerUp = (e: PointerEvent): void => {
     buildRelease(e);
@@ -748,6 +773,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     sfx.startAmbient();
   };
   hud.root.addEventListener('pointerdown', unlockOnce);
+  // Touch screens: the first pointerdown is not an activation yet, so open audio on the first pointerup/click too.
+  const stopAudioTap = onPageActivation(unlockOnce);
 
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -793,7 +820,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   function say(npcId: string, text: string, possessed: boolean): void {
     const n = npcs.get(npcId);
     if (!n) return;
-    hud.bubble(npcId, n.def.nameKo, text, { possessed }, performance.now());
+    hud.bubble(npcId, npcName(n.def), text, { possessed }, performance.now());
     n.char.speak(Math.min(6, 0.6 + text.length * 0.05));
     sfx.play('mp.bubble');
   }
@@ -1553,6 +1580,20 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       effects.sparkle(hp.x, hp.y, hp.z);
       sfx.play('item.get');
     },
+    setBag(keys) {
+      for (let i = 0; i < hotbar.length; i++) {
+        const k = keys[i] ?? null;
+        if (hotbar[i] === k) continue;
+        hotbar[i] = k;
+        hud.setItem(i, k);
+      }
+      if (heldItem && heldKey && !hotbar.includes(heldKey)) {
+        player.hand.remove(heldItem);
+        heldItem = null;
+        heldKey = null;
+        hands.setItem(null);
+      }
+    },
     takeItem(itemKey) {
       const slot = hotbar.lastIndexOf(itemKey);
       if (slot < 0) return false;
@@ -1604,7 +1645,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       // The tag next to the lesson tag (hud, the lesson layer's teacher presence) and, while the teacher is with the
       // child, the teacher's avatar in the child's world (visitor.ts, Dan 11-16 12:10).
       hud.setTeacher(t);
-      showTeacher(t?.present ? (t.name ?? '') : null);
+      teacherWanted = t;
+      syncTeacherFigure();
     },
     setWorldLook(look: WorldSetupChoice | null) {
       if (weather) {
@@ -1666,6 +1708,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       window.removeEventListener('resize', resize);
       resizeObs?.disconnect();
       canvas.removeEventListener('pointerdown', pointerDown);
+      stopAudioTap();
       canvas.removeEventListener('wheel', wheel);
       canvas.removeEventListener('contextmenu', contextMenu);
       plotSync?.stop();
@@ -1715,6 +1758,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       }
     },
     setBuildAccess: (a) => startBuildAccess(a),
+    getPlayerLook: () => ({ ...PLAYER_LOOK }),
+    onHold(cb) {
+      holdListeners.add(cb);
+      return () => holdListeners.delete(cb);
+    },
     onRoomCheck(cb) {
       roomCbs.add(cb);
       return () => {
@@ -1729,7 +1777,22 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       if (on && nearNpc && !npcTalkable(nearNpc.def, true)) nearNpc = null;
     },
     setCoins: (total) => hud.setCoins(total),
+    // Map screen (docs/08 G06): read once when the menu opens (the menu pauses the world). The arrow follows the view;
+    // in the mirror view the camera faces the child, so the body's facing is the one that means "where I look".
+    getMap: () => buildMapInfo({ player: { x: body.x, z: body.z, yaw: camMode === 'mirror' ? playerYaw : camYaw }, plot: world.plot }),
     setOnline: (on) => hud.setOnline(on),
+    setLookSettings: (o) => {
+      lookMouse = Math.max(0.1, o.mouse);
+      lookTouch = Math.max(0.1, o.touch);
+      lookY = o.invertY ? -1 : 1;
+    },
+    setReduceMotion: (on) => {
+      reduceMotion = on;
+    },
+    setShowFps: (on) => {
+      showFps = on || new URLSearchParams(location.search).has('fps');
+      if (!showFps) hud.setFps(null);
+    },
     setStars: (total) => hud.setStars(total),
     setPlayerName(name) {
       const clean = name ? name.trim().slice(0, 16) : '';
@@ -1766,12 +1829,15 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       hello(_you, list) {
         peers.clear();
         for (const p of list) peers.add({ id: p.id, name: p.name, role: p.role }, p.pose);
+        syncTeacherFigure();
       },
       join(id, name, role) {
         peers.add({ id, name, role });
+        syncTeacherFigure();
       },
       leave(id) {
         peers.remove(id);
+        syncTeacherFigure();
       },
       pose(id, x, y, z, yaw) {
         peers.pose(id, x, y, z, yaw);
@@ -1784,7 +1850,31 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       },
       reset() {
         peers.clear();
+        syncTeacherFigure();
       }
+    },
+    async goNearPeer(role) {
+      const p = peers.nearest(player.root.position, role);
+      if (!p || disposed) return false;
+      // two metres in front of them, facing them (the plaza is open; a wall spot still stands on the ground)
+      const x = p.x + Math.sin(p.yaw) * 2;
+      const z = p.z + Math.cos(p.yaw) * 2;
+      await hud.fadeTo(W.goingToPeer, async () => {
+        hud.clearBubbles();
+        body.x = x;
+        body.z = z;
+        body.y = standHeight(world, x, z, Math.ceil(p.y) + 2);
+        body.vx = body.vy = body.vz = 0;
+        playerYaw = Math.atan2(p.x - x, p.z - z);
+        camYaw = playerYaw;
+        chunks.update(body.x, body.z, FIRST_RING, 24);
+        const t0 = performance.now();
+        while (!disposed && chunks.outstanding(body.x, body.z, FIRST_RING) > 0 && performance.now() - t0 < GROUND_CAP_MS) {
+          chunks.update(body.x, body.z, FIRST_RING, 24);
+          await wait(30);
+        }
+      });
+      return true;
     },
     getStats(): WorldStats {
       return {

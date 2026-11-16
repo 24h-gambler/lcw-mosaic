@@ -130,7 +130,9 @@ export const ScoreResponseSchema = z
       .object({
         item_id: z.string().min(1),
         slot_or_socket: z.string().min(1),
-        coins_delta: z.number().int()
+        coins_delta: z.number().int(),
+        /** Where the thing landed: the bag while it has a free slot, else the home chest (docs/03 D13). */
+        location: z.enum(['bag', 'chest']).optional()
       })
       .strict()
       .nullable(),

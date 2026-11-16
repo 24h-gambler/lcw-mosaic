@@ -5,7 +5,7 @@ import { SCENES } from '../../world/town.js';
 import type { PlayState } from '../api.js';
 import { playDialogFor, playStepKo } from '../dialogs.js';
 import { elevatorNear, playIntercept, resetPlayStore, shownClock, taskScene, veinNear } from '../PlayLayer.js';
-import { PLAY_KO, RANK_KO } from '../strings.js';
+import { PLAY_KO } from '../strings.js';
 
 const npc = (id: string, ctx: NpcRef['ctx']): NpcRef => ({ id, ctx, nameKo: id, nameEn: id }) as NpcRef;
 const boss = npc('office_boss', 'boss');
@@ -80,19 +80,19 @@ describe('play dialogs (which sentences a hall NPC offers now)', () => {
   });
 
   it('result lines in Korean, without banned words (docs/21)', () => {
-    const rk = (r: string) => RANK_KO[r as keyof typeof RANK_KO];
+    const rk = (r: string) => r;
     const lines = [
       ...playStepKo({ kind: 'interview', hired: 'intern', coins: 25 }, rk),
       ...playStepKo({ kind: 'customer', tip: 60, pay: 100, promoted: 'staff' }, rk),
       ...playStepKo({ kind: 'exchange', ore: 'coal', units: 2, coins: 9 }, rk),
       ...playStepKo({ kind: 'exchange', blocked: 'no_ore', ore: 'gold' }, rk)
     ];
-    expect(lines).toEqual([PLAY_KO.result.hired('인턴', 25), PLAY_KO.result.tip(60), PLAY_KO.result.pay(100), PLAY_KO.result.promoted('사원'), PLAY_KO.result.sold(2, 'coal', 9), PLAY_KO.result.noOre('gold')]);
+    expect(lines).toEqual([PLAY_KO.result.hired('intern', 25), PLAY_KO.result.tip(60), PLAY_KO.result.pay(100), PLAY_KO.result.promoted('staff'), PLAY_KO.result.sold(2, 'coal', 9), PLAY_KO.result.noOre('gold')]);
     for (const l of lines) expect(l).not.toMatch(/게임|정답|오답|시험|평가|결제|가격|합격|시세/);
     // the same window said again: better = the difference or a raised star, same = nothing
     expect(playStepKo({ kind: 'customer', retry: 'better', coins: 30 }, rk)).toEqual([PLAY_KO.result.soldBetter(30)]);
     expect(playStepKo({ kind: 'interview', retry: 'better' }, rk)).toEqual([PLAY_KO.result.better]);
-    expect(playStepKo({ kind: 'interview', retry: 'better', hired: 'staff' }, rk)).toEqual([PLAY_KO.result.hired('사원', 0)]);
+    expect(playStepKo({ kind: 'interview', retry: 'better', hired: 'staff' }, rk)).toEqual([PLAY_KO.result.hired('staff', 0)]);
     expect(playStepKo({ kind: 'exchange', ore: 'coal', units: 2, coins: 0, retry: 'same' }, rk)).toEqual([]);
     for (const l of Object.values(PLAY_KO.market)) if (typeof l === 'string') expect(l).not.toMatch(/시세|가격/);
   });

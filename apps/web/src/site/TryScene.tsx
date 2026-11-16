@@ -34,7 +34,7 @@ import { IsoGroup, box, cafe, grass, honeyCup, isoPoint, merge, miniCharacter as
 
 const U = 10;
 const WALK_TICK_MS = 170;
-const GREET_FALLBACK_MS = 4_500;
+const GREET_FALLBACK_MS = 7_000; // neural line: up to 4 s to arrive (cached ~0.1 s) + ~3.5 s of speech
 const DRINK_MS = 1_800;
 const KID_START: [number, number] = [1, 8];
 
@@ -384,7 +384,7 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
         dispatch({ type: 'greeted' });
       };
       const fallback = setTimeout(go, GREET_FALLBACK_MS);
-      sayEnglish(TRY_NPC.welcome, { onEnd: () => setTimeout(go, 400) });
+      sayEnglish(TRY_NPC.welcome, { who: 'npc', onEnd: () => setTimeout(go, 400) });
       return () => clearTimeout(fallback);
     }
     if (s.phase === 'receive') {
@@ -392,6 +392,7 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
       setBubble(line);
       blip('pop');
       sayEnglish(line, {
+        who: 'npc',
         onEnd: () => {
           if (recording && audioRef.current && isSoundOn()) void audioRef.current.play().catch(() => undefined);
         }

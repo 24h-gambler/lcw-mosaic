@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BUS_DEFAULT_VOLUMES, DUCK_RELEASE_MS, PROCEDURAL_SFX_PRESETS, dbToGain } from '@lcw/audio';
-import { createAudioRuntime, type RuntimeClock } from '../audio/runtime.js';
+import { createAudioRuntime, onPageActivation, type RuntimeClock } from '../audio/runtime.js';
 
 /**
  * WP-110 / docs/12 on the client: one graph (buses -> master 70% -> high-pass 40 Hz -> limiter -1 dB), the NPC voice
@@ -107,6 +107,37 @@ describe('audio runtime graph (docs/12 2장)', () => {
     for (const b of ['bgm', 'amb', 'sfx', 'ui', 'voice_npc', 'voice_lesson'] as const) {
       expect((rt.bus(b) as unknown as { gain: Param }).gain.value).toBeCloseTo(Math.min(0.89125, BUS_DEFAULT_VOLUMES[b]), 4);
     }
+  });
+
+  it('no context before the first tap (no "AudioContext was not allowed to start" warning); built on the unlock after it', () => {
+    const f = fakeContext();
+    let made = 0;
+    let tapped = false;
+    const rt = createAudioRuntime({ clock: fakeClock().clock, createContext: () => (made++, f.ctx), activated: () => tapped });
+    expect(rt.unlock()).toBeNull();
+    expect(rt.bus('ui')).toBeNull();
+    expect(made).toBe(0);
+    tapped = true;
+    expect(rt.unlock()).toBe(f.ctx);
+    expect(rt.unlock()).toBe(f.ctx);
+    expect(made).toBe(1);
+  });
+
+  it('opens on the first activating event (pointerup/click/touchend/keydown), once, and stops cleanly', () => {
+    const t = new EventTarget();
+    let n = 0;
+    const stop = onPageActivation(() => n++, t as unknown as Window);
+    t.dispatchEvent(new Event('pointerdown'));
+    expect(n).toBe(0);
+    t.dispatchEvent(new Event('pointerup'));
+    t.dispatchEvent(new Event('click'));
+    expect(n).toBe(1);
+    stop();
+    let m = 0;
+    const stop2 = onPageActivation(() => m++, t as unknown as Window);
+    stop2();
+    t.dispatchEvent(new Event('keydown'));
+    expect(m).toBe(0);
   });
 
   it('no WebAudio: nothing throws, buses are null and the mic still opens on time', async () => {

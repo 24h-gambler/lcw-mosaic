@@ -49,7 +49,7 @@ await page.waitForFunction(() => !document.body.innerText.includes('마을을 �
 // the title screen (start/StartFlow): a new child makes a world (name + picks) and goes in; a returning one continues.
 // The play card must not show over the title.
 for (let i = 0; i < 8; i++) {
-  const b = page.getByRole('button', { name: /^(내 월드 만들기|만들기|들어가기|시작하기|.+ 가기|.+ 열기)$/ }).first();
+  const b = page.getByRole('button', { name: /^(Make my world|Make it!|Go in|Start|Go to .+|내 월드 만들기|만들기|들어가기|시작하기|.+ 가기|.+ 열기)( · .+)?$/ }).first();
   // making a world takes a few seconds on a busy machine: wait for the next step's button before deciding it is over
   if (!(await b.waitFor({ state: 'visible', timeout: 12000 }).then(() => true).catch(() => false))) break;
   if (i === 0) mark('title', { play_card_over_title: (await page.$('[data-play="card"]')) !== null });
@@ -105,12 +105,12 @@ async function answer(stars, label) {
   await page.click(`.lcw-offer[data-s="${pick.s}"]`).catch(() => {});
   await page.waitForTimeout(300);
   await shot(label);
-  await page.getByRole('button', { name: /글자로 쓰기/ }).first().click();
+  await page.getByRole('button', { name: /Type|글자로 쓰기/ }).first().click();
   await page.fill('.lcw-input', pick.text);
   await page.click('.lcw-cta--go');
   await page.waitForFunction(() => {
-    const r = document.querySelector('.lcw-res');
-    return !!r && !!document.querySelector('.lcw-res__fb') && !r.textContent.includes('확인하는 중');
+    // the result phase (stars row), not the scoring one (dots)
+    return !!document.querySelector('.lcw-res .lcw-res__stars');
   }, null, { timeout: 60000 });
   await page.waitForTimeout(700);
   const res = await page.$eval('.lcw-res', (r) => r.innerText.replace(/\s+/g, ' ').slice(0, 160));

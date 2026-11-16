@@ -5,8 +5,8 @@ import { PUSH_COPY_KO, type PushKind } from './push-copy.js';
 import { encryptPayload, isPushServiceEndpoint, makeVapidKeys, vapidAuthorization, b64url, type PushTarget, type VapidKeys } from './web-push.js';
 
 /**
- * Guardian notices by Web Push (docs/09 §12): seat expiry (7 days, 1 day, ended) and refund results go to the
- * guardian's own devices that opted in on /family. Cost 0: the browsers' push services are free and the Worker does
+ * Guardian notices by Web Push (docs/09 §12): lesson reports (made, still unopened after 2 days), seat expiry
+ * (7 days, 1 day, ended) and refund results go to the guardian's own devices that opted in on /family. Cost 0: the browsers' push services are free and the Worker does
  * the RFC 8291 encryption itself (web-push.ts).
  *
  * Nobody receives anything until the operator turns sending on (`POST /v1/admin/push/sending {enabled:true}`): until
@@ -168,8 +168,46 @@ export function enqueueGuardianNotices(sql: SqliteExecutor, randomBytes: (n: num
     const kind: PushKind = r.status === 'done' ? 'refund_done' : 'refund_declined';
     if (enqueue(sql, randomBytes, r.family_id, kind, `refund:${r.id}:${r.status}`, nowMs)) n++;
   }
+  return n + enqueueReportNotices(sql, randomBytes, nowMs);
+}
+
+/**
+ * Lesson reports (docs/09 P5 "공유 링크 생성 → 푸시", docs/10 §4 T5→T7): one notice when a lesson report is made and
+ * one reminder when it is still unopened two days later (processPendingReportReminders marks it). Opened or revoked
+ * reports are not announced; the share link itself never rides in a notice (lock screen) — it opens /family.
+ */
+export function enqueueReportNotices(sql: SqliteExecutor, randomBytes: (n: number) => Uint8Array, nowMs: number): number {
+  sql.exec(PUSH_SCHEMA_SQL);
+  const hasDeliveries = sql.get("select 1 as x from sqlite_master where type = 'table' and name = 'report_deliveries'");
+  if (!hasDeliveries) return 0;
+  let n = 0;
+  const rows = sql.all<{ report_id: string; family_id: string; sent_at: number; reminder_sent_at: number | null }>(
+    `select d.report_id, p.family_id, d.sent_at, d.reminder_sent_at from report_deliveries d join players p on p.id = d.player_id
+     where d.kind = 'lesson' and p.family_id is not null and d.opened_at is null and (d.sent_at > ? or d.reminder_sent_at > ?)`,
+    [nowMs - PUSH_FRESH_MS, nowMs - PUSH_FRESH_MS]
+  );
+  for (const r of rows) {
+    if (reportClosed(sql, r.report_id)) continue;
+    if (r.sent_at > nowMs - PUSH_FRESH_MS && enqueue(sql, randomBytes, r.family_id, 'lesson_report', `report:${r.report_id}`, nowMs)) n++;
+    if (r.reminder_sent_at !== null && r.reminder_sent_at > nowMs - PUSH_FRESH_MS) {
+      if (enqueue(sql, randomBytes, r.family_id, 'report_reminder', `report:${r.report_id}:reminder`, nowMs)) n++;
+    }
+  }
   return n;
 }
+
+/** Opened or revoked since it was queued: the notice has nothing left to say. */
+function reportClosed(sql: SqliteExecutor, reportId: string): boolean {
+  const r = sql.get<{ opened_at: number | null; share_token: string }>('select opened_at, share_token from report_deliveries where report_id = ?', [reportId]);
+  if (!r) return true;
+  if (r.opened_at !== null) return true;
+  const revoked = sql.get("select 1 as x from sqlite_master where type = 'table' and name = 'report_revocations'")
+    ? sql.get('select 1 as x from report_revocations where share_token = ?', [r.share_token])
+    : undefined;
+  return Boolean(revoked);
+}
+
+const reportOf = (ref: string): string | null => (ref.startsWith('report:') ? ref.slice(7).replace(/:reminder$/, '') : null);
 
 export function enqueueTest(sql: SqliteExecutor, randomBytes: (n: number) => Uint8Array, familyId: string, nowMs: number): boolean {
   sql.exec(PUSH_SCHEMA_SQL);
@@ -206,7 +244,7 @@ export function webPushSender(keys: VapidKeys, fetchImpl: Fetch, nowMs: () => nu
 
 export function noticePayload(kind: PushKind, id: string): Uint8Array<ArrayBuffer> {
   const c = PUSH_COPY_KO[kind];
-  return new TextEncoder().encode(JSON.stringify({ title: c.title, body: c.body, url: '/family', tag: kind.startsWith('seat') ? 'seat' : kind, id }));
+  return new TextEncoder().encode(JSON.stringify({ title: c.title, body: c.body, url: '/family', tag: kind.startsWith('seat') ? 'seat' : kind === 'lesson_report' || kind === 'report_reminder' ? 'report' : kind, id }));
 }
 
 export interface DeliverResult {
@@ -216,18 +254,28 @@ export interface DeliverResult {
   no_device: number;
   failed: number;
   expired: number;
+  /** Report notices dropped because the report was opened or revoked first. */
+  skipped: number;
   devices_dropped: number;
 }
 
 /** Sends queued notices if sending is on; otherwise leaves them queued (held). */
 export async function deliverPush(sql: SqliteExecutor, sender: PushSender | null, nowMs: number, limit = 50): Promise<DeliverResult> {
   sql.exec(PUSH_SCHEMA_SQL);
-  const r: DeliverResult = { sending: sendingEnabled(sql), held: 0, sent: 0, no_device: 0, failed: 0, expired: 0, devices_dropped: 0 };
+  const r: DeliverResult = { sending: sendingEnabled(sql), held: 0, sent: 0, no_device: 0, failed: 0, expired: 0, skipped: 0, devices_dropped: 0 };
   const stale = "status = 'queued' and (created_at <= ? or (kind = 'test' and created_at <= ?))";
   const cut = [nowMs - PUSH_FRESH_MS, nowMs - PUSH_TEST_FRESH_MS];
   const exp = sql.get<{ n: number }>(`select count(*) as n from push_outbox where ${stale}`, cut);
   r.expired = Number(exp?.n ?? 0);
   sql.run(`update push_outbox set status = 'expired' where ${stale}`, cut);
+  // A report the guardian already opened (or revoked) while its notice waited: drop the notice, do not announce it.
+  for (const q of sql.all<{ id: string; ref: string }>("select id, ref from push_outbox where status = 'queued' and ref like 'report:%'")) {
+    const rid = reportOf(q.ref);
+    if (rid && reportClosed(sql, rid)) {
+      sql.run("update push_outbox set status = 'skipped' where id = ?", [q.id]);
+      r.skipped++;
+    }
+  }
   const queued = sql.all<{ id: string; family_id: string; kind: PushKind; attempts: number }>(
     "select id, family_id, kind, attempts from push_outbox where status = 'queued' order by created_at limit ?",
     [limit]

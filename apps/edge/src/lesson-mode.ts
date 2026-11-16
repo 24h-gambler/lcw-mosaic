@@ -1,6 +1,15 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LESSON_DIRECTOR_EVENTS, LESSON_NPCS, LESSON_PLANS, UTTERANCE_CLIENT_ID_RE, bankTextKey, getLessonPlan, type LessonPlan } from '@lcw/content';
+import {
+  LESSON_DIRECTOR_EVENTS,
+  LESSON_NPCS,
+  LESSON_PLANS,
+  UTTERANCE_CLIENT_ID_RE,
+  bankTextKey,
+  getLessonPlan,
+  normalizeTeacherName,
+  type LessonPlan
+} from '@lcw/content';
 import { scoreUtterance } from '@lcw/converse';
 import {
   computeLessonMetrics,
@@ -14,6 +23,7 @@ import { LessonDO, type DirectorEventKind, type EdgePlatformDb, type SqliteExecu
 import { markSeatUse } from './seats.js';
 import { buildLessonParentFacts } from './parent-report.js';
 import { createMemoryCard } from './review.js';
+import { enqueueLessonEnd, mountOpsCardRoutes } from './ops-cards.js';
 
 /**
  * Lesson mode (docs/18): a real lesson without the 3D world. The teacher (operator token) starts a lesson and gets a
@@ -31,7 +41,6 @@ import { createMemoryCard } from './review.js';
  */
 export const TEACHER_BEAT_MS = 15_000;
 export const TEACHER_PRESENT_MS = 45_000;
-export const TEACHER_NAME_DEFAULT = '선생님';
 /** The student device's one-time mic check result (talk lane, sessionStorage 'lcw.micStatus'). */
 export const LESSON_MIC_STATUSES = ['ok', 'quiet', 'none', 'skipped'] as const;
 /** 1PC panel lock: wrong numbers per lesson within PANEL_FAIL_WINDOW_MS before the unlock answers 429. */
@@ -48,6 +57,18 @@ export interface TeacherPresence {
 
 export const JOIN_CODE_TTL_MS = 12 * 3_600_000;
 export const STUDENT_TOKEN_TTL_MS = 12 * 3_600_000;
+/**
+ * Signed-in devices of a student (family.ts `devices`, student-account.ts): those see the teacher's lesson by
+ * themselves (GET /v1/device/lesson), so the console puts the 6-digit code behind '다른 기기로 들어오기'.
+ * The window equals family.ts DEVICE_TOKEN_TTL_MS (a test keeps them equal; no import, family.ts pulls lesson code).
+ */
+export const LINKED_DEVICE_TTL_MS = 365 * 86_400_000;
+const LINKED_DEVICES_SQL = '(select count(*) from devices dv where dv.player_id = p.id and dv.revoked_at is null and dv.created_at > ?)';
+/**
+ * Last poll of the student's signed-in world (student-account.ts GET /v1/device/lesson, written at most every 10 s):
+ * the console draws '접속 중' when now - world_seen_at < 20 s, else '접속 대기'. Null: never signed in on a device.
+ */
+const WORLD_SEEN_SQL = (playerCol: string) => `(select w.seen_at from student_world_seen w where w.player_id = ${playerCol})`;
 /** Wrong codes one device (client IP) may try per hour; a typo-prone child never locks out other lessons. */
 export const JOIN_FAILS_PER_HOUR = 10;
 /** Wrong codes all devices together may try per hour (6-digit codes live 12 h: guessing stays far below 1%). */
@@ -89,7 +110,7 @@ create index if not exists lesson_stage_log_by_lesson on lesson_stage_log (lesso
 create table if not exists lesson_director (lesson_id text primary key, possessed_npc_id text, updated_at integer not null);
 create table if not exists lesson_presence (lesson_id text primary key, last_seen_at integer not null, scene_id text, ui text);
 create table if not exists lesson_utterance_clients (lesson_id text not null, client_id text not null, response text not null, at integer not null, primary key (lesson_id, client_id));
-create table if not exists lesson_teacher (lesson_id text primary key, first_beat_at integer not null, last_beat_at integer not null, present_since integer not null, panel text not null default 'open', op_session text, name text, left_at integer);
+create table if not exists lesson_teacher (lesson_id text primary key, first_beat_at integer not null, last_beat_at integer not null, present_since integer not null, panel text not null default 'open', op_session text, name text, left_at integer, account_name text);
 create table if not exists lesson_panel_lock (lesson_id text primary key, pin_hash text not null, set_at integer not null, fails integer not null default 0, fail_since integer)
 `;
 
@@ -175,13 +196,29 @@ const StartSchema = z
   .strict();
 /**
  * source: 'console' = the /director heartbeat, 'panel' = the 1PC teacher panel on the child's screen. After "선생님 나가기"
- * (presence/leave) console beats no longer count until the teacher comes back on purpose: the panel is unlocked again
- * (its beat) or the console sends resume. Otherwise a console left open on the same PC would undo the leave within 15 s.
- * Only the panel's own beats set the panel state (open/closed).
+ * (presence/leave, from the panel or the console) no beat counts until the teacher comes back on purpose: resume, sent
+ * by the console's "다시 수업하기" or by the panel's first beat after its lock number. Otherwise whichever side was left
+ * open on the same PC would undo the leave within 15 s. Only panel beats set the panel state; a console resume sets it
+ * back to 'open' (no panel folded away any more).
  */
 const PresenceSchema = z
-  .object({ panel: z.enum(['open', 'closed']).default('open'), source: z.enum(['console', 'panel']).default('console'), resume: z.boolean().optional() })
+  .object({
+    panel: z.enum(['open', 'closed']).default('open'),
+    source: z.enum(['console', 'panel']).default('console'),
+    resume: z.boolean().optional(),
+    // The name alone ("김민지", no "선생님"), typed on the console; the child sees teacherLabel(name). Blank (or only the
+    // title) clears it. Typed name > the signed-in account's name > "선생님" (review #80).
+    name: z
+      .string()
+      .max(64)
+      .refine((v) => isBlankTeacherName(v) || normalizeTeacherName(v) !== null, 'invalid_name')
+      .optional()
+  })
   .strict();
+/** Blank, or only the title typed: clears the typed name (back to the account name or "선생님"). */
+function isBlankTeacherName(v: string): boolean {
+  return v.replace(/선생님/g, '').trim() === '';
+}
 const PanelPinSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/) }).strict();
 const StageSchema = z
   .object({ stage_id: z.string().min(1).max(64), targets: z.array(z.string().min(1).max(200)).max(6) })
@@ -268,34 +305,36 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   if (!d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').some((col) => col.name === 'mic')) {
     d.sql.exec('alter table lesson_presence add column mic text');
   }
-  if (!d.sql.all<{ name: string }>('pragma table_info(lesson_teacher)').some((col) => col.name === 'left_at')) {
-    d.sql.exec('alter table lesson_teacher add column left_at integer');
-  }
+  const teacherCols = d.sql.all<{ name: string }>('pragma table_info(lesson_teacher)').map((col) => col.name);
+  if (!teacherCols.includes('left_at')) d.sql.exec('alter table lesson_teacher add column left_at integer');
+  if (!teacherCols.includes('account_name')) d.sql.exec('alter table lesson_teacher add column account_name text');
   const app = new Hono();
+  // Hub cards for the teacher (after-lesson summary, student's daily record): an outbox the spine side pulls.
+  mountOpsCardRoutes(app, d);
 
   const lessonRow = (id: string) =>
     d.sql.get<{ id: string; player_id: string; started_at: number; ended_at: number | null; plan: string }>(
       'select id, player_id, started_at, ended_at, plan from lessons where id = ?',
       [id]
     );
-  /** The teacher's display name: the operator session's name when the console signed in with one, else '선생님'. */
-  const teacherNameOf = (opSession: string | null): string => {
-    if (!opSession) return TEACHER_NAME_DEFAULT;
+  /** The signed-in account's name alone (same join as the teacher sign-in, #87), or null: no session, no tables yet. */
+  const sessionNameOf = (opSession: string | null): string | null => {
+    if (!opSession) return null;
     try {
-      const r = d.sql.get<{ name: string | null }>('select coalesce(display_name, label) as name from operator_sessions where id = ?', [opSession]);
-      if (r?.name) return r.name.slice(0, 24);
+      // operator-login.ts: the session's label is the device ("Chrome on Windows"); the name is the Google account's.
+      const r = d.sql.get<{ name: string | null }>(
+        'select o.name as name from operator_sessions s join operators o on o.id = s.operator_id where s.id = ?',
+        [opSession]
+      );
+      return normalizeTeacherName(r?.name);
     } catch {
-      try {
-        const r = d.sql.get<{ name: string | null }>('select label as name from operator_sessions where id = ?', [opSession]);
-        if (r?.name) return r.name.slice(0, 24);
-      } catch {
-        /* no operator session table yet */
-      }
+      return null; /* no operator tables (a platform without Google sign-in) */
     }
-    return TEACHER_NAME_DEFAULT;
   };
   /** panel null = keep the panel state (console beats); a beat always clears an earlier leave. */
-  const beat = (lessonId: string, now: number, panel: 'open' | 'closed' | null, opSession: string | null) => {
+  /** typedName undefined = this beat says nothing about the name (1PC panel, an older console): keep it; blank clears. */
+  const beat = (lessonId: string, now: number, panel: 'open' | 'closed' | null, opSession: string | null, typedName?: string) => {
+    const typed = typedName === undefined ? undefined : normalizeTeacherName(typedName);
     const prev = d.sql.get<{ last_beat_at: number; present_since: number }>(
       'select last_beat_at, present_since from lesson_teacher where lesson_id = ?',
       [lessonId]
@@ -303,24 +342,28 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     // A gap longer than the present window starts a new stretch of presence.
     const since = prev && now - prev.last_beat_at <= TEACHER_PRESENT_MS ? prev.present_since : now;
     d.sql.run(
-      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel, op_session, name, left_at) values (?, ?, ?, ?, ?, ?, ?, null)
+      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel, op_session, name, account_name, left_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, null)
        on conflict(lesson_id) do update set last_beat_at = excluded.last_beat_at, present_since = excluded.present_since,
-         panel = coalesce(?, lesson_teacher.panel), op_session = excluded.op_session, name = excluded.name, left_at = null`,
-      [lessonId, now, now, since, panel ?? 'open', opSession, teacherNameOf(opSession), panel]
+         panel = coalesce(?, lesson_teacher.panel), op_session = coalesce(excluded.op_session, lesson_teacher.op_session),
+         name = case when ? then excluded.name else lesson_teacher.name end,
+         account_name = coalesce(excluded.account_name, lesson_teacher.account_name), left_at = null`,
+      [lessonId, now, now, since, panel ?? 'open', opSession, typed ?? null, sessionNameOf(opSession), panel, typed === undefined ? 0 : 1]
     );
   };
   const teacherOf = (lessonId: string, now: number): TeacherPresence => {
     const l = lessonRow(lessonId);
     if (!l || l.ended_at) return { present: false, name: null, since: null, tracked: true, panel: null };
-    const t = d.sql.get<{ last_beat_at: number; present_since: number; panel: string; name: string | null }>(
-      'select last_beat_at, present_since, panel, name from lesson_teacher where lesson_id = ?',
+    const t = d.sql.get<{ last_beat_at: number; present_since: number; panel: string; name: string | null; account_name: string | null }>(
+      'select last_beat_at, present_since, panel, name, account_name from lesson_teacher where lesson_id = ?',
       [lessonId]
     );
-    if (!t) return { present: true, name: TEACHER_NAME_DEFAULT, since: l.started_at, tracked: false, panel: null };
+    // name is the name alone or null; the child's screen shows teacherLabel(name) ("선생님" for null).
+    if (!t) return { present: true, name: null, since: l.started_at, tracked: false, panel: null };
     const present = now - t.last_beat_at <= TEACHER_PRESENT_MS;
     return {
       present,
-      name: present ? (t.name ?? TEACHER_NAME_DEFAULT) : null,
+      name: present ? (t.name ?? t.account_name ?? null) : null,
       since: present ? t.present_since : null,
       tracked: true,
       panel: present ? (t.panel === 'closed' ? 'closed' : 'open') : null
@@ -509,9 +552,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const rows = d.sql.all<Record<string, unknown>>(
       `select p.id as player_id, p.nickname, p.level, p.birth_year, p.family_id,
               (select max(started_at) from lessons l where l.player_id = p.id) as last_lesson_at,
-              (select count(*) from utterances u where u.player_id = p.id and u.created_at >= ?) as utterances_7d
+              (select count(*) from utterances u where u.player_id = p.id and u.created_at >= ?) as utterances_7d,
+              ${LINKED_DEVICES_SQL} as linked_devices,
+              ${WORLD_SEEN_SQL('p.id')} as world_seen_at
        from players p where p.id not like 'smoke-%' and p.id <> 'player-demo' order by p.nickname`,
-      [since]
+      [since, d.nowMs() - LINKED_DEVICE_TTL_MS]
     );
     return c.json(rows);
   });
@@ -545,7 +590,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     setPossessed(lessonId, null);
     // A console that beats says so at start: the start is the first beat (an old console never does: see above).
     if (p.data.presence) beat(lessonId, now, 'open', c.req.header('x-lcw-op-session') ?? null);
-    return c.json({ lesson_id: lessonId, join_code: code, expires_at: now + JOIN_CODE_TTL_MS, plan }, 201);
+    const linked = d.sql.get<{ n: number }>(`select ${LINKED_DEVICES_SQL} as n from players p where p.id = ?`, [now - LINKED_DEVICE_TTL_MS, p.data.player_id])?.n;
+    return c.json({ lesson_id: lessonId, join_code: code, expires_at: now + JOIN_CODE_TTL_MS, plan, linked_devices: Number(linked ?? 0) }, 201);
   });
 
   /*
@@ -618,11 +664,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const now = d.nowMs();
     const fromPanel = p.data.source === 'panel';
     const left = d.sql.get<{ left_at: number | null }>('select left_at from lesson_teacher where lesson_id = ?', [id])?.left_at ?? null;
-    // The teacher left on purpose: a console still beating in the background does not bring them back.
-    if (left !== null && !fromPanel && !p.data.resume) {
+    // The teacher left on purpose: a console or an unlocked panel still beating does not bring them back.
+    if (left !== null && !p.data.resume) {
       return c.json({ teacher: teacherOf(id, now), left: true, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
     }
-    beat(id, now, fromPanel ? p.data.panel : null, c.req.header('x-lcw-op-session') ?? null);
+    beat(id, now, fromPanel ? p.data.panel : p.data.resume ? 'open' : null, c.req.header('x-lcw-op-session') ?? null, p.data.name);
     return c.json({ teacher: teacherOf(id, now), left: false, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
   });
 
@@ -705,8 +751,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const now = d.nowMs();
     // `include_test=1` (operator smoke checks in production): smoke-/demo students too. Default leaves them out.
     const withTest = c.req.query('include_test') === '1';
-    const rows = d.sql.all<{ lesson_id: string; player_id: string; nickname: string | null; plan: string | null; started_at: number }>(
-      `select l.id as lesson_id, l.player_id, p.nickname, l.plan, l.started_at
+    const rows = d.sql.all<{ lesson_id: string; player_id: string; nickname: string | null; plan: string | null; started_at: number; world_seen_at: number | null }>(
+      `select l.id as lesson_id, l.player_id, p.nickname, l.plan, l.started_at, ${WORLD_SEEN_SQL('l.player_id')} as world_seen_at
        from lessons l left join players p on p.id = l.player_id
        where l.ended_at is null and l.started_at >= ?${withTest ? '' : ` and l.player_id not like 'smoke-%' and l.player_id <> 'player-demo'`}
        order by l.started_at desc limit 20`,
@@ -740,7 +786,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
           started_at: r.started_at,
           stage_id: st?.stage_id ?? last?.stage_id ?? null,
           stage_started_at: last?.at ?? r.started_at,
-          stage_ms: stageMs
+          stage_ms: stageMs,
+          world_seen_at: r.world_seen_at ?? null
         }
       ];
     });
@@ -925,6 +972,13 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     d.sql.run('update lessons set ended_at = coalesce(ended_at, ?) where id = ?', [now, id]);
     d.sql.run('update student_tokens set expires_at = min(expires_at, ?) where lesson_id = ?', [now + 10 * 60_000, id]);
     d.sql.run('delete from lesson_joins where lesson_id = ?', [id]);
+    // The after-lesson summary and the student's daily record go to the card outbox (ops-cards.ts). A card failure
+    // never fails the end: the report is out and the lesson is closed.
+    try {
+      enqueueLessonEnd(d.sql, id, now, new URL(c.req.url).origin);
+    } catch {
+      /* the next end or daily refresh writes the cards again */
+    }
     return c.json({ report_path: `/r/${token}`, share_token: token, facts: body.facts, pin_windows: pinWindows });
   });
 

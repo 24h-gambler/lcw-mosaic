@@ -26,3 +26,17 @@ export interface MenuPanelProps {
   syncBag?(): void;
   fetchImpl?: Fetch;
 }
+
+/**
+ * Another window holds the screen (an NPC or review dialog, the first-visit card, the seat card, or a lesson dialog
+ * marked on the HUD): the menu does not open over it, and closing the menu must not un-pause the world under it.
+ * Windows inside the menu itself (the repair review) do not count.
+ */
+export function otherModalOpen(doc: Pick<Document, 'querySelector' | 'querySelectorAll'> | null = typeof document === 'undefined' ? null : document): boolean {
+  if (!doc) return false;
+  if (doc.querySelector('.lw-hud.dlg')) return true;
+  for (const el of Array.from(doc.querySelectorAll('.lcw-dlg, [aria-modal="true"]'))) {
+    if (!(el as Element).closest('.lcw-menu')) return true;
+  }
+  return false;
+}

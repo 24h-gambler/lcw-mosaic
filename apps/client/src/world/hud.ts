@@ -24,10 +24,10 @@ function css(): string {
 .lw-goal .k{font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;color:${C['brand-d']}}
 .lw-goal .g{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1));font-weight:700}
 .lw-goal .t{font-family:${T.fonts.target};font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.h3.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;color:${C['sky-d']}}
-.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:flex-start}
+.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;max-width:calc(100vw - 230px)}
 .lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1))}
 .lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));border:2px solid ${C['ink-900']};display:none}
-.lw-chip .l.on{display:inline-block}
+.lw-chip .l.on{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lw-chip .l.solo{background:${C['paper-0']};color:${C['ink-700']};border-style:dashed}
 .lw-chip .s{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px}
 .lw-chip .w{display:inline-flex;align-items:center;gap:6px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1));font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9}
@@ -651,7 +651,7 @@ export class WorldHud {
   setTeacher(t: { present: boolean; name: string | null } | null): void {
     this.lessonChip.classList.toggle('solo', Boolean(t && !t.present));
     this.lessonChip.dataset.teacher = t === null ? '' : t.present ? 'present' : 'absent';
-    this.lessonChip.textContent = t === null ? W.lessonBadge : t.present ? W.teacherWith(t.name || W.teacherDefault) : W.solo;
+    this.lessonChip.textContent = t === null ? W.lessonBadge : t.present ? W.teacherWith(t.name) : W.solo;
   }
 
   selectSlot(i: number, caption = true): void {

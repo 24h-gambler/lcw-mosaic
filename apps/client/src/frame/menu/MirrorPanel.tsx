@@ -8,6 +8,7 @@ import { COLOR_TOKENS as C } from '@lcw/ui';
 import { FRAME_STRINGS as F } from '../strings.js';
 import { SOCKET_NAMES, fetchItems, type ItemsView } from '../api.js';
 import { socketThings } from './BagPanel.js';
+import { motionReduced } from '../settings.js';
 import type { MenuPanelProps } from './types.js';
 import type { NpcLook } from '../../world/town.js';
 
@@ -178,7 +179,8 @@ export function MirrorPanel(props: MenuPanelProps): React.ReactElement {
   const { world, auth, fetchImpl } = props;
   const [view, setView] = useState<ItemsView | null>(null);
   const [look] = useState<NpcLook | null>(() => world?.getPlayerLook?.() ?? null);
-  const [reduceMotion] = useState(() => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  // G14 '움직임 줄이기' (falls back to the device preference)
+  const [reduceMotion] = useState(() => motionReduced());
 
   useEffect(() => {
     let live = true;

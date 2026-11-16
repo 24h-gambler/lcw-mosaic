@@ -112,14 +112,15 @@ export interface LearnLangOption {
   /** the language's own name, shown big */
   label: string;
   labelKo: string;
+  /** a letter of the language as its badge (flag emoji show as two letters on Windows) */
   flag: string;
   ready: boolean;
 }
 export const LEARN_LANGS: readonly LearnLangOption[] = [
-  { id: 'en', label: 'English', labelKo: '영어', flag: '🇺🇸', ready: true },
-  { id: 'ja', label: '日本語', labelKo: '일본어', flag: '🇯🇵', ready: false },
-  { id: 'zh', label: '中文', labelKo: '중국어', flag: '🇨🇳', ready: false },
-  { id: 'es', label: 'Español', labelKo: '스페인어', flag: '🇪🇸', ready: false }
+  { id: 'en', label: 'English', labelKo: '영어', flag: 'Aa', ready: true },
+  { id: 'ja', label: '日本語', labelKo: '일본어', flag: 'あ', ready: false },
+  { id: 'zh', label: '中文', labelKo: '중국어', flag: '中', ready: false },
+  { id: 'es', label: 'Español', labelKo: '스페인어', flag: 'Ñ', ready: false }
 ];
 export const DEFAULT_LEARN_LANG: LearnLang = 'en';
 

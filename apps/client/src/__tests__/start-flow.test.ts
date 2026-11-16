@@ -202,12 +202,14 @@ describe('the teacher in my world (Dan 11-16 12:10)', () => {
     const d = teacherDef('  Ms.   Kim ');
     expect(d.id).toBe(TEACHER_NPC_ID);
     expect(d.nameEn).toBe('Ms. Kim');
-    expect(plateText('Ms. Kim')).toBe('Ms. Kim 선생님');
-    expect(plateText('')).toBe('선생님');
-    expect(plateText('선생님')).toBe('선생님');
-    expect(plateText('김 선생님')).toBe('김 선생님');
-    expect(teacherDef('선생님').nameKo).toBe('선생님');
-    expect(teacherDef('').nameKo).toBe('선생님');
+    // English plate (the language the child learns); the Korean title only in the help line
+    expect(plateText('Ms. Kim', false)).toBe('Ms. Kim');
+    expect(plateText('', false)).toBe('Teacher');
+    expect(plateText('선생님', false)).toBe('Teacher');
+    expect(plateText('김 선생님', false)).toBe('김');
+    expect(plateText('Ms. Kim', true)).toBe('Ms. Kim · Ms. Kim 선생님');
+    expect(plateText('', true)).toBe('Teacher · 선생님');
+    expect(teacherDef('').nameEn).toBe('Teacher');
     expect([...cleanTeacherName('가'.repeat(30))]).toHaveLength(16);
     const t = teacherTarget(10, 20, 0, 10, 20)!;
     expect(Math.hypot(t[0] - 10, t[1] - 20)).toBeCloseTo(2.4, 5);

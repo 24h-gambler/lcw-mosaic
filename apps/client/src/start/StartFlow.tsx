@@ -148,10 +148,11 @@ export function injectStyle(): void {
 .lcw-lang__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .lcw-lang__card{min-height:96px;border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusCardPx}px;background:${C['paper-0']};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;font-family:${T.fonts.ui};color:${C['ink-900']};padding:8px}
 .lcw-lang__card b{font-size:${T.scale.h3.sizePx}px}
-.lcw-lang__card i{font-style:normal;font-size:28px;line-height:32px}
+.lcw-lang__card i{font-style:normal;font-weight:800;font-size:26px;line-height:32px;font-family:${T.fonts.target}}
 .lcw-lang__card span{font-size:${T.scale.small.sizePx}px;color:${C['ink-700']}}
 .lcw-lang__card[aria-pressed="true"]{background:${C.sun};box-shadow:${S.shadowDefault};transform:translate(-2px,-2px)}
 .lcw-lang__card[disabled]{opacity:.55;cursor:default}
+.lcw-lang .lcw-start__link{color:${C["ink-900"]};text-shadow:none}
 .lcw-invite__row .lcw-btn{flex:1}
 @keyframes lcw-start-pop{from{opacity:0;transform:translateY(-12px) scale(.96)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion: reduce){.lcw-flip{transition:none}.lcw-start__logo,.lcw-invite{animation:none}}

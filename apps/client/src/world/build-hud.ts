@@ -13,6 +13,7 @@ import { furniturePieces } from './build-view.js';
 import type { RoomCheckEvent } from './build.js';
 import { BLOCK_NAMES_KO, BUILD_REASONS_KO, FURNITURE_NAMES_KO, ROOM_GLOSS_KO, SHOWROOM_REASONS_KO, WORLD_STRINGS as W } from './strings.js';
 import type { ShowroomResult } from './showroom.js';
+import { helpKoOn } from './lang.js';
 import type { SyncStatus } from './plot-sync.js';
 
 const STYLE_ID = 'lcw-build-hud-style';
@@ -77,8 +78,8 @@ const blockKeyById = new Map(BLOCK_PALETTE.map((b) => [b.id, b.key] as const));
 export function refNameKo(ref: ItemRef): string {
   const what = parseRef(ref);
   if (!what) return '';
-  if (what.kind === 'block') return BLOCK_NAMES_KO[blockKeyById.get(what.id) ?? ''] ?? '블록';
-  return FURNITURE_NAMES_KO[what.key] ?? '가구';
+  if (what.kind === 'block') return BLOCK_NAMES_KO[blockKeyById.get(what.id) ?? ''] ?? W.blockWord;
+  return FURNITURE_NAMES_KO[what.key] ?? W.furnitureWord;
 }
 
 /** Icons: a block as a little lit cube from its atlas tiles, furniture as a front view of its toy pieces. */
@@ -405,7 +406,8 @@ export class BuildHud {
   showRoom(r: RoomCheckEvent): void {
     this.roomE.textContent = r.sentence;
     const need = r.structure[0] ?? r.missing[0] ?? (r.resident ? 'resident' : 'ok');
-    this.roomG.textContent = ROOM_GLOSS_KO[need] ?? '';
+    // the Korean gloss under the English room sentence is the Korean help (off unless turned on, world/lang.ts)
+    this.roomG.textContent = helpKoOn() ? (ROOM_GLOSS_KO[need] ?? '') : '';
     this.room.classList.add('on');
     window.clearTimeout(this.roomTimer);
     this.roomTimer = window.setTimeout(() => this.room.classList.remove('on'), 7000);

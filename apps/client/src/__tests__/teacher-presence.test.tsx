@@ -174,11 +174,16 @@ describe('1PC teacher panel (TeacherPanel.tsx)', () => {
     expect(await api.unlock(TOKEN, s.lesson_id, '0000')).toBe('wrong_pin');
     expect(await api.unlock('not-the-key-but-long', s.lesson_id, '1357')).toBe('error');
     expect(await api.unlock(TOKEN, s.lesson_id, '1357')).toBe('ok');
-    expect(await api.beat(TOKEN, s.lesson_id, 'closed')).toBe(true);
+    expect(await api.beat(TOKEN, s.lesson_id, 'closed')).toBe('ok');
     expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).teacher).toMatchObject({ present: true, panel: 'closed' });
     expect(await api.pushStage(TOKEN, s.lesson_id, FIRST_LESSON_PLAN.stages[1]!)).toBe(true);
     expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).lesson.stage_id).toBe(FIRST_LESSON_PLAN.stages[1]!.id);
     expect(await api.leave(TOKEN, s.lesson_id)).toBe(true);
     expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).teacher.present).toBe(false);
+    // Still unlocked elsewhere: its beats hear 'left' (the panel locks itself); the lock number's first beat resumes.
+    expect(await api.beat(TOKEN, s.lesson_id, 'closed')).toBe('left');
+    expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).teacher.present).toBe(false);
+    expect(await api.beat(TOKEN, s.lesson_id, 'open', true)).toBe('ok');
+    expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).teacher).toMatchObject({ present: true, panel: 'open' });
   });
 });

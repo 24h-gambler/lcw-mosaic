@@ -122,8 +122,10 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     expect(consoleBeat.body).toMatchObject({ left: true, teacher: { present: false } });
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {})).body.left).toBe(true);
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(false);
-    // Unlocking the panel again (its beat) brings the teacher back, and the console counts again.
-    const back = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel' });
+    // An unlocked panel still beating does not undo it either (review #70, second pass).
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel' })).body.left).toBe(true);
+    // Unlocking the panel again (its first beat says resume) brings the teacher back, and the console counts again.
+    const back = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel', resume: true });
     expect(back.body).toMatchObject({ left: false, teacher: { present: true, panel: 'closed' } });
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {})).body.left).toBe(false);
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(true);
@@ -135,7 +137,8 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {});
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open' })).body.teacher.present).toBe(false);
     const resumed = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open', resume: true });
-    expect(resumed.body).toMatchObject({ left: false, teacher: { present: true } });
+    // The leave folded the panel away; coming back from the console opens it again in the record.
+    expect(resumed.body).toMatchObject({ left: false, teacher: { present: true, panel: 'open' } });
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(true);
   });
 
@@ -169,6 +172,28 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     // route path through the gate with the operator key, so the header reaches it only if the platform passes it on.
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { ...op, 'x-lcw-op-session': 'ops-1' });
     const name = (await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name;
-    expect(['Dan', '선생님']).toContain(name);
+    expect(name).toBe('Dan');
+  });
+
+  it('teacher name: typed on the console, kept across nameless beats; a session name wins; no session table → 선생님', async () => {
+    const p = platform();
+    const { lessonId, st } = await start(p, true);
+    const nameNow = async () => (await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name;
+    expect(await nameNow()).toBe('선생님');
+    // No operator_sessions table here: a session header falls back without an error.
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { ...op, 'x-lcw-op-session': 'ops-x' })).status).toBe(200);
+    expect(await nameNow()).toBe('선생님');
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { name: '  김 선생님 ' });
+    expect(await nameNow()).toBe('김 선생님');
+    // The 1PC panel's beats carry no name: the console's name stays.
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel' });
+    expect(await nameNow()).toBe('김 선생님');
+    for (const bad of ['', 'x'.repeat(21), 'a<b>', 'tab	here']) {
+      expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { name: bad })).status).toBe(400);
+    }
+    p.sql.exec('create table if not exists operator_sessions (id text primary key, label text not null)');
+    p.sql.run("insert into operator_sessions (id, label) values ('ops-2', 'Dan')");
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { name: '김 선생님' }, { ...op, 'x-lcw-op-session': 'ops-2' });
+    expect(await nameNow()).toBe('Dan');
   });
 });

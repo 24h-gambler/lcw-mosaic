@@ -323,12 +323,12 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       request<StartLessonResult>('POST', '/v1/admin/lessons/start', op, input),
     /** Teacher heartbeat (every TEACHER_BEAT_MS while the console shows the lesson). */
     /** The console's heartbeat. After "선생님 나가기" it counts again only with resume (left: true until then). */
-    presence: (op: string, lessonId: string, panel: 'open' | 'closed' = 'open', resume = false) =>
+    presence: (op: string, lessonId: string, panel: 'open' | 'closed' = 'open', resume = false, name: string | null = null) =>
       request<{ teacher: TeacherPresence; left?: boolean; beat_ms: number; present_ms: number }>(
         'POST',
         `/v1/admin/lessons/${enc(lessonId)}/presence`,
         op,
-        { panel, source: 'console', ...(resume ? { resume: true } : {}) }
+        { panel, source: 'console', ...(resume ? { resume: true } : {}), ...(name ? { name } : {}) }
       ),
     /** The teacher steps away on purpose: the child is alone at once. */
     leave: (op: string, lessonId: string) =>

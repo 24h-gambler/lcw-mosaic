@@ -174,12 +174,25 @@ const StartSchema = z
   .strict();
 /**
  * source: 'console' = the /director heartbeat, 'panel' = the 1PC teacher panel on the child's screen. After "선생님 나가기"
- * (presence/leave) console beats no longer count until the teacher comes back on purpose: the panel is unlocked again
- * (its beat) or the console sends resume. Otherwise a console left open on the same PC would undo the leave within 15 s.
- * Only the panel's own beats set the panel state (open/closed).
+ * (presence/leave, from the panel or the console) no beat counts until the teacher comes back on purpose: resume, sent
+ * by the console's "다시 수업하기" or by the panel's first beat after its lock number. Otherwise whichever side was left
+ * open on the same PC would undo the leave within 15 s. Only panel beats set the panel state; a console resume sets it
+ * back to 'open' (no panel folded away any more).
  */
 const PresenceSchema = z
-  .object({ panel: z.enum(['open', 'closed']).default('open'), source: z.enum(['console', 'panel']).default('console'), resume: z.boolean().optional() })
+  .object({
+    panel: z.enum(['open', 'closed']).default('open'),
+    source: z.enum(['console', 'panel']).default('console'),
+    resume: z.boolean().optional(),
+    // The name the child sees ("<name> 함께"), typed on the console. A signed-in operator session's name wins.
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(20)
+      .regex(/^[^\u0000-\u001f\u007f<>]+$/)
+      .optional()
+  })
   .strict();
 const PanelPinSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/) }).strict();
 const StageSchema = z
@@ -243,8 +256,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       [id]
     );
   /** The teacher's display name: the operator session's name when the console signed in with one, else '선생님'. */
-  const teacherNameOf = (opSession: string | null): string => {
-    if (!opSession) return TEACHER_NAME_DEFAULT;
+  /** The signed-in operator session's name, or null (no session, no table yet, no name). */
+  const sessionNameOf = (opSession: string | null): string | null => {
+    if (!opSession) return null;
     try {
       const r = d.sql.get<{ name: string | null }>('select coalesce(display_name, label) as name from operator_sessions where id = ?', [opSession]);
       if (r?.name) return r.name.slice(0, 24);
@@ -256,10 +270,10 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         /* no operator session table yet */
       }
     }
-    return TEACHER_NAME_DEFAULT;
+    return null;
   };
   /** panel null = keep the panel state (console beats); a beat always clears an earlier leave. */
-  const beat = (lessonId: string, now: number, panel: 'open' | 'closed' | null, opSession: string | null) => {
+  const beat = (lessonId: string, now: number, panel: 'open' | 'closed' | null, opSession: string | null, typedName?: string) => {
     const prev = d.sql.get<{ last_beat_at: number; present_since: number }>(
       'select last_beat_at, present_since from lesson_teacher where lesson_id = ?',
       [lessonId]
@@ -269,8 +283,10 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     d.sql.run(
       `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel, op_session, name, left_at) values (?, ?, ?, ?, ?, ?, ?, null)
        on conflict(lesson_id) do update set last_beat_at = excluded.last_beat_at, present_since = excluded.present_since,
-         panel = coalesce(?, lesson_teacher.panel), op_session = excluded.op_session, name = excluded.name, left_at = null`,
-      [lessonId, now, now, since, panel ?? 'open', opSession, teacherNameOf(opSession), panel]
+         panel = coalesce(?, lesson_teacher.panel), op_session = coalesce(excluded.op_session, lesson_teacher.op_session),
+         name = coalesce(excluded.name, lesson_teacher.name), left_at = null`,
+      // A beat without a name (the 1PC panel, an older console) keeps the name the console set.
+      [lessonId, now, now, since, panel ?? 'open', opSession, sessionNameOf(opSession) ?? typedName ?? null, panel]
     );
   };
   const teacherOf = (lessonId: string, now: number): TeacherPresence => {
@@ -606,11 +622,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const now = d.nowMs();
     const fromPanel = p.data.source === 'panel';
     const left = d.sql.get<{ left_at: number | null }>('select left_at from lesson_teacher where lesson_id = ?', [id])?.left_at ?? null;
-    // The teacher left on purpose: a console still beating in the background does not bring them back.
-    if (left !== null && !fromPanel && !p.data.resume) {
+    // The teacher left on purpose: a console or an unlocked panel still beating does not bring them back.
+    if (left !== null && !p.data.resume) {
       return c.json({ teacher: teacherOf(id, now), left: true, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
     }
-    beat(id, now, fromPanel ? p.data.panel : null, c.req.header('x-lcw-op-session') ?? null);
+    beat(id, now, fromPanel ? p.data.panel : p.data.resume ? 'open' : null, c.req.header('x-lcw-op-session') ?? null, p.data.name);
     return c.json({ teacher: teacherOf(id, now), left: false, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
   });
 

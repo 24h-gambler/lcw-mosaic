@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { StudentScreenBox } from '../DirectorLive.js';
 import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive } from '../directorLiveState.js';
 import { P } from '../presenceStrings.js';
-import { TeacherModeHelp, TeacherPresenceBox, TeacherStatus, startTicker } from '../teacherPresence.js';
+import { TeacherModeHelp, TeacherPresenceBox, TeacherStatus, cleanTeacherName, startTicker } from '../teacherPresence.js';
 import type { LessonApi } from '../lessonApi.js';
 
 const T0 = Date.parse('2026-11-16T15:00:00+09:00');
@@ -34,6 +34,17 @@ describe('teacher presence on the director console', () => {
     expect(html).toContain('data-testid="teacher-mode-help"');
     // Server rendering runs no effects: no beat leaves without a browser.
     expect(api.presence).not.toHaveBeenCalled();
+  });
+
+  it('teacher name: the console box has the field; only names the server accepts are sent', () => {
+    const api = { presence: vi.fn(), leave: vi.fn(), setPanelPin: vi.fn(), panelPinState: vi.fn(() => new Promise(() => undefined)), panelUnlock: vi.fn() } as unknown as LessonApi;
+    expect(renderToStaticMarkup(<TeacherPresenceBox api={api} token="op" lessonId="les-1" ended={false} />)).toContain('data-testid="teacher-name-input"');
+    expect(cleanTeacherName('  김 선생님 ')).toBe('김 선생님');
+    expect(cleanTeacherName('')).toBeNull();
+    expect(cleanTeacherName('x'.repeat(21))).toBeNull();
+    expect(cleanTeacherName('a<b>')).toBeNull();
+    expect(cleanTeacherName(`a${String.fromCharCode(9)}b`)).toBeNull();
+    expect(cleanTeacherName(null)).toBeNull();
   });
 
   it('status line says with the teacher or alone', () => {

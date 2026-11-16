@@ -8,6 +8,8 @@ export const P = {
   consoleLeave: '선생님 나가기 (학생 화면을 바로 혼자 놀기로)',
   consoleBeatFailing: '선생님 신호를 못 보냈어요. 인터넷을 확인하세요 — 45초가 지나면 학생 화면이 혼자 놀기로 바뀌어요',
   boxTitle: '선생님 표시 · 1PC 잠금',
+  nameLabel: '학생 화면에 보일 선생님 이름 (예: 김 선생님)',
+  namePlaceholder: '선생님',
   pinLabel: '1PC 잠금 번호 (4~6자리)',
   pinChange: '1PC 잠금 번호 바꾸기',
   pinSave: '번호 저장',

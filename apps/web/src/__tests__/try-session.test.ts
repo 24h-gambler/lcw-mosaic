@@ -47,7 +47,8 @@ describe('/try session judged by the server (docs/01 §3, docs/19 8장)', () => 
     expect(await orderTry(reply(200, { stars: 0, granted: false, orders_left: 1, ends_at: 1, server_now: 0 }), p)).toEqual({ kind: 'missed' });
     expect(await orderTry(reply(410, { error: 'try_ended' }), p)).toEqual({ kind: 'ended' });
     expect(await orderTry(reply(409, { error: 'try_order_used', order: { stars: 2 } }), p)).toEqual({ kind: 'used', stars: 2 });
-    expect(await orderTry(reply(429, { error: 'too_many_requests' }), p)).toEqual({ kind: 'error' });
+    expect(await orderTry(reply(429, { error: 'too_many_requests' }), p)).toEqual({ kind: 'too_many' });
+    expect(await orderTry(reply(500, { error: 'x' }), p)).toEqual({ kind: 'error' });
   });
 
   it('sends the sentence capped at 300 characters and nothing about the person', async () => {

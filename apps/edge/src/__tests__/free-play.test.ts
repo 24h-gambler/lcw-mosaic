@@ -135,6 +135,20 @@ describe('/try session: server clock, one order, one session a device a day', ()
     expect(dump).not.toContain('198.51.100.1');
     expect(dump).not.toContain(DEV_A);
   });
+
+  it('address and device hashes are keyed with a secret kept in the object: the plain sha256 of an address does not match', async () => {
+    const p = platform();
+    await call(p, 'POST', '/v1/try/start', { device: DEV_A }, ip('198.51.100.2'));
+    const row = p.sql.get<{ addr_hash: string; device_hash: string }>('select addr_hash, device_hash from try_sessions')!;
+    const plain = async (s: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))), (b) => b.toString(16).padStart(2, '0')).join('');
+    expect(row.addr_hash).not.toBe((await plain(`try|198.51.100.2|${kstDay(T0)}`)).slice(0, 32));
+    expect(row.device_hash).not.toBe((await plain(`try|${DEV_A}`)).slice(0, 32));
+    const secret = p.sql.get<{ v: string }>('select v from free_play_secret where id = 1')!.v;
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(row.addr_hash).toBe((await plain(`${secret}|try|198.51.100.2|${kstDay(T0)}`)).slice(0, 32));
+    // The same object keeps the same key: the device still resumes its session.
+    expect((await call(p, 'POST', '/v1/try/start', { device: DEV_A }, ip('198.51.100.2'))).status).toBe(200);
+  });
 });
 
 describe('guest pass: 30 minutes from the first entry, 2 per seat per month', () => {

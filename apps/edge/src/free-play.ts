@@ -6,7 +6,10 @@
  * /try (public, no account):
  *   POST /v1/try/start  {device}                     → a session: ends_at = server start + 3 min, one voice order.
  *        A device gets one session per KST day; a reload while it runs resumes the same one. A network address gets
- *        20 a day (shared school and home networks; private windows reset the device id). Only salted hashes are kept.
+ *        20 a day (shared school and home networks). The one-a-day limit rests on the device id the browser keeps, so a
+ *        cleared storage or a private window starts again, up to the 20 per address: an accepted trade (no account,
+ *        no AI cost). Addresses and device ids are kept only as hashes keyed with a random secret that never leaves
+ *        this Durable Object (free_play_secret), so the 2^32 IPv4 space cannot be walked back from the table.
  *   POST /v1/try/order  {try_id, aim, text, path, spoke?} → the server repeats the site's grade (content/try-order.ts)
  *        and counts the order once. A sentence that does not pass leaves the order unused. No AI: the try runs on
  *        browser recognition and the sentence bank (docs/01 §3 "서버 비용 0"); its orders are counted in the quota
@@ -61,7 +64,8 @@ create index if not exists try_sessions_addr on try_sessions (addr_hash, day);
 create table if not exists guest_pass_grants (id text primary key, seat_id text not null, issued_by text not null, code text unique not null, month text not null, issued_at integer not null, redeem_until integer not null, started_at integer, ends_at integer, device_hash text, revoked_at integer);
 create index if not exists guest_pass_grants_seat on guest_pass_grants (seat_id, month);
 create table if not exists guest_pass_sessions (token_hash text primary key, grant_id text not null, created_at integer not null);
-create table if not exists free_play_limits (k text not null, hour integer not null, n integer not null, primary key (k, hour))
+create table if not exists free_play_limits (k text not null, hour integer not null, n integer not null, primary key (k, hour));
+create table if not exists free_play_secret (id integer primary key check (id = 1), v text not null)
 `;
 
 /** Public routes this module serves; each checks its own input (platform.ts isPublicRoute lists exactly these). */
@@ -291,6 +295,16 @@ export function buildFreePlayApp(d: FreePlayDeps): Hono {
   const bumpLookup = (k: string) =>
     d.sql.run('insert into free_play_limits (k, hour, n) values (?, ?, 1) on conflict(k, hour) do update set n = n + 1', [k, hour()]);
   const addr = (req: Request) => req.headers.get('cf-connecting-ip') ?? 'local';
+  // Random key for address/device hashes, made once per Durable Object and never sent out (review: an unkeyed
+  // sha256 of an IPv4 address and a known day is reversible by trying all 2^32 addresses).
+  let secret: string | null = null;
+  const keyed = async (s: string): Promise<string> => {
+    if (secret === null) {
+      d.sql.run('insert or ignore into free_play_secret (id, v) values (1, ?)', [hex(d.randomBytes(32))]);
+      secret = d.sql.get<{ v: string }>('select v from free_play_secret where id = 1')!.v;
+    }
+    return d.sha256Hex(`${secret}|${s}`);
+  };
   const noStore = (c: Context) => c.header('cache-control', 'no-store');
 
   /* ---------- /try ---------- */
@@ -310,9 +324,9 @@ export function buildFreePlayApp(d: FreePlayDeps): Hono {
     if (!p.success) return c.json({ error: 'invalid' }, 400);
     const now = d.nowMs();
     const day = kstDay(now);
-    const deviceHash = (await d.sha256Hex(`try|${p.data.device}`)).slice(0, 32);
+    const deviceHash = (await keyed(`try|${p.data.device}`)).slice(0, 32);
     // The address is hashed with the day: rows of different days cannot be joined to one network.
-    const addrHash = (await d.sha256Hex(`try|${addr(c.req.raw)}|${day}`)).slice(0, 32);
+    const addrHash = (await keyed(`try|${addr(c.req.raw)}|${day}`)).slice(0, 32);
     const out = runInTransaction(d.sql, (): { status: 200 | 201 | 429; body: Record<string, unknown> } => {
       d.sql.run('delete from try_sessions where started_at < ?', [now - FREE_PLAY_RETENTION_MS]);
       const running = d.sql.get<TryRow>('select * from try_sessions where device_hash = ? and ends_at > ? order by started_at desc limit 1', [deviceHash, now]);
@@ -377,9 +391,11 @@ export function buildFreePlayApp(d: FreePlayDeps): Hono {
   /* ---------- guest pass ---------- */
 
   const lookupLimited = async (req: Request): Promise<boolean> => {
-    const k = `gp:${(await d.sha256Hex(`gp|${addr(req)}|${hour()}`)).slice(0, 16)}`;
+    const k = `gp:${(await keyed(`gp|${addr(req)}|${hour()}`)).slice(0, 16)}`;
     if (lookups(k) >= GUEST_PASS_LOOKUPS_PER_HOUR) return true;
     bumpLookup(k);
+    // Counters older than two hours are never read again.
+    d.sql.run('delete from free_play_limits where hour < ?', [hour() - 2]);
     return false;
   };
   const grantByCode = (raw: string) => {
@@ -409,10 +425,12 @@ export function buildFreePlayApp(d: FreePlayDeps): Hono {
     if (!p.success) return c.json({ error: 'invalid' }, 400);
     if (await lookupLimited(c.req.raw)) return c.json({ error: 'too_many_requests' }, 429);
     const now = d.nowMs();
-    const deviceHash = (await d.sha256Hex(`gp-device|${p.data.device}`)).slice(0, 32);
+    const deviceHash = (await keyed(`gp-device|${p.data.device}`)).slice(0, 32);
     const token = hex(d.randomBytes(24));
     const tokenHash = await d.sha256Hex(`gp|${token}`);
     const out = runInTransaction(d.sql, (): { status: 200 | 201 | 404 | 409 | 410; body: Record<string, unknown> } => {
+      // A pass lasts 30 minutes; its session tokens are useless a day later.
+      d.sql.run('delete from guest_pass_sessions where created_at < ?', [now - 86_400_000]);
       const g = grantByCode(p.data.code);
       if (!g) return { status: 404, body: { error: 'pass_not_found' } };
       const st = grantState(g, now);

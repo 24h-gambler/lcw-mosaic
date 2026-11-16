@@ -11,10 +11,16 @@ import { FREE_PLAY_LIMITS } from '@lcw/schemas';
 const TRY_MIN = FREE_PLAY_LIMITS.tryMinutes;
 const PASS_MIN = FREE_PLAY_LIMITS.guestPassMinutes;
 const PASS_PER_MONTH = FREE_PLAY_LIMITS.guestPassesPerSeatPerMonth;
-/** Refund rule (Dan 2026-11-16 09:20; the guardian lane runs it on the server): only before the seat is first used. */
+/**
+ * Refund rule (Dan 2026-11-16 09:20, coordinator 11-16 to match the guardian lane's server rule): within 7 days of
+ * payment AND before the seat is first used; once used, no refund; unused past 7 days goes to the operator inbox.
+ */
 export const REFUND_RULE = {
-  short: '사용 시작 전까지 환불',
-  line: '환불은 좌석을 쓰기 시작하기 전까지만 돼요. 쓰기 시작한 뒤에는 환불되지 않아요.',
+  short: '쓰기 전·결제 후 7일 안 환불',
+  line: '결제 후 7일 안에, 좌석을 쓰기 시작하기 전이면 전액 환불돼요. 한 번이라도 쓰기 시작한 뒤에는 환불되지 않아요.',
+  legal: '결제 후 7일 안에, 좌석을 쓰기 시작하기 전이면 전액 환불됩니다. 한 번이라도 쓰기 시작한 뒤에는 환불되지 않으며, 쓰지 않은 채 7일이 지난 경우는 운영자가 확인합니다.',
+  beforeUse: '결제 후 7일 안이면 이유를 묻지 않고 전액 환불해요.',
+  unusedLate: '쓰지 않은 채 7일이 지났다면 상담으로 남겨 주세요. 운영자가 확인해요.',
   tryFirst: `결제 전에 ${TRY_MIN}분 체험과 친구 초대(${PASS_MIN}분)로 먼저 써 보세요.`
 } as const;
 export const BRAND = 'LCW';
@@ -340,10 +346,11 @@ export const PRICING = {
   promises: ['모든 좌석은 전 기능', REFUND_RULE.short, 'Duo는 가족이 아니어도 됩니다'],
   refundTitle: '환불과 해지',
   refundRows: [
-    { k: '쓰기 시작하기 전', v: '이유를 묻지 않고 전액 환불해요.' },
+    { k: '쓰기 시작하기 전', v: REFUND_RULE.beforeUse },
     { k: '쓰기 시작한 뒤', v: `환불되지 않아요. ${REFUND_RULE.tryFirst}` },
+    { k: '쓰지 않고 7일이 지나면', v: REFUND_RULE.unusedLate },
     { k: '해지', v: '보호자 화면의 좌석 메뉴에서 바로 해지할 수 있어요. 남은 기간까지 쓰고 끝납니다.' },
-    { k: 'Duo 한 좌석만 환불', v: '아직 쓰기 시작하지 않은 좌석 하나만 환불하면 남은 좌석은 Solo로 바뀌어요. 차액(월 5,000원, 연 40,000원)을 돌려드리거나, 남은 몫만큼 Solo 기간을 늘려 드립니다.' },
+    { k: 'Duo 한 좌석만 환불', v: '결제 후 7일 안에 아직 쓰기 시작하지 않은 좌석 하나만 환불하면 남은 좌석은 Solo로 바뀌어요. 차액(월 5,000원, 연 40,000원)을 돌려드리거나, 남은 몫만큼 Solo 기간을 늘려 드립니다.' },
     { k: '해지 뒤 월드', v: '30일 동안 읽기 전용으로 남고, 그 뒤에는 보관됩니다.' }
   ],
   startTitle: '시작하기',
@@ -429,7 +436,7 @@ export const LEGAL = {
   terms: [
     { k: '서비스', v: '영어 말하기 3D 월드와 보호자 화면, 선택형 과외 수업 도구를 제공합니다.' },
     { k: '좌석', v: '좌석 하나에 플레이어 한 명. 미성년 좌석은 보호자 계정 아래에서만 만들어집니다.' },
-    { k: '결제와 환불', v: '좌석을 쓰기 시작하기 전까지만 전액 환불되고, 쓰기 시작한 뒤에는 환불되지 않습니다. Duo 한 좌석 환불 시 남은 좌석은 Solo로 바뀝니다.' },
+    { k: '결제와 환불', v: `${REFUND_RULE.legal} Duo 한 좌석 환불 시 남은 좌석은 Solo로 바뀝니다.` },
     { k: '해지', v: '보호자 화면에서 언제든 해지. 월드는 30일 읽기 전용 뒤 보관됩니다.' },
     { k: '이용 규칙', v: '다른 사람을 괴롭히거나 개인정보를 올리는 행위는 말풍선 정지·입장 제한 대상이에요.' }
   ],
@@ -448,13 +455,13 @@ export const PASS = {
   lead: `친구 월드에 ${PASS_MIN}분 동안 들어가서 같이 놀 수 있어요. 목소리는 저장되지 않아요.`,
   codeLabel: '초대 코드',
   go: '친구 월드로 가기',
-  invalid: '코드를 다시 확인해 줘. 초대 코드는 영어와 숫자 8자리야.',
+  invalid: '코드를 다시 확인해 주세요. 초대 코드는 영어와 숫자 8자리예요.',
   state: {
-    ended: '이 초대 코드는 시간이 다 됐어. 친구에게 새 코드를 부탁해 봐.',
-    expired: '이 초대 코드는 받은 지 오래돼서 더는 쓸 수 없어. 친구에게 새 코드를 부탁해 봐.',
-    revoked: '친구가 이 초대 코드를 거둬들였어. 친구에게 물어봐.',
-    busy: '코드를 너무 여러 번 넣었어. 조금 뒤에 다시 해 봐.',
-    error: '연결이 잠깐 끊겼어. 다시 눌러 봐.'
+    ended: '이 초대 코드는 시간이 다 됐어요. 친구에게 새 코드를 부탁해 봐요.',
+    expired: '이 초대 코드는 받은 지 오래돼서 더는 쓸 수 없어요. 친구에게 새 코드를 부탁해 봐요.',
+    revoked: '친구가 이 초대 코드를 거둬들였어요. 친구에게 물어봐요.',
+    busy: '코드를 너무 여러 번 넣었어요. 조금 뒤에 다시 해 봐요.',
+    error: '연결이 잠깐 끊겼어요. 다시 눌러 봐요.'
   },
   rules: [
     `처음 들어간 때부터 ${PASS_MIN}분 동안 친구 월드의 모든 기능을 쓸 수 있어요.`,

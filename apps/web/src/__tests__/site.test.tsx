@@ -422,10 +422,12 @@ describe('free play limits and the refund rule on every public page (docs/01 §3
     const { prerenderPage } = await import('../site/prerender.js');
     for (const path of ['/', '/parents', '/play', '/pricing', '/try', '/pass', '/terms', '/safety', '/tutoring']) {
       const html = prerenderPage(path).body + prerenderPage(path).description;
-      expect(html, path).not.toMatch(/5분 체험|5분 해 보기|60분|7일 이내|결제 후 7일/);
+      expect(html, path).not.toMatch(/5분 체험|5분 해 보기|60분|7일 이내|결제 후 7일 이내|결제 후 7일 이내에는 전액/);
     }
     expect(prerenderPage('/pass').body).toContain(`${FREE_PLAY_LIMITS.guestPassMinutes}분`);
     expect(prerenderPage('/pricing').body).toContain(`${FREE_PLAY_LIMITS.tryMinutes}분 체험`);
-    expect(prerenderPage('/terms').body).toContain('쓰기 시작한 뒤에는 환불되지 않습니다');
+    // Coordinator 11-16, the guardian lane's server rule: within 7 days of payment and before first use.
+    expect(prerenderPage('/terms').body).toContain('한 번이라도 쓰기 시작한 뒤에는 환불되지 않으며');
+    expect(prerenderPage('/pricing').body).toContain('결제 후 7일 안에, 좌석을 쓰기 시작하기 전이면 전액 환불돼요');
   });
 });

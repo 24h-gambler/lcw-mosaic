@@ -18,6 +18,7 @@ export type TryOrderResult =
   | { kind: 'missed' }
   | { kind: 'ended' }
   | { kind: 'used'; stars: 1 | 2 | 3 | null }
+  | { kind: 'too_many' }
   | { kind: 'error' };
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -78,6 +79,7 @@ export async function orderTry(
     const body = (await r.json().catch(() => null)) as (TryOrderResponse & { error?: string; order?: { stars: 1 | 2 | 3 } | null }) | null;
     if (r.status === 410) return { kind: 'ended' };
     if (r.status === 409 && body?.error === 'try_order_used') return { kind: 'used', stars: body.order?.stars ?? null };
+    if (r.status === 429) return { kind: 'too_many' };
     if (!r.ok || !body) return { kind: 'error' };
     return body.granted && body.stars > 0 ? { kind: 'granted', stars: body.stars as 1 | 2 | 3 } : { kind: 'missed' };
   } catch {

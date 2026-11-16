@@ -446,9 +446,15 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
       path,
       ...(path === 'wordcards_with_loudness' ? { spoke: stars === aim } : {})
     }).then((r) => {
-      if (r.kind === 'granted') return serve(r.stars);
+      // The server keeps a short grace after the end: a grant that lands after the local clock hit zero still serves
+      // the drink (the end screen would otherwise cover it).
+      if (r.kind === 'granted') {
+        setGate('open');
+        return serve(r.stars);
+      }
       if (r.kind === 'ended') return setGate('ended');
-      if (r.kind === 'used') return setGate('used_today');
+      // A second order, or the server's cap on tries in one session (20): today's try is used up, not a network drop.
+      if (r.kind === 'used' || r.kind === 'too_many') return setGate('used_today');
       setOrderNote(r.kind === 'missed' ? TRY.serverMissed : TRY.netError);
       dispatch({ type: 'repick' });
     });

@@ -18,8 +18,9 @@ describe('status line', () => {
   });
 
   it('puts the place first, then the band', () => {
-    expect(placeLabel('중앙 광장', 'surface')).toBe('중앙 광장 · 지상');
-    expect(placeLabel('', 'mine')).toBe('광산');
+    // the band speaks the language the child learns (Dan 11-16 14:3x, world/lang.ts)
+    expect(placeLabel('Town Square', 'surface')).toBe('Town Square · Ground');
+    expect(placeLabel('', 'mine')).toBe('Mine');
   });
 
   it('shows weather in words next to a zero-padded world clock (night 19~05)', () => {

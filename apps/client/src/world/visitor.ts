@@ -5,6 +5,8 @@
  * `setPossessed`, dialogs and E/tap reach the teacher like any NPC. The teacher walks to stay a few steps from the
  * child (never on top of them) and carries a name plate over the head.
  */
+import { helpKoOn } from './lang.js';
+import { teacherNameEn } from './strings.js';
 import * as THREE from 'three';
 import { COLOR_TOKENS as C, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { NpcDef, NpcLook } from './town.js';
@@ -24,20 +26,29 @@ export function pickableNpc(def: Pick<NpcDef, 'id' | 'soloOnly'>, lesson: boolea
 
 export function teacherDef(name: string): NpcDef {
   const clean = cleanTeacherName(name);
-  return { id: TEACHER_NPC_ID, ctx: 'guide', nameKo: plateText(clean), nameEn: clean || 'Teacher', home: 'plaza', look: TEACHER_LOOK };
+  const bare = clean.replace(/\s*선생님$/, '').trim();
+  // nameKo stays Korean (the lesson and dialog lanes put it in Korean lines); nameEn is the screen name
+  return { id: TEACHER_NPC_ID, ctx: 'guide', nameKo: bare ? `${bare} 선생님` : '선생님', nameEn: teacherNameEn(clean) ?? 'Teacher', home: 'plaza', look: TEACHER_LOOK };
 }
 
-/** Teacher name for the plate: trimmed, folded, at most 16 characters; empty becomes "선생님" alone. */
+/** Teacher name for the plate: trimmed, folded, at most 16 characters. */
 export function cleanTeacherName(raw: string | null | undefined): string {
   const s = (raw ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
   return [...s].slice(0, 16).join('');
 }
 
-export function plateText(name: string): string {
+/**
+ * The name plate over the teacher, in the language the child learns (Dan 11-16 14:3x): the name alone ("Ms. Kim"),
+ * "Teacher" without one. A Korean title the console typed ("김 선생님", the server default "선생님") is dropped from
+ * the English plate and comes back in the Korean help line when that is on ("Ms. Kim · Ms. Kim 선생님").
+ */
+export function plateText(name: string, help = helpKoOn()): string {
   const n = cleanTeacherName(name);
-  // the server's default name is already "선생님" (and a console may type "김 선생님"): never "선생님 선생님"
-  if (!n || n.endsWith('선생님')) return n || '선생님';
-  return `${n} 선생님`;
+  const bare = n.replace(/\s*선생님$/, '').trim();
+  const en = teacherNameEn(n) ?? 'Teacher';
+  if (!help) return en;
+  const ko = bare ? `${bare} 선생님` : '선생님';
+  return `${en} · ${ko}`;
 }
 
 /**

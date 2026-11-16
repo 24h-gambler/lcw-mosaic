@@ -56,7 +56,8 @@ create table if not exists seat_refunds (id text primary key, seat_id text not n
 create table if not exists seat_notices (seat_id text not null, kind text not null, at integer not null, primary key (seat_id, kind));
 insert or ignore into seat_order_links (seat_id, order_id, kind, days, refunded_at) select l.seat_id, l.order_id, 'issue', null, case when s.status = 'refunded' then s.ends_at end from seat_order_seats l left join seats s on s.id = l.seat_id;
 create table if not exists seat_usage (seat_id text primary key, first_used_at integer not null, last_used_at integer not null, first_via text not null);
-create table if not exists seat_order_periods (order_id text primary key, period_from integer not null)
+create table if not exists seat_order_periods (order_id text primary key, period_from integer not null);
+create table if not exists seat_order_usage (order_id text primary key, first_used_at integer not null)
 `;
 
 /** How a seat was first used (kept for the operator: "first used 11-16 15:02 in a lesson"). */
@@ -71,7 +72,7 @@ const USE_TOUCH_MS = 60_000;
  * seat gate ('play'), a student in a lesson (GET /v1/lesson/state: 'lesson', tutoring seats only).
  */
 export function markSeatUse(sql: SqliteExecutor, playerId: string, nowMs: number, via: SeatUseVia): void {
-  sql.exec(SEATS_SCHEMA);
+  // Hot path (play writes, lesson/state every 3 s): the tables exist since mountSeatRoutes ran in this object.
   const s = sql.get<{ id: string; plan: string }>(
     "select id, plan from seats where player_id = ? and status <> 'refunded' and starts_at <= ? and ends_at > ? order by starts_at desc limit 1",
     [playerId, nowMs, nowMs]
@@ -84,37 +85,39 @@ export function markSeatUse(sql: SqliteExecutor, playerId: string, nowMs: number
      on conflict(seat_id) do update set last_used_at = excluded.last_used_at where seat_usage.last_used_at < excluded.last_used_at - ?`,
     [s.id, nowMs, nowMs, via, USE_TOUCH_MS]
   );
+  // Each extension's own first use: the first use on or after the day its days begin (never throttled).
+  sql.run(
+    `insert or ignore into seat_order_usage (order_id, first_used_at)
+     select l.order_id, ? from seat_order_links l join seat_order_periods p on p.order_id = l.order_id
+     where l.seat_id = ? and l.kind = 'extend' and l.refunded_at is null and p.period_from <= ?`,
+    [nowMs, s.id, nowMs]
+  );
 }
 
 /**
- * Normalizer (hourly with the notices): a seat used before use was recorded (seats issued before this code shipped, or
- * a missed write) gets its first use from what the server already knows — a lesson of a tutoring seat's child inside
- * the seat period (its start), or a linked device seen inside the period (its last sighting, the best we have).
+ * Normalizer (hourly with the notices): a tutoring seat whose lesson was not recorded as use (seats issued before this
+ * code shipped, or a missed write) gets its first use from the earliest lesson of its child after the seat was issued
+ * and inside its period. Device sightings are not used: linking a device also stamps last_seen_at without any play.
  */
 export function backfillSeatUse(sql: SqliteExecutor, nowMs: number): number {
   let n = 0;
-  const seats = sql.all<{ id: string; player_id: string; plan: string; starts_at: number; ends_at: number }>(
-    "select s.id, s.player_id, s.plan, s.starts_at, s.ends_at from seats s left join seat_usage u on u.seat_id = s.id where u.seat_id is null and s.status <> 'refunded' and s.starts_at <= ?",
+  const seats = sql.all<{ id: string; player_id: string; starts_at: number; ends_at: number; issued_at: number | null }>(
+    `select s.id, s.player_id, s.starts_at, s.ends_at,
+            (select min(o.created_at) from seat_order_links l join seat_orders o on o.id = l.order_id where l.seat_id = s.id and l.kind = 'issue') as issued_at
+     from seats s left join seat_usage u on u.seat_id = s.id
+     where u.seat_id is null and s.status <> 'refunded' and s.plan = 'tutoring' and s.starts_at <= ?`,
     [nowMs]
   );
   for (const s of seats) {
-    const to = Math.min(nowMs, s.ends_at);
-    const lesson =
-      s.plan === 'tutoring'
-        ? sql.get<{ at: number | null }>('select min(started_at) as at from lessons where player_id = ? and started_at >= ? and started_at < ?', [s.player_id, s.starts_at, to])?.at ?? null
-        : null;
-    const device = sql.get<{ at: number | null }>(
-      'select max(last_seen_at) as at from devices where player_id = ? and last_seen_at >= ? and last_seen_at < ?',
-      [s.player_id, s.starts_at, to]
-    )?.at ?? null;
-    const at = lesson ?? device;
+    const from = Math.max(s.starts_at, s.issued_at ?? s.starts_at);
+    const at =
+      sql.get<{ at: number | null }>('select min(started_at) as at from lessons where player_id = ? and started_at >= ? and started_at < ?', [
+        s.player_id,
+        from,
+        Math.min(nowMs, s.ends_at)
+      ])?.at ?? null;
     if (at === null) continue;
-    sql.run('insert or ignore into seat_usage (seat_id, first_used_at, last_used_at, first_via) values (?, ?, ?, ?)', [
-      s.id,
-      at,
-      Math.max(at, device ?? at),
-      lesson !== null ? 'lesson' : 'world'
-    ]);
+    sql.run("insert or ignore into seat_usage (seat_id, first_used_at, last_used_at, first_via) values (?, ?, ?, 'lesson')", [s.id, at, at]);
     n++;
   }
   return n;
@@ -285,8 +288,9 @@ export function mountSeatRoutes(
     const from = d.sql.get<{ period_from: number }>('select period_from from seat_order_periods where order_id = ?', [l.order_id])?.period_from;
     // An old extension without its start day counts as used once the seat is.
     if (from === undefined) return true;
-    // last_used_at only moves forward, so "used from its first day by asOf" needs both ends inside.
-    return from <= asOf && u.last_used_at >= from;
+    // Its own first use (seat_order_usage), judged as of asOf like the seat's.
+    const own = d.sql.get<{ first_used_at: number }>('select first_used_at from seat_order_usage where order_id = ?', [l.order_id])?.first_used_at;
+    return own !== undefined && own < asOf;
   };
   /**
    * Which payment the refund rule looks at: a refundable one first (in its window and unused: the issue payment, else
@@ -583,7 +587,9 @@ export function mountSeatRoutes(
           payments: describePayments(s.id),
           first_used_at: seatUsage(d.sql, s.id)?.first_used_at ?? null,
           first_used_via: seatUsage(d.sql, s.id)?.first_via ?? null,
-          rule_refund_open: Boolean(target && inRefundWindow(target.paid_at, now) && !usedPayment(target, openRequest(s.id)?.requested_at)),
+          rule_refund_open: Boolean(
+            target && leftOf(target) > 0 && inRefundWindow(target.paid_at, now) && !usedPayment(target, openRequest(s.id)?.requested_at)
+          ),
           awaiting_payer_choice: Boolean(target && target.kind === 'issue' && duoPartner(s.id) && !openRequest(s.id)?.mode)
         };
       })

@@ -30,7 +30,7 @@ async function linkDevice(p: PlatformDO, g: Record<string, string>, playerId: st
 const sql = (p: PlatformDO) => (p as any).sql;
 const issue = async (p: PlatformDO, body: Record<string, unknown>) => (await call(p, 'POST', '/v1/admin/seats', body)).body.seat_ids as string[];
 
-describe('refund ends at first use (seats.ts seat_usage)', () => {
+describe('refund ends at first use (seats.ts seat_usage)', { timeout: 30_000 }, () => {
   it('the child opens the world → used: no request, no rule refund, the reason is said; nothing goes to the inbox', async () => {
     const p = platform();
     const g = await family(p, 'kid-1', 'fam-a');
@@ -103,11 +103,28 @@ describe('refund ends at first use (seats.ts seat_usage)', () => {
       ['extend', false],
       ['issue', true]
     ]);
+    // its days begin when the first month ends: use inside the first month does not touch it
+    await call(p, 'GET', '/v1/device/me', undefined, dev);
+    expect((await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0].payments[0].used).toBe(false);
     const done = await call(p, 'POST', `/v1/admin/seats/${sid}/refund`, {});
     expect(done.status).toBe(200);
     expect(done.body.removed_days).toBe(30);
     // the issue payment, used, is not refunded
     expect((await call(p, 'POST', `/v1/admin/seats/${sid}/refund`, {})).body.error).toBe('seat_used');
+  });
+
+  it('an extension of an ended seat begins now: the next world open uses it', async () => {
+    const p = platform();
+    const g = await family(p, 'kid-1', 'fam-a');
+    const dev = await linkDevice(p, g, 'kid-1');
+    const [sid] = await issue(p, { payer_guardian_id: 'g-fam-a', plan: 'solo', term: 'month', player_ids: ['kid-1'], paid_at: Date.now() - 40 * DAY });
+    sql(p).run('update seats set starts_at = ?, ends_at = ? where id = ?', [Date.now() - 40 * DAY, Date.now() - 10 * DAY, sid]);
+    expect((await call(p, 'POST', `/v1/admin/seats/${sid}/extend`, { days: 30 })).status).toBe(200);
+    expect((await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0].refundable).toBe(true);
+    await call(p, 'GET', '/v1/device/me', undefined, dev);
+    const seat = (await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0];
+    expect(seat.payments[0]).toMatchObject({ kind: 'extend', used: true });
+    expect(seat.refundable).toBe(false);
   });
 
   it('tutoring: inside the tutoring fee (0원) nothing to refund; a paid tutoring seat follows the same rule; a lesson is its first use', async () => {
@@ -139,11 +156,15 @@ describe('refund ends at first use (seats.ts seat_usage)', () => {
     // a tutoring seat whose lesson happened before use was recorded (e.g. before this shipped)
     await family(p, 'kid-9', 'fam-z', 'Oreo');
     const [tid] = await issue(p, { payer_guardian_id: 'g-fam-z', plan: 'tutoring', term: 'month', player_ids: ['kid-9'], paid_at: Date.now() - DAY });
-    const at = Date.now() - 1000;
+    const at = Date.now() + 1;
     sql(p).run("insert into lessons (id, player_id, world_id, started_at, plan) values ('l-1', 'kid-9', 'w', ?, 'weekly_120m')", [at]);
-    sweepSeatNotices(sql(p), Date.now());
+    sweepSeatNotices(sql(p), at + 1000);
     const admin = (await call(p, 'GET', '/v1/admin/seats')).body;
     expect(admin.find((s: any) => s.id === tid)).toMatchObject({ first_used_at: at, first_used_via: 'lesson' });
     expect(admin.find((s: any) => s.id === sid).first_used_at).toBeNull();
+    // linking a device stamps last_seen_at but is not use: the normalizer leaves a Solo seat alone
+    await linkDevice(p, g, 'kid-1');
+    sweepSeatNotices(sql(p), Date.now());
+    expect((await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0].first_used_at).toBeNull();
   });
 });

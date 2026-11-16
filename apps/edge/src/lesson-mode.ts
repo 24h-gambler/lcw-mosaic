@@ -41,7 +41,6 @@ import { enqueueLessonEnd, mountOpsCardRoutes } from './ops-cards.js';
  */
 export const TEACHER_BEAT_MS = 15_000;
 export const TEACHER_PRESENT_MS = 45_000;
-export const TEACHER_NAME_DEFAULT = '선생님';
 /** The student device's one-time mic check result (talk lane, sessionStorage 'lcw.micStatus'). */
 export const LESSON_MIC_STATUSES = ['ok', 'quiet', 'none', 'skipped'] as const;
 /** 1PC panel lock: wrong numbers per lesson within PANEL_FAIL_WINDOW_MS before the unlock answers 429. */

@@ -61,7 +61,8 @@ export const PARENT_STRINGS_KO = {
       already_linked: '이 계정은 이미 다른 가족에 연결되어 있습니다. 그 가족으로 로그인하거나 다른 계정을 써 주세요.',
       provider_error: '로그인 서비스에서 답을 받지 못했습니다. 잠시 뒤 다시 눌러 주세요.',
       token_invalid: '로그인 확인에 실패했습니다. 다시 눌러 주세요.',
-      guardian_not_found: '가족 정보를 찾지 못했습니다. 다시 로그인해 주세요.'
+      guardian_not_found: '가족 정보를 찾지 못했습니다. 다시 로그인해 주세요.',
+      handoff_invalid: '로그인을 이 브라우저에서 마치지 못했습니다. 로그인 버튼을 다시 눌러 주세요.'
     } as Record<string, string>,
     signInsTitle: '로그인 연결',
     signInsBody: '이 가족에 카카오·Google 계정을 이어 두면 다른 기기에서도 초대 링크 없이 들어올 수 있습니다.',

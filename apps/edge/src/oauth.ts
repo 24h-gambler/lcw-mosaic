@@ -130,7 +130,9 @@ export function redirectProviders(config: OAuthConfig): OAuthProvider[] {
 
 export const OAUTH_SCHEMA = `
 create table if not exists oauth_states (state_hash text primary key, provider text not null, role text not null, verifier text not null, nonce text not null, return_to text not null, ticket_hash text, created_at integer not null, expires_at integer not null, used_at integer);
-create table if not exists oauth_tickets (ticket_hash text primary key, role text not null, data text not null, created_at integer not null, expires_at integer not null, used_at integer);
+create table if not exists oauth_tickets (ticket_hash text primary key, role text not null, data text not null, browser_hash text not null, created_at integer not null, expires_at integer not null, used_at integer);
+create table if not exists oauth_handoffs (code_hash text primary key, browser_hash text not null, result text not null, created_at integer not null, expires_at integer not null, used_at integer);
+create table if not exists oauth_seen_tokens (token_hash text primary key, expires_at integer not null);
 create table if not exists oauth_identities (provider text not null, sub text not null, role text not null, subject_id text not null, email text, created_at integer not null, last_login_at integer not null, primary key (provider, sub, role));
 create index if not exists oauth_identities_subject on oauth_identities (role, subject_id)
 `;
@@ -139,8 +141,24 @@ create index if not exists oauth_identities_subject on oauth_identities (role, s
 export const OAUTH_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['GET', /^\/v1\/oauth\/config$/],
   ['GET', /^\/v1\/oauth\/(google|kakao)\/(start|callback)$/],
-  ['POST', /^\/v1\/oauth\/google\/credential$/]
+  ['POST', /^\/v1\/oauth\/google\/credential$/],
+  ['POST', /^\/v1\/oauth\/exchange$/]
 ];
+
+/**
+ * Browser-binding cookies. `__Host-` keeps a sibling subdomain from planting them (no Domain, Path=/, Secure).
+ * - TICKET_COOKIE: set with a link ticket; /start only accepts the ticket from the browser that asked for it, so a
+ *   ticket link sent to someone else cannot attach their Google/Kakao account to the sender's family.
+ * - HANDOFF_COOKIE: set at the callback; the one-use code in `<return>#oauth=<code>` is exchanged for the result only
+ *   by that same browser, so a result link sent to someone else cannot put them into the sender's account.
+ */
+export const OAUTH_TICKET_COOKIE = '__Host-lcw_oauth_t';
+export const OAUTH_HANDOFF_COOKIE = '__Host-lcw_oauth_h';
+const OAUTH_HANDOFF_TTL_MS = 5 * 60_000;
+/** A forced key refetch (unknown kid) happens at most this often per provider. */
+const FORCED_KEY_FETCH_GAP_MS = 60_000;
+/** Google ID tokens live one hour; a credential seen once is refused until then. */
+const SEEN_TOKEN_TTL_MS = 60 * 60_000;
 
 /* ---------- small crypto helpers ---------- */
 
@@ -175,7 +193,7 @@ interface Jwk {
   n: string;
   e: string;
 }
-const keyCache = new Map<OAuthProvider, { keys: Jwk[]; until: number }>();
+const keyCache = new Map<OAuthProvider, { keys: Jwk[]; until: number; forcedAt?: number }>();
 
 /** Tests only. */
 export function resetOAuthKeyCache(): void {
@@ -185,6 +203,8 @@ export function resetOAuthKeyCache(): void {
 async function providerKeys(provider: OAuthProvider, jwksUrl: string, fetchFn: Fetch, nowMs: number, force: boolean): Promise<Jwk[]> {
   const c = keyCache.get(provider);
   if (!force && c && c.until > nowMs) return c.keys;
+  // An unknown kid on an unauthenticated route must not turn every request into a provider fetch.
+  if (force && c?.forcedAt !== undefined && nowMs - c.forcedAt < FORCED_KEY_FETCH_GAP_MS) return c.keys;
   let res: Response;
   try {
     res = await fetchFn(jwksUrl);
@@ -195,7 +215,7 @@ async function providerKeys(provider: OAuthProvider, jwksUrl: string, fetchFn: F
   const body = (await res.json().catch(() => ({}))) as { keys?: Jwk[] };
   const maxAge = Number(/max-age=(\d+)/.exec(res.headers.get('cache-control') ?? '')?.[1] ?? 0);
   const keys = Array.isArray(body.keys) ? body.keys : [];
-  keyCache.set(provider, { keys, until: nowMs + Math.max(300, maxAge) * 1000 });
+  keyCache.set(provider, { keys, until: nowMs + Math.max(300, maxAge) * 1000, forcedAt: force ? nowMs : c?.forcedAt });
   return keys;
 }
 
@@ -306,29 +326,40 @@ export function unlinkIdentity(sql: SqliteExecutor, role: OAuthRole, subjectId: 
 
 /* ---------- tickets ---------- */
 
+/**
+ * A one-use ticket carrying context into a sign-in (e.g. "link to this guardian"). It is bound to the browser that
+ * asked: the route that issues it must send `setCookie` with its response, and /start refuses the ticket without it.
+ */
 export async function issueOAuthTicket(
   sql: SqliteExecutor,
   randomBytes: (n: number) => Uint8Array,
   p: { role: OAuthRole; data: Record<string, unknown> },
   nowMs: number
-): Promise<string> {
+): Promise<{ ticket: string; setCookie: string }> {
   sql.exec(OAUTH_SCHEMA);
   const t = hex(randomBytes(24));
-  sql.run('insert into oauth_tickets (ticket_hash, role, data, created_at, expires_at, used_at) values (?, ?, ?, ?, ?, null)', [
+  const browser = hex(randomBytes(16));
+  sql.run('insert into oauth_tickets (ticket_hash, role, data, browser_hash, created_at, expires_at, used_at) values (?, ?, ?, ?, ?, ?, null)', [
     await sha256Hex(t),
     p.role,
     JSON.stringify(p.data),
+    await sha256Hex(browser),
     nowMs,
     nowMs + OAUTH_TICKET_TTL_MS
   ]);
-  return t;
+  return { ticket: t, setCookie: `${OAUTH_TICKET_COOKIE}=${browser}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${OAUTH_TICKET_TTL_MS / 1000}` };
 }
 
-/** Ticket hash if it is live for this role (not used yet), else null. */
-async function liveTicket(sql: SqliteExecutor, t: string | undefined, role: OAuthRole, nowMs: number): Promise<string | null> {
-  if (!t || !/^[0-9a-f]{48}$/.test(t)) return null;
+/** Ticket hash if it is live for this role (not used yet) and this browser holds its cookie, else null. */
+async function liveTicket(sql: SqliteExecutor, t: string | undefined, role: OAuthRole, nowMs: number, browser: string): Promise<string | null> {
+  if (!t || !/^[0-9a-f]{48}$/.test(t) || !/^[0-9a-f]{32}$/.test(browser)) return null;
   const th = await sha256Hex(t);
-  const row = sql.get('select 1 as x from oauth_tickets where ticket_hash = ? and role = ? and used_at is null and expires_at > ?', [th, role, nowMs]);
+  const row = sql.get('select 1 as x from oauth_tickets where ticket_hash = ? and role = ? and browser_hash = ? and used_at is null and expires_at > ?', [
+    th,
+    role,
+    await sha256Hex(browser),
+    nowMs
+  ]);
   return row ? th : null;
 }
 
@@ -411,7 +442,7 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
     if (!redirectProviders(d.config).includes(provider)) return back(c, returnTo, 'not_configured');
     const now = d.nowMs();
     const t = c.req.query('t');
-    const th = t ? await liveTicket(d.sql, t, role, now) : null;
+    const th = t ? await liveTicket(d.sql, t, role, now, cookieOf(c.req.raw, OAUTH_TICKET_COOKIE)) : null;
     if (t && !th) return back(c, returnTo, 'ticket_invalid');
     const state = hex(d.randomBytes(16));
     const verifier = b64urlEncode(d.randomBytes(32));
@@ -420,8 +451,11 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
       'insert into oauth_states (state_hash, provider, role, verifier, nonce, return_to, ticket_hash, created_at, expires_at, used_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, null)',
       [await sha256Hex(state), provider, role, verifier, nonce, returnTo, th, now, now + OAUTH_STATE_TTL_MS]
     );
-    // Old states are only clutter: drop a day's worth at a time.
-    d.sql.run('delete from oauth_states where expires_at < ?', [now - 86_400_000]);
+    // A state is worth nothing after it expires: keep the table to the last ten minutes of starts.
+    d.sql.run('delete from oauth_states where expires_at < ?', [now]);
+    d.sql.run('delete from oauth_tickets where expires_at < ?', [now]);
+    d.sql.run('delete from oauth_handoffs where expires_at < ?', [now]);
+    d.sql.run('delete from oauth_seen_tokens where expires_at < ?', [now]);
     const spec = specs[provider];
     const q = new URLSearchParams({
       response_type: 'code',
@@ -490,10 +524,25 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
     if (row.ticket_hash && !ticket) return back(c, returnTo, 'ticket_invalid', provider);
     const r = await d.roles[row.role]!(identity, { ticket, nowMs: now, via: 'redirect', returnTo });
     if ('error' in r) return back(c, returnTo, r.error, provider);
-    c.header('set-cookie', `${COOKIE(provider)}=; Path=/v1/oauth/${provider}; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+    // The result (a session token, "linked") never rides in the URL: the page gets a one-use code that only this
+    // browser can exchange (POST /v1/oauth/exchange with the handoff cookie).
+    const hashAt = r.redirect.indexOf('#');
+    const path = hashAt >= 0 ? r.redirect.slice(0, hashAt) : r.redirect;
+    const result = hashAt >= 0 ? r.redirect.slice(hashAt + 1) : '';
+    const handoff = hex(d.randomBytes(16));
+    const browser = hex(d.randomBytes(16));
+    d.sql.run('insert into oauth_handoffs (code_hash, browser_hash, result, created_at, expires_at, used_at) values (?, ?, ?, ?, ?, null)', [
+      await sha256Hex(handoff),
+      await sha256Hex(browser),
+      result,
+      now,
+      now + OAUTH_HANDOFF_TTL_MS
+    ]);
+    c.header('set-cookie', `${COOKIE(provider)}=; Path=/v1/oauth/${provider}; HttpOnly; Secure; SameSite=Lax; Max-Age=0`, { append: true });
+    c.header('set-cookie', `${OAUTH_HANDOFF_COOKIE}=${browser}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${OAUTH_HANDOFF_TTL_MS / 1000}`, { append: true });
     c.header('cache-control', 'no-store');
     c.header('referrer-policy', 'no-referrer');
-    return c.redirect(r.redirect, 302);
+    return c.redirect(`${path}#oauth=${handoff}`, 302);
   });
 
   const CredentialSchema = z
@@ -506,15 +555,41 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
     const cfg = d.config.google;
     if (!cfg) return c.json({ error: 'not_configured' }, 503);
     const now = d.nowMs();
-    const th = p.data.t ? await liveTicket(d.sql, p.data.t, role, now) : null;
+    const th = p.data.t ? await liveTicket(d.sql, p.data.t, role, now, cookieOf(c.req.raw, OAUTH_TICKET_COOKIE)) : null;
     if (p.data.t && !th) return c.json({ error: 'ticket_invalid' }, 400);
     const identity = await verifyIdToken('google', p.data.credential, cfg.clientId, now, { fetch: fetchFn, spec: specs.google });
     if (!identity) return c.json({ error: 'token_invalid' }, 401);
+    // One credential, one sign-in: a copied credential cannot mint more sessions while it is still valid.
+    const seen = await sha256Hex(p.data.credential);
+    if (d.sql.get('select 1 as x from oauth_seen_tokens where token_hash = ?', [seen])) return c.json({ error: 'token_invalid' }, 401);
+    d.sql.run('insert into oauth_seen_tokens (token_hash, expires_at) values (?, ?)', [seen, now + SEEN_TOKEN_TTL_MS]);
     const ticket = spendTicket(d.sql, th, now);
+    if (th && !ticket) return c.json({ error: 'ticket_invalid' }, 400);
     const r = await d.roles[role]!(identity, { ticket, nowMs: now, via: 'credential', returnTo: returnFor(role, p.data.return) });
     c.header('cache-control', 'no-store');
     if ('error' in r) return c.json({ error: r.error }, (r.status ?? 403) as 400 | 401 | 403 | 409);
     return c.json(r);
+  });
+
+  /** The page back from a provider trades `#oauth=<code>` for the result (`g=<token>`, `linked=<provider>`, …). */
+  app.post('/v1/oauth/exchange', async (c) => {
+    const p = z.object({ code: z.string().regex(/^[0-9a-f]{32}$/) }).strict().safeParse(await c.req.json().catch(() => ({})));
+    c.header('cache-control', 'no-store');
+    if (!p.success) return c.json({ error: 'invalid' }, 400);
+    const browser = cookieOf(c.req.raw, OAUTH_HANDOFF_COOKIE);
+    const now = d.nowMs();
+    const row = /^[0-9a-f]{32}$/.test(browser)
+      ? d.sql.get<{ code_hash: string; browser_hash: string; result: string; expires_at: number; used_at: number | null }>(
+          'select * from oauth_handoffs where code_hash = ?',
+          [await sha256Hex(p.data.code)]
+        )
+      : undefined;
+    if (!row || row.used_at !== null || row.expires_at <= now || row.browser_hash !== (await sha256Hex(browser))) {
+      return c.json({ error: 'handoff_invalid' }, 400);
+    }
+    d.sql.run('update oauth_handoffs set used_at = ? where code_hash = ?', [now, row.code_hash]);
+    c.header('set-cookie', `${OAUTH_HANDOFF_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+    return c.json({ result: row.result });
   });
 
   return app;

@@ -85,9 +85,9 @@ async function signIn(
   prov: OAuthProvider,
   sub: string,
   q = 'role=guardian',
-  tweak: { claims?: Record<string, unknown>; signer?: CryptoKey; cookie?: string | null; error?: string } = {}
+  tweak: { claims?: Record<string, unknown>; signer?: CryptoKey; cookie?: string | null; error?: string; jar?: string } = {}
 ) {
-  const start = await call(p, 'GET', `/v1/oauth/${prov}/start?${q}`, undefined, {});
+  const start = await call(p, 'GET', `/v1/oauth/${prov}/start?${q}`, undefined, tweak.jar ? { cookie: tweak.jar } : {});
   if (start.status !== 302) return { start, cb: null as any, location: '' };
   const loc = new URL(start.headers.get('location')!, 'https://lcw.test');
   if (!loc.href.startsWith(PROVIDER_SPECS[prov].authorize)) return { start, cb: null as any, location: loc.pathname + loc.hash };
@@ -103,8 +103,17 @@ async function signIn(
   const qs = tweak.error ? `error=${tweak.error}&state=${state}` : `code=${code}&state=${state}`;
   const c: Record<string, string> = tweak.cookie === null ? {} : { cookie: `other=1; lcw_oauth_${prov}=${tweak.cookie ?? cookie}` };
   const cb = await call(p, 'GET', `/v1/oauth/${prov}/callback?${qs}`, undefined, c);
-  return { start, cb, location: cb.headers.get('location') ?? '', authorize: loc, state, cookie };
+  const raw = cb.headers.get('location') ?? '';
+  // The page trades `#oauth=<code>` for the result with the handoff cookie this browser got at the callback.
+  const h = /^([^#]*)#oauth=([0-9a-f]{32})$/.exec(raw);
+  if (!h) return { start, cb, raw, location: raw, authorize: loc, state, cookie };
+  const handoff = handoffCookie(cb.headers);
+  const x = await call(p, 'POST', '/v1/oauth/exchange', { code: h[2] }, { 'content-type': 'application/json', cookie: `__Host-lcw_oauth_h=${handoff}` });
+  return { start, cb, raw, handoff, location: `${h[1]}#${x.body.result}`, authorize: loc, state, cookie };
 }
+const handoffCookie = (h: Headers) => /__Host-lcw_oauth_h=([0-9a-f]{32})/.exec(h.get('set-cookie') ?? '')?.[1] ?? '';
+/** The browser-binding cookie a link ticket came with (`POST /v1/family/sign-in/link`). */
+const jarOf = (h: Headers) => `__Host-lcw_oauth_t=${/__Host-lcw_oauth_t=([0-9a-f]{32})/.exec(h.get('set-cookie') ?? '')?.[1] ?? ''}`;
 const tokenOf = (location: string) => /#g=([0-9a-f]{64})$/.exec(location)?.[1] ?? null;
 
 afterEach(() => {
@@ -127,7 +136,7 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     // a role nobody plugged in, or an unknown provider: 404
     expect((await call(p, 'GET', '/v1/oauth/kakao/start?role=teacher', undefined, {})).status).toBe(404);
     expect((await call(p, 'GET', '/v1/oauth/naver/start?role=guardian', undefined, {})).status).toBe(401); // not a public route at all
-    for (const [m, path] of [['GET', '/v1/oauth/config'], ['GET', '/v1/oauth/kakao/start'], ['GET', '/v1/oauth/google/callback'], ['POST', '/v1/oauth/google/credential'], ['GET', '/v1/family/sign-in'], ['POST', '/v1/family/sign-in/link']] as const)
+    for (const [m, path] of [['GET', '/v1/oauth/config'], ['GET', '/v1/oauth/kakao/start'], ['GET', '/v1/oauth/google/callback'], ['POST', '/v1/oauth/google/credential'], ['GET', '/v1/family/sign-in'], ['POST', '/v1/family/sign-in/link'], ['POST', '/v1/oauth/exchange']] as const)
       expect(isPublicRoute(m, path)).toBe(true);
     expect(isPublicRoute('POST', '/v1/oauth/kakao/credential')).toBe(false);
   });
@@ -143,7 +152,13 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     expect(a.authorize!.searchParams.get('redirect_uri')).toBe('https://lcw.test/v1/oauth/kakao/callback');
     expect(a.start.headers.get('set-cookie')).toMatch(/^lcw_oauth_kakao=[0-9a-f]{32}; Path=\/v1\/oauth\/kakao; HttpOnly; Secure; SameSite=Lax; Max-Age=600$/);
     expect(a.cb.status).toBe(302);
+    // no token in the address bar: a one-use code only this browser can exchange
+    expect(a.raw).toMatch(/^\/signup#oauth=[0-9a-f]{32}$/);
+    expect(a.cb.headers.get('set-cookie')).toMatch(/__Host-lcw_oauth_h=[0-9a-f]{32}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=300/);
     expect(a.location).toMatch(/^\/signup#g=[0-9a-f]{64}$/);
+    const code = a.raw!.split('#oauth=')[1];
+    // spent; and from another browser (no cookie, other cookie) it never worked
+    expect((await call(p, 'POST', '/v1/oauth/exchange', { code }, { cookie: `__Host-lcw_oauth_h=${a.handoff}` })).body).toEqual({ error: 'handoff_invalid' });
     expect(a.cb.headers.get('set-cookie')).toContain('Max-Age=0');
     expect(tokenCalls.at(-1)!.get('client_secret')).toBeNull();
     const g = bearer(tokenOf(a.location)!);
@@ -212,10 +227,14 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     const link = await call(p, 'POST', '/v1/family/sign-in/link', { provider: 'google' }, g);
     expect(link.body.start_path).toMatch(/^\/v1\/oauth\/google\/start\?role=guardian&return=%2Ffamily&t=[0-9a-f]{48}$/);
     const q = link.body.start_path.split('?')[1];
-    const l = await signIn(p, 'google', 'g-parent', q);
+    const jar = jarOf(link.headers);
+    // the ticket link sent to someone else (no ticket cookie, or theirs) links nothing
+    expect((await signIn(p, 'google', 'g-victim', q)).location).toBe('/family#oauth_error=ticket_invalid');
+    expect((await signIn(p, 'google', 'g-victim', q, { jar: `__Host-lcw_oauth_t=${'cd'.repeat(16)}` })).location).toBe('/family#oauth_error=ticket_invalid');
+    const l = await signIn(p, 'google', 'g-parent', q, { jar });
     expect(l.location).toBe('/family#linked=google');
     // the ticket is spent
-    expect((await signIn(p, 'google', 'g-parent', q)).location).toBe('/family#oauth_error=ticket_invalid');
+    expect((await signIn(p, 'google', 'g-parent', q, { jar })).location).toBe('/family#oauth_error=ticket_invalid');
     expect((await call(p, 'GET', '/v1/family/sign-in', undefined, g)).body.linked.map((x: any) => x.provider)).toEqual(['google']);
 
     const back = await signIn(p, 'google', 'g-parent');
@@ -228,14 +247,26 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     const k = await signIn(p, 'kakao', 'kakao-other');
     const g2 = bearer(tokenOf(k.location)!);
     const l2 = await call(p, 'POST', '/v1/family/sign-in/link', { provider: 'google' }, g2);
-    expect((await signIn(p, 'google', 'g-parent', l2.body.start_path.split('?')[1])).location).toBe('/family#oauth_error=already_linked');
+    expect((await signIn(p, 'google', 'g-parent', l2.body.start_path.split('?')[1], { jar: jarOf(l2.headers) })).location).toBe('/family#oauth_error=already_linked');
 
     // the last sign-in stays; with two, one can go
     expect((await call(p, 'DELETE', '/v1/family/sign-in/google', undefined, g)).status).toBe(409);
     const lk = await call(p, 'POST', '/v1/family/sign-in/link', { provider: 'kakao' }, g);
-    expect((await signIn(p, 'kakao', 'kakao-oreo', lk.body.start_path.split('?')[1])).location).toBe('/family#linked=kakao');
+    expect((await signIn(p, 'kakao', 'kakao-oreo', lk.body.start_path.split('?')[1], { jar: jarOf(lk.headers) })).location).toBe('/family#linked=kakao');
     expect((await call(p, 'DELETE', '/v1/family/sign-in/google', undefined, g)).body).toEqual({ ok: true });
     expect((await call(p, 'GET', '/v1/family/sign-in', undefined, g)).body.linked.map((x: any) => x.provider)).toEqual(['kakao']);
+    // the unlinked Google account signs in again: a new family of its own, no clash with an old record
+    const again = await signIn(p, 'google', 'g-parent');
+    expect(again.location).toMatch(/^\/family#g=[0-9a-f]{64}$/);
+    expect((await call(p, 'GET', '/v1/family/me', undefined, bearer(tokenOf(again.location)!))).body.children).toEqual([]);
+    // a sign-in whose guardian is gone gets a fresh family once, then keeps it
+    (p as any).sql.run("delete from guardians where id = (select subject_id from oauth_identities where provider = 'google' and sub = 'g-parent')");
+    const fresh = await signIn(p, 'google', 'g-parent');
+    const famOf = async (loc: string) => (await call(p, 'GET', '/v1/family/sign-in', undefined, bearer(tokenOf(loc)!))).status;
+    expect(await famOf(fresh.location)).toBe(200);
+    const n = (p as any).sql.get('select count(*) as n from families').n;
+    await signIn(p, 'google', 'g-parent');
+    expect((p as any).sql.get('select count(*) as n from families').n).toBe(n);
   });
 
   it('Google button (GIS credential): same check, JSON answer; unknown role or bad token refused', async () => {
@@ -246,7 +277,10 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     expect(r.status).toBe(200);
     expect(r.body.redirect).toBe(`/signup#g=${r.body.token}`);
     expect((await call(p, 'GET', '/v1/family/me', undefined, bearer(r.body.token))).status).toBe(200);
-    expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred, role: 'teacher' }, anon)).status).toBe(400);
+    // the same credential a second time (copied): refused
+    expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred, role: 'guardian' }, anon)).status).toBe(401);
+    const cred2 = await idToken(claimsFor('google', 'g-cred', 'n2', { nonce: undefined }));
+    expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred2, role: 'teacher' }, anon)).status).toBe(400);
     const bad = await idToken(claimsFor('google', 'g-cred', 'n'), other.privateKey);
     expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: bad, role: 'guardian' }, anon)).status).toBe(401);
     expect((await call(platform({}), 'POST', '/v1/oauth/google/credential', { credential: cred, role: 'guardian' }, anon)).status).toBe(503);

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { oauthResultFromHash, oauthStartPath } from '../familyApi.js';
+import { LessonApiError } from '../lessonApi.js';
+import { oauthCodeFromHash, oauthResultFromHash, oauthStartPath, takeOAuthResult } from '../familyApi.js';
 import { FamilyPage } from '../FamilyPage.js';
 import { PARENT_STRINGS_KO } from '../parentStrings.js';
 
@@ -18,8 +19,25 @@ describe('guardian sign-in on /family', () => {
     expect(oauthResultFromHash('#k=' + 'b'.repeat(48))).toBeNull();
     expect(oauthResultFromHash('')).toBeNull();
     // every server error code has a sentence
-    for (const code of ['not_configured', 'state_mismatch', 'provider_error', 'token_invalid', 'cancelled', 'ticket_invalid', 'already_linked', 'guardian_not_found'])
+    for (const code of ['not_configured', 'state_mismatch', 'provider_error', 'token_invalid', 'cancelled', 'ticket_invalid', 'already_linked', 'guardian_not_found', 'handoff_invalid'])
       expect(PARENT_STRINGS_KO.family.signInErrors[code]).toBeTruthy();
+  });
+
+  it('a #g= token in the address bar is never taken as a sign-in; only the #oauth= code, traded by this browser', async () => {
+    const t = 'a'.repeat(64);
+    const code = 'c'.repeat(32);
+    expect(oauthCodeFromHash(`#oauth=${code}`)).toBe(code);
+    expect(oauthCodeFromHash('#oauth=zz')).toBeNull();
+    const asked: string[] = [];
+    const api = { oauthExchange: async (c: string) => (asked.push(c), { result: `g=${t}` }) };
+    expect(await takeOAuthResult(api, `#oauth=${code}`)).toEqual({ token: t });
+    expect(asked).toEqual([code]);
+    // a link someone sent with their own session in it: ignored
+    expect(await takeOAuthResult(api, `#g=${t}`)).toBeNull();
+    expect(await takeOAuthResult(api, '#linked=kakao')).toBeNull();
+    expect(await takeOAuthResult(api, '#oauth_error=cancelled')).toEqual({ error: 'cancelled' });
+    const refused = { oauthExchange: async () => Promise.reject(new LessonApiError('handoff_invalid', 400)) };
+    expect(await takeOAuthResult(refused, `#oauth=${code}`)).toEqual({ error: 'handoff_invalid' });
   });
 
   it('start paths carry the guardian role and an allowed return', () => {

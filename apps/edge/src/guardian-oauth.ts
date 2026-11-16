@@ -26,8 +26,8 @@ import {
  *   already linked to another family is refused (`already_linked`), never moved.
  * - New sign-in, no ticket → a new family and guardian; the service consent is still to give (/family asks first).
  *
- * The session token rides back in the fragment: `<return>#g=<token>`; linking returns `#linked=<provider>` (the
- * browser keeps the session it had).
+ * The handler answers `<return>#g=<token>` or `#linked=<provider>` (the browser keeps the session it had); oauth.ts turns
+ * that into `#oauth=<one-use code>` that only this browser can exchange, so no token is ever in the address bar.
  */
 export interface GuardianOAuthDeps {
   sql: SqliteExecutor;
@@ -59,13 +59,19 @@ export function guardianOAuthHandler(d: GuardianOAuthDeps): OAuthRoleHandler {
     }
     let guardianId = subjectOf(d.sql, 'guardian', identity.provider, identity.sub);
     let familyId = guardianId ? (d.sql.get<{ family_id: string }>('select family_id from guardians where id = ?', [guardianId])?.family_id ?? null) : null;
+    if (guardianId && !familyId) {
+      // The sign-in points at a guardian that is gone: drop that mapping so the new family below owns it.
+      unlinkIdentity(d.sql, 'guardian', guardianId, identity.provider);
+    }
     if (!guardianId || !familyId) {
       familyId = `fam-${hex(d.randomBytes(6))}`;
       guardianId = `g-${hex(d.randomBytes(6))}`;
       d.sql.run('insert into families (id, created_at) values (?, ?)', [familyId, now]);
-      d.sql.run('insert into guardians (id, family_id, oauth_sub, locale) values (?, ?, ?, ?)', [guardianId, familyId, `${identity.provider}:${identity.sub}`, 'ko']);
+      // guardians.oauth_sub stays null: oauth_identities is the one record of who signs in (an unlinked account
+      // would otherwise collide with its old unique value when it signs in again).
+      d.sql.run('insert into guardians (id, family_id, oauth_sub, locale) values (?, ?, null, ?)', [guardianId, familyId, 'ko']);
     }
-    linkIdentity(d.sql, { role: 'guardian', identity, subjectId: guardianId }, now);
+    if (linkIdentity(d.sql, { role: 'guardian', identity, subjectId: guardianId }, now) === 'taken') return { error: 'already_linked', status: 409 };
     const token = await issueGuardianSession(d, guardianId, familyId, now);
     return { redirect: `${ctx.returnTo}#g=${token}`, token };
   };
@@ -93,7 +99,10 @@ export function buildGuardianOAuthApp(d: GuardianOAuthDeps): Hono {
     if (!redirectProviders(d.config).includes(p.data.provider)) return c.json({ error: 'not_configured' }, 503);
     const t = await issueOAuthTicket(d.sql, d.randomBytes, { role: 'guardian', data: { link_guardian: g.guardian_id } }, d.nowMs());
     const ret = encodeURIComponent(p.data.return ?? '/family');
-    return c.json({ start_path: `/v1/oauth/${p.data.provider}/start?role=guardian&return=${ret}&t=${t}` });
+    // The ticket only works in this browser (cookie): a start_path sent to someone else links nothing.
+    c.header('set-cookie', t.setCookie);
+    c.header('cache-control', 'no-store');
+    return c.json({ start_path: `/v1/oauth/${p.data.provider}/start?role=guardian&return=${ret}&t=${t.ticket}` });
   });
   app.delete('/v1/family/sign-in/:provider', async (c) => {
     const g = await guardianFromRequest(d, c.req.raw, d.nowMs());

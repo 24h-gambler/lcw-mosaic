@@ -10,7 +10,9 @@ import {
   createFamilyApi,
   inviteFromHash,
   loadDevice,
+  oauthCodeFromHash,
   oauthResultFromHash,
+  takeOAuthResult,
   oauthStartPath,
   loadGuardianToken,
   saveDevice,
@@ -82,9 +84,12 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
   useEffect(() => {
     if (initial) return;
     void (async () => {
-      // Back from Google / Kakao (oauth.ts): the result rides in the fragment; clear it before anything can copy it.
-      const signIn = typeof window !== 'undefined' ? oauthResultFromHash(window.location.hash) : null;
-      if (signIn) window.history.replaceState(null, '', window.location.pathname);
+      // Back from Google / Kakao (oauth.ts): a one-use code (or an error) rides in the fragment; clear it before
+      // anything can copy it, then trade it for the result in this browser.
+      const hash = typeof window !== 'undefined' ? window.location.hash : '';
+      const back = oauthCodeFromHash(hash) !== null || oauthResultFromHash(hash) !== null;
+      if (back) window.history.replaceState(null, '', window.location.pathname);
+      const signIn = back ? await takeOAuthResult(apiRef.current, hash) : null;
       if (signIn && 'token' in signIn) {
         saveGuardianToken(signIn.token);
         setToken(signIn.token);

@@ -812,7 +812,8 @@ export function mountSeatRoutes(
         /** Refundable now: in the window and not used yet ('환불 가능(아직 사용 전)'). */
         refundable: Boolean(target && live && inWindow && !used && paidLeft > 0),
         // nothing_paid: a seat included in something else (a tutoring seat inside the teacher's fee) has no money here.
-        refund_block: !target || !live ? null : used ? 'seat_used' : paidLeft === 0 ? 'nothing_paid' : !inWindow ? 'outside_refund_window' : null,
+        // Nothing paid comes first: a used 0원 seat must not say '이용을 시작한 이용권은 환불되지 않습니다'.
+        refund_block: !target || !live ? null : paidLeft === 0 ? 'nothing_paid' : used ? 'seat_used' : !inWindow ? 'outside_refund_window' : null,
         // A seat the teacher stopped inside its refund window can still be asked about (stop is not a refund).
         can_request_refund: (isPayer || mine) && (live || (inWindow && state === 'read_only')) && !open && !used && paidLeft > 0,
         // Open request; the requester's identity and note stay with the operator.

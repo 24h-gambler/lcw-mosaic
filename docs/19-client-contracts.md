@@ -42,6 +42,11 @@ export interface WorldHandle {
   getPlayerLook?(): NpcLook;                        // 거울 화면(G04)이 같은 복셀 캐릭터를 따로 그릴 때 쓰는 생김새
   setLookSettings?(s: LookSettings): void;          // 설정(G14): 마우스·터치 둘러보기 감도, 상하 반전
   setGraphics?(g: GraphicsSettings): void;          // 설정(G14) 화질: quality auto|low|mid|high, viewChunks 3~8, shadows, renderScale 0.5~1 (null = 단계 기본)
+  setKeyHints?(k: KeyHintLabels): void;             // 설정(G14) 키 바꾸기: HUD 도움말 줄·말 걸기 키 이름(world/strings.ts controlsDesktopFor)
+  onUse?(cb: (itemKey: string) => void): () => void; // 손에 든 칸을 다시 고르면 '사용'(G01 먹기·마시기)
+  setGauges?(g: { hunger; thirst; lowHunger; lowThirst; slow } | null): void; // G01 배고픔·목마름 막대(상태 칩 셋째 줄)
+  setMove?(mult: number, canRun: boolean): void;   // G01 낮은 게이지: 걷기 배율(0.3~1)·달리기 허용(docs/03 D1)
+  notice?(text: string): void;                      // 핫바 위 한 줄 알림(먹었어요·느려졌어요)
 }
 // WorldMapInfo = { size_m; sectors: {id,nameKo,kind:'town'|'biome'|'ruin'|'plot'|…,explored,rect:[x0,z0,x1,z1]}[];
 //                  scenes: {id,nameKo,x,z}[]; player: {x,z,yaw} }
@@ -54,6 +59,10 @@ export interface WorldHandle {
 // 대화창(.lcw-dlg)이 열리거나 HUD 가 .dlg 표시·숨김(타이틀 화면)이면 메뉴는 비켜 섭니다. 서버 경로는 frame/api.ts 한 곳:
 // GET /v1/items · POST /v1/items/equip · POST /v1/items/use · GET /v1/collection · GET /v1/review/repair ·
 // POST /v1/review/repair/pick · GET/PUT /v1/settings. 손님(연결 안 된 기기)은 서버를 부르지 않습니다.
+// G01 게이지(frame/gauges.ts · useGauges.ts): 배고픔 20분·목마름 14분에 100→0, 새 기기 45%, 20% 이하 느려짐, 0% 달리기 불가.
+// 수업·대화창·메뉴·숨은 탭에서는 시계가 멈춥니다. 음식·음료는 손에 든 칸을 한 번 더 고르면 채워지고(물건마다 10분에 한 번),
+// 물건은 가방에 남습니다(배운 말이 사라지지 않게). 사용은 POST /v1/items/use 로 서버에 남고, 값은 기기 'lcw.gauges' 에 둡니다.
+// HUD 글자 크기: 설정 글자 크기(--lcw-fs)를 따르되 HUD 는 125%(폰·낮은 가로 화면 115%)까지만 커지고, 메뉴·대화창은 전부 따릅니다.
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
 export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
 ```
@@ -183,3 +192,13 @@ export interface DialogPanelProps {
   - `snapshot = { v: 1, title: string(1–40), blocks: [x(-512..512), y(-512..512), z(-64..512), 색 토큰 이름][] (최대 20,000), avatar: { shirt, pants, hair } }`. 색은 `@lcw/ui` `COLOR_TOKENS` 이름만 받고, 다른 필드가 하나라도 있으면 400 입니다(위치·음성·실명 차단). 블록 종류 → 색 토큰 변환은 게시하는 쪽(월드)이 합니다.
   - 보호자의 `showroom_public` 동의가 있어야 합니다(없으면 403 `consent_required`). 아이마다 링크는 하나이고, 다시 게시하면 같은 링크의 내용만 바뀝니다. 응답은 `{ token, path: '/s/<token>' }`이고, 제목은 닉네임과 같은 개인정보·욕설 필터(422)를 거칩니다. 게시는 시간당 30회까지입니다.
   - 공개 읽기는 `GET /v1/showroom/<token>`(32자 hex, noindex)이고, 동의를 철회하면 바로 404 가 되며 저장본도 지웁니다. 아이 기기는 `DELETE /v1/showroom`으로 자기 링크를 지웁니다.
+
+## 8. 무료 이용 한도 → 월드·보호자 (`apps/edge/src/free-play.ts`, `packages/schemas/src/free-play.ts`)
+
+한도는 `FREE_PLAY_LIMITS`(스키마 패키지) 한 곳에만 있고, 서버가 판정합니다. 화면 문구도 이 값을 읽습니다(숫자를 문구에 직접 쓰지 않음). Dan 2026-11-16: 체험 3분·음성 주문 1회, 게스트 패스 30분·좌석당 한 달 2장.
+
+- **`/try` 체험**(외부인 소유, `apps/web/src/site/trySession.ts`): `POST /v1/try/start {device}` → `TrySession {try_id, started_at, ends_at, server_now, order}`. `device`는 기기에 둔 무작위 값(`localStorage` `lcw.tryDevice`)이고 서버는 해시만 저장합니다. 기기당 KST 하루 1회, 주소당 하루 20회이며, 넘으면 429 `try_used_today`(`retry_at`, `last`). 같은 기기가 진행 중에 다시 부르면 같은 세션을 돌려줍니다. 주문은 `POST /v1/try/order {try_id, aim, text, path, spoke?}` → `{stars, granted, orders_left, ends_at, server_now}`. 서버가 `gradeTryOrder`(`@lcw/content`, 문장 뱅크 대조, AI 호출 없음)로 채점하고, 통과한 한 번만 셉니다(그 뒤 409 `try_order_used`). 끝난 뒤(ends_at + 5초)에는 410 `try_ended`. 서버에 닿지 않으면 화면은 열지 않습니다(실패 시 닫힘).
+- **게스트 패스 발급·회수**(보호자 화면 소유, 보호자 세션): `GET /v1/family/seats/:id/guest-passes` → `{passes, per_month, minutes, left_this_month, resets_at(다음 자리가 나는 때: 기다리는 코드의 7일이 끝나거나, 이번 달 논 패스가 있으면 다음 달 1일 중 이른 쪽), server_now}`, `POST` 같은 경로로 발급(201) → `{pass, …같은 요약}`. `pass = {id, code(표시용 XXXX-XXXX), link('/pass?code=…'), state, issued_at, redeem_until(발급 + 7일), started_at, ends_at}`. 좌석이 이용 중·곧 끝남일 때만, 한 달(KST) 2장(넘으면 409 `monthly_limit`). 장수는 친구가 처음 들어온 달(KST)로 셉니다: 그달 들어온 패스 + 아직 기다리는 코드(회수 안 됨, 7일 안)가 2를 넘지 않게 발급하므로, 말일에 받은 코드를 1일에 써도 한 달에 실제로 논 패스는 2장을 넘지 않습니다. 아무도 들어가지 않은 코드는 회수하거나 7일이 지나면 장수에서 빠집니다. 발급·조회·회수는 그 좌석 아이의 가족 보호자만 할 수 있습니다(Duo 결제자라도 다른 가족 아이의 좌석이면 404). `POST /v1/family/guest-passes/:id/revoke`: 안 쓴 코드는 장수를 돌려받고, 쓰는 중이면 바로 끝납니다. 보호자가 아이에게 건네는 링크는 `/pass?code=XXXX-XXXX`입니다(입력칸이 채워짐).
+- **`/pass` 확인**(외부인 소유): `GET /v1/guest-pass/check?code=` → `GuestPassCheck {state: 'ready'|'active'|'ended'|'expired'|'revoked', minutes, ends_at, redeem_until, server_now}`, 없는 코드는 404 `pass_not_found`. 확인은 시계를 시작하지 않고, 주소당 시간당 30회입니다(넘으면 429). `ready`·`active`면 `/world/?pass=<코드>`로 넘깁니다.
+- **월드가 할 일**(월드 소유, `/world/?pass=`): 처음 진입할 때 `POST /v1/guest-pass/redeem {code, device}` → `GuestPassSession {token, world_id('home-<player>'), host_nickname, started_at, ends_at, server_now}`. 시계는 이 첫 진입에 서버가 찍고(30분), 코드는 그 기기에 묶입니다(다른 기기는 409 `pass_in_use`, 같은 기기는 다시 불러도 같은 세션). 410 `pass_ended`·`pass_expired`·`pass_revoked`·`seat_inactive`, 또는 409 `monthly_limit`(그 좌석이 이번 달 이미 2장을 놀았음, `resets_at`)이면 바로 `/guest-end`. 이후 요청에는 헤더 `x-lcw-guest-pass: <token>`을 붙이고, `GET /v1/guest-pass/status`로 남은 시간을 받아 `ends_at - server_now` 기준으로 셉니다. 끝나면 `/guest-end`(`GuestPassEndScreen`)로 갑니다. 다른 서버 경로가 게스트를 받으려면 `guestPassFromRequest()`로 확인합니다.
+  - 구현(월드 레인): `apps/client/src/start/guestPass.ts`(redeem·status·끝 시각·헤더 설치, 순수 함수)와 `start/PassLayer.tsx`. `?pass=`가 있으면 시작 화면을 건너뛰고(형식이 틀린 코드는 '찾을 수 없어요' 카드), 확인하는 동안 타이틀 카메라를 돌립니다. 들어가면 "🎟️ 지*의 초대로 놀러 왔어요" 칩이 뜹니다(아이 화면에 시계를 띄우지 않음, AGENTS §4.9·docs/10 §7 — 30분은 보이지 않게 서버 시계로 세고 끝나면 `/guest-end`). 기기 값은 `/try`와 같은 `lcw.tryDevice`(저장소가 없으면 페이지 동안 같은 값). 이 탭의 세션(`sessionStorage` `lcw.guestPass`)이 있으면 다시 불러도 redeem 대신 status 로 이어 가 조회 한도를 쓰지 않습니다. 같은 출처 `/v1/` 요청에는 모두 `x-lcw-guest-pass`가 붙습니다. 30초마다 status 로 끝 시각을 다시 맞춥니다. 410·끝남·세션 없음은 `/guest-end`, 409 `pass_in_use`·404·400·429 는 안내 카드입니다. **아직 친구 땅을 열지 않습니다**: 엣지의 땅 읽기·쓰기 경로가 게스트 패스를 받지 않아(`guestPassFromRequest` 사용처는 status 뿐) 지금은 기본 장면이 뜹니다 — `world_id` 장면 진입과 패스 중 짓기 권한은 후속.

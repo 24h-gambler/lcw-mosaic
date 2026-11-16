@@ -133,6 +133,9 @@ describe('refund ends at first use (seats.ts seat_usage)', { timeout: 30_000 }, 
     await issue(p, { payer_guardian_id: 'g-fam-a', plan: 'tutoring', term: 'month', player_ids: ['kid-1'] });
     const incl = (await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0];
     expect(incl).toMatchObject({ plan: 'tutoring', refundable: false, refund_block: 'nothing_paid', can_request_refund: false });
+    // Used in a lesson, a 0원 seat still says nothing was paid (never 'used, not refundable').
+    markSeatUse(sql(p), 'kid-1', Date.now(), 'lesson');
+    expect((await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0]).toMatchObject({ refund_block: 'nothing_paid', can_request_refund: false });
 
     const g2 = await family(p, 'kid-2', 'fam-b');
     const [sid2] = await issue(p, { payer_guardian_id: 'g-fam-b', plan: 'tutoring', term: 'month', player_ids: ['kid-2'], amount_krw: 200_000 });

@@ -1,11 +1,11 @@
 /**
- * Korean help (lang.ts helpKoOn, the same switch as the start screen's): while the screens show the learn language, a
+ * Korean help (world/lang.ts helpKoOn, the same switch as the start screen's): while the screens show the learn language, a
  * small Korean line under the menu's tab labels, panel and section titles, setting names and hint paragraphs. Off, or
  * on Korean screens, it draws nothing. Read at render time; the frame re-renders the menu when either value changes
  * (FrameLayer, onLearnLang).
  */
 import React from 'react';
-import { helpKoOn } from '../lang.js';
+import { helpKoOn } from '../../world/lang.js';
 import { FRAME_STRINGS_BY_LANG, FRAME_STRINGS_KO, frameLang, type FrameStrings } from '../strings.js';
 
 /** Korean help shows now: the player turned it on and the frame is not in Korean already. */

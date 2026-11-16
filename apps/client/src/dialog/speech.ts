@@ -93,7 +93,68 @@ export function mapRecognitionError(error: string): MicIssue {
   return 'aborted';
 }
 
-export function createBrowserSpeechEngine(envOverride?: Partial<SpeechEnv>, lang = 'en-US'): SpeechEngine {
+/**
+ * Browser recognition keeps listening for the whole turn (Dan 11-16 "1초도 유지가 안되고 인식이 끊기는"): Android
+ * Chrome and others ignore `continuous` and end on the first pause (or with `no-speech` / `aborted`) long before our
+ * turn rules end it. While the turn is still on (no stop/abort from the mic controller), an end like that starts
+ * recognition again and the words heard so far are kept and joined. Only the mic controller ends a turn: the
+ * child's second tap, 2.5 s of silence after speaking, 6 s without a word, or 12 s.
+ */
+export const RECOGNITION_KEEPALIVE = {
+  /** A run shorter than this counts as a short end (the browser cut, not the child). */
+  shortRunMs: 1500,
+  /** Pause before listening again (Chrome needs the old session to let go of the mic, or the new one aborts). */
+  restartDelayMs: 250,
+  /** Safety cap on restarts in one turn (>= 15 s of restarts, past the mic controller's 12 s turn cap). */
+  maxRestarts: 60,
+  /** Short ends in one turn that mark the turn as cut by the browser. */
+  flakyShortEnds: 3,
+  /** Cut turns before this device goes to the server Whisper rung (kept in localStorage). */
+  flakyTurns: 2,
+  /** The mark fades: after this long the browser gets another chance. */
+  flakyForgetMs: 3 * 24 * 3600 * 1000,
+  storageKey: 'lcw.sttShortEndTurns'
+} as const;
+
+/** Errors that only end this run (restart while the turn is on); the rest end the turn. */
+const RESTARTABLE = new Set(['no-speech', 'aborted']);
+
+function readCutMark(nowMs: number): number {
+  try {
+    const raw = localStorage.getItem(RECOGNITION_KEEPALIVE.storageKey) || '';
+    const [n, at] = raw.split('|').map(Number);
+    if (!n || !at || nowMs - at > RECOGNITION_KEEPALIVE.flakyForgetMs) return 0;
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
+export function recordShortEndTurn(nowMs = Date.now()): number {
+  const n = readCutMark(nowMs) + 1;
+  try {
+    localStorage.setItem(RECOGNITION_KEEPALIVE.storageKey, `${n}|${nowMs}`);
+  } catch {
+    /* private mode: the browser keeps its keep-alive */
+  }
+  return n;
+}
+
+/** The server rung refused (quota, no token): give the browser back to this device. */
+export function clearRecognitionCuts(): void {
+  try {
+    localStorage.removeItem(RECOGNITION_KEEPALIVE.storageKey);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** True once this device's browser recognition cut short in RECOGNITION_KEEPALIVE.flakyTurns recent turns. */
+export function browserRecognitionCuts(nowMs = Date.now()): boolean {
+  return readCutMark(nowMs) >= RECOGNITION_KEEPALIVE.flakyTurns;
+}
+
+export function createBrowserSpeechEngine(envOverride?: Partial<SpeechEnv>, lang = 'en-US', now: () => number = () => Date.now()): SpeechEngine {
   const env = { ...browserEnv(), ...envOverride };
   return {
     source: 'browser',
@@ -109,34 +170,23 @@ export function createBrowserSpeechEngine(envOverride?: Partial<SpeechEnv>, lang
         queueMicrotask(() => cb.onError('unsupported'));
         return { stop() {}, abort() {} };
       }
-      const rec = new Ctor();
-      rec.lang = lang;
-      rec.continuous = true;
-      rec.interimResults = true;
-      rec.maxAlternatives = 1;
       const finals: SpeechFinal[] = [];
       let interim = '';
       let aborted = false;
       let errored = false;
-      rec.onresult = (ev) => {
-        interim = '';
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
-          const r = ev.results[i]!;
-          if (r.isFinal) finals.push({ transcript: r[0].transcript.trim(), confidence: r[0].confidence || 0.8 });
-          else interim += r[0].transcript;
-        }
-        cb.onInterim([...finals.map((f) => f.transcript), interim.trim()].filter(Boolean).join(' '));
-      };
-      rec.onerror = (ev) => {
-        const issue = mapRecognitionError(ev.error);
-        // no-speech with something already heard is just the end of the turn
-        if (issue === 'no_speech' && (finals.length > 0 || interim)) return;
-        if (issue === 'aborted' && aborted) return;
-        errored = true;
-        cb.onError(issue);
-      };
-      rec.onend = () => {
-        if (aborted || errored) return;
+      let stopRequested = false;
+      let delivered = false;
+      let restarts = 0;
+      let shortEnds = 0;
+      let rec: RecognitionLike | null = null;
+      let runStartedAt = 0;
+      let restartTimer: ReturnType<typeof setTimeout> | null = null;
+      const heardAny = () => finals.length > 0 || interim.trim() !== '';
+      const joined = () => [...finals.map((f) => f.transcript), interim.trim()].filter(Boolean).join(' ');
+      const deliver = () => {
+        if (delivered || aborted || errored) return;
+        delivered = true;
+        if (shortEnds >= RECOGNITION_KEEPALIVE.flakyShortEnds) recordShortEndTurn();
         const parts = [...finals];
         if (interim.trim()) parts.push({ transcript: interim.trim(), confidence: 0.6 });
         if (parts.length === 0) {
@@ -147,23 +197,83 @@ export function createBrowserSpeechEngine(envOverride?: Partial<SpeechEnv>, lang
         const confidence = parts.reduce((a, p) => a + p.confidence, 0) / parts.length;
         cb.onEnd({ transcript, confidence: Math.max(0, Math.min(1, confidence)) });
       };
-      try {
-        rec.start();
-      } catch {
-        queueMicrotask(() => cb.onError('aborted'));
-      }
+      const run = (): boolean => {
+        const r = new Ctor();
+        r.lang = lang;
+        r.continuous = true;
+        r.interimResults = true;
+        r.maxAlternatives = 1;
+        rec = r;
+        r.onresult = (ev) => {
+          if (rec !== r) return;
+          interim = '';
+          for (let i = ev.resultIndex; i < ev.results.length; i++) {
+            const x = ev.results[i]!;
+            if (x.isFinal) {
+              const t = x[0].transcript.trim();
+              if (t) finals.push({ transcript: t, confidence: x[0].confidence || 0.8 });
+            } else interim += x[0].transcript;
+          }
+          cb.onInterim(joined());
+        };
+        r.onerror = (ev) => {
+          if (rec !== r || aborted || delivered) return;
+          // A cut (no-speech / aborted) only ends this run: onend listens again, or ends the turn after a stop.
+          if (RESTARTABLE.has(ev.error)) return;
+          // After a stop, or on a restarted run (the clip recorder may hold the mic now: audio-capture), the turn
+          // ends with what was heard rather than as a mic problem.
+          if ((stopRequested || restarts > 0) && heardAny()) return deliver();
+          if (restarts > 0 && ev.error === 'audio-capture') return deliver();
+          errored = true;
+          cb.onError(mapRecognitionError(ev.error));
+        };
+        r.onend = () => {
+          if (rec !== r || aborted || errored) return;
+          if (stopRequested) return deliver();
+          // The browser ended by itself: keep what it heard and listen again.
+          if (interim.trim()) {
+            finals.push({ transcript: interim.trim(), confidence: 0.6 });
+            interim = '';
+          }
+          if (now() - runStartedAt < RECOGNITION_KEEPALIVE.shortRunMs) shortEnds += 1;
+          if (restarts >= RECOGNITION_KEEPALIVE.maxRestarts) return deliver();
+          restarts += 1;
+          restartTimer = setTimeout(() => {
+            restartTimer = null;
+            if (aborted || delivered || errored) return;
+            if (stopRequested) return deliver();
+            if (!run()) deliver();
+          }, RECOGNITION_KEEPALIVE.restartDelayMs);
+        };
+        runStartedAt = now();
+        try {
+          r.start();
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      if (!run()) queueMicrotask(() => cb.onError('aborted'));
       return {
         stop: () => {
+          stopRequested = true;
+          // Between two runs there is nothing to stop: the turn ends now with what was heard.
+          if (restartTimer) {
+            clearTimeout(restartTimer);
+            restartTimer = null;
+            return deliver();
+          }
           try {
-            rec.stop();
+            rec?.stop();
           } catch {
-            /* already stopped */
+            deliver();
           }
         },
         abort: () => {
           aborted = true;
+          if (restartTimer) clearTimeout(restartTimer);
           try {
-            rec.abort();
+            rec?.abort();
           } catch {
             /* already stopped */
           }

@@ -150,14 +150,19 @@ export function enqueueGuardianNotices(sql: SqliteExecutor, randomBytes: (n: num
   let n = 0;
   const hasSeats = sql.get("select 1 as x from sqlite_master where type = 'table' and name = 'seat_notices'");
   if (!hasSeats) return 0;
-  const notices = sql.all<{ seat_id: string; kind: string; family_id: string }>(
-    `select n.seat_id, n.kind, p.family_id from seat_notices n join seats s on s.id = n.seat_id join players p on p.id = s.player_id
+  const notices = sql.all<{ seat_id: string; kind: string; family_id: string; at: number }>(
+    `select n.seat_id, n.kind, p.family_id, n.at from seat_notices n join seats s on s.id = n.seat_id join players p on p.id = s.player_id
      where n.at > ? and p.family_id is not null`,
     [nowMs - PUSH_FRESH_MS]
   );
   for (const r of notices) {
     const kind = r.kind === '7d' ? 'seat_7d' : r.kind === '1d' ? 'seat_1d' : r.kind === 'expired' ? 'seat_expired' : null;
-    if (kind && enqueue(sql, randomBytes, r.family_id, kind, `seat:${r.seat_id}:${r.kind}`, nowMs)) n++;
+    if (!kind) continue;
+    // A notice recorded again after an extension or a date edit (seats.ts clears seat_notices) is a new event: the
+    // first push keeps the old ref, a later one carries the notice time so the dedupe does not swallow it.
+    const ref = `seat:${r.seat_id}:${r.kind}`;
+    const prev = sql.get<{ created_at: number }>('select created_at from push_outbox where ref = ?', [ref]);
+    if (enqueue(sql, randomBytes, r.family_id, kind, prev && prev.created_at < r.at ? `${ref}:${r.at}` : ref, nowMs)) n++;
   }
   const refunds = sql.all<{ id: string; status: string; family_id: string }>(
     `select r.id, r.status, p.family_id from seat_refunds r join seats s on s.id = r.seat_id join players p on p.id = s.player_id

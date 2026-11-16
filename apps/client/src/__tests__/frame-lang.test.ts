@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { LANG_PACK_MANIFEST } from '@lcw/content';
-import { FRAME_STRINGS, FRAME_STRINGS_EN, FRAME_STRINGS_KO, FRAME_STRINGS_BY_LANG, frameLang, setFrameLang } from '../frame/strings.js';
+import { FRAME_STRINGS, FRAME_STRINGS_EN, FRAME_STRINGS_KO, FRAME_STRINGS_BY_LANG, frameLang, setFrameLang, uiLang } from '../frame/strings.js';
 import {
   BAND_NAMES,
   BAND_NAMES_EN,
@@ -17,7 +17,7 @@ import {
   setWorldFrameLang,
   worldFrameLang
 } from '../world/strings.js';
-import { helpKoOn, learnLang, onLearnLang, resetLangForTest, setHelpKo, uiLang } from '../frame/lang.js';
+import { helpKoOn, learnLang, onLearnLang, resetLangForTest, setHelpKo } from '../world/lang.js';
 import { DEFAULT_SETTINGS, normalizeSettings } from '../frame/settings.js';
 import { toServerSettings } from '../frame/settings-sync.js';
 import { goLabel, compassKo } from '../frame/menu/map-model.js';
@@ -73,6 +73,24 @@ describe('learn language (frame/lang.ts)', () => {
     expect(worldFrameLang()).toBe('en');
     expect(FRAME_STRINGS.menu).toBe(FRAME_STRINGS_EN.menu);
     expect(WORLD_STRINGS.offlineBand).toBe(WORLD_FRAME_STRINGS_EN.offlineBand);
+  });
+});
+
+describe('Korean screen pin (lcw.uiLang)', () => {
+  it("a device can pin the Korean screens; anything else follows the learn language", () => {
+    const data: Record<string, string> = {};
+    const g = globalThis as { localStorage?: unknown };
+    const before = g.localStorage;
+    g.localStorage = { getItem: (k: string) => data[k] ?? null, setItem: (k: string, v: string) => void (data[k] = v), removeItem: (k: string) => void delete data[k] };
+    try {
+      expect(uiLang()).toBe('en');
+      data['lcw.uiLang'] = 'ko';
+      expect(uiLang()).toBe('ko');
+      data['lcw.uiLang'] = 'fr';
+      expect(uiLang()).toBe('en');
+    } finally {
+      g.localStorage = before;
+    }
   });
 });
 

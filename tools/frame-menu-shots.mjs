@@ -1,14 +1,14 @@
 // Headless real-screen check of the player menu (docs/08 8.6 G03 G04 G06 G10 G11 G14) at 1440 / 1024 / 390 / 844x390,
 // as a linked child whose server answers are fixtures (page.route): the server bag on the hotbar, the menu button by
 // the hotbar, every tab without sideways overflow, a bag → chest move request, the repair review window.
-// The menu words are in the learn language (English); KO_HELP=1 turns Korean help on and checks the Korean lines under
+// The menu words are in the screen language (English; FRAME_LANG=ko pins Korean); KO_HELP=1 turns Korean help on and checks the Korean lines under
 // the tab labels and titles (expected words: tools/frame-lang-expect.mjs).
 // Fails (exit 1) on a broken rule. Headless only, audio muted, no window.
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/frame-menu-shots.mjs http://127.0.0.1:8982/game/ shots/frame-menu
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { COPY, COPY_KO, HANGUL, KO_HELP } from './frame-lang-expect.mjs';
+import { COPY, COPY_KO, FRAME_LANG, KO_HELP, KO_HELP_SHOWN, inScreenLang, langInitScript } from './frame-lang-expect.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8982/game/';
 const out = process.argv[3] ?? 'shots/frame-menu';
@@ -88,15 +88,15 @@ for (const vp of VIEWPORTS) {
   const fx = fixtures();
   const posts = [];
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, hasTouch: vp.touch, isMobile: vp.touch && vp.width < 500 });
-  await ctx.addInitScript((koHelp) => {
+  await ctx.addInitScript(() => {
     try {
       localStorage.setItem('lcw.deviceToken', 'd'.repeat(40));
       localStorage.setItem('lcw.deviceNickname', '지우');
-      localStorage.setItem('lcw.helpKo', koHelp ? '1' : '0');
     } catch {
       /* storage blocked */
     }
-  }, KO_HELP);
+  });
+  await langInitScript(ctx);
   await ctx.route('**/v1/**', async (route) => {
     const req = route.request();
     const p = new URL(req.url()).pathname;
@@ -125,7 +125,12 @@ for (const vp of VIEWPORTS) {
   await page.goto(base, { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
   await page.waitForTimeout(1500);
-  // first-visit / mic cards belong to the dialog domain: step past them like a child would
+  // the title screen (world lane) and the first-visit / mic cards (dialog domain): step past them like a child would
+  const start = page.getByRole('button', { name: /^(시작하기|Start)/ });
+  if (await start.count()) {
+    await start.first().click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(2500);
+  }
   for (const label of ['건너뛰기', '좋아요, 출발!', 'Skip']) {
     const b = page.getByRole('button', { name: label });
     if (await b.count()) await b.first().click({ timeout: 2000 }).catch(() => {});
@@ -177,10 +182,10 @@ for (const vp of VIEWPORTS) {
     };
   });
   report.push({ vp: vp.name, words });
-  check(vp.name, words.lang === 'en', `<html lang> should be the screen language (${words.lang})`);
-  check(vp.name, words.tabs.length === 6 && words.tabs.every((t) => t && !HANGUL.test(t)), `tab labels not in English (${words.tabs.join(',')})`);
-  check(vp.name, words.titles.length >= 3 && words.titles.every((t) => !HANGUL.test(t)), `bag titles not in English (${words.titles.join(',')})`);
-  if (KO_HELP) check(vp.name, words.koTabs.length === 6 && words.koTabs[0] === COPY_KO.bagTab && words.koAll >= 10, `Korean help lines missing (${words.koTabs.join(',')} / ${words.koAll})`);
+  check(vp.name, words.lang === FRAME_LANG, `<html lang> should be the screen language (${words.lang})`);
+  check(vp.name, words.tabs.length === 6 && words.tabs.every((t) => t && inScreenLang(t)), `tab labels not in the screen language (${words.tabs.join(',')})`);
+  check(vp.name, words.titles.length >= 3 && words.titles.every((t) => inScreenLang(t)), `bag titles not in the screen language (${words.titles.join(',')})`);
+  if (KO_HELP_SHOWN) check(vp.name, words.koTabs.length === 6 && words.koTabs[0] === COPY_KO.bagTab && words.koAll >= 10, `Korean help lines missing (${words.koTabs.join(',')} / ${words.koAll})`);
   else check(vp.name, words.koAll === 0, `Korean lines shown while Korean help is off (${words.koAll})`);
   // move the first bag thing to the chest: a server request, then the HUD follows
   await page.locator('.lcw-bagrow .lcw-thing:not(.empty) .btn').first().click();
@@ -270,6 +275,20 @@ for (const vp of VIEWPORTS) {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(500);
   check(vp.name, !(await page.locator('.lcw-menu').count()), 'Esc should close the menu');
+  if (!vp.touch) {
+    // another window up (a review dialog has no HUD mark): K must not open the menu over it
+    await page.evaluate(() => {
+      const d = document.createElement('div');
+      d.id = 'fake-modal';
+      d.setAttribute('role', 'dialog');
+      d.setAttribute('aria-modal', 'true');
+      document.body.appendChild(d);
+    });
+    await page.keyboard.press('KeyK');
+    await page.waitForTimeout(400);
+    check(vp.name, !(await page.locator('.lcw-menu').count()), 'K opened the menu over another window');
+    await page.evaluate(() => document.getElementById('fake-modal')?.remove());
+  }
   if (!vp.touch) {
     await page.keyboard.press('KeyK');
     await page.waitForTimeout(500);

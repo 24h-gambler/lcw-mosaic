@@ -106,6 +106,7 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
       <style>{REPAIR_CSS}</style>
       <h2>{F.repairTitle}<KoHelp of={F.repairTitle} /></h2>
       <p className="muted">{F.repairIntro}<KoHelp of={F.repairIntro} /></p>
+      {props.lessonOn ? <p className="note">{F.repairInLesson}<KoHelp of={F.repairInLesson} /></p> : null}
       {result ? (
         <p className={`lcw-res${result.pass ? '' : ' again'}`} role="status">
           {result.text}
@@ -126,7 +127,7 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
                 <span className="nm">{it.item_name_ko}</span>
               </div>
               <span className={`st ${it.due ? 'due' : 'later'}`}>{it.due ? `🔧 ${F.repairDue}` : F.repairLater}</span>
-              <button type="button" className="btn pri" disabled={!it.due || busy} onClick={() => void pick(it)}>
+              <button type="button" className="btn pri" disabled={!it.due || busy || props.lessonOn} onClick={() => void pick(it)}>
                 🎤 {F.repairPick}
               </button>
             </li>

@@ -1,8 +1,8 @@
 // Headless real-screen check of the child's screen frame (docs/08 8.6, frame domain) at 1440 / 1024 / 390 / 844x390.
 // G01 HUD: place · band, weather · clock and coins always on; empty hotbar explained, never bare boxes; slot caption;
 // connection band "Offline for a moment · Keep playing on your own" without covering the chips or buttons;
-// first-person crosshair. The HUD frame words are in the learn language (English); KO_HELP=1 turns Korean help on
-// and checks the Korean in parentheses (expected words: tools/frame-lang-expect.mjs).
+// first-person crosshair. The HUD frame words are in the screen language (English; FRAME_LANG=ko pins Korean);
+// KO_HELP=1 turns Korean help on and checks the Korean in parentheses (expected words: tools/frame-lang-expect.mjs).
 // Fails (exit 1) on a broken rule. Headless only, audio muted, no window.
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/frame-shots.mjs http://127.0.0.1:8981/world/ shots/frame
@@ -10,7 +10,7 @@
 // (G14: HUD text follows the text size, help lines name the remapped keys).
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { COPY, COPY_KO, HANGUL, KO_HELP } from './frame-lang-expect.mjs';
+import { COPY, COPY_KO, FRAME_LANG, KO_HELP_SHOWN, inScreenLang, langInitScript } from './frame-lang-expect.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8981/game/';
 const out = process.argv[3] ?? 'shots/frame';
@@ -31,6 +31,20 @@ const VIEWPORTS = [
 ];
 
 const SETTINGS = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;
+
+// the title screen (world lane) and the first-visit / mic cards (dialog domain): step past them like a child would
+async function passTitle(page) {
+  const start = page.getByRole('button', { name: /^(시작하기|Start)/ });
+  if (await start.count()) {
+    await start.first().click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(2500);
+  }
+  for (const label of ['건너뛰기', '좋아요, 출발!']) {
+    const b = page.getByRole('button', { name: label });
+    if (await b.count()) await b.first().click({ timeout: 2000 }).catch(() => {});
+  }
+  await page.waitForTimeout(600);
+}
 const fails = [];
 const report = [];
 const check = (vp, ok, what) => {
@@ -82,14 +96,8 @@ for (const vp of VIEWPORTS) {
   });
   // no edge server behind the dev page: the neural-voice switch answers "off" (the device voice reads)
   await ctx.route('**/v1/tts/status', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"enabled":false}' }));
-  // Korean help lives in lang.ts (lcw.helpKo), one switch with the start screen
-  await ctx.addInitScript((on) => {
-    try {
-      localStorage.setItem('lcw.helpKo', on ? '1' : '0');
-    } catch {
-      /* storage blocked */
-    }
-  }, KO_HELP);
+  // screen language and Korean help (world/lang.ts lcw.helpKo, one switch with the start screen)
+  await langInitScript(ctx);
   if (SETTINGS) {
     await ctx.addInitScript((s) => {
       try {
@@ -105,6 +113,7 @@ for (const vp of VIEWPORTS) {
   await page.goto(base, { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
   await page.waitForTimeout(1200);
+  await passTitle(page);
 
   // 1. start: status line, coins, explained empty bar
   const a = await boxes(page);
@@ -128,8 +137,8 @@ for (const vp of VIEWPORTS) {
   }
   check(vp.name, !!a.cap && COPY.emptyBar.test(a.cap.text), `empty bar is not explained (${a.cap?.text})`);
   // the frame's HUD words are in the learn language (the scene title and the lesson tag are the world lane's)
-  check(vp.name, !HANGUL.test(a.clock?.text ?? '') && !HANGUL.test(a.cap?.text ?? '') && !HANGUL.test(a.help?.text ?? ''), `HUD frame words not in English (${a.clock?.text} / ${a.cap?.text} / ${a.help?.text})`);
-  check(vp.name, (await page.evaluate(() => document.documentElement.lang)) === 'en', '<html lang> should be the screen language');
+  check(vp.name, [a.clock?.text, a.cap?.text].every((t) => inScreenLang(t ?? '')), `HUD frame words not in the screen language (${a.clock?.text} / ${a.cap?.text})`);
+  check(vp.name, (await page.evaluate(() => document.documentElement.lang)) === FRAME_LANG, '<html lang> should be the screen language');
   check(vp.name, !overlap(a.cap, a.help), 'caption covers the controls help');
   check(vp.name, !overlap(a.cap, a.bar), 'caption covers the hotbar');
   check(vp.name, !overlap(a.clock, a.stars), 'clock chip runs into the star/coin chip');
@@ -148,8 +157,8 @@ for (const vp of VIEWPORTS) {
   const b = await boxes(page);
   await page.screenshot({ path: `${out}/${vp.name}-2items.png` });
   check(vp.name, b.empties === 3, `expected 3 empty slots after two items, got ${b.empties}`);
-  // item names are the world lane's (ITEM_NAMES_KO), still Korean; a food in hand adds how to eat it (G01)
-  check(vp.name, (b.cap?.text ?? '').startsWith('쿠키') && COPY.useAgainFood.test(b.cap?.text ?? ''), `caption should name the selected slot (${b.cap?.text})`);
+  // item names are the world lane's (ITEM_NAMES_KO), still Korean; a food in hand may add how to eat it (G01)
+  check(vp.name, (b.cap?.text ?? '').startsWith('쿠키') && (b.cap?.text === '쿠키' || COPY.useAgainFood.test(b.cap?.text ?? '')), `caption should name the selected slot (${b.cap?.text})`);
   check(vp.name, b.coins?.text === '120', `coins should read 120 (${b.coins?.text})`);
   // drink: the honey tea in slot 1, picked twice (the second pick uses the slot in hand)
   for (let n = 0; n < 2; n++) {
@@ -185,7 +194,7 @@ for (const vp of VIEWPORTS) {
   check(vp.name, !overlap(c.goal, c.net) && !overlap(c.badge, c.stars) && !overlap(c.scene, c.goal), 'offline: band, chips and goal card overlap');
   await page.screenshot({ path: `${out}/${vp.name}-3offline.png` });
   check(vp.name, !!c.net && COPY.offlineBand.test(c.net.text), `connection band missing (${c.net?.text})`);
-  check(vp.name, !!c.net && COPY_KO.offlineBand.test(c.net.text) === KO_HELP, `connection band Korean help ${KO_HELP ? 'missing' : 'shown while off'} (${c.net?.text})`);
+  check(vp.name, !!c.net && COPY_KO.offlineBand.test(c.net.text) === KO_HELP_SHOWN, `connection band Korean help ${KO_HELP_SHOWN ? 'missing' : 'shown while off'} (${c.net?.text})`);
   const netOneLine = await page.evaluate(() => {
     const s = document.querySelector('.lw-net span');
     if (!s) return null;
@@ -211,19 +220,22 @@ for (const vp of VIEWPORTS) {
   check(vp.name, !!d.aim && Math.abs(d.aim.x + d.aim.w / 2 - d.vw / 2) < 2 && Math.abs(d.aim.y + d.aim.h / 2 - d.vh / 2) < 2, 'crosshair not centred');
   if (vp.name === 'd1440' || vp.name === 'p390') {
     // low gauges from the device record: slower walking is said once and shown on the chip
-    // the page saves its own gauges on pagehide: write ours after that save (a listener added later runs later)
-    await page.evaluate(() => {
-      const low = JSON.stringify({ g: { hunger: 50, thirst: 12 }, used: [] });
-      window.addEventListener('pagehide', () => localStorage.setItem('lcw.gauges', low));
-      localStorage.setItem('lcw.gauges', low);
+    // set at the new page's start: the old page saves its own values on pagehide
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.setItem('lcw.gauges', JSON.stringify({ g: { hunger: 50, thirst: 12 }, used: [] }));
+      } catch {
+        /* storage blocked */
+      }
     });
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
     await page.waitForTimeout(1500);
+    await passTitle(page);
     const lo = await page.evaluate(() => ({ slow: !!document.querySelector('.lw-chip .gz.slow'), low: !!document.querySelector('.lw-chip .gz .t.low'), cap: document.querySelector('.lw-cap')?.textContent ?? '' }));
     await page.screenshot({ path: `${out}/${vp.name}-5low.png` });
     check(vp.name, lo.slow && lo.low && COPY.lowThirst.test(lo.cap), `low thirst: slow ${lo.slow}, low ${lo.low}, said "${lo.cap}"`);
-    check(vp.name, COPY_KO.lowThirst.test(lo.cap) === KO_HELP, `low thirst Korean help ${KO_HELP ? 'missing' : 'shown while off'} ("${lo.cap}")`);
+    check(vp.name, COPY_KO.lowThirst.test(lo.cap) === KO_HELP_SHOWN, `low thirst Korean help ${KO_HELP_SHOWN ? 'missing' : 'shown while off'} ("${lo.cap}")`);
   }
   check(vp.name, errs.length === 0, `console errors: ${errs.join(' | ')}`);
   report.push({ vp: vp.name, start: a, items: { cap: b.cap?.text, empties: b.empties, coins: b.coins?.text }, offline: { net: c.net?.text, clock: c.clock?.text }, errs });

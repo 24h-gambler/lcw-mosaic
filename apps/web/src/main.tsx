@@ -22,6 +22,7 @@ const KNOWN_ROUTES: readonly AppRoute[] = [
   '/join',
   '/family',
   '/link',
+  '/signup',
   '/seats'
 ];
 

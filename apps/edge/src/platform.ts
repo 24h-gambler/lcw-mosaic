@@ -16,11 +16,15 @@ import {
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { buildPushAdminApp, deliverPush, enqueueGuardianNotices, enqueueReportNotices, vapidKeys, webPushSender, type PushSender } from './push.js';
 import { buildGuardianViewAdminApp } from './guardian-view.js';
-import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, oauthConfigFrom } from './oauth.js';
+import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, linkIdentity, oauthConfigFrom } from './oauth.js';
+import { buildOperatorLoginApp, ensureOperatorLoginSchema, exchangeOperatorSession, teacherRoleHandler } from './operator-login.js';
 import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandler } from './guardian-oauth.js';
+import { STUDENT_PUBLIC_ROUTES, buildStudentAccountApp } from './student-account.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
+import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp } from './free-play.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
+import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp } from './my-world.js';
 import { injectReportShareMeta } from './report-page.js';
 import { htmlForClient } from './html-cache.js';
 import { injectShowroomShareMeta, showroomTokenFromPath } from './showroom-page.js';
@@ -43,6 +47,7 @@ import {
   type DurableStorageLike
 } from './do-sqlite.js';
 import { EdgePlatformDb, LessonDO, WorldDO, type SqliteExecutor } from './storage.js';
+import { ROOM_CONNECT_PATH, ROOM_TICKET_SCHEMA, buildRoomApp, redeemRoomTicket, routeRoomConnect } from './room.js';
 
 /**
  * Production platform (entry module: worker.ts). One SQLite Durable Object ("platform") holds the relational
@@ -66,10 +71,14 @@ interface AssetsBinding {
 }
 export interface LcwEnv {
   PLATFORM: DoNamespace;
+  /** Multi rooms (room.ts WorldRoomDO), one per room name. Unbound → /v1/room/connect answers 503. */
+  WORLD_ROOM?: DoNamespace;
   ASSETS?: AssetsBinding;
   AI?: AiBinding;
   /** Operator (teacher) token — `wrangler secret put LCW_OPERATOR_TOKEN`. Unset → gated routes fail closed. */
   LCW_OPERATOR_TOKEN?: string;
+  /** Secret: teacher/operator Google emails, comma separated (operator-login.ts). Never in the repository. */
+  LCW_OPERATOR_GOOGLE_EMAILS?: string;
   BUILD_SHA?: string;
   /** R2 bucket for children's voice clips (voice.ts). Unbound → uploads answer 503 and nothing is stored. */
   VOICE?: R2BucketLike;
@@ -120,12 +129,20 @@ export function isPublicRoute(method: string, path: string): boolean {
   // check the guardian session (guardian-oauth.ts).
   if (OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   if (GUARDIAN_OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Student sign-up (student-account.ts): the adult's guardian session, or the waiting device's claim token.
+  if (STUDENT_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Public site (docs/14): cookie-free counters and the tutoring consult form, see site.ts.
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
   if (SHOWROOM_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Multi room tickets (room.ts): lesson, device or operator token, checked inside.
+  if (method === 'POST' && path === '/v1/room/ticket') return true;
   // Voice clips (voice.ts): upload checks its one-use token, playback its signature.
   if (VOICE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // My world (G07, my-world.ts): checks the child's device or lesson token itself.
+  if (MY_WORLD_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Free play (free-play.ts): /try sessions and guest pass entry check their own input and tokens.
+  if (FREE_PLAY_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   return false;
 }
 
@@ -251,6 +268,8 @@ export class PlatformDO {
     this.sql = createDurableSqliteExecutor(state.storage);
     this.db = new EdgePlatformDb(this.sql);
     this.sql.exec(OPS_SCHEMA);
+    this.sql.exec(ROOM_TICKET_SCHEMA);
+    ensureOperatorLoginSchema(this.sql);
     ensureQuotaSchema(this.sql);
     const blobs = new SqliteBlobStore(this.sql);
     this.ensureDemo();
@@ -535,7 +554,13 @@ export class PlatformDO {
     };
   }
 
-  async fetch(request: Request): Promise<Response> {
+  async fetch(original: Request): Promise<Response> {
+    // A teacher device's operator session (operator-login.ts) acts as the operator key from here on.
+    const request = await exchangeOperatorSession(
+      { sql: this.sql, nowMs: () => Date.now(), sha256Hex, allowedEmails: this.env.LCW_OPERATOR_GOOGLE_EMAILS },
+      original,
+      this.env.LCW_OPERATOR_TOKEN
+    );
     const day = utcDay(Date.now());
     if (day !== this.appDay) {
       this.appDay = day;
@@ -572,6 +597,13 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.onError((err, c) => {
     if (err instanceof SyntaxError) return c.json({ error: 'invalid_json' }, 400);
     return c.json({ error: 'internal_error' }, 500);
+  });
+  // The Worker redeems a room ticket here before it hands a WebSocket to the room (room.ts routeRoomConnect).
+  app.post('/internal/room-ticket', async (c) => {
+    if (c.req.header('x-lcw-internal') !== 'room') return c.json({ error: 'forbidden' }, 403);
+    const body = (await c.req.json().catch(() => ({}))) as { ticket?: unknown };
+    const seat = await redeemRoomTicket({ sql: platform.sql, nowMs: () => Date.now(), sha256Hex }, String(body.ticket ?? ''));
+    return seat ? c.json(seat) : c.json({ error: 'bad_ticket' }, 403);
   });
   app.post('/internal/cron', async (c) => {
     if (c.req.header('x-lcw-internal') !== 'cron') return c.json({ error: 'forbidden' }, 403);
@@ -836,6 +868,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     realtime: () => realtime
   };
   app.route('/', buildFamilyApp(familyDeps));
+  const operatorLogin = { ...familyDeps, allowedEmails: env.LCW_OPERATOR_GOOGLE_EMAILS };
+  app.route('/', buildOperatorLoginApp(operatorLogin));
+  app.route('/', buildStudentAccountApp(familyDeps));
   app.route('/', buildPushAdminApp(familyDeps));
   app.route('/', buildGuardianViewAdminApp(familyDeps));
   const oauthConfig = oauthConfigFrom(env as unknown as Record<string, unknown>);
@@ -847,7 +882,13 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     buildOAuthApp({
       ...familyDeps,
       config: oauthConfig,
-      roles: { guardian: guardianOAuthHandler(guardianOAuth) },
+      roles: {
+        guardian: guardianOAuthHandler(guardianOAuth),
+        // Teacher accounts: Google, verified email on the LCW_OPERATOR_GOOGLE_EMAILS secret → an operator session.
+        teacher: teacherRoleHandler(operatorLogin, (identity, operatorId) => {
+          linkIdentity(platform.sql, { role: 'teacher', identity, subjectId: operatorId }, Date.now());
+        })
+      },
       specs: env.LCW_OAUTH_DEV_PROVIDER ? devProviderSpecs(env.LCW_OAUTH_DEV_PROVIDER) : undefined,
       publicOrigin: env.LCW_PUBLIC_ORIGIN
     })
@@ -855,7 +896,38 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
+  app.route('/', buildFreePlayApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
+  app.route(
+    '/',
+    buildRoomApp({
+      sql: platform.sql,
+      nowMs: () => Date.now(),
+      randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
+      sha256Hex,
+      student: (req) => platform.studentFromRequest(req),
+      device: (req) => platform.deviceFromRequest(req),
+      isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN),
+      player: (id) => platform.sql.get<{ nickname: string; family_id: string }>('select nickname, family_id from players where id = ?', [id]) ?? null
+    })
+  );
+  // Operator read-out of one room (members, counters) for load checks and the docs/02 §11 capacity numbers.
+  app.get('/v1/admin/rooms/:room', async (c) => {
+    if (!env.WORLD_ROOM) return c.json({ error: 'rooms_not_configured' }, 503);
+    const room = c.req.param('room');
+    const res = await env.WORLD_ROOM.get(env.WORLD_ROOM.idFromName(room)).fetch(new Request('https://room/stats'));
+    return c.json({ room, ...((await res.json()) as Record<string, unknown>) });
+  });
+  app.route(
+    '/',
+    buildMyWorldApp({
+      sql: platform.sql,
+      nowMs: familyDeps.nowMs,
+      randomBytes: familyDeps.randomBytes,
+      soloPlayer,
+      ensureHomeWorld: (playerId) => platform.ensureHomeWorld(playerId)
+    })
+  );
   app.route('/', buildExportApp({ sql: platform.sql, db: platform.db, nowMs: () => Date.now() }));
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))
@@ -901,6 +973,7 @@ function platformStub(env: LcwEnv): DoStub {
 
 async function routeWorkerRequest(request: Request, env: LcwEnv): Promise<Response> {
   const url = new URL(request.url);
+  if (url.pathname === ROOM_CONNECT_PATH) return routeRoomConnect(request, platformStub(env), env.WORLD_ROOM);
   // The world moved from /game/ to /world/ (world-path.ts): old lesson and pass links keep their query.
   const moved = legacyWorldRedirect(url);
   if (moved) return moved;

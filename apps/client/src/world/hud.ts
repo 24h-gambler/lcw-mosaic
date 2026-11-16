@@ -24,7 +24,7 @@ function css(): string {
 .lw-goal .k{font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;color:${C['brand-d']}}
 .lw-goal .g{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1));font-weight:700}
 .lw-goal .t{font-family:${T.fonts.target};font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.h3.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;color:${C['sky-d']}}
-.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:calc(100vw - 230px)}
+.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;max-width:calc(100vw - 230px)}
 .lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1))}
 .lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));border:2px solid ${C['ink-900']};display:none}
 .lw-chip .l.on{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -145,7 +145,11 @@ function css(): string {
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
 @media (max-width:600px),(max-height:500px){.lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.15)}}
-@media (max-width:600px){.lw-hud.gz .lw-goal{top:calc(84px + 64px * (var(--lcw-hs,1) - 1))}.lw-hud.gz:has(.lw-chip .l.on) .lw-goal{top:calc(116px + 64px * (var(--lcw-hs,1) - 1))}}
+@media (max-width:600px){.lw-hud.gz .lw-goal{top:calc(84px + 64px * (var(--lcw-hs,1) - 1))}.lw-chip .gz{gap:6px}.lw-chip .gz b{width:calc(26px * var(--lcw-hs,1))}}
+/* the lesson tag wraps under the status box on a phone (the chip leaves room for the stars): the goal card starts below it */
+@media (max-width:600px){.lw-hud:has(.lw-chip .l.on) .lw-goal{top:calc(114px + 90px * (var(--lcw-hs,1) - 1))}}
+/* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
+@media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}}
 @media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
 .lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,calc(var(--lw-net-h,30px) + 2px))}}
 @media (prefers-reduced-motion:reduce){.lw-chip .gz .low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
@@ -247,6 +251,7 @@ export class WorldHud {
   private itemKeys: Array<string | null> = [null, null, null, null, null];
   private gz: HTMLElement | null = null;
   private gzOn = false;
+  private noticeUntil = 0;
   private buildSlotsOn = false;
   private toast: HTMLDivElement;
   private toastTimer = 0;
@@ -500,7 +505,7 @@ export class WorldHud {
     if (done && !this.load.classList.contains('done')) {
       this.load.classList.add('done');
       // an all-empty bar says what it is for once, so five dark boxes never read as unfinished
-      if (this.allEmpty()) this.showCaption(6000);
+      if (this.allEmpty() && performance.now() > this.noticeUntil) this.showCaption(6000);
     }
   }
 
@@ -607,6 +612,7 @@ export class WorldHud {
 
   /** A one-off line over the bar (ate, drank, "a bit later"): same place and fade as the slot caption. */
   notice(text: string, ms = 2400): void {
+    this.noticeUntil = performance.now() + ms;
     window.clearTimeout(this.capTimer);
     this.cap.textContent = text;
     // a notice with its Korean help line (world/strings setWorldFrameLang) wraps instead of cutting the Korean off
@@ -678,7 +684,7 @@ export class WorldHud {
   setTeacher(t: { present: boolean; name: string | null } | null): void {
     this.lessonChip.classList.toggle('solo', Boolean(t && !t.present));
     this.lessonChip.dataset.teacher = t === null ? '' : t.present ? 'present' : 'absent';
-    this.lessonChip.textContent = t === null ? W.lessonBadge : t.present ? W.teacherWith(t.name || W.teacherDefault) : W.solo;
+    this.lessonChip.textContent = t === null ? W.lessonBadge : t.present ? W.teacherWith(t.name) : W.solo;
   }
 
   selectSlot(i: number, caption = true): void {

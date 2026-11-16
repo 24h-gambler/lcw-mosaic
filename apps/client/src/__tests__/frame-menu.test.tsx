@@ -9,7 +9,7 @@ import { BOOK_IDS, bookPct, sixBooks, BookPanel } from '../frame/menu/BookPanel.
 import { repairOrder, RepairPanel } from '../frame/menu/RepairPanel.js';
 import { turnYaw } from '../frame/menu/MirrorPanel.js';
 import { tabForKey, PlayerMenu } from '../frame/menu/PlayerMenu.js';
-import { MENU_TABS, type MenuPanelProps } from '../frame/menu/types.js';
+import { MENU_TABS, otherModalOpen, type MenuPanelProps } from '../frame/menu/types.js';
 import { bagKeys, frameAuthOf } from '../frame/FrameLayer.js';
 import { FRAME_STRINGS as F, setFrameLang } from '../frame/strings.js';
 import { setWorldFrameLang } from '../world/strings.js';
@@ -138,6 +138,17 @@ describe('menu keys and words', () => {
     const html = renderToStaticMarkup(<PlayerMenu {...props} tab="bag" onTab={() => undefined} onClose={() => undefined} />);
     expect(html).toContain('role="tablist"');
     expect((html.match(/role="tab"/g) ?? []).length).toBe(6);
+  });
+  it('steps aside for any other window, but not for windows inside the menu', () => {
+    const doc = (hud: boolean, els: Array<{ inMenu: boolean }>) => ({
+      querySelector: (s: string) => (s === '.lw-hud.dlg' && hud ? ({} as Element) : null),
+      querySelectorAll: () => els.map((e) => ({ closest: (s: string) => (s === '.lcw-menu' && e.inMenu ? {} : null) })) as unknown as NodeListOf<Element>
+    });
+    expect(otherModalOpen(doc(false, []))).toBe(false);
+    expect(otherModalOpen(doc(true, []))).toBe(true); // a lesson dialog marked on the HUD
+    expect(otherModalOpen(doc(false, [{ inMenu: false }]))).toBe(true); // review dialog, first-visit or seat card
+    expect(otherModalOpen(doc(false, [{ inMenu: true }]))).toBe(false); // the menu itself and its repair review
+    expect(otherModalOpen(null)).toBe(false);
   });
   it('a bag view type stays assignable from the parser (contract with GET /v1/items)', () => {
     const v: ItemsView = parseItems(raw);

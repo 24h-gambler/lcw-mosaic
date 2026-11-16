@@ -1,14 +1,31 @@
 /**
  * Player-facing strings of the frame domain (docs/08 8.6 G03 G04 G06 G10 G11 G14; AGENTS 6 "문자열"), one table per
- * screen language. The screens show in the language being learned (frame/lang.ts uiLang); Korean is the assist the
- * player can turn on in settings ("Korean help", `ko()` in menu/ko-help.tsx).
+ * screen language. The screens show in the language being learned (`uiLang()` below, world/lang.ts learnLang); Korean
+ * is the assist the player can turn on (world/lang.ts helpKoOn; `ko()` in menu/ko-help.tsx).
  * Tone: short 해요체 / short warm English (A1-A2), never blaming (docs/08 10장). No prices, payment or deadlines on a
  * child screen (AGENTS 4.9). Never "게임" / "game" (docs/21-glossary.md).
  *
  * `FRAME_STRINGS` is one live object: `setFrameLang()` copies the chosen table into it, so every `F.x` read follows
  * the language without touching the call sites. Read it at render time, never into a module-level constant.
  */
-import { uiLang } from './lang.js';
+import { learnLang } from '../world/lang.js';
+
+/** UI_LANG_KEY: a device-only screen-language pin ('ko' shows the Korean tables; tests and demos). */
+const UI_LANG_KEY = 'lcw.uiLang';
+
+/**
+ * The frame's screen language: the language being learned (every learn language is a screen language; English today),
+ * unless this device pins the Korean screens with localStorage 'lcw.uiLang' = 'ko'.
+ */
+export function uiLang(): 'en' | 'ko' {
+  try {
+    const pin = typeof localStorage === 'undefined' ? null : localStorage.getItem(UI_LANG_KEY);
+    if (pin === 'ko' || pin === 'en') return pin;
+  } catch {
+    /* storage blocked: follow the learn language */
+  }
+  return learnLang();
+}
 
 export const FRAME_STRINGS_KO = {
   menu: '메뉴',
@@ -131,6 +148,7 @@ export const FRAME_STRINGS_KO = {
   repairLater: '아직 멀쩡해요',
   repairPick: '이걸 고칠래요',
   repairDone: '고쳤어요!',
+  repairInLesson: '수업 중이에요. 수리소는 수업이 끝나면 다시 열려요.',
   repairMastered: '이 물건은 이미 완전히 익혔어요. 다른 물건을 골라 봐요.',
   repairAgain: '다음에 다시 해 봐요',
   hintStep: (n: number): string => `힌트 ${n}단계`,
@@ -427,6 +445,7 @@ export const FRAME_STRINGS_EN: FrameStrings = {
   repairDone: 'Fixed it!',
   repairMastered: 'You know this one really well. Pick another thing.',
   repairAgain: "Let's try again next time",
+  repairInLesson: 'A lesson is on. The repair shop opens again after it.',
   hintStep: (n: number): string => `Hint ${n}`,
   // G14
   settingsTitle: 'Settings',

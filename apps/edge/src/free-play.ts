@@ -150,18 +150,38 @@ export function grantState(g: Pick<GrantRow, 'revoked_at' | 'started_at' | 'ends
   return now < g.redeem_until ? 'ready' : 'expired';
 }
 
+/** First instant of the KST month `ms` falls in. */
+export function kstMonthStart(ms: number): number {
+  const d = new Date(ms + KST);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) - KST;
+}
+
+/** Passes a friend first entered in the KST month of `now` (the month a pass is played in, not the month it was issued). */
+export function passesPlayedThisMonth(sql: SqliteExecutor, seatId: string, now: number): number {
+  return Number(
+    sql.get<{ n: number }>('select count(*) as n from guest_pass_grants where seat_id = ? and started_at >= ? and started_at < ?', [
+      seatId,
+      kstMonthStart(now),
+      nextKstMonthStart(now)
+    ])?.n ?? 0
+  );
+}
+
 /**
- * Passes that count against the seat's month: one somebody entered, and one still waiting to be used. A pass nobody
- * entered gives its slot back when it is revoked or when its 7 days to enter run out (no friend played on it, so it
- * cost nothing; counting it would leave the seat a month without passes for a code that was lost or forgotten).
+ * Passes that count against the seat's month (coordinator 11-16): the ones a friend first entered this KST month, plus
+ * the ones still waiting to be entered (issued any month, not revoked, 7 days not over). Issuing keeps that sum at 2 or
+ * less, and entering only moves a pass from waiting to played, so no calendar month gets more than 2 played passes even
+ * when a code issued on the 31st is used on the 1st. A pass nobody entered gives its slot back when it is revoked or when
+ * its 7 days to enter run out (nobody played on it; counting it would leave the seat a month short for a lost code).
  */
 export function passesUsedThisMonth(sql: SqliteExecutor, seatId: string, now: number): number {
-  return Number(
-    sql.get<{ n: number }>(
-      'select count(*) as n from guest_pass_grants where seat_id = ? and month = ? and (started_at is not null or (revoked_at is null and redeem_until > ?))',
-      [seatId, kstMonth(now), now]
-    )?.n ?? 0
+  const waiting = Number(
+    sql.get<{ n: number }>('select count(*) as n from guest_pass_grants where seat_id = ? and started_at is null and revoked_at is null and redeem_until > ?', [
+      seatId,
+      now
+    ])?.n ?? 0
   );
+  return passesPlayedThisMonth(sql, seatId, now) + waiting;
 }
 
 /**
@@ -213,13 +233,24 @@ export function mountGuestPassGuardianRoutes(
     started_at: row.started_at,
     ends_at: row.ends_at
   });
+  // When a slot opens again: a waiting code runs out of its 7 days, or the month turns (only if something was played
+  // this month; waiting codes keep their slot across the turn).
+  const nextSlotAt = (sid: string, now: number): number => {
+    const waiting = d.sql.get<{ t: number | null }>(
+      'select min(redeem_until) as t from guest_pass_grants where seat_id = ? and started_at is null and revoked_at is null and redeem_until > ?',
+      [sid, now]
+    )?.t;
+    const monthTurn = passesPlayedThisMonth(d.sql, sid, now) > 0 ? nextKstMonthStart(now) : Infinity;
+    const t = Math.min(waiting ?? Infinity, monthTurn);
+    return Number.isFinite(t) ? t : nextKstMonthStart(now);
+  };
   const summary = (sid: string, now: number) => {
     const used = passesUsedThisMonth(d.sql, sid, now);
     return {
       per_month: FREE_PLAY_LIMITS.guestPassesPerSeatPerMonth,
       minutes: FREE_PLAY_LIMITS.guestPassMinutes,
       left_this_month: Math.max(0, FREE_PLAY_LIMITS.guestPassesPerSeatPerMonth - used),
-      resets_at: nextKstMonthStart(now),
+      resets_at: nextSlotAt(sid, now),
       server_now: now
     };
   };
@@ -451,6 +482,10 @@ export function buildFreePlayApp(d: FreePlayDeps): Hono {
       if (!host) return { status: 404, body: { error: 'pass_not_found' } };
       const seat = seatState(host, now);
       if (seat !== 'active' && seat !== 'expiring') return { status: 410, body: { error: 'seat_inactive' } };
+      // Second line behind the issue check (rows issued under the older count, or a month that turned while codes waited):
+      // a new first entry never makes a third played pass in one KST month.
+      if (st === 'ready' && passesPlayedThisMonth(d.sql, g.seat_id, now) >= FREE_PLAY_LIMITS.guestPassesPerSeatPerMonth)
+        return { status: 409, body: { error: 'monthly_limit', resets_at: nextKstMonthStart(now) } };
       let started = g.started_at;
       let ends = g.ends_at;
       if (st === 'ready') {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GuestPassesView, actionNotice, canTakeBack, confirmText, passBoxFor, passLine, revokeDone, shownPasses, type PassNotice } from '../GuestPasses.js';
+import { GuestPassesView, actionNotice, canTakeBack, confirmText, passBoxFor, passLine, revokeDone, shownPasses, takeBack, type PassNotice } from '../GuestPasses.js';
 import { createFamilyApi, type GuestPass, type GuestPassSummary } from '../familyApi.js';
 import type { FetchLike } from '../lessonApi.js';
 import { PARENT_STRINGS_KO } from '../parentStrings.js';
@@ -62,21 +62,22 @@ describe('/family friend pass box (free-play.ts guest passes)', () => {
     expect(html).toContain(P.stateEnded);
     expect(html).not.toContain('data-testid="guest-pass-revoke-gp-3"');
     // the month is used up: the button is off and the date it comes back is said
-    expect(html).toContain('이번 달 초대권을 다 썼습니다');
+    expect(html).toContain(P.noneLeft('12월 1일'));
     expect(issueTag(html)).toContain('disabled');
+    // none left while an unused pass waits: say it can be taken back (no promise about the count)
+    expect(html).toContain('data-testid="guest-passes-ready-hint"');
+    expect(render([pass({ id: 'gp-3', state: 'ended' })], 0)).not.toContain('guest-passes-ready-hint');
   });
 
-  it('an unused pass that ran out of days this month still holds a slot (server count): listed with take back', () => {
+  it('an unused pass that ran out of days stays as a line with no button (#96: the server stops counting it)', () => {
     const expired = pass({ id: 'ex', state: 'expired', issued_at: NOW - 8 * DAY + 3_600_000, redeem_until: NOW - DAY + 3_600_000 });
-    // 11-08: still this KST month
-    expect(canTakeBack(expired, NOW)).toBe(true);
-    const html = render([expired], 0);
+    expect(canTakeBack(expired)).toBe(false);
+    const html = render([expired], 2);
     expect(html).toContain('data-testid="guest-pass-ex"');
-    expect(html).toContain(P.stateExpiredHolds);
-    expect(html).toContain('data-testid="guest-pass-revoke-ex"');
+    expect(html).toContain(P.stateExpired);
+    expect(html).not.toContain('data-testid="guest-pass-revoke-ex"');
     expect(html).not.toContain('data-testid="guest-pass-copy-ex"');
-    // last month's expired pass holds nothing this month: not listed
-    expect(shownPasses([pass({ id: 'old', state: 'expired', issued_at: LAST_MONTH, redeem_until: LAST_MONTH + 7 * DAY })], NOW)).toEqual([]);
+    expect(html).not.toContain('pass?code=');
   });
 
   it('a pass stopped mid-play (server: revoked with started_at) stays as a line; one taken back unused is not listed', () => {
@@ -87,27 +88,63 @@ describe('/family friend pass box (free-play.ts guest passes)', () => {
     expect(html).toContain(P.stateStopped);
     expect(html).not.toContain('data-testid="guest-pass-revoke-st"');
     expect(html).not.toContain('guest-pass-bk');
-    for (const st of ['ready', 'active', 'ended', 'expired', 'revoked'] as const) expect(passLine(pass({ state: st, ends_at: NOW }), NOW)).toBeTruthy();
-    expect(passLine(stopped, NOW)).toBe(P.stateStopped);
-    expect(passLine(back, NOW)).toBe(P.stateRevoked);
+    for (const st of ['ready', 'active', 'ended', 'expired', 'revoked'] as const) expect(passLine(pass({ state: st, ends_at: NOW }))).toBeTruthy();
+    expect(passLine(stopped)).toBe(P.stateStopped);
+    expect(passLine(back)).toBe(P.stateRevoked);
   });
 
-  it('the confirm and done words come from the fresh pass and the server answer, not the screen copy', () => {
-    expect(confirmText(pass(), NOW)).toBe(P.confirmRevoke);
-    expect(confirmText(pass({ state: 'active', started_at: NOW - 1000, ends_at: NOW + 1000 }), NOW)).toBe(P.confirmStop);
-    // a ready pass from last month gives no slot of this month back
-    expect(confirmText(pass({ issued_at: LAST_MONTH, redeem_until: NOW + DAY }), NOW)).toBe(P.confirmRevokePlain);
+  it('the confirm and done words come from the fresh pass and the server count, not a month rule of the screen', () => {
+    expect(confirmText(pass())).toBe(P.confirmRevoke);
+    expect(confirmText(pass({ state: 'active', started_at: NOW - 1000, ends_at: NOW + 1000 }))).toBe(P.confirmStop);
     // the friend entered in between: the server stopped a running pass
-    expect(revokeDone(pass({ state: 'revoked', started_at: NOW - 1000, ends_at: NOW }), NOW)).toBe(P.stopped);
-    expect(revokeDone(pass({ state: 'revoked' }), NOW)).toBe(P.revoked);
-    expect(revokeDone(pass({ state: 'revoked', issued_at: LAST_MONTH }), NOW)).toBe(P.revokedPlain);
+    expect(revokeDone(pass({ state: 'revoked', started_at: NOW - 1000, ends_at: NOW }), 0, 0)).toBe(P.stopped);
+    // a slot came back only when the server's count went up (whatever the server's month rule is)
+    expect(revokeDone(pass({ state: 'revoked' }), 0, 1)).toBe(P.revoked);
+    expect(revokeDone(pass({ state: 'revoked', issued_at: LAST_MONTH }), 1, 1)).toBe(P.revokedPlain);
+  });
+
+  it('take back: reads the pass again, asks, and words the result from the server count (wiring of the flow)', () => {
+    const fake = (fresh: GuestPass | undefined, leftBefore: number, after: GuestPass, leftAfter: number) => {
+      const calls: string[] = [];
+      return {
+        calls,
+        api: {
+          guestPasses: async () => (calls.push('list'), { passes: fresh ? [fresh] : [], ...sum(leftBefore) }),
+          revokeGuestPass: async (_g: string, id: string) => (calls.push(`revoke ${id}`), { pass: after, ...sum(leftAfter) })
+        }
+      };
+    };
+    return (async () => {
+      // unused, the count went up: a slot came back
+      let f = fake(pass(), 0, pass({ state: 'revoked' }), 1);
+      const asked: string[] = [];
+      expect(await takeBack(f.api, 'g', 's', 'gp-1', (q) => (asked.push(q), true))).toEqual({ kind: 'ok', text: P.revoked });
+      expect(asked).toEqual([P.confirmRevoke]);
+      expect(f.calls).toEqual(['list', 'revoke gp-1']);
+      // the count did not move (e.g. a pass of another month): no slot promised
+      f = fake(pass(), 1, pass({ state: 'revoked' }), 1);
+      expect(await takeBack(f.api, 'g', 's', 'gp-1', () => true)).toEqual({ kind: 'ok', text: P.revokedPlain });
+      // a friend entered since the screen loaded: the question is about stopping, the answer says stopped
+      const running = pass({ state: 'active', started_at: NOW - 1000, ends_at: NOW + 1_000_000 });
+      f = fake(running, 1, { ...running, state: 'revoked', ends_at: NOW }, 1);
+      const q2: string[] = [];
+      expect(await takeBack(f.api, 'g', 's', 'gp-1', (q) => (q2.push(q), true))).toEqual({ kind: 'ok', text: P.stopped });
+      expect(q2).toEqual([P.confirmStop]);
+      // cancelled: nothing sent, the last notice stays
+      f = fake(pass(), 0, pass({ state: 'revoked' }), 1);
+      expect(await takeBack(f.api, 'g', 's', 'gp-1', () => false)).toBeUndefined();
+      expect(f.calls).toEqual(['list']);
+      // gone or no longer takeable: say it changed, ask nothing
+      f = fake(pass({ state: 'ended', started_at: NOW - DAY }), 0, pass(), 0);
+      expect(await takeBack(f.api, 'g', 's', 'gp-1', () => { throw new Error('asked'); })).toEqual({ kind: 'info', text: P.changed });
+      expect(f.calls).toEqual(['list']);
+    })();
   });
 
   it('the third pass of the month (409 monthly_limit) and the other refusals each have their own words', () => {
     const msg = actionNotice('monthly_limit', sum(0));
     expect(msg).toBe(P.limit(2, '12월 1일'));
     expect(msg).toContain('2장');
-    expect(msg).toContain('회수');
     expect(actionNotice('seat_inactive', sum(0))).toBe(P.seatInactive);
     expect(actionNotice('service_consent_required', sum(0))).toBe(P.needConsent);
     expect(actionNotice('pass_not_found', sum(0))).toBe(P.gone);

@@ -31,23 +31,24 @@ async function linkedChild(p: PlatformDO, pid = 'kid-1') {
 const choice = { name: '지우의 마을', season: 'winter', time: 'sunset', buddy: 'bunny' };
 
 describe('my world (G07, Dan 11-16 R2555)', () => {
-  it('is public only as the two token-checked routes', () => {
+  it('is public only as the token-checked routes', () => {
     expect(isPublicRoute('GET', '/v1/my-world')).toBe(true);
     expect(isPublicRoute('POST', '/v1/my-world')).toBe(true);
+    expect(isPublicRoute('POST', '/v1/my-world/lang')).toBe(true);
     expect(isPublicRoute('DELETE', '/v1/my-world')).toBe(false);
   });
 
   it('a linked child makes it once: the server picks the seed, every device then opens the same world', async () => {
     const p = platform();
     const dev = await linkedChild(p);
-    expect((await call(p, 'GET', '/v1/my-world', undefined, dev)).body).toEqual({ made: false });
+    expect((await call(p, 'GET', '/v1/my-world', undefined, dev)).body).toEqual({ made: false, learn_lang: null });
     const made = await call(p, 'POST', '/v1/my-world', { ...choice, seed: 'ffffffff' }, dev);
     expect(made.status).toBe(201);
     expect(made.body.world).toMatchObject({ name: '지우의 마을', season: 'winter', time: 'sunset', buddy: 'bunny' });
     expect(made.body.world.seed).toMatch(/^[0-9a-f]{16}$/);
     expect(made.body.world.seed).not.toBe('ffffffff');
     const again = await call(p, 'GET', '/v1/my-world', undefined, dev);
-    expect(again.body).toEqual({ made: true, world: made.body.world });
+    expect(again.body).toEqual({ made: true, world: made.body.world, learn_lang: null });
     const twice = await call(p, 'POST', '/v1/my-world', { ...choice, name: '다른 이름' }, dev);
     expect(twice.status).toBe(409);
     expect(twice.body.world.name).toBe('지우의 마을');
@@ -66,6 +67,24 @@ describe('my world (G07, Dan 11-16 R2555)', () => {
     }
     expect((await call(p, 'POST', '/v1/my-world', { ...choice, pad: 'x'.repeat(4000) }, a)).status).toBe(413);
     expect((await call(p, 'POST', '/v1/my-world', choice, a)).status).toBe(201);
-    expect((await call(p, 'GET', '/v1/my-world', undefined, b)).body).toEqual({ made: false });
+    expect((await call(p, 'GET', '/v1/my-world', undefined, b)).body).toEqual({ made: false, learn_lang: null });
+  });
+
+  it('keeps the language the child learns with the child: open languages only, every device reads it', async () => {
+    const p = platform();
+    expect((await call(p, 'POST', '/v1/my-world/lang', { learn_lang: 'en' }, anon)).status).toBe(401);
+    const dev = await linkedChild(p, 'kid-l');
+    for (const bad of [{ learn_lang: 'ja' }, { learn_lang: 'klingon' }, {}, null]) {
+      const r = await call(p, 'POST', '/v1/my-world/lang', bad, dev);
+      expect(r.status).toBe(400);
+      expect(r.body.error).toBe('invalid_learn_lang');
+    }
+    expect((await call(p, 'POST', '/v1/my-world/lang', { learn_lang: 'en', pad: 'x'.repeat(400) }, dev)).status).toBe(413);
+    const ok = await call(p, 'POST', '/v1/my-world/lang', { learn_lang: 'en' }, dev);
+    expect(ok).toEqual({ status: 200, body: { learn_lang: 'en' } });
+    expect((await call(p, 'POST', '/v1/my-world/lang', { learn_lang: 'en' }, dev)).status).toBe(200);
+    expect((await call(p, 'GET', '/v1/my-world', undefined, dev)).body).toEqual({ made: false, learn_lang: 'en' });
+    const other = await linkedChild(p, 'kid-m');
+    expect((await call(p, 'GET', '/v1/my-world', undefined, other)).body.learn_lang).toBeNull();
   });
 });

@@ -57,6 +57,18 @@ export interface TeacherPresence {
 
 export const JOIN_CODE_TTL_MS = 12 * 3_600_000;
 export const STUDENT_TOKEN_TTL_MS = 12 * 3_600_000;
+/**
+ * Signed-in devices of a student (family.ts `devices`, student-account.ts): those see the teacher's lesson by
+ * themselves (GET /v1/device/lesson), so the console puts the 6-digit code behind '다른 기기로 들어오기'.
+ * The window equals family.ts DEVICE_TOKEN_TTL_MS (a test keeps them equal; no import, family.ts pulls lesson code).
+ */
+export const LINKED_DEVICE_TTL_MS = 365 * 86_400_000;
+const LINKED_DEVICES_SQL = '(select count(*) from devices dv where dv.player_id = p.id and dv.revoked_at is null and dv.created_at > ?)';
+/**
+ * Last poll of the student's signed-in world (student-account.ts GET /v1/device/lesson, written at most every 10 s):
+ * the console draws '접속 중' when now - world_seen_at < 20 s, else '접속 대기'. Null: never signed in on a device.
+ */
+const WORLD_SEEN_SQL = (playerCol: string) => `(select w.seen_at from student_world_seen w where w.player_id = ${playerCol})`;
 /** Wrong codes one device (client IP) may try per hour; a typo-prone child never locks out other lessons. */
 export const JOIN_FAILS_PER_HOUR = 10;
 /** Wrong codes all devices together may try per hour (6-digit codes live 12 h: guessing stays far below 1%). */
@@ -540,9 +552,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const rows = d.sql.all<Record<string, unknown>>(
       `select p.id as player_id, p.nickname, p.level, p.birth_year, p.family_id,
               (select max(started_at) from lessons l where l.player_id = p.id) as last_lesson_at,
-              (select count(*) from utterances u where u.player_id = p.id and u.created_at >= ?) as utterances_7d
+              (select count(*) from utterances u where u.player_id = p.id and u.created_at >= ?) as utterances_7d,
+              ${LINKED_DEVICES_SQL} as linked_devices,
+              ${WORLD_SEEN_SQL('p.id')} as world_seen_at
        from players p where p.id not like 'smoke-%' and p.id <> 'player-demo' order by p.nickname`,
-      [since]
+      [since, d.nowMs() - LINKED_DEVICE_TTL_MS]
     );
     return c.json(rows);
   });
@@ -576,7 +590,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     setPossessed(lessonId, null);
     // A console that beats says so at start: the start is the first beat (an old console never does: see above).
     if (p.data.presence) beat(lessonId, now, 'open', c.req.header('x-lcw-op-session') ?? null);
-    return c.json({ lesson_id: lessonId, join_code: code, expires_at: now + JOIN_CODE_TTL_MS, plan }, 201);
+    const linked = d.sql.get<{ n: number }>(`select ${LINKED_DEVICES_SQL} as n from players p where p.id = ?`, [now - LINKED_DEVICE_TTL_MS, p.data.player_id])?.n;
+    return c.json({ lesson_id: lessonId, join_code: code, expires_at: now + JOIN_CODE_TTL_MS, plan, linked_devices: Number(linked ?? 0) }, 201);
   });
 
   /*
@@ -736,8 +751,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const now = d.nowMs();
     // `include_test=1` (operator smoke checks in production): smoke-/demo students too. Default leaves them out.
     const withTest = c.req.query('include_test') === '1';
-    const rows = d.sql.all<{ lesson_id: string; player_id: string; nickname: string | null; plan: string | null; started_at: number }>(
-      `select l.id as lesson_id, l.player_id, p.nickname, l.plan, l.started_at
+    const rows = d.sql.all<{ lesson_id: string; player_id: string; nickname: string | null; plan: string | null; started_at: number; world_seen_at: number | null }>(
+      `select l.id as lesson_id, l.player_id, p.nickname, l.plan, l.started_at, ${WORLD_SEEN_SQL('l.player_id')} as world_seen_at
        from lessons l left join players p on p.id = l.player_id
        where l.ended_at is null and l.started_at >= ?${withTest ? '' : ` and l.player_id not like 'smoke-%' and l.player_id <> 'player-demo'`}
        order by l.started_at desc limit 20`,
@@ -771,7 +786,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
           started_at: r.started_at,
           stage_id: st?.stage_id ?? last?.stage_id ?? null,
           stage_started_at: last?.at ?? r.started_at,
-          stage_ms: stageMs
+          stage_ms: stageMs,
+          world_seen_at: r.world_seen_at ?? null
         }
       ];
     });

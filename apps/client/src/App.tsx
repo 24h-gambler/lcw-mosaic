@@ -18,6 +18,8 @@ import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@l
 import { DEFAULT_WORLD_CHOICE, type WorldSetupChoice } from '@lcw/content';
 import { codeFromSearch, loadStudentSession, saveStudentSession } from './lesson/api.js';
 import { LessonAutoJoin, StartFlow } from './start/StartFlow.js';
+import { GuestPassLayer } from './start/PassLayer.js';
+import { passFromSearch } from './start/guestPass.js';
 import type { DeviceLessonSession } from './start/api.js';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
@@ -353,7 +355,8 @@ function DialogHost(props: {
  * lesson (?code=, never blocked), this tab already holds a lesson session, or a test link names a scene (?scene=).
  */
 export function startFlowFor(search: string, hasLessonSession: boolean): boolean {
-  if (codeFromSearch(search) || hasLessonSession) return false;
+  // a guest pass link (/world/?pass=) goes straight into the friend's world (docs/19 §8)
+  if (codeFromSearch(search) || hasLessonSession || passFromSearch(search) !== null) return false;
   return !/[?&]scene=/.test(search);
 }
 
@@ -383,6 +386,8 @@ export function App(): React.ReactElement {
   const [myLook, setMyLook] = useState<WorldSetupChoice | null>(null);
   // '수업 들어가기' saved a student session: a new key mounts the lesson layer again, which reads it at mount.
   const [lessonKey, setLessonKey] = useState(0);
+  // A guest pass link (docs/19 §8): the friend's world for 30 minutes on the server clock.
+  const passCode = useMemo(() => passFromSearch(location.search), []);
   const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
@@ -629,6 +634,7 @@ export function App(): React.ReactElement {
               }}
             />
           ) : null}
+          {passCode !== null && !codeFromSearch(location.search) ? <GuestPassLayer code={passCode} world={world} /> : null}
           {startOpen ? (
             <StartFlow
               world={world}

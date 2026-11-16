@@ -39,6 +39,7 @@ export type FeatureState = 'live' | 'building' | 'planned';
  * - showroom: /s/<id> share page, preview checked by tools/smoke-live.mjs
  * - residents: the room check names who could move in, nobody moves in yet (build-hud.ts showRoom)
  * - friends_pass: /pass hands over ?pass=, the world client does not read it yet (handed to the world lane)
+ * - destruction: packages/destruction has the kernel, no scene is wired to it yet
  * Everything else has no scene or system in production.
  */
 export const INTERIM_FEATURE_STATE: Readonly<Record<FeatureId, FeatureState>> = {
@@ -103,4 +104,9 @@ export function allLive(ids: readonly FeatureId[], states: Readonly<Record<Featu
 /** The full claim once every feature it names is live; until then the line that is true today. */
 export function whenLive<T>(ids: readonly FeatureId[], full: T, now: T, states: Readonly<Record<FeatureId, FeatureState>> = FEATURE_STATE): T {
   return allLive(ids, states) ? full : now;
+}
+
+/** `whenLive` for a copyNow.ts entry: `{ needs, now }` next to the full claim from copy.ts. */
+export function liveOr<T>(entry: { readonly needs: readonly FeatureId[]; readonly now: T }, full: T): T {
+  return whenLive(entry.needs, full, entry.now);
 }

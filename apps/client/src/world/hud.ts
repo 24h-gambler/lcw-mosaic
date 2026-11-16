@@ -143,6 +143,10 @@ function css(): string {
 .lw-fps.on{display:block}
 @media (max-width:600px),(max-height:500px){.lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.15)}}
 @media (max-width:600px){.lw-hud.gz .lw-goal{top:calc(84px + 64px * (var(--lcw-hs,1) - 1))}.lw-chip .gz{gap:6px}.lw-chip .gz b{width:calc(26px * var(--lcw-hs,1))}}
+/* the lesson tag wraps under the status box on a phone (the chip leaves room for the stars): the goal card starts below it */
+@media (max-width:600px){.lw-hud:has(.lw-chip .l.on) .lw-goal{top:calc(114px + 90px * (var(--lcw-hs,1) - 1))}}
+/* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
+@media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}}
 @media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
 .lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,32px)}}
 @media (prefers-reduced-motion:reduce){.lw-chip .gz .low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}

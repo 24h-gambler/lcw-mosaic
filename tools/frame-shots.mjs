@@ -28,6 +28,20 @@ const VIEWPORTS = [
 ];
 
 const SETTINGS = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;
+
+// the title screen (world lane) and the first-visit / mic cards (dialog domain): step past them like a child would
+async function passTitle(page) {
+  const start = page.getByRole('button', { name: /^(시작하기|Start)/ });
+  if (await start.count()) {
+    await start.first().click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(2500);
+  }
+  for (const label of ['건너뛰기', '좋아요, 출발!']) {
+    const b = page.getByRole('button', { name: label });
+    if (await b.count()) await b.first().click({ timeout: 2000 }).catch(() => {});
+  }
+  await page.waitForTimeout(600);
+}
 const fails = [];
 const report = [];
 const check = (vp, ok, what) => {
@@ -94,6 +108,7 @@ for (const vp of VIEWPORTS) {
   await page.goto(base, { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
   await page.waitForTimeout(1200);
+  await passTitle(page);
 
   // 1. start: status line, coins, explained empty bar
   const a = await boxes(page);
@@ -197,6 +212,7 @@ for (const vp of VIEWPORTS) {
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
     await page.waitForTimeout(1500);
+    await passTitle(page);
     const lo = await page.evaluate(() => ({ slow: !!document.querySelector('.lw-chip .gz.slow'), low: !!document.querySelector('.lw-chip .gz .t.low'), cap: document.querySelector('.lw-cap')?.textContent ?? '' }));
     await page.screenshot({ path: `${out}/${vp.name}-5low.png` });
     check(vp.name, lo.slow && lo.low && /목이 말라서/.test(lo.cap), `low thirst: slow ${lo.slow}, low ${lo.low}, said "${lo.cap}"`);

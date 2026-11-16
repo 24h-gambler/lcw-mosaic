@@ -22,7 +22,7 @@ import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandl
 import { STUDENT_PUBLIC_ROUTES, buildStudentAccountApp } from './student-account.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
-import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp, guestPassFromRequest } from './free-play.js';
+import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp, guestPassFromRequest, sweepEndedGuestCells } from './free-play.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp } from './my-world.js';
 import { injectReportShareMeta } from './report-page.js';
@@ -35,7 +35,8 @@ import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
 import { handleServerStt } from './stt.js';
-import { handleTts, parseTryVoice, prebuildFixedLines, synthesize, ttsStatus, type TtsDeps } from './tts.js';
+import { isTestPlayerId } from './nickname.js';
+import { handleTts, parseTryVoice, prebuildFixedLines, runTtsCron, synthesize, ttsStatus, type TtsDeps } from './tts.js';
 import { normalizeTtsText } from '@lcw/content';
 import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaHealth, readQuotaSettings, rollupQuota } from './quota.js';
 import {
@@ -484,6 +485,17 @@ export class PlatformDO {
     }
   }
 
+  /** One ended pass's friend-cell marks out of the host child's home world (none if that plot never had a guest). */
+  private dropGuestCells(playerId: string, grantId: string): number {
+    const prefix = worldPrefix(homeWorldId(playerId));
+    const has = this.sql.get<{ n: number }>("select count(*) as n from sqlite_master where type = 'table' and name = ?", [`${prefix}_plot_guest_cells`]);
+    if (!has || Number(has.n) === 0) return 0;
+    const w = prefixedExecutor(this.sql, prefix);
+    const n = Number(w.get<{ n: number }>('select count(*) as n from plot_guest_cells where grant_id = ?', [grantId])?.n ?? 0);
+    if (n > 0) w.run('delete from plot_guest_cells where grant_id = ?', [grantId]);
+    return n;
+  }
+
   runCron(cron: string): { task: string; ok: boolean; detail: unknown } {
     const now = Date.now();
     let task = 'hourly_quota_rollup';
@@ -497,7 +509,18 @@ export class PlatformDO {
            where (audio_first is not null or audio_final is not null)
              and player_id not in (select player_id from consents where scope = 'voice_store' and granted_at is not null and revoked_at is null)`
         );
-        detail = { purged_audio_without_consent: true };
+        // docs/19 §8: a pass that is over drops its friend-cell marks (the blocks stay, as the host's). Its own try: a
+        // failure here never hides the audio purge above.
+        let guestCells: unknown;
+        try {
+          guestCells = sweepEndedGuestCells(this.sql, now, (playerId, grantId) => this.dropGuestCells(playerId, grantId));
+        } catch (err) {
+          guestCells = { error: err instanceof Error ? err.message : String(err) };
+        }
+        // a failure shows on the ops runs as its own failed line (the retention task itself still ran)
+        const gc = guestCells as { error?: string; failed?: number };
+        if (gc.error || (gc.failed ?? 0) > 0) this.recordRun('daily_guest_cells', false, guestCells);
+        detail = { purged_audio_without_consent: true, guest_cells: guestCells };
       } else if (cron === '0 6 * * 1') {
         task = 'weekly_parent_reports';
         const players = this.sql.all<{ player_id: string }>(
@@ -611,7 +634,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const r = platform.runCron(body.cron);
     const voice = await platform.runVoiceCron(body.cron, Date.now());
     const push = await platform.runPushCron(body.cron, Date.now());
-    return c.json({ ...r, voice, push });
+    // the hourly cron: the morning lesson/NPC prebuild and the nightly leftovers (tts.ts runTtsCron)
+    const tts = body.cron === '0 * * * *' ? await runTtsCron(ttsDeps(), Date.now()).catch((e: unknown) => ({ task: 'tts_error', error: String(e).slice(0, 160) })) : null;
+    return c.json({ ...r, voice, push, tts });
   });
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
   // or outside a lesson with their linked device token. Who, which world and which level come from the token and
@@ -799,7 +824,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const student = operator ? null : await platform.studentFromRequest(c.req.raw);
     const device = operator || student ? null : await platform.deviceFromRequest(c.req.raw);
     const playerId = student?.player_id ?? device?.player_id ?? null;
-    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student) }, ttsDeps());
+    // smoke-check and demo students hear cached lines only (they never spend the day's neurons)
+    const cachedOnly = !!playerId && isTestPlayerId(playerId);
+    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student), cachedOnly }, ttsDeps());
   });
   // Operator measurement: one uncached synthesis with its time (engine/voice choice, docs/04 4.8).
   app.post('/v1/admin/tts/try', async (c) => {

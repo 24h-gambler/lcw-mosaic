@@ -83,3 +83,24 @@ export const COLLECTION_BOOKS: Readonly<Record<CollectionBookId, readonly Collec
   outfits: OUTFIT_REGISTRY,
   expressions: buildExpressionBook()
 };
+
+/**
+ * Achievements counted from server records only (docs/03 D13 성취: blocks placed 100 / 1,000 / 10,000; the first
+ * order; docs/03 D13 resident unlock "음식 20회 주문"; docs/03 D12 마스터 도안). `metric` names the server count.
+ */
+export type AchievementMetric = 'blocks_placed' | 'orders' | 'food_orders' | 'mastered';
+export interface AchievementDef {
+  id: string;
+  nameKo: string;
+  metric: AchievementMetric;
+  goal: number;
+}
+export const ACHIEVEMENT_REGISTRY: readonly AchievementDef[] = [
+  { id: 'first_order', nameKo: '첫 주문', metric: 'orders', goal: 1 },
+  { id: 'food_orders_20', nameKo: '단골손님 (음식 20번 주문)', metric: 'food_orders', goal: 20 },
+  { id: 'blocks_100', nameKo: '블록 100개 설치', metric: 'blocks_placed', goal: 100 },
+  { id: 'blocks_1000', nameKo: '블록 1,000개 설치', metric: 'blocks_placed', goal: 1_000 },
+  { id: 'blocks_10000', nameKo: '블록 10,000개 설치', metric: 'blocks_placed', goal: 10_000 },
+  { id: 'mastered_1', nameKo: '첫 마스터 도안', metric: 'mastered', goal: 1 },
+  { id: 'mastered_10', nameKo: '마스터 도안 10개', metric: 'mastered', goal: 10 }
+];

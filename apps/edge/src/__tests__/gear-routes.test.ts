@@ -117,7 +117,8 @@ describe('items, repair, collection, settings (docs/09 P4, docs/19)', () => {
       expect({ path, m, status: (await call(p, m, path, body, anon)).status }).toEqual({ path, m, status: 401 });
     }
     const item = ((await call(p, 'GET', '/v1/items', undefined, a.dev)).body.items as Item[])[0]!;
-    await call(p, 'POST', `/v1/admin/seats/${a.seatId}/refund`, {});
+    // The seat was used (first play), so it is stopped, not refunded: solo play pauses, the 30 read-only days start.
+    expect((await call(p, 'POST', `/v1/admin/seats/${a.seatId}/stop`, {})).status).toBe(200);
     expect(await call(p, 'POST', '/v1/items/equip', { item_id: item.item_id, to: 'chest' }, a.dev)).toMatchObject({ status: 403, body: { error: 'seat_inactive' } });
     expect((await call(p, 'POST', '/v1/items/use', { item_key: item.item_key }, a.dev)).status).toBe(403);
     expect((await call(p, 'POST', '/v1/review/repair/pick', { item_id: item.item_id }, a.dev)).status).toBe(403);
@@ -177,6 +178,16 @@ describe('items, repair, collection, settings (docs/09 P4, docs/19)', () => {
     const a = await child(p, 'kid-a', 'fam-a');
     await buy(p, a.dev, 0);
     await buy(p, a.dev, 1);
+    const placed = await call(
+      p,
+      'POST',
+      '/v1/plot/ops',
+      { ops: [{ op: 'place', x: 126, y: 1, z: 170, slot: 0 }, { op: 'place', x: 126, y: 2, z: 170, slot: 1 }, { op: 'place', x: 140, y: 1, z: 140, slot: 0 }] },
+      a.dev
+    );
+    expect(placed.status).toBe(200);
+    const okPlaces = (placed.body.results as Array<{ ok: boolean }>).filter((x) => x.ok).length;
+    expect(okPlaces).toBeGreaterThan(0);
     const r = await call(p, 'GET', '/v1/collection', undefined, a.dev);
     expect(r.status).toBe(200);
     const books = r.body.books as Array<{ id: string; total: number; found: number; entries: Array<{ key: string; name_ko: string; found: boolean }> }>;
@@ -188,10 +199,21 @@ describe('items, repair, collection, settings (docs/09 P4, docs/19)', () => {
     expect(by.food!.found).toBeGreaterThanOrEqual(1);
     expect(by.expressions!.found).toBeGreaterThanOrEqual(1);
     for (const b of books) expect(b.found).toBe(b.entries.filter((e) => e.found).length);
+    expect(by.blocks!.found).toBeGreaterThan(0);
+    // achievements: counted from the ledger, plot journal and memory cards only
+    const ach = Object.fromEntries((r.body.achievements as Array<{ id: string; name_ko: string; done: boolean; progress: number; goal: number }>).map((x) => [x.id, x]));
+    expect(ach.first_order).toMatchObject({ done: true, progress: 1, goal: 1, name_ko: expect.any(String) });
+    expect(ach.food_orders_20).toMatchObject({ done: false, progress: 2, goal: 20 });
+    expect(ach.blocks_100).toMatchObject({ done: false, progress: okPlaces, goal: 100 });
+    expect(ach.blocks_10000).toMatchObject({ done: false, progress: okPlaces, goal: 10_000 });
+    expect(ach.mastered_1).toMatchObject({ done: false, progress: 0, goal: 1 });
     // the other child found nothing
     const other = await child(p, 'kid-b', 'fam-b');
     const empty = (await call(p, 'GET', '/v1/collection', undefined, other.dev)).body.books as Array<{ found: number }>;
     expect(empty.map((b) => b.found)).toEqual([0, 0, 0, 0, 0, 0]);
+    const emptyAch = (await call(p, 'GET', '/v1/collection', undefined, other.dev)).body.achievements as Array<{ done: boolean; progress: number }>;
+    expect(emptyAch.length).toBeGreaterThan(0);
+    expect(emptyAch.every((x) => !x.done && x.progress === 0)).toBe(true);
   });
 
   it('settings: saved per child and read back on another device; shape checked; another child reads only their own', async () => {

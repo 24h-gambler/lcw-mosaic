@@ -26,13 +26,20 @@ export function familyHasGuardian(sql: SqliteExecutor, familyId: string): boolea
 
 export type NameOwner = { kind: 'free' } | { kind: 'taken' } | { kind: 'teacher_row'; player_id: string | null };
 
+export interface NameIndex {
+  /** Who has this name now; `exceptSignup`: the sign-up being approved or listed does not block itself. */
+  owner(nickname: string, exceptSignup?: string): NameOwner;
+}
+
 /**
- * Who already has this name: a waiting sign-up or a student with a real guardian → taken; only a teacher-made row
- * (no guardian yet, like Oreo before the sign-up) → that row; two teacher-made rows with the name → `player_id: null`
- * (the teacher picks; never a guess). `exceptSignup`: the sign-up being approved or listed does not block itself.
+ * Who already has a name: a waiting sign-up or a student with a real guardian → taken; only a teacher-made row (no
+ * guardian yet, like Oreo before the sign-up) → that row; two teacher-made rows with the name → `player_id: null`
+ * (the teacher picks; never a guess).
+ *
+ * Reads the waiting sign-ups and the students once and groups them by name, so a console listing (every 8 s) or a
+ * run of name ideas costs two reads, not two per row. Guardian checks are made once per family, on demand.
  */
-export function nameOwner(sql: SqliteExecutor, nickname: string, opts: { exceptSignup?: string } = {}): NameOwner {
-  const key = nicknameKey(nickname);
+export function nameIndex(sql: SqliteExecutor): NameIndex {
   let waiting: Array<{ id: string; nickname: string }> = [];
   try {
     waiting = sql.all<{ id: string; nickname: string }>("select id, nickname from student_signups where state = 'pending' and nickname != ''", []);
@@ -40,25 +47,49 @@ export function nameOwner(sql: SqliteExecutor, nickname: string, opts: { exceptS
     // Only a build without the sign-up table means 'nothing waiting'; any other database error is real.
     if (!/no such table/i.test(String(e))) throw e;
   }
-  if (waiting.some((s) => s.id !== opts.exceptSignup && nicknameKey(s.nickname) === key)) return { kind: 'taken' };
-  const same = sql
-    .all<{ id: string; family_id: string; nickname: string }>(
-      "select id, family_id, nickname from players where kind = 'child' and id not like 'smoke-%' and id <> 'player-demo'",
-      []
-    )
-    .filter((k) => nicknameKey(k.nickname) === key);
-  if (!same.length) return { kind: 'free' };
-  if (same.some((k) => familyHasGuardian(sql, k.family_id))) return { kind: 'taken' };
-  return { kind: 'teacher_row', player_id: same.length === 1 ? same[0]!.id : null };
+  const waitingByKey = new Map<string, string[]>();
+  for (const s of waiting) {
+    const k = nicknameKey(s.nickname);
+    waitingByKey.set(k, [...(waitingByKey.get(k) ?? []), s.id]);
+  }
+  const playersByKey = new Map<string, Array<{ id: string; family_id: string }>>();
+  for (const p of sql.all<{ id: string; family_id: string; nickname: string }>(
+    "select id, family_id, nickname from players where kind = 'child' and id not like 'smoke-%' and id <> 'player-demo'",
+    []
+  )) {
+    const k = nicknameKey(p.nickname);
+    playersByKey.set(k, [...(playersByKey.get(k) ?? []), { id: p.id, family_id: p.family_id }]);
+  }
+  const guarded = new Map<string, boolean>();
+  const hasGuardian = (familyId: string) => {
+    if (!guarded.has(familyId)) guarded.set(familyId, familyHasGuardian(sql, familyId));
+    return guarded.get(familyId)!;
+  };
+  return {
+    owner(nickname, exceptSignup) {
+      const key = nicknameKey(nickname);
+      if ((waitingByKey.get(key) ?? []).some((id) => id !== exceptSignup)) return { kind: 'taken' };
+      const same = playersByKey.get(key) ?? [];
+      if (!same.length) return { kind: 'free' };
+      if (same.some((k) => hasGuardian(k.family_id))) return { kind: 'taken' };
+      return { kind: 'teacher_row', player_id: same.length === 1 ? same[0]!.id : null };
+    }
+  };
+}
+
+/** One-off lookup (a sign-up, an approval): see nameIndex. */
+export function nameOwner(sql: SqliteExecutor, nickname: string, opts: { exceptSignup?: string } = {}): NameOwner {
+  return nameIndex(sql).owner(nickname, opts.exceptSignup);
 }
 
 /** Up to three free names close to the one asked for ('Oreo' → 'Oreo2', 'Oreo3', …), within `max` letters. */
 export function nameIdeas(sql: SqliteExecutor, nickname: string, max = 16): string[] {
+  const index = nameIndex(sql);
   const out: string[] = [];
   const base = nickname.trim();
   for (let n = 2; n < 100 && out.length < 3; n++) {
     const idea = `${base.slice(0, max - String(n).length)}${n}`;
-    if (nameOwner(sql, idea).kind === 'free') out.push(idea);
+    if (index.owner(idea).kind === 'free') out.push(idea);
   }
   return out;
 }

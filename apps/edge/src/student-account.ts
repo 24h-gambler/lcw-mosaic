@@ -4,7 +4,7 @@ import { filterSpeechBubble } from '@lcw/converse';
 import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
 import { DEVICE_CODE_TTL_MS, DEVICE_TOKEN_TTL_MS, GUARDIAN_CONSENT_SCOPES } from './family.js';
 import { closeListeners, type RealtimeClient } from './lesson-audio.js';
-import { familyHasGuardian as sharedFamilyHasGuardian, nameIdeas as sharedNameIdeas, nameOwner as sharedNameOwner, isTestPlayerId, nicknameKey } from './nickname.js';
+import { familyHasGuardian as sharedFamilyHasGuardian, nameIdeas as sharedNameIdeas, nameIndex, nameOwner as sharedNameOwner, isTestPlayerId, nicknameKey } from './nickname.js';
 import { drainVoicePurge, type VoiceBlobStore } from './voice.js';
 import { JOIN_CODE_TTL_MS as LESSON_JOIN_WINDOW_MS, STUDENT_TOKEN_TTL_MS as LESSON_STUDENT_TOKEN_TTL_MS } from './lesson-mode.js';
 
@@ -278,19 +278,22 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
   app.get('/v1/admin/student-signups', (c) => {
     sweep(d.nowMs());
     const now = d.nowMs();
-    const rows = d.sql.all<{ id: string; nickname: string; created_at: number; expires_at: number; family_id: string; guardian_id: string; match_player_id: string | null }>(
-      "select id, nickname, created_at, expires_at, family_id, guardian_id, match_player_id from student_signups where state = 'pending' order by created_at"
+    const rows = d.sql.all<{ id: string; nickname: string; created_at: number; expires_at: number; family_id: string; guardian_id: string }>(
+      "select id, nickname, created_at, expires_at, family_id, guardian_id from student_signups where state = 'pending' order by created_at"
     );
     /**
-     * The teacher-made row this name matches now (counted again on every listing: a guardian may have taken the row, or
-     * the teacher made a second row with the name since the sign-up). Two or more → no pick, `ambiguous` says why.
+     * The teacher-made row this name matches now (worked out again on every listing from one read of the names: a
+     * guardian may have taken the row, or the teacher made a second row with the name since the sign-up).
+     * Two or more → no pick (`match_ambiguous`); a student with a guardian has the name now → `name_taken`.
      */
-    const matchOf = (signupId: string, nickname: string): { match: { player_id: string; nickname: string } | null; ambiguous: boolean } => {
-      const o = sharedNameOwner(d.sql, nickname, { exceptSignup: signupId });
-      if (o.kind !== 'teacher_row') return { match: null, ambiguous: false };
-      if (!o.player_id) return { match: null, ambiguous: true };
+    const names = nameIndex(d.sql);
+    const matchOf = (signupId: string, nickname: string) => {
+      const o = names.owner(nickname, signupId);
+      if (o.kind === 'taken') return { match: null, match_ambiguous: false, name_taken: true };
+      if (o.kind !== 'teacher_row') return { match: null, match_ambiguous: false, name_taken: false };
+      if (!o.player_id) return { match: null, match_ambiguous: true, name_taken: false };
       const k = d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [o.player_id]);
-      return { match: k ? { player_id: o.player_id, nickname: k.nickname } : null, ambiguous: false };
+      return { match: k ? { player_id: o.player_id, nickname: k.nickname } : null, match_ambiguous: false, name_taken: false };
     };
     // Who signed (provider, masked hint, age statement) so a stranger typing 'Oreo' is not linked by the name alone;
     // students already in the signing family (e.g. a sibling) with their signed-in devices.
@@ -301,7 +304,7 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
         created_at: r.created_at,
         expires_at: r.expires_at,
         signer: { ...signerOf(r.guardian_id), attest: attestOf(r.family_id) },
-        ...(({ match, ambiguous }) => ({ match, match_ambiguous: ambiguous }))(matchOf(r.id, r.nickname)),
+        ...matchOf(r.id, r.nickname),
         family_students: d.sql
           .all<{ id: string; nickname: string }>('select id, nickname from players where family_id = ? order by nickname', [r.family_id])
           .map((k) => ({ player_id: k.id, nickname: k.nickname, linked_devices: devicesOf(k.id, now) }))

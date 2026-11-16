@@ -141,6 +141,10 @@ export function SignupQueue(props: SignupQueueProps): React.ReactElement | null 
                   <p style={small} data-testid="signup-match-ambiguous">
                     {Q.ambiguous(s.nickname)}
                   </p>
+                ) : s.name_taken ? (
+                  <p style={small} data-testid="signup-name-taken">
+                    {Q.nameTakenNow(s.nickname)}
+                  </p>
                 ) : null}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'end' }}>

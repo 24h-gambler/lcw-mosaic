@@ -443,8 +443,19 @@ export function itemNameKo(key: string): string {
 
 /** A thing's name as a title (hotbar caption, slot): "Honey latte" (no article), the Korean after it with the help on. */
 export function itemTitle(key: string): string {
+  const t = itemTitleBi(key, true);
+  return joinHelp(t.en, t.ko ?? undefined);
+}
+
+/** The English title of a thing the world table knows ("Honey latte"), or null for a key it does not know. */
+export function itemTitleEnKnown(key: string): string | null {
+  return ITEM_NAMES_KO_EN[key] ? itemTitleBi(key, false).en : null;
+}
+
+/** The title as English plus the Korean (null while the help is off), for the caption's own two lines. */
+export function itemTitleBi(key: string, help = helpKoOn()): { en: string; ko: string | null } {
   const en = (ITEM_NAMES_KO_EN[key] ?? ITEM_NAMES_KO_EN.gift!).replace(/^(a|an) /, '');
-  return joinHelp(en.charAt(0).toUpperCase() + en.slice(1), ITEM_NAMES_KO_SRC[key] ?? ITEM_NAMES_KO_SRC.gift!);
+  return { en: en.charAt(0).toUpperCase() + en.slice(1), ko: help ? (ITEM_NAMES_KO_SRC[key] ?? ITEM_NAMES_KO_SRC.gift!) : null };
 }
 
 /** "You got honey tea!" (and "· 꿀차를 받았어요" with the help on): each side gets the item name in its own language. */
@@ -491,6 +502,13 @@ export const DEFAULT_KEY_HINTS: Readonly<KeyHintLabels> = Object.freeze({ move: 
 /** The desktop controls line with the player's keys, in the learn language (Korean after it with the help on). */
 export function controlsDesktopFor(k: Readonly<KeyHintLabels>): string {
   return joinHelp(`${k.move} move · Drag mouse to look · ${k.jump} jump · ${k.talk} talk`, `${k.move} 이동 · 마우스 끌기 시점 · ${k.jump} 점프 · ${k.talk} 말 걸기`);
+}
+/** The same line as English plus its Korean help line (null while the help is off), for the HUD's own two lines. */
+export function controlsDesktopBi(k: Readonly<KeyHintLabels>): { en: string; ko: string | null } {
+  return {
+    en: `${k.move} move · Drag mouse to look · ${k.jump} jump · ${k.talk} talk`,
+    ko: helpKoOn() ? `${k.move} 이동 · 마우스 끌기 시점 · ${k.jump} 점프 · ${k.talk} 말 걸기` : null
+  };
 }
 export function buildHelpDesktopFor(k: Readonly<KeyHintLabels>): string {
   return joinHelp(

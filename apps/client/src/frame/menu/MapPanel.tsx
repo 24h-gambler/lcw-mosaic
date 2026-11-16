@@ -301,7 +301,7 @@ export function MapPanel({ world, lessonOn, close }: MenuPanelProps): React.Reac
                   <Arrow u={here.u} v={here.v} yaw={info.player.yaw} s={ARROW_SCALE} />
                 </svg>
                 <span className="lcw-map__you" style={{ left: `${here.u}%`, top: `${here.v - ARROW_R}%` }} aria-hidden="true">
-                  {F.youAreHere}
+                  {E.youAreHere}
                 </span>
               </>
             ) : null}
@@ -384,7 +384,11 @@ export function MapPanel({ world, lessonOn, close }: MenuPanelProps): React.Reac
                       {placeEn(s.nameKo)}
                       <KoHelp text={placeKo(s.nameKo)} />
                     </span>
-                    <small aria-hidden="true">{s.id === scene ? F.mapHereScene : F.goThere}</small>
+                    {/* the short English on the button, its Korean as a line under it (a dot join wrapped mid-word) */}
+                    <small aria-hidden="true">
+                      {s.id === scene ? E.mapHereScene : E.goThere}
+                      <KoHelp of={s.id === scene ? E.mapHereScene : E.goThere} />
+                    </small>
                   </button>
                 </li>
               )
@@ -398,13 +402,14 @@ export function MapPanel({ world, lessonOn, close }: MenuPanelProps): React.Reac
             {stops.map((b) => (
               <li key={b.id} className={`lcw-map__stop is-${b.state}`} aria-current={b.state === 'here' ? 'location' : undefined}>
                 <span className="lcw-map__car" aria-hidden="true">
-                  {b.state === 'here' ? F.youAreHere : b.state === 'locked' ? '🔒' : '○'}
+                  {b.state === 'here' ? E.youAreHere : b.state === 'locked' ? '🔒' : '○'}
                 </span>
                 <span>
-                  <b>{b.nameKo}</b>
+                  <b>{placeEn(b.nameKo)}</b>
+                  <KoHelp text={placeKo(b.nameKo)} />
                   <small>{b.range}</small>
                 </span>
-                {b.state === 'here' ? <em>{F.bandHere}</em> : null}
+                {b.state === 'here' ? <em>{E.bandHere}</em> : null}
                 {b.state === 'locked' ? <span className="lcw-map__sr">{F.bandLocked}</span> : null}
               </li>
             ))}

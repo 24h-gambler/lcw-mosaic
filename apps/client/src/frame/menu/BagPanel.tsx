@@ -9,6 +9,7 @@ import { FRAME_STRINGS as F, FRAME_STRINGS_EN as E } from '../strings.js';
 import { SOCKET_NAMES, fetchItems, moveThing, type ItemsView, type ThingView } from '../api.js';
 import type { MenuPanelProps } from './types.js';
 import { KoHelp } from './ko-help.js';
+import { thingName } from './collection-names.js';
 
 /** Bag slots in order: the server's bag things, padded with empty slots up to the bag size. */
 export function bagSlots(v: ItemsView): Array<ThingView | null> {
@@ -36,12 +37,12 @@ function Badge({ t }: { t: ThingView }): React.ReactElement | null {
 function Thing(props: { t: ThingView | null; slot?: number; action?: React.ReactNode }): React.ReactElement {
   const { t, slot, action } = props;
   return (
-    <div className={`lcw-thing${t ? '' : ' empty'}`} aria-label={t ? t.item_name_ko : F.socketEmpty}>
+    <div className={`lcw-thing${t ? '' : ' empty'}`} aria-label={t ? thingName(t.item_key, t.item_name_ko) : F.socketEmpty}>
       {slot !== undefined ? <span className="n">{slot + 1}</span> : null}
       <span className="e" aria-hidden="true">
         {t ? t.emoji : ''}
       </span>
-      <span className="nm">{t ? t.item_name_ko : F.socketEmpty}</span>
+      <span className="nm">{t ? thingName(t.item_key, t.item_name_ko) : F.socketEmpty}</span>
       {t ? <Badge t={t} /> : null}
       {action}
     </div>

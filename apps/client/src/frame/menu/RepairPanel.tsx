@@ -6,6 +6,8 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { UI_STRINGS_KO } from '@lcw/content';
+import { helpKoOn } from '../../world/lang.js';
+import { thingName } from './collection-names.js';
 import { FRAME_STRINGS as F, FRAME_STRINGS_EN as E } from '../strings.js';
 import { fetchRepairGear, pickRepair, type RepairGearView } from '../api.js';
 import type { MenuPanelProps } from './types.js';
@@ -64,7 +66,7 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
     const r = await pickRepair(auth, it.item_id, fetchImpl);
     setBusy(false);
     if (r.ok) setOpen(r.data);
-    else if (r.error === 'not_due') setResult({ pass: false, text: R.notDue });
+    else if (r.error === 'not_due') setResult({ pass: false, text: F.repairLater });
     else if (r.error === 'mastered') setResult({ pass: false, text: F.repairMastered });
     else setResult({ pass: false, text: F.offline });
   };
@@ -77,7 +79,9 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
         playSfx('mem.fix');
         world?.celebrate(Math.max(0, Math.min(3, Math.round(r.stars))) as 0 | 1 | 2 | 3);
       }
-      setResult({ pass: r.pass, text: r.feedbackKo || (r.pass ? F.repairDone : F.repairAgain) });
+      // the screen line in the learn language; the server's Korean feedback only as the help
+      const fb = helpKoOn() && r.feedbackKo ? ` · ${r.feedbackKo}` : '';
+      setResult({ pass: r.pass, text: `${r.pass ? F.repairDone : F.repairAgain}${fb}` });
     }
     void load();
   };
@@ -124,7 +128,7 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
                 <span className="e" aria-hidden="true">
                   {it.emoji}
                 </span>
-                <span className="nm">{it.item_name_ko}</span>
+                <span className="nm">{thingName(it.item_key, it.item_name_ko)}</span>
               </div>
               <span className={`st ${it.due ? 'due' : 'later'}`}>{it.due ? `🔧 ${F.repairDue}` : F.repairLater}</span>
               <button type="button" className="btn pri" disabled={!it.due || busy || props.lessonOn} onClick={() => void pick(it)}>

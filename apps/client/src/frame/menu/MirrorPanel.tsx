@@ -11,6 +11,7 @@ import { socketThings } from './BagPanel.js';
 import { motionReduced } from '../settings.js';
 import type { MenuPanelProps } from './types.js';
 import { KoHelp } from './ko-help.js';
+import { thingName } from './collection-names.js';
 import type { NpcLook } from '../../world/town.js';
 
 /** Next yaw after a turn step (radians, kept in -PI..PI). */
@@ -213,7 +214,7 @@ export function MirrorPanel(props: MenuPanelProps): React.ReactElement {
                   <span className="e" aria-hidden="true">
                     {t?.emoji ?? ''}
                   </span>
-                  <span>{t ? t.item_name_ko : F.socketEmpty}</span>
+                  <span>{t ? thingName(t.item_key, t.item_name_ko) : F.socketEmpty}</span>
                 </li>
               );
             })}

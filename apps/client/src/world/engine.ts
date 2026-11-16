@@ -1349,8 +1349,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       intent.run = k.has('ShiftLeft') || k.has('ShiftRight') || (input.stick && Math.hypot(input.stickX, input.stickZ) > 0.92);
       intent.jump = k.has('Space') || input.jump;
       if (moveMult < 1) {
-        intent.dx *= moveMult;
-        intent.dz *= moveMult;
+        // cap the length at 1 first (physics clamps it there): a diagonal (about 1.41) times 0.85 stayed over 1 and the
+        // hungry child walked at full speed
+        const len = Math.hypot(intent.dx, intent.dz);
+        const k2 = (len > 1 ? 1 / len : 1) * moveMult;
+        intent.dx *= k2;
+        intent.dz *= k2;
       }
       if (!canRun) intent.run = false;
     }

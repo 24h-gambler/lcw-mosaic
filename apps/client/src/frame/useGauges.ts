@@ -83,10 +83,16 @@ export function useGauges(world: WorldHandle | null, frozen: boolean, onUse: (it
       useRef_.current(key);
     });
     const save = (): void => saveGauges(store, g, used, Date.now());
+    // a phone often never fires pagehide: also save when the tab goes to the background
+    const onHidden = (): void => {
+      if (document.visibilityState === 'hidden') save();
+    };
     window.addEventListener('pagehide', save);
+    document.addEventListener('visibilitychange', onHidden);
     return () => {
       window.clearInterval(tick);
       window.removeEventListener('pagehide', save);
+      document.removeEventListener('visibilitychange', onHidden);
       off?.();
       save();
       world.setMove?.(1, true);

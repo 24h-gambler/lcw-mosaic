@@ -44,7 +44,7 @@ function fixtures() {
     items,
     collection: {
       books: [
-        { id: 'food', total: 6, found: 2, entries: [e('honey_tea', '꿀차', '🍯', true), e('cookie', '쿠키', '🍪', true), e('cake', '케이크', '🍰', false), e('bread', '빵', '🍞', false), e('apple', '사과', '🍎', false), e('banana', '바나나', '🍌', false)] },
+        { id: 'food', total: 6, found: 2, entries: [e('honey_tea', '꿀차', '🍯', true), e('milk', '우유', '🥛', true), e('water', '물', '💧', false), e('tea', '차', '🍵', false), e('juice', '주스', '🧃', false), e('smoothie', '스무디', '🥤', false)] },
         { id: 'expressions', total: 2, found: 1, entries: [e('e1', 'Can I have a honey tea?', '💬', true), e('e2', '-', '💬', false)] },
         { id: 'blocks', total: 3, found: 0, entries: [e('b1', '돌', '🪨', false), e('b2', '나무', '🪵', false), e('b3', '벽돌', '🧱', false)] }
       ],
@@ -207,6 +207,8 @@ for (const vp of VIEWPORTS) {
     if (tab === 'book') {
       const b = await page.evaluate(() => ({ books: document.querySelectorAll('.lcw-books button').length, found: document.querySelectorAll('.lcw-entries li:not(.no)').length, ach: Array.from(document.querySelectorAll('.lcw-ach li')).map((li) => li.textContent ?? '') }));
       check(vp.name, b.books === 6 && b.found >= 1 && b.ach.length === 2, `book: 6 books / found / 2 achievements (${b.books}/${b.found}/${b.ach.length})`);
+      const found = await page.evaluate(() => Array.from(document.querySelectorAll('.lcw-entries li:not(.no)')).map((li) => li.textContent ?? ''));
+      check(vp.name, found.length >= 1 && found.every((t) => /[가-힣]/.test(t) === KO_HELP_SHOWN), `found entries in English by key (${found.join(' | ')})`);
       check(vp.name, b.ach[0]?.includes('First order') && b.ach[1]?.includes('Place 100 blocks'), `achievements in English by id (${b.ach.join(' | ')})`);
       check(vp.name, b.ach.every((t) => /[가-힣]/.test(t) === KO_HELP_SHOWN), `achievement Korean help ${KO_HELP_SHOWN ? 'missing' : 'shown while off'} (${b.ach.join(' | ')})`);
     }

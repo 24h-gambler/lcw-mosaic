@@ -12,10 +12,11 @@ import { DEFAULT_SETTINGS, normalizeSettings } from '../frame/settings.js';
 import { toServerSettings } from '../frame/settings-sync.js';
 import { compassKo, goLabel, mapNowLine, mapSummary, type MapScene, type SectorCell } from '../frame/menu/map-model.js';
 import { ko, koHelpActive, koOf } from '../frame/menu/ko-help.js';
-import { ACHIEVEMENT_NAMES_EN, COLLECTION_NAMES_EN, achievementName, entryName } from '../frame/menu/collection-names.js';
+import { ACHIEVEMENT_NAMES_EN, COLLECTION_NAMES_EN, achievementName, entryName, thingName } from '../frame/menu/collection-names.js';
+import { itemTitleBi } from '../world/strings.js';
 import { keyLabel } from '../frame/menu/SettingsPanel.js';
 import { lowNotice } from '../frame/useGauges.js';
-import { clockLabel, hotbarCaption, placeLabel } from '../frame/status.js';
+import { clockLabel, hotbarCaption, placeBi, placeLabel } from '../frame/status.js';
 
 const HANGUL = /[가-힣]/;
 const NO_GAME = /game|게임/i;
@@ -231,5 +232,26 @@ describe('collection names (GET /v1/collection sends Korean names only)', () => 
     setHelpKo(true);
     expect(entryName('minerals', 'gold', '금')).toBe('Gold · 금');
     expect(entryName('blocks', 'brick', '벽돌')).toBe('Brick · 벽돌');
+  });
+});
+
+
+describe('server names and HUD lines on English screens (review #lang-en)', () => {
+  it('carried things show English by item key, the server Korean only with the help, an unknown key as sent', () => {
+    expect(thingName('honey_latte', '꿀 라테')).toBe('Honey latte');
+    expect(thingName('mystery_box', '수수께끼 상자')).toBe('수수께끼 상자');
+    setHelpKo(true);
+    expect(thingName('honey_latte', '꿀 라테')).toBe('Honey latte · 꿀 라테');
+  });
+  it('the status chip and the caption put the Korean on a line of their own, none while the help is off', () => {
+    expect(placeBi(SCENE_TITLES_KO.plaza, 'surface')).toEqual({ en: 'Town Square · Ground', ko: null });
+    expect(itemTitleBi('honey_latte')).toEqual({ en: 'Honey latte', ko: null });
+    expect(HANGUL.test(clockLabel(10.5, 'snow'))).toBe(false);
+    setHelpKo(true);
+    // a title built while the help was on (frozen in the HUD) still splits into its two sides
+    expect(placeBi(SCENE_TITLES_KO.plaza, 'surface')).toEqual({ en: 'Town Square · Ground', ko: '중앙 광장 · 지상' });
+    expect(placeBi(SCENE_TITLES_KO.plaza, 'surface', false).ko).toBeNull();
+    expect(itemTitleBi('honey_latte')).toEqual({ en: 'Honey latte', ko: '꿀 라테' });
+    expect(HANGUL.test(clockLabel(10.5, 'snow'))).toBe(false);
   });
 });

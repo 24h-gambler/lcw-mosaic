@@ -3,11 +3,12 @@
  * coin chip), the HUD "메뉴" button and the player menu (G03 G04 G06 G10 G11 G14). The world draws the HUD itself
  * (`world/hud.ts`); this layer feeds it what only the shell knows (who is playing, whether the server answers).
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorldHandle } from '../world/api.js';
 import { storedStudentToken, type PlayerIdentity } from '../world/identity.js';
 import { watchConnection } from './connection.js';
-import { FRAME_STRINGS as F } from './strings.js';
+import { FRAME_STRINGS as F, FRAME_STRINGS_EN } from './strings.js';
+import { ko } from './menu/ko-help.js';
 import { helpKoOn, learnLang, onLearnLang } from '../world/lang.js';
 import { PlayerMenu, tabForKey } from './menu/PlayerMenu.js';
 import { ensureMenuStyle } from './menu/styles.js';
@@ -118,6 +119,7 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   // Screen language: at start, when the learn language changes and when Korean help is switched (lang.ts announces
   // both, other tabs too); the tick re-renders the menu (its strings are read at render time).
   const [, setLangTick] = useState(0);
+  const menuKo = ko((t) => t.menu);
   useEffect(() => {
     let applied = '';
     const apply = (): void => {
@@ -190,16 +192,22 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
 
   // Picking a hotbar slot with a thing in it is a use of that thing (docs/09 P4); the server decides. Once per thing
   // per ten minutes is enough for the "used in the last days" window, so slot flicking never floods the server.
+  // Eating or drinking (G01) shares the same once-per-ten-minutes record, so a pick and a use never send two calls.
+  const usedAt = useRef(new Map<string, number>());
+  const useOnce = useCallback(
+    (key: string): void => {
+      if (auth.kind === 'guest') return;
+      const now = Date.now();
+      if ((usedAt.current.get(key) ?? -Infinity) > now - HOLD_EVERY_MS) return;
+      usedAt.current.set(key, now);
+      void holdThing(auth, key);
+    },
+    [auth]
+  );
   useEffect(() => {
     if (!world?.onHold || auth.kind === 'guest') return;
-    const last = new Map<string, number>();
-    return world.onHold((key) => {
-      const now = Date.now();
-      if ((last.get(key) ?? -Infinity) > now - HOLD_EVERY_MS) return;
-      last.set(key, now);
-      void holdThing(auth, key);
-    });
-  }, [world, auth]);
+    return world.onHold(useOnce);
+  }, [world, auth, useOnce]);
 
   // Coins are always on the HUD (docs/08 8.1). A guest has no ledger: nothing is ever granted on a guest device, so its
   // balance is 0. A linked child or a lesson student reads the server ledger once at the start; later answers and the
@@ -251,9 +259,7 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   }, [blocked]);
 
   // G01 gauges: the clock stops for a lesson, a dialog and the menu; eating or drinking is a use on the server
-  useGauges(world, lessonOn || blocked || menu !== null, (key) => {
-    if (auth.kind !== 'guest') void holdThing(auth, key);
-  });
+  useGauges(world, lessonOn || blocked || menu !== null, useOnce);
 
   ensureMenuStyle();
   if (!world) return null;
@@ -270,7 +276,9 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
           <span className="ic" aria-hidden="true">
             🎒
           </span>
-          <span>{F.menu}</span>
+          <span>{FRAME_STRINGS_EN.menu}</span>
+          {/* the Korean help as a small second line: the button keeps its size next to the hotbar */}
+          {menuKo ? <span className="ko">{menuKo}</span> : null}
         </button>
       ) : null}
       {menu !== null ? (

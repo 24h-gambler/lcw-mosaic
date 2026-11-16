@@ -4,9 +4,9 @@
  * Colors, type and motion come from @lcw/ui tokens only (AGENTS 6). No prices or payment on this screen (AGENTS 4.9).
  */
 import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
-import { WORLD_STRINGS as W, itemGotText, itemTitle, controlsDesktopFor, DEFAULT_KEY_HINTS, worldSay, type KeyHintLabels } from './strings.js';
+import { WORLD_STRINGS as W, itemGotText, itemTitle, itemTitleBi, controlsDesktopBi, controlsDesktopFor, DEFAULT_KEY_HINTS, worldSay, type KeyHintLabels } from './strings.js';
 import { onLearnLang } from './lang.js';
-import { bandOf, clockLabel, hotbarCaption, isNight, placeLabel, type BandId } from '../frame/status.js';
+import { bandOf, clockLabel, isNight, placeBi, type BandId } from '../frame/status.js';
 import { refillOf } from '../frame/gauges.js';
 
 const STYLE_ID = 'lcw-world-hud-style';
@@ -29,6 +29,7 @@ function css(): string {
 .lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1))}
 .lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));border:2px solid ${C['ink-900']};display:none}
 .lw-chip .l.on{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lw-chip .p .ko{display:block;font-size:.82em;font-weight:600;opacity:.85}
 .lw-chip .l.solo{background:${C['paper-0']};color:${C['ink-700']};border-style:dashed}
 .lw-chip .s{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px}
 .lw-chip .w{display:inline-flex;align-items:center;gap:6px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1));font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9}
@@ -127,7 +128,7 @@ function css(): string {
 .lw-load .cubes span:nth-child(3){background:var(--c-leaf,${C.leaf});animation-delay:300ms}
 .lw-load .cubes span:nth-child(4){background:${C.sky};animation-delay:450ms}
 @keyframes lwhop{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
-.lw-help{position:absolute;bottom:calc(80px + 240px * (var(--lcw-hs,1) - 1));left:12px;color:${C['paper-0']};background:${night};padding:6px 10px;border-radius:${S.radiusButtonPx}px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));transition:opacity 600ms}
+.lw-help{position:absolute;bottom:calc(80px + 240px * (var(--lcw-hs,1) - 1));left:12px;white-space:pre-line;color:${C['paper-0']};background:${night};padding:6px 10px;border-radius:${S.radiusButtonPx}px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));transition:opacity 600ms}
 .lw-help.off{opacity:0}
 .lw-touch{position:absolute;inset:0;display:none}
 .lw-touch.on{display:block}
@@ -485,14 +486,14 @@ export class WorldHud {
   setKeyHints(k: Readonly<KeyHintLabels>): void {
     this.keys = k;
     if (this.talkKbd) this.talkKbd.textContent = k.talk;
-    if (!this.touchOn) this.help.textContent = controlsDesktopFor(k);
+    if (!this.touchOn) this.help.textContent = this.helpText();
   }
 
   setTouch(on: boolean): void {
     this.touchOn = on;
     this.touch.classList.toggle('on', on);
     this.touch.style.pointerEvents = on ? 'auto' : 'none';
-    this.help.textContent = on ? W.controlsTouch : controlsDesktopFor(this.keys);
+    this.help.textContent = this.helpText();
     this.help.classList.remove('off');
     window.setTimeout(() => this.help.classList.add('off'), 9000);
   }
@@ -563,7 +564,16 @@ export class WorldHud {
   }
 
   private drawScene(): void {
-    this.sceneChip.textContent = this.bandId ? placeLabel(this.sceneTitle, this.bandId) : this.sceneTitle;
+    const p = this.bandId ? placeBi(this.sceneTitle, this.bandId) : { en: this.sceneTitle, ko: null };
+    this.sceneChip.textContent = p.en;
+    // the Korean help as a small line of its own: a dot join made the chip run into the stars on a phone
+    if (p.ko) el('span', 'ko', this.sceneChip).textContent = p.ko;
+  }
+
+  /** The controls line, its Korean help on a second line (white-space: pre-line). */
+  private helpText(): string {
+    const s = this.touchOn ? { en: worldSay('controlsTouch').text, ko: worldSay('controlsTouch').help } : controlsDesktopBi(this.keys);
+    return s.ko ? `${s.en}\n${s.ko}` : s.en;
   }
 
   private allEmpty(): boolean {
@@ -572,17 +582,26 @@ export class WorldHud {
 
   /** Name of the selected slot over the bar (or what an empty bar is for); fades after `ms`. */
   private showCaption(ms = 2400): void {
-    let text = this.buildSlotsOn ? (this.slots[this.selected]?.title ?? '') : hotbarCaption(this.itemSlots, this.selected);
+    // English on the line, the Korean help on a line of its own (a dot join ran into the controls help)
     const held = this.buildSlotsOn ? null : this.itemKeys[this.selected];
+    let en: string;
+    let ko: string | null = null;
+    if (this.buildSlotsOn) en = this.slots[this.selected]?.title ?? '';
+    else if (held) ({ en, ko } = itemTitleBi(held));
+    else ({ text: en, help: ko } = worldSay(this.allEmpty() ? 'hotbarAllEmpty' : 'hotbarEmpty'));
     const r = held && this.gzOn ? refillOf(held) : null;
-    if (r) text = `${text} · ${r.kind === 'food' ? W.useAgainFood : W.useAgainDrink}`;
+    if (r) {
+      const u = worldSay(r.kind === 'food' ? 'useAgainFood' : 'useAgainDrink');
+      en = `${en} · ${u.text}`;
+      if (ko !== null && u.help) ko = `${ko} · ${u.help}`;
+    }
     window.clearTimeout(this.capTimer);
-    if (!text) {
+    if (!en) {
       this.cap.classList.remove('on');
       return;
     }
-    this.cap.textContent = text;
-    this.cap.classList.remove('two');
+    this.cap.textContent = ko ? `${en}\n${ko}` : en;
+    this.cap.classList.toggle('two', !!ko);
     this.cap.classList.add('on');
     this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
   }
@@ -963,7 +982,7 @@ export class WorldHud {
   /** Redraw the frame's HUD text that is built once (band, help line, gauge names, place line, clock, caption). */
   private redrawFrameText(): void {
     this.drawNet(!this.root.classList.contains('off'));
-    if (this.help.textContent) this.help.textContent = this.touchOn ? W.controlsTouch : controlsDesktopFor(this.keys);
+    if (this.help.textContent) this.help.textContent = this.helpText();
     if (this.bandId) this.drawScene();
     this.clockKey = '';
     const gz = this.gz;
@@ -973,6 +992,13 @@ export class WorldHud {
       const em = gz.querySelector('em');
       if (em) em.textContent = W.slowed;
     }
+    // the hotbar names follow the help switch too (they were built when the thing arrived)
+    this.itemKeys.forEach((key, i) => {
+      const it = this.itemSlots[i];
+      if (!key || !it) return;
+      it.title = itemTitle(key);
+      if (!this.buildSlotsOn) this.drawSlot(i, it, null);
+    });
     if (this.cap.classList.contains('on')) this.showCaption();
   }
 

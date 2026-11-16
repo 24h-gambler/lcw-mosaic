@@ -63,6 +63,9 @@ export interface WorldHandle {
 // 수업·대화창·메뉴·숨은 탭에서는 시계가 멈춥니다. 음식·음료는 손에 든 칸을 한 번 더 고르면 채워지고(물건마다 10분에 한 번),
 // 물건은 가방에 남습니다(배운 말이 사라지지 않게). 사용은 POST /v1/items/use 로 서버에 남고, 값은 기기 'lcw.gauges' 에 둡니다.
 // HUD 글자 크기: 설정 글자 크기(--lcw-fs)를 따르되 HUD 는 125%(폰·낮은 가로 화면 115%)까지만 커지고, 메뉴·대화창은 전부 따릅니다.
+// 틀 문구(HUD 틀·메뉴·지도·설정·도감, frame/strings.ts)는 배울 언어로 보입니다(world/lang.ts learnLang, 지금은 영어). 한국어 도움(helpKoOn)을
+// 켜면 메뉴 낱말은 'English · 한국어', HUD 띠·알림은 한국어를 둘째 줄에 둡니다. 장소 이름에 한국어 조사가 붙는 문장은 만들지 않습니다(nameBi).
+// 도감 항목·성취는 서버가 name_ko 만 주므로 frame/menu/collection-names.ts 가 id 로 영어 이름을 찾고, 모르는 id 는 name_ko 를 그대로 씁니다.
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
 export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
 ```

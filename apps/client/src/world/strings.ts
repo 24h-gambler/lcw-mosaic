@@ -2,6 +2,8 @@
 
 export const WORLD_STRINGS = {
   loading: '마을을 짓는 중…',
+  /** multi room at capacity (docs/03 D11, server room.ts 4003) */
+  roomFull: '방이 가득 찼어요. 조금 뒤에 다시 들어가 볼게요',
   loadingHint: '잠깐만요, 블록을 하나씩 쌓고 있어요',
   talk: '말 걸기',
   talkKey: 'E',

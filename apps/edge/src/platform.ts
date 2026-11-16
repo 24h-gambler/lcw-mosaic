@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
+import { buildExportApp } from './export-csv.js';
 import { markSeatUse, playAllowed, sweepSeatNotices } from './seats.js';
 import { legacyWorldRedirect } from './world-path.js';
 import {
@@ -859,6 +860,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildFreePlayApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
+  app.route('/', buildExportApp({ sql: platform.sql, db: platform.db, nowMs: () => Date.now() }));
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))
   );

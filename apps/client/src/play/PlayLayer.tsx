@@ -321,6 +321,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
         <button
           type="button"
           data-play="card"
+          data-testid="play-card"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
           style={{ ...btn(C['night-900'], C.sun), display: 'flex', alignItems: 'center', gap: 8, fontFamily: T.fonts.ui }}
@@ -362,7 +363,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
 
       {/* elevator buttons */}
       {lift ? (
-        <div data-play="elevator" style={{ ...box, position: 'absolute', left: '50%', bottom: actionBottom, transform: 'translateX(-50%)', padding: 10, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', alignItems: 'center', pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}>
+        <div data-play="elevator" data-testid="play-elevator" style={{ ...box, position: 'absolute', left: '50%', bottom: actionBottom, transform: 'translateX(-50%)', padding: 10, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', alignItems: 'center', pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}>
           <span style={{ fontWeight: 800, fontSize: T.scale.small.sizePx }}>{PLAY_KO.elevator.title}</span>
           {lift !== 'hall' ? (
             <button type="button" style={btn(C.sky)} onClick={() => world && void world.goToScene('exchange')}>

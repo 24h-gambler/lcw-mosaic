@@ -43,6 +43,8 @@ export interface FamilyChild {
   player_id: string;
   nickname: string;
   level: string;
+  /** /v1/family/me sends it; the 'who' step tells two children with one name apart by it. */
+  birth_year?: number | null;
 }
 
 export class StudentApiError extends Error {

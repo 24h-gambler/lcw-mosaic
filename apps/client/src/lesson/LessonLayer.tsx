@@ -22,6 +22,7 @@ import { MIC_BLOCKING_ERRORS, maskTarget, micUnreliable, pickHeard, type HeardAl
 import { LESSON_STRINGS_KO as S } from './strings.js';
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
 import { SubmitError } from '../dialog/submit.js';
+import { TeacherPanel } from './TeacherPanel.js';
 
 const C = TOKENS.colors;
 const T = TOKENS.typography;
@@ -82,7 +83,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   onActive.current = props.onLessonActive;
   const search = props.search ?? (typeof location === 'undefined' ? '' : location.search);
   const code = codeFromSearch(search);
-  // A bare /game/ (no code in the address, no session in this tab) is solo play with a "수업 코드 넣기" button: the code
+  // A bare /world/ (no code in the address, no session in this tab) is solo play with a "수업 코드 넣기" button: the code
   // typed there joins the lesson in the 3D world, and "돌아가기" goes back to solo play.
   const [active, setActive] = useState(() => Boolean(code ?? loadStudentSession()));
   const [typedCode, setTypedCode] = useState<string | null>(null);
@@ -105,6 +106,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
           setPossessed: (n) => worldRef.current?.setPossessed?.(n),
           setCoins: (n) => worldRef.current?.setCoins?.(n),
           setStars: (n) => worldRef.current?.setStars?.(n),
+          setTeacher: (t) => worldRef.current?.setTeacher?.(t),
           playDirectorEvent: (k, d) => {
             // The world plays its own effect and sound for events; ours only when it has none (no double sound).
             const w = worldRef.current;
@@ -162,7 +164,12 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     w.setPossessed?.(v.possessedNpcId);
     if (v.coins !== null) w.setCoins?.(v.coins);
     w.setStars?.(v.lessonStars);
+    w.setTeacher?.(v.teacher);
   }, [props.world, ctl]);
+  // Out of the lesson the chip goes back to the plain tag (no stale "혼자 놀기" in solo play).
+  useEffect(() => {
+    if (!live) props.world?.setTeacher?.(null);
+  }, [live, props.world]);
   useEffect(() => () => onActive.current?.(false), []);
   useEffect(() => {
     if (!active) return;
@@ -186,7 +193,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     return () => ctl.stop();
   }, [active, lowTier, ctl, startCode]);
 
-  // Back to solo play on a bare /game/ (no code in the address): a wrong code, the child changed their mind, or a
+  // Back to solo play on a bare /world/ (no code in the address): a wrong code, the child changed their mind, or a
   // session kept in this tab that has expired. The view starts over so the "수업 코드 넣기" button shows again.
   const backToSolo = !code ? () => {
     ctl.stop();
@@ -288,6 +295,8 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     return (
       <Shell>
         <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
+        {/* Second child in both live layouts, so opening the dialog does not remount (and lock) the 1PC panel. */}
+        <TeacherPanel lessonId={view.lessonId} planId={view.planId} stageId={view.stageId} />
         {folded ? (
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: SP[3], display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
             <div style={{ width: '100%', maxWidth: 720, display: 'flex', justifyContent: 'flex-end' }}>
@@ -334,6 +343,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   return (
     <Shell>
       <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
+      <TeacherPanel lessonId={view.lessonId} planId={view.planId} stageId={view.stageId} />
       {/* One column that shares the height (the panel scrolls when short), so nothing covers anything on a phone.
           With the world: its HUD owns the top (scene chip, goal, bubbles over NPCs), so the banner sits just above our
           status row and panel. Without it: our own goal bar, status and the teacher's bubbles go on top. */}
@@ -518,7 +528,13 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
         }}
       >
         <span className={ok ? '' : 'lcw-blink'} style={{ width: 10, height: 10, borderRadius: 5, background: ok ? C.leaf : C.sun, display: 'inline-block' }} />
-        {view.outbox > 0 ? S.status.queued(view.outbox) : ok ? S.status.ok(view.nickname) : S.status.retrying}
+        {view.outbox > 0
+          ? S.status.queued(view.outbox)
+          : !ok
+            ? S.status.retrying
+            : view.teacher.present
+              ? S.status.ok(view.nickname, view.teacher.name)
+              : S.status.alone(view.nickname)}
       </span>
       <button type="button" onClick={() => setAsking(true)} style={small}>
         {S.status.leave}

@@ -56,7 +56,7 @@ NPC id·ctx (대화 뱅크가 `npc.ctx`로 찾는 값):
 | `shop_owner` | 상점 주인 토비 (Toby) | `trade_shop` | trade_shop |
 | `errand_neighbor` | 이웃 미아 (Mia, 아이) | `errand` | honey_cafe (카페 문 앞) |
 
-이름·한국어 표시명·목소리는 target_lang 별 배역 팩 `packages/content/src/npc-cast.ts`(`npcCast(lang)`, `npcPersona(id, lang)`) 한 곳에서 옵니다. 월드 이름표·대화창 머리·목표 문구(`{giver}`/`{cafe}`)·복습 대화가 모두 이 팩을 읽고, 새 언어는 그 언어 원어민 이름과 목소리를 담은 팩을 더합니다(id 는 언어와 무관).
+이름·한국어 표시명·목소리는 target_lang 별 배역 팩 `packages/content/src/npc-cast.ts`(`npcCast(lang)`, `npcPersona(id, lang)`) 한 곳에서 옵니다. 월드 이름표·대화창 머리·목표 문구(`{giver}`/`{cafe}`)·복습 대화가 모두 이 팩을 읽고, 새 언어는 그 언어 원어민 이름과 목소리를 담은 팩을 더합니다(id 는 언어와 무관). 팩의 `voice`(NPC별)·`modelVoice`(아이가 따라 말할 모범 문장)는 신경망 목소리(docs/04 4.8, `/v1/tts`)가 씁니다 — 영어 팩은 루나 athena · 해나 hera · 토비 arcas · 미아 stella · 모범 luna.
 
 월드 도메인은 첫 PR에서 이 인터페이스를 (내용이 단순하더라도) 먼저 머지해 다른 도메인이 붙을 수 있게 합니다.
 
@@ -115,7 +115,7 @@ export interface DialogPanelProps {
 
 ## 4. 수업 → 다른 도메인 (`apps/client/src/lesson/`)
 
-- `/game/?code=123456` 또는 첫 화면의 코드 입력 → `POST /v1/join` → 학생 토큰은 `sessionStorage`. 응답의 `voice_store`(보호자의 음성 저장 동의)는 `lcw.studentVoice='1'`로 같이 두고, 대화창 `recordClip`이 이것을 봅니다(3장).
+- `/world/?code=123456`(옛 `/game/?code=` 도 리다이렉트로 같은 곳) 또는 첫 화면의 코드 입력 → `POST /v1/join` → 학생 토큰은 `sessionStorage`. 응답의 `voice_store`(보호자의 음성 저장 동의)는 `lcw.studentVoice='1'`로 같이 두고, 대화창 `recordClip`이 이것을 봅니다(3장).
 - `GET /v1/lesson/state`를 3초마다: `stage_id`가 바뀌면 아래 표대로 `goToScene`, `targets`는 대화창 `offers`, 빙의 대사(`npc_lines`)는 `npcSay`.
 
 | stage_id | 장면 | NPC | 힌트 |
@@ -155,7 +155,7 @@ export interface DialogPanelProps {
   - 앱은 `LessonLayer`에 `identity`를 넘기고, 혼자 대화에는 `createSoloSubmit(npc, { deviceToken, nickname, level })`(게스트면 둘째 인자 없음)와 `cfg.level`을 넘깁니다. 월드는 `setPlayerName?(nickname)`으로 머리 위 이름표를 달고 안내인이 이름으로 한 번 인사합니다.
 - 좌석(6장): `identity.ts`가 `play_allowed`·`seat`를 읽어 연결된 아이에 `playAllowed`·`seat`(`{state, endsAt}`|null)로 둡니다. `play_allowed`가 **명시적으로 false**일 때만 혼자 놀기를 멈춥니다(필드가 없는 옛 서버·`seat:null`은 그대로 놉니다). 마지막 온라인 답은 `lcw.devicePlayBlocked`('1')로 남겨 오프라인 시작에도 지킵니다. 멈추면 월드는 걸어 다니며 둘러보기만 되고, NPC 에게 말을 걸면 대화창 대신 안내 카드(`world/SeatNotice.tsx`: "지금은 혼자 놀기가 쉬는 중이에요 … 보호자에게 말해 주세요", 가격·결제 낱말 없음)가 뜹니다. 왼쪽 위 '둘러보기만' 칩으로 다시 열 수 있습니다. 수업(`?code=`)은 기기 확인 자체를 하지 않으므로 좌석과 상관없이 들어옵니다.
 - 첫 화면(3초 예산): `index.html`의 스플래시(토큰 색 큐브)가 첫 페인트에 바로 뜨고 글꼴은 첫 페인트를 막지 않습니다. 월드는 시작 지점 둘레 `FIRST_RING`(2청크) 안만 메시한 뒤(최대 `FIRST_SCREEN_CAP_MS` 2초) 보여 주고, 나머지 시야는 첫 프레임 뒤에 이어서 메시합니다. 단계별 시간은 `getStats().startup`(`town`·`atlas`·`characters`·`mesh`·`firstFrame`, createWorld 기준 ms)입니다.
-- 화면 주소: `/game/?scene=<SceneId>`(시작 장면), `?tier=low|mid|high`(사양 강제), `?fps=1`(fps 표시). 디버그·검증용으로 `window.__lcwWorld`에 핸들을 둡니다.
+- 화면 주소: `/world/?scene=<SceneId>`(시작 장면), `?tier=low|mid|high`(사양 강제), `?fps=1`(fps 표시). 디버그·검증용으로 `window.__lcwWorld`에 핸들을 둡니다.
 - 검증: `node tools/world-shots.mjs <url> <out> [desktop|tablet|phone|flow]` — 헤드리스 Chrome(swiftshader)으로 장면 5개 × 3 화면 크기 스크린샷, fps, 콘솔 오류, 흐름(목표·말풍선·걷기·멈춤·별·아이템·빙의·눈·키보드·E 키)을 `report.json`에.
 
 ## 6. 보호자 → 월드 (기기 토큰 발급 쪽 보장, WP-301)
@@ -172,3 +172,12 @@ export interface DialogPanelProps {
   - `snapshot = { v: 1, title: string(1–40), blocks: [x(-512..512), y(-512..512), z(-64..512), 색 토큰 이름][] (최대 20,000), avatar: { shirt, pants, hair } }`. 색은 `@lcw/ui` `COLOR_TOKENS` 이름만 받고, 다른 필드가 하나라도 있으면 400 입니다(위치·음성·실명 차단). 블록 종류 → 색 토큰 변환은 게시하는 쪽(월드)이 합니다.
   - 보호자의 `showroom_public` 동의가 있어야 합니다(없으면 403 `consent_required`). 아이마다 링크는 하나이고, 다시 게시하면 같은 링크의 내용만 바뀝니다. 응답은 `{ token, path: '/s/<token>' }`이고, 제목은 닉네임과 같은 개인정보·욕설 필터(422)를 거칩니다. 게시는 시간당 30회까지입니다.
   - 공개 읽기는 `GET /v1/showroom/<token>`(32자 hex, noindex)이고, 동의를 철회하면 바로 404 가 되며 저장본도 지웁니다. 아이 기기는 `DELETE /v1/showroom`으로 자기 링크를 지웁니다.
+
+## 8. 무료 이용 한도 → 월드·보호자 (`apps/edge/src/free-play.ts`, `packages/schemas/src/free-play.ts`)
+
+한도는 `FREE_PLAY_LIMITS`(스키마 패키지) 한 곳에만 있고, 서버가 판정합니다. 화면 문구도 이 값을 읽습니다(숫자를 문구에 직접 쓰지 않음). Dan 2026-11-16: 체험 3분·음성 주문 1회, 게스트 패스 30분·좌석당 한 달 2장.
+
+- **`/try` 체험**(외부인 소유, `apps/web/src/site/trySession.ts`): `POST /v1/try/start {device}` → `TrySession {try_id, started_at, ends_at, server_now, order}`. `device`는 기기에 둔 무작위 값(`localStorage` `lcw.tryDevice`)이고 서버는 해시만 저장합니다. 기기당 KST 하루 1회, 주소당 하루 20회이며, 넘으면 429 `try_used_today`(`retry_at`, `last`). 같은 기기가 진행 중에 다시 부르면 같은 세션을 돌려줍니다. 주문은 `POST /v1/try/order {try_id, aim, text, path, spoke?}` → `{stars, granted, orders_left, ends_at, server_now}`. 서버가 `gradeTryOrder`(`@lcw/content`, 문장 뱅크 대조, AI 호출 없음)로 채점하고, 통과한 한 번만 셉니다(그 뒤 409 `try_order_used`). 끝난 뒤(ends_at + 5초)에는 410 `try_ended`. 서버에 닿지 않으면 화면은 열지 않습니다(실패 시 닫힘).
+- **게스트 패스 발급·회수**(보호자 화면 소유, 보호자 세션): `GET /v1/family/seats/:id/guest-passes` → `{passes, per_month, minutes, left_this_month, resets_at, server_now}`, `POST` 같은 경로로 발급(201) → `{pass, …같은 요약}`. `pass = {id, code(표시용 XXXX-XXXX), link('/pass?code=…'), state, issued_at, redeem_until(발급 + 7일), started_at, ends_at}`. 좌석이 이용 중·곧 끝남일 때만, 한 달(KST) 2장(넘으면 409 `monthly_limit`). `POST /v1/family/guest-passes/:id/revoke`: 안 쓴 코드는 장수를 돌려받고, 쓰는 중이면 바로 끝납니다. 보호자가 아이에게 건네는 링크는 `/pass?code=XXXX-XXXX`입니다(입력칸이 채워짐).
+- **`/pass` 확인**(외부인 소유): `GET /v1/guest-pass/check?code=` → `GuestPassCheck {state: 'ready'|'active'|'ended'|'expired'|'revoked', minutes, ends_at, redeem_until, server_now}`, 없는 코드는 404 `pass_not_found`. 확인은 시계를 시작하지 않고, 주소당 시간당 30회입니다(넘으면 429). `ready`·`active`면 `/world/?pass=<코드>`로 넘깁니다.
+- **월드가 할 일**(월드 소유, `/world/?pass=`): 처음 진입할 때 `POST /v1/guest-pass/redeem {code, device}` → `GuestPassSession {token, world_id('home-<player>'), host_nickname, started_at, ends_at, server_now}`. 시계는 이 첫 진입에 서버가 찍고(30분), 코드는 그 기기에 묶입니다(다른 기기는 409 `pass_in_use`, 같은 기기는 다시 불러도 같은 세션). 410 `pass_ended`·`pass_expired`·`pass_revoked`·`seat_inactive`면 바로 `/guest-end`. 이후 요청에는 헤더 `x-lcw-guest-pass: <token>`을 붙이고, `GET /v1/guest-pass/status`로 남은 시간을 받아 `ends_at - server_now` 기준으로 셉니다. 끝나면 `/guest-end`(`GuestPassEndScreen`)로 갑니다. 다른 서버 경로가 게스트를 받으려면 `guestPassFromRequest()`로 확인합니다.

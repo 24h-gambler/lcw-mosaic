@@ -24,7 +24,7 @@
 | AI | Workers AI(Whisper, 소형 LLM) | 일 10,000 뉴런 |
 | 기기 내 AI | Whisper 소형(WebGPU), 음성 활동 감지, 브라우저 음성 합성 | 비용 0 |
 | 예약 작업 | Cron Trigger 3개, Queues | 무료 플랜은 크론 5개까지 |
-| 로그인 | 카카오·구글 OAuth(보호자·성인), 기기 연결 코드(아이 프로필) | 비밀번호와 메일 발송이 필요 없음 |
+| 로그인 | 카카오·구글 OAuth(보호자·성인, `apps/edge/src/oauth.ts` 공용: 제공자·PKCE·state 쿠키·nonce·ID 토큰 검증·계정 연결, 역할별 핸들러 = 보호자 `guardian-oauth.ts`·교사 `operator-login.ts`), 가족 초대 링크, 기기 연결 코드(아이 프로필) | 비밀번호와 메일 발송이 필요 없음. 설정 없는 제공자는 버튼이 숨음 |
 | 알림 | 웹 푸시(`push.ts`·`web-push.ts`, VAPID 키는 DO 안에서 생성, 발송 스위치는 운영자), 리포트 링크 복사(메신저 공유) | 비용 0. 알림톡은 나중에 |
 | 오류 수집 | Workers Logs, 클라이언트 오류 수집 엔드포인트 | |
 

@@ -5,6 +5,25 @@
  */
 
 import { npcPersona } from '@lcw/content';
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
+
+/** Free play limits the server enforces (docs/01 §3): the copy reads them, never types the numbers. */
+const TRY_MIN = FREE_PLAY_LIMITS.tryMinutes;
+const PASS_MIN = FREE_PLAY_LIMITS.guestPassMinutes;
+const PASS_PER_MONTH = FREE_PLAY_LIMITS.guestPassesPerSeatPerMonth;
+/**
+ * Refund rule (Dan 2026-11-16 09:20, coordinator 11-16 to match the guardian lane's server rule): within 7 days of
+ * payment AND before the seat is first used; once used, no refund; unused past 7 days goes to the operator inbox.
+ */
+export const REFUND_RULE = {
+  short: '쓰기 전·결제 후 7일 안 환불',
+  line: '결제 다음 날부터 7일 안에, 좌석을 쓰기 시작하기 전이면 전액 환불돼요. 한 번이라도 쓰기 시작한 뒤에는 환불되지 않아요.',
+  firstUse: '아이 기기에서 월드를 열거나 과외 수업에 들어가면 쓰기 시작한 거예요.',
+  legal: '결제 다음 날부터 7일 안에, 좌석을 쓰기 시작하기 전이면 전액 환불됩니다. 아이 기기에서 월드를 열거나 과외 수업에 들어가면 쓰기 시작한 것이고, 그 뒤에는 환불되지 않습니다(디지털콘텐츠 제공이 시작된 경우, 전자상거래법 제17조 제2항 제5호). 쓰지 않은 채 7일이 지난 경우는 보호자 화면에서 요청하면 선생님이 직접 확인합니다.',
+  beforeUse: '결제 다음 날부터 7일 안이면 이유를 묻지 않고 전액 환불해요.',
+  unusedLate: '쓰지 않은 채 7일이 지났다면 보호자 화면의 좌석 메뉴에서 요청을 보내 주세요. 선생님이 직접 확인해요.',
+  tryFirst: `결제 전에 ${TRY_MIN}분 체험과 친구 초대(${PASS_MIN}분)로 먼저 써 보세요.`
+} as const;
 export const BRAND = 'LCW';
 export const BRAND_LONG = '말하면 생기는 세계';
 
@@ -13,29 +32,29 @@ export const NAV = {
   play: '학생',
   tutoring: '과외',
   pricing: '요금',
-  try: '5분 체험',
+  try: `${TRY_MIN}분 체험`,
   menu: '메뉴',
   close: '닫기',
   skip: '본문으로 건너뛰기'
 } as const;
 
 export const HERO = {
-  eyebrow: '영어로 말해야 물건이 생기는 3D 블록 게임',
+  eyebrow: '영어로 말해야 물건이 생기는 3D 블록 월드',
   title: '말하면 생기는 세계',
   body: '짓고, 싸우고, 탐험하는 모든 순간에 영어로 말합니다. 더 좋은 문장이 더 좋은 장비가 됩니다.',
   parents: '학부모님이세요?',
   parentsSub: '성장이 어떻게 보이는지',
   players: '플레이어세요?',
   playersSub: '무엇을 할 수 있는지',
-  tryCta: '지금 5분 체험',
+  tryCta: `지금 ${TRY_MIN}분 체험`,
   tryCtaLong: '설치도 가입도 없이 음료 한 잔 주문해 보기',
   trySub: '브라우저에서 바로 시작해요. 목소리는 저장되지 않아요.'
 } as const;
 
 /** 15-second loop (docs/14 §3): understandable with the sound off, captions on screen. */
-/** Landing clip (docs/14 §3): a real /game capture of one cafe order, captions carry it with the sound off. */
+/** Landing clip (docs/14 §3): a real /world capture of one cafe order, captions carry it with the sound off. */
 export const LOOP = {
-  label: '실제 게임 화면 반복 영상: 카페 주인에게 영어로 주문하면 문장이 자라고 별 3개를 받습니다',
+  label: '실제 월드 화면 반복 영상: 카페 주인에게 영어로 주문하면 문장이 자라고 별 3개를 받습니다',
   captions: [
     ['approach', '카페 주인이 영어로 말을 걸어요'],
     ['offers', '여기서는 말해야 얻어요. 문장은 세 가지'],
@@ -46,7 +65,7 @@ export const LOOP = {
 
 /** Player page clip: the world's own auto-walk from the plaza to the cafe. */
 export const TOUR = {
-  label: '실제 게임 화면: 광장에서 마을 길을 따라 꿀 카페까지 걸어가는 장면',
+  label: '실제 월드 화면: 광장에서 마을 길을 따라 꿀 카페까지 걸어가는 장면',
   captions: [
     ['plaza', '광장에서 마을 길을 따라 걸어가요'],
     ['cafe', '꿀 카페 도착. 이제 영어로 주문할 차례']
@@ -63,16 +82,16 @@ export function josa(word: string, withBatchim: string, without: string): string
 
 /** Labels on the real-game pictures (GameMedia.tsx). */
 export const MEDIA = {
-  realTag: '실제 게임 화면 · 시연',
+  realTag: '실제 월드 화면 · 시연',
   play: '재생',
   pause: '일시 정지',
-  cafeOffers: `실제 게임 화면: ${josa(castKo('cafe_owner'), '이', '가')} 묻고, 별 1개부터 3개까지 세 가지 영어 문장이 펼쳐진 대화창`,
-  cafeStars: '실제 게임 화면: 별 3개 문장 "Can I have some cold water, please?"를 말해 별 3개를 받은 대화창',
-  tradeOffers: `실제 게임 화면: 물물교환 ${josa(castKo('shop_owner'), '과', '와')} 헬멧을 바꾸는 세 가지 영어 문장`,
-  buildPlot: '실제 게임 화면: 울타리와 벽돌이 놓인 내 부지',
-  guideOffers: `실제 게임 화면: ${josa(castKo('guide'), '이', '가')} 어디로 가고 싶은지 묻는 대화창`,
-  cafeFront: '실제 게임 화면: 꿀 카페 앞에 선 플레이어',
-  plaza: '실제 게임 화면: 분수가 있는 중앙 광장'
+  cafeOffers: `실제 월드 화면: ${josa(castKo('cafe_owner'), '이', '가')} 묻고, 별 1개부터 3개까지 세 가지 영어 문장이 펼쳐진 대화창`,
+  cafeStars: '실제 월드 화면: 별 3개 문장 "Can I have some cold water, please?"를 말해 별 3개를 받은 대화창',
+  tradeOffers: `실제 월드 화면: 물물교환 ${josa(castKo('shop_owner'), '과', '와')} 헬멧을 바꾸는 세 가지 영어 문장`,
+  buildPlot: '실제 월드 화면: 울타리와 벽돌이 놓인 내 부지',
+  guideOffers: `실제 월드 화면: ${josa(castKo('guide'), '이', '가')} 어디로 가고 싶은지 묻는 대화창`,
+  cafeFront: '실제 월드 화면: 꿀 카페 앞에 선 플레이어',
+  plaza: '실제 월드 화면: 분수가 있는 중앙 광장'
 } as const;
 
 export const LOOP_OFFERS = [
@@ -104,7 +123,7 @@ export const LANDING = {
   },
   dialogTitle: '이것이 실제 대화창이에요',
   dialogBody: '같은 제트팩도 문장에 따라 값이 달라져요. 문장을 눌러 들어 보세요.',
-  dialogNote: '코인은 게임 안에서만 쓰는 돈이에요. 현금으로 살 수 없어요.',
+  dialogNote: '코인은 월드 안에서만 쓰는 돈이에요. 현금으로 살 수 없어요.',
   tutoringTitle: '선생님과 함께하면',
   tutoringBody: '선생님이 아이의 월드에 NPC로 들어가 말을 걸고, 수업이 끝나면 숫자가 검증된 리포트를 보내 드려요.',
   tutoringCta: '과외 수업 보기'
@@ -112,7 +131,7 @@ export const LANDING = {
 
 export const PARENTS = {
   title: '아이가 영어로 자기 생각을 말하는 시간을 보여 드립니다',
-  lead: '게임하는 줄 알았는데, 들어 보니 말을 하고 있습니다. 매주 대본 없이 말한 양과 길이를 숫자와 육성으로 확인하세요.',
+  lead: '노는 줄 알았는데, 들어 보니 말을 하고 있습니다. 매주 대본 없이 말한 양과 길이를 숫자와 육성으로 확인하세요.',
   sampleTag: '예시 화면',
   sampleNote: '실제 데이터가 쌓이기 전이라 예시 숫자로 그렸어요.',
   voiceTag: '기계 음성 시연',
@@ -127,7 +146,7 @@ export const PARENTS = {
   ],
   problemFoot: 'LCW는 세 번째 칸을 채우는 곳이에요.',
   methodTitle: '말해야 얻는 세계',
-  methodBody: '주문, 제작, 흥정, 변론. 게임에서 물건을 얻는 길이 전부 말하기예요. 문장이 좋을수록 값이 싸고 효과가 커집니다.',
+  methodBody: '주문, 제작, 흥정, 변론. 월드에서 물건을 얻는 길이 전부 말하기예요. 문장이 좋을수록 값이 싸고 효과가 커집니다.',
   proofTitle: '낭독이 아닌 "자기 말"만 셉니다',
   proofBody:
     '따라 읽은 말과 스스로 만든 말을 나눠서 잽니다. 성장 그래프에는 아이가 스스로 만든 말만 올라가요. 늘지 않으면 늘지 않은 대로 보입니다.',
@@ -162,12 +181,12 @@ export const PARENTS = {
     '동의는 네 가지로 나눠 따로 켜고 끕니다. 한 번에 모두 켜는 버튼은 없어요.',
     '낯선 사람과 자유 음성 대화를 하지 않아요. 다른 사람에게는 걸러진 말풍선만 보입니다.',
     '아이 월드를 누구에게 보여 줄지는 보호자가 정합니다. 기본은 비공개예요.',
-    '아이 화면에는 가격·결제·기한이 없습니다. 현금으로 사는 게임 재화도 없어요.'
+    '아이 화면에는 가격·결제·기한이 없습니다. 현금으로 사는 재화도 없어요.'
   ],
-  timeTitle: '게임 시간이 걱정되신다면',
-  timeBody: '플레이 시간 안내를 정해 두면 시간이 되었을 때 게임 안에서 부드럽게 알려 줍니다. 연속 접속을 압박하는 알림은 없고, 매주 요약을 보내 드려요.',
+  timeTitle: '플레이 시간이 걱정되신다면',
+  timeBody: '플레이 시간 안내를 정해 두면 시간이 되었을 때 월드 안에서 부드럽게 알려 줍니다. 연속 접속을 압박하는 알림은 없고, 매주 요약을 보내 드려요.',
   priceTitle: '요금은 단순합니다',
-  priceBody: '모든 좌석은 전 기능이고, 결제 후 7일 이내에는 전액 환불됩니다.',
+  priceBody: `모든 좌석은 전 기능이에요. ${REFUND_RULE.line} ${REFUND_RULE.tryFirst}`,
   priceCta: '요금 자세히 보기',
   faqTitle: '자주 묻는 질문'
 } as const;
@@ -222,19 +241,19 @@ export const PLAY = {
   buildTitle: '한 칸씩, 네 손으로',
   buildBody: '빈 땅에서 3층 집까지. 방에 문과 불빛과 쉴 곳이 있으면 주민이 들어와.',
   friendTitle: '친구를 초대해',
-  friendBody: '내 월드에 친구를 60분 동안 초대할 수 있어. 같이 짓고, 같이 싸워.',
+  friendBody: `내 월드에 친구를 ${PASS_MIN}분 동안 초대할 수 있어. 같이 짓고, 같이 싸워.`,
   upTitle: '땅속에서 우주까지',
   upBody: '광산 아래로 내려가고, 하늘섬 위로 올라가고, 정거장에서 블랙홀을 봐.',
   upBands: ['우주 정거장', '하늘섬', '지상', '지하 광산'],
   endTitle: '하고 싶으면',
   endBody: '부모님께 링크를 보내 줘. 부모님이 소개를 보고 정해 주실 거야.',
   send: '부모님께 소개 보내기',
-  tryIt: '먼저 5분 해 보기'
+  tryIt: `먼저 ${TRY_MIN}분 해 보기`
 } as const;
 
 export const SHARE = {
   title: 'LCW — 말하면 생기는 세계',
-  text: '영어로 말해야 물건이 생기는 게임이래요. 한번 봐 주세요!',
+  text: '영어로 말해야 물건이 생기는 3D 월드래요. 한번 봐 주세요!',
   copied: '링크를 복사했어요. 부모님께 붙여 넣어 보내 주세요.',
   failed: '복사가 안 됐어요. 주소창의 주소를 부모님께 보내 주세요.'
 } as const;
@@ -292,7 +311,7 @@ export const SAMPLE_REPORT = {
 
 export const PRICING = {
   title: '요금',
-  lead: '모든 좌석은 전 기능입니다. 결제 후 7일 이내에는 전액 환불됩니다.',
+  lead: `모든 좌석은 전 기능입니다. ${REFUND_RULE.line}`,
   plans: [
     {
       id: 'solo',
@@ -325,12 +344,14 @@ export const PRICING = {
   monthly: '월',
   yearly: '연',
   tutoringPlan: '과외 패키지는 과외비에 좌석과 수업 창문, 수업 리포트가 포함돼요. 과외비는 선생님이 정합니다.',
-  promises: ['모든 좌석은 전 기능', '결제 후 7일 이내 전액 환불', 'Duo는 가족이 아니어도 됩니다'],
+  promises: ['모든 좌석은 전 기능', REFUND_RULE.short, 'Duo는 가족이 아니어도 됩니다'],
   refundTitle: '환불과 해지',
   refundRows: [
-    { k: '7일 이내', v: '이유를 묻지 않고 전액 환불해요.' },
+    { k: '쓰기 시작하기 전', v: REFUND_RULE.beforeUse },
+    { k: '쓰기 시작한 뒤', v: `${REFUND_RULE.firstUse} 그 뒤에는 환불되지 않아요. ${REFUND_RULE.tryFirst}` },
+    { k: '쓰지 않고 7일이 지나면', v: REFUND_RULE.unusedLate },
     { k: '해지', v: '보호자 화면의 좌석 메뉴에서 바로 해지할 수 있어요. 남은 기간까지 쓰고 끝납니다.' },
-    { k: 'Duo 한 좌석만 환불', v: '7일 안에 한 좌석만 환불하면 남은 좌석은 Solo로 바뀌어요. 차액(월 5,000원, 연 40,000원)을 돌려드리거나, 남은 몫만큼 Solo 기간을 늘려 드립니다.' },
+    { k: 'Duo 한 좌석만 환불', v: '좌석마다 따로 봐요. 결제 다음 날부터 7일 안에 아직 쓰기 시작하지 않은 좌석 하나만 환불하면 남은 좌석은 Solo로 바뀌어요. 차액(월 5,000원, 연 40,000원)을 돌려드리거나, 남은 몫만큼 Solo 기간을 늘려 드립니다.' },
     { k: '해지 뒤 월드', v: '30일 동안 읽기 전용으로 남고, 그 뒤에는 보관됩니다.' }
   ],
   startTitle: '시작하기',
@@ -343,7 +364,7 @@ export const PRICING = {
 export const FAQ = [
   {
     q: '무료로 해 볼 수 있나요?',
-    a: '가입 없이 5분 체험이 있어요. 이용 중인 친구가 있으면 60분 초대권으로 함께 해 볼 수도 있습니다. 결제한 뒤에도 7일 안에는 전액 환불돼요.'
+    a: `가입 없이 ${TRY_MIN}분 체험이 있어요. 이용 중인 친구가 있으면 ${PASS_MIN}분 초대권으로 함께 해 볼 수도 있습니다. ${REFUND_RULE.line} 그래서 결제 전에 먼저 써 보시길 권해요.`
   },
   {
     q: '몇 살부터 할 수 있나요?',
@@ -354,8 +375,8 @@ export const FAQ = [
     a: '약속 대신 측정 방식을 보여 드려요. 대본 없이 말한 양과 길이를 매주 보여 드리고, 늘지 않으면 늘지 않은 대로 보입니다.'
   },
   {
-    q: '게임만 하게 되지 않을까요?',
-    a: '게임 안에서 물건을 얻는 길이 전부 말하기예요. 플레이 시간 안내를 정할 수 있고, 매주 요약에서 아이가 말한 시간을 확인하실 수 있어요.'
+    q: '놀기만 하게 되지 않을까요?',
+    a: '월드 안에서 물건을 얻는 길이 전부 말하기예요. 플레이 시간 안내를 정할 수 있고, 매주 요약에서 아이가 말한 시간을 확인하실 수 있어요.'
   },
   {
     q: '아이 목소리는 어떻게 되나요?',
@@ -391,7 +412,7 @@ export const SAFETY = {
     { k: '개인정보', v: '말풍선 필터가 전화번호·주소·계정 아이디 모양을 막아요. 닉네임에 실명을 쓰지 않도록 안내합니다.' },
     { k: '공개 서버', v: '미성년 계정은 보호자가 허용하고 "모두" 대상인 서버만 보여요.' },
     { k: '괴롭힘', v: '서로 다른 3명이 신고하면 그 월드에서 말풍선이 자동으로 멈춰요. PvP는 기본으로 꺼져 있어요.' },
-    { k: '구매 압박', v: '아이 화면에 가격·결제·기한이 없어요. 현금으로 사는 게임 재화가 없습니다.' },
+    { k: '구매 압박', v: '아이 화면에 가격·결제·기한이 없어요. 현금으로 사는 재화가 없습니다.' },
     { k: '과몰입', v: '플레이 시간 안내, 연속 접속 압박 알림 없음. 보호자 알림은 주 1회까지.' },
     { k: 'AI가 만든 것', v: 'AI는 정해진 부품 안에서 제안만 해요. 건물이나 주민을 AI가 만들지 않고, 이름·설명은 필터를 지나요.' },
     { k: '쇼룸', v: '정지된 장면만 보여 줘요. 실시간 위치·음성·실명이 없고 기본은 비공개예요.' },
@@ -405,7 +426,7 @@ export const SAFETY = {
     { k: '공개 서버', v: '다른 사람이 연 공개 월드에 들어갈 수 있어요.' }
   ],
   consentFoot: '한 화면에서 전부 켜는 버튼은 두지 않았어요. 언제든 따로 끌 수 있습니다.',
-  tryTitle: '5분 체험에서는',
+  tryTitle: `${TRY_MIN}분 체험에서는`,
   tryBody: '체험은 브라우저의 음성 인식을 쓰고, 목소리를 서버로 보내거나 저장하지 않아요. 계정도 만들지 않습니다.'
 } as const;
 
@@ -414,15 +435,15 @@ export const LEGAL = {
   privacyTitle: '개인정보 처리방침 요약',
   draft: '정식 문서는 전문가 검토를 마친 뒤 이 자리에 게시합니다. 아래는 지금 운영하는 방식의 요약이에요.',
   terms: [
-    { k: '서비스', v: '영어 말하기 게임과 보호자 화면, 선택형 과외 수업 도구를 제공합니다.' },
+    { k: '서비스', v: '영어 말하기 3D 월드와 보호자 화면, 선택형 과외 수업 도구를 제공합니다.' },
     { k: '좌석', v: '좌석 하나에 플레이어 한 명. 미성년 좌석은 보호자 계정 아래에서만 만들어집니다.' },
-    { k: '결제와 환불', v: '결제 후 7일 이내 전액 환불. Duo 한 좌석 환불 시 남은 좌석은 Solo로 바뀝니다.' },
+    { k: '결제와 환불', v: `${REFUND_RULE.legal} Duo는 좌석마다 따로 보며, 한 좌석 환불 시 남은 좌석은 Solo로 바뀝니다.` },
     { k: '해지', v: '보호자 화면에서 언제든 해지. 월드는 30일 읽기 전용 뒤 보관됩니다.' },
     { k: '이용 규칙', v: '다른 사람을 괴롭히거나 개인정보를 올리는 행위는 말풍선 정지·입장 제한 대상이에요.' }
   ],
   privacy: [
     { k: '모으는 것', v: '보호자 연락처, 아이 닉네임·학년, 플레이 기록, 발화 전사문과 지표. 음성은 동의한 경우에만.' },
-    { k: '쓰는 곳', v: '게임 진행, 성장 그래프와 리포트, 수업 진행. 광고에 쓰지 않습니다.' },
+    { k: '쓰는 곳', v: '월드 이용, 성장 그래프와 리포트, 수업 진행. 광고에 쓰지 않습니다.' },
     { k: '보관 기간', v: '수업 원본 30일. 음성 클립은 좌석을 쓰는 동안과 그 뒤 12개월. 게스트·체험 음성은 저장하지 않아요.' },
     { k: '맡기는 곳', v: '클라우드 운영(Cloudflare)과 음성 인식·문장 처리(Cloudflare Workers AI). AI에는 이름·계정 없이 문장만 보냅니다.' },
     { k: '보호자의 권리', v: '보기, 고치기, 지우기, 동의 철회를 보호자 화면에서 바로 할 수 있어요.' },
@@ -432,12 +453,20 @@ export const LEGAL = {
 
 export const PASS = {
   title: '친구가 초대했어요',
-  lead: '친구 월드에 60분 동안 들어가서 같이 놀 수 있어요. 목소리는 저장되지 않아요.',
+  lead: `친구 월드에 ${PASS_MIN}분 동안 들어가서 같이 놀 수 있어요. 목소리는 저장되지 않아요.`,
   codeLabel: '초대 코드',
   go: '친구 월드로 가기',
-  invalid: '코드를 다시 확인해 줘.',
+  invalid: '코드를 다시 확인해 주세요. 초대 코드는 영어와 숫자 8자리예요.',
+  state: {
+    ended: '이 초대 코드는 시간이 다 됐어요. 친구에게 새 코드를 부탁해 봐요.',
+    expired: '이 초대 코드는 받은 지 오래돼서 더는 쓸 수 없어요. 친구에게 새 코드를 부탁해 봐요.',
+    revoked: '친구가 이 초대 코드를 거둬들였어요. 친구에게 물어봐요.',
+    busy: '코드를 너무 여러 번 넣었어요. 조금 뒤에 다시 해 봐요.',
+    error: '연결이 잠깐 끊겼어요. 다시 눌러 봐요.'
+  },
   rules: [
-    '60분 동안 친구 월드의 모든 기능을 쓸 수 있어요.',
+    `처음 들어간 때부터 ${PASS_MIN}분 동안 친구 월드의 모든 기능을 쓸 수 있어요.`,
+    `친구는 한 달에 초대 코드를 ${PASS_PER_MONTH}개까지 받을 수 있어요. 코드 하나는 한 기기에서만 쓸 수 있어요.`,
     '내 물건은 저장되지 않지만, 처음 만든 물건 하나와 첫 영어 한마디는 이 기기에 7일 동안 남아요.',
     '어린이 게스트는 친구의 보호자가 허용한 경우에만 들어갈 수 있어요.'
   ]
@@ -459,7 +488,7 @@ export const SHOWROOM = {
 
 export const LEARN = {
   indexTitle: '상황별 영어 표현',
-  indexLead: '게임 속 장면에서 실제로 쓰는 문장이에요. 별 1개부터 3개까지, 문장이 어떻게 자라는지 보세요.',
+  indexLead: '월드 속 장면에서 실제로 쓰는 문장이에요. 별 1개부터 3개까지, 문장이 어떻게 자라는지 보세요.',
   starsTitle: '같은 말, 세 가지 문장',
   explainTitle: '이렇게 생각하면 쉬워요',
   mistakeTitle: '자주 틀리는 부분',
@@ -570,7 +599,7 @@ export const LEARN_PAGES = [
 ] as const;
 
 export const FOOTER = {
-  tagline: '말하면 생기는 세계. 영어로 말해야 물건이 생기는 3D 블록 게임이에요.',
+  tagline: '말하면 생기는 세계. 영어로 말해야 물건이 생기는 3D 블록 월드예요.',
   colSite: '둘러보기',
   colLearn: '배우기',
   colTrust: '믿을 수 있게',
@@ -585,16 +614,16 @@ export const FOOTER = {
 } as const;
 
 export const META: Readonly<Record<string, { title: string; description: string }>> = {
-  '/': { title: 'LCW — 말하면 생기는 세계', description: '영어로 말해야 물건이 생기는 3D 블록 게임. 설치·가입 없이 5분 체험.' },
+  '/': { title: 'LCW — 말하면 생기는 세계', description: `영어로 말해야 물건이 생기는 3D 블록 월드. 설치·가입 없이 ${TRY_MIN}분 체험.` },
   '/parents': { title: '학부모님께 — LCW', description: '아이가 대본 없이 영어로 말한 양과 길이를 매주 숫자와 육성으로 확인하세요.' },
   '/play': { title: '플레이어에게 — LCW', description: '네 월드는 네가 만든다. 짓고, 터뜨리고, 하늘섬까지. 필요한 건 영어 한 문장.' },
   '/tutoring': { title: '과외 수업 — LCW', description: '선생님이 아이의 월드에 NPC로 들어가는 120분 영어 회화 수업과 수업 리포트.' },
-  '/pricing': { title: '요금 — LCW', description: 'Solo·Duo·좌석 추가. 모든 좌석은 전 기능, 결제 후 7일 이내 전액 환불.' },
-  '/try': { title: '5분 체험 — LCW', description: '설치도 가입도 없이 카페에서 영어로 음료 한 잔 주문해 보기.' },
+  '/pricing': { title: '요금 — LCW', description: `Solo·Duo·좌석 추가. 모든 좌석은 전 기능, ${REFUND_RULE.short}.` },
+  '/try': { title: `${TRY_MIN}분 체험 — LCW`, description: '설치도 가입도 없이 카페에서 영어로 음료 한 잔 주문해 보기.' },
   '/safety': { title: '안전 설계 — LCW', description: '낯선 사람 대화 없음, 동의 4종 분리, 아이 화면에 가격 없음.' },
   '/terms': { title: '이용약관 — LCW', description: 'LCW 이용약관 요약.' },
   '/privacy': { title: '개인정보 처리방침 — LCW', description: 'LCW 개인정보 처리방침 요약.' },
   '/learn': { title: '상황별 영어 표현 — LCW', description: '카페 주문, 장비 주문, 흥정, 변명. 별 1개부터 3개까지 자라는 영어 문장.' },
   '/worlds': { title: '월드 구경 — LCW', description: '친구가 지은 월드를 돌려 보는 쇼룸.' },
-  '/pass': { title: '친구 초대 — LCW', description: '친구 월드에 60분 동안 함께 들어가기.' }
+  '/pass': { title: '친구 초대 — LCW', description: `친구 월드에 ${PASS_MIN}분 동안 함께 들어가기.` }
 };

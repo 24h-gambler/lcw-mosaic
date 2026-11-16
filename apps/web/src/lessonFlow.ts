@@ -77,7 +77,7 @@ export function validateNewStudent(f: NewStudentForm): string | null {
 /* ---------- join links (docs/19 §4) ---------- */
 
 /**
- * The 3D client (/game/?code=) is the default student path (apps/client/src/lesson joins lessons); /join is the
+ * The 3D client (/world/?code=) is the default student path (apps/client/src/lesson joins lessons); /join is the
  * word-card fallback for low-tier devices (docs/19 §4).
  */
 export const STUDENT_3D_LESSON_READY = true;
@@ -88,8 +88,8 @@ export interface JoinLink {
 }
 
 export function studentJoinLinks(origin: string, code: string, ready3d = STUDENT_3D_LESSON_READY): JoinLink[] {
-  const game: JoinLink = { kind: '3d', url: `${origin}/game/?code=${code}` };
-  // lite=1: /join sends 3D-capable devices into /game/; the teacher's fallback link stays on the word cards.
+  const game: JoinLink = { kind: '3d', url: `${origin}/world/?code=${code}` };
+  // lite=1: /join sends 3D-capable devices into /world/; the teacher's fallback link stays on the word cards.
   const fallback: JoinLink = { kind: 'fallback', url: `${origin}/join?code=${code}&lite=1` };
   return ready3d ? [game, fallback] : [fallback, game];
 }

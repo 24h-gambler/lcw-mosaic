@@ -26,6 +26,7 @@ import {
 import { formatClock } from './lessonFlow.js';
 import { Box, Notice, Stat, border, inputStyle, sp } from './lessonUi.js';
 import { DIRECTOR_LIVE_STRINGS_KO as L } from './directorLiveStrings.js';
+import { P } from './presenceStrings.js';
 
 const C = TOKENS.colors;
 const T = TOKENS.typography;
@@ -79,6 +80,9 @@ export function StudentScreenBox(p: { live: DirectorLiveView; localNow: number; 
       <div style={{ display: 'grid', gap: sp(2) }}>
         <div style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap' }}>
           <Stat label={L.scene} value={sceneName(v?.scene_id ?? v?.expected_scene_id)} testId="student-scene" />
+          <span data-testid="student-mic" style={{ fontWeight: 700, alignSelf: 'center' }}>
+            {P.mic(v?.mic ?? null)}
+          </span>
           <Stat label={L.possessTitle.split(' · ')[0]!} value={possessed ? possessed.nameKo : '—'} />
         </div>
         {mismatch ? <Notice kind="info">{L.sceneMismatch(sceneName(v?.expected_scene_id))}</Notice> : null}

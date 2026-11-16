@@ -432,7 +432,7 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(maskTarget('anything', 'none')).toBe('');
     expect(codeFromSearch('?code=042117')).toBe('042117');
     expect(codeFromSearch('?code=42117')).toBeNull();
-    // Outside a lesson (bare /game/): only the "수업 코드 넣기" button, no lesson panel or code card (11-16 audit).
+    // Outside a lesson (bare /world/): only the "수업 코드 넣기" button, no lesson panel or code card (11-16 audit).
     const solo = renderToStaticMarkup(React.createElement(LessonLayer, { world: null, search: '' }));
     expect(solo).toContain('data-testid="lesson-code-open"');
     expect(solo).toContain(LESSON_STRINGS_KO.code.openFromWorld);

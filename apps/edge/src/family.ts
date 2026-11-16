@@ -6,7 +6,8 @@ import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicRe
 import { buildLessonWindow } from './lesson-window.js';
 import { answerListening, closeListeners, lessonAudioState, listenerOf, startListening, touchListener, type RealtimeClient } from './lesson-audio.js';
 import { buildDashboard } from './dashboard.js';
-import { mountSeatRoutes, playAllowed } from './seats.js';
+import { markSeatUse, mountSeatRoutes, playAllowed } from './seats.js';
+import { GUEST_PASS_GUARDIAN_ROUTES, mountGuestPassGuardianRoutes } from './free-play.js';
 import { drainVoicePurge, reportClips, type VoiceBlobStore } from './voice.js';
 import { SubscribeSchema, deliverPush, enqueueTest, familyPushState, subscribe, unsubscribe, vapidKeys, type PushSender } from './push.js';
 
@@ -49,7 +50,9 @@ export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', /^\/v1\/family\/push\/(subscribe|unsubscribe|test)$/],
   ['POST', /^\/v1\/family\/seats\/[^/]+\/refund-request$/],
   ['POST', /^\/v1\/device\/link$/],
-  ['GET', /^\/v1\/device\/me$/]
+  ['GET', /^\/v1\/device\/me$/],
+  // Guest passes a seat issues (free-play.ts), behind the same guardian session.
+  ...GUEST_PASS_GUARDIAN_ROUTES
 ];
 
 /**
@@ -111,6 +114,38 @@ export function familyChildSummary(
     last_lesson_at: lessons?.last ?? null,
     reports
   };
+}
+
+/** A guardian session token (180 days) for this guardian; the invite exchange and the OAuth sign-in both use it. */
+export async function issueGuardianSession(
+  d: Pick<FamilyDeps, 'sql' | 'randomBytes' | 'sha256Hex'>,
+  guardianId: string,
+  familyId: string,
+  nowMs: number
+): Promise<string> {
+  const token = hex(d.randomBytes(32));
+  d.sql.run(
+    'insert into guardian_sessions (token_hash, guardian_id, family_id, created_at, expires_at, revoked_at) values (?, ?, ?, ?, ?, null)',
+    [await d.sha256Hex(token), guardianId, familyId, nowMs, nowMs + GUARDIAN_SESSION_TTL_MS]
+  );
+  return token;
+}
+
+/** The signed-in guardian of a request (Bearer guardian session token), or null. */
+export async function guardianFromRequest(
+  d: Pick<FamilyDeps, 'sql' | 'sha256Hex'>,
+  req: Request,
+  nowMs: number
+): Promise<{ guardian_id: string; family_id: string; token_hash: string } | null> {
+  const h = req.headers.get('authorization') ?? '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : '';
+  if (token.length < 32) return null;
+  const th = await d.sha256Hex(token);
+  const g = d.sql.get<{ guardian_id: string; family_id: string }>(
+    'select guardian_id, family_id from guardian_sessions where token_hash = ? and expires_at > ? and revoked_at is null',
+    [th, nowMs]
+  );
+  return g ? { ...g, token_hash: th } : null;
 }
 
 export interface FamilyDeps {
@@ -221,16 +256,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     return h.startsWith('Bearer ') ? h.slice(7) : '';
   };
 
-  const guardianOf = async (req: Request): Promise<Guardian | null> => {
-    const token = bearer(req);
-    if (token.length < 32) return null;
-    const th = await d.sha256Hex(token);
-    const g = d.sql.get<{ guardian_id: string; family_id: string }>(
-      'select guardian_id, family_id from guardian_sessions where token_hash = ? and expires_at > ? and revoked_at is null',
-      [th, d.nowMs()]
-    );
-    return g ? { ...g, token_hash: th } : null;
-  };
+  const guardianOf = (req: Request): Promise<Guardian | null> => guardianFromRequest(d, req, d.nowMs());
   const familyServiceFlag = (familyId: string) =>
     Boolean(d.sql.get("select v from family_flags where family_id = ? and k = 'service'", [familyId]));
   const childOf = (g: Guardian, playerId: string) =>
@@ -294,11 +320,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
       return c.json({ error: 'invalid_invite' }, 404);
     }
     d.sql.run('update guardian_invites set used_at = ? where code_hash = ?', [now, inv.code_hash]);
-    const token = hex(d.randomBytes(32));
-    d.sql.run(
-      'insert into guardian_sessions (token_hash, guardian_id, family_id, created_at, expires_at, revoked_at) values (?, ?, ?, ?, ?, null)',
-      [await d.sha256Hex(token), inv.guardian_id, inv.family_id, now, now + GUARDIAN_SESSION_TTL_MS]
-    );
+    const token = await issueGuardianSession(d, inv.guardian_id, inv.family_id, now);
     return c.json({ guardian_token: token, expires_at: now + GUARDIAN_SESSION_TTL_MS });
   });
 
@@ -593,6 +615,8 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     // Seat gate for solo play (docs/09 5): read-only/archived/refunded seat -> play_allowed false; lessons are not gated.
     // The child device gets the state only, never a date (AGENTS 4.9: no deadlines on child screens).
     const seat = playAllowed(d.sql, dev.player_id, now);
+    // The child's world opened on a linked device: the seat is in use from now (its paid period is no longer refunded).
+    if (seat.allowed) markSeatUse(d.sql, dev.player_id, now, 'world');
     return c.json({
       nickname: kid?.nickname ?? '',
       level: kid?.level ?? 'L1',
@@ -603,6 +627,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
   });
 
   mountSeatRoutes(app, d, withGuardian);
+  mountGuestPassGuardianRoutes(app, d, withGuardian);
 
   return app;
 }

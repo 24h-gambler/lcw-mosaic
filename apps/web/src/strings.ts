@@ -1,10 +1,11 @@
 /** Korean UI copy for the web UX additions (AGENTS.md 6: no inline screen strings). Child screens carry no price, payment or deadline. */
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
 
 export const WEB_UX_STRINGS_KO = {
   site: {
     nav: {
       home: '소개',
-      try: '5분 체험',
+      try: `${FREE_PLAY_LIMITS.tryMinutes}분 체험`,
       parents: '학부모',
       teachers: '과외',
       safety: '안전·개인정보',
@@ -20,8 +21,8 @@ export const WEB_UX_STRINGS_KO = {
       { title: '② 문장이 자란다', body: '★★★ so that I can fly' },
       { title: '③ 세계가 넓어진다', body: '하늘섬, 우주 정거장' }
     ],
-    tryCta: '지금 5분 체험: 설치도 가입도 없이 음료 한 잔 주문해 보기',
-    openGame: '게임 열기',
+    tryCta: `지금 ${FREE_PLAY_LIMITS.tryMinutes}분 체험: 설치도 가입도 없이 음료 한 잔 주문해 보기`,
+    openGame: '월드 열기',
     sendToParent: '부모님께 소개 보내기',
     linkCopied: '소개 링크를 복사했어요. 부모님께 보내 주세요.'
   },
@@ -118,6 +119,25 @@ export const LESSON_STRINGS_KO = {
     keyChange: '열쇠 바꾸기',
     keyForget: '열쇠 지우기',
     keySaved: '열쇠가 저장되어 있어요.',
+    googleSignIn: 'Google 계정으로 로그인',
+    googleHelp: '등록된 선생님 Google 계정만 들어올 수 있어요. 로그인은 이 브라우저에 30일 동안 남아요.',
+    keyOr: '운영 열쇠로 들어가기',
+    signedInAs: (name: string) => `${name || '선생님'} 계정으로 로그인됨`,
+    logout: '로그아웃',
+    logoutAll: '모든 기기에서 로그아웃',
+    devicesTitle: (n: number) => `로그인한 브라우저 ${n}곳`,
+    thisDevice: '이 브라우저',
+    deviceEnd: '끊기',
+    deviceSeen: (when: string) => `마지막 사용 ${when}`,
+    sessionEnded: '로그인이 끝났어요(로그아웃했거나 30일이 지났어요). 다시 로그인해 주세요.',
+    signInError: (code: string) =>
+      code === 'not_an_operator'
+        ? '이 Google 계정은 선생님으로 등록돼 있지 않아요. 등록된 계정으로 다시 로그인해 주세요.'
+        : code === 'not_configured'
+          ? 'Google 로그인이 아직 준비되지 않았어요. 아래 운영 열쇠로 들어가 주세요.'
+          : code === 'handoff_invalid'
+            ? '로그인 확인 시간이 지났거나 다른 브라우저에서 열렸어요. 이 브라우저에서 다시 로그인해 주세요.'
+            : 'Google 로그인이 끝나지 않았어요. 다시 해 주세요.',
     keyNotStored: '이 브라우저는 저장을 막고 있어요. 새로 고치면 열쇠를 다시 넣어야 해요.',
     studentsTitle: '학생 고르기',
     resumeTitle: '진행 중인 수업 이어 하기',
@@ -130,6 +150,11 @@ export const LESSON_STRINGS_KO = {
     studentsEmpty: '아직 등록한 학생이 없어요. 아래에서 새 학생을 등록해 주세요.',
     refresh: '새로 고침',
     loading: '불러오는 중…',
+    csvToday: '오늘 기록 CSV 받기',
+    csvMinutes: '오늘 진행표 CSV',
+    csvBusy: '받는 중…',
+    csvHelp: '오늘(한국 시간) 발화 기록과 분 단위 진행표를 엑셀에서 여는 CSV 로 받아요. 아이는 별명·id 로만 적혀요.',
+    csvFailed: (code: string) => `CSV 를 받지 못했어요 (${code}). 다시 눌러 주세요.`,
     retry: '다시 시도',
     colNickname: '별명',
     colLevel: '수준',

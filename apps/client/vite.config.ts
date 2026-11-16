@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // Served by the edge Worker under /game/ (tools/build-site.mjs).
-  base: '/game/',
+  // Served by the edge Worker under /world/ (tools/build-site.mjs); /game/ redirects there (apps/edge/src/world-path.ts).
+  base: '/world/',
   plugins: [react()],
   resolve: {
     alias: {

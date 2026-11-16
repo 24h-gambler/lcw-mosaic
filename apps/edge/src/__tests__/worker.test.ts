@@ -272,8 +272,8 @@ describe('production worker (Durable Object SQLite wiring)', () => {
     await worker.fetch(new Request('https://lcw/health'), env);
     await worker.fetch(new Request('https://lcw/v1/trades/scenarios'), env);
     await worker.fetch(new Request('https://lcw/try'), env);
-    await worker.fetch(new Request('https://lcw/game/'), env);
+    await worker.fetch(new Request('https://lcw/world/'), env);
     await worker.scheduled({ cron: '0 3 * * *' }, env);
-    expect(hits).toEqual(['do:/health', 'do:/v1/trades/scenarios', 'asset:/try', 'asset:/game/', 'do:/internal/cron']);
+    expect(hits).toEqual(['do:/health', 'do:/v1/trades/scenarios', 'asset:/try', 'asset:/world/', 'do:/internal/cron']);
   });
 });

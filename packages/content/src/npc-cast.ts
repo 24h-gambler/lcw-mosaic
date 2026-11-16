@@ -11,7 +11,7 @@ export type CastLang = 'en';
 
 /** Workers AI neural voice (edge tts.ts): Deepgram Aura speakers, or MeloTTS as the cheap fallback engine. */
 export interface NpcVoice {
-  engine: 'aura' | 'melo';
+  engine: 'aura' | 'aura2' | 'melo';
   /** Aura speaker id (asteria, luna, stella, athena, hera, orion, arcas, perseus, angus, orpheus, helios, zeus). */
   speaker: string;
 }
@@ -37,7 +37,10 @@ export interface NpcCastPack {
 }
 
 /*
- * Voices chosen by measurement (11-16, Workers AI aura-1, 4 lines each, Whisper round trip, EBU R128, median F0):
+ * Aura-2 since 11-16 afternoon (Dan: "아직도 목소리가 기계음"): same line on aura-1 and aura-2, pitch movement
+ * (semitone SD of voiced frames) aura-1 cast 2.9-4.4 vs aura-2 picks athena 5.5, hera 3.6, apollo 4.3, delia 6.2,
+ * luna 5.0 - livelier, less flat. Toby is apollo (male, ~155 Hz), Mia delia (cheerful, breathy, the youngest-sounding).
+ * Earlier aura-1 pick (11-16 morning, Workers AI aura-1, 4 lines each, Whisper round trip, EBU R128, median F0):
  * guide athena (calm adult, F0 ~185 Hz), cafe owner hera (warm adult, ~185 Hz), shop owner arcas (male, ~155 Hz),
  * Mia stella (the highest, youngest voice, ~275 Hz), the child's model sentences luna (clear, WER 0 on all four,
  * steady -20..-22 LUFS). Every one was understood word for word by Whisper (one contraction aside).
@@ -45,12 +48,12 @@ export interface NpcCastPack {
 const EN: NpcCastPack = {
   lang: 'en',
   npcs: {
-    guide: { nameEn: 'Luna', nameKo: '안내인 루나 선생님', nameKoShort: '루나', age: 'adult', voice: { engine: 'aura', speaker: 'athena' } },
-    cafe_owner: { nameEn: 'Hannah', nameKo: '카페 주인 해나', nameKoShort: '해나', age: 'adult', voice: { engine: 'aura', speaker: 'hera' } },
-    shop_owner: { nameEn: 'Toby', nameKo: '상점 주인 토비', nameKoShort: '토비', age: 'adult', voice: { engine: 'aura', speaker: 'arcas' } },
-    errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura', speaker: 'stella' } }
+    guide: { nameEn: 'Luna', nameKo: '안내인 루나 선생님', nameKoShort: '루나', age: 'adult', voice: { engine: 'aura2', speaker: 'athena' } },
+    cafe_owner: { nameEn: 'Hannah', nameKo: '카페 주인 해나', nameKoShort: '해나', age: 'adult', voice: { engine: 'aura2', speaker: 'hera' } },
+    shop_owner: { nameEn: 'Toby', nameKo: '상점 주인 토비', nameKoShort: '토비', age: 'adult', voice: { engine: 'aura2', speaker: 'apollo' } },
+    errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura2', speaker: 'delia' } }
   },
-  modelVoice: { engine: 'aura', speaker: 'luna' },
+  modelVoice: { engine: 'aura2', speaker: 'luna' },
   ctxNpc: { cafe: 'cafe_owner', trade_shop: 'shop_owner', guide: 'guide', errand: 'errand_neighbor' }
 };
 

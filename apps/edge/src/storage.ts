@@ -18,6 +18,7 @@ import {
   populateInitialWorld
 } from '@lcw/sim-core';
 import { GuardedWorldObjects, inspectSpecG1ToG5, type StoredL3Object } from '@lcw/guard';
+import { PLAYER_SETTINGS_SCHEMA_SQL } from './settings.js';
 
 export interface SqliteExecutor {
   exec(sql: string): void;
@@ -206,6 +207,7 @@ export class EdgePlatformDb {
     this.sql.exec(schemaSql);
     this.sql.exec(VOICE_SCHEMA_SQL);
     this.sql.exec(LESSON_AUDIO_SCHEMA_SQL);
+    this.sql.exec(PLAYER_SETTINGS_SCHEMA_SQL);
   }
 
   ensureFamilyAndPlayer(params: {

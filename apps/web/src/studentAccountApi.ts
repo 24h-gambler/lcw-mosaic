@@ -26,6 +26,8 @@ export interface PendingSignup {
   /** How the adult signed in: provider ('google' | 'kakao' | 'invite'), a masked hint, who they said they are. */
   signer?: { provider: string; hint: string; attest: AgeAttest | null };
   family_students: Array<{ player_id: string; nickname: string; linked_devices?: number }>;
+  /** The teacher-made student with the same name (one name, one student): the console picks it first. */
+  match?: { player_id: string; nickname: string } | null;
 }
 /** The consenting adult (docs/16 §3): the child's guardian aged 19+, or the student aged 14+ themselves. */
 export type AgeAttest = 'guardian_19' | 'self_14';
@@ -53,7 +55,11 @@ export interface StudentAccountApi {
   attest(g: string, who: AgeAttest): Promise<unknown>;
   guardianDeviceCode(g: string, playerId: string): Promise<{ code: string }>;
   logout(g: string): Promise<unknown>;
-  signup(g: string, nickname: string, label: string): Promise<{ state: 'pending'; signup_id: string; claim_token: string; check: string; expires_at: number }>;
+  signup(
+    g: string,
+    nickname: string,
+    label: string
+  ): Promise<{ state: 'pending'; signup_id: string; claim_token: string; check: string; expires_at: number; teacher_match?: boolean }>;
   linkDevice(code: string, label: string): Promise<DeviceGrant>;
   status(claim: string): Promise<SignupStatus>;
   // teacher (operator token)

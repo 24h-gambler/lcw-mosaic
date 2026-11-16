@@ -60,7 +60,7 @@ export const STUDENT_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
 ];
 
 export const STUDENT_ACCOUNT_SCHEMA = `
-create table if not exists student_signups (id text primary key, family_id text not null, guardian_id text not null, nickname text not null, claim_hash text unique not null, label text not null, created_at integer not null, expires_at integer not null, state text not null, player_id text, decided_at integer, claimed_at integer, device_id text, check_code text not null default '', moved_from text);
+create table if not exists student_signups (id text primary key, family_id text not null, guardian_id text not null, nickname text not null, claim_hash text unique not null, label text not null, created_at integer not null, expires_at integer not null, state text not null, player_id text, decided_at integer, claimed_at integer, device_id text, check_code text not null default '', moved_from text, match_player_id text);
 create index if not exists student_signups_state on student_signups (state, created_at);
 create table if not exists student_failures (k text not null, hour integer not null, n integer not null, primary key (k, hour));
 create table if not exists student_world_seen (player_id text primary key, seen_at integer not null)
@@ -95,6 +95,11 @@ const Nickname = z
   .refine((s) => !/\d{6,}/.test(s), 'no_long_numbers');
 const SignupSchema = z.object({ nickname: Nickname, label: z.string().trim().max(40).default('') }).strict();
 /**
+ * The same name for people (Dan 11-16 14:3x: no two students share a nickname): case, full/half width and spaces,
+ * dots, dashes, underscores are ignored, so 'Oreo', ' oreo', 'ＯＲＥＯ' and 'O-reo' are one name.
+ */
+export const nicknameKey = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[\s._-]+/g, '');
+/**
  * The 4 digits the waiting student screen shows. The console never lists them: the teacher types what the student's
  * screen says, so a stranger's sign-up named 'Oreo' cannot be approved by its name alone.
  */
@@ -108,6 +113,9 @@ const ApproveSchema = z.union([
 
 export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
   d.sql.exec(STUDENT_ACCOUNT_SCHEMA);
+  // A table made before a column was added (production got #76 first): add it once.
+  const signupCols = d.sql.all<{ name: string }>('pragma table_info(student_signups)').map((col) => col.name);
+  if (!signupCols.includes('match_player_id')) d.sql.exec('alter table student_signups add column match_player_id text');
   const app = new Hono();
 
   const hour = () => Math.floor(d.nowMs() / 3_600_000);
@@ -130,6 +138,34 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     familyConsented(familyId) ||
     Boolean(d.sql.get('select 1 from guardian_sessions where family_id = ? limit 1', [familyId])) ||
     Boolean(d.sql.get('select 1 from guardians where family_id = ? and oauth_sub is not null limit 1', [familyId]));
+  /**
+   * Who already has this name: a waiting sign-up or a student with a real guardian → taken; only a teacher-made row
+   * (no guardian yet, like Oreo before the sign-up) → that row, the sign-up waits for the teacher's 4-digit check to
+   * join it. `exceptSignup`: the sign-up being approved does not block itself.
+   */
+  const nameOwner = (nickname: string, exceptSignup = ''): { kind: 'free' } | { kind: 'taken' } | { kind: 'teacher_row'; player_id: string } => {
+    const key = nicknameKey(nickname);
+    const waiting = d.sql
+      .all<{ id: string; nickname: string }>("select id, nickname from student_signups where state = 'pending' and nickname != ''", [])
+      .some((s) => s.id !== exceptSignup && nicknameKey(s.nickname) === key);
+    if (waiting) return { kind: 'taken' };
+    const same = d.sql
+      .all<{ id: string; family_id: string; nickname: string }>("select id, family_id, nickname from players where kind = 'child'", [])
+      .filter((k) => nicknameKey(k.nickname) === key);
+    if (!same.length) return { kind: 'free' };
+    if (same.some((k) => familyHasGuardian(k.family_id))) return { kind: 'taken' };
+    return { kind: 'teacher_row', player_id: same[0]!.id };
+  };
+  /** Up to three free names close to the one asked for ('Oreo' → 'Oreo2', 'Oreo3', …), within the 16-letter limit. */
+  const nameIdeas = (nickname: string): string[] => {
+    const out: string[] = [];
+    const base = nickname.trim();
+    for (let n = 2; n < 100 && out.length < 3; n++) {
+      const idea = `${base.slice(0, 16 - String(n).length)}${n}`;
+      if (nameOwner(idea).kind === 'free') out.push(idea);
+    }
+    return out;
+  };
   const guardianOf = async (req: Request) => {
     const t = bearer(req);
     if (t.length < 32) return null;
@@ -222,6 +258,12 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     const claimHash = await d.sha256Hex(claim);
     const now = d.nowMs();
     sweep(now);
+    // One name, one student. A teacher-made row with this name is not 'taken': the sign-up waits to join it.
+    const owner = nameOwner(p.data.nickname);
+    if (owner.kind === 'taken') {
+      failed(c.req.raw); // counted like a wrong guess, so names cannot be listed by trying them
+      return c.json({ error: 'nickname_taken', suggestions: nameIdeas(p.data.nickname) }, 409);
+    }
     const open = (q: string, a: unknown[]) => d.sql.get<{ n: number }>(q, a)?.n ?? 0;
     if (open("select count(*) as n from student_signups where state = 'pending'", []) >= SIGNUP_MAX_PENDING) return c.json({ error: 'too_many_pending' }, 429);
     if (open('select count(*) as n from student_signups where family_id = ? and created_at > ?', [g.family_id, now - 86_400_000]) >= SIGNUP_PER_FAMILY) {
@@ -229,13 +271,16 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     }
     const id = `sg-${hex(d.randomBytes(6))}`;
     d.sql.run(
-      `insert into student_signups (id, family_id, guardian_id, nickname, claim_hash, label, created_at, expires_at, state, player_id, decided_at, claimed_at, device_id)
-       values (?, ?, ?, ?, ?, ?, ?, ?, 'pending', null, null, null, null)`,
-      [id, g.family_id, g.guardian_id, p.data.nickname, claimHash, p.data.label, now, now + SIGNUP_PENDING_TTL_MS]
+      `insert into student_signups (id, family_id, guardian_id, nickname, claim_hash, label, created_at, expires_at, state, player_id, decided_at, claimed_at, device_id, match_player_id)
+       values (?, ?, ?, ?, ?, ?, ?, ?, 'pending', null, null, null, null, ?)`,
+      [id, g.family_id, g.guardian_id, p.data.nickname, claimHash, p.data.label, now, now + SIGNUP_PENDING_TTL_MS, owner.kind === 'teacher_row' ? owner.player_id : null]
     );
     const check = sixDigits(d.randomBytes(4)).slice(-4);
     d.sql.run('update student_signups set check_code = ? where id = ?', [check, id]);
-    return c.json({ state: 'pending', signup_id: id, claim_token: claim, check, expires_at: now + SIGNUP_PENDING_TTL_MS }, 201);
+    return c.json(
+      { state: 'pending', signup_id: id, claim_token: claim, check, expires_at: now + SIGNUP_PENDING_TTL_MS, teacher_match: owner.kind === 'teacher_row' },
+      201
+    );
   });
 
   /** The waiting device polls with its claim token. Once approved, the first poll gets the device token (once). */
@@ -265,9 +310,14 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
   app.get('/v1/admin/student-signups', (c) => {
     sweep(d.nowMs());
     const now = d.nowMs();
-    const rows = d.sql.all<{ id: string; nickname: string; created_at: number; expires_at: number; family_id: string; guardian_id: string }>(
-      "select id, nickname, created_at, expires_at, family_id, guardian_id from student_signups where state = 'pending' order by created_at"
+    const rows = d.sql.all<{ id: string; nickname: string; created_at: number; expires_at: number; family_id: string; guardian_id: string; match_player_id: string | null }>(
+      "select id, nickname, created_at, expires_at, family_id, guardian_id, match_player_id from student_signups where state = 'pending' order by created_at"
     );
+    /** The teacher-made row this name matched, while it is still one (no guardian took it meanwhile). */
+    const matchOf = (pid: string | null) => {
+      const k = pid ? d.sql.get<{ id: string; family_id: string; nickname: string }>('select id, family_id, nickname from players where id = ?', [pid]) : null;
+      return k && !familyHasGuardian(k.family_id) ? { player_id: k.id, nickname: k.nickname } : null;
+    };
     // Who signed (provider, masked hint, age statement) so a stranger typing 'Oreo' is not linked by the name alone;
     // students already in the signing family (e.g. a sibling) with their signed-in devices.
     return c.json({
@@ -277,6 +327,7 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
         created_at: r.created_at,
         expires_at: r.expires_at,
         signer: { ...signerOf(r.guardian_id), attest: attestOf(r.family_id) },
+        match: matchOf(r.match_player_id),
         family_students: d.sql
           .all<{ id: string; nickname: string }>('select id, nickname from players where family_id = ? order by nickname', [r.family_id])
           .map((k) => ({ player_id: k.id, nickname: k.nickname, linked_devices: devicesOf(k.id, now) }))
@@ -315,6 +366,8 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
       }
       playerId = row.id;
     } else {
+      // A new student under this name: someone may have taken it since the sign-up (or it matched a teacher row).
+      if (nameOwner(s.nickname, s.id).kind !== 'free') return c.json({ error: 'nickname_taken' }, 409);
       playerId = `stu-${hex(d.randomBytes(4))}`;
       d.db.ensureFamilyAndPlayer({ familyId: s.family_id, guardianId: s.guardian_id, playerId, nickname: s.nickname, level: p.data.new_student.level, nowMs: now });
     }

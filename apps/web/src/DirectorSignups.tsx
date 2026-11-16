@@ -143,7 +143,7 @@ export function SignupQueue(props: SignupQueueProps): React.ReactElement | null 
                   </p>
                 ) : s.name_taken ? (
                   <p style={small} data-testid="signup-name-taken">
-                    {Q.nameTakenNow(s.nickname)}
+                    {Q.nameTakenNow(s.nickname, s.taken_by ? `${s.taken_by.nickname} (${s.taken_by.player_id})` : undefined)}
                   </p>
                 ) : null}
               </div>

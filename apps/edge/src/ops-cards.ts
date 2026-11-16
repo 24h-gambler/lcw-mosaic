@@ -17,8 +17,11 @@ import type { SqliteExecutor } from './storage.js';
 
 export const OPS_CARD_SCHEMA = `
 create table if not exists ops_card_outbox (ref text primary key, card text not null, created_at integer not null, updated_at integer not null, acked_at integer, spine_id text);
-create index if not exists ops_card_outbox_pending on ops_card_outbox (acked_at, updated_at)
+create index if not exists ops_card_outbox_pending on ops_card_outbox (acked_at, updated_at);
+create index if not exists utterances_by_time on utterances (created_at)
 `;
+// utterances_by_time: the hourly enqueueRecentStudentDays reads the last two hours of every student; without it each
+// hour scans the whole table. utterances exists by then (storage.ts schema, lesson-mode.ts indexes it before mounting).
 
 /** The spine source the watch has always used for LCW cards (tools/lesson-watch.mjs CARD_SOURCE). */
 export const OPS_CARD_SOURCE = 'outsourcing';

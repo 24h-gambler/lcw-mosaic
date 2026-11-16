@@ -152,4 +152,17 @@ describe('hub cards from the server (ops-cards.ts outbox)', () => {
     expect(r.body.detail.student_cards).toBe(0);
     expect((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards).toEqual([]);
   });
+
+  it('speech at 23:59 KST goes on that day\'s card when the 00:00 cron runs (the two-hour look back)', async () => {
+    let now = Date.parse('2026-11-16T23:59:00+09:00');
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const p = platform();
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-o', guardian_id: 'g-o', player_id: 'kid-o', nickname: 'Ollie', level: 'L1' });
+    await lessonWithSpeech(p, 1);
+    now = Date.parse('2026-11-17T00:00:00+09:00');
+    const r = await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, { 'x-lcw-internal': 'cron', 'content-type': 'application/json' });
+    expect(r.body.detail.student_cards).toBe(1);
+    const refs = ((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards as Array<{ ref: string }>).map((c) => c.ref);
+    expect(refs).toEqual([`${OPS_CARD_SOURCE}:lcw:student:kid-o:2026-11-16`]);
+  });
 });

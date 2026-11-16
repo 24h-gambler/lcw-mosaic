@@ -422,10 +422,11 @@ export function pickRepairCard(
   playerId: string,
   itemId: string,
   nowMs: number
-): { ok: true; sign: ReviewSign } | { ok: false; status: 404 | 409; error: 'item_not_found' | 'not_due' } {
+): { ok: true; sign: ReviewSign } | { ok: false; status: 404 | 409; error: 'item_not_found' | 'not_due' | 'already_mastered' } {
   if (!world || !ownedThings(world, playerId).some((r) => r.id === itemId)) return { ok: false, status: 404, error: 'item_not_found' };
   const rows = listMemoryCards(db, playerId).filter((r) => r.item_id === itemId);
   if (rows.length === 0) return { ok: false, status: 404, error: 'item_not_found' };
+  if (rows.every((r) => r.mastered_at !== null)) return { ok: false, status: 409, error: 'already_mastered' };
   const due = selectRepairPickCards(rows.map(toState), new Set([itemId]), nowMs);
   if (due.length === 0) return { ok: false, status: 409, error: 'not_due' };
   const sign = signOf(db, rows.find((r) => r.id === due[0]!.id)!, due[0]!, nowMs);

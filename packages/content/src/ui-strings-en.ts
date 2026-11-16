@@ -90,6 +90,10 @@ export const UI_STRINGS_EN: UiStrings = {
     priceAria: '{coins} coins',
     freePrompt: 'Say what you want in English. Mixing in Korean is OK!',
     ideas: 'You can also say',
+    followUpHint: 'Answer in your own English. Short is OK!',
+    followUpSkip: 'Next',
+    openAnswerOk: 'Nice answer!',
+    openAnswerShort: 'Can you say a little more?',
     coins: 'Coins',
     stars: 'Stars',
     hintLevel: {
@@ -130,7 +134,12 @@ export const UI_STRINGS_EN: UiStrings = {
     goalDone: 'Errand done! You got 50 coins',
     walkCafe: 'Walk to the cafe',
     walkGiver: 'Go to {giver}',
-    rewardToast: '+{coins} coins! Errand done'
+    rewardToast: '+{coins} coins! Errand done',
+    goalAskWay: 'Ask {guide} in the plaza the way to the trade shop',
+    goalTrade: 'Trade or buy something from {shop} at the trade shop',
+    goalThreeStars: 'Order at the honey cafe from {cafe} with a ★★★ sentence',
+    goalTourDone: 'You have seen the whole town! Talk to anyone you like',
+    goalStepToast: 'Goal done! You have a new goal'
   },
   review: {
     dockTitle: 'Things to fix',

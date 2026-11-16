@@ -305,17 +305,17 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
         // The signing family's own child (added after the sign-up): linking there is allowed, so it is the match.
         if (by && by.family_id === familyId) {
           // Two own children with the name: the teacher picks (never a guess).
-          if (names.ownChildren(nickname, familyId).length > 1) return { match: null, match_ambiguous: true, name_taken: false };
+          if (names.ownChildren(nickname, familyId).length > 1) return { match: null, match_own_family: false, match_ambiguous: true, name_taken: false };
           return { match: { player_id: by.id, nickname: by.nickname }, match_own_family: true, match_ambiguous: false, name_taken: false };
         }
         // Someone else holds it: point at that student so the teacher does not pick them (player_has_guardian);
         // taken_by null = another waiting sign-up has the name.
-        return { match: null, match_ambiguous: false, name_taken: true, taken_by: by ? { player_id: by.id, nickname: by.nickname } : null };
+        return { match: null, match_own_family: false, match_ambiguous: false, name_taken: true, taken_by: by ? { player_id: by.id, nickname: by.nickname } : null };
       }
-      if (o.kind !== 'teacher_row') return { match: null, match_ambiguous: false, name_taken: false };
-      if (!o.player_id) return { match: null, match_ambiguous: true, name_taken: false };
+      if (o.kind !== 'teacher_row') return { match: null, match_own_family: false, match_ambiguous: false, name_taken: false };
+      if (!o.player_id) return { match: null, match_own_family: false, match_ambiguous: true, name_taken: false };
       const k = d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [o.player_id]);
-      return { match: k ? { player_id: o.player_id, nickname: k.nickname } : null, match_ambiguous: false, name_taken: false };
+      return { match: k ? { player_id: o.player_id, nickname: k.nickname } : null, match_own_family: false, match_ambiguous: false, name_taken: false };
     };
     // Who signed (provider, masked hint, age statement) so a stranger typing 'Oreo' is not linked by the name alone;
     // students already in the signing family (e.g. a sibling) with their signed-in devices.

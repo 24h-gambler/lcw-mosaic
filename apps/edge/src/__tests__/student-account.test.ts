@@ -268,8 +268,10 @@ describe('student sign-up on the guardian account (student-account.ts)', () => {
     expect((await call(p, 'POST', '/v1/family/children', { nickname: 'Momo', birth_year: 2015 }, bearer(g))).status).toBe(201);
     expect((await call(p, 'POST', '/v1/family/children', { nickname: 'Momo', birth_year: 2017 }, bearer(g))).status).toBe(201);
     const row = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'momo');
-    expect(row).toMatchObject({ match: null, match_ambiguous: true, name_taken: false });
+    expect(row).toMatchObject({ match: null, match_own_family: false, match_ambiguous: true, name_taken: false });
     expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'MOMO' }, bearer(g))).body).toEqual({ error: 'nickname_own_child', player_id: null, nickname: 'Momo' });
+    // every console row has the same fields (one shape for the screen)
+    for (const s of (await call(p, 'GET', '/v1/admin/student-signups')).body.signups) expect(typeof s.match_own_family).toBe('boolean');
 
     // A family whose guardian marks all went (consent withdrawn, sessions ended, sign-in unlinked): its sign-up still
     // matches its own child, not 'nobody' or 'someone else'.

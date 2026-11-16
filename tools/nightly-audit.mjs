@@ -37,6 +37,13 @@ export const SITE_ROUTES = ['/', '/parents', '/play', '/tutoring', '/pricing', '
 /** apps/web/src/lessonApi.ts OPERATOR_TOKEN_KEY: where the console keeps the operator key. */
 export const OPERATOR_KEY_STORAGE = 'lcw.operatorToken';
 const MARK_WAIT_MS = 20000;
+/**
+ * One route at one size never takes longer than this. page.evaluate and page.screenshot have no limit of their own: on
+ * a starved machine the 3D world's main thread (software WebGL) blocked an evaluate and the whole audit ran into the
+ * task's one-hour limit with one screenshot taken (first run 11-16 19:39). Past the limit the context is closed, which
+ * rejects whatever was pending, and the route is recorded as a timeout (a done route then gets its second look).
+ */
+export const ROUTE_LIMIT_MS = 90_000;
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);
@@ -159,8 +166,9 @@ async function waitMarks(page, markers, ms) {
 }
 
 /** Opens one route at one size and reads it. `token` signs the console in (operator key in localStorage). */
-async function openOnce(browser, base, out, p, vp, { token = null, markers = p.expect, tag = vp.name } = {}) {
+async function openOnce(browser, base, out, p, vp, { token = null, markers = p.expect, tag = vp.name, hold = {} } = {}) {
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile, deviceScaleFactor: 1 });
+  hold.ctx = ctx;
   if (token) await ctx.addInitScript(([k, v]) => { try { localStorage.setItem(k, v); } catch {} }, [OPERATOR_KEY_STORAGE, token]);
   const page = await ctx.newPage();
   const consoleErrors = [];
@@ -193,8 +201,32 @@ async function openOnce(browser, base, out, p, vp, { token = null, markers = p.e
   r.internalIds = [...new Set((r.text ?? '').match(INTERNAL_ID_RE) ?? [])].slice(0, 10);
   delete r.text;
   delete r.meta;
-  await ctx.close();
+  await ctx.close().catch(() => {});
   return r;
+}
+
+/**
+ * openOnce under ROUTE_LIMIT_MS (see there). `run` is the opener (openOnce in the audit, a fake in tests); it gets a
+ * `hold` object to put its context in, so a run past the limit can be cut by closing that context.
+ */
+export async function withRouteLimit(run, { route, tag, limitMs = ROUTE_LIMIT_MS, graceMs = 5000, log = () => {} }) {
+  const hold = {};
+  const t0 = Date.now();
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), limitMs);
+  });
+  const work = run(hold).catch((e) => ({ route, size: tag, status: 0, error: String(e?.message ?? e).slice(0, 200) }));
+  const first = await Promise.race([work, late]);
+  clearTimeout(timer);
+  if (first !== 'timeout') {
+    log(`${route} ${tag} ${Date.now() - t0}ms`);
+    return first;
+  }
+  await hold.ctx?.close().catch(() => {});
+  await Promise.race([work, new Promise((r) => setTimeout(r, graceMs))]);
+  log(`${route} ${tag} timeout after ${limitMs}ms`);
+  return { route, size: tag, status: 0, error: `route_timeout ${limitMs}ms`, consoleErrors: [], pageErrors: [], httpErrors: [], banned: [], internalIds: [] };
 }
 
 const missed = (r, markers) => Boolean(r.error) || !(r.status > 0 && r.status < 400) || markers.some((m) => r.marks && r.marks[m] === false);
@@ -215,22 +247,27 @@ export async function audit({ base, out, chromium, token = process.env.LCW_OPERA
     args: ['--mute-audio', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']
   });
   const results = [];
+  // one progress line per route on stderr: the runner keeps it in its log, so a slow night shows where the time went
+  const log = (line) => console.error(`[audit ${new Date().toISOString().slice(11, 19)}] ${line}`);
+  const open = (p, vp, opts = {}) =>
+    withRouteLimit((hold) => openOnce(browser, base, out, p, vp, { ...opts, hold }), { route: p.route, tag: opts.tag ?? vp.name, log });
   try {
     for (const p of plan) {
       const doneHere = p.who.some((w) => w.status === 'done');
       for (const vp of VIEWPORTS) {
-        let r = await openOnce(browser, base, out, p, vp);
+        let r = await open(p, vp);
         // a done screen gets a second look before it is called a regression (slow first paint, a cold Worker)
         if (doneHere && missed(r, p.expect)) {
-          const again = await openOnce(browser, base, out, p, vp);
+          const again = await open(p, vp);
           again.retried = true;
           r = again;
         }
         results.push(r);
       }
       if (token && p.auth === 'operator' && p.authExpect.length) {
-        let r = await openOnce(browser, base, out, p, VIEWPORTS[0], { token, markers: p.authExpect, tag: 'key' });
-        if (missed(r, p.authExpect)) r = { ...(await openOnce(browser, base, out, p, VIEWPORTS[0], { token, markers: p.authExpect, tag: 'key' })), retried: true };
+        const opts = { token, markers: p.authExpect, tag: 'key' };
+        let r = await open(p, VIEWPORTS[0], opts);
+        if (missed(r, p.authExpect)) r = { ...(await open(p, VIEWPORTS[0], opts)), retried: true };
         results.push(r);
       }
     }

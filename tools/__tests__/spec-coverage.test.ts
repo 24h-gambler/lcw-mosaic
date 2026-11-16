@@ -6,7 +6,7 @@ import { checkCoverage, parseTestRef, runCheck, specWordsLost, testExists } from
 // @ts-expect-error plain .mjs tools without types
 import { brokenRefs, specIds } from '../spec-ids.mjs';
 // @ts-expect-error plain .mjs tools without types
-import { auditPlan, frameOutliers, PAGE_FUNCTIONS, summarize } from '../nightly-audit.mjs';
+import { auditPlan, frameOutliers, PAGE_FUNCTIONS, summarize, withRouteLimit } from '../nightly-audit.mjs';
 import { readFileSync } from 'node:fs';
 import { FEATURE_IDS } from '../../apps/web/src/site/featureStatus';
 import coverageFile from '../../docs/spec-coverage.json';
@@ -276,5 +276,25 @@ describe('nightly audit joins production screens with the list', () => {
     expect(ok.regressions).toEqual([]);
     const bad = summarize({ base: 'x', sha: 's', plan, coverage: cov, check, results: [anon, { route: '/director', size: 'key', signedIn: true, status: 200, marks: { 'testid:director-plan': false }, pageErrors: [] }] });
     expect(bad.regressions.map((r: { id: string; sizes: string[] }) => `${r.id}:${r.sizes.join('')}`)).toEqual(['T01:key']);
+  });
+});
+
+describe('nightly audit: one route never holds the whole night (first run 11-16 hit the one-hour task limit)', () => {
+  it('a route past its limit is recorded as a timeout and its browser context is closed; a quick one passes through', async () => {
+    let closed = 0;
+    const lines: string[] = [];
+    const stuck = (hold: { ctx?: unknown }) => {
+      hold.ctx = { close: async () => void closed++ };
+      return new Promise(() => {}); // an evaluate on a starved 3D page that never answers
+    };
+    const r = await withRouteLimit(stuck, { route: '/world/', tag: 'm', limitMs: 50, graceMs: 20, log: (l: string) => lines.push(l) });
+    expect(r.error).toMatch(/^route_timeout/);
+    expect(r.status).toBe(0);
+    expect(closed).toBe(1);
+    expect(lines[0]).toContain('/world/ m timeout');
+    const ok = await withRouteLimit(async () => ({ route: '/', size: 'd', status: 200 }), { route: '/', tag: 'd', limitMs: 1000 });
+    expect(ok).toEqual({ route: '/', size: 'd', status: 200 });
+    const thrown = await withRouteLimit(async () => { throw new Error('net::ERR_CONNECTION_RESET'); }, { route: '/x', tag: 'd', limitMs: 1000 });
+    expect(thrown.error).toContain('ERR_CONNECTION_RESET');
   });
 });

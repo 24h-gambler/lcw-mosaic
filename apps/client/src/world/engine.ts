@@ -1857,6 +1857,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       full() {
         hud.bubble('player', '', W.roomFull, { me: true }, performance.now());
       },
+      replaced() {
+        hud.bubble('player', '', W.roomReplaced, { me: true }, performance.now());
+      },
       reset() {
         peers.clear();
         syncTeacherFigure();

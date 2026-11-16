@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlatformDO, type LcwEnv } from '../platform.js';
 import type { OAuthIdentity } from '../oauth.js';
-import { OPERATOR_SESSION_PREFIX, allowList, teacherRoleHandler } from '../operator-login.js';
+import { OPERATOR_SESSION_PREFIX, OP_SESSION_HEADER, allowList, teacherRoleHandler } from '../operator-login.js';
 import { fakeDurableStorage } from './fake-do.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
@@ -110,5 +110,35 @@ describe('teacher account (operator-login.ts on the shared OAuth module)', () =>
     const k = await call(p, 'GET', '/v1/admin/operator-sessions', undefined, { ...op, 'x-lcw-op-session': 'ops-x' });
     expect(k.status).toBe(200);
     expect(k.body.me).toBeNull();
+  });
+});
+
+describe('the teacher in the world (room.ts seat keys, docs/02 §11)', () => {
+  const seat = async (p: PlatformDO, h: Record<string, string>) => {
+    const t = await call(p, 'POST', '/v1/room/ticket', { room: 'lesson-abc', key: 'forged' }, h);
+    const r = await p.fetch(
+      new Request('https://platform/internal/room-ticket', {
+        method: 'POST',
+        headers: { 'x-lcw-internal': 'room', 'content-type': 'application/json' },
+        body: JSON.stringify({ ticket: t.body.ticket })
+      })
+    );
+    return (await r.json()) as { key: string; role: string };
+  };
+
+  it('each sign-in has its own seat: two teachers never replace each other, two tabs of one do', async () => {
+    const p = platform();
+    const a = bearer(await signIn(p));
+    const b = bearer(await signIn(p, 'second@example.com'));
+    const a1 = await seat(p, a);
+    const a2 = await seat(p, a);
+    const b1 = await seat(p, b);
+    expect(a1).toMatchObject({ key: expect.stringMatching(/^op:s:ops-[0-9a-f]+$/), role: 'teacher' });
+    expect(a2.key).toBe(a1.key);
+    expect(b1.key).not.toBe(a1.key);
+    expect(b1.key.startsWith('op:s:')).toBe(true);
+    // the ops key (no session) and a forged session header both sit in the one shared operator seat
+    expect((await seat(p, op)).key).toBe('operator');
+    expect((await seat(p, { ...op, [OP_SESSION_HEADER]: 'ops-aaaaaaaaaaaa' })).key).toBe('operator');
   });
 });

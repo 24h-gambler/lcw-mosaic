@@ -21,6 +21,8 @@ export interface RoomSink {
   pose(id: string, x: number, y: number, z: number, yaw: number, anim: number): void;
   emote(id: string, e: string): void;
   full(cap: number): void;
+  /** this person opened the world in another tab, which now holds the seat (close 4009): this tab stays alone */
+  replaced?(): void;
   /** every peer gone (socket closed): the figures are removed until the next hello */
   reset(): void;
 }
@@ -60,7 +62,7 @@ const NO_TOKEN_RETRY_MS = 10_000;
 /** this token has no room (401): ask again rarely (a new lesson token may arrive) */
 const NO_ROOM_RETRY_MS = 300_000;
 
-export type RoomStatus = 'off' | 'connecting' | 'in' | 'full' | 'none';
+export type RoomStatus = 'off' | 'connecting' | 'in' | 'full' | 'none' | 'replaced';
 
 export class RoomClient {
   status: RoomStatus = 'off';
@@ -115,6 +117,15 @@ export class RoomClient {
     }
     this.o.sink.reset();
     this.status = 'off';
+  }
+
+  /** Take the seat back after another tab of the same person took it (that tab then gets 4009 in turn). */
+  takeOver(): void {
+    if (this.stopped || this.status !== 'replaced') return;
+    this.retry = 0;
+    this.cancel(this.timer);
+    this.timer = null;
+    void this.connect();
   }
 
   private schedule(ms: number): void {
@@ -197,9 +208,11 @@ export class RoomClient {
         this.status = 'full';
         return this.schedule(FULL_RETRY_MS);
       }
-      // replaced by this person's newer tab: that tab is the one in the room now
+      // replaced by this person's newer tab: that tab is the one in the room now. No retry (two tabs would keep
+      // kicking each other); takeOver() brings the seat back here when the person comes back to this tab.
       if (ev.code === 4009) {
-        this.status = 'off';
+        this.status = 'replaced';
+        this.o.sink.replaced?.();
         return;
       }
       this.status = 'connecting';

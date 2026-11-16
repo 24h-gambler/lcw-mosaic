@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { OPERATOR_TOKEN_KEY, TEACHER_NAME_KEY, teachFrom, teachTicketBody } from '../TeacherBar.js';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { OPERATOR_TOKEN_KEY, TEACHER_NAME_KEY, TS, TeacherBar, teachFrom, teachTicketBody } from '../TeacherBar.js';
+import type { WorldHandle } from '../api.js';
 import { startFlowFor } from '../../App.js';
 
 const store = (m: Record<string, string>) => ({ getItem: (k: string) => m[k] ?? null });
@@ -23,5 +26,17 @@ describe('teacher in the world (?teach=, docs/02 §11)', () => {
 
   it('goes straight into the world (no title screen)', () => {
     expect(startFlowFor('?teach=les-1', false)).toBe(false);
+  });
+
+  it('another tab of this teacher holding the seat shows here with a way back', () => {
+    const world = { getStats: () => ({ peers: 0 }) } as unknown as WorldHandle;
+    const session = { lessonId: 'les-1', token: 'x'.repeat(40), name: null };
+    const html = (status: string) =>
+      renderToStaticMarkup(React.createElement(TeacherBar, { world, session, room: { status, takeOver: () => undefined } }));
+    expect(html('replaced')).toContain(TS.replaced);
+    expect(html('replaced')).toContain(TS.takeOver);
+    expect(html('replaced')).not.toContain(TS.goNear);
+    expect(html('in')).not.toContain(TS.takeOver);
+    expect(html('in')).toContain(TS.goNear);
   });
 });

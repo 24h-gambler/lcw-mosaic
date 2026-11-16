@@ -56,7 +56,7 @@ NPC id·ctx (대화 뱅크가 `npc.ctx`로 찾는 값):
 | `shop_owner` | 상점 주인 토비 (Toby) | `trade_shop` | trade_shop |
 | `errand_neighbor` | 이웃 미아 (Mia, 아이) | `errand` | honey_cafe (카페 문 앞) |
 
-이름·한국어 표시명·목소리는 target_lang 별 배역 팩 `packages/content/src/npc-cast.ts`(`npcCast(lang)`, `npcPersona(id, lang)`) 한 곳에서 옵니다. 월드 이름표·대화창 머리·목표 문구(`{giver}`/`{cafe}`)·복습 대화가 모두 이 팩을 읽고, 새 언어는 그 언어 원어민 이름과 목소리를 담은 팩을 더합니다(id 는 언어와 무관). 팩의 `voice`(NPC별)·`modelVoice`(아이가 따라 말할 모범 문장)는 신경망 목소리(docs/04 4.8, `/v1/tts`)가 씁니다 — 영어 팩은 루나 athena · 해나 hera · 토비 arcas · 미아 stella · 모범 luna.
+이름·한국어 표시명·목소리는 target_lang 별 배역 팩 `packages/content/src/npc-cast.ts`(`npcCast(lang)`, `npcPersona(id, lang)`) 한 곳에서 옵니다. 월드 이름표·대화창 머리·목표 문구(`{giver}`/`{cafe}`)·복습 대화가 모두 이 팩을 읽고, 새 언어는 그 언어 원어민 이름과 목소리를 담은 팩을 더합니다(id 는 언어와 무관). 팩의 `voice`(NPC별)·`modelVoice`(아이가 따라 말할 모범 문장)는 신경망 목소리(docs/04 4.8, `/v1/tts`)가 씁니다 — 영어 팩(aura-2)은 루나 athena · 해나 hera · 토비 apollo · 미아 delia · 모범 luna.
 
 월드 도메인은 첫 PR에서 이 인터페이스를 (내용이 단순하더라도) 먼저 머지해 다른 도메인이 붙을 수 있게 합니다.
 

@@ -10,8 +10,11 @@ import { readStudentToken } from './submit.js';
  */
 
 export const NEURAL_VOICE = {
-  /** A line not here by then is read by the device voice instead (measured: new line ~0.4-1.1 s, cached ~0.1 s). */
-  waitMs: 1500,
+  /**
+   * A line not here by then is read by the device voice instead. Aura-2 makes a new line in 1.3-2.3 s (measured
+   * 11-16), a cached one comes in ~0.1 s; NPC lines are prebuilt, so this only covers a first-time model sentence.
+   */
+  waitMs: 4000,
   /** Lines kept in memory (the dialog prefetches its NPC line and offers). */
   cacheLines: 24,
   /**
@@ -49,9 +52,15 @@ export function neuralVoiceStatus(base = '', fetchImpl: typeof fetch = (i, init)
   return statusP;
 }
 
-/** Sync view: true only once the server said on (the first line of a session may still be the device voice). */
+/** Sync view: true only once the server said on. */
 export function neuralVoiceOn(): boolean {
   return statusKnown === true;
+}
+
+/** true / false once the server answered (or `?voice=device`), null while unknown. */
+export function neuralVoiceStatusKnown(): boolean | null {
+  if (override() === 'device') return false;
+  return statusKnown;
 }
 
 /** Test seam. */

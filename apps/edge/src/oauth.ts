@@ -40,7 +40,7 @@ const SKEW_S = 60;
 
 /** Where each role may land after sign-in; the first is the default (anything else asked for → the default). */
 export const OAUTH_DEFAULT_RETURNS: Record<OAuthRole, readonly string[]> = {
-  guardian: ['/family', '/signup', '/dashboard'],
+  guardian: ['/family', '/signup'],
   teacher: ['/director']
 };
 
@@ -206,12 +206,17 @@ async function providerKeys(provider: OAuthProvider, jwksUrl: string, fetchFn: F
   // An unknown kid on an unauthenticated route must not turn every request into a provider fetch.
   if (force && c?.forcedAt !== undefined && nowMs - c.forcedAt < FORCED_KEY_FETCH_GAP_MS) return c.keys;
   let res: Response;
+  // A failed forced fetch counts too, or every unknown kid would try again.
+  const keepOld = () => {
+    if (force) keyCache.set(provider, { keys: c?.keys ?? [], until: c?.until ?? 0, forcedAt: nowMs });
+    return c?.keys ?? [];
+  };
   try {
     res = await fetchFn(jwksUrl);
   } catch {
-    return c?.keys ?? [];
+    return keepOld();
   }
-  if (!res.ok) return c?.keys ?? [];
+  if (!res.ok) return keepOld();
   const body = (await res.json().catch(() => ({}))) as { keys?: Jwk[] };
   const maxAge = Number(/max-age=(\d+)/.exec(res.headers.get('cache-control') ?? '')?.[1] ?? 0);
   const keys = Array.isArray(body.keys) ? body.keys : [];
@@ -255,6 +260,8 @@ export async function verifyIdToken(
   if (!spec.issuers.has(String(claims.iss))) return null;
   const aud = claims.aud;
   if (!(aud === clientId || (Array.isArray(aud) && aud.includes(clientId)))) return null;
+  // Several audiences: the token must have been issued to us (OIDC core 3.1.3.7).
+  if (Array.isArray(aud) && aud.length > 1 && claims.azp !== clientId) return null;
   if (typeof claims.exp !== 'number' || claims.exp + SKEW_S < now) return null;
   if (typeof claims.iat === 'number' && claims.iat - SKEW_S > now) return null;
   if (opts.nonce !== undefined && claims.nonce !== opts.nonce) return null;
@@ -393,7 +400,8 @@ export interface OAuthDeps {
   publicOrigin?: string;
 }
 
-const COOKIE = (p: OAuthProvider) => `lcw_oauth_${p}`;
+/** Per-provider state cookie; `__Host-` so no sibling subdomain can plant a state of its own. */
+const COOKIE = (p: OAuthProvider) => `__Host-lcw_oauth_s_${p}`;
 const cookieOf = (req: Request, name: string) => {
   for (const part of (req.headers.get('cookie') ?? '').split(/;\s*/)) {
     const i = part.indexOf('=');
@@ -414,7 +422,7 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
     return asked && allowed.includes(asked) ? asked : allowed[0]!;
   };
   const back = (c: Context, returnTo: string, error: string, provider?: OAuthProvider) => {
-    if (provider) c.header('set-cookie', `${COOKIE(provider)}=; Path=/v1/oauth/${provider}; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+    if (provider) c.header('set-cookie', `${COOKIE(provider)}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
     c.header('cache-control', 'no-store');
     c.header('referrer-policy', 'no-referrer');
     return c.redirect(`${returnTo}#oauth_error=${error}`, 302);
@@ -468,7 +476,7 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
       code_challenge_method: 'S256'
     });
     if (provider === 'google') q.set('prompt', 'select_account');
-    c.header('set-cookie', `${COOKIE(provider)}=${state}; Path=/v1/oauth/${provider}; HttpOnly; Secure; SameSite=Lax; Max-Age=${OAUTH_STATE_TTL_MS / 1000}`);
+    c.header('set-cookie', `${COOKIE(provider)}=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${OAUTH_STATE_TTL_MS / 1000}`);
     c.header('cache-control', 'no-store');
     c.header('referrer-policy', 'no-referrer');
     return c.redirect(`${spec.authorize}?${q}`, 302);
@@ -488,7 +496,8 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
           )
         : undefined;
     if (!row || row.provider !== provider || row.used_at !== null || row.expires_at <= now || !d.roles[row.role]) {
-      return back(c, '/family', 'state_mismatch', provider);
+      // The cookie stays: a stray callback link must not cut a sign-in that is still in progress in this browser.
+      return back(c, '/family', 'state_mismatch');
     }
     d.sql.run('update oauth_states set used_at = ? where state_hash = ?', [now, row.state_hash]);
     const returnTo = row.return_to;
@@ -530,7 +539,9 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
     const path = hashAt >= 0 ? r.redirect.slice(0, hashAt) : r.redirect;
     const result = hashAt >= 0 ? r.redirect.slice(hashAt + 1) : '';
     const handoff = hex(d.randomBytes(16));
-    const browser = hex(d.randomBytes(16));
+    // One browser id per browser, reused: two tabs signing in at once each keep a working code.
+    const had = cookieOf(c.req.raw, OAUTH_HANDOFF_COOKIE);
+    const browser = /^[0-9a-f]{32}$/.test(had) ? had : hex(d.randomBytes(16));
     d.sql.run('insert into oauth_handoffs (code_hash, browser_hash, result, created_at, expires_at, used_at) values (?, ?, ?, ?, ?, null)', [
       await sha256Hex(handoff),
       await sha256Hex(browser),
@@ -538,7 +549,7 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
       now,
       now + OAUTH_HANDOFF_TTL_MS
     ]);
-    c.header('set-cookie', `${COOKIE(provider)}=; Path=/v1/oauth/${provider}; HttpOnly; Secure; SameSite=Lax; Max-Age=0`, { append: true });
+    c.header('set-cookie', `${COOKIE(provider)}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`, { append: true });
     c.header('set-cookie', `${OAUTH_HANDOFF_COOKIE}=${browser}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${OAUTH_HANDOFF_TTL_MS / 1000}`, { append: true });
     c.header('cache-control', 'no-store');
     c.header('referrer-policy', 'no-referrer');
@@ -568,7 +579,9 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
     const r = await d.roles[role]!(identity, { ticket, nowMs: now, via: 'credential', returnTo: returnFor(role, p.data.return) });
     c.header('cache-control', 'no-store');
     if ('error' in r) return c.json({ error: r.error }, (r.status ?? 403) as 400 | 401 | 403 | 409);
-    return c.json(r);
+    // Same shape the redirect flow's exchange gives: where to go, and the result kept out of that URL.
+    const at = r.redirect.indexOf('#');
+    return c.json({ redirect: at >= 0 ? r.redirect.slice(0, at) : r.redirect, result: at >= 0 ? r.redirect.slice(at + 1) : '' });
   });
 
   /** The page back from a provider trades `#oauth=<code>` for the result (`g=<token>`, `linked=<provider>`, …). */
@@ -577,18 +590,17 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
     c.header('cache-control', 'no-store');
     if (!p.success) return c.json({ error: 'invalid' }, 400);
     const browser = cookieOf(c.req.raw, OAUTH_HANDOFF_COOKIE);
+    if (!/^[0-9a-f]{32}$/.test(browser)) return c.json({ error: 'handoff_invalid' }, 400);
+    const codeHash = await sha256Hex(p.data.code);
+    const browserHash = await sha256Hex(browser);
+    // From here to the update there is no await: the read and the spend are one step in the Durable Object.
     const now = d.nowMs();
-    const row = /^[0-9a-f]{32}$/.test(browser)
-      ? d.sql.get<{ code_hash: string; browser_hash: string; result: string; expires_at: number; used_at: number | null }>(
-          'select * from oauth_handoffs where code_hash = ?',
-          [await sha256Hex(p.data.code)]
-        )
-      : undefined;
-    if (!row || row.used_at !== null || row.expires_at <= now || row.browser_hash !== (await sha256Hex(browser))) {
-      return c.json({ error: 'handoff_invalid' }, 400);
-    }
+    const row = d.sql.get<{ code_hash: string; browser_hash: string; result: string; expires_at: number; used_at: number | null }>(
+      'select * from oauth_handoffs where code_hash = ?',
+      [codeHash]
+    );
+    if (!row || row.used_at !== null || row.expires_at <= now || row.browser_hash !== browserHash) return c.json({ error: 'handoff_invalid' }, 400);
     d.sql.run('update oauth_handoffs set used_at = ? where code_hash = ?', [now, row.code_hash]);
-    c.header('set-cookie', `${OAUTH_HANDOFF_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
     return c.json({ result: row.result });
   });
 

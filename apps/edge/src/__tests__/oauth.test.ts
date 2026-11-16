@@ -92,7 +92,7 @@ async function signIn(
   const loc = new URL(start.headers.get('location')!, 'https://lcw.test');
   if (!loc.href.startsWith(PROVIDER_SPECS[prov].authorize)) return { start, cb: null as any, location: loc.pathname + loc.hash };
   const state = loc.searchParams.get('state')!;
-  const cookie = /lcw_oauth_\w+=([0-9a-f]+)/.exec(start.headers.get('set-cookie') ?? '')?.[1];
+  const cookie = /__Host-lcw_oauth_s_\w+=([0-9a-f]+)/.exec(start.headers.get('set-cookie') ?? '')?.[1];
   const code = `code-${Math.random().toString(16).slice(2)}`;
   codes.set(code, {
     claims: claimsFor(prov, sub, loc.searchParams.get('nonce')!, tweak.claims),
@@ -101,7 +101,7 @@ async function signIn(
     signer: tweak.signer
   });
   const qs = tweak.error ? `error=${tweak.error}&state=${state}` : `code=${code}&state=${state}`;
-  const c: Record<string, string> = tweak.cookie === null ? {} : { cookie: `other=1; lcw_oauth_${prov}=${tweak.cookie ?? cookie}` };
+  const c: Record<string, string> = tweak.cookie === null ? {} : { cookie: `other=1; __Host-lcw_oauth_s_${prov}=${tweak.cookie ?? cookie}` };
   const cb = await call(p, 'GET', `/v1/oauth/${prov}/callback?${qs}`, undefined, c);
   const raw = cb.headers.get('location') ?? '';
   // The page trades `#oauth=<code>` for the result with the handoff cookie this browser got at the callback.
@@ -150,7 +150,7 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     expect(a.authorize!.searchParams.get('code_challenge_method')).toBe('S256');
     expect(a.authorize!.searchParams.get('scope')).toBe('openid');
     expect(a.authorize!.searchParams.get('redirect_uri')).toBe('https://lcw.test/v1/oauth/kakao/callback');
-    expect(a.start.headers.get('set-cookie')).toMatch(/^lcw_oauth_kakao=[0-9a-f]{32}; Path=\/v1\/oauth\/kakao; HttpOnly; Secure; SameSite=Lax; Max-Age=600$/);
+    expect(a.start.headers.get('set-cookie')).toMatch(/^__Host-lcw_oauth_s_kakao=[0-9a-f]{32}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=600$/);
     expect(a.cb.status).toBe(302);
     // no token in the address bar: a one-use code only this browser can exchange
     expect(a.raw).toMatch(/^\/signup#oauth=[0-9a-f]{32}$/);
@@ -177,6 +177,27 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     expect((await signIn(p, 'kakao', 'kakao-111', 'role=guardian&return=https%3A%2F%2Fevil.example')).location).toMatch(/^\/family#g=/);
   });
 
+  it('two tabs in one browser: each keeps a working code; a stray callback does not clear a sign-in in progress', async () => {
+    provider();
+    const p = platform();
+    const a = await signIn(p, 'kakao', 'kakao-tab');
+    const h = a.handoff!;
+    // the second tab's callback comes from the same browser (its handoff cookie travels): the id is reused
+    const start = await call(p, 'GET', '/v1/oauth/kakao/start?role=guardian', undefined, {});
+    const loc = new URL(start.headers.get('location')!);
+    const st = loc.searchParams.get('state')!;
+    const code = 'code-tab2';
+    codes.set(code, { claims: claimsFor('kakao', 'kakao-tab', loc.searchParams.get('nonce')!), challenge: loc.searchParams.get('code_challenge')!, redirect: loc.searchParams.get('redirect_uri')! });
+    const stray = await call(p, 'GET', `/v1/oauth/kakao/callback?code=x&state=${'ef'.repeat(16)}`, undefined, { cookie: `__Host-lcw_oauth_s_kakao=${st}` });
+    expect(stray.headers.get('location')).toBe('/family#oauth_error=state_mismatch');
+    expect(stray.headers.get('set-cookie')).toBeNull();
+    const cb = await call(p, 'GET', `/v1/oauth/kakao/callback?code=${code}&state=${st}`, undefined, { cookie: `__Host-lcw_oauth_s_kakao=${st}; __Host-lcw_oauth_h=${h}` });
+    expect(cb.headers.get('set-cookie')).toContain(`__Host-lcw_oauth_h=${h}`);
+    const c2 = /#oauth=([0-9a-f]{32})$/.exec(cb.headers.get('location')!)![1];
+    const x = await call(p, 'POST', '/v1/oauth/exchange', { code: c2 }, { 'content-type': 'application/json', cookie: `__Host-lcw_oauth_h=${h}` });
+    expect(x.body.result).toMatch(/^g=[0-9a-f]{64}$/);
+  });
+
   it('Google: client secret and verifier go to the token endpoint; the email is kept lower-case', async () => {
     provider();
     const p = platform();
@@ -195,7 +216,7 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     expect((await signIn(p, 'kakao', 's', 'role=guardian', { cookie: null })).location).toBe('/family#oauth_error=state_mismatch');
     expect((await signIn(p, 'kakao', 's', 'role=guardian', { cookie: 'ab'.repeat(16) })).location).toBe('/family#oauth_error=state_mismatch');
     const ok = await signIn(p, 'kakao', 's');
-    const again = await call(p, 'GET', `/v1/oauth/kakao/callback?code=x&state=${ok.state}`, undefined, { cookie: `lcw_oauth_kakao=${ok.cookie}` });
+    const again = await call(p, 'GET', `/v1/oauth/kakao/callback?code=x&state=${ok.state}`, undefined, { cookie: `__Host-lcw_oauth_s_kakao=${ok.cookie}` });
     expect(again.headers.get('location')).toBe('/family#oauth_error=state_mismatch');
     expect((await signIn(p, 'kakao', 's', 'role=guardian&return=/signup', { error: 'access_denied' })).location).toBe('/signup#oauth_error=cancelled');
     expect((await signIn(p, 'kakao', 's', 'role=guardian', { signer: other.privateKey })).location).toBe('/family#oauth_error=token_invalid');
@@ -210,7 +231,7 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     const start = await call(p, 'GET', '/v1/oauth/kakao/start?role=guardian', undefined, {});
     const state = new URL(start.headers.get('location')!).searchParams.get('state');
     vi.setSystemTime(new Date('2026-11-16T03:11:00Z'));
-    const late = await call(p, 'GET', `/v1/oauth/kakao/callback?code=x&state=${state}`, undefined, { cookie: `lcw_oauth_kakao=${state}` });
+    const late = await call(p, 'GET', `/v1/oauth/kakao/callback?code=x&state=${state}`, undefined, { cookie: `__Host-lcw_oauth_s_kakao=${state}` });
     expect(late.headers.get('location')).toBe('/family#oauth_error=state_mismatch');
   });
 
@@ -275,8 +296,10 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     const cred = await idToken(claimsFor('google', 'g-cred', 'n', { nonce: undefined }));
     const r = await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred, role: 'guardian', return: '/signup' }, anon);
     expect(r.status).toBe(200);
-    expect(r.body.redirect).toBe(`/signup#g=${r.body.token}`);
-    expect((await call(p, 'GET', '/v1/family/me', undefined, bearer(r.body.token))).status).toBe(200);
+    // no token in a URL: path and result apart
+    expect(r.body.redirect).toBe('/signup');
+    const tok = /^g=([0-9a-f]{64})$/.exec(r.body.result)![1]!;
+    expect((await call(p, 'GET', '/v1/family/me', undefined, bearer(tok))).status).toBe(200);
     // the same credential a second time (copied): refused
     expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred, role: 'guardian' }, anon)).status).toBe(401);
     const cred2 = await idToken(claimsFor('google', 'g-cred', 'n2', { nonce: undefined }));

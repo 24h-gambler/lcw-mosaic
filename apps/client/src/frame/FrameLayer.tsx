@@ -8,13 +8,13 @@ import type { WorldHandle } from '../world/api.js';
 import { storedStudentToken, type PlayerIdentity } from '../world/identity.js';
 import { watchConnection } from './connection.js';
 import { FRAME_STRINGS as F, setFrameLang } from './strings.js';
-import { onLearnLang, uiLang } from './lang.js';
+import { helpKoOn, onLearnLang, uiLang } from './lang.js';
 import { PlayerMenu, tabForKey } from './menu/PlayerMenu.js';
 import { ensureMenuStyle } from './menu/styles.js';
 import type { FrameAuth, MenuTab } from './menu/types.js';
 import { fetchItems, holdThing, type ItemsView } from './api.js';
 import { getAudioRuntime } from '../audio/runtime.js';
-import { frameSettings, graphicsOf, helpKoOn, lookSettingsOf, motionReduced, onFrameSettings, sameGraphics, startFrameSettings, type GraphicsSettings } from './settings.js';
+import { frameSettings, graphicsOf, lookSettingsOf, motionReduced, onFrameSettings, sameGraphics, startFrameSettings, type GraphicsSettings } from './settings.js';
 import { startSettingsSync } from './settings-sync.js';
 import { useGauges } from './useGauges.js';
 import { keyLabel } from './menu/SettingsPanel.js';
@@ -90,7 +90,7 @@ export function keyHintsOf(keys: Readonly<Record<'forward' | 'left' | 'back' | '
 
 /**
  * Screens in the language being learned (frame/lang.ts uiLang): the menu strings, the frame's HUD strings (with the
- * Korean help notices when that setting is on) and <html lang>. Returns the applied "lang|helpKo" key.
+ * Korean help notices while lang.ts helpKoOn) and <html lang>. Returns the applied "lang|helpKo" key.
  */
 export function applyFrameLang(): string {
   const lang = uiLang();
@@ -118,8 +118,8 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   // G14 settings: the device copy is put into effect at start (audio buses, text size, font, colours, motion, keys).
   useEffect(() => startFrameSettings(() => getAudioRuntime()), []);
 
-  // Screen language: at start, when the learn language changes and when Korean help is switched; the tick re-renders
-  // the menu (its strings are read at render time).
+  // Screen language: at start, when the learn language changes and when Korean help is switched (lang.ts announces
+  // both, other tabs too); the tick re-renders the menu (its strings are read at render time).
   const [, setLangTick] = useState(0);
   useEffect(() => {
     let applied = '';
@@ -129,12 +129,7 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
       setLangTick((n) => n + 1);
     };
     apply();
-    const offLang = onLearnLang(apply);
-    const offSettings = onFrameSettings(apply);
-    return () => {
-      offLang();
-      offSettings();
-    };
+    return onLearnLang(apply);
   }, []);
 
   // ...and the world gets its part now and on every change (look speed, inversion, motion, FPS).

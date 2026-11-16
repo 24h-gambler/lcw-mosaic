@@ -92,7 +92,7 @@ for (const vp of VIEWPORTS) {
     try {
       localStorage.setItem('lcw.deviceToken', 'd'.repeat(40));
       localStorage.setItem('lcw.deviceNickname', '지우');
-      if (koHelp && !localStorage.getItem('lcw.settings')) localStorage.setItem('lcw.settings', JSON.stringify({ helpKo: true }));
+      localStorage.setItem('lcw.helpKo', koHelp ? '1' : '0');
     } catch {
       /* storage blocked */
     }

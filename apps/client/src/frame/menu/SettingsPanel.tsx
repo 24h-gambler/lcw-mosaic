@@ -24,6 +24,7 @@ import {
   type Quality,
   type VolumeGroup
 } from '../settings.js';
+import { helpKoOn, onLearnLang, setHelpKo } from '../lang.js';
 import { MIC_STATUS_KEY, MicCheckCard, readMicStatus, type MicCheckStatus } from '../../dialog/FirstVisitGuide.js';
 import { playSfx, speakEnglish, unlockDialogAudio } from '../../dialog/sound.js';
 
@@ -480,11 +481,14 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
 // ---- 접근성
 
 function AccessSection({ s }: { s: Readonly<FrameSettings> }): React.ReactElement {
+  // Korean help is kept by lang.ts (one switch with the start screen), not in the settings record
+  const [helpKo, setHelpKoView] = useState(helpKoOn());
+  useEffect(() => onLearnLang((v) => setHelpKoView(v.helpKo)), []);
   return (
     <>
       {/* first, and always with its Korean name, so a child who reads only Korean can find it */}
       <Row title={F.helpKoTitle} hint={F.helpKoHint} koAlways={FRAME_STRINGS_KO.helpKoTitle}>
-        <Switch on={s.helpKo} label={F.helpKoTitle} onChange={(on) => updateFrameSettings({ helpKo: on })} />
+        <Switch on={helpKo} label={F.helpKoTitle} onChange={(on) => setHelpKo(on)} />
       </Row>
       <Row title={F.readableTitle} hint={F.readableHint}>
         <Switch on={s.readableFont} label={F.readableTitle} onChange={(on) => updateFrameSettings({ readableFont: on })} />

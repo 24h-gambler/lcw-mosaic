@@ -30,8 +30,7 @@ const VIEWPORTS = [
   { name: 'l844', width: 844, height: 390, touch: true }
 ];
 
-const SETTINGS_ENV = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;
-const SETTINGS = KO_HELP ? { ...(SETTINGS_ENV ?? {}), helpKo: true } : SETTINGS_ENV;
+const SETTINGS = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;
 const fails = [];
 const report = [];
 const check = (vp, ok, what) => {
@@ -83,6 +82,14 @@ for (const vp of VIEWPORTS) {
   });
   // no edge server behind the dev page: the neural-voice switch answers "off" (the device voice reads)
   await ctx.route('**/v1/tts/status', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"enabled":false}' }));
+  // Korean help lives in lang.ts (lcw.helpKo), one switch with the start screen
+  await ctx.addInitScript((on) => {
+    try {
+      localStorage.setItem('lcw.helpKo', on ? '1' : '0');
+    } catch {
+      /* storage blocked */
+    }
+  }, KO_HELP);
   if (SETTINGS) {
     await ctx.addInitScript((s) => {
       try {

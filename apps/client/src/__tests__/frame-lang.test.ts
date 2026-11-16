@@ -17,9 +17,9 @@ import {
   setWorldFrameLang,
   worldFrameLang
 } from '../world/strings.js';
-import { learnLang, uiLang } from '../frame/lang.js';
-import { DEFAULT_SETTINGS, normalizeSettings, parseSettings, resetFrameSettingsForTest, updateFrameSettings, helpKoOn } from '../frame/settings.js';
-import { fitsServer, fromServerSettings, toServerSettings } from '../frame/settings-sync.js';
+import { helpKoOn, learnLang, onLearnLang, resetLangForTest, setHelpKo, uiLang } from '../frame/lang.js';
+import { DEFAULT_SETTINGS, normalizeSettings } from '../frame/settings.js';
+import { toServerSettings } from '../frame/settings-sync.js';
 import { goLabel, compassKo } from '../frame/menu/map-model.js';
 import { ko, koHelpActive, koOf } from '../frame/menu/ko-help.js';
 import { clockLabel, hotbarCaption, placeLabel } from '../frame/status.js';
@@ -61,7 +61,7 @@ function texts(v: unknown): string[] {
 afterEach(() => {
   setFrameLang('en');
   setWorldFrameLang('en');
-  resetFrameSettingsForTest();
+  resetLangForTest();
 });
 
 describe('learn language (frame/lang.ts)', () => {
@@ -172,29 +172,27 @@ describe('switching the live strings', () => {
   });
 });
 
-describe('Korean help setting (helpKo)', () => {
-  it('defaults off, normalises, survives the device and the server round trip within the server limits', () => {
-    expect(DEFAULT_SETTINGS.helpKo).toBe(false);
-    expect(normalizeSettings({}).helpKo).toBe(false);
-    expect(normalizeSettings({ helpKo: 'yes' }).helpKo).toBe(false);
-    expect(normalizeSettings({ helpKo: true }).helpKo).toBe(true);
-    const s = normalizeSettings({ ...DEFAULT_SETTINGS, helpKo: true, updatedAt: 7000 });
-    expect(parseSettings(JSON.stringify(s))).toEqual(s);
-    const flat = toServerSettings(s);
-    expect(flat.helpKo).toBe(true);
-    expect(Object.keys(flat).length).toBeLessThanOrEqual(40);
-    expect(fitsServer(flat)).toBe(true);
-    expect(fromServerSettings(flat, 7)).toEqual(s);
-    expect(fromServerSettings({ ...flat, helpKo: undefined }, 7).helpKo).toBe(false);
+describe('Korean help (lang.ts helpKoOn / setHelpKo, one switch with the start screen)', () => {
+  it('is kept by lang.ts only: off by default, not in the settings record nor its server copy', () => {
+    expect(helpKoOn()).toBe(false);
+    expect('helpKo' in DEFAULT_SETTINGS).toBe(false);
+    expect('helpKo' in normalizeSettings({ helpKo: true })).toBe(false);
+    expect('helpKo' in toServerSettings(DEFAULT_SETTINGS)).toBe(false);
+    const seen: boolean[] = [];
+    const off = onLearnLang((v) => seen.push(v.helpKo));
+    setHelpKo(true);
+    expect(helpKoOn()).toBe(true);
+    setHelpKo(false);
+    off();
+    // node has no window events here; in the page the frame hears both changes (frame-menu-shots KO_HELP)
+    expect(helpKoOn()).toBe(false);
+    expect(seen.every((x) => typeof x === 'boolean')).toBe(true);
   });
 
   it('the menu shows the Korean line only while it is on and the screen is not Korean', () => {
-    const deps = { audio: null, doc: null, store: null };
-    expect(helpKoOn()).toBe(false);
     expect(koHelpActive()).toBe(false);
     expect(ko((t) => t.tabs.bag)).toBeNull();
-    updateFrameSettings({ helpKo: true }, deps);
-    expect(helpKoOn()).toBe(true);
+    setHelpKo(true);
     expect(ko((t) => t.tabs.bag)).toBe('소지품');
     expect(koOf(FRAME_STRINGS.bagTitle)).toBe(FRAME_STRINGS_KO.bagTitle);
     expect(koOf(FRAME_STRINGS.settingsSavedHere)).toBe(FRAME_STRINGS_KO.settingsSavedHere);

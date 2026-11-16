@@ -329,10 +329,73 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
       ),
     adminDecideRefund: (op: string, requestId: string, decision: { decision: 'decline' } | { decision: 'refund'; refund_krw: number }) =>
       request<{ id: string; status: string }>('POST', `/v1/admin/seat-refunds/${enc(requestId)}/decide`, op, decision),
-    adminStudents: (op: string) => request<Array<{ player_id: string; nickname: string; family_id: string }>>('GET', '/v1/admin/students', op)
+    adminStudents: (op: string) => request<Array<{ player_id: string; nickname: string; family_id: string }>>('GET', '/v1/admin/students', op),
+    /* sign-in with Google / Kakao (edge oauth.ts, guardian-oauth.ts) */
+    oauthConfig: () => request<{ providers: OAuthProvider[]; google_client_id: string | null }>('GET', '/v1/oauth/config', null),
+    /** `#oauth=<code>` → the sign-in result; works only in the browser that came back from the provider (cookie). */
+    oauthExchange: (code: string) => request<{ result: string }>('POST', '/v1/oauth/exchange', null, { code }),
+    signIns: (g: string) =>
+      request<{ available: OAuthProvider[]; linked: Array<{ provider: OAuthProvider; linked_at: number; last_login_at: number }> }>('GET', '/v1/family/sign-in', g),
+    linkSignIn: (g: string, provider: OAuthProvider) => request<{ start_path: string }>('POST', '/v1/family/sign-in/link', g, { provider }),
+    unlinkSignIn: (g: string, provider: OAuthProvider) => request<{ ok: boolean }>('DELETE', `/v1/family/sign-in/${provider}`, g)
   };
 }
 export type FamilyApi = ReturnType<typeof createFamilyApi>;
+
+export type OAuthProvider = 'google' | 'kakao';
+export const OAUTH_ERROR_CODES = [
+  'not_configured',
+  'state_mismatch',
+  'provider_error',
+  'token_invalid',
+  'cancelled',
+  'ticket_invalid',
+  'already_linked',
+  'guardian_not_found',
+  'handoff_invalid'
+] as const;
+
+/** Where the guardian's browser goes to sign in with a provider (the server answers with a redirect). */
+export const oauthStartPath = (provider: OAuthProvider, ret = '/family') => `/v1/oauth/${provider}/start?role=guardian&return=${encodeURIComponent(ret)}`;
+
+/**
+ * What a sign-in left in the fragment: `#g=<64 hex>` a new guardian session, `#linked=<provider>` a sign-in added to
+ * this family, `#oauth_error=<code>` why it did not work. Null when the fragment carries none of them.
+ */
+export function oauthResultFromHash(hash: string): { token: string } | { linked: OAuthProvider } | { error: string } | null {
+  const g = /(?:^#|&)g=([0-9a-f]{64})(?:&|$)/.exec(hash);
+  if (g) return { token: g[1]! };
+  const l = /(?:^#|&)linked=(google|kakao)(?:&|$)/.exec(hash);
+  if (l) return { linked: l[1] as OAuthProvider };
+  const e = /(?:^#|&)oauth_error=([a-z_]{1,40})(?:&|$)/.exec(hash);
+  if (e) return { error: (OAUTH_ERROR_CODES as readonly string[]).includes(e[1]!) ? e[1]! : 'provider_error' };
+  return null;
+}
+
+/** `#oauth=<32 hex>`: the one-use code the server leaves after a provider sign-in, or null. */
+export function oauthCodeFromHash(hash: string): string | null {
+  return /(?:^#|&)oauth=([0-9a-f]{32})(?:&|$)/.exec(hash)?.[1] ?? null;
+}
+
+type OAuthResult = { token: string } | { linked: OAuthProvider } | { error: string };
+/**
+ * Back from Google / Kakao: read the fragment once and turn it into a result. A `#oauth=` code is exchanged with the
+ * server (no token is ever in the address bar); `#oauth_error=` is read directly. Callers clear the fragment first.
+ * Used by /family and /signup.
+ */
+export async function takeOAuthResult(api: Pick<FamilyApi, 'oauthExchange'>, hash: string): Promise<OAuthResult | null> {
+  const code = oauthCodeFromHash(hash);
+  if (!code) {
+    const direct = oauthResultFromHash(hash);
+    return direct && 'error' in direct ? direct : null;
+  }
+  try {
+    const r = await api.oauthExchange(code);
+    return oauthResultFromHash(`#${r.result}`) ?? { error: 'provider_error' };
+  } catch (e) {
+    return { error: e instanceof LessonApiError && e.code === 'handoff_invalid' ? 'handoff_invalid' : 'provider_error' };
+  }
+}
 
 /** `#k=<48 hex>` from the invite link, or null. */
 export function inviteFromHash(hash: string): string | null {

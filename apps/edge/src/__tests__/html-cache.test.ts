@@ -41,14 +41,14 @@ describe('HTML responses opt out of Cloudflare rewrites (no analytics beacon)', 
 
   it('every non-HTML path detaches the HTML value first, so hashed files keep their year untouched', () => {
     const parsed = rules(siteHeadersFile());
-    for (const path of ['/assets/*', '/game/assets/*', '/media/*', '/og/*', '/og-report.png', '/robots.txt', '/sitemap.xml', '/version.json']) {
+    for (const path of ['/assets/*', '/world/assets/*', '/media/*', '/og/*', '/og-report.png', '/robots.txt', '/sitemap.xml', '/version.json']) {
       const lines = parsed.get(path);
       expect(lines, path).toBeDefined();
       expect(lines?.[0], path).toBe('! Cache-Control');
       expect(lines?.join(' '), path).not.toMatch(/no-transform/);
       expect(lines?.[1], path).toMatch(/^Cache-Control: public, max-age=/);
     }
-    for (const path of ['/assets/*', '/game/assets/*', '/media/*']) {
+    for (const path of ['/assets/*', '/world/assets/*', '/media/*']) {
       expect(parsed.get(path)).toContain('Cache-Control: public, max-age=31536000, immutable');
     }
   });
@@ -60,7 +60,7 @@ describe('HTML responses opt out of Cloudflare rewrites (no analytics beacon)', 
     const isCovered = (p: string) => covered.some((c) => (c.endsWith('/*') ? p.startsWith(c.slice(0, -1)) : p === c));
     const files = [
       ['../../../web/public/', ''],
-      ['../../../client/public/', '/game']
+      ['../../../client/public/', '/world']
     ].flatMap(([dir, mount]) => {
       const base = fileURLToPath(new URL(dir as string, import.meta.url));
       return existsSync(base) ? listFiles(base).map((f) => `${mount}${f}`) : [];

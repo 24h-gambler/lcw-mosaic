@@ -113,6 +113,38 @@ export function familyChildSummary(
   };
 }
 
+/** A guardian session token (180 days) for this guardian; the invite exchange and the OAuth sign-in both use it. */
+export async function issueGuardianSession(
+  d: Pick<FamilyDeps, 'sql' | 'randomBytes' | 'sha256Hex'>,
+  guardianId: string,
+  familyId: string,
+  nowMs: number
+): Promise<string> {
+  const token = hex(d.randomBytes(32));
+  d.sql.run(
+    'insert into guardian_sessions (token_hash, guardian_id, family_id, created_at, expires_at, revoked_at) values (?, ?, ?, ?, ?, null)',
+    [await d.sha256Hex(token), guardianId, familyId, nowMs, nowMs + GUARDIAN_SESSION_TTL_MS]
+  );
+  return token;
+}
+
+/** The signed-in guardian of a request (Bearer guardian session token), or null. */
+export async function guardianFromRequest(
+  d: Pick<FamilyDeps, 'sql' | 'sha256Hex'>,
+  req: Request,
+  nowMs: number
+): Promise<{ guardian_id: string; family_id: string; token_hash: string } | null> {
+  const h = req.headers.get('authorization') ?? '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : '';
+  if (token.length < 32) return null;
+  const th = await d.sha256Hex(token);
+  const g = d.sql.get<{ guardian_id: string; family_id: string }>(
+    'select guardian_id, family_id from guardian_sessions where token_hash = ? and expires_at > ? and revoked_at is null',
+    [th, nowMs]
+  );
+  return g ? { ...g, token_hash: th } : null;
+}
+
 export interface FamilyDeps {
   sql: SqliteExecutor;
   db: EdgePlatformDb;
@@ -221,16 +253,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     return h.startsWith('Bearer ') ? h.slice(7) : '';
   };
 
-  const guardianOf = async (req: Request): Promise<Guardian | null> => {
-    const token = bearer(req);
-    if (token.length < 32) return null;
-    const th = await d.sha256Hex(token);
-    const g = d.sql.get<{ guardian_id: string; family_id: string }>(
-      'select guardian_id, family_id from guardian_sessions where token_hash = ? and expires_at > ? and revoked_at is null',
-      [th, d.nowMs()]
-    );
-    return g ? { ...g, token_hash: th } : null;
-  };
+  const guardianOf = (req: Request): Promise<Guardian | null> => guardianFromRequest(d, req, d.nowMs());
   const familyServiceFlag = (familyId: string) =>
     Boolean(d.sql.get("select v from family_flags where family_id = ? and k = 'service'", [familyId]));
   const childOf = (g: Guardian, playerId: string) =>
@@ -294,11 +317,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
       return c.json({ error: 'invalid_invite' }, 404);
     }
     d.sql.run('update guardian_invites set used_at = ? where code_hash = ?', [now, inv.code_hash]);
-    const token = hex(d.randomBytes(32));
-    d.sql.run(
-      'insert into guardian_sessions (token_hash, guardian_id, family_id, created_at, expires_at, revoked_at) values (?, ?, ?, ?, ?, null)',
-      [await d.sha256Hex(token), inv.guardian_id, inv.family_id, now, now + GUARDIAN_SESSION_TTL_MS]
-    );
+    const token = await issueGuardianSession(d, inv.guardian_id, inv.family_id, now);
     return c.json({ guardian_token: token, expires_at: now + GUARDIAN_SESSION_TTL_MS });
   });
 

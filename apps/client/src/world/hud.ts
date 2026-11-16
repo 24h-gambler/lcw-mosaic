@@ -5,6 +5,7 @@
  */
 import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { WORLD_STRINGS as W, itemNameKo } from './strings.js';
+import { bandOf, clockLabel, hotbarCaption, isNight, placeLabel, type BandId } from '../frame/status.js';
 
 const STYLE_ID = 'lcw-world-hud-style';
 
@@ -26,6 +27,25 @@ function css(): string {
 .lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.small.sizePx}px}
 .lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.micro.sizePx}px;border:2px solid ${C['ink-900']};display:none}
 .lw-chip .l.on{display:inline-block}
+.lw-chip .s{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px}
+.lw-chip .w{display:inline-flex;align-items:center;gap:6px;font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px;font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9}
+.lw-chip .w:empty,.lw-chip .w.none{display:none}
+.lw-chip .w i{width:10px;height:10px;border-radius:50%;background:${C.sun};box-shadow:0 0 0 2px ${C['sun-d']};flex:none}
+.lw-chip .w.night i{background:transparent;box-shadow:inset -4px -2px 0 0 ${C.silver}}
+.lw-chip .w.snow i{background:${C['paper-0']};box-shadow:0 0 0 2px ${C.silver}}
+.lw-chip .s{white-space:nowrap}
+.lw-net{position:absolute;top:0;left:0;right:0;display:none;align-items:center;justify-content:center;gap:8px;padding:4px 12px;background:${C.sun};color:${C['ink-900']};border-bottom:${S.borderWidthPx}px solid ${C['ink-900']};font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px}
+.lw-net i{width:10px;height:10px;border-radius:50%;background:${C['ink-900']};flex:none}
+.lw-hud.off .lw-net{display:flex}
+.lw-hud.off .lw-chip,.lw-hud.off .lw-stars{top:44px}
+.lw-hud.off .lw-goal.on{transform:translate(-50%,32px)}
+.lw-hud.off .lw-touch{top:32px}
+.lw-aim{position:absolute;left:50%;top:50%;width:20px;height:20px;transform:translate(-50%,-50%);display:none}
+.lw-aim::before,.lw-aim::after{content:"";position:absolute;background:${C['paper-0']};box-shadow:0 0 0 1px ${C['ink-900']}}
+.lw-aim::before{left:9px;top:2px;width:2px;height:16px}
+.lw-aim::after{left:2px;top:9px;width:16px;height:2px}
+.lw-hud.first .lw-aim{display:block}
+.lw-hud.dlg .lw-aim{display:none}
 .lw-stars{position:absolute;top:12px;right:12px;background:${night};color:${C.sun};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-family:${T.fonts.pixel};font-size:24px;line-height:24px;display:flex;gap:6px;align-items:center}
 .lw-stars.pop{animation:lwpop ${M.popMs}ms ease-out}
 .lw-stars .cs,.lw-stars .ci,.lw-stars .cn{display:none}
@@ -47,10 +67,15 @@ function css(): string {
 .lw-plate.on{display:block}
 .lw-prompt kbd{font-family:${T.fonts.pixel};background:${C['paper-0']};color:${C['ink-900']};border-radius:2px;padding:0 6px;font-size:12px}
 .lw-prompt:active{box-shadow:${S.shadowPressed};transform:translate(-50%,-100%) translate(3px,3px)}
-.lw-hotbar{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:4px}
-.lw-slot{width:56px;height:56px;background:${night};border:2px solid ${C['night-700']};border-radius:${S.radiusHudSlotPx}px;display:flex;align-items:center;justify-content:center;position:relative}
-.lw-slot.sel{border-color:${C['paper-0']}}
+.lw-hotbar{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:4px;align-items:center}
+.lw-slot{width:56px;height:56px;background:${night};border:2px solid ${C['night-700']};border-radius:${S.radiusHudSlotPx}px;display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer}
+.lw-slot.empty{background:${C['night-900']}73}
+.lw-slot.empty::after{content:"";position:absolute;inset:16px;border:2px dashed ${C.silver}8C;border-radius:${S.radiusHudSlotPx}px}
+.lw-slot.sel{border-color:${C['paper-0']};box-shadow:0 0 0 2px ${C['ink-900']}}
 .lw-slot .i{font-family:${T.fonts.pixel};font-size:12px;position:absolute;left:3px;top:2px;color:${C.silver}}
+.lw-cap{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:${night};color:${C['paper-0']};padding:4px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px;text-align:center;opacity:0;transition:opacity ${M.baseMs}ms ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lw-cap.on{opacity:1}
+.lw-hud.dlg .lw-cap{opacity:0}
 .lw-slot img{width:36px;height:36px;image-rendering:pixelated}
 .lw-slot.pop{animation:lwpop ${M.popMs}ms ease-out}
 .lw-slot .c{position:absolute;right:3px;bottom:1px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};text-shadow:1px 1px 0 ${C['ink-900']}}
@@ -102,8 +127,8 @@ function css(): string {
 @keyframes lwsnow{from{background-position:0 0,0 0}to{background-position:-48px 96px,32px 128px}}
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
-@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot img{width:28px;height:28px}.lw-goal .t{font-size:${T.scale.h3.sizePx}px}.lw-chip .s{font-size:${T.scale.micro.sizePx}px}
-.lw-goal{top:60px;left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}}
+@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px}.lw-help{bottom:96px}.lw-goal .t{font-size:${T.scale.h3.sizePx}px}.lw-chip .s{font-size:${T.scale.micro.sizePx}px}
+.lw-goal{top:68px;left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,32px)}}
 @media (prefers-reduced-motion:reduce){.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
 }
@@ -182,6 +207,15 @@ export class WorldHud {
   private goalT: HTMLDivElement;
   private sceneChip: HTMLSpanElement;
   private lessonChip: HTMLSpanElement;
+  /** weather + world clock chip (docs/08 8.1 "맑음 08:45") */
+  private clockChip: HTMLSpanElement;
+  private clockText: HTMLSpanElement;
+  private sceneTitle = '';
+  private bandId: BandId | '' = '';
+  private clockKey = '';
+  private weather: 'clear' | 'snow' = 'clear';
+  private cap: HTMLDivElement;
+  private capTimer = 0;
   private starsEl: HTMLDivElement;
   private starsN: HTMLSpanElement;
   private coinsN: HTMLSpanElement;
@@ -236,9 +270,20 @@ export class WorldHud {
     this.goalT.lang = 'en';
 
     const chip = el('div', 'lw-chip', this.root);
-    this.sceneChip = el('span', 's', chip);
+    // one compact chip, two lines: "중앙 광장 · 지상" over "맑음 10:30" (the lesson tag keeps its place next to it)
+    const sc = el('span', 's', chip);
+    this.sceneChip = el('span', 'p', sc);
+    this.clockChip = el('span', 'w none', sc);
+    el('i', '', this.clockChip);
+    this.clockText = el('span', '', this.clockChip);
     this.lessonChip = el('span', 'l', chip);
     this.lessonChip.textContent = W.lessonBadge;
+    // G01 empty state: the connection dropped, the world keeps going on this device (docs/08 8.6).
+    const net = el('div', 'lw-net', this.root);
+    net.setAttribute('role', 'status');
+    el('i', '', net);
+    el('span', '', net).textContent = W.offlineBand;
+    el('div', 'lw-aim', this.root);
 
     this.starsEl = el('div', 'lw-stars', this.root);
     const si = el('span', '', this.starsEl);
@@ -265,7 +310,7 @@ export class WorldHud {
 
     const bar = el('div', 'lw-hotbar', this.root);
     for (let i = 0; i < 5; i++) {
-      const s = el('div', 'lw-slot', bar);
+      const s = el('div', 'lw-slot empty', bar);
       s.style.pointerEvents = 'auto';
       const n = el('span', 'i', s);
       n.textContent = String(i + 1);
@@ -275,7 +320,8 @@ export class WorldHud {
       });
       this.slots.push(s);
     }
-    this.selectSlot(0);
+    this.cap = el('div', 'lw-cap', this.root);
+    this.selectSlot(0, false);
 
     this.toast = el('div', 'lw-toast lw-card', this.root);
     this.cele = el('div', 'lw-cele', this.root);
@@ -405,7 +451,61 @@ export class WorldHud {
 
   setLoading(fraction: number, done: boolean): void {
     this.loadBar.style.width = `${Math.round(Math.min(1, fraction) * 100)}%`;
-    if (done) this.load.classList.add('done');
+    if (done && !this.load.classList.contains('done')) {
+      this.load.classList.add('done');
+      // an all-empty bar says what it is for once, so five dark boxes never read as unfinished
+      if (this.allEmpty()) this.showCaption(6000);
+    }
+  }
+
+  /** Scene title, band, weather and world clock (docs/08 8.1 top line). Called every frame; DOM only on change. */
+  tickStatus(hour: number, y: number): void {
+    const band = bandOf(y);
+    if (band !== this.bandId) {
+      this.bandId = band;
+      this.drawScene();
+    }
+    // compare whole minutes first: the label string is built only when the minute or the weather changes
+    const minute = Math.floor((((hour % 24) + 24) % 24) * 60 + 1e-6);
+    const mk = `${minute}${this.weather}`;
+    if (mk === this.clockKey) return;
+    this.clockKey = mk;
+    const night = isNight(hour);
+    this.clockText.textContent = clockLabel(hour, this.weather);
+    this.clockChip.classList.remove('none');
+    this.clockChip.classList.toggle('night', night && this.weather === 'clear');
+    this.clockChip.classList.toggle('snow', this.weather === 'snow');
+  }
+
+  /** Connection to the server: false shows the "혼자 모드로 계속 중" band (the world keeps running). */
+  setOnline(on: boolean): void {
+    this.root.classList.toggle('off', !on);
+  }
+
+  /** Camera mode from the world: the centre crosshair shows only in first person (hidden under a dialog). */
+  setCamMode(mode: 'first' | 'third' | 'mirror'): void {
+    this.root.classList.toggle('first', mode === 'first');
+  }
+
+  private drawScene(): void {
+    this.sceneChip.textContent = this.bandId ? placeLabel(this.sceneTitle, this.bandId) : this.sceneTitle;
+  }
+
+  private allEmpty(): boolean {
+    return !this.buildSlotsOn && this.itemSlots.every((x) => x === null);
+  }
+
+  /** Name of the selected slot over the bar (or what an empty bar is for); fades after `ms`. */
+  private showCaption(ms = 2400): void {
+    const text = this.buildSlotsOn ? (this.slots[this.selected]?.title ?? '') : hotbarCaption(this.itemSlots, this.selected);
+    window.clearTimeout(this.capTimer);
+    if (!text) {
+      this.cap.classList.remove('on');
+      return;
+    }
+    this.cap.textContent = text;
+    this.cap.classList.add('on');
+    this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
   }
 
   /** A panel covers the bottom (dialog window): the goal card steps aside so the NPC's face shows in the strip. */
@@ -422,7 +522,8 @@ export class WorldHud {
   }
 
   setScene(titleKo: string): void {
-    this.sceneChip.textContent = titleKo;
+    this.sceneTitle = titleKo;
+    this.drawScene();
   }
 
   /** Outside star count (a lesson's stars): the chip shows it, celebrate() stops adding. null = back to celebrate(). */
@@ -466,9 +567,10 @@ export class WorldHud {
     this.lessonChip.classList.toggle('on', on);
   }
 
-  selectSlot(i: number): void {
+  selectSlot(i: number, caption = true): void {
     this.selected = i;
     this.slots.forEach((s, k) => s.classList.toggle('sel', k === i));
+    if (caption) this.showCaption();
   }
 
   putItem(slot: number, key: string): void {
@@ -480,7 +582,9 @@ export class WorldHud {
     s.classList.remove('pop');
     void s.offsetWidth;
     s.classList.add('pop');
-    this.selectSlot(slot);
+    // the toast names the new thing; the caption stays quiet so the two never stack
+    this.selectSlot(slot, false);
+    this.cap.classList.remove('on');
     // toast
     this.toast.innerHTML = '';
     const ti = document.createElement('img');
@@ -509,6 +613,7 @@ export class WorldHud {
     s.querySelector('.c')?.remove();
     s.title = c?.title ?? '';
     s.classList.toggle('build', this.buildSlotsOn);
+    s.classList.toggle('empty', !c);
     if (!c) return;
     const img = document.createElement('img');
     img.alt = c.title;
@@ -702,6 +807,8 @@ export class WorldHud {
 
   director(kind: 'blackout' | 'snow' | null): void {
     this.dirLayer.className = `lw-dir${kind ? ` on ${kind}` : ''}`;
+    this.weather = kind === 'snow' ? 'snow' : 'clear';
+    this.clockKey = '';
   }
 
   setFps(text: string | null): void {

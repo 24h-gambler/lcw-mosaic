@@ -5,6 +5,9 @@ export const LESSON_STRINGS_KO = {
     sub: '수업 화면으로 바로 들어가요',
     enter: '들어가기',
     joining: '들어가는 중…',
+    /** The button on a bare /world/ (solo play) that opens the code entry. */
+    openFromWorld: '🎓 수업 코드 넣기',
+    cancel: '혼자 놀기로 돌아가기',
     errors: {
       invalid_code: '숫자가 맞지 않아요. 선생님께 다시 물어봐요.',
       too_many_attempts: '여러 번 해 봤네요. 잠깐 쉬었다가 다시 해 봐요.',

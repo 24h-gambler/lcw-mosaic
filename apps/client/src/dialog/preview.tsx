@@ -10,7 +10,7 @@ import { createLessonSubmit, createSoloSubmitWith } from './submit.js';
 import type { DialogHint, DialogMode, DialogOffer, DialogResult, Level, NpcRef } from './types.js';
 
 /**
- * Dev-only stand-alone page for the dialog window (vite dev: /game/dialog-preview.html). Not part of the build.
+ * Dev-only stand-alone page for the dialog window (vite dev: /world/dialog-preview.html). Not part of the build.
  * Query: npc=cafe|trade_shop|guide, level=L1..L3, hint=full|keyword|initial|picture|none, mode, fs=1..1.5,
  * say=line1|line2 (scripted mic; "denied"/"no_speech" simulate failures), mic=in_app|unsupported|denied,
  * api=<edge base url> + token=<student token> (real server scoring; lesson=1 → /v1/lesson/utterance).

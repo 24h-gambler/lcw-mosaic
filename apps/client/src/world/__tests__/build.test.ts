@@ -322,6 +322,12 @@ describe('seat stop mid-play (docs/19 6장, #23 seat_inactive)', () => {
     expect(buildAccessOf({ kind: 'lesson', code: '123456' }, 'y'.repeat(48))).toEqual({ kind: 'saved', token: 'y'.repeat(48), lesson: true });
     expect(buildAccessOf({ kind: 'lesson', code: '123456' }, null)).toEqual({ kind: 'local' });
     expect(buildAccessOf({ kind: 'guest' }, null)).toEqual({ kind: 'local' });
+    // a lesson joined without ?code= (/join hand-off, code typed in the world) on a linked tablet: the student's
+    // token wins while the lesson is live, so building never lands on the linked child's plot
+    expect(buildAccessOf(child, 'y'.repeat(48), true)).toEqual({ kind: 'saved', token: 'y'.repeat(48), lesson: true });
+    expect(buildAccessOf({ ...child, playAllowed: false }, 'y'.repeat(48), true)).toEqual({ kind: 'saved', token: 'y'.repeat(48), lesson: true });
+    expect(buildAccessOf({ kind: 'guest' }, 'y'.repeat(48), true)).toEqual({ kind: 'saved', token: 'y'.repeat(48), lesson: true });
+    expect(buildAccessOf(child, 'y'.repeat(48), false)).toEqual({ kind: 'saved', token: child.token });
   });
 });
 

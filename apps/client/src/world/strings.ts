@@ -18,6 +18,11 @@ export const WORLD_STRINGS = {
   starsGot: (n: number): string => `별 ${n}개!`,
   itemGot: (name: string): string => `${name}${objectParticle(name)} 받았어요`,
   hotbarEmpty: '빈 칸',
+  hotbarAllEmpty: '가방이 비어 있어요 · 영어로 주문하면 여기에 들어와요',
+  offlineBand: '연결이 잠깐 끊겼어요 · 혼자 모드로 계속 중',
+  weatherClear: '맑음',
+  weatherSnow: '눈',
+  weatherNight: '밤',
   lessonBadge: '수업 중',
   coinsLabel: '코인',
   // Seat paused (docs/19 6장): no price or payment words on a child screen, only "tell your grown-up".
@@ -135,6 +140,16 @@ export const SCENE_TITLES_KO = {
   trade_shop: '물물교환 상점',
   build_plot: '내 부지',
   open_hill: '바람 언덕'
+} as const;
+
+/** Vertical band names (docs/03 3.2) next to the scene title on the HUD. Keys are TUNING.verticalBands ids. */
+export const BAND_NAMES_KO = {
+  deep_space: '심우주',
+  space_station: '우주 정거장',
+  sky_island: '하늘섬',
+  surface: '지상',
+  mine: '광산',
+  deep_core: '네더'
 } as const;
 
 /** Item names shown when giveItem() puts something in a slot. Unknown keys fall back to a gift box. */

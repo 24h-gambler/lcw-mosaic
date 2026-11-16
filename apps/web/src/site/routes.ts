@@ -1,5 +1,7 @@
 /** Public site map (docs/14 §2). Pure so the router, the tests and the build share one table. */
 import { LEARN_PAGES, META } from './copy.js';
+import { PLAY_NOW } from './copyNow.js';
+import { liveOr } from './featureStatus.js';
 
 export type SitePage =
   | 'home'
@@ -73,7 +75,10 @@ export function metaFor(loc: SiteLocation): { title: string; description: string
     return META['/learn']!;
   }
   if (loc.page === 'showroom') return { title: '쇼룸 — LCW', description: '친구가 지은 월드를 돌려 보세요.' };
-  return META[loc.path] ?? META['/']!;
+  const m = META[loc.path] ?? META['/']!;
+  // Link previews and search show what is true today (copyNow.ts), the full line once its features are live.
+  if (loc.path === '/play') return { ...m, description: liveOr(PLAY_NOW.metaDescription, m.description) };
+  return m;
 }
 
 /** Paths the static build pre-renders so crawlers and link previews get real HTML (docs/14 §11). */
@@ -82,7 +87,7 @@ export function prerenderPaths(): string[] {
 }
 
 /**
- * Share picture per page (docs/14 §11 "페이지별 대표 그림"): 1200×630 JPEGs captured from the real /game
+ * Share picture per page (docs/14 §11 "페이지별 대표 그림"): 1200×630 JPEGs captured from the real /world
  * (tools/site-captures.mjs). Stable names under /og/ so KakaoTalk and search keep their cached copies valid.
  */
 export type ShareImage = 'home' | 'parents' | 'play' | 'try' | 'tutoring' | 'learn-cafe' | 'learn-trade' | 'learn-build' | 'showroom';

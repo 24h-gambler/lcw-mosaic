@@ -38,6 +38,8 @@ export interface NameIndex {
    * which row the database returns first).
    */
   owner(nickname: string, exceptSignup?: string, familyId?: string): NameOwner;
+  /** The family's own children with this name (two only when the family named two children alike). */
+  ownChildren(nickname: string, familyId: string): string[];
 }
 
 /**
@@ -78,13 +80,18 @@ export function nameIndex(sql: SqliteExecutor): NameIndex {
     owner(nickname, exceptSignup, familyId) {
       const key = nicknameKey(nickname);
       const same = playersByKey.get(key) ?? [];
-      const own = familyId ? same.find((k) => k.family_id === familyId && hasGuardian(k.family_id)) : undefined;
+      // The asking family signed in to ask (a sign-up, a listed sign-up), so no guardian check: its own child is its own
+      // even when every guardian mark has gone since.
+      const own = familyId ? same.find((k) => k.family_id === familyId) : undefined;
       if (own) return { kind: 'taken', by: { kind: 'student', player_id: own.id } };
       if ((waitingByKey.get(key) ?? []).some((id) => id !== exceptSignup)) return { kind: 'taken', by: { kind: 'signup' } };
       if (!same.length) return { kind: 'free' };
       const held = same.find((k) => hasGuardian(k.family_id));
       if (held) return { kind: 'taken', by: { kind: 'student', player_id: held.id } };
       return { kind: 'teacher_row', player_id: same.length === 1 ? same[0]!.id : null };
+    },
+    ownChildren(nickname, familyId) {
+      return (playersByKey.get(nicknameKey(nickname)) ?? []).filter((k) => k.family_id === familyId).map((k) => k.id);
     }
   };
 }

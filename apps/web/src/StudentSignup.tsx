@@ -52,6 +52,24 @@ export function signupErrorText(e: unknown): string {
   return S.errNetwork;
 }
 
+/**
+ * After `nickname_own_child`: reload the family so the '…(으)로 이 기기 연결' button the message points at is there
+ * (a child added on another device after this screen loaded). A lost session goes to the sign-in message rather than
+ * leaving a message that points at a button that is not on the screen; other errors keep the list as it was.
+ */
+export async function reloadOwnChildren(
+  api: Pick<StudentAccountApi, 'familyMe'>,
+  g: string,
+  setChildren: (k: FamilyChild[]) => void,
+  signedOut: () => void
+): Promise<void> {
+  try {
+    setChildren((await api.familyMe(g)).children);
+  } catch (e) {
+    if (e instanceof StudentApiError && e.status === 401) signedOut();
+  }
+}
+
 export interface StudentSignupProps {
   api?: StudentAccountApi;
   pollMs?: number;
@@ -235,12 +253,7 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
       if (Array.isArray(s)) setIdeas(s.filter((x): x is string => typeof x === 'string'));
       // Our own child, maybe added on another device after this screen loaded the family: reload it so the
       // '…(으)로 이 기기 연결' button the message points at is there.
-      if (e instanceof StudentApiError && e.code === 'nickname_own_child') {
-        await api
-          .familyMe(g)
-          .then((me) => setChildren(me.children))
-          .catch(() => undefined);
-      }
+      if (e instanceof StudentApiError && e.code === 'nickname_own_child') await reloadOwnChildren(api, g, setChildren, signedOut);
     } finally {
       setBusy(false);
     }

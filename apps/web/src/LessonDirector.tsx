@@ -62,6 +62,7 @@ import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView } from '.
 import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentScreenBox } from './DirectorLive.js';
 import { LessonAudioBox } from './LessonAudioBox.js';
 import { ConsoleSeatBadge, SeatManager, useConsoleSeats } from './DirectorSeats.js';
+import { SignupQueue, type SignupQueueProps } from './DirectorSignups.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 import { TeacherModeHelp, TeacherPresenceBox } from './teacherPresence.js';
@@ -110,6 +111,8 @@ export interface LessonDirectorConsoleProps {
   initialLive?: { lessons: LiveLessonRow[]; server_now: number };
   initialFeed?: LessonFeed;
   now?: () => number;
+  /** The sign-up approval queue: false hides it; an object passes its test doubles. */
+  signupQueue?: false | Omit<SignupQueueProps, 'token'>;
 }
 
 export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.ReactElement {
@@ -186,26 +189,34 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
         }}
       />
       {!token ? null : lesson ? (
-        <LiveLesson
-          api={api}
-          token={token}
-          lesson={lesson}
-          setLesson={setLesson}
-          now={now}
-          onAuthError={onAuthError}
-          {...(props.initialFeed ? { initialFeed: props.initialFeed } : {})}
-        />
+        <>
+          <LiveLesson
+            api={api}
+            token={token}
+            lesson={lesson}
+            setLesson={setLesson}
+            now={now}
+            onAuthError={onAuthError}
+            {...(props.initialFeed ? { initialFeed: props.initialFeed } : {})}
+          />
+          {/* A sign-up arriving during the lesson shows here too (only when one is waiting). */}
+          {props.signupQueue !== false ? <SignupQueue token={token} hideWhenEmpty {...(props.signupQueue ?? {})} /> : null}
+        </>
       ) : (
-        <StudentPicker
-          api={api}
-          token={token}
-          now={now}
-          onAuthError={onAuthError}
-          initialStudents={props.initialStudents}
-          initialSeats={props.initialSeats}
-          initialLive={props.initialLive}
-          onStarted={setLesson}
-        />
+        <>
+          <StudentPicker
+            api={api}
+            token={token}
+            now={now}
+            onAuthError={onAuthError}
+            initialStudents={props.initialStudents}
+            initialSeats={props.initialSeats}
+            initialLive={props.initialLive}
+            onStarted={setLesson}
+          />
+          {/* Student sign-ups waiting for the teacher (DirectorSignups.tsx); signupQueue={false} turns it off. */}
+          {props.signupQueue !== false ? <SignupQueue token={token} {...(props.signupQueue ?? {})} /> : null}
+        </>
       )}
     </div>
   );

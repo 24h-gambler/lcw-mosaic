@@ -220,7 +220,7 @@ export async function withRouteLimit(run, { route, tag, limitMs = ROUTE_LIMIT_MS
   const first = await Promise.race([work, late]);
   clearTimeout(timer);
   if (first !== 'timeout') {
-    log(`${route} ${tag} ${Date.now() - t0}ms`);
+    log(`${route} ${tag} ${Date.now() - t0}ms${first?.error ? ` error ${String(first.error).slice(0, 120)}` : ''}`);
     return first;
   }
   await hold.ctx?.close().catch(() => {});
@@ -241,16 +241,26 @@ export async function audit({ base, out, chromium, token = process.env.LCW_OPERA
   } catch {
     // version.json missing — keep null
   }
-  const browser = await chromium.launch({
-    channel: 'chrome',
-    headless: true,
-    args: ['--mute-audio', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']
-  });
+  const launch = () =>
+    chromium.launch({
+      channel: 'chrome',
+      headless: true,
+      args: ['--mute-audio', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']
+    });
+  let browser = await launch();
   const results = [];
   // one progress line per route on stderr: the runner keeps it in its log, so a slow night shows where the time went
   const log = (line) => console.error(`[audit ${new Date().toISOString().slice(11, 19)}] ${line}`);
-  const open = (p, vp, opts = {}) =>
-    withRouteLimit((hold) => openOnce(browser, base, out, p, vp, { ...opts, hold }), { route: p.route, tag: opts.tag ?? vp.name, log });
+  // A browser that died (out of memory on a busy machine: 11-16 every route after the third failed in 0.1 s) is
+  // started again before the next route instead of failing the rest of the night.
+  const open = async (p, vp, opts = {}) => {
+    if (!browser.isConnected()) {
+      log('browser gone - starting it again');
+      await browser.close().catch(() => {});
+      browser = await launch();
+    }
+    return withRouteLimit((hold) => openOnce(browser, base, out, p, vp, { ...opts, hold }), { route: p.route, tag: opts.tag ?? vp.name, log });
+  };
   try {
     for (const p of plan) {
       const doneHere = p.who.some((w) => w.status === 'done');

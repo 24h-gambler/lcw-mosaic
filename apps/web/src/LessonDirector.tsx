@@ -56,7 +56,7 @@ import {
   type FeedView,
   type NewStudentForm
 } from './lessonFlow.js';
-import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView } from './directorLiveState.js';
+import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView, type FeedLiveExtra } from './directorLiveState.js';
 import { StudentScreenBox } from './DirectorLive.js';
 import { LessonAudioBox } from './LessonAudioBox.js';
 import { ConsoleSeatBadge, SeatManager, useConsoleSeats } from './DirectorSeats.js';
@@ -120,7 +120,7 @@ export interface LessonDirectorConsoleProps {
   initialSeats?: ConsoleSeat[];
   /** Running lessons for the resume card (and auto-closed ones for their box); undefined → fetched. */
   initialLive?: LiveLessonsResult;
-  initialFeed?: LessonFeed;
+  initialFeed?: LessonFeed & FeedLiveExtra;
   now?: () => number;
   /** The sign-up approval queue: false hides it; an object passes its test doubles. */
   signupQueue?: false | Omit<SignupQueueProps, 'token'>;
@@ -862,7 +862,7 @@ interface LiveLessonProps {
   setLesson: (rec: DirectorLessonRecord | null) => void;
   now: () => number;
   onAuthError: (code: string) => void;
-  initialFeed?: LessonFeed;
+  initialFeed?: LessonFeed & FeedLiveExtra;
 }
 
 function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFeed }: LiveLessonProps): React.ReactElement {
@@ -874,10 +874,16 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
   const [feedFails, setFeedFails] = useState(0);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [viewStageId, setViewStageId] = useState<string>(lesson.stage_id ?? plan.stages[0]!.id);
+  // The newest stage move when the server made it by itself (docs/18 §9), shown on that stage's panel.
+  const [autoMove, setAutoMove] = useState<{ stageId: string; why: string; at: number } | null>(() =>
+    autoMoveOf(initialFeed?.stage_log, 0)
+  );
 
   const [liveX, setLiveX] = useState<DirectorLiveView>(() =>
     initialFeed ? mergeDirectorLive(EMPTY_DIRECTOR_LIVE, initialFeed, now()) : EMPTY_DIRECTOR_LIVE
   );
+  const liveXRef = useRef(liveX);
+  liveXRef.current = liveX;
   const liveCursorRef = useRef(liveX.liveCursor);
   liveCursorRef.current = liveX.liveCursor;
   const lessonRef = useRef(lesson);
@@ -908,6 +914,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
       setLiveX((prev) => mergeDirectorLive(prev, f, now()));
       setLive(f.live ?? EMPTY_LIVE);
       setServerLesson(f.lesson);
+      setAutoMove(autoMoveOf(f.stage_log, liveXRef.current.clockSkewMs));
       setFeedFails(0);
       setFeedError(null);
       const rec = lessonRef.current;
@@ -974,6 +981,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
             stage={stageById(plan, viewStageId) ?? plan.stages[0]!}
             clock={clock}
             onScreen={serverLesson?.targets ?? null}
+            autoMove={autoMove && autoMove.stageId === viewStageId ? autoMove : null}
             disabled={ended}
             now={now}
             onAuthError={onAuthError}
@@ -1295,6 +1303,12 @@ function StageRail({
   );
 }
 
+/** The newest stage move if the server made it by itself (docs/18 §9), on this console's clock. */
+function autoMoveOf(log: FeedLiveExtra['stage_log'], skewMs: number): { stageId: string; why: string; at: number } | null {
+  const last = log?.[log.length - 1];
+  return last?.source?.startsWith('auto:') ? { stageId: last.stage_id, why: last.source.slice(5), at: last.at - skewMs } : null;
+}
+
 function StagePanel({
   api,
   token,
@@ -1306,7 +1320,8 @@ function StagePanel({
   now,
   onAuthError,
   onPushed,
-  startedAt
+  startedAt,
+  autoMove = null
 }: {
   api: LessonApi;
   token: string;
@@ -1319,6 +1334,7 @@ function StagePanel({
   onAuthError: (code: string) => void;
   onPushed: (stageId: string) => void;
   startedAt: number;
+  autoMove?: { stageId: string; why: string; at: number } | null;
 }): React.ReactElement {
   const plan = planById(lesson.plan_id);
   const allTargets = new Set(stage.targets.map((t) => t.text));
@@ -1364,6 +1380,16 @@ function StagePanel({
       }
     >
       <div style={{ display: 'grid', gap: sp(3) }}>
+        {autoMove ? (
+          <Notice kind="ok" testId="stage-auto-moved">
+            {M.autoMoved(autoMove.why, formatClock(Math.max(0, autoMove.at - startedAt)))}
+          </Notice>
+        ) : null}
+        {isCurrent ? (
+          <p data-testid="stage-auto-rule" style={{ margin: 0, color: C['ink-700'] }}>
+            {M.autoRule(Math.max(1, Math.min(onScreen?.length || stage.targets.length, 2)), stage.minutes, !next)}
+          </p>
+        ) : null}
         <div style={{ backgroundColor: C['paper-100'], border, borderRadius: `${TOKENS.shape.radiusButtonPx}px`, padding: sp(2) }}>
           <strong style={{ display: 'block', marginBottom: sp(1) }}>{S.guideLabel}</strong>
           <p style={{ margin: 0, fontSize: `${T.scale['body-l'].sizePx}px`, lineHeight: `${T.scale['body-l'].lineHeightPx}px` }}>

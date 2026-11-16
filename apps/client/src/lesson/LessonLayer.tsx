@@ -42,10 +42,16 @@ export interface LessonDialogConfig {
   hint: LessonHintLevel;
   /** Takes the dialog panel's UtteranceSubmit (unknown shape on purpose: see readUtteranceSubmit). */
   submit: (u: unknown) => Promise<DialogResult>;
-  onDone: (r: DialogResult) => void;
+  /**
+   * "완료" on a result. `info` comes only from a window given `followUps` (talk lane): followUpsDone = the NPC asked
+   * the last follow-up (or there were none); then the stage is done and the server moves on (docs/18 §9).
+   */
+  onDone: (r: DialogResult, info?: { followUpsDone: boolean }) => void;
   onClose?: () => void;
   /** The NPC's opening line: the stage script (App passes it to the panel as npcLine). */
   npcLine?: string;
+  /** The stage NPC's follow-up questions, asked in the same window after the opening line passes (stage.followUpsEn). */
+  followUps?: readonly string[];
 }
 
 export interface LessonLayerProps {
@@ -269,8 +275,13 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     // After an answer the window opens again: then it says what the teacher last said as this NPC in this stage, so
     // the script is not asked (and read aloud) again over a follow-up line.
     ...(firstLine ? { npcLine: firstLine } : {}),
-    // "완료" on a result: the window starts over for the next sentence (free talk takes many in one stage).
-    onDone: () => setDoneSeq((n) => n + 1),
+    ...(view.followUpsEn.length ? { followUps: view.followUpsEn } : {}),
+    // "완료" on a result: the window starts over for the next sentence (free talk takes many in one stage). When the
+    // NPC has asked its last follow-up the stage is done: the server moves on and the next stage opens (docs/18 §9).
+    onDone: (_r, info) => {
+      if (info?.followUpsDone) void ctl.stageDone(view.stageId);
+      setDoneSeq((n) => n + 1);
+    },
     // ✕ on the dialog window folds it away so the child can look at the world; "말하기" brings it back.
     onClose: () => setFoldedKey(panelKey)
   };

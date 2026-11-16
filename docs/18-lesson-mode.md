@@ -113,6 +113,19 @@ Dan(선생님) 수업 뒤 말: 「쓸데없는 기능이나 버튼들이 많이 
 
 시험: `apps/web/src/__tests__/directorLive.test.ts`(뺀 것이 없고 접은 것이 있는지), `lesson.test.ts`(단계 패널). 화면 규칙: 접은 부분은 `<details>` 이고 `data-testid` 는 `director-key-more`·`director-csv-more`·`director-new-student-more`·`director-audio-more`·`teacher-more` 입니다.
 
+## 9. 단계 자동 진행 (2026-11-16, R2625·R2627)
+
+Dan: 「별도로 조종 안해도 됩니다」, 「진행 자체가 안되고 계속 있는점」. Oreo 수업의 `lesson_stage_log` 는 25분 동안 `warmup_anchor` 하나뿐이었습니다(선생님이 단계 버튼을 누르지 않으면 넘어가지 않았음). 이제 서버가 진행 중인 단계를 스스로 다음 단계로 넘깁니다(`lesson-mode.ts` `autoAdvance`).
+
+- **언제** (먼저 일어난 것 하나)
+  - 그 단계에 들어온 뒤 통과(별 1개 이상)한 **서로 다른** 목표 문장이 `min(목표 수, LESSON_AUTO_ADVANCE_PASSES=2)`개. 같은 문장을 다시 말하면 한 번으로 셉니다. 화면의 문장 없이 한 자유 발화(target_text 빈 값)는 세지 않습니다. 자유 단계(준비·열린 질문)는 후속 질문 끝이나 시간으로 넘어갑니다.
+  - 대화창이 그 단계 NPC 의 후속 질문(`followUpsEn`)을 끝까지 함: 아이 기기가 `POST /v1/lesson/stage-done {stage_id}`(학생 토큰). 이미 지난 단계의 늦은 신호는 아무것도 바꾸지 않습니다.
+  - 그 단계에서 **아이가 화면에 있던 시간**이 계획한 분(`stage.minutes`)을 채움. 아이 화면의 조회(`/v1/lesson/state`, 3초마다)가 올 때마다 직전 조회와의 간격을 `lesson_state.child_ms` 에 더합니다. 간격이 `LESSON_CHILD_GAP_MS`(30초)를 넘으면 더하지 않습니다. 그래서 늦게 들어온 아이도 준비 단계를 건너뛰지 않고, 20분 자리를 비웠다 돌아온 아이도 단계를 건너뛰지 않습니다. 단계가 바뀌면 0부터 다시 셉니다.
+- **선생님이 이깁니다**: 선생님이 콘솔에서 단계를 바꾸면 그 단계의 수와 시계가 그때부터 다시 셉니다. 마지막 단계는 넘기지 않습니다(「수업 끝」은 선생님이). 끝난 수업은 움직이지 않습니다.
+- **기록**: `lesson_stage_log.source` = null(선생님·시작) 또는 `auto:passes`·`auto:followups`·`auto:time`. 콘솔 피드 `stage_log` 에 그대로 나가고, 단계 패널에 「MM:SS 에 자동으로 넘어왔어요 · 목표 문장 통과」와 지금 단계의 규칙 한 줄이 보입니다.
+- **아이 화면**: 답 응답에 `auto_advanced: {from, to, why}`(넘김이 있을 때만, 같은 client_id 의 재전송에는 없음), 조회 응답에 `auto_advanced`(시간으로 넘긴 그 조회만)와 `follow_ups_en`. 답이 단계를 끝내면 컨트롤러가 0.3초 뒤 조회해 다음 단계의 장면·NPC·문장이 바로 뜹니다(`LESSON_ADVANCE_POLL_MS`). 대화창에는 `followUps`(대화 레인)를 넘기고, `onDone(r, {followUpsDone: true})` 이면 `stage-done` 을 부릅니다.
+- **시험**: `apps/edge/src/__tests__/lesson-auto-stage.test.ts`, `apps/client/src/__tests__/lesson-auto-stage.test.ts`, `apps/web/src/__tests__/directorLive.test.ts`.
+
 ## 6. 이어지는 것
 
 3D 클라이언트는 `/v1/lesson/state`의 `stage_id`로 장면을 바꾸고 `/v1/lesson/utterance`로 채점합니다(수업·월드·대화 도메인 공동 지점). 보호자 로그인(WP-301)과 수업 창문(WP-307)은 보호자 도메인이 같은 수업 id에 붙입니다. 학생 토큰은 수업 하나·학생 한 명에만 쓸 수 있습니다.

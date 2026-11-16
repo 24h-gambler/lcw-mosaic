@@ -111,6 +111,25 @@ export const LESSON_AUTO_CARD_MAX_AGE_MS = 24 * 3_600_000;
 /** The cron that runs the idle sweep (wrangler.toml); the hourly tasks keep '0 * * * *' (platform.ts scheduled). */
 export const LESSON_SWEEP_CRON = '*/5 * * * *';
 export const LESSON_END_AUTO_IDLE = 'auto_idle';
+/**
+ * Stages move on by themselves (Dan 11-16 R2625: "별도로 조종 안해도 됩니다" — the Oreo lesson stayed on stage 1 for
+ * the whole lesson). The running stage goes to the next one when the first of these happens (docs/18 §9):
+ *  - the child passed LESSON_AUTO_ADVANCE_PASSES of the sentences on screen (fewer if it shows fewer); free talk with
+ *    no sentence does not count (a free stage moves on by its follow-ups or its minutes),
+ *  - the stage NPC finished its follow-up questions (the child's dialog says so: POST /v1/lesson/stage-done),
+ *  - the stage's planned minutes are over (checked on the child's poll, so only while the child is there).
+ * The teacher's own move (console) always wins: the clock and the count start again from the stage the teacher chose.
+ * The last stage never moves on (the lesson ends with the teacher's '수업 끝').
+ */
+export const LESSON_AUTO_ADVANCE_PASSES = 2;
+/**
+ * The stage's planned minutes count only the time the child's screen was there (its state poll every LESSON_POLL_MS,
+ * 3 s; a retrying screen waits up to 15 s). A gap longer than this between two polls counts nothing: a child who joins
+ * late does not skip the warm-up, and a child back from 20 minutes away does not skip a stage.
+ */
+export const LESSON_CHILD_GAP_MS = 30_000;
+export type StageAdvanceWhy = 'passes' | 'followups' | 'time';
+
 /** The site the hub card links to when neither the lesson's start nor the deploy (LCW_PUBLIC_ORIGIN) gave one. */
 export const LCW_SITE_ORIGIN = 'https://lcw.worldwidesomething.com';
 /** The console box lists auto-closed lessons whose last sign of life is this recent (an old lesson is not a to-do). */
@@ -292,6 +311,7 @@ const PanelPinSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/) }).strict()
 const StageSchema = z
   .object({ stage_id: z.string().min(1).max(64), targets: z.array(z.string().min(1).max(200)).max(6) })
   .strict();
+const StageDoneSchema = z.object({ stage_id: z.string().min(1).max(64) }).strict();
 const PinSchema = z
   .object({
     kind: z.enum(['expression', 'coaching', 'highlight']),
@@ -387,6 +407,14 @@ export function buildLessonModeApp(
   if (!teacherCols.includes('account_name')) d.sql.exec('alter table lesson_teacher add column account_name text');
   const presenceCols = d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').map((col) => col.name);
   if (!presenceCols.includes('mic_issue')) d.sql.exec('alter table lesson_presence add column mic_issue text');
+  // Who moved the stage: null = the teacher (or the start), 'auto:<why>' = the auto-advance (StageAdvanceWhy).
+  if (!d.sql.all<{ name: string }>('pragma table_info(lesson_stage_log)').some((col) => col.name === 'source')) {
+    d.sql.exec('alter table lesson_stage_log add column source text');
+  }
+  // The child's time in the running stage (LESSON_CHILD_GAP_MS); a new stage row (insert or replace) starts at 0.
+  const stateCols = d.sql.all<{ name: string }>('pragma table_info(lesson_state)').map((col) => col.name);
+  if (!stateCols.includes('child_ms')) d.sql.exec('alter table lesson_state add column child_ms integer not null default 0');
+  if (!stateCols.includes('child_beat_at')) d.sql.exec('alter table lesson_state add column child_beat_at integer');
   if (!d.sql.all<{ name: string }>('pragma table_info(lesson_auto_close)').some((col) => col.name === 'empty')) {
     d.sql.exec('alter table lesson_auto_close add column empty integer not null default 0');
   }
@@ -468,8 +496,62 @@ export function buildLessonModeApp(
       npcId,
       d.nowMs()
     ]);
-  const logStage = (id: string, stageId: string, at: number) =>
-    d.sql.run('insert into lesson_stage_log (lesson_id, at, stage_id) values (?, ?, ?)', [id, at, stageId]);
+  const logStage = (id: string, stageId: string, at: number, source: string | null = null) =>
+    d.sql.run('insert into lesson_stage_log (lesson_id, at, stage_id, source) values (?, ?, ?, ?)', [id, at, stageId, source]);
+  /** When the running stage began (its newest log row), else the lesson's start. */
+  const stageEnteredAt = (id: string, stageId: string, startedAt: number) =>
+    d.sql.get<{ at: number }>('select at from lesson_stage_log where lesson_id = ? and stage_id = ? order by at desc, id desc limit 1', [
+      id,
+      stageId
+    ])?.at ?? startedAt;
+  /** The child's screen polled: its time in the running stage grows by the gap since the last poll (LESSON_CHILD_GAP_MS). */
+  const childTick = (id: string, now: number) =>
+    d.sql.run(
+      `update lesson_state set child_ms = child_ms + case when child_beat_at is not null and ? - child_beat_at between 0 and ?
+         then ? - child_beat_at else 0 end, child_beat_at = ? where lesson_id = ?`,
+      [now, LESSON_CHILD_GAP_MS, now, now, id]
+    );
+  const childMsOf = (id: string) => Number(d.sql.get<{ ms: number }>('select child_ms as ms from lesson_state where lesson_id = ?', [id])?.ms ?? 0);
+  /**
+   * Move the running stage on when it is done (LESSON_AUTO_ADVANCE_PASSES). `done` is the child's dialog saying the
+   * follow-ups are over for `doneStageId`; without it only the passes and the planned minutes count.
+   */
+  const autoAdvance = (id: string, now: number, done?: { stageId: string }): { from: string; to: string; why: StageAdvanceWhy } | null => {
+    const l = lessonRow(id);
+    const st = stateOf(id);
+    if (!l || l.ended_at || !st) return null;
+    const plan = getLessonPlan(st.plan_id);
+    const i = plan.stages.findIndex((s) => s.id === st.stage_id);
+    const stage = plan.stages[i];
+    const next = plan.stages[i + 1];
+    if (!stage || !next) return null;
+    const entered = stageEnteredAt(id, stage.id, l.started_at);
+    let why: StageAdvanceWhy | null = null;
+    if (done && done.stageId === stage.id) why = 'followups';
+    else {
+      // what the child can say now (the teacher may have pushed fewer sentences than the plan has)
+      const offered = st.targets.length || stage.targets.length;
+      const need = Math.max(1, Math.min(offered, LESSON_AUTO_ADVANCE_PASSES));
+      const passed = Number(
+        d.sql.get<{ n: number }>(
+          'select count(distinct target_text) as n from utterances where session_id = ? and ctx = ? and stars > 0 and length(target_text) > 0 and created_at >= ?',
+          [id, stage.id, entered]
+        )?.n ?? 0
+      );
+      if (offered > 0 && passed >= need) why = 'passes';
+      else if (stage.minutes > 0 && childMsOf(id) >= stage.minutes * 60_000) why = 'time';
+    }
+    if (!why) return null;
+    const targets = next.targets.map((t) => t.text);
+    d.sql.run('update lesson_state set stage_id = ?, targets = ?, updated_at = ?, child_ms = 0 where lesson_id = ?', [
+      next.id,
+      JSON.stringify(targets),
+      now,
+      id
+    ]);
+    logStage(id, next.id, now, `auto:${why}`);
+    return { from: stage.id, to: next.id, why };
+  };
   const stageAt = (id: string, at: number) =>
     d.sql.get<{ stage_id: string }>(
       'select stage_id from lesson_stage_log where lesson_id = ? and at <= ? order by at desc, id desc limit 1',
@@ -1167,7 +1249,8 @@ export function buildLessonModeApp(
         ])
       ),
       live_cursor: maxSeq(id),
-      stage_log: d.sql.all('select at, stage_id from lesson_stage_log where lesson_id = ? order by at, id', [id]),
+      // source: null = the teacher (or the start), 'auto:passes' | 'auto:followups' | 'auto:time' = moved by itself.
+      stage_log: d.sql.all('select at, stage_id, source from lesson_stage_log where lesson_id = ? order by at, id', [id]),
       minutes: mins.minutes.map(({ lesson_id: _l, ...m }) => m),
       progress: progressOf(id, mins),
       student_view: {
@@ -1367,6 +1450,9 @@ export function buildLessonModeApp(
     const now = d.nowMs();
     // A tutoring seat is in use once its child is in a lesson (seats.ts markSeatUse; refund ends at first use).
     markSeatUse(d.sql, s.player_id, now, 'lesson');
+    // The stage's planned minutes of the child's own time are over: on to the next one (LESSON_CHILD_GAP_MS).
+    childTick(s.lesson_id, now);
+    const advanced = autoAdvance(s.lesson_id, now);
     const st = stateOf(s.lesson_id);
     const l = lessonRow(s.lesson_id);
     const plan = getLessonPlan(st?.plan_id);
@@ -1416,6 +1502,11 @@ export function buildLessonModeApp(
       // for the dialog window (the stage's script, not the NPC's solo greeting).
       lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
       npc_line_en: stage?.teacherScriptEn ?? '',
+      // The stage NPC's follow-up questions, in order (the dialog asks them after the script line; when they are
+      // done it says so with POST /v1/lesson/stage-done and the stage moves on).
+      follow_ups_en: stage?.followUpsEn ?? [],
+      // The stage just moved on by itself on this poll (null otherwise): the world may cheer.
+      auto_advanced: advanced,
       // When the current stage began (server clock, same as npc_lines.at): lines before it belong to the last stage.
       stage_started_at: stageStartedAt,
       // The teacher's newest line as the stage NPC in this stage, however old: after a reload the first poll only
@@ -1431,6 +1522,17 @@ export function buildLessonModeApp(
             )?.text ?? null),
       server_now: now
     });
+  });
+
+  // The stage NPC asked all its follow-up questions (talk lane dialog, followUps): the stage is done. A stage that is
+  // not the running one any more (the teacher moved it, a late resend) changes nothing.
+  app.post('/v1/lesson/stage-done', async (c) => {
+    const s = await student(c.req.raw);
+    if (!s) return c.json({ error: 'student_only' }, 401);
+    const p = StageDoneSchema.safeParse(await c.req.json().catch(() => null));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const advanced = autoAdvance(s.lesson_id, d.nowMs(), { stageId: p.data.stage_id });
+    return c.json({ ok: true, auto_advanced: advanced, stage_id: stateOf(s.lesson_id)?.stage_id ?? null });
   });
 
   app.post('/v1/lesson/utterance', async (c) => {
@@ -1588,10 +1690,12 @@ export function buildLessonModeApp(
         u.client_id
       ]);
     }
+    // Enough passes in the running stage: on to the next one. Not stored with the answer (a resend must not say it again).
+    const advanced = pass ? autoAdvance(s.lesson_id, now) : null;
     const audioUpload = d.offerVoiceUpload
       ? await d.offerVoiceUpload({ playerId: s.player_id, utteranceId: uttId, source: u.stt_source, nowMs: now })
       : null;
-    return c.json({ ...answer, ...(audioUpload ? { audio_upload: audioUpload } : {}) });
+    return c.json({ ...answer, ...(advanced ? { auto_advanced: advanced } : {}), ...(audioUpload ? { audio_upload: audioUpload } : {}) });
   });
 
   // The cron (platform.ts /internal/cron) runs the idle sweep through this, without an HTTP round trip.

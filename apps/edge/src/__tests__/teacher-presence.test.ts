@@ -36,7 +36,7 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     const p = platform();
     const { lessonId, st } = await start(p, true);
     let s = await call(p, 'GET', '/v1/lesson/state', undefined, st);
-    expect(s.body.teacher).toMatchObject({ present: true, name: '선생님' });
+    expect(s.body.teacher).toMatchObject({ present: true, name: null });
     const since = s.body.teacher.since;
     await say(p, st);
     expect(lastInterlocutor(p)).toBe('teacher');
@@ -74,7 +74,7 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     const { lessonId, st } = await start(p);
     vi.advanceTimersByTime(2 * 3_600_000);
     const s = await call(p, 'GET', '/v1/lesson/state', undefined, st);
-    expect(s.body.teacher).toMatchObject({ present: true, name: '선생님' });
+    expect(s.body.teacher).toMatchObject({ present: true, name: null });
     await say(p, st);
     expect(lastInterlocutor(p)).toBe('teacher');
     expect((await call(p, 'GET', `/v1/admin/lessons/${lessonId}/feed`)).body.teacher).toMatchObject({ present: true, tracked: false });
@@ -163,37 +163,54 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     expect(await mic()).toBe('ok');
   });
 
-  it('an operator session id from the exchange names the teacher when that session has a name', async () => {
+  // The teacher sign-in (#87) keeps accounts in operators and sessions in operator_sessions(operator_id).
+  const signIn = (p: PlatformDO, session: string, name: string) => {
+    p.sql.exec('create table if not exists operators (id text primary key, name text)');
+    p.sql.exec('create table if not exists operator_sessions (id text primary key, operator_id text not null)');
+    p.sql.run('insert into operators (id, name) values (?, ?)', [`op-${session}`, name]);
+    p.sql.run('insert into operator_sessions (id, operator_id) values (?, ?)', [session, `op-${session}`]);
+  };
+
+  it('a signed-in console names the teacher with the account name (name alone, title dropped)', async () => {
     const p = platform();
-    p.sql.exec('create table if not exists operator_sessions (id text primary key, label text not null)');
-    p.sql.run("insert into operator_sessions (id, label) values ('ops-1', 'Dan')");
+    signIn(p, 'ops-1', 'Dan');
     const { lessonId, st } = await start(p, true);
-    // The platform drops a client-sent session header unless the parent's exchange set it; here we call the inner
-    // route path through the gate with the operator key, so the header reaches it only if the platform passes it on.
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { ...op, 'x-lcw-op-session': 'ops-1' });
-    const name = (await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name;
-    expect(name).toBe('Dan');
+    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name).toBe('Dan');
   });
 
-  it('teacher name: typed on the console, kept across nameless beats; a session name wins; no session table → 선생님', async () => {
+  it('teacher name: the name alone; typed > account > none (the screen shows 선생님); blank clears; nameless beats keep', async () => {
     const p = platform();
     const { lessonId, st } = await start(p, true);
     const nameNow = async () => (await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name;
-    expect(await nameNow()).toBe('선생님');
-    // No operator_sessions table here: a session header falls back without an error.
-    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { ...op, 'x-lcw-op-session': 'ops-x' })).status).toBe(200);
-    expect(await nameNow()).toBe('선생님');
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { name: '  김 선생님 ' });
-    expect(await nameNow()).toBe('김 선생님');
-    // The 1PC panel's beats carry no name: the console's name stays.
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel' });
-    expect(await nameNow()).toBe('김 선생님');
-    for (const bad of ['', 'x'.repeat(21), 'a<b>', 'tab	here']) {
-      expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { name: bad })).status).toBe(400);
-    }
-    p.sql.exec('create table if not exists operator_sessions (id text primary key, label text not null)');
-    p.sql.run("insert into operator_sessions (id, label) values ('ops-2', 'Dan')");
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { name: '김 선생님' }, { ...op, 'x-lcw-op-session': 'ops-2' });
+    const beat = (body: unknown, headers: Record<string, string> = op) => call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, body, headers);
+    // No name anywhere: null, the child's screen says "선생님" (teacherLabel).
+    expect(await nameNow()).toBeNull();
+    // No operator tables yet: a session header falls back without an error.
+    expect((await beat({}, { ...op, 'x-lcw-op-session': 'ops-x' })).status).toBe(200);
+    expect(await nameNow()).toBeNull();
+    // The title typed anyway is dropped: never "김민지 선생님 선생님" on the child's screen.
+    await beat({ name: '  김민지 선생님 ' });
+    expect(await nameNow()).toBe('김민지');
+    // The 1PC panel's beats say nothing about the name: it stays.
+    await beat({ panel: 'closed', source: 'panel' });
+    expect(await nameNow()).toBe('김민지');
+    for (const bad of ['x'.repeat(17), 'a<b>', `tab${String.fromCharCode(9)}here`]) expect((await beat({ name: bad })).status).toBe(400);
+    // Signed in: the typed name still wins over the account name (review #80, order typed > account > default).
+    signIn(p, 'ops-2', 'Dan');
+    await beat({ name: '김민지' }, { ...op, 'x-lcw-op-session': 'ops-2' });
+    expect(await nameNow()).toBe('김민지');
+    // Emptying the field clears the typed name: back to the account name...
+    await beat({ name: '' }, { ...op, 'x-lcw-op-session': 'ops-2' });
     expect(await nameNow()).toBe('Dan');
+    // ...and "선생님" alone counts as blank too.
+    await beat({ name: '선생님' }, { ...op, 'x-lcw-op-session': 'ops-2' });
+    expect(await nameNow()).toBe('Dan');
+  });
+
+  it('an untracked lesson (old console) reports no name: the child sees the plain "선생님"', async () => {
+    const p = platform();
+    const { st } = await start(p);
+    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher).toMatchObject({ present: true, name: null });
   });
 });

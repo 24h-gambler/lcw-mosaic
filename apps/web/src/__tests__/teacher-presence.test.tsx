@@ -39,7 +39,7 @@ describe('teacher presence on the director console', () => {
   it('teacher name: the console box has the field; only names the server accepts are sent', () => {
     const api = { presence: vi.fn(), leave: vi.fn(), setPanelPin: vi.fn(), panelPinState: vi.fn(() => new Promise(() => undefined)), panelUnlock: vi.fn() } as unknown as LessonApi;
     expect(renderToStaticMarkup(<TeacherPresenceBox api={api} token="op" lessonId="les-1" ended={false} />)).toContain('data-testid="teacher-name-input"');
-    expect(cleanTeacherName('  김 선생님 ')).toBe('김 선생님');
+    expect(cleanTeacherName('  김민지 선생님 ')).toBe('김민지');
     expect(cleanTeacherName('')).toBeNull();
     expect(cleanTeacherName('x'.repeat(21))).toBeNull();
     expect(cleanTeacherName('a<b>')).toBeNull();

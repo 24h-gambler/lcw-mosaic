@@ -572,7 +572,7 @@ export class WorldHud {
   setTeacher(t: { present: boolean; name: string | null } | null): void {
     this.lessonChip.classList.toggle('solo', Boolean(t && !t.present));
     this.lessonChip.dataset.teacher = t === null ? '' : t.present ? 'present' : 'absent';
-    this.lessonChip.textContent = t === null ? W.lessonBadge : t.present ? W.teacherWith(t.name || W.teacherDefault) : W.solo;
+    this.lessonChip.textContent = t === null ? W.lessonBadge : t.present ? W.teacherWith(t.name) : W.solo;
   }
 
   selectSlot(i: number, caption = true): void {

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { TEACHER_NAME_MAX, normalizeTeacherName } from '@lcw/content';
 import { Button } from '@lcw/ui';
 import type { LessonApi, TeacherPresence } from './lessonApi.js';
 import { Box, inputStyle, labelStyle, sp } from './lessonUi.js';
@@ -16,19 +17,10 @@ import { P } from './presenceStrings.js';
 export const TEACHER_BEAT_MS = 15_000;
 /** A failed beat is sent again this soon (a blip must not cost the child the teacher at the 45 s mark). */
 export const TEACHER_RETRY_MS = 5_000;
-/** The name the child sees ("<name> 함께"), kept per console browser. */
+/** The name alone ("김민지"; the child sees "김민지 선생님"), kept per console browser. */
 export const TEACHER_NAME_KEY = 'lcw.teacherName';
-export const TEACHER_NAME_MAX = 20;
-/** A name the server accepts (1-20 chars, no control characters or angle brackets), else null. */
-export function cleanTeacherName(v: string | null | undefined): string | null {
-  const t = (v ?? '').trim();
-  if (!t || t.length > TEACHER_NAME_MAX) return null;
-  for (const ch of t) {
-    const c = ch.charCodeAt(0);
-    if (c < 32 || c === 127 || ch === '<' || ch === '>') return null;
-  }
-  return t;
-}
+/** The name alone the server accepts (title dropped, 1-TEACHER_NAME_MAX chars, no control characters or <>), else null. */
+export const cleanTeacherName = normalizeTeacherName;
 function readTeacherName(): string | null {
   try {
     return cleanTeacherName(globalThis.localStorage?.getItem(TEACHER_NAME_KEY));
@@ -77,7 +69,7 @@ export function useTeacherHeartbeat(o: {
   panel?: 'open' | 'closed';
   ticker?: typeof startTicker;
   retryMs?: number;
-  /** Sent with each beat; the child sees it on the lesson chip. */
+  /** Sent with each beat ('' clears it); null sends nothing about the name. The child sees teacherLabel(name). */
   name?: string | null;
 }): { teacher: TeacherPresence | null; failing: boolean; left: boolean; resume: () => Promise<void>; leave: () => Promise<void> } {
   const [teacher, setTeacher] = useState<TeacherPresence | null>(null);
@@ -188,7 +180,8 @@ export function TeacherPresenceBox({
 }): React.ReactElement {
   const [name, setName] = useState<string>(() => readTeacherName() ?? '');
   const cleanName = cleanTeacherName(name);
-  const { teacher, failing, left, resume, leave } = useTeacherHeartbeat({ api, token, lessonId, active: !ended, name: cleanName });
+  // Always says the name: an emptied field goes back to the account's name or "선생님" (review #80).
+  const { teacher, failing, left, resume, leave } = useTeacherHeartbeat({ api, token, lessonId, active: !ended, name: cleanName ?? '' });
   const saveName = (v: string) => {
     setName(v);
     try {

@@ -1,4 +1,5 @@
 /** Teacher presence and 1PC/2PC strings (Korean UI). Kept apart from strings.ts so lanes editing it do not collide. */
+import { teacherLabel } from '@lcw/content';
 export const P = {
   consoleBeatStarting: '학생 화면에 선생님 표시를 켜는 중…',
   consolePresent: '학생 화면: 선생님과 함께 (이 콘솔이 켜져 있는 동안)',
@@ -8,8 +9,8 @@ export const P = {
   consoleLeave: '선생님 나가기 (학생 화면을 바로 혼자 놀기로)',
   consoleBeatFailing: '선생님 신호를 못 보냈어요. 인터넷을 확인하세요 — 45초가 지나면 학생 화면이 혼자 놀기로 바뀌어요',
   boxTitle: '선생님 표시 · 1PC 잠금',
-  nameLabel: '학생 화면에 보일 선생님 이름 (예: 김 선생님)',
-  namePlaceholder: '선생님',
+  nameLabel: '학생 화면에 보일 이름 (예: 김민지 → 「김민지 선생님」) · 비우면 「선생님」',
+  namePlaceholder: '김민지',
   pinLabel: '1PC 잠금 번호 (4~6자리)',
   pinChange: '1PC 잠금 번호 바꾸기',
   pinSave: '번호 저장',
@@ -40,7 +41,8 @@ export const P = {
   mic: (m: 'ok' | 'quiet' | 'none' | 'skipped' | null): string =>
     `마이크: ${m === 'ok' ? '잘 들림' : m === 'quiet' ? '작음' : m === 'none' ? '마이크 없음' : m === 'skipped' ? '안 해 봄' : '—'}`,
   // child side
-  childWithTeacher: (name: string) => `${name} 함께`,
+  /** name alone, or null → "김민지 선생님과 함께" / "선생님과 함께" (teacherLabel, @lcw/content). */
+  childWithTeacher: (name: string | null) => `${teacherLabel(name)}과 함께`,
   childAlone: '혼자 놀기',
   childAloneDetail: '선생님이 잠깐 자리를 비웠어요. 혼자 말해 봐도 돼요!'
 } as const;

@@ -1,6 +1,15 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LESSON_DIRECTOR_EVENTS, LESSON_NPCS, LESSON_PLANS, UTTERANCE_CLIENT_ID_RE, bankTextKey, getLessonPlan, type LessonPlan } from '@lcw/content';
+import {
+  LESSON_DIRECTOR_EVENTS,
+  LESSON_NPCS,
+  LESSON_PLANS,
+  UTTERANCE_CLIENT_ID_RE,
+  bankTextKey,
+  getLessonPlan,
+  normalizeTeacherName,
+  type LessonPlan
+} from '@lcw/content';
 import { scoreUtterance } from '@lcw/converse';
 import {
   computeLessonMetrics,
@@ -90,7 +99,7 @@ create index if not exists lesson_stage_log_by_lesson on lesson_stage_log (lesso
 create table if not exists lesson_director (lesson_id text primary key, possessed_npc_id text, updated_at integer not null);
 create table if not exists lesson_presence (lesson_id text primary key, last_seen_at integer not null, scene_id text, ui text);
 create table if not exists lesson_utterance_clients (lesson_id text not null, client_id text not null, response text not null, at integer not null, primary key (lesson_id, client_id));
-create table if not exists lesson_teacher (lesson_id text primary key, first_beat_at integer not null, last_beat_at integer not null, present_since integer not null, panel text not null default 'open', op_session text, name text, left_at integer);
+create table if not exists lesson_teacher (lesson_id text primary key, first_beat_at integer not null, last_beat_at integer not null, present_since integer not null, panel text not null default 'open', op_session text, name text, left_at integer, account_name text);
 create table if not exists lesson_panel_lock (lesson_id text primary key, pin_hash text not null, set_at integer not null, fails integer not null default 0, fail_since integer)
 `;
 
@@ -186,16 +195,19 @@ const PresenceSchema = z
     panel: z.enum(['open', 'closed']).default('open'),
     source: z.enum(['console', 'panel']).default('console'),
     resume: z.boolean().optional(),
-    // The name the child sees ("<name> 함께"), typed on the console. A signed-in operator session's name wins.
+    // The name alone ("김민지", no "선생님"), typed on the console; the child sees teacherLabel(name). Blank (or only the
+    // title) clears it. Typed name > the signed-in account's name > "선생님" (review #80).
     name: z
       .string()
-      .trim()
-      .min(1)
-      .max(20)
-      .regex(/^[^\u0000-\u001f\u007f<>]+$/)
+      .max(64)
+      .refine((v) => isBlankTeacherName(v) || normalizeTeacherName(v) !== null, 'invalid_name')
       .optional()
   })
   .strict();
+/** Blank, or only the title typed: clears the typed name (back to the account name or "선생님"). */
+function isBlankTeacherName(v: string): boolean {
+  return v.replace(/선생님/g, '').trim() === '';
+}
 const PanelPinSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/) }).strict();
 const StageSchema = z
   .object({ stage_id: z.string().min(1).max(64), targets: z.array(z.string().min(1).max(200)).max(6) })
@@ -282,9 +294,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   if (!d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').some((col) => col.name === 'mic')) {
     d.sql.exec('alter table lesson_presence add column mic text');
   }
-  if (!d.sql.all<{ name: string }>('pragma table_info(lesson_teacher)').some((col) => col.name === 'left_at')) {
-    d.sql.exec('alter table lesson_teacher add column left_at integer');
-  }
+  const teacherCols = d.sql.all<{ name: string }>('pragma table_info(lesson_teacher)').map((col) => col.name);
+  if (!teacherCols.includes('left_at')) d.sql.exec('alter table lesson_teacher add column left_at integer');
+  if (!teacherCols.includes('account_name')) d.sql.exec('alter table lesson_teacher add column account_name text');
   const app = new Hono();
   // Hub cards for the teacher (after-lesson summary, student's daily record): an outbox the spine side pulls.
   mountOpsCardRoutes(app, d);
@@ -294,25 +306,23 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       'select id, player_id, started_at, ended_at, plan from lessons where id = ?',
       [id]
     );
-  /** The teacher's display name: the operator session's name when the console signed in with one, else '선생님'. */
-  /** The signed-in operator session's name, or null (no session, no table yet, no name). */
+  /** The signed-in account's name alone (same join as the teacher sign-in, #87), or null: no session, no tables yet. */
   const sessionNameOf = (opSession: string | null): string | null => {
     if (!opSession) return null;
     try {
-      const r = d.sql.get<{ name: string | null }>('select coalesce(display_name, label) as name from operator_sessions where id = ?', [opSession]);
-      if (r?.name) return r.name.slice(0, 24);
+      const r = d.sql.get<{ name: string | null }>(
+        'select o.name as name from operator_sessions s join operators o on o.id = s.operator_id where s.id = ?',
+        [opSession]
+      );
+      return normalizeTeacherName(r?.name);
     } catch {
-      try {
-        const r = d.sql.get<{ name: string | null }>('select label as name from operator_sessions where id = ?', [opSession]);
-        if (r?.name) return r.name.slice(0, 24);
-      } catch {
-        /* no operator session table yet */
-      }
+      return null; /* no operator tables yet */
     }
-    return null;
   };
   /** panel null = keep the panel state (console beats); a beat always clears an earlier leave. */
+  /** typedName undefined = this beat says nothing about the name (1PC panel, an older console): keep it; blank clears. */
   const beat = (lessonId: string, now: number, panel: 'open' | 'closed' | null, opSession: string | null, typedName?: string) => {
+    const typed = typedName === undefined ? undefined : normalizeTeacherName(typedName);
     const prev = d.sql.get<{ last_beat_at: number; present_since: number }>(
       'select last_beat_at, present_since from lesson_teacher where lesson_id = ?',
       [lessonId]
@@ -320,26 +330,28 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     // A gap longer than the present window starts a new stretch of presence.
     const since = prev && now - prev.last_beat_at <= TEACHER_PRESENT_MS ? prev.present_since : now;
     d.sql.run(
-      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel, op_session, name, left_at) values (?, ?, ?, ?, ?, ?, ?, null)
+      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel, op_session, name, account_name, left_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, null)
        on conflict(lesson_id) do update set last_beat_at = excluded.last_beat_at, present_since = excluded.present_since,
          panel = coalesce(?, lesson_teacher.panel), op_session = coalesce(excluded.op_session, lesson_teacher.op_session),
-         name = coalesce(excluded.name, lesson_teacher.name), left_at = null`,
-      // A beat without a name (the 1PC panel, an older console) keeps the name the console set.
-      [lessonId, now, now, since, panel ?? 'open', opSession, sessionNameOf(opSession) ?? typedName ?? null, panel]
+         name = case when ? then excluded.name else lesson_teacher.name end,
+         account_name = coalesce(excluded.account_name, lesson_teacher.account_name), left_at = null`,
+      [lessonId, now, now, since, panel ?? 'open', opSession, typed ?? null, sessionNameOf(opSession), panel, typed === undefined ? 0 : 1]
     );
   };
   const teacherOf = (lessonId: string, now: number): TeacherPresence => {
     const l = lessonRow(lessonId);
     if (!l || l.ended_at) return { present: false, name: null, since: null, tracked: true, panel: null };
-    const t = d.sql.get<{ last_beat_at: number; present_since: number; panel: string; name: string | null }>(
-      'select last_beat_at, present_since, panel, name from lesson_teacher where lesson_id = ?',
+    const t = d.sql.get<{ last_beat_at: number; present_since: number; panel: string; name: string | null; account_name: string | null }>(
+      'select last_beat_at, present_since, panel, name, account_name from lesson_teacher where lesson_id = ?',
       [lessonId]
     );
-    if (!t) return { present: true, name: TEACHER_NAME_DEFAULT, since: l.started_at, tracked: false, panel: null };
+    // name is the name alone or null; the child's screen shows teacherLabel(name) ("선생님" for null).
+    if (!t) return { present: true, name: null, since: l.started_at, tracked: false, panel: null };
     const present = now - t.last_beat_at <= TEACHER_PRESENT_MS;
     return {
       present,
-      name: present ? (t.name ?? TEACHER_NAME_DEFAULT) : null,
+      name: present ? (t.name ?? t.account_name ?? null) : null,
       since: present ? t.present_since : null,
       tracked: true,
       panel: present ? (t.panel === 'closed' ? 'closed' : 'open') : null

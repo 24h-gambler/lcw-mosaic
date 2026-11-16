@@ -7,21 +7,44 @@
  * blocks, stars) ever rides on them (AGENTS 4.7).
  *
  * Wire format (JSON text frames, compact arrays to keep 10 Hz cheap):
- *   client → room   {"t":"p","p":[x,y,z,yaw,anim,seq?]}   pose, at most poseHz while moving
+ *   client → room   {"t":"p","p":[x,y,z,yaw,anim,seq?,vx?,vz?,w?]}   pose with ground velocity (m/s) and turn rate
+ *                                                        (rad/s, predictPose): only when the
+ *                                                        receivers' prediction (pose + velocity × age) would be off,
+ *                                                        within a per-sender budget (TUNING.multi.poseBudgetHz)
  *                   {"t":"e","e":"wave"}                    emote from TUNING.multi.emotes
  *                   {"t":"ping","c":<client ms>}            round trip through the room (load bots, latency read-out)
  *                   "ping"                                  keep-alive, answered "pong" by the platform without waking the room
  *   room → client   {"t":"hello","you":id,"cap":8,"peers":[[id,name,role,x,y,z,yaw,anim],...]}
  *                   {"t":"join","id","name","role"} / {"t":"leave","id"}
- *                   {"t":"poses","p":[[id,x,y,z,yaw,anim,seq],...]}  every changed pose, batched per broadcastMs
+ *                   {"t":"poses","p":[[id,x,y,z,yaw,anim,seq,vx,vz,w],...]}  every changed pose, batched per broadcastMs
  *                   {"t":"e","id","e"} / {"t":"pong","c"}
  *                   {"t":"full","cap"} then close 4003     the room is at capacity ("방이 가득 찼어요")
  */
 import { TUNING } from './tuning.js';
 
 export type RoomRole = 'student' | 'player' | 'teacher' | 'bot';
-/** x, y, z (metres), yaw (radians), anim (0 idle, 1 walk, 2 run, 3 jump, …), seq (sender's counter, latency probes) */
-export type RoomPose = [number, number, number, number, number, number];
+/**
+ * x, y, z (metres), yaw (radians), anim (0 idle, 1 walk, 2 run, 3 jump, …), seq (sender's counter, latency probes),
+ * vx, vz (ground velocity, m/s) and w (how fast the walking direction turns, rad/s): the receiver moves the figure
+ * along that arc until the next pose (predictPose, docs/02 §11.3).
+ */
+export type RoomPose = [number, number, number, number, number, number, number, number, number];
+
+/** most a walking direction may turn per second in a pose (a tight circle is ~1.5) */
+export const MAX_TURN_RATE = 6;
+
+/**
+ * Where a pose has gone after `ageS` seconds: along its ground velocity, the direction turning at w rad/s (heading as
+ * yaw: x = sin, z = cos). Sender and receivers use the same function, so the sender knows exactly what the others
+ * draw and sends only when that is off.
+ */
+export function predictPose(x: number, z: number, vx: number, vz: number, w: number, ageS: number): [number, number] {
+  if (Math.abs(w) < 1e-3) return [x + vx * ageS, z + vz * ageS];
+  const sp = Math.hypot(vx, vz);
+  const h0 = Math.atan2(vx, vz);
+  const h1 = h0 + w * ageS;
+  return [x + (sp * (Math.cos(h0) - Math.cos(h1))) / w, z + (sp * (Math.sin(h1) - Math.sin(h0))) / w];
+}
 
 export const ROOM_CLOSE = {
   full: 4003,
@@ -63,7 +86,7 @@ export type RoomReceive =
   | { kind: 'close'; code: number; reason: string };
 
 const NAME_MAX = 16;
-const ZERO_POSE: RoomPose = [0, 0, 0, 0, 0, 0];
+const ZERO_POSE: RoomPose = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export function cleanRoomName(raw: unknown): string {
   // Control characters and bidi overrides out, trimmed, at most 16 visible characters.
@@ -78,15 +101,20 @@ const r3 = (n: number): number => Math.round(n * 1000) / 1000;
 
 /** Validates a pose array from the wire; null when anything is off (wrong length, not finite, out of the world). */
 export function parseRoomPose(p: unknown, limit = TUNING.multi.coordLimit): RoomPose | null {
-  if (!Array.isArray(p) || p.length < 5 || p.length > 6) return null;
+  if (!Array.isArray(p) || p.length < 5 || p.length > 9) return null;
   for (const v of p) if (typeof v !== 'number' || !Number.isFinite(v)) return null;
   const [x, y, z, yaw, anim] = p as number[];
   const seq = (p[5] as number | undefined) ?? 0;
+  const vx = (p[6] as number | undefined) ?? 0;
+  const vz = (p[7] as number | undefined) ?? 0;
+  const w = (p[8] as number | undefined) ?? 0;
   if (Math.abs(x!) > limit || Math.abs(y!) > limit || Math.abs(z!) > limit) return null;
   if (Math.abs(yaw!) > 100) return null;
   if (!Number.isInteger(anim) || anim! < 0 || anim! > 15) return null;
   if (!Number.isInteger(seq) || seq < 0 || seq > 2 ** 31) return null;
-  return [r2(x!), r2(y!), r2(z!), r3(yaw!), anim!, seq];
+  if (Math.abs(vx) > TUNING.multi.maxPoseSpeed || Math.abs(vz) > TUNING.multi.maxPoseSpeed) return null;
+  if (Math.abs(w) > MAX_TURN_RATE) return null;
+  return [r2(x!), r2(y!), r2(z!), r3(yaw!), anim!, seq, r2(vx), r2(vz), r3(w)];
 }
 
 export class RoomCore {

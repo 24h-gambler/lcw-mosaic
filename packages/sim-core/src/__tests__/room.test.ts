@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROOM_CLOSE, RoomCore, TUNING, cleanRoomName, parseRoomPose } from '../index.js';
+import { ROOM_CLOSE, RoomCore, TUNING, cleanRoomName, parseRoomPose, predictPose } from '../index.js';
 
 const join = (core: RoomCore, i: number, now = 0) => core.join({ id: `id${i}`, key: `k${i}`, name: `p${i}`, role: 'bot' }, now);
 
@@ -49,7 +49,7 @@ describe('multi room core (docs/03 D11 capacity, docs/02 §11)', () => {
     for (let s = 0; s < 5; s++) core.receive('id0', JSON.stringify({ t: 'p', p: [s, 0, 0, 0, 1, s] }), 10 + s);
     const out = core.flush();
     expect(out).not.toBeNull();
-    expect(JSON.parse(out!.frame)).toEqual({ t: 'poses', p: [['id0', 4, 0, 0, 0, 1, 4]] });
+    expect(JSON.parse(out!.frame)).toEqual({ t: 'poses', p: [['id0', 4, 0, 0, 0, 1, 4, 0, 0, 0]] });
     expect(core.flush()).toBeNull();
   });
 
@@ -85,12 +85,28 @@ describe('multi room core (docs/03 D11 capacity, docs/02 §11)', () => {
   });
 
   it('pose and name validation', () => {
-    expect(parseRoomPose([1, 2, 3, 0, 1])).toEqual([1, 2, 3, 0, 1, 0]);
+    expect(parseRoomPose([1, 2, 3, 0, 1])).toEqual([1, 2, 3, 0, 1, 0, 0, 0, 0]);
+    // velocity and turn rate ride along; out-of-range ones are refused
+    expect(parseRoomPose([1, 2, 3, 0, 1, 5, 4.567, -1, 0.5])).toEqual([1, 2, 3, 0, 1, 5, 4.57, -1, 0.5]);
+    expect(parseRoomPose([1, 2, 3, 0, 1, 5, 99, 0, 0])).toBeNull();
+    expect(parseRoomPose([1, 2, 3, 0, 1, 5, 1, 0, 50])).toBeNull();
+    expect(parseRoomPose([1, 2, 3, 0, 1, 5, 1, 0, 0, 9])).toBeNull();
     expect(parseRoomPose([1, 2, 3, 0, 1.5])).toBeNull();
     expect(parseRoomPose([Number.NaN, 2, 3, 0, 1])).toBeNull();
     expect(parseRoomPose('1,2,3')).toBeNull();
     expect(cleanRoomName('‮abc\u0000')).toBe('abc');
     expect(cleanRoomName('')).toBe('친구');
     expect(cleanRoomName('가'.repeat(30))).toHaveLength(16);
+  });
+});
+
+describe('pose prediction (predictPose, docs/02 §11.3)', () => {
+  it('a straight walk moves along the velocity; a turning one follows the circle', () => {
+    expect(predictPose(1, 2, 3, -1, 0, 2)).toEqual([7, 0]);
+    // 4.5 m/s turning at 1.5 rad/s: a circle of radius 3 m comes back to the start after 2π/1.5 s
+    const [x, z] = predictPose(0, 0, 0, 4.5, 1.5, (2 * Math.PI) / 1.5);
+    expect(Math.hypot(x, z)).toBeLessThan(1e-6);
+    const [hx, hz] = predictPose(0, 0, 0, 4.5, 1.5, Math.PI / 1.5);
+    expect(Math.hypot(hx, hz)).toBeCloseTo(6, 6); // half way round: the diameter
   });
 });

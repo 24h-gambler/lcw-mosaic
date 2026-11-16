@@ -89,29 +89,50 @@ describe('room client (docs/03 D11, docs/02 §11 request budget)', () => {
     client.stop();
   });
 
-  it('with someone else it sends moving poses at most poseHz a second, and greets a newcomer with one pose', async () => {
+  it('with someone else it sends only what the others cannot predict, within the budget, and greets a newcomer', async () => {
     const { client, sockets, move } = setup();
     client.start();
     await flush();
     const s = sockets[0]!;
     s.frame({ t: 'hello', you: 'me', cap: 8, peers: [['p1', 'Mina', 'player', 0, 0, 0, 0, 0]] });
     expect(s.poses()).toHaveLength(1);
-    // walk for one second, a new position every tick
-    for (let i = 1; i <= TUNING.multi.poseTickHz; i++) {
-      move([1 + i, 2, 3, 0, 1]);
-      vi.advanceTimersByTime(1000 / TUNING.multi.poseTickHz);
+    const tick = 1000 / TUNING.multi.poseTickHz;
+    // walking straight at 4.5 m/s for 6 s: the start, then a refresh every poseRefreshMs (the others carry me along)
+    let x = 0;
+    for (let t = 0; t < 6000; t += tick) {
+      x += 4.5 * (tick / 1000);
+      move([x, 2, 3, Math.PI / 2, 1]);
+      vi.advanceTimersByTime(tick);
     }
-    const n = s.poses().length - 1;
-    expect(n).toBeLessThanOrEqual(TUNING.multi.poseHz + 1);
-    expect(n).toBeGreaterThanOrEqual(TUNING.multi.poseHz - 1);
-    // standing still: nothing more
+    const straight = s.poses().slice(1);
+    expect(straight.length).toBeLessThanOrEqual(2 + Math.ceil(6000 / TUNING.multi.poseRefreshMs));
+    const last = straight.at(-1)!;
+    expect(last[6]).toBeCloseTo(4.5, 0); // vx carried in the pose
+    expect(last[7]).toBeCloseTo(0, 1);
+    // zig-zagging every tick for 10 s: never more than the token bucket allows
     const before = s.poses().length;
-    vi.advanceTimersByTime(1000);
-    expect(s.poses().length).toBe(before);
+    for (let t = 0; t < 10_000; t += tick) {
+      x += 0.2;
+      move([x, 2, 3 + (Math.round(t / tick) % 2) * 0.6, 0, 1]);
+      vi.advanceTimersByTime(tick);
+    }
+    const zig = s.poses().length - before;
+    expect(zig).toBeLessThanOrEqual(Math.ceil(10 * TUNING.multi.poseBudgetHz + TUNING.multi.poseBurst + 1));
+    // stopping goes out at once with no velocity (the others stop drawing me walking)
+    move([x, 2, 3, 0, 0]);
+    vi.advanceTimersByTime(tick * 4);
+    const stop = s.poses().at(-1)!;
+    expect(stop[4]).toBe(0);
+    expect(stop[6]).toBe(0);
+    expect(stop[7]).toBe(0);
+    // standing still: nothing more
+    const still = s.poses().length;
+    vi.advanceTimersByTime(3000);
+    expect(s.poses().length).toBe(still);
     // a newcomer gets my pose at once
     s.frame({ t: 'join', id: 'p2', name: 'Juno', role: 'player' });
-    vi.advanceTimersByTime(1000 / TUNING.multi.poseTickHz);
-    expect(s.poses().length).toBe(before + 1);
+    vi.advanceTimersByTime(tick);
+    expect(s.poses().length).toBe(still + 1);
     client.stop();
   });
 

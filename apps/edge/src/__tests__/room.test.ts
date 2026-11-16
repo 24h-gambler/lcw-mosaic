@@ -154,12 +154,12 @@ describe('WorldRoomDO (WebSocket relay, capacity)', () => {
     const me = socks[0]!.frames()[0].you;
     socks[1]!.sent = [];
     room.webSocketMessage(socks[0] as never, JSON.stringify({ t: 'p', p: [1, 2, 3, 0, 1, 7] }));
-    expect(socks[1]!.frames()).toEqual([{ t: 'poses', p: [[me, 1, 2, 3, 0, 1, 7]] }]);
+    expect(socks[1]!.frames()).toEqual([{ t: 'poses', p: [[me, 1, 2, 3, 0, 1, 7, 0, 0, 0]] }]);
     room.webSocketMessage(socks[0] as never, JSON.stringify({ t: 'p', p: [2, 2, 3, 0, 1, 8] }));
     room.webSocketMessage(socks[0] as never, JSON.stringify({ t: 'p', p: [3, 2, 3, 0, 1, 9] }));
     expect(socks[1]!.sent).toHaveLength(1);
     vi.advanceTimersByTime(TUNING.multi.broadcastMs);
-    expect(socks[1]!.frames()[1]).toEqual({ t: 'poses', p: [[me, 3, 2, 3, 0, 1, 9]] });
+    expect(socks[1]!.frames()[1]).toEqual({ t: 'poses', p: [[me, 3, 2, 3, 0, 1, 9, 0, 0, 0]] });
     expect(socks[1]!.sent).toHaveLength(2);
 
     // someone leaves → a seat opens for the next one

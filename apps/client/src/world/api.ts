@@ -4,6 +4,7 @@
  */
 import type { NpcContext } from '@lcw/schemas';
 import type { NpcLook } from './town.js';
+import type { KeyHintLabels } from './strings.js';
 
 export type SceneId = 'plaza' | 'honey_cafe' | 'trade_shop' | 'build_plot' | 'open_hill';
 
@@ -112,6 +113,8 @@ export interface WorldHandle {
   setReduceMotion?(on: boolean): void;
   /** G14: the frame counter in the HUD corner (also on with ?fps). */
   setShowFps?(on: boolean): void;
+  /** key names in the HUD help lines and the talk prompt (the player's remapped keys) */
+  setKeyHints?(k: KeyHintLabels): void;
   /**
    * Map read-out for the map screen (docs/08 G06): sectors (one town sector until world generation lands, then the
    * 3 x 3 sectors), the walkable places, and where the player stands. World coordinates in metres.

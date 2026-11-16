@@ -15,6 +15,8 @@ import { fetchItems, holdThing, type ItemsView } from './api.js';
 import { getAudioRuntime } from '../audio/runtime.js';
 import { frameSettings, graphicsOf, lookSettingsOf, motionReduced, onFrameSettings, sameGraphics, startFrameSettings, type GraphicsSettings } from './settings.js';
 import { startSettingsSync } from './settings-sync.js';
+import { keyLabel } from './menu/SettingsPanel.js';
+import type { KeyHintLabels } from '../world/strings.js';
 
 export interface FrameLayerProps {
   world: WorldHandle | null;
@@ -72,6 +74,18 @@ function useHudDialog(): boolean {
 
 const HOLD_EVERY_MS = 10 * 60_000;
 
+/** HUD help-line key names from the player's keys: "WASD" while the four move keys are single letters. */
+export function keyHintsOf(keys: Readonly<Record<'forward' | 'left' | 'back' | 'right' | 'jump' | 'talk' | 'undo' | 'rotate', string>>): KeyHintLabels {
+  const move = [keys.forward, keys.left, keys.back, keys.right].map(keyLabel);
+  return {
+    move: move.every((m) => m.length === 1) ? move.join('') : move.join('/'),
+    jump: keyLabel(keys.jump),
+    talk: keyLabel(keys.talk),
+    undo: keyLabel(keys.undo),
+    rotate: keyLabel(keys.rotate)
+  };
+}
+
 /** Hotbar keys from the server's bag: the first five carried things. */
 export function bagKeys(v: ItemsView): Array<string | null> {
   const bag = v.items.filter((t) => t.location === 'bag').map((t) => t.item_key);
@@ -101,6 +115,7 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
       world.setLookSettings?.(lookSettingsOf(s));
       world.setReduceMotion?.(motionReduced());
       world.setShowFps?.(s.showFps);
+      world.setKeyHints?.(keyHintsOf(s.keys));
       const g = graphicsOf(s);
       if (!sent || !sameGraphics(sent, g)) {
         sent = g;

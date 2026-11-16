@@ -33,7 +33,7 @@ export const WORLD_STRINGS = {
   seatPausedBody: '마을은 둘러볼 수 있어요. 다시 같이 놀고 싶으면 보호자에게 말해 주세요.',
   seatPausedOk: '알겠어요',
   seatPausedChip: '둘러보기만',
-  controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기',
+  controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
   controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기',
   // Building on my plot (docs/03 D13).
   buildHelpDesktop: '내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · Z 되돌리기 · R 돌리기',
@@ -218,3 +218,20 @@ export function objectParticle(word: string): string {
 export const SECTOR_NAMES_KO = {
   town: '중앙 마을'
 } as const;
+
+/** Key names shown in the HUD help lines; the frame passes the player's own keys (G14 키 바꾸기). */
+export interface KeyHintLabels {
+  /** forward, left, back, right in one word when they are single letters ("WASD"), else joined with "/" */
+  move: string;
+  jump: string;
+  talk: string;
+  undo: string;
+  rotate: string;
+}
+export const DEFAULT_KEY_HINTS: Readonly<KeyHintLabels> = Object.freeze({ move: 'WASD', jump: 'Space', talk: 'E', undo: 'Z', rotate: 'R' });
+export function controlsDesktopFor(k: Readonly<KeyHintLabels>): string {
+  return `${k.move} 이동 · 마우스 끌기 시점 · ${k.jump} 점프 · ${k.talk} 말 걸기`;
+}
+export function buildHelpDesktopFor(k: Readonly<KeyHintLabels>): string {
+  return `내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · ${k.undo} 되돌리기 · ${k.rotate} 돌리기`;
+}

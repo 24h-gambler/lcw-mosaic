@@ -17,7 +17,7 @@ import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveInt
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, welcomeBackEn } from './strings.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, welcomeBackEn, buildHelpDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
 import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
@@ -250,6 +250,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const roomCbs = new Set<(r: RoomCheckInfo) => void>();
   let lastRoom: RoomCheckInfo | null = null;
   let buildHud: BuildHud | null = null;
+  // the player's own key names for the help lines (frame G14 키 바꾸기)
+  let keyHints: Readonly<KeyHintLabels> = DEFAULT_KEY_HINTS;
   const builder = new PlotBuilder(
     world,
     {
@@ -1009,7 +1011,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     const want = builder.inPlot(body.x, body.z) && !paused && autopilot.length === 0;
     if (want !== buildActive) {
       buildActive = want;
-      buildHud?.setActive(want, touch ? W.buildHelpTouch : W.buildHelpDesktop);
+      buildHud?.setActive(want, touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
       buildHud?.setSync(buildAccess === 'saved' ? (plotSync?.status === 'offline' ? 'offline' : plotSync && plotSync.pending > 0 ? 'saving' : 'saved') : buildAccess === 'loading' ? 'loading' : buildAccess === 'local' ? 'local' : 'idle');
       if (want) refreshBuildSlots();
       else {
@@ -1573,6 +1575,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     },
     setReduceMotion: (on) => {
       reduceMotion = on;
+    },
+    setKeyHints: (k) => {
+      keyHints = { ...k };
+      hud.setKeyHints(keyHints);
     },
     setShowFps: (on) => {
       showFps = on || new URLSearchParams(location.search).has('fps');

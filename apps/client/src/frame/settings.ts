@@ -371,7 +371,7 @@ const dyslexicFamily = TYPOGRAPHY_TOKENS.fonts.dyslexic.split(',')[0]!.trim();
 /** Hangul has no OpenDyslexic glyphs: Korean falls through to the UI face. */
 const READABLE_STACK = `${dyslexicFamily}, ${TYPOGRAPHY_TOKENS.fonts.ui}`;
 /** Elements whose colour tokens are CSS variables (`--c-*`): the assist palette swaps them there. */
-const TOKEN_ROOTS = ['.lcw-menu', '.lcw-dlg'];
+const TOKEN_ROOTS = ['.lcw-menu', '.lcw-dlg', '.lw-hud'];
 const assistVars = Object.entries(COLOR_ASSIST_TOKENS)
   .map(([k, v]) => `--c-${k}:${v};`)
   .join('');

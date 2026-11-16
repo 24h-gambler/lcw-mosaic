@@ -453,5 +453,36 @@ describe("a friend on a guest pass plays in the host's world (docs/19 §8)", () 
     expect(burst.body.processed).toBeLessThan(40);
     expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 2, y: 1, z: Z + 2, slot: 0 }] }, devB)).body.results).toEqual([{ ok: true }]);
   });
+
+  it("the daily cleanup drops the friend-cell marks of passes that are over; the blocks stay as the host's", async () => {
+    const p = platform();
+    const { g, sid } = await guardianWithSeat(p);
+    const enter = async (device: string) => {
+      const code = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass.code;
+      return { ...anon, [GUEST_PASS_HEADER]: (await call(p, 'POST', '/v1/guest-pass/redeem', { code, device })).body.token };
+    };
+    const daily = async () => (await call(p, 'POST', '/internal/cron', { cron: '0 3 * * *' }, { ...anon, 'x-lcw-internal': 'cron' })).body;
+    // nothing to do yet: no pass, no plot (the home world never had a guest table)
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 0, cells: 0 });
+    const first = await enter(DEV_A);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 1, y: 1, z: Z, slot: 0 }, { op: 'place', x: X + 2, y: 1, z: Z, slot: 0 }] }, first)).body.results).toEqual([{ ok: true }, { ok: true }]);
+    // still running: kept
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 0, cells: 0 });
+    expect((await call(p, 'GET', '/v1/plot', undefined, first)).body.guest_cells).toHaveLength(2);
+    // over on the server clock: a second friend comes the same day; the first's marks go, the second's stay
+    at(T0 + 31 * MIN);
+    const second = await enter(DEV_B);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 3, y: 1, z: Z, slot: 0 }] }, second)).body.results).toEqual([{ ok: true }]);
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 1, cells: 2 });
+    expect((await call(p, 'GET', '/v1/plot', undefined, second)).body.guest_cells).toEqual([[X + 3, 1, Z]]);
+    // the blocks themselves stay in the host's plot
+    const cells = (await call(p, 'GET', '/v1/plot', undefined, second)).body.cells.map((c: number[]) => c[0]);
+    expect(cells).toEqual(expect.arrayContaining([X + 1, X + 2, X + 3]));
+    // each grant once: the next run has nothing new; a revoked running pass is swept next time
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 0, cells: 0 });
+    const list = (await call(p, 'GET', `/v1/family/seats/${sid}/guest-passes`, undefined, g)).body.passes as Array<{ id: string; state: string }>;
+    await call(p, 'POST', `/v1/family/guest-passes/${list.find((x) => x.state === 'active')!.id}/revoke`, {}, g);
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 1, cells: 1 });
+  });
 });
 

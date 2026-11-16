@@ -207,6 +207,39 @@ export async function guestPassFromRequest(
   return { grant_id: g.id, seat_id: g.seat_id, player_id: g.player_id, world_id: `home-${g.player_id}`, active, ends_at: g.ends_at };
 }
 
+/** Grants whose friend-cell records the daily cleanup already dropped (one row per grant, kept small). */
+const GUEST_CELLS_SWEPT_SQL = 'create table if not exists guest_cells_swept (grant_id text primary key, at integer not null)';
+/** Most grants handled in one daily run; the rest wait for the next day. */
+export const GUEST_CELLS_SWEEP_LIMIT = 500;
+
+/**
+ * Daily retention cleanup (03:00): once a pass is over (ended on the server clock, or revoked after the friend came
+ * in), the record of which cells that friend placed in the host's plot (`plot_guest_cells`, docs/19 §8) has no use any
+ * more: the blocks stay in the host's plot as the host's own, only the "this friend may break it" mark goes.
+ * `drop(playerId, grantId)` removes one grant's rows from that child's home world and says how many went.
+ */
+export function sweepEndedGuestCells(
+  sql: SqliteExecutor,
+  now: number,
+  drop: (playerId: string, grantId: string) => number,
+  limit = GUEST_CELLS_SWEEP_LIMIT
+): { grants: number; cells: number } {
+  sql.exec(GUEST_CELLS_SWEPT_SQL);
+  const over = sql.all<{ id: string; player_id: string }>(
+    `select g.id, s.player_id from guest_pass_grants g join seats s on s.id = g.seat_id
+     where g.started_at is not null and (g.revoked_at is not null or g.ends_at <= ?)
+       and g.id not in (select grant_id from guest_cells_swept)
+     order by coalesce(g.revoked_at, g.ends_at) limit ?`,
+    [now, limit]
+  );
+  let cells = 0;
+  for (const g of over) {
+    cells += drop(g.player_id, g.id);
+    sql.run('insert or ignore into guest_cells_swept (grant_id, at) values (?, ?)', [g.id, now]);
+  }
+  return { grants: over.length, cells };
+}
+
 export interface GuardianRefLike {
   guardian_id: string;
   family_id: string;

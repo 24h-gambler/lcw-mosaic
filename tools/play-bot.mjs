@@ -207,7 +207,7 @@ mark('after_exchange', { coins: st.coins, ores: st.ores, exchange_total: st.exch
 // 5. the suit
 await go('tailor');
 await page.waitForTimeout(1500);
-if ((await talk(/그레이스|Grace|재단/)) === true) {
+if ((await talk(/헨리|Henry|재단/)) === true) {
   const a = await answer(3, '71-tailor-offers');
   const f = await finish('72-tailor-suit');
   mark('suit', { ...a, ...f });

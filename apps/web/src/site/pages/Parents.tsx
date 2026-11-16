@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { FAQ, LEARN_PAGES, MEDIA, PARENTS, PRICING, SITUATIONS } from '../copy.js';
+import { FAQ, LEARN_PAGES, MEDIA, NAV, PARENTS, PRICING, REFUND_RULE, SITUATIONS } from '../copy.js';
 import { GameShot } from '../GameMedia.js';
 import { SLink } from '../SiteShell.js';
-import { FaqList, ListenButton, OfferList, SampleDashboard } from '../widgets.js';
+import { SITUATION_FEATURE, STATE_TAG } from '../copyNow.js';
+import { featureLive } from '../featureStatus.js';
+import { FaqList, ListenButton, OfferList, SampleDashboard, StateTag, pendingState } from '../widgets.js';
 import { VoxelSvg, character, merge, placeAt, box } from '../voxel.js';
 
 const SITUATION_PAGE: Readonly<Record<string, string>> = {
@@ -29,11 +31,17 @@ function Situations(): React.ReactElement {
             onClick={() => setSel(s.id)}
           >
             {s.label}
+            {SITUATION_FEATURE[s.id] && !featureLive(SITUATION_FEATURE[s.id]!) ? (
+              <small style={{ marginLeft: 6, opacity: 0.7, fontWeight: 600 }}>{STATE_TAG[pendingState([SITUATION_FEATURE[s.id]!])!.state]}</small>
+            ) : null}
           </button>
         ))}
       </div>
       <div id="s-situation" role="tabpanel" className="s-stack" style={{ gap: 12 }}>
-        <p className="s-muted">{page.scene}</p>
+        <p className="s-muted s-row" style={{ gap: 8 }}>
+          <span>{page.scene}</span>
+          {SITUATION_FEATURE[sel] ? <StateTag ids={[SITUATION_FEATURE[sel]!]} /> : null}
+        </p>
         <OfferList offers={page.offers} />
         <SLink to={`/learn/${page.slug}`} className="s-small">
           이 장면의 표현 더 보기 →
@@ -104,7 +112,7 @@ export function ParentsPage(): React.ReactElement {
             </p>
             <div className="s-row">
               <SLink to="/try" className="s-btn s-btn-brand">
-                5분 체험해 보기
+                {NAV.try}해 보기
               </SLink>
               <SLink to="/pricing" className="s-btn">
                 요금 보기
@@ -281,7 +289,7 @@ export function ParentsPage(): React.ReactElement {
               </div>
             ))}
           </div>
-          <p style={{ marginTop: 16, fontWeight: 800 }}>결제 후 7일 이내 전액 환불 · Duo는 가족이 아니어도 돼요</p>
+          <p style={{ marginTop: 16, fontWeight: 800 }}>{REFUND_RULE.short} · Duo는 가족이 아니어도 돼요</p>
           <SLink to="/pricing" className="s-btn s-btn-brand" style={{ marginTop: 16 }}>
             {PARENTS.priceCta} →
           </SLink>

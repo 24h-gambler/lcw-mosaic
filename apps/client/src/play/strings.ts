@@ -29,7 +29,7 @@ export const PLAY_KO = {
     boss_late: '사장님께 늦은 사정 말하기',
     customer: '손님 벤의 이야기 들어 주기'
   } as Record<string, string>,
-  needSuit: '면접은 정장을 입고 와요 · 옷가게 그레이스',
+  needSuit: '면접은 정장을 입고 와요 · 옷가게 헨리',
   // gates: the NPC is tapped but there is nothing to say yet (the bubble says it in English, this says it in Korean)
   gate: {
     no_suit: '면접은 정장을 입고 와야 해요. 옷가게에서 정장을 사 와요.',

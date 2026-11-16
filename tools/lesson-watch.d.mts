@@ -69,8 +69,19 @@ export interface SettleHow {
   start?: number;
   max: number;
   tries: number;
-  up?: boolean;
+  closeTooHigh?: boolean;
 }
+export interface SourceAdjust {
+  hi: number;
+  delta: number | null;
+  muted: boolean;
+  known: string;
+  ceiling: boolean;
+}
+export declare function adjustFromFeedback(items: unknown, nowMs: number, limit: number, source?: string): SourceAdjust;
+export declare function readAdjust(get: (path: string) => Promise<{ status: number; body: any }>, nowMs: number, source?: string): Promise<SourceAdjust>;
+export declare function planSettle(target: number, adj: SourceAdjust, how: SettleHow): { skip: boolean; start: number; tries: number; ceiling?: number };
+export declare function recordPosted<T extends { id?: string; closed?: string }>(prev: T | undefined, id: string, fields: Record<string, unknown>): Record<string, unknown>;
 export declare const LESSON_SETTLE: SettleHow;
 export declare const SUMMARY_SETTLE: SettleHow;
 export interface SpineReply {
@@ -90,3 +101,10 @@ export declare function settleImportance(
     log?: (row: Record<string, unknown>) => void;
   }
 ): Promise<{ r: SpineReply; rb: ReadBack | null; asked: number; landed: Array<number | null>; tooHigh: boolean }>;
+export declare const RELAY_MAX_IMPORTANCE: number;
+export declare function relayOnce(o: {
+  pull: () => Promise<{ status: number; body: any; error?: string }>;
+  postCard: (card: WatchCard) => Promise<{ r: { status: number; body: any }; skipped?: boolean }>;
+  ack: (items: Array<{ ref: string; updated_at: number; spine_id: string }>) => Promise<{ status: number; body: any; error?: string }>;
+  log?: (row: Record<string, unknown>) => void;
+}): Promise<{ ok: boolean; pulled: number; posted: number; skipped: number; failed: number; acked: number }>;

@@ -36,6 +36,19 @@ import { detectInAppBrowser } from './inapp.js';
 import { InAppBrowserBanner } from './WebUx.js';
 import { LessonStyle, Notice, border, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
+import { P } from './presenceStrings.js';
+// The same 1PC teacher panel as the 3D screen: a low-spec PC takes the lesson here (docs/19 §4).
+import { TeacherPanel } from '../../client/src/lesson/TeacherPanel.js';
+
+/** The lesson mic check this tab ran on the 3D screen (same keys as apps/client lesson/api.ts); null when none. */
+function readMicStatus(): string | null {
+  try {
+    const v = globalThis.sessionStorage?.getItem('lcw.micStatus') ?? null;
+    return v === 'ok' || v === 'quiet' || v === 'none' || v === 'skipped' ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 const S = LESSON_STRINGS_KO.join;
 const C = TOKENS.colors;
@@ -72,6 +85,10 @@ const BLOCKING_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'audio-ca
 
 export interface StudentJoinProps {
   api?: LessonApi;
+  /** Can this device run the 3D lesson (docs/19 §4)? undefined = WebGL2 check in the browser (same as the client). */
+  can3d?: boolean;
+  /** Where a joined 3D-capable device goes; tests pass a spy. */
+  open3d?: (url: string) => void;
   initialState?: JoinState;
   /** null = no recognizer (forces typing); undefined = detect in the browser. */
   recognition?: RecognitionCtor | null;
@@ -92,6 +109,19 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
   const api = apiRef.current;
   const now = props.now ?? Date.now;
   const [state, dispatch] = useReducer(joinReducer, undefined, () => props.initialState ?? initialJoinState());
+  // The 6 digits lead into the 3D lesson; the word cards here are the fallback for devices that cannot run 3D
+  // (no WebGL2, or the 3D client found it too slow and sent it back with lite=1) and for "단어 카드로 하기".
+  const [lite, setLite] = useState(() => typeof location !== 'undefined' && /[?&]lite=1(?:&|$)/.test(location.search));
+  const can3d = props.can3d ?? (typeof WebGL2RenderingContext !== 'undefined');
+  const go3d = !lite && can3d;
+  const open3d = props.open3d ?? ((url: string) => location.replace(url));
+  // /join opened again in a tab that already has a lesson session: a 3D-capable device goes back into the 3D lesson.
+  const resumedAtStart = useRef(!props.initialState && loadStudentSession() !== null);
+  useEffect(() => {
+    if (resumedAtStart.current && go3d) open3d('/world/');
+    resumedAtStart.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Join request.
   useEffect(() => {
@@ -101,7 +131,9 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
       .join(state.code)
       .then((r) => {
         if (!live) return;
-        saveStudentSession({ token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, voiceStore: r.voice_store === true });
+        saveStudentSession({ token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, voiceStore: r.voice_store === true, level: r.level });
+        // Same tab, same session store: the 3D client resumes this session (no second code exchange).
+        if (go3d) return open3d('/world/');
         dispatch({ type: 'join_ok', result: r });
       })
       .catch((e: unknown) => {
@@ -110,7 +142,7 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
     return () => {
       live = false;
     };
-  }, [state.phase, state.code, api]);
+  }, [state.phase, state.code, api, go3d]);
 
   // Answers kept on this device while the connection was down (packages/content lesson-outbox).
   const lessonId = state.lessonId;
@@ -125,7 +157,7 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
     let live = true;
     const tick = async () => {
       try {
-        const st = await api.lessonState(token);
+        const st = await api.lessonState(token, readMicStatus());
         if (live) dispatch({ type: 'state', state: st });
         // Back online: what the child said meanwhile goes now, in order.
         if (live && lessonId && !flushing.current && readOutbox(outboxSessionStore(), lessonId).length > 0) {
@@ -179,7 +211,14 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
       <LessonStyle />
       {detection.kind && state.phase !== 'ended' ? <InAppBrowserBanner detection={detection} pageUrl={pageUrl} /> : null}
       {state.phase === 'code' || state.phase === 'joining' ? (
-        <CodeEntry state={state} onChange={(v) => dispatch({ type: 'code_changed', value: v })} onSubmit={() => dispatch({ type: 'submit' })} />
+        <CodeEntry
+          state={state}
+          go3d={go3d}
+          can3d={can3d}
+          onLite={() => setLite(true)}
+          onChange={(v) => dispatch({ type: 'code_changed', value: v })}
+          onSubmit={() => dispatch({ type: 'submit' })}
+        />
       ) : null}
       {state.phase === 'lesson' && token ? (
         <LessonPlay
@@ -207,10 +246,16 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
 
 function CodeEntry({
   state,
+  go3d,
+  can3d,
+  onLite,
   onChange,
   onSubmit
 }: {
   state: JoinState;
+  go3d: boolean;
+  can3d: boolean;
+  onLite: () => void;
   onChange: (v: string) => void;
   onSubmit: () => void;
 }): React.ReactElement {
@@ -236,7 +281,7 @@ function CodeEntry({
       <h1 style={{ margin: 0, fontSize: `${T.scale.h1.sizePx}px`, lineHeight: `${T.scale.h1.lineHeightPx}px` }}>{S.title}</h1>
       <p style={{ margin: 0, fontSize: `${T.scale['body-l'].sizePx}px` }}>{S.codePrompt}</p>
       <p data-testid="fallback-note" style={{ margin: 0, fontSize: `${T.scale.small.sizePx}px`, color: C['ink-700'] }}>
-        {S.fallbackNote}
+        {go3d ? S.goes3dNote : can3d ? S.liteChosenNote : S.fallbackNote}
       </p>
       <form
         onSubmit={(e) => {
@@ -272,6 +317,11 @@ function CodeEntry({
         <Button type="submit" variant="brand" size="game" disabled={busy} style={{ fontSize: `${T.scale.h3.sizePx}px` }}>
           {busy ? S.entering : S.enter}
         </Button>
+        {go3d ? (
+          <Button type="button" variant="paper" data-testid="join-lite" disabled={busy} onClick={onLite}>
+            {S.chooseLite}
+          </Button>
+        ) : null}
       </form>
       {state.error ? (
         <Notice kind="info" testId="join-error">
@@ -531,14 +581,25 @@ function LessonPlay({
         <h1 style={{ margin: 0, fontSize: `${T.scale.h2.sizePx}px`, lineHeight: `${T.scale.h2.lineHeightPx}px` }}>
           {S.hello(state.nickname)}
         </h1>
-        {state.coins !== null || last ? (
+        {state.coins !== null || last || lesson?.teacher ? (
           <div style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap' }}>
+            {lesson?.teacher ? (
+              <Chip testId="teacher">
+                {lesson.teacher.present ? `👩‍🏫 ${P.childWithTeacher(lesson.teacher.name ?? '선생님')}` : P.childAlone}
+              </Chip>
+            ) : null}
             {state.coins !== null ? <Chip testId="coins">{`${S.coins} ${state.coins.toLocaleString('ko-KR')}`}</Chip> : null}
             {last ? <Chip testId="said-today">{`${S.saidToday} ${last.utterances_today}`}</Chip> : null}
           </div>
         ) : null}
       </header>
+      <TeacherPanel lessonId={state.lessonId} planId={lesson?.plan_id ?? null} stageId={lesson?.stage_id ?? null} />
       {state.pollFailures >= 2 ? <Notice kind="info">{S.reconnecting}</Notice> : null}
+      {lesson?.teacher && !lesson.teacher.present ? (
+        <Notice kind="info" testId="alone-notice">
+          {P.childAloneDetail}
+        </Notice>
+      ) : null}
       {lesson?.stage_goal_ko ? (
         <p style={{ margin: 0, fontSize: `${T.scale['body-l'].sizePx}px`, fontWeight: 700 }} data-testid="stage-goal">
           {lesson.stage_goal_ko}

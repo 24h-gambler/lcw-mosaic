@@ -22,6 +22,7 @@ import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
 import { PlotSync } from './plot-sync.js';
+import { buildMapInfo } from './map-info.js';
 import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMirror, toggleThirdPerson, type CamMode } from './dialog-shot.js';
 import { FirstPersonHands } from './viewmodel.js';
 import { browserStore } from './identity.js';
@@ -1556,6 +1557,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       if (on && nearNpc && !npcTalkable(nearNpc.def, true)) nearNpc = null;
     },
     setCoins: (total) => hud.setCoins(total),
+    // Map screen (docs/08 G06): read once when the menu opens (the menu pauses the world). The arrow follows the view;
+    // in the mirror view the camera faces the child, so the body's facing is the one that means "where I look".
+    getMap: () => buildMapInfo({ player: { x: body.x, z: body.z, yaw: camMode === 'mirror' ? playerYaw : camYaw }, plot: world.plot }),
     setOnline: (on) => hud.setOnline(on),
     setStars: (total) => hud.setStars(total),
     setPlayerName(name) {

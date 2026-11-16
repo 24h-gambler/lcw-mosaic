@@ -210,3 +210,8 @@ export function objectParticle(word: string): string {
   if (code < 0 || code > 11171) return '을(를)';
   return code % 28 === 0 ? '를' : '을';
 }
+
+/** Sector names on the map (docs/08 G06). The central sector is the hand-built town; generated sectors bring their own. */
+export const SECTOR_NAMES_KO = {
+  town: '중앙 마을'
+} as const;

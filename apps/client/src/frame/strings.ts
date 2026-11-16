@@ -56,6 +56,8 @@ export const FRAME_STRINGS = {
   mapTitle: '지도',
   youAreHere: '나',
   unexplored: '아직 안 가 본 곳',
+  /** the same words in two lines for a small map cell */
+  unexploredLines: ['아직 안', '가 본 곳'] as readonly string[],
   legend: '구역',
   zoneKinds: {
     town: '마을',
@@ -67,6 +69,37 @@ export const FRAME_STRINGS = {
   bandHere: '지금 여기',
   bandLocked: '아직 못 가 본 높이',
   goThere: '여기로 가기',
+  goVerb: '가기',
+  mapWorldTitle: '온 세상 9칸',
+  mapWorldHint: '칸을 누르면 크게 보여요.',
+  mapPlaces: '갈 수 있는 곳',
+  mapLessonNote: '수업 중에는 선생님이 갈 곳을 정해요.',
+  mapNorth: '북',
+  mapBackToMe: '내 위치 보기',
+  mapUnexploredDetail: '아직 안 가 본 곳이에요. 가 보면 지도가 채워져요.',
+  mapNoWorld: '월드가 열리면 지도가 보여요.',
+  mapHereScene: '지금 여기',
+  mapNoPlaces: '이 칸에는 아직 갈 수 있는 곳이 없어요.',
+  /** Zone legend of docs/08 2.3 (SEMANTIC_TOKENS.zone keys). */
+  zones: {
+    core: '보호 구역',
+    city: '도시',
+    plot: '내 부지',
+    wild: '자유 구역'
+  },
+  legendPlace: '갈 수 있는 곳',
+  legendYou: '나와 보는 쪽',
+  bandsAria: '높이 엘리베이터',
+  bandLockedShort: '잠김',
+  bandsHint: '지금은 지상만 다닐 수 있어요. 새 높이에 한 번 가 보면 광장 엘리베이터에 정류장이 생겨요.',
+  /** Clockwise from north, 45° apart (map-model compassKo). */
+  compass: ['북', '북동', '동', '남동', '남', '남서', '서', '북서'] as readonly string[],
+  mapNow: (place: string, band: string, facing: string): string => `지금 ${place} · ${band} · ${facing}쪽을 봐요`,
+  mapSummaryIntro: (total: number, explored: number): string => `지도예요. 온 세상 ${total}칸 중 ${explored}칸을 가 봤어요.`,
+  mapSummaryNear: (scene: string): string => `${scene} 근처`,
+  mapSummaryHere: (sector: string, near: string, band: string, facing: string): string =>
+    `나는 ${sector}${near ? ` ${near}` : ''}, ${band}에서 ${facing}쪽을 보고 있어요.`,
+  mapSummaryPlaces: (names: readonly string[]): string => `갈 수 있는 곳은 ${withCopula(names.join(', '))}.`,
   // G10
   bookTitle: '도감',
   books: {
@@ -99,3 +132,21 @@ export const FRAME_STRINGS = {
   sAccess: '접근성',
   sMic: '마이크 점검'
 } as const;
+
+/** True when the last Hangul syllable has a final consonant (받침); non-Hangul endings count as none. */
+function hasBatchim(word: string): boolean {
+  const code = word.trim().slice(-1).charCodeAt(0) - 0xac00;
+  return code >= 0 && code <= 11171 && code % 28 !== 0;
+}
+
+/** "언덕이에요" / "카페예요". */
+export function withCopula(word: string): string {
+  return `${word}${hasBatchim(word) ? '이에요' : '예요'}`;
+}
+
+/** "광장으로" / "카페로" / "길로" (ㄹ 받침 takes 로). */
+export function withDirection(word: string): string {
+  const code = word.trim().slice(-1).charCodeAt(0) - 0xac00;
+  const rieul = code >= 0 && code <= 11171 && code % 28 === 8;
+  return `${word}${hasBatchim(word) && !rieul ? '으로' : '로'}`;
+}

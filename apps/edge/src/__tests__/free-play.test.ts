@@ -228,6 +228,44 @@ describe('guest pass: 30 minutes from the first entry, 2 per seat per month', ()
     expect((await call(p, 'POST', '/v1/guest-pass/redeem', { code: one.code, device: DEV_A })).body.error).toBe('pass_expired');
   });
 
+  it('a code nobody entered gives its slot back when its 7 days run out; a used one keeps it', async () => {
+    const p = platform();
+    const { g, sid } = await guardianWithSeat(p);
+    const one = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass;
+    const two = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body;
+    expect(two.left_this_month).toBe(0);
+    await call(p, 'POST', '/v1/guest-pass/redeem', { code: two.pass.code, device: DEV_A });
+    // Same KST month (issued on the 16th, +7 days = the 23rd): the unused one expired and no longer counts.
+    at(T0 + FREE_PLAY_LIMITS.guestPassRedeemDays * DAY + 1);
+    const list = (await call(p, 'GET', `/v1/family/seats/${sid}/guest-passes`, undefined, g)).body;
+    expect(list.passes.find((x: { id: string }) => x.id === one.id).state).toBe('expired');
+    expect(list.left_this_month).toBe(1);
+    expect((await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).status).toBe(201);
+    expect((await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.error).toBe('monthly_limit');
+  });
+
+  it("a Duo payer cannot issue, list or revoke passes for the other family's child (only that child's guardians)", async () => {
+    const p = platform();
+    const a = await guardianWithSeat(p, 'kid-a', 'fam-a', false);
+    const b = await guardianWithSeat(p, 'kid-b', 'fam-b', false);
+    // fam-a pays one Duo for its own child and a friend's child in fam-b.
+    const issued = await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-fam-a', plan: 'duo', term: 'month', player_ids: ['kid-a', 'kid-b'] }, op);
+    expect(issued.status).toBeLessThan(300);
+    const seatIds: string[] = issued.body.seat_ids;
+    const seatOf = (pid: string) => p.sql.get<{ id: string }>('select id from seats where player_id = ? and id in (' + seatIds.map(() => '?').join(',') + ')', [pid, ...seatIds])!.id;
+    const seatA = seatOf('kid-a');
+    const seatB = seatOf('kid-b');
+    // The payer's own child: fine.
+    expect((await call(p, 'POST', `/v1/family/seats/${seatA}/guest-passes`, {}, a.g)).status).toBe(201);
+    // The friend's child: the payer is not that child's guardian.
+    expect((await call(p, 'POST', `/v1/family/seats/${seatB}/guest-passes`, {}, a.g)).status).toBe(404);
+    expect((await call(p, 'GET', `/v1/family/seats/${seatB}/guest-passes`, undefined, a.g)).status).toBe(404);
+    const own = (await call(p, 'POST', `/v1/family/seats/${seatB}/guest-passes`, {}, b.g)).body.pass;
+    expect(own.code).toBeTruthy();
+    expect((await call(p, 'POST', `/v1/family/guest-passes/${own.id}/revoke`, {}, a.g)).status).toBe(404);
+    expect((await call(p, 'GET', `/v1/guest-pass/check?code=${own.code}`)).body.state).toBe('ready');
+  });
+
   it('wrong codes are limited per address per hour', async () => {
     const p = platform();
     for (let i = 0; i < 30; i++) await call(p, 'GET', '/v1/guest-pass/check?code=ABCD-EFGH', undefined, ip('198.51.100.66'));

@@ -230,7 +230,10 @@ export const LESSON_STRINGS_KO = {
   },
   join: {
     title: '수업 들어가기',
-    fallbackNote: '가벼운 대체 화면이에요. 3D 화면을 못 여는 기기에서도 수업할 수 있어요.',
+    fallbackNote: '이 기기는 3D 화면을 못 열어서, 이 화면에서 단어 카드로 수업해요.',
+    goes3dNote: '숫자를 넣으면 3D 수업으로 들어가요.',
+    liteChosenNote: '이 화면에서 단어 카드로 수업해요.',
+    chooseLite: '3D 가 안 열리면 단어 카드로 하기',
     codePrompt: '선생님이 알려 준 숫자 6개를 넣어요',
     codeLabel: '참가 숫자 6개',
     enter: '들어가기',

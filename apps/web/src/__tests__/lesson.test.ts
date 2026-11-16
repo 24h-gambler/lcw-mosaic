@@ -474,6 +474,16 @@ describe('recall hint and target cards', () => {
     expect(html).toContain(LESSON_STRINGS_KO.join.recallNote);
   });
 
+  it('/join: 6 digits lead into the 3D lesson; the word cards are the fallback (11-16 audit)', () => {
+    const on3d = renderToStaticMarkup(React.createElement(StudentJoin, { can3d: true, recognition: null, userAgent: 'Chrome' }));
+    expect(on3d).toContain(LESSON_STRINGS_KO.join.goes3dNote);
+    expect(on3d).toContain('data-testid="join-lite"');
+    expect(on3d).not.toContain(LESSON_STRINGS_KO.join.fallbackNote);
+    const no3d = renderToStaticMarkup(React.createElement(StudentJoin, { can3d: false, recognition: null, userAgent: 'Chrome' }));
+    expect(no3d).toContain(LESSON_STRINGS_KO.join.fallbackNote);
+    expect(no3d).not.toContain('data-testid="join-lite"');
+  });
+
   it('picks the recognizer hypothesis closest to the chosen sentence (free talk: top guess)', () => {
     const alts = [
       { transcript: 'can I have a worm honey', confidence: 0.8 },

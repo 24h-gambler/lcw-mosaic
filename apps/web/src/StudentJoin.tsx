@@ -72,6 +72,10 @@ const BLOCKING_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'audio-ca
 
 export interface StudentJoinProps {
   api?: LessonApi;
+  /** Can this device run the 3D lesson (docs/19 §4)? undefined = WebGL2 check in the browser (same as the client). */
+  can3d?: boolean;
+  /** Where a joined 3D-capable device goes; tests pass a spy. */
+  open3d?: (url: string) => void;
   initialState?: JoinState;
   /** null = no recognizer (forces typing); undefined = detect in the browser. */
   recognition?: RecognitionCtor | null;
@@ -92,6 +96,12 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
   const api = apiRef.current;
   const now = props.now ?? Date.now;
   const [state, dispatch] = useReducer(joinReducer, undefined, () => props.initialState ?? initialJoinState());
+  // The 6 digits lead into the 3D lesson; the word cards here are the fallback for devices that cannot run 3D
+  // (no WebGL2, or the 3D client found it too slow and sent it back with lite=1) and for "단어 카드로 하기".
+  const [lite, setLite] = useState(() => typeof location !== 'undefined' && /[?&]lite=1(?:&|$)/.test(location.search));
+  const can3d = props.can3d ?? (typeof WebGL2RenderingContext !== 'undefined');
+  const go3d = !lite && can3d;
+  const open3d = props.open3d ?? ((url: string) => location.replace(url));
 
   // Join request.
   useEffect(() => {
@@ -102,6 +112,8 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
       .then((r) => {
         if (!live) return;
         saveStudentSession({ token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, voiceStore: r.voice_store === true });
+        // Same tab, same session store: the 3D client resumes this session (no second code exchange).
+        if (go3d) return open3d('/game/');
         dispatch({ type: 'join_ok', result: r });
       })
       .catch((e: unknown) => {
@@ -110,7 +122,7 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
     return () => {
       live = false;
     };
-  }, [state.phase, state.code, api]);
+  }, [state.phase, state.code, api, go3d]);
 
   // Answers kept on this device while the connection was down (packages/content lesson-outbox).
   const lessonId = state.lessonId;
@@ -179,7 +191,14 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
       <LessonStyle />
       {detection.kind && state.phase !== 'ended' ? <InAppBrowserBanner detection={detection} pageUrl={pageUrl} /> : null}
       {state.phase === 'code' || state.phase === 'joining' ? (
-        <CodeEntry state={state} onChange={(v) => dispatch({ type: 'code_changed', value: v })} onSubmit={() => dispatch({ type: 'submit' })} />
+        <CodeEntry
+          state={state}
+          go3d={go3d}
+          can3d={can3d}
+          onLite={() => setLite(true)}
+          onChange={(v) => dispatch({ type: 'code_changed', value: v })}
+          onSubmit={() => dispatch({ type: 'submit' })}
+        />
       ) : null}
       {state.phase === 'lesson' && token ? (
         <LessonPlay
@@ -207,10 +226,16 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
 
 function CodeEntry({
   state,
+  go3d,
+  can3d,
+  onLite,
   onChange,
   onSubmit
 }: {
   state: JoinState;
+  go3d: boolean;
+  can3d: boolean;
+  onLite: () => void;
   onChange: (v: string) => void;
   onSubmit: () => void;
 }): React.ReactElement {
@@ -236,7 +261,7 @@ function CodeEntry({
       <h1 style={{ margin: 0, fontSize: `${T.scale.h1.sizePx}px`, lineHeight: `${T.scale.h1.lineHeightPx}px` }}>{S.title}</h1>
       <p style={{ margin: 0, fontSize: `${T.scale['body-l'].sizePx}px` }}>{S.codePrompt}</p>
       <p data-testid="fallback-note" style={{ margin: 0, fontSize: `${T.scale.small.sizePx}px`, color: C['ink-700'] }}>
-        {S.fallbackNote}
+        {go3d ? S.goes3dNote : can3d ? S.liteChosenNote : S.fallbackNote}
       </p>
       <form
         onSubmit={(e) => {
@@ -272,6 +297,11 @@ function CodeEntry({
         <Button type="submit" variant="brand" size="game" disabled={busy} style={{ fontSize: `${T.scale.h3.sizePx}px` }}>
           {busy ? S.entering : S.enter}
         </Button>
+        {go3d ? (
+          <Button type="button" variant="paper" data-testid="join-lite" disabled={busy} onClick={onLite}>
+            {S.chooseLite}
+          </Button>
+        ) : null}
       </form>
       {state.error ? (
         <Notice kind="info" testId="join-error">

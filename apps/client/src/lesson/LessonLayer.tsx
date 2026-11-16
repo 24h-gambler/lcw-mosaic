@@ -82,7 +82,12 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   onActive.current = props.onLessonActive;
   const search = props.search ?? (typeof location === 'undefined' ? '' : location.search);
   const code = codeFromSearch(search);
-  const [active] = useState(() => Boolean(code ?? loadStudentSession()));
+  // A bare /game/ (no code in the address, no session in this tab) is solo play with a "수업 코드 넣기" button: the code
+  // typed there joins the lesson in the 3D world, and "돌아가기" goes back to solo play.
+  const [active, setActive] = useState(() => Boolean(code ?? loadStudentSession()));
+  const [typedCode, setTypedCode] = useState<string | null>(null);
+  const [entryOpen, setEntryOpen] = useState(false);
+  const startCode = code ?? typedCode;
   const [view, setView] = useState<LessonView>(initialLessonView);
   const api = useMemo(() => props.api ?? createStudentLessonApi(), [props.api]);
   const worldRef = useRef<LayerWorld | null>(props.world);
@@ -173,19 +178,60 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     if (!active) return;
     if (lowTier) {
       // docs/19 §4: devices without WebGL or on the low tier take the lesson on /join (same API, same session).
-      const t = setTimeout(() => location.replace(`/join${code ? `?code=${code}` : ''}`), 1200);
+      // lite=1: /join stays on the word cards (it sends 3D-capable devices back here otherwise).
+      const t = setTimeout(() => location.replace(`/join?${startCode ? `code=${startCode}&` : ''}lite=1`), 1200);
       return () => clearTimeout(t);
     }
-    void ctl.start(code);
+    void ctl.start(startCode);
     return () => ctl.stop();
-  }, [active, lowTier, ctl, code]);
+  }, [active, lowTier, ctl, startCode]);
 
-  if (!active && view.phase === 'needs_code' && !code) return null;
+  // Back to solo play from a code typed in the world (wrong code, or the child changed their mind).
+  const backToSolo = typedCode !== null && !code ? () => {
+    ctl.stop();
+    setTypedCode(null);
+    setActive(false);
+  } : undefined;
+  if (!active && view.phase === 'needs_code' && !code) {
+    return (
+      <Shell>
+        {entryOpen ? (
+          <CodeEntry
+            busy={false}
+            errorCode={null}
+            initial=""
+            onCancel={() => setEntryOpen(false)}
+            onSubmit={(c) => {
+              setEntryOpen(false);
+              setTypedCode(c);
+              setActive(true);
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            data-testid="lesson-code-open"
+            onClick={() => setEntryOpen(true)}
+            className="lcw-btn"
+            style={{ ...bigButton(C['leaf-d']), pointerEvents: 'auto', position: 'absolute', top: SP[2], left: '50%', transform: 'translateX(-50%)', minHeight: 44, padding: `${SP[1]}px ${SP[3]}px`, fontSize: T.scale.body.sizePx, whiteSpace: 'nowrap' }}
+          >
+            {S.code.openFromWorld}
+          </button>
+        )}
+      </Shell>
+    );
+  }
   if (lowTier) return <Shell><CenterCard><p style={bodyL}>{S.lowTier}</p></CenterCard></Shell>;
   if (view.phase === 'needs_code' || view.phase === 'joining') {
     return (
       <Shell>
-        <CodeEntry busy={view.phase === 'joining'} errorCode={view.errorCode} initial={code ?? ''} onSubmit={(c) => void ctl.join(c)} />
+        <CodeEntry
+          busy={view.phase === 'joining'}
+          errorCode={view.errorCode}
+          initial={startCode ?? ''}
+          onSubmit={(c) => void ctl.join(c)}
+          {...(backToSolo ? { onCancel: backToSolo } : {})}
+        />
       </Shell>
     );
   }
@@ -353,7 +399,7 @@ function CenterCard({ children }: { children: React.ReactNode }) {
   );
 }
 
-function CodeEntry(p: { busy: boolean; errorCode: string | null; initial: string; onSubmit: (code: string) => void }) {
+function CodeEntry(p: { busy: boolean; errorCode: string | null; initial: string; onSubmit: (code: string) => void; onCancel?: () => void }) {
   const [code, setCode] = useState(p.initial);
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => ref.current?.focus(), []);
@@ -408,6 +454,11 @@ function CodeEntry(p: { busy: boolean; errorCode: string | null; initial: string
         <button type="submit" disabled={code.length !== 6 || p.busy} className="lcw-btn" style={{ ...bigButton(C['leaf-d']), marginTop: SP[4], width: '100%', opacity: code.length === 6 ? 1 : 0.5 }}>
           {p.busy ? S.code.joining : S.code.enter}
         </button>
+        {p.onCancel ? (
+          <button type="button" data-testid="lesson-code-cancel" onClick={p.onCancel} className="lcw-btn" style={{ ...bigButton(C['paper-0']), color: C['ink-900'], marginTop: SP[2], width: '100%' }}>
+            {S.code.cancel}
+          </button>
+        ) : null}
       </form>
     </CenterCard>
   );

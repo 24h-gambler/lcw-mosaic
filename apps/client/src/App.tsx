@@ -229,7 +229,8 @@ function startSceneFrom(search: string): SceneId | undefined {
 
 function NoWorld(): React.ReactElement {
   const code = new URLSearchParams(location.search).get('code');
-  const href = `/join${code ? `?code=${encodeURIComponent(code)}` : ''}`;
+  // lite=1: /join keeps this device on the word cards (it sends 3D-capable devices to /game/ otherwise).
+  const href = `/join?${code ? `code=${encodeURIComponent(code)}&` : ''}lite=1`;
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C['paper-50'], padding: 16, fontFamily: T.fonts.ui }}>
       <div style={{ maxWidth: 420, background: C['paper-0'], border: `2px solid ${C['ink-900']}`, borderRadius: S.radiusCardPx, boxShadow: S.shadowDefault, padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>

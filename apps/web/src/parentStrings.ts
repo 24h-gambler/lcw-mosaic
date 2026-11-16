@@ -310,7 +310,7 @@ export const PARENT_STRINGS_KO = {
     otherSeat: '함께하는 친구의 좌석',
     otherSeatNote: '다른 가족의 좌석이라 이름은 보이지 않습니다.',
     state: {
-      active: '이용 중',
+      active: '구독 중',
       expiring: (days: number) => (days <= 1 ? '내일 끝남' : `${days}일 남음`),
       read_only: '기간 끝남 · 보기만',
       archived: '보관함',

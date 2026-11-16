@@ -25,6 +25,10 @@ import { PlotSync } from './plot-sync.js';
 import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMirror, toggleThirdPerson, type CamMode } from './dialog-shot.js';
 import { FirstPersonHands } from './viewmodel.js';
 import { PeerAvatars, peerLook } from './peers.js';
+import { Buddy } from './buddy.js';
+import { SeasonWeather } from './season.js';
+import { TEACHER_NPC_ID, disposePlate, makePlate, pickableNpc, plateText, teacherDef, teacherTarget } from './visitor.js';
+import { WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
 import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
@@ -177,6 +181,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
   });
   hud.setTouch(touch);
+  hud.setCamMode(camMode);
   hud.setLoading(0.05, false);
   await wait(16);
 
@@ -209,6 +214,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let viewChunks = gfx.viewChunks;
   let viewDistance = viewChunks * 16;
   const sky = new Sky(scene, viewDistance);
+  const skyDefaultHour = sky.hour;
   sky.clouds.visible = gfx.clouds;
   if (canShadow) {
     sky.sun.castShadow = gfx.shadows;
@@ -341,10 +347,72 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // ---- State.
   let currentScene: SceneId = startScene.id;
   let paused = false;
+  // Title screen (start flow): the camera circles the town, the HUD hides and the world takes no input.
+  let attract = false;
+  let attractT = 0;
+  let buddy: Buddy | null = null;
+  let greetPending = false;
+  let teacherPlate: THREE.Sprite | null = null;
+  /** Where the child looks (first and third person: the camera; mirror: the body), for who stands in view. */
+  const viewYaw = (): number => (camMode === 'mirror' ? playerYaw : camYaw);
+  /** The teacher's avatar near the child (NPC 'teacher' with a name plate); null removes it. The same name: kept. */
+  // One teacher figure for the page (a character claims a blob-shadow slot for good): shown and hidden, renamed by
+  // its plate only (review of #86: re-creating it on every presence beat leaked shadow slots and meshes).
+  let teacherRt: NpcRt | null = null;
+  const showTeacher = (name: string | null): void => {
+    if (name === null) {
+      if (!teacherRt || !npcs.has(TEACHER_NPC_ID)) return;
+      npcs.delete(TEACHER_NPC_ID);
+      if (nearNpc === teacherRt) nearNpc = null;
+      if (focusNpc === teacherRt) focusNpc = null;
+      teacherRt.path = [];
+      teacherRt.char.root.visible = false;
+      // puts its shadow away (a hidden figure places a zero-size shadow)
+      teacherRt.char.update(0, { speed: 0, talking: false, lookYaw: 0 });
+      return;
+    }
+    const def = teacherDef(name);
+    if (!teacherRt) {
+      const char = new VoxelCharacter(def.look);
+      char.root.visible = false;
+      scene.add(char.root);
+      teacherRt = { def, ref: { id: def.id, ctx: def.ctx, nameKo: def.nameKo, nameEn: def.nameEn }, char, pos: new THREE.Vector3(), yaw: 0, homeYaw: 0, path: [], speed: 0, greeted: false };
+    }
+    const t = teacherRt;
+    if (!teacherPlate || t.def.nameKo !== def.nameKo) {
+      t.def = def;
+      t.ref = { id: def.id, ctx: def.ctx, nameKo: def.nameKo, nameEn: def.nameEn };
+      if (teacherPlate) {
+        t.char.root.remove(teacherPlate);
+        disposePlate(teacherPlate);
+      }
+      teacherPlate = makePlate(plateText(name));
+      teacherPlate.position.set(0, CHAR_HEIGHT + 0.3, 0);
+      t.char.root.add(teacherPlate);
+    }
+    if (npcs.has(TEACHER_NPC_ID)) return;
+    const [x, z] = teacherTarget(body.x, body.z, viewYaw(), body.x, body.z) ?? [body.x + 2, body.z + 2];
+    t.pos.set(x, standHeight(world, x, z, Math.ceil(body.y) + 2), z);
+    t.yaw = t.homeYaw = Math.atan2(body.x - x, body.z - z);
+    t.path = [];
+    t.char.root.visible = true;
+    npcs.set(TEACHER_NPC_ID, t);
+    t.char.wave();
+  };
+  let weather: SeasonWeather | null = null;
   let disposed = false;
   let focusNpc: NpcRt | null = null;
   let playerName: string | null = null;
   let greetedByName = false;
+  /** The guide greets a signed-in child by name when they are near (once per page). */
+  const greetByName = (): void => {
+    greetPending = false;
+    const guide = npcs.get('guide');
+    if (!playerName || !guide || Math.hypot(guide.pos.x - body.x, guide.pos.z - body.z) >= 14) return;
+    hud.bubble('guide', guide.def.nameKo, welcomeBackEn(playerName), {}, performance.now());
+    guide.char.wave();
+    sfx.play('mp.bubble');
+  };
   let nearNpc: NpcRt | null = null;
   let autopilot: Array<[number, number]> = [];
   let autoStuck = 0;
@@ -503,6 +571,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     // press or leave it (Space, Enter, Tab); walking, E, digits and the build keys still play (review M1).
     if (keyIsTyping(t)) return;
     if (keyIsPressable(t) && PAGE_KEYS_ON_BUTTONS.has(e.code)) return;
+    if (attract) return;
     input.keys.add(e.code);
     if (buildActive && !paused && !buildHud?.chestOpen) {
       if (e.code === 'KeyZ' && !e.repeat) {
@@ -520,11 +589,13 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (e.code === 'F5') {
       e.preventDefault();
       camMode = toggleThirdPerson(camMode);
+      hud.setCamMode(camMode);
     }
     if (e.code === 'Tab' && !paused) {
       e.preventDefault();
       if (camMode !== 'mirror') camBeforeMirror = camMode;
       camMode = toggleMirror(camMode, camBeforeMirror);
+      hud.setCamMode(camMode);
     }
     if (e.code.startsWith('Digit')) {
       const n = Number(e.code.slice(5)) - 1;
@@ -542,6 +613,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const cycleView = (): void => {
     camMode = cycleCamMode(camMode);
     if (camMode !== 'mirror') camBeforeMirror = camMode;
+    hud.setCamMode(camMode);
     sfx.play('ui.click');
   };
   let dragging = false;
@@ -597,6 +669,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const pointerDown = (e: PointerEvent): void => {
     sfx.unlock();
     sfx.startAmbient();
+    if (attract) return;
     if (e.pointerType !== 'mouse') {
       // touch taps on NPCs (the HUD touch layer handles sticks; taps reach here only when it is off)
       buildPress(e, tool);
@@ -685,7 +758,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     let best: NpcRt | null = null;
     let bestD = Infinity;
     for (const n of npcs.values()) {
-      if (!npcTalkable(n.def, lessonMode)) continue;
+      if (!pickableNpc(n.def, lessonMode)) continue;
       const hit = raycaster.ray.distanceSqToPoint(new THREE.Vector3(n.pos.x, n.pos.y + 1, n.pos.z));
       const along = raycaster.ray.origin.distanceTo(n.pos);
       if (hit < 0.6 && along < bestD) {
@@ -773,7 +846,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (focusNpc) return;
     let best = 6;
     for (const n of npcs.values()) {
-      if (!npcTalkable(n.def, lessonMode)) continue;
+      if (!pickableNpc(n.def, lessonMode)) continue;
       const d = Math.hypot(n.pos.x - body.x, n.pos.z - body.z);
       if (d < best) {
         best = d;
@@ -934,7 +1007,14 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     camTarget.set(body.x, headY, body.z);
     let wantPos: THREE.Vector3;
     let wantLook: THREE.Vector3;
-    if (paused && focusNpc) {
+    if (attract) {
+      // Title screen: a slow circle over the plaza, high enough to see the roofs and the hill.
+      attractT += dt;
+      const c = SCENES.plaza.player;
+      const a = attractT * 0.06 + 0.8;
+      wantLook = new THREE.Vector3(c.x, body.y + 2.5, c.z - 4);
+      wantPos = new THREE.Vector3(c.x + Math.sin(a) * 30, body.y + 13, c.z - 4 + Math.cos(a) * 30);
+    } else if (paused && focusNpc) {
       // Dialog (dialog-shot.ts): face to face from the player's own eyes, whatever the walking view; the view offset
       // (setViewInset) puts the face in the middle of the strip the dialog window leaves free.
       const shot = dialogShot(body, focusNpc.pos, body.stepOffset, (ox, oy, oz, dx, dy, dz, max) => raycastDistance(blockAt, ox, oy, oz, dx, dy, dz, max));
@@ -960,8 +1040,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
     const k = camInit ? 1 - Math.exp(-(paused ? 4.5 : 14) * dt) : 1;
     // first person (and a dialog, which looks from the eyes): the eye moves with the body, only the gaze eases
-    const eyes = camMode === 'first' || (paused && !!focusNpc);
-    camPos.lerp(wantPos, eyes ? 1 : k);
+    const eyes = !attract && (camMode === 'first' || (paused && !!focusNpc));
+    camPos.lerp(wantPos, eyes ? 1 : attract ? 1 - Math.exp(-1.5 * dt) : k);
     camLook.lerp(wantLook, k);
     camInit = true;
     camera.position.copy(camPos);
@@ -1213,7 +1293,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       autoStuck = moved < dt * 1.0 ? autoStuck + dt : Math.max(0, autoStuck - dt);
       lastAutoPos.set(body.x, body.y, body.z);
       camYaw += wrapAngle(Math.atan2(intent.dx, intent.dz) - camYaw) * (1 - Math.exp(-3 * dt));
-    } else if (!paused) {
+    } else if (!paused && !attract) {
       const k = input.keys;
       let f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
       let s = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
@@ -1231,7 +1311,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       intent.jump = k.has('Space') || input.jump;
     }
     const wasGround = body.onGround;
-    const pushers = [...npcs.values()].map((n) => ({ x: n.pos.x, z: n.pos.z, r: 0.35 }));
+    // In first person the eye is the body: a wider ring keeps a bumped-into face from filling the screen.
+    const npcRing = camMode === 'first' ? 0.55 : 0.35;
+    const pushers = [...npcs.values()].filter((n) => n.def.id !== TEACHER_NPC_ID).map((n) => ({ x: n.pos.x, z: n.pos.z, r: npcRing }));
     const preVy = body.vy;
     stepBody(body, intent, dt, blockAt, pushers);
     if (intent.jump && wasGround && !body.onGround) sfx.play('body.jump');
@@ -1254,6 +1336,21 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     player.update(dt, { speed: body.onGround ? speed : 0, talking: hud.bubbleTyping('player'), lookYaw: 0 });
     if (heldItem) heldItem.rotation.y = Math.sin(now / 400) * 0.1;
 
+    // The teacher in my world (visitor.ts) keeps a few steps from the child and turns to face them.
+    const tch = npcs.get(TEACHER_NPC_ID);
+    if (tch) {
+      const far = Math.hypot(tch.pos.x - body.x, tch.pos.z - body.z);
+      if (far > 20) {
+        const t = teacherTarget(body.x, body.z, viewYaw(), tch.pos.x, tch.pos.z) ?? [body.x + 2, body.z + 2];
+        tch.pos.set(t[0], standHeight(world, t[0], t[1], Math.ceil(body.y) + 2), t[1]);
+        tch.path = [];
+      } else if (tch.path.length === 0) {
+        const t = teacherTarget(body.x, body.z, viewYaw(), tch.pos.x, tch.pos.z);
+        if (t) tch.path = [t];
+      }
+      tch.homeYaw = Math.atan2(body.x - tch.pos.x, body.z - tch.pos.z);
+      if (tch.path.length === 0) tch.yaw += wrapAngle(tch.homeYaw - tch.yaw) * Math.min(1, dt * 4);
+    }
     // NPCs: walk if they have a path, otherwise idle and look at the player when near.
     nearNpc = null;
     let nearD = TALK_RANGE;
@@ -1293,7 +1390,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       n.char.root.rotation.y = n.yaw;
       n.char.possessed = possessedId === n.def.id;
       n.char.update(dt, { speed: sp, talking: hud.bubbleTyping(n.def.id), lookYaw: look });
-      if (pd < nearD && Math.abs(body.y - n.pos.y) < 2.5) {
+      // the visiting teacher is not an E/tap target: E and the dialog frame stay on the lesson's own NPCs
+      if (pd < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode)) {
         nearD = pd;
         nearNpc = n;
       }
@@ -1331,6 +1429,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     effects.update(dt);
     sky.update(dt, player.root.position);
     hud.tickStatus(sky.hour, body.y);
+    buddy?.update(dt, body.x, body.y, body.z, viewYaw(), (x, z, fromY) => standHeight(world, x, z, fromY));
+    weather?.update(dt, camera.position);
     chunkMats.sync(sky);
     chunks.update(body.x, body.z, viewChunks);
     updateCamera(dt);
@@ -1360,7 +1460,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
     renderer.render(scene, camera);
     lastStats = { draw: renderer.info.render.calls, tris: renderer.info.render.triangles };
-    if (camMode === 'first' && !(paused && focusNpc)) {
+    if (camMode === 'first' && !(paused && focusNpc) && !attract) {
       hands.update(dt, body.onGround ? Math.hypot(body.vx, body.vz) : 0, camera.aspect, camera.fov);
       hands.render(renderer);
     }
@@ -1484,6 +1584,48 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     setGoal(goalKo, targetEn) {
       hud.setGoal(goalKo, targetEn);
     },
+    setAttract(on) {
+      if (attract === on) return;
+      attract = on;
+      attractT = 0;
+      input.keys.clear();
+      // Hidden and see-through: a bubble that sets its own visibility still does not show over the title.
+      const hudEl = opts.hudRoot ?? hud.root;
+      hudEl.style.visibility = on ? 'hidden' : '';
+      hudEl.style.opacity = on ? '0' : '';
+      if (!on) {
+        camYaw = playerYaw;
+        focusWorld();
+        if (greetPending) greetByName();
+      }
+    },
+    setTeacher(t) {
+      // The tag next to the lesson tag (hud, the lesson layer's teacher presence) and, while the teacher is with the
+      // child, the teacher's avatar in the child's world (visitor.ts, Dan 11-16 12:10).
+      hud.setTeacher(t);
+      showTeacher(t?.present ? (t.name ?? '') : null);
+    },
+    setWorldLook(look: WorldSetupChoice | null) {
+      if (weather) {
+        scene.remove(weather.points);
+        weather.dispose();
+        weather = null;
+      }
+      if (buddy) {
+        scene.remove(buddy.root);
+        buddy.dispose();
+        buddy = null;
+      }
+      // null (a lesson, no world made): the town's own daytime, no weather, no animal friend
+      sky.hour = look ? WORLD_TIME_HOUR[look.time] : skyDefaultHour;
+      // the sky repaints itself only while time flows: paint the chosen hour now (colours, sun, light)
+      sky.apply();
+      if (!look) return;
+      weather = new SeasonWeather(look.season, opts.tier === 'low' ? 240 : 480);
+      scene.add(weather.points);
+      buddy = new Buddy(look.buddy, body.x + 0.8, body.y, body.z - 1);
+      scene.add(buddy.root);
+    },
     setViewInset(bottomPx, rightPx = 0) {
       viewInset = Number.isFinite(bottomPx) ? bottomPx : 0;
       viewInsetRight = Number.isFinite(rightPx) ? rightPx : 0;
@@ -1512,6 +1654,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       disposed = true;
       peers.clear();
       hands.dispose();
+      if (teacherPlate) disposePlate(teacherPlate);
+      buddy?.dispose();
+      weather?.dispose();
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', keyDown);
       window.removeEventListener('keyup', keyUp);
@@ -1582,7 +1727,6 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       lessonMode = on;
       if (on && nearNpc && !npcTalkable(nearNpc.def, true)) nearNpc = null;
     },
-    setTeacher: (t) => hud.setTeacher(t),
     setCoins: (total) => hud.setCoins(total),
     setOnline: (on) => hud.setOnline(on),
     setStars: (total) => hud.setStars(total),
@@ -1592,12 +1736,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       hud.setPlate(playerName);
       if (playerName && !greetedByName) {
         greetedByName = true;
-        const guide = npcs.get('guide');
-        if (guide && Math.hypot(guide.pos.x - body.x, guide.pos.z - body.z) < 14) {
-          hud.bubble('guide', guide.def.nameKo, welcomeBackEn(playerName), {}, performance.now());
-          guide.char.wave();
-          sfx.play('mp.bubble');
-        }
+        // On the title screen the guide waits: the greeting comes when the child steps into the world.
+        if (attract) greetPending = true;
+        else greetByName();
       }
     },
     setGraphics(g) {

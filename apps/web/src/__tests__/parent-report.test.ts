@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ParentReportPage, lessonDayLabel, lessonFactsOf, speakingTimeLabel } from '../ParentReportPage.js';
+import { ParentReportPage, lessonDayLabel, lessonFactsOf, mainScenes, speakingTimeLabel } from '../ParentReportPage.js';
 import { PARENT_STRINGS_KO } from '../parentStrings.js';
 import type { SharedReport } from '../lessonApi.js';
 import { describe, expect, it } from 'vitest';
@@ -86,7 +86,12 @@ const lessonReport = (over: Record<string, unknown> = {}): SharedReport => ({
         { text: 'Can I have a warm honey tea', stars: 2, stage_title_ko: '카페 주문', hintless: false }
       ],
       expressions: ['so that'],
-      stages: [{ id: 'cafe_order', title_ko: '카페 주문', utterances: 3, passes: 2 }],
+      // Warm-up had the most passes, but '오늘 한 것' and the home scene name only the practice scenes (#131 review).
+      stages: [
+        { id: 'warmup_anchor', title_ko: '선생님과 인사하고 내 이야기 하기', main: false, utterances: 4, passes: 4 },
+        { id: 'cafe_order', title_ko: '카페 주문', main: true, utterances: 3, passes: 2 },
+        { id: 'recall_today', title_ko: '오늘 배운 문장 떠올리기', main: false, utterances: 1, passes: 1 }
+      ],
       summary_ko: '이번 수업에서 영어로 8번 말했고 그중 7번 통과했습니다. 직접 말한 시간은 2분 5초입니다. 대본 없이 말한 단어는 28개입니다.',
       ...over
     }
@@ -131,6 +136,8 @@ describe('parent lesson report page (docs/08 §9.3)', () => {
     );
     expect(first.indexOf(P.glanceTitle)).toBeLessThan(first.indexOf(P.quotesTitle));
     expect(first).toContain(esc(P.didLine(['카페 주문'], 8, 7, '2분 5초')));
+    expect(P.didLine(['카페 주문'], 8, 7, '2분 5초')).toBe("오늘은 '카페 주문'을 연습했습니다. 수업 전체에서 영어로 8번 말하고 7번 통과했습니다. 직접 말한 시간은 2분 5초입니다.");
+    expect(first).not.toContain(esc("'선생님과 인사하고 내 이야기 하기'"));
     expect(first).toContain(P.growthFirst);
     expect(first).toContain(esc(P.homeGlance('so that I can fly')));
     // the home card lists the sentences in the target-language font, with the scene and the listening line
@@ -157,6 +164,22 @@ describe('parent lesson report page (docs/08 §9.3)', () => {
     const old = renderToStaticMarkup(React.createElement(ParentReportPage, { token: 't', initial: { status: 'ok', report: lessonReport({ lesson_number: 2 }) } }));
     expect(old).not.toContain(P.glanceGrowth);
     expect(old).not.toContain('data-testid="report-vs-last"');
+
+    // the lessons before had no words: say there is nothing to compare with, not silence
+    const noPrev = renderToStaticMarkup(
+      React.createElement(ParentReportPage, { token: 't', initial: { status: 'ok', report: lessonReport({ lesson_number: 2, previous: null }) } })
+    );
+    expect(noPrev).toContain(P.growthNoPrev);
+    expect(noPrev).not.toContain('data-testid="report-vs-last"');
+  });
+
+  it('scenes: practice scenes only, busiest first, at most two; none → no scene named', () => {
+    const st = (id: string, main: boolean, utterances: number, passes: number) => ({ id, title_ko: id, main, utterances, passes });
+    const view = (stages: ReturnType<typeof st>[]) => lessonFactsOf({ lesson: { stages } })!;
+    expect(mainScenes(view([st('warm', false, 9, 9), st('cafe', true, 3, 2), st('trade', true, 5, 4), st('shop', true, 6, 1)]))).toEqual(['trade', 'cafe']);
+    expect(mainScenes(view([st('warm', false, 9, 9), st('cafe', true, 0, 0)]))).toEqual([]);
+    expect(P.homeScene('내 가게 정하기')).toContain("'내 가게 정하기'를 영어로");
+    expect(P.homeScene('상점 입장')).toContain("'상점 입장'을 영어로");
   });
 
   it('no first-lesson note after the first lesson; no quotes → explicit line, not an empty box', () => {

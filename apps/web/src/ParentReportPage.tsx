@@ -216,10 +216,14 @@ export interface LessonFactsView {
   speaking_sec: number;
   quotes: Array<{ text: string; stars: number; stage_title_ko: string; hintless: boolean }>;
   expressions: string[];
-  stages: Array<{ id: string; title_ko: string; utterances: number; passes: number }>;
+  /** main = the practice scene itself (plan parentMain), not warm-up, recall or wrap-up. */
+  stages: Array<{ id: string; title_ko: string; main: boolean; utterances: number; passes: number }>;
   summary_ko: string;
-  /** The child's lesson before this one (server parent-report.ts); null on the first lesson or an older report. */
-  previous: { utterances: number; passes: number; speaking_sec: number; free_words: number } | null;
+  /**
+   * The child's lesson before this one with words (server parent-report.ts): null when there is none, undefined on a
+   * report made before the field existed (then nothing is said about it).
+   */
+  previous?: { utterances: number; passes: number; speaking_sec: number; free_words: number } | null;
   home_practice: string[];
 }
 
@@ -247,7 +251,7 @@ export function lessonFactsOf(facts: Record<string, unknown> | undefined): Lesso
     expressions: arr(o.expressions).map(str).filter(Boolean),
     stages: arr(o.stages).map((s) => {
       const x = (s ?? {}) as Record<string, unknown>;
-      return { id: str(x.id), title_ko: str(x.title_ko), utterances: num(x.utterances), passes: num(x.passes) };
+      return { id: str(x.id), title_ko: str(x.title_ko), main: x.main === true, utterances: num(x.utterances), passes: num(x.passes) };
     }),
     summary_ko: str(o.summary_ko),
     previous:
@@ -256,7 +260,9 @@ export function lessonFactsOf(facts: Record<string, unknown> | undefined): Lesso
             const p = o.previous as Record<string, unknown>;
             return { utterances: num(p.utterances), passes: num(p.passes), speaking_sec: num(p.speaking_sec), free_words: num(p.free_words) };
           })()
-        : null,
+        : o.previous === null
+          ? null
+          : undefined,
     home_practice: arr(o.home_practice).map(str).filter(Boolean)
   };
 }
@@ -277,10 +283,24 @@ export function changeText(k: CompareKey, now: number, prev: number): string {
 export function growthLine(lesson: LessonFactsView): string | null {
   if (lesson.lesson_number === 1) return P.growthFirst;
   const prev = lesson.previous;
+  if (prev === null) return P.growthNoPrev;
   if (!prev) return null;
   const keys: CompareKey[] = ['utterances', 'passes', 'speaking_sec'];
   if (lesson.free_words > 0 || prev.free_words > 0) keys.push('free_words');
   return keys.map((k) => P.growthItem(P.growthLabels[k] ?? k, changeText(k, lesson[k], prev[k]))).join(' · ');
+}
+
+/**
+ * The practice scenes the child spent the lesson on, busiest first (most passes, then most lines), at most two:
+ * warm-up, recall and wrap-up are steps around them, not what a parent would call "what we did today".
+ */
+export function mainScenes(lesson: LessonFactsView): string[] {
+  return lesson.stages
+    .filter((s) => s.main && s.utterances > 0 && s.title_ko)
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => b.s.passes - a.s.passes || b.s.utterances - a.s.utterances || a.i - b.i)
+    .slice(0, 2)
+    .map((x) => x.s.title_ko);
 }
 
 /** "21초", "2분 5초", "28분" — the same split the server's summary sentence uses. */
@@ -501,7 +521,7 @@ function vsLast(lesson: LessonFactsView, k: CompareKey): string | undefined {
  * Every number is from facts.lesson; this only puts them in sentences.
  */
 function Glance({ lesson }: { lesson: LessonFactsView }): React.ReactElement {
-  const stages = lesson.stages.map((s) => s.title_ko).filter(Boolean);
+  const stages = mainScenes(lesson);
   const growth = growthLine(lesson);
   const home = lesson.home_practice[0];
   const rows: Array<[string, string, string]> = [[P.glanceDid, P.didLine(stages, lesson.utterances, lesson.passes, speakingTimeLabel(lesson.speaking_sec)), 'glance-did']];
@@ -523,7 +543,7 @@ function Glance({ lesson }: { lesson: LessonFactsView }): React.ReactElement {
 }
 
 function HomePractice({ lesson }: { lesson: LessonFactsView }): React.ReactElement {
-  const stage = lesson.stages.map((s) => s.title_ko).find(Boolean);
+  const stage = mainScenes(lesson)[0];
   return (
     <Card accent={C.leaf} testId="report-home">
       <h2 style={h2}>{P.homeTitle}</h2>

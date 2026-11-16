@@ -384,18 +384,35 @@ describe('mergeLessonParentFacts', () => {
     coaching_moments: 0,
     stages: [],
     summary_ko: '',
+    previous: null,
+    home_practice: [],
     ...o
   });
   it('adds counts, spans first start to last end, keeps limits and rebuilds the one-liner', () => {
-    const a = part({ started_at: 1000, ended_at: 2000, duration_min: 5, utterances: 2, passes: 2, speaking_sec: 4, longest_words: 6, expressions: ['Can I have'], stages: [{ id: 's1', title_ko: '카페', utterances: 2, passes: 2 }], quotes: [{ text: 'A b', stars: 1, mode: 'echo', stage_title_ko: '', hintless: false }] });
-    const b = part({ started_at: 9000, ended_at: 9900, duration_min: 4, utterances: 1, passes: 1, speaking_sec: 2, longest_words: 4, expressions: ['can I have.', 'Thank you'], stages: [{ id: 's1', title_ko: '카페', utterances: 1, passes: 1 }], quotes: [{ text: 'C d', stars: 3, mode: 'echo', stage_title_ko: '', hintless: true }] });
+    const a = part({ started_at: 1000, ended_at: 2000, duration_min: 5, utterances: 2, passes: 2, speaking_sec: 4, longest_words: 6, expressions: ['Can I have'], stages: [{ id: 's1', title_ko: '카페', main: true, utterances: 2, passes: 2 }], quotes: [{ text: 'A b', stars: 1, mode: 'echo', stage_title_ko: '', hintless: false }] });
+    const b = part({ started_at: 9000, ended_at: 9900, duration_min: 4, utterances: 1, passes: 1, speaking_sec: 2, longest_words: 4, expressions: ['can I have.', 'Thank you'], stages: [{ id: 's1', title_ko: '카페', main: true, utterances: 1, passes: 1 }], quotes: [{ text: 'C d', stars: 3, mode: 'echo', stage_title_ko: '', hintless: true }] });
     const m = mergeLessonParentFacts([b, a])!;
     expect(m).toMatchObject({ started_at: 1000, ended_at: 9900, duration_min: 9, utterances: 3, passes: 3, speaking_sec: 6, longest_words: 6, lesson_number: 3 });
     expect(m.expressions).toEqual(['Can I have', 'Thank you']);
-    expect(m.stages).toEqual([{ id: 's1', title_ko: '카페', utterances: 3, passes: 3 }]);
+    expect(m.stages).toEqual([{ id: 's1', title_ko: '카페', main: true, utterances: 3, passes: 3 }]);
     expect(m.quotes.map((q) => q.text)).toEqual(['A b', 'C d']);
     expect(m.summary_ko).toBe('이번 수업에서 영어로 3번 말했고 그중 3번 통과했습니다. 직접 말한 시간은 6초입니다.');
     expect(mergeLessonParentFacts([])).toBeNull();
+  });
+  it('compares with the lesson before the first part and picks home sentences from every part', () => {
+    const before = { utterances: 4, passes: 3, speaking_sec: 10, free_words: 0 };
+    // The second part's 'previous' is the first part (same day): the merged report must not compare with itself.
+    const a = part({ started_at: 1000, previous: before, home_practice: ['Can I have a warm honey tea?'] });
+    const b = part({
+      started_at: 9000,
+      previous: { utterances: 2, passes: 2, speaking_sec: 4, free_words: 0 },
+      home_practice: ['Can I have a warm honey tea, please?', 'I want to trade my apple.']
+    });
+    const m = mergeLessonParentFacts([b, a])!;
+    expect(m.previous).toEqual(before);
+    // One sentence inside another counts once; at most two.
+    expect(m.home_practice).toEqual(['Can I have a warm honey tea?', 'I want to trade my apple.']);
+    expect(mergeLessonParentFacts([part({ started_at: 5, previous: null })])!.previous).toBeNull();
   });
 });
 

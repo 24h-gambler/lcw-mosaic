@@ -82,7 +82,12 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
     expect(L.expressions).toEqual(['so that I can fly to school', 'Can I have a warm honey tea?']);
     expect(L.coaching_moments).toBe(1);
     expect(L.stages.map((s: any) => s.id)).toEqual(['warmup_anchor', 'cafe_order', 'open_question']);
-    expect(L.stages.map((s: any) => s.title_ko)).toEqual(['인사와 고정 과제', '카페 주문', '열린 질문']);
+    // Parent wording from the plan (parentKo), and only the practice scene counts as one (parentMain).
+    expect(L.stages.map((s: any) => [s.title_ko, s.main])).toEqual([
+      ['선생님과 인사하고 내 이야기 하기', false],
+      ['카페에서 음료 주문하기', true],
+      ['질문에 자유롭게 대답하기', false]
+    ]);
     expect(L.lesson_number).toBe(1);
     expect(L.summary_ko).toBe(lessonSummaryKo(L));
     for (const n of L.summary_ko.match(/\d+/g) ?? []) {

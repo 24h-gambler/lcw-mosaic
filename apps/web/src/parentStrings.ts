@@ -5,6 +5,13 @@
 import { FREE_PLAY_LIMITS } from '@lcw/schemas';
 
 /** 'L2' → '레벨 2' (the teacher's console keeps the L codes; a parent reads the number). */
+/** '을' after a final consonant, '를' after a vowel; '을(를)' when the last letter is not Hangul. */
+export function eulReul(word: string): string {
+  const c = word.trim().charCodeAt(word.trim().length - 1);
+  if (!(c >= 0xac00 && c <= 0xd7a3)) return '을(를)';
+  return (c - 0xac00) % 28 === 0 ? '를' : '을';
+}
+
 export const levelName = (lv: string): string => (/^L\d+$/.test(lv) ? `레벨 ${lv.slice(1)}` : lv);
 
 export const PARENT_STRINGS_KO = {
@@ -24,8 +31,9 @@ export const PARENT_STRINGS_KO = {
     didLine: (stages: readonly string[], utterances: number, passes: number, time: string) =>
       utterances === 0
         ? '이번 수업에서는 기록된 영어 말이 없습니다.'
-        : `${stages.length ? `'${stages.join("', '")}' 상황에서 ` : ''}영어로 ${utterances}번 말하고 ${passes}번 통과했습니다. 직접 말한 시간은 ${time}입니다.`,
+        : `${stages.length ? `오늘은 '${stages.join("', '")}'${eulReul(stages[stages.length - 1] ?? '')} 연습했습니다. 수업 전체에서 ` : ''}영어로 ${utterances}번 말하고 ${passes}번 통과했습니다. 직접 말한 시간은 ${time}입니다.`,
     growthFirst: '첫 수업입니다. 오늘 숫자가 다음 수업의 비교 기준이 됩니다.',
+    growthNoPrev: '지난 수업에는 기록된 영어 말이 없어 이번에는 비교하지 않았습니다. 오늘 숫자가 다음 수업의 비교 기준이 됩니다.',
     more: (v: string) => `${v} 늘었습니다`,
     less: (v: string) => `${v} 줄었습니다`,
     same: '같습니다',
@@ -35,7 +43,8 @@ export const PARENT_STRINGS_KO = {
     homeTitle: '집에서 해 볼 것',
     homeLead: '아래 문장을 아이가 하루에 한 번 소리 내어 말해 보게 해 주세요.',
     homeGlance: (s: string) => `'${s}' 문장을 하루에 한 번 소리 내어 말해 보게 해 주세요.`,
-    homeScene: (stage: string) => `오늘 연습한 '${stage}' 같은 순간이 집에서 생기면, 아이가 먼저 영어로 말하도록 잠깐 기다려 주세요.`,
+    homeScene: (stage: string) =>
+      `오늘 '${stage}'${eulReul(stage)} 영어로 연습했습니다. 집에서 비슷한 상황이 생기면 아이가 먼저 영어로 말하도록 잠깐 기다려 주세요.`,
     homeListen: '틀린 곳을 바로 고쳐 주기보다 끝까지 말하게 두고 그대로 들어 주세요.',
     homeNone: '오늘 리포트의 문장을 아이와 함께 한 번 읽어 보세요.',
     hintless: '힌트 없이',
@@ -153,7 +162,7 @@ export const PARENT_STRINGS_KO = {
     codeExpired: '코드 시간이 지났습니다. 새 코드를 만들어 주세요.',
     reportsTitle: '수업 리포트',
     reportsEmpty: '아직 받은 수업 리포트가 없습니다. 수업이 끝나면 선생님이 보낸 리포트가 여기에 쌓입니다.',
-    reportTime: (hhmm: string) => `${hhmm} 수업`,
+    reportTime: (hhmm: string) => `${hhmm}에 받은 리포트`,
     reportOpen: '열기',
     reportClose: '링크 닫기',
     reportCloseConfirm: '이 리포트 링크를 닫을까요? 링크를 받은 누구도 더 이상 열 수 없습니다.',
@@ -169,10 +178,10 @@ export const PARENT_STRINGS_KO = {
     title: (nick: string) => `${nick}의 성장`,
     titlePlain: '성장 기록',
     levelBadge: (lv: string) => levelName(lv),
-    waiting: '첫 플레이를 기다리는 중입니다. 아이가 영어로 말하기 시작하면 이곳에 숫자와 그래프가 쌓입니다.',
+    waiting: '아직 기록이 없습니다. 아이가 영어로 말하기 시작하면 이곳에 숫자와 그래프가 쌓입니다.',
     noSession: '보호자 화면(우리 가족)에서 들어와 주세요.',
     goFamily: '우리 가족으로',
-    error: '대시보드를 불러오지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.',
+    error: '성장 기록을 불러오지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.',
     retry: '다시 시도',
     pickChild: '아이',
     headline: (nick: string, words: number) => `이번 주 ${nick}의 대본 없이 말한 단어는 ${words}개입니다.`,
@@ -195,21 +204,21 @@ export const PARENT_STRINGS_KO = {
     lineFlat: (from: string) => `이번 주는 4주 전과 비슷합니다(4주 전 ${from}).`,
     lineNew: '이번 주부터 기록됩니다. 4주 뒤부터 변화를 함께 보여 드립니다.',
     lineNone: '이번 주에도 4주 전에도 아직 기록이 없습니다.',
-    lineFewDays: (days: number) => `이번 주는 플레이가 ${days}일뿐이어서 발화량이 적습니다.`,
+    lineFewDays: (days: number) => `이번 주는 영어로 말한 날이 ${days}일뿐이어서 기록이 적습니다.`,
     thinkShort: '이번 주는 대본 없이 말한 문장이 적어 지수를 계산하지 않았습니다(30문장 이상 필요).',
     thinkNote: '아이 자신의 첫 2주를 100으로 둔 값입니다. 다른 아이와 비교하는 점수가 아닙니다.',
     thinkBaseline: '아직 출발점을 만드는 중입니다. 대본 없이 말한 문장이 30개 넘는 주가 두 번 쌓이면 그 2주를 100으로 둡니다.',
     baselinePending: '준비 중',
     parts: {
-      summary: '어떻게 계산하나요 · 구성 지표 6개',
-      how: '지수 = 100 × (한 번에 말한 길이 30% + 말 속도 20% + 단어당 준비 시간 15% + 접속 표현 15% + 영어로 말한 비율 10% + 힌트 없이 통과한 비율 10%). 각 항목은 이번 값을 출발점(표본이 충분한 첫 2주)으로 나눈 배수이고 0.5배~2배로 자릅니다. 준비 시간은 짧을수록 좋아서 거꾸로 나눕니다. 문장이 길어져도 단어당 준비 시간이 같으면 깎이지 않고, 말을 많이 했다는 것만으로는 오르지 않습니다.',
+      summary: '어떻게 계산하나요 · 계산에 쓰는 항목 6개',
+      how: '지수 = 100 × (한 번에 말한 길이 30% + 말 속도 20% + 단어당 준비 시간 15% + 문장을 잇는 말(and·because 등) 15% + 영어로 말한 비율 10% + 힌트 없이 통과한 비율 10%). 각 항목은 이번 값을 출발점(기록이 충분히 쌓인 첫 2주)으로 나눈 배수이고 0.5배~2배로 자릅니다. 준비 시간은 짧을수록 좋아서 거꾸로 나눕니다. 문장이 길어져도 단어당 준비 시간이 같으면 깎이지 않고, 말을 많이 했다는 것만으로는 오르지 않습니다.',
       noBase: '출발점이 정해지면 점선으로 함께 보여 드립니다.',
       legendValue: '그 주의 값',
       legendBase: '출발점(첫 2주)',
       words: '한 번에 말한 길이',
       speed: '말 속도',
       prep: '단어당 준비 시간',
-      connectors: '접속 표현',
+      connectors: '문장을 잇는 말(and·because 등)',
       target: '영어로 말한 비율',
       hintFree: '힌트 없이 통과한 비율',
       weight: (pct: number) => `비중 ${pct}%`

@@ -74,12 +74,12 @@ describe('W01 first screen', () => {
   it('shows the one-line title, the captioned real-game clip, both entrances and the try CTA', () => {
     const html = render('/');
     expect(html).toContain('말하면 생기는 세계');
-    expect(html).toContain('영어로 말해야 물건이 생기는 3D 블록 게임');
+    expect(html).toContain('영어로 말해야 물건이 생기는 3D 블록 월드');
     expect(html).toContain('data-testid="clip-hero-cafe"');
     // the clip waits until it is on screen: poster only, no video bytes on first load (docs/14 §11)
     expect(html).toContain('preload="none"');
     expect(html).toContain(`poster="${SITE_CLIPS['hero-cafe'].poster}"`);
-    expect(html).toContain('실제 게임 화면 · 시연');
+    expect(html).toContain('실제 월드 화면 · 시연');
     expect(html).toContain('학부모님이세요?');
     expect(html).toContain('플레이어세요?');
     expect(html).toContain('href="/try"');
@@ -313,7 +313,7 @@ describe('static pages for crawlers and first paint (docs/14 §11)', () => {
   it('keeps report and showroom links readable for link previews (robots), app screens out of search', () => {
     const r = robotsTxt();
     expect(r).not.toMatch(/Disallow: \/(r|s)\//);
-    for (const p of ['/join', '/director', '/family', '/link', '/game/', '/v1/', '/report', '/dashboard']) expect(r).toContain(`Disallow: ${p}`);
+    for (const p of ['/join', '/director', '/family', '/link', '/world/', '/game/', '/v1/', '/report', '/dashboard']) expect(r).toContain(`Disallow: ${p}`);
     for (const p of prerenderPaths()) expect(r.split('\n').includes(`Disallow: ${p}`)).toBe(false);
   });
 

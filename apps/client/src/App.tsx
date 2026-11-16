@@ -12,6 +12,7 @@ import { onSeatInactive } from './world/seat.js';
 import type { BuildAccess } from './world/api.js';
 import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
+import { FrameLayer } from './frame/FrameLayer.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
@@ -119,9 +120,11 @@ function sessionStoreOrNull(): Pick<Storage, 'getItem'> | null {
  * token, never seat-gated) once the join gave one, a guest builds on the device only. A lesson never uses the device
  * token: a borrowed or shared tablet is linked to another child, whose plot must not get this student's building.
  */
-export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | null): BuildAccess {
+export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | null, lessonLive = false): BuildAccess {
+  // A lesson joined without a code in the address (/join hand-off, or the code typed in the world) is live with this
+  // tab's student token: building saves to the student, never to a linked child's plot on the same tablet.
+  if ((id?.kind === 'lesson' || lessonLive) && studentToken && studentToken.length >= 32) return { kind: 'saved', token: studentToken, lesson: true };
   if (id?.kind === 'child') return id.playAllowed ? { kind: 'saved', token: id.token } : { kind: 'paused' };
-  if (id?.kind === 'lesson' && studentToken && studentToken.length >= 32) return { kind: 'saved', token: studentToken, lesson: true };
   return { kind: 'local' };
 }
 
@@ -229,7 +232,8 @@ function startSceneFrom(search: string): SceneId | undefined {
 
 function NoWorld(): React.ReactElement {
   const code = new URLSearchParams(location.search).get('code');
-  const href = `/join${code ? `?code=${encodeURIComponent(code)}` : ''}`;
+  // lite=1: /join keeps this device on the word cards (it sends 3D-capable devices to /world/ otherwise).
+  const href = `/join?${code ? `code=${encodeURIComponent(code)}&` : ''}lite=1`;
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C['paper-50'], padding: 16, fontFamily: T.fonts.ui }}>
       <div style={{ maxWidth: 420, background: C['paper-0'], border: `2px solid ${C['ink-900']}`, borderRadius: S.radiusCardPx, boxShadow: S.shadowDefault, padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -382,7 +386,7 @@ export function App(): React.ReactElement {
   const lastAccess = useRef<{ world: WorldHandle | null; key: string }>({ world: null, key: '' });
   useEffect(() => {
     if (!world?.setBuildAccess || !identity) return;
-    const access = buildAccessOf(identity, identity.kind === 'lesson' ? storedStudentToken() : null);
+    const access = buildAccessOf(identity, identity.kind === 'lesson' || lessonOn ? storedStudentToken() : null, lessonOn);
     const key = JSON.stringify(access);
     if (lastAccess.current.world === world && lastAccess.current.key === key) return;
     lastAccess.current = { world, key };
@@ -541,6 +545,7 @@ export function App(): React.ReactElement {
       <div ref={hudRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
         <div style={{ pointerEvents: 'auto' }}>
+          <FrameLayer world={world} identity={identity} />
           {Lesson ? (
             <Lesson
               world={world}

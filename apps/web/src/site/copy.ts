@@ -32,7 +32,7 @@ export const NAV = {
 } as const;
 
 export const HERO = {
-  eyebrow: '영어로 말해야 물건이 생기는 3D 블록 게임',
+  eyebrow: '영어로 말해야 물건이 생기는 3D 블록 월드',
   title: '말하면 생기는 세계',
   body: '짓고, 싸우고, 탐험하는 모든 순간에 영어로 말합니다. 더 좋은 문장이 더 좋은 장비가 됩니다.',
   parents: '학부모님이세요?',
@@ -45,9 +45,9 @@ export const HERO = {
 } as const;
 
 /** 15-second loop (docs/14 §3): understandable with the sound off, captions on screen. */
-/** Landing clip (docs/14 §3): a real /game capture of one cafe order, captions carry it with the sound off. */
+/** Landing clip (docs/14 §3): a real /world capture of one cafe order, captions carry it with the sound off. */
 export const LOOP = {
-  label: '실제 게임 화면 반복 영상: 카페 주인에게 영어로 주문하면 문장이 자라고 별 3개를 받습니다',
+  label: '실제 월드 화면 반복 영상: 카페 주인에게 영어로 주문하면 문장이 자라고 별 3개를 받습니다',
   captions: [
     ['approach', '카페 주인이 영어로 말을 걸어요'],
     ['offers', '여기서는 말해야 얻어요. 문장은 세 가지'],
@@ -58,7 +58,7 @@ export const LOOP = {
 
 /** Player page clip: the world's own auto-walk from the plaza to the cafe. */
 export const TOUR = {
-  label: '실제 게임 화면: 광장에서 마을 길을 따라 꿀 카페까지 걸어가는 장면',
+  label: '실제 월드 화면: 광장에서 마을 길을 따라 꿀 카페까지 걸어가는 장면',
   captions: [
     ['plaza', '광장에서 마을 길을 따라 걸어가요'],
     ['cafe', '꿀 카페 도착. 이제 영어로 주문할 차례']
@@ -75,16 +75,16 @@ export function josa(word: string, withBatchim: string, without: string): string
 
 /** Labels on the real-game pictures (GameMedia.tsx). */
 export const MEDIA = {
-  realTag: '실제 게임 화면 · 시연',
+  realTag: '실제 월드 화면 · 시연',
   play: '재생',
   pause: '일시 정지',
-  cafeOffers: `실제 게임 화면: ${josa(castKo('cafe_owner'), '이', '가')} 묻고, 별 1개부터 3개까지 세 가지 영어 문장이 펼쳐진 대화창`,
-  cafeStars: '실제 게임 화면: 별 3개 문장 "Can I have some cold water, please?"를 말해 별 3개를 받은 대화창',
-  tradeOffers: `실제 게임 화면: 물물교환 ${josa(castKo('shop_owner'), '과', '와')} 헬멧을 바꾸는 세 가지 영어 문장`,
-  buildPlot: '실제 게임 화면: 울타리와 벽돌이 놓인 내 부지',
-  guideOffers: `실제 게임 화면: ${josa(castKo('guide'), '이', '가')} 어디로 가고 싶은지 묻는 대화창`,
-  cafeFront: '실제 게임 화면: 꿀 카페 앞에 선 플레이어',
-  plaza: '실제 게임 화면: 분수가 있는 중앙 광장'
+  cafeOffers: `실제 월드 화면: ${josa(castKo('cafe_owner'), '이', '가')} 묻고, 별 1개부터 3개까지 세 가지 영어 문장이 펼쳐진 대화창`,
+  cafeStars: '실제 월드 화면: 별 3개 문장 "Can I have some cold water, please?"를 말해 별 3개를 받은 대화창',
+  tradeOffers: `실제 월드 화면: 물물교환 ${josa(castKo('shop_owner'), '과', '와')} 헬멧을 바꾸는 세 가지 영어 문장`,
+  buildPlot: '실제 월드 화면: 울타리와 벽돌이 놓인 내 부지',
+  guideOffers: `실제 월드 화면: ${josa(castKo('guide'), '이', '가')} 어디로 가고 싶은지 묻는 대화창`,
+  cafeFront: '실제 월드 화면: 꿀 카페 앞에 선 플레이어',
+  plaza: '실제 월드 화면: 분수가 있는 중앙 광장'
 } as const;
 
 export const LOOP_OFFERS = [
@@ -116,7 +116,7 @@ export const LANDING = {
   },
   dialogTitle: '이것이 실제 대화창이에요',
   dialogBody: '같은 제트팩도 문장에 따라 값이 달라져요. 문장을 눌러 들어 보세요.',
-  dialogNote: '코인은 게임 안에서만 쓰는 돈이에요. 현금으로 살 수 없어요.',
+  dialogNote: '코인은 월드 안에서만 쓰는 돈이에요. 현금으로 살 수 없어요.',
   tutoringTitle: '선생님과 함께하면',
   tutoringBody: '선생님이 아이의 월드에 NPC로 들어가 말을 걸고, 수업이 끝나면 숫자가 검증된 리포트를 보내 드려요.',
   tutoringCta: '과외 수업 보기'
@@ -124,7 +124,7 @@ export const LANDING = {
 
 export const PARENTS = {
   title: '아이가 영어로 자기 생각을 말하는 시간을 보여 드립니다',
-  lead: '게임하는 줄 알았는데, 들어 보니 말을 하고 있습니다. 매주 대본 없이 말한 양과 길이를 숫자와 육성으로 확인하세요.',
+  lead: '노는 줄 알았는데, 들어 보니 말을 하고 있습니다. 매주 대본 없이 말한 양과 길이를 숫자와 육성으로 확인하세요.',
   sampleTag: '예시 화면',
   sampleNote: '실제 데이터가 쌓이기 전이라 예시 숫자로 그렸어요.',
   voiceTag: '기계 음성 시연',
@@ -139,7 +139,7 @@ export const PARENTS = {
   ],
   problemFoot: 'LCW는 세 번째 칸을 채우는 곳이에요.',
   methodTitle: '말해야 얻는 세계',
-  methodBody: '주문, 제작, 흥정, 변론. 게임에서 물건을 얻는 길이 전부 말하기예요. 문장이 좋을수록 값이 싸고 효과가 커집니다.',
+  methodBody: '주문, 제작, 흥정, 변론. 월드에서 물건을 얻는 길이 전부 말하기예요. 문장이 좋을수록 값이 싸고 효과가 커집니다.',
   proofTitle: '낭독이 아닌 "자기 말"만 셉니다',
   proofBody:
     '따라 읽은 말과 스스로 만든 말을 나눠서 잽니다. 성장 그래프에는 아이가 스스로 만든 말만 올라가요. 늘지 않으면 늘지 않은 대로 보입니다.',
@@ -174,10 +174,10 @@ export const PARENTS = {
     '동의는 네 가지로 나눠 따로 켜고 끕니다. 한 번에 모두 켜는 버튼은 없어요.',
     '낯선 사람과 자유 음성 대화를 하지 않아요. 다른 사람에게는 걸러진 말풍선만 보입니다.',
     '아이 월드를 누구에게 보여 줄지는 보호자가 정합니다. 기본은 비공개예요.',
-    '아이 화면에는 가격·결제·기한이 없습니다. 현금으로 사는 게임 재화도 없어요.'
+    '아이 화면에는 가격·결제·기한이 없습니다. 현금으로 사는 재화도 없어요.'
   ],
-  timeTitle: '게임 시간이 걱정되신다면',
-  timeBody: '플레이 시간 안내를 정해 두면 시간이 되었을 때 게임 안에서 부드럽게 알려 줍니다. 연속 접속을 압박하는 알림은 없고, 매주 요약을 보내 드려요.',
+  timeTitle: '플레이 시간이 걱정되신다면',
+  timeBody: '플레이 시간 안내를 정해 두면 시간이 되었을 때 월드 안에서 부드럽게 알려 줍니다. 연속 접속을 압박하는 알림은 없고, 매주 요약을 보내 드려요.',
   priceTitle: '요금은 단순합니다',
   priceBody: `모든 좌석은 전 기능이에요. ${REFUND_RULE.line} ${REFUND_RULE.tryFirst}`,
   priceCta: '요금 자세히 보기',
@@ -246,7 +246,7 @@ export const PLAY = {
 
 export const SHARE = {
   title: 'LCW — 말하면 생기는 세계',
-  text: '영어로 말해야 물건이 생기는 게임이래요. 한번 봐 주세요!',
+  text: '영어로 말해야 물건이 생기는 3D 월드래요. 한번 봐 주세요!',
   copied: '링크를 복사했어요. 부모님께 붙여 넣어 보내 주세요.',
   failed: '복사가 안 됐어요. 주소창의 주소를 부모님께 보내 주세요.'
 } as const;
@@ -367,8 +367,8 @@ export const FAQ = [
     a: '약속 대신 측정 방식을 보여 드려요. 대본 없이 말한 양과 길이를 매주 보여 드리고, 늘지 않으면 늘지 않은 대로 보입니다.'
   },
   {
-    q: '게임만 하게 되지 않을까요?',
-    a: '게임 안에서 물건을 얻는 길이 전부 말하기예요. 플레이 시간 안내를 정할 수 있고, 매주 요약에서 아이가 말한 시간을 확인하실 수 있어요.'
+    q: '놀기만 하게 되지 않을까요?',
+    a: '월드 안에서 물건을 얻는 길이 전부 말하기예요. 플레이 시간 안내를 정할 수 있고, 매주 요약에서 아이가 말한 시간을 확인하실 수 있어요.'
   },
   {
     q: '아이 목소리는 어떻게 되나요?',
@@ -404,7 +404,7 @@ export const SAFETY = {
     { k: '개인정보', v: '말풍선 필터가 전화번호·주소·계정 아이디 모양을 막아요. 닉네임에 실명을 쓰지 않도록 안내합니다.' },
     { k: '공개 서버', v: '미성년 계정은 보호자가 허용하고 "모두" 대상인 서버만 보여요.' },
     { k: '괴롭힘', v: '서로 다른 3명이 신고하면 그 월드에서 말풍선이 자동으로 멈춰요. PvP는 기본으로 꺼져 있어요.' },
-    { k: '구매 압박', v: '아이 화면에 가격·결제·기한이 없어요. 현금으로 사는 게임 재화가 없습니다.' },
+    { k: '구매 압박', v: '아이 화면에 가격·결제·기한이 없어요. 현금으로 사는 재화가 없습니다.' },
     { k: '과몰입', v: '플레이 시간 안내, 연속 접속 압박 알림 없음. 보호자 알림은 주 1회까지.' },
     { k: 'AI가 만든 것', v: 'AI는 정해진 부품 안에서 제안만 해요. 건물이나 주민을 AI가 만들지 않고, 이름·설명은 필터를 지나요.' },
     { k: '쇼룸', v: '정지된 장면만 보여 줘요. 실시간 위치·음성·실명이 없고 기본은 비공개예요.' },
@@ -427,7 +427,7 @@ export const LEGAL = {
   privacyTitle: '개인정보 처리방침 요약',
   draft: '정식 문서는 전문가 검토를 마친 뒤 이 자리에 게시합니다. 아래는 지금 운영하는 방식의 요약이에요.',
   terms: [
-    { k: '서비스', v: '영어 말하기 게임과 보호자 화면, 선택형 과외 수업 도구를 제공합니다.' },
+    { k: '서비스', v: '영어 말하기 3D 월드와 보호자 화면, 선택형 과외 수업 도구를 제공합니다.' },
     { k: '좌석', v: '좌석 하나에 플레이어 한 명. 미성년 좌석은 보호자 계정 아래에서만 만들어집니다.' },
     { k: '결제와 환불', v: '좌석을 쓰기 시작하기 전까지만 전액 환불되고, 쓰기 시작한 뒤에는 환불되지 않습니다. Duo 한 좌석 환불 시 남은 좌석은 Solo로 바뀝니다.' },
     { k: '해지', v: '보호자 화면에서 언제든 해지. 월드는 30일 읽기 전용 뒤 보관됩니다.' },
@@ -435,7 +435,7 @@ export const LEGAL = {
   ],
   privacy: [
     { k: '모으는 것', v: '보호자 연락처, 아이 닉네임·학년, 플레이 기록, 발화 전사문과 지표. 음성은 동의한 경우에만.' },
-    { k: '쓰는 곳', v: '게임 진행, 성장 그래프와 리포트, 수업 진행. 광고에 쓰지 않습니다.' },
+    { k: '쓰는 곳', v: '월드 이용, 성장 그래프와 리포트, 수업 진행. 광고에 쓰지 않습니다.' },
     { k: '보관 기간', v: '수업 원본 30일. 음성 클립은 좌석을 쓰는 동안과 그 뒤 12개월. 게스트·체험 음성은 저장하지 않아요.' },
     { k: '맡기는 곳', v: '클라우드 운영(Cloudflare)과 음성 인식·문장 처리(Cloudflare Workers AI). AI에는 이름·계정 없이 문장만 보냅니다.' },
     { k: '보호자의 권리', v: '보기, 고치기, 지우기, 동의 철회를 보호자 화면에서 바로 할 수 있어요.' },
@@ -480,7 +480,7 @@ export const SHOWROOM = {
 
 export const LEARN = {
   indexTitle: '상황별 영어 표현',
-  indexLead: '게임 속 장면에서 실제로 쓰는 문장이에요. 별 1개부터 3개까지, 문장이 어떻게 자라는지 보세요.',
+  indexLead: '월드 속 장면에서 실제로 쓰는 문장이에요. 별 1개부터 3개까지, 문장이 어떻게 자라는지 보세요.',
   starsTitle: '같은 말, 세 가지 문장',
   explainTitle: '이렇게 생각하면 쉬워요',
   mistakeTitle: '자주 틀리는 부분',
@@ -591,7 +591,7 @@ export const LEARN_PAGES = [
 ] as const;
 
 export const FOOTER = {
-  tagline: '말하면 생기는 세계. 영어로 말해야 물건이 생기는 3D 블록 게임이에요.',
+  tagline: '말하면 생기는 세계. 영어로 말해야 물건이 생기는 3D 블록 월드예요.',
   colSite: '둘러보기',
   colLearn: '배우기',
   colTrust: '믿을 수 있게',

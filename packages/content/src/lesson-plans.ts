@@ -95,7 +95,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       followUpsEn: ['How old are you?', 'What is your favorite food?', 'Why do you like it?', 'Tell me more!'],
       targets: [
         { stars: 1, text: 'My name is ___.', hintTags: ['my name is'] },
-        { stars: 2, text: 'I like playing games after school.', hintTags: ['i like'] },
+        { stars: 2, text: 'I like playing soccer after school.', hintTags: ['i like'] },
         { stars: 3, text: 'I like drawing because it makes me happy.', hintTags: ['because'] }
       ]
     },

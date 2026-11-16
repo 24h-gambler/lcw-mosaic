@@ -1,6 +1,6 @@
 /**
- * Real /game pictures on the public pages (docs/14 §10.3 "실제 플레이 화면만"): stills and short clips captured by
- * tools/site-captures.mjs. Every picture carries a "실제 게임 화면 · 시연" tag — the screen is the real game, the voice
+ * Real /world pictures on the public pages (docs/14 §10.3 "실제 플레이 화면만"): stills and short clips captured by
+ * tools/site-captures.mjs. Every picture carries a "실제 월드 화면 · 시연" tag — the screen is the real game, the voice
  * input was a demonstration (no child voice, docs/14 §10.3).
  *
  * Clips: muted, inline, no download until they are on screen and the page has settled (preload none, poster

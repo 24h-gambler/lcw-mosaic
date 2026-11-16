@@ -127,7 +127,7 @@ export function PassPage(): React.ReactElement {
       .catch((): PassCheckView => 'error')
       .then((v) => {
         setBusy(false);
-        if (v === 'go') window.location.assign(`/game/?pass=${encodeURIComponent(c)}`);
+        if (v === 'go') window.location.assign(`/world/?pass=${encodeURIComponent(c)}`);
         else setView(v);
       });
   };

@@ -72,3 +72,20 @@
 
 - 새 낱말을 사용자 문구에 처음 쓰기 전에 2장에 한 줄 더합니다.
 - 1장에 낱말을 더하면 금지어 시험 목록(운영·통합 레인 소유)도 같은 PR에서 고칩니다.
+
+## 5. 금지어 시험 (운영·통합 레인)
+
+| 시험 id | 막는 것 | 대신 | 예 |
+|---|---|---|---|
+| `ko-game` | 사용자 글의 '게임' | 1장의 '대신 쓰는 말' | "3D 블록 게임" → "3D 블록 월드" |
+| `en-game` | 영어 문장의 game, games | world, town, play | "Play the game" → "Come into the world" |
+| `path-game` | URL `/game` | `/world/` | `/game/?code=482913` → `/world/?code=482913` |
+
+- 검사 범위: `apps/web/src`, `apps/client/src`, `apps/edge/src`, `packages/content/src`, `packages/ui/src`의 문자열·템플릿·JSX 글, `index.html` 제목·메타, 웹 매니페스트, 사전 렌더한 사이트 페이지 전부(`tools/forbidden-words.mjs`, 시험 `tools/__tests__/forbidden-words.test.ts`, `pnpm test` 안). 운영 화면의 실제 글은 매일 밤 `tools/nightly-audit.mjs`가 봅니다.
+- TypeScript 컴파일러로 소스를 읽으므로 주석·식별자·파일 이름(`GameCanvas.tsx`, `size="game"`)은 걸리지 않습니다. 영어 `game`은 띄어쓰기가 있는 문장(또는 JSX 글)에서만 찾습니다. 내부 설계 문서(`15` 등)는 대상이 아닙니다.
+- 목표 언어 연습 문장도 같습니다(`I like playing games after school.` → `I like playing soccer after school.`).
+- 예외는 `tools/forbidden-words.mjs`의 `ALLOW`에 이유와 함께 둡니다. 지금은 `/game` 리다이렉트(`apps/edge/src/world-path.ts`)와 `robots.txt`의 `Disallow: /game/` 두 곳뿐입니다. 예외를 늘리는 것은 제품 결정입니다.
+
+## 6. 옛 주소 `/game/`
+
+3D 월드는 `/world/`에 있습니다. `/game`, `/game/`, `/game/…`은 Worker가 `302`로 같은 자리의 `/world/…`로 보내고 쿼리 문자열(`?code=`, `?pass=`, `?scene=`)을 그대로 넘깁니다(`apps/edge/src/world-path.ts`, 시험 `apps/edge/src/__tests__/world-path.test.ts`). 수업 코드 링크, 친구 초대권 링크, 북마크가 깨지지 않습니다. 되돌릴 수 있게 영구(301)가 아니라 임시(302)로 둡니다.

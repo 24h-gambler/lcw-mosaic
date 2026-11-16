@@ -162,6 +162,9 @@ describe('the teacher in my world (Dan 11-16 12:10)', () => {
     expect(d.nameEn).toBe('Ms. Kim');
     expect(plateText('Ms. Kim')).toBe('Ms. Kim 선생님');
     expect(plateText('')).toBe('선생님');
+    expect(plateText('선생님')).toBe('선생님');
+    expect(plateText('김 선생님')).toBe('김 선생님');
+    expect(teacherDef('선생님').nameKo).toBe('선생님');
     expect(teacherDef('').nameKo).toBe('선생님');
     expect([...cleanTeacherName('가'.repeat(30))]).toHaveLength(16);
     const t = teacherTarget(10, 20, 0, 10, 20)!;

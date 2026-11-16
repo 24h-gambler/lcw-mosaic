@@ -27,7 +27,9 @@ export function cleanTeacherName(raw: string | null | undefined): string {
 
 export function plateText(name: string): string {
   const n = cleanTeacherName(name);
-  return n ? `${n} 선생님` : '선생님';
+  // the server's default name is already "선생님" (and a console may type "김 선생님"): never "선생님 선생님"
+  if (!n || n.endsWith('선생님')) return n || '선생님';
+  return `${n} 선생님`;
 }
 
 /**

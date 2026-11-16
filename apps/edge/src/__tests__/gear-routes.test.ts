@@ -55,7 +55,8 @@ type Item = { item_id: string; item_key: string; location: string; socket: strin
 
 afterEach(() => vi.useRealTimers());
 
-describe('items, repair, collection, settings (docs/09 P4, docs/19)', () => {
+// Each test makes 20-60 requests through the gateway; on a busy machine that passes the 5 s default.
+describe('items, repair, collection, settings (docs/09 P4, docs/19)', { timeout: 30_000 }, () => {
   it('the bag holds five, the rest lands in the chest; carry/store; another child sees 404; coins come from the ledger', async () => {
     const p = platform();
     const a = await child(p, 'kid-a', 'fam-a');

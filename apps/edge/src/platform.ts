@@ -27,6 +27,8 @@ import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
 import { handleServerStt } from './stt.js';
+import { handleTts, parseTryVoice, prebuildFixedLines, synthesize, ttsStatus, type TtsDeps } from './tts.js';
+import { normalizeTtsText } from '@lcw/content';
 import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaHealth, readQuotaSettings, rollupQuota } from './quota.js';
 import {
   createDurableSqliteExecutor,
@@ -67,6 +69,8 @@ export interface LcwEnv {
   BUILD_SHA?: string;
   /** R2 bucket for children's voice clips (voice.ts). Unbound → uploads answer 503 and nothing is stored. */
   VOICE?: R2BucketLike;
+  /** Neural NPC voice (tts.ts): "on" serves /v1/tts to players; anything else keeps the device voice (default off). */
+  TTS_NEURAL?: string;
   /** Cloudflare Realtime SFU app for live lesson listening (lesson-audio.ts). Both unset → the window is text only. */
   REALTIME_APP_ID?: string;
   REALTIME_APP_TOKEN?: string;
@@ -684,6 +688,41 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       return blocked;
     }
     return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota: () => platform.quota, ai: env.AI, nowMs: () => Date.now() });
+  });
+  // Neural NPC voice (tts.ts): cached lines for anyone, new fixed lines through the meter, other text only for a
+  // child's own token; off unless TTS_NEURAL=on (the operator may always try and prebuild).
+  const ttsDeps = (): TtsDeps => ({
+    enabled: env.TTS_NEURAL === 'on',
+    quota: () => platform.quota,
+    ai: env.AI,
+    store: env.VOICE as TtsDeps['store'],
+    nowMs: () => Date.now(),
+    sha256Hex
+  });
+  app.get('/v1/tts/status', () => ttsStatus(ttsDeps()));
+  app.get('/v1/tts', async (c) => {
+    const operator = isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN);
+    const student = operator ? null : await platform.studentFromRequest(c.req.raw);
+    const device = operator || student ? null : await platform.deviceFromRequest(c.req.raw);
+    const playerId = student?.player_id ?? device?.player_id ?? null;
+    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student) }, ttsDeps());
+  });
+  // Operator measurement: one uncached synthesis with its time (engine/voice choice, docs/04 4.8).
+  app.post('/v1/admin/tts/try', async (c) => {
+    if (!isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return c.json({ error: 'operator_only' }, 401);
+    const body = (await c.req.json().catch(() => null)) as { voice?: string; text?: string } | null;
+    const voice = parseTryVoice(body?.voice);
+    const text = normalizeTtsText(body?.text ?? '');
+    if (!voice || !text || !env.AI) return c.json({ error: 'voice_text_ai_required' }, 400);
+    const t0 = Date.now();
+    const bytes = await synthesize(env.AI, voice, text).catch(() => null);
+    if (!bytes) return c.json({ error: 'tts_failed' }, 502);
+    return new Response(bytes as unknown as BodyInit, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'no-store', 'x-lcw-tts-ms': String(Date.now() - t0) } });
+  });
+  app.post('/v1/admin/tts/prebuild', async (c) => {
+    if (!isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return c.json({ error: 'operator_only' }, 401);
+    const body = (await c.req.json().catch(() => ({}))) as { budget_neurons?: number; voice?: string };
+    return c.json(await prebuildFixedLines(ttsDeps(), { budgetNeurons: body.budget_neurons, voice: body.voice }));
   });
   // My plot (WP-207): the child's own home world, from the same tokens. Building alone is solo play, so a linked
   // device whose seat has paused play may still look (GET) but not build (docs/01 §4; the client shows the notice).

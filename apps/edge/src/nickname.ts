@@ -24,7 +24,11 @@ export function familyHasGuardian(sql: SqliteExecutor, familyId: string): boolea
   );
 }
 
-export type NameOwner = { kind: 'free' } | { kind: 'taken' } | { kind: 'teacher_row'; player_id: string | null };
+/** `taken.by`: who holds the name — another waiting sign-up, or a student with a guardian (that student's id). */
+export type NameOwner =
+  | { kind: 'free' }
+  | { kind: 'taken'; by: { kind: 'signup' } | { kind: 'student'; player_id: string } }
+  | { kind: 'teacher_row'; player_id: string | null };
 
 export interface NameIndex {
   /** Who has this name now; `exceptSignup`: the sign-up being approved or listed does not block itself. */
@@ -68,10 +72,11 @@ export function nameIndex(sql: SqliteExecutor): NameIndex {
   return {
     owner(nickname, exceptSignup) {
       const key = nicknameKey(nickname);
-      if ((waitingByKey.get(key) ?? []).some((id) => id !== exceptSignup)) return { kind: 'taken' };
+      if ((waitingByKey.get(key) ?? []).some((id) => id !== exceptSignup)) return { kind: 'taken', by: { kind: 'signup' } };
       const same = playersByKey.get(key) ?? [];
       if (!same.length) return { kind: 'free' };
-      if (same.some((k) => hasGuardian(k.family_id))) return { kind: 'taken' };
+      const held = same.find((k) => hasGuardian(k.family_id));
+      if (held) return { kind: 'taken', by: { kind: 'student', player_id: held.id } };
       return { kind: 'teacher_row', player_id: same.length === 1 ? same[0]!.id : null };
     }
   };

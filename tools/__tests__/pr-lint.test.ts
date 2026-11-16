@@ -36,14 +36,16 @@ describe('pr-lint: postponing is narrowing (fault injection)', () => {
   it('catches the ways around it found in review (fault injection)', () => {
     for (const t of ['이번 PR에 넣지 않았습니다', '다음 작업으로 넘깁니다', '별도 PR로 분리', '이번엔 수업 모드만 합니다', '17시 이후에 머지', '오후 5시 넘어서',
       '수업이 끝난 다음 배포합니다', '2차로 미룹니다', '범위 밖이라 제외', 'subsequent PR', 'Not included: login',
-      'Login will be added later.', 'deferred to the next PR', 'merge after 5pm', '## Not in this PR'])
+      'Login will be added later.', 'deferred to the next PR', 'merge after 5pm', '## Not in this PR',
+      '로그인은 미루고 링크만', '배포는 늦춥니다', '로그인을 늦춰서 넣습니다'])
       expect(ids(t).length, t).toBeGreaterThan(0);
   });
 
   it('does not flag the lesson domain words or plain engineering lines', () => {
     for (const t of ['수업 후 리포트가 학부모에게 갑니다', '일단 실패하면 다시 시도', '임시로 만든 토큰', 'stub 서버', 'TODO 주석을 지웠습니다', '2시간 후 다시 시도',
       '15:00 수업 경로를 실측했습니다', '비밀은 저장소에 넣지 않았습니다', '30 days later, 0 signs', 'A later full run on a loaded machine', 'after 7 days',
-      'A provider without settings is left out', '이 PR 만 먼저 배포되면 그 경로는 404 입니다', '결정 없는 deferred 는 실패합니다'])
+      'A provider without settings is left out', '이 PR 만 먼저 배포되면 그 경로는 404 입니다', '결정 없는 deferred 는 실패합니다',
+      '결정 id 없이 미루거나 줄이는 표현을 찾습니다', '미루는 말이 든 note 는 실패합니다'])
       expect(ids(t), t).toEqual([]);
   });
 

@@ -92,8 +92,13 @@ export class PeerAvatars {
     const motion = new PeerMotion();
     // a hello entry carries velocity, turn rate and age: keep drawing them moving from where they are by now
     const m = pose ? peerMotionOf(pose) : null;
-    if (pose && m) motion.set(p.x, p.y, p.z, pose[3] ?? 0, m.vx, m.vz, performance.now() - m.ageMs, m.w);
-    const rt: PeerRt = { info, char, pos: p, motion, yaw: pose?.[3] ?? 0, speed: 0, plate, plateKey: '', seen: !!pose };
+    if (pose && m) {
+      const now = performance.now();
+      motion.set(p.x, p.y, p.z, pose[3] ?? 0, m.vx, m.vz, now - m.ageMs, m.w);
+      motion.settle(now);
+      p.set(motion.x, motion.y, motion.z);
+    }
+    const rt: PeerRt = { info, char, pos: p, motion, yaw: pose ? motion.yaw : 0, speed: 0, plate, plateKey: '', seen: !!pose };
     // Not placed yet (joined, no pose so far): stay hidden instead of standing at the world origin.
     char.root.visible = rt.seen;
     this.peers.set(info.id, rt);

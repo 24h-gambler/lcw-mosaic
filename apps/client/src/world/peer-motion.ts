@@ -64,6 +64,17 @@ export class PeerMotion {
     }
   }
 
+  /** Put the figure straight where the prediction says (a newcomer's first look: no glide from a stale spot). */
+  settle(now: number): void {
+    if (!this.seen) return;
+    const p = this.predicted(now);
+    this.x = p.x;
+    this.y = p.y;
+    this.z = p.z;
+    this.yaw = p.yaw;
+    this.lastPx = null;
+  }
+
   /** Where the sender should be now: the last pose carried along its velocity, for at most the horizon. */
   predicted(now: number): { x: number; y: number; z: number; yaw: number } {
     const age = Math.min(Math.max(0, now - this.at), this.horizonMs) / 1000;

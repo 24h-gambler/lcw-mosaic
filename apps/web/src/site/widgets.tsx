@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { TOKENS } from '@lcw/ui';
 import { FAQ, LEARN, SAMPLE_DASH, SHARE } from './copy.js';
+import { STATE_TAG } from './copyNow.js';
+import { FEATURE_STATE, type FeatureId } from './featureStatus.js';
 import { canSpeak, sayEnglish } from './sound.js';
 import { track } from './track.js';
 
@@ -17,6 +19,26 @@ export function Toast({ text, onDone }: { text: string | null; onDone: () => voi
     <div className="s-toast" role="status">
       {text}
     </div>
+  );
+}
+
+/** State of the first feature in `ids` that is not live (null when all are live). */
+export function pendingState(ids: readonly FeatureId[]): { id: FeatureId; state: 'building' | 'planned' } | null {
+  for (const id of ids) {
+    const st = FEATURE_STATE[id];
+    if (st !== 'live') return { id, state: st };
+  }
+  return null;
+}
+
+/** "만드는 중" / "준비 중" next to a claim whose feature is not live yet (featureStatus.ts); nothing once it is live. */
+export function StateTag({ ids }: { ids: readonly FeatureId[] }): React.ReactElement | null {
+  const p = pendingState(ids);
+  if (!p) return null;
+  return (
+    <span className="s-tag s-tag-soon" data-feature={p.id} data-feature-state={p.state}>
+      {STATE_TAG[p.state]}
+    </span>
   );
 }
 

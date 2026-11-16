@@ -82,6 +82,28 @@ export function listenAllowed(hint: DialogHint): boolean {
   return hint === 'full';
 }
 
+/** The item a sentence is about (cafe drink + modifier, trade good, furniture), for the preview and its 3D. */
+export interface SentenceItem {
+  itemKey: string;
+  modifier?: string;
+  nameKo: string;
+  emoji: string;
+}
+
+export function itemFor(text: string): SentenceItem | null {
+  const lower = text.toLowerCase();
+  const drink = [...CAFE_MENU].sort((a, b) => b.label.length - a.label.length).find((d) => lower.includes(d.label));
+  if (drink) {
+    const mod = (Object.keys(CAFE_MODIFIER_INFO) as CafeModifier[]).find((m) => new RegExp(`\\b${m}\\b`).test(lower));
+    return { itemKey: drink.key, ...(mod ? { modifier: mod } : {}), nameKo: mod ? `${CAFE_MODIFIER_INFO[mod].nameKo} ${drink.nameKo}` : drink.nameKo, emoji: drink.emoji };
+  }
+  const furniture = [...FURNITURE_SHOP_GOODS].sort((a, b) => b.label.length - a.label.length).find((g) => lower.includes(g.label));
+  if (furniture) return { itemKey: furniture.key, nameKo: furniture.nameKo, emoji: furniture.emoji };
+  const good = TRADE_SHOP_GOODS.find((g) => new RegExp(`\\b${g.label}\\b`).test(lower));
+  if (good) return { itemKey: good.key, nameKo: good.nameKo, emoji: good.emoji };
+  return null;
+}
+
 /** Pictures for the `picture` hint and the thought board: the item and its modifier. */
 export function picturesFor(text: string): string[] {
   const lower = text.toLowerCase();
@@ -107,7 +129,8 @@ export function bankOffersFor(npc: NpcRef, level: LangLevel, item?: string, modi
   return entry.offers.map((o) => ({
     stars: o.stars,
     text: o.text,
-    hintTags: entry.hintTags.filter((t) => keywordPositions(splitWords(o.text), [t]).size > 0)
+    hintTags: entry.hintTags.filter((t) => keywordPositions(splitWords(o.text), [t]).size > 0),
+    ...(o.price > 0 ? { price: o.price } : {})
   }));
 }
 

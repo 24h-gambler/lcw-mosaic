@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
+import { LESSON_SWEEP_CRON, buildLessonModeApp, studentFromRequest, type IdleSweepResult } from './lesson-mode.js';
 import { buildExportApp } from './export-csv.js';
 import { markSeatUse, playAllowed, sweepSeatNotices } from './seats.js';
 import { legacyWorldRedirect } from './world-path.js';
@@ -496,6 +496,26 @@ export class PlatformDO {
     return n;
   }
 
+  /** Set when the routes are built (lesson-mode.ts sweepIdleLessons). */
+  lessonSweep: ((now: number, origin: string | null, dryRun?: boolean) => IdleSweepResult) | null = null;
+
+  /** Abandoned lessons closed on every cron, recorded as their own ops run only when something closed or it failed. */
+  sweepIdleLessons(cron: string): IdleSweepResult | { error: string } {
+    try {
+      const r = this.lessonSweep?.(Date.now(), this.env.LCW_PUBLIC_ORIGIN ?? null) ?? { open: 0, idle: [], closed: [], cards: [], dry_run: false };
+      // A card that could not be queued fails the run (the teacher's console box still lists the lesson).
+      const cardFailed = r.cards.some((x) => x.card.startsWith('failed:'));
+      if (r.closed.length || cron === '0 3 * * *') {
+        this.recordRun('lesson_idle_sweep', !cardFailed, { cron, open: r.open, closed: r.closed, cards: r.cards });
+      }
+      return r;
+    } catch (err) {
+      const detail = { error: err instanceof Error ? err.message : String(err) };
+      this.recordRun('lesson_idle_sweep', false, { cron, ...detail });
+      return detail;
+    }
+  }
+
   runCron(cron: string): { task: string; ok: boolean; detail: unknown } {
     const now = Date.now();
     let task = 'hourly_quota_rollup';
@@ -631,12 +651,15 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.post('/internal/cron', async (c) => {
     if (c.req.header('x-lcw-internal') !== 'cron') return c.json({ error: 'forbidden' }, 403);
     const body = (await c.req.json()) as { cron: string };
+    // Every cron closes abandoned lessons (lesson-mode.ts LESSON_IDLE_CLOSE_MS); the 5-minute one does only that.
+    const lessons = platform.sweepIdleLessons(body.cron);
+    if (body.cron === LESSON_SWEEP_CRON) return c.json({ task: 'lesson_idle_sweep', ok: !('error' in lessons), lessons });
     const r = platform.runCron(body.cron);
     const voice = await platform.runVoiceCron(body.cron, Date.now());
     const push = await platform.runPushCron(body.cron, Date.now());
     // the hourly cron: the morning lesson/NPC prebuild and the nightly leftovers (tts.ts runTtsCron)
     const tts = body.cron === '0 * * * *' ? await runTtsCron(ttsDeps(), Date.now()).catch((e: unknown) => ({ task: 'tts_error', error: String(e).slice(0, 160) })) : null;
-    return c.json({ ...r, voice, push, tts });
+    return c.json({ ...r, voice, push, tts, lessons });
   });
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
   // or outside a lesson with their linked device token. Who, which world and which level come from the token and
@@ -1032,9 +1055,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))
   );
-  app.route(
-    '/',
-    buildLessonModeApp({
+  const lessonApp = buildLessonModeApp({
       sql: platform.sql,
       db: platform.db,
       nowMs: () => Date.now(),
@@ -1061,8 +1082,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
         if (res.ok) await platform.pushReportNotices(Date.now()).catch(() => undefined);
         return res;
       }
-    })
-  );
+    });
+  platform.lessonSweep = lessonApp.sweepIdleLessons;
+  app.route('/', lessonApp);
   app.route('/', inner);
   return app;
 }
@@ -1103,12 +1125,22 @@ export const workerHandler = {
   async fetch(request: Request, env: LcwEnv): Promise<Response> {
     return htmlForClient(await routeWorkerRequest(request, env), request);
   },
-  async scheduled(event: { cron: string }, env: LcwEnv): Promise<void> {
-    const res = await platformStub(env).fetch('https://platform/internal/cron', {
-      method: 'POST',
-      headers: { 'x-lcw-internal': 'cron', 'content-type': 'application/json' },
-      body: JSON.stringify({ cron: event.cron })
-    });
-    if (!res.ok) throw new Error(`cron_failed_${res.status}`);
+  async scheduled(event: { cron: string; scheduledTime?: number }, env: LcwEnv): Promise<void> {
+    // The 5-minute trigger (abandoned-lesson sweep) also carries the hourly tasks at minute 0: the account keeps three
+    // cron triggers (Cloudflare counts them per account), and '0 * * * *' stays the hourly task's name everywhere.
+    const crons =
+      event.cron === LESSON_SWEEP_CRON
+        ? new Date(event.scheduledTime ?? Date.now()).getUTCMinutes() < 5
+          ? ['0 * * * *']
+          : [LESSON_SWEEP_CRON]
+        : [event.cron];
+    for (const cron of crons) {
+      const res = await platformStub(env).fetch('https://platform/internal/cron', {
+        method: 'POST',
+        headers: { 'x-lcw-internal': 'cron', 'content-type': 'application/json' },
+        body: JSON.stringify({ cron })
+      });
+      if (!res.ok) throw new Error(`cron_failed_${res.status}`);
+    }
   }
 };

@@ -1907,22 +1907,26 @@
       "title": "경영: 채굴, 환전, 취업, 가게",
       "status": "partial",
       "owner": "world",
-      "route": "/world/?scene=honey_cafe",
+      "route": "/world/?scene=office",
       "e2e": {
-        "route": "/world/?scene=honey_cafe",
+        "route": "/world/?scene=office",
         "expect": [
           "canvas",
-          "text:지금 할 일"
+          "testid:play-card"
         ]
       },
       "tests": [
-        "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world"
+        "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world",
+        "apps/edge/src/__tests__/play.test.ts::suit -> interview (3 turns) -> clock in on time -> two customers -> day pay once",
+        "tools/play-bot.mjs"
       ],
       "evidence": [
         "apps/edge/src/economy.ts:1",
-        "packages/sim-core/src/domains.ts:1"
+        "packages/sim-core/src/domains.ts:1",
+        "apps/edge/src/play.ts:1",
+        "apps/client/src/play/PlayLayer.tsx:1"
       ],
-      "note": "가게 구매·물가만; 채굴·환전·취업은 sim-core 함수뿐 화면 없음"
+      "note": "채굴(광산 1~3층)·환전(월드 시세)·취업(면접·출근·고객·승진)은 월드에서 동작. 가게 운영(내 가게: 환전 누적 5,000 해금, 손님에게 팔기)은 화면 없음."
     },
     "F10.3.B4": {
       "kind": "flow",
@@ -4400,13 +4404,15 @@
       },
       "tests": [
         "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world",
-        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court",
+        "apps/edge/src/__tests__/play.test.ts::suit -> interview (3 turns) -> clock in on time -> two customers -> day pay once"
       ],
       "evidence": [
         "apps/edge/src/economy.ts:1",
-        "packages/sim-core/src/domains.ts:271"
+        "packages/sim-core/src/domains.ts:271",
+        "apps/edge/src/play.ts:1"
       ],
-      "note": "월드별 주간 시세·흥정 문장은 연결됨, 채굴·취업·가게·플레이어 거래·변론은 함수뿐"
+      "note": "채굴·환전(월드 시세)·취업·승진·면접·고객 응대·흥정은 월드에서 동작. 가게 운영, 플레이어 간 거래, 변론(법정)은 없음."
     },
     "C01.6.탐험가": {
       "kind": "promise",
@@ -5611,30 +5617,53 @@
     "WP-403": {
       "kind": "wp",
       "title": "부티크, 제작소, 환전소와 뱅크 — 수용 기준: 맥락별 뱅크 적중 시험",
-      "status": "partial",
+      "status": "done",
       "owner": "talk",
-      "route": "/world/?scene=trade_shop",
+      "route": "/world/?scene=exchange",
       "tests": [
-        "packages/content/src/__tests__/content.test.ts::hits the bank for all 4 essential shop contexts (WP-403)"
+        "packages/content/src/__tests__/content.test.ts::hits the bank for all 4 essential shop contexts (WP-403)",
+        "packages/content/src/__tests__/play-bank.test.ts::every play sentence at every level and star is found as its own item (the server turn check)",
+        "tools/play-bot.mjs"
       ],
       "evidence": [
-        "packages/content/src/lang-en-ko.ts:326",
-        "apps/client/src/world/api.ts:7"
+        "packages/content/src/play-bank.ts:1",
+        "apps/client/src/world/town.ts:1"
       ],
-      "note": "부티크·제작소·환전소 뱅크 맥락 적중 시험은 있으나 월드에는 꿀 카페·물물교환 상점만. 부티크·제작소·환전소 건물·NPC 없음"
+      "note": "상가의 옷가게(헨리)·제작소(레오)·환전소(오스카)가 월드에 있고, 각 맥락 문장이 공용 문장 은행에서 제 항목으로 찾아짐(L1~L3, 별마다).",
+      "e2e": {
+        "route": "/world/?scene=exchange",
+        "expect": [
+          "canvas",
+          "testid:play-card"
+        ]
+      }
     },
     "WP-404": {
       "kind": "wp",
       "title": "채굴, 광물표, 도구 등급, 시세 — 수용 기준: `03`의 D2 표와 일치",
-      "status": "partial",
+      "status": "done",
       "owner": "world",
       "tests": [
-        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court",
+        "packages/sim-core/src/__tests__/play-sites.test.ts::floor 1 cleared as often as it grows back in 10 minutes of play pays 300 ~ 500 coins at the exchange",
+        "packages/sim-core/src/__tests__/play-sites.test.ts::a deeper floor pays more per hour, and no floor pays more than the best day wage per hour at list price (M5)",
+        "apps/edge/src/__tests__/play.test.ts::dig coal, rest the vein on play time, sell with a sentence; a better retry tops up once",
+        "tools/play-bot.mjs"
       ],
       "evidence": [
-        "packages/sim-core/src/domains.ts:68"
+        "packages/sim-core/src/play-sites.ts:1",
+        "apps/edge/src/play.ts:1",
+        "apps/client/src/play/PlayLayer.tsx:1"
       ],
-      "note": "채굴·광물표·도구 등급은 sim-core 함수(D2 표 시험)뿐, 월드에 채굴·시세 화면 없음"
+      "note": "광산 1~3층(석탄·철 / 금·루비·철 / 다이아·금), 도구 등급(나무·철 곡괭이·드릴), 광맥은 놀이 시간으로 다시 자람, 세 층 공통 채굴 예산, 환전소 월드 시세(판 만큼 내려가고 회복). 실화면 tools/play-bot.mjs 1440·390.",
+      "route": "/world/?scene=mine",
+      "e2e": {
+        "route": "/world/?scene=mine",
+        "expect": [
+          "canvas",
+          "testid:play-elevator"
+        ]
+      }
     },
     "WP-405": {
       "kind": "wp",
@@ -5671,15 +5700,29 @@
     "WP-407": {
       "kind": "wp",
       "title": "직업(면접, 출근, 승진), 고객 응대 — 수용 기준: 소유자 접속 중에만 시간 진행",
-      "status": "partial",
+      "status": "done",
       "owner": "world",
       "tests": [
-        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court",
+        "apps/edge/src/__tests__/play.test.ts::suit -> interview (3 turns) -> clock in on time -> two customers -> day pay once",
+        "apps/edge/src/__tests__/play.test.ts::the next morning is a new work day: clock in again and both customers pay (every day, not only day 0)",
+        "apps/edge/src/__tests__/play.test.ts::the clock moves only while the world is open: a long gap adds nothing",
+        "tools/play-bot.mjs"
       ],
       "evidence": [
-        "packages/sim-core/src/domains.ts:271"
+        "apps/edge/src/play.ts:1",
+        "packages/sim-core/src/play.ts:1",
+        "apps/client/src/play/dialogs.ts:1"
       ],
-      "note": "직업(면접·출근·승진)·소유자 접속 중 시간 진행은 sim-core tickCareerClock 함수뿐, 화면 없음"
+      "note": "정장 → 면접 3턴(가장 약한 턴이 직급) → 08:00~09:00 출근 인사(지각은 사정 말하기) → 손님 2명 → 일급 → 승진(인턴·사원·매니저·디렉터). 근무 시계는 아이가 월드를 열어 둔 시간에 흐르고(실제 1초 = 1분) 오래 비우면 멈춤. 실화면 tools/play-bot.mjs 1440·390.",
+      "route": "/world/?scene=office",
+      "e2e": {
+        "route": "/world/?scene=office",
+        "expect": [
+          "canvas",
+          "testid:play-card"
+        ]
+      }
     },
     "WP-408": {
       "kind": "wp",

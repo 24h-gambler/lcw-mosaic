@@ -302,7 +302,14 @@ export const BLOCK_PALETTE: readonly BlockDef[] = [
   { id: 67, key: 'terracotta_honey', category: 'stone', blastResistance: 4, lightLevel: 0, priceCoins: 5 },
   { id: 68, key: 'flower_blue', category: 'sector', blastResistance: 0, lightLevel: 0, priceCoins: 2 },
   { id: 69, key: 'chalkboard', category: 'sector', blastResistance: 2, lightLevel: 0, priceCoins: 6 },
-  { id: 70, key: 'stone_brick', category: 'stone', blastResistance: 6, lightLevel: 0, priceCoins: 4 }
+  { id: 70, key: 'stone_brick', category: 'stone', blastResistance: 6, lightLevel: 0, priceCoins: 4 },
+  // Mine veins (docs/03 D2 광물표; play domain, packages/sim-core/src/play-sites.ts). Mined through the server
+  // (/v1/play/mine), never broken into blocks, so they are not sold as building blocks (price 0).
+  { id: 71, key: 'ore_coal', category: 'special', blastResistance: 6, lightLevel: 0, priceCoins: 0 },
+  { id: 72, key: 'ore_iron', category: 'special', blastResistance: 6, lightLevel: 0, priceCoins: 0 },
+  { id: 73, key: 'ore_gold', category: 'special', blastResistance: 6, lightLevel: 0, priceCoins: 0 },
+  { id: 74, key: 'ore_ruby', category: 'special', blastResistance: 6, lightLevel: 0, priceCoins: 0 },
+  { id: 75, key: 'ore_diamond', category: 'special', blastResistance: 6, lightLevel: 0, priceCoins: 0 }
 ];
 
 export interface PartDef {

@@ -51,6 +51,14 @@ function errandOf(v: unknown): DialogResult['errand'] {
   return { state: e.state as NonNullable<DialogResult['errand']>['state'], rewardCoins: num(e.reward_coins) };
 }
 
+const PLAY_KINDS = new Set(['interview', 'shift', 'customer', 'exchange']);
+/** The server's play step, passed through as sent (only its kind is checked; the play domain reads the fields). */
+function playOf(v: unknown): DialogResult['play'] {
+  if (!v || typeof v !== 'object') return undefined;
+  const p = v as { kind?: unknown };
+  return typeof p.kind === 'string' && PLAY_KINDS.has(p.kind) ? (v as DialogResult['play']) : undefined;
+}
+
 export function lessonBody(u: UtteranceSubmit): Omit<UtteranceSubmit, 'echo' | 'attempt' | 'dialogId' | 'clip'> {
   const { echo: _e, attempt: _a, dialogId: _d, clip: _c, ...body } = u;
   return body;
@@ -133,7 +141,8 @@ export function createSoloSubmitWith(opts: {
           : undefined,
       askedKey: typeof j.asked_key === 'string' ? j.asked_key : undefined,
       matchedText: typeof j.target_text === 'string' ? j.target_text : undefined,
-      errand: errandOf(j.errand)
+      errand: errandOf(j.errand),
+      play: playOf(j.play)
     };
   };
 }

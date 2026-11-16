@@ -10,7 +10,7 @@
 import { TUNING } from '@lcw/sim-core';
 import type { SceneId, WorldMapInfo } from './api.js';
 import { SCENE_TITLES_KO, SECTOR_NAMES_KO } from './strings.js';
-import { SCENES } from './town.js';
+import { SCENES, UNDERGROUND_Y } from './town.js';
 
 export interface MapInfoInput {
   player: { x: number; z: number; yaw: number };
@@ -28,7 +28,10 @@ export function buildMapInfo(input: MapInfoInput): WorldMapInfo {
     const p = input.plot;
     sectors.push({ id: 'plot', nameKo: SCENE_TITLES_KO.build_plot, kind: 'plot', explored: true, rect: [p.x0, p.z0, p.x1, p.z1] });
   }
-  const scenes = (Object.keys(SCENES) as SceneId[]).map((id) => ({ id, nameKo: SCENES[id].titleKo, x: SCENES[id].player.x, z: SCENES[id].player.z }));
+  // the places above ground (the mine floors share the market hall's elevator column: the elevator, not the map, goes there)
+  const scenes = (Object.keys(SCENES) as SceneId[])
+    .filter((id) => SCENES[id].player.y >= UNDERGROUND_Y)
+    .map((id) => ({ id, nameKo: SCENES[id].titleKo, x: SCENES[id].player.x, z: SCENES[id].player.z }));
   return {
     size_m: TUNING.world.sizeX,
     sectors,

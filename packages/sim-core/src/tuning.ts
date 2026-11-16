@@ -175,6 +175,74 @@ export const TUNING = {
   trade: {
     feeRateByStars: { 1: 0.1, 2: 0.05, 3: 0 } as Record<1 | 2 | 3, number>
   },
+  /**
+   * Play modes run by the server (docs/03 D2 mining/exchange, D4 career; apps/edge/src/play.ts). Values the spec
+   * leaves open are chosen here once, with the reason next to them.
+   */
+  play: {
+    /** docs/03 3.1: one day = 24 real minutes, so one game minute = one real second. */
+    realMsPerGameMinute: 1000,
+    /** A new player's clock starts at 07:30, half a game hour before the office opens (no 8-minute wait at midnight). */
+    clockStartMinute: 7 * 60 + 30,
+    /** docs/03 D4 "시간은 소유자가 접속해 있을 때만": the server adds at most this much per heartbeat... */
+    beatMaxAddMs: 30_000,
+    /** ...and nothing when the last heartbeat is older than this (the child was away). */
+    beatGapOfflineMs: 90_000,
+    shift: {
+      /** Office opens, the shift starts (docs/03 D4 "09:00 출근"), last clock-in. */
+      openMinute: 8 * 60,
+      startMinute: 9 * 60,
+      closeMinute: 17 * 60,
+      /** docs/03 D4 "고객 응대 2건". */
+      customersPerShift: 2
+    },
+    /** docs/04 4.2 상사: late excuse 1 star = half pay; 2 stars full pay; 3 stars full pay + a promotion point. */
+    lateOneStarPayFactor: 0.5,
+    interviewTurns: 3,
+    /** docs/04 4.2 면접 2성 "채용 + 계약금": a quarter of the intern day pay (not in the spec; chosen so it is felt but < 1 day). */
+    contractBonusPct: 0.25,
+    /** docs/04 4.2 고객: 1 star = handled, 2 stars = tip, 3 stars = tip + regular. Tip sizes are ours (5% / 10% of a top day). */
+    customerTipByStars: { 1: 0, 2: 30, 3: 60 } as Record<1 | 2 | 3, number>,
+    /** docs/04 4.2 환전소: market price, +10%, +25%. */
+    exchangeBonusByStars: { 1: 0, 2: 0.1, 3: 0.25 } as Record<1 | 2 | 3, number>,
+    /** docs/03 D2 mean-reverting price: each unit sold presses the world's index down by this... */
+    marketPressurePerUnit: 0.01,
+    /** ...and it climbs back by this share of the gap per real hour. */
+    marketRecoveryPerHour: 0.1,
+    mine: {
+      /**
+       * A vein grows back after this much of the child's own play time (no offline farming). 2.5 minutes: the 12 veins
+       * of floor 1 four times in 10 minutes = 336 coins at list price, 420 with 3-star sentences — docs/03 D3
+       * "채굴(초반 10분) 300 ~ 500" (tested in play-sites.test.ts).
+       */
+      veinRespawnPlayMs: 150 * 1000,
+      /**
+       * Deeper ores grow back slower: respawn = base × (price / referencePrice)^exponent, never below base. Gold 384 s,
+       * ruby 501 s, diamond 780 s: a floor pays more the deeper it is (the D2 loop "더 깊이") yet one floor stays near the
+       * best day wage per hour (D3 "코인이 빠듯해야", review M5; play-sites.test.ts measures it).
+       */
+      respawnReferencePrice: 10,
+      /**
+       * One digging budget across all floors (review M5: veins of three floors rest apart, so rotating floors would pay
+       * ~10,000 an hour): in any 20 minutes of play a child digs at most the best day wage's worth for 20 minutes
+       * (director 2,000 a 24-minute day -> 1,667 of ore at list price). Floor 1 alone never meets it.
+       */
+      budgetWindowPlayMs: 20 * 60 * 1000,
+      respawnValueExponent: 0.75,
+      /** Two swings closer than this are one (anti-autoclick; the hold animation is longer). */
+      minIntervalMs: 1200,
+      /** Every child owns a wooden pickaxe (tier 1, docs/03 D2 "나무 곡괭이"); bought tools raise it. */
+      toolTiers: { pickaxe: 2, drill: 3, drill_bundle: 3, laser: 4 } as Record<string, number>,
+      /** Hold time of a swing by tool tier (docs/03 D13 "0.2~3초" for breaking, mining sits in the middle). */
+      holdMsByTier: { 1: 1400, 2: 900, 3: 450, 4: 300 } as Record<number, number>
+    },
+    /** docs/03 D13 상인: "환전 누적 5,000코인" unlocks running my own shop. */
+    shopUnlockExchangeCoins: 5000,
+    /** docs/04 4.2-style star bonus on my shop's sales (like the exchange: market, +10%, +25%). */
+    shopBonusByStars: { 1: 0, 2: 0.1, 3: 0.25 } as Record<1 | 2 | 3, number>,
+    /** One shop visitor per this much play time (the shop is a loop, not a coin tap). */
+    shopVisitorEveryPlayMs: 2 * 60 * 1000
+  },
   levelLadder: {
     windowSize: 20,
     promoteThreeStarPassRatio: 0.7,

@@ -317,14 +317,29 @@ const SCENE_TITLES_KO_SRC = {
   honey_cafe: '꿀 카페',
   trade_shop: '물물교환 상점',
   build_plot: '내 부지',
-  open_hill: '바람 언덕'
+  open_hill: '바람 언덕',
+  // Market hall and mine (play domain, packages/sim-core/src/play-sites.ts).
+  tailor: '옷가게',
+  workshop: '제작소',
+  exchange: '환전소',
+  office: '사무실',
+  mine: '광산 1층',
+  mine_deep: '광산 2층',
+  mine_core: '광산 3층'
 };
 const SCENE_TITLES_KO_EN: Record<keyof typeof SCENE_TITLES_KO_SRC, string> = {
   plaza: 'Town Square',
   honey_cafe: 'Honey Cafe',
   trade_shop: 'Trading Shop',
   build_plot: 'My Plot',
-  open_hill: 'Windy Hill'
+  open_hill: 'Windy Hill',
+  tailor: 'Tailor Shop',
+  workshop: "Maker's Lab",
+  exchange: 'Exchange',
+  office: 'Office',
+  mine: 'Mine B1',
+  mine_deep: 'Mine B2',
+  mine_core: 'Mine B3'
 };
 export const SCENE_TITLES_KO: Record<keyof typeof SCENE_TITLES_KO_SRC, string> = biTable(SCENE_TITLES_KO_EN, SCENE_TITLES_KO_SRC);
 
@@ -381,6 +396,15 @@ const ITEM_NAMES_KO_SRC: Record<string, string> = {
   shell: '조개껍데기',
   marble: '구슬',
   helmet: '헬멧',
+  // Market hall goods and ores (play domain).
+  suit: '정장',
+  pickaxe: '철 곡괭이',
+  drill: '드릴',
+  coal: '석탄',
+  iron: '철광석',
+  gold: '금',
+  ruby: '루비',
+  diamond: '다이아몬드',
   gift: '선물'
 };
 const ITEM_NAMES_KO_EN: Record<string, string> = {
@@ -416,6 +440,15 @@ const ITEM_NAMES_KO_EN: Record<string, string> = {
   shell: 'a shell',
   marble: 'a marble',
   helmet: 'a helmet',
+  // Market hall goods and ores (play domain).
+  suit: 'a suit',
+  pickaxe: 'an iron pickaxe',
+  drill: 'a drill',
+  coal: 'coal',
+  iron: 'iron ore',
+  gold: 'gold',
+  ruby: 'a ruby',
+  diamond: 'a diamond',
   gift: 'a gift'
 };
 export const ITEM_NAMES_KO = biTable(ITEM_NAMES_KO_EN, ITEM_NAMES_KO_SRC);

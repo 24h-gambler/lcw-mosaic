@@ -5,7 +5,20 @@
 import type { NpcContext } from '@lcw/schemas';
 import type { NpcLook } from './town.js';
 
-export type SceneId = 'plaza' | 'honey_cafe' | 'trade_shop' | 'build_plot' | 'open_hill';
+export type SceneId =
+  | 'plaza'
+  | 'honey_cafe'
+  | 'trade_shop'
+  | 'build_plot'
+  | 'open_hill'
+  // play domain (market hall counters and the mine floors, packages/sim-core/src/play-sites.ts)
+  | 'tailor'
+  | 'workshop'
+  | 'exchange'
+  | 'office'
+  | 'mine'
+  | 'mine_deep'
+  | 'mine_core';
 
 export interface NpcRef {
   id: string;
@@ -240,7 +253,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   return createWorldEngine(opts);
 }
 
-export const SCENE_IDS: readonly SceneId[] = ['plaza', 'honey_cafe', 'trade_shop', 'build_plot', 'open_hill'];
+export const SCENE_IDS: readonly SceneId[] = ['plaza', 'honey_cafe', 'trade_shop', 'build_plot', 'open_hill', 'tailor', 'workshop', 'exchange', 'office', 'mine', 'mine_deep', 'mine_core'];
 
 /**
  * True when the browser has WebGL2 (docs/19 4장; otherwise the student goes to /join). No probe context is made: one

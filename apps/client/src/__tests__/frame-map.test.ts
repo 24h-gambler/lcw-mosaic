@@ -7,7 +7,17 @@ import { TUNING, VoxelWorld } from '@lcw/sim-core';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import type { SceneId, WorldHandle, WorldMapInfo } from '../world/api.js';
 import { buildMapInfo } from '../world/map-info.js';
-import { SCENES } from '../world/town.js';
+import { SCENES, UNDERGROUND_Y } from '../world/town.js';
+
+/** The places above ground, in scene order (the mine floors are reached by the elevator, not the map). */
+const SURFACE = (Object.keys(SCENES) as SceneId[]).filter((id) => SCENES[id].player.y >= UNDERGROUND_Y);
+/** ...and of those, the ones inside the explored town sector (the market hall's east end lies in the next one). */
+const IN_TOWN = SURFACE.filter((id) => {
+  const s = TUNING.world.sectorSize;
+  const mid = Math.floor(TUNING.world.sizeX / s / 2);
+  const { x, z } = SCENES[id].player;
+  return x >= mid * s && x < (mid + 1) * s && z >= mid * s && z < (mid + 1) * s;
+});
 import { BAND_NAMES_KO, SCENE_TITLES_KO, SECTOR_NAMES_KO } from '../world/strings.js';
 import { FRAME_STRINGS as F, withCopula, withDirection } from '../frame/strings.js';
 import {
@@ -62,7 +72,7 @@ describe('getMap read-out (world/map-info)', () => {
       { id: 'town', nameKo: SECTOR_NAMES_KO.town, kind: 'town', explored: true, rect: [96, 96, 192, 192] },
       { id: 'plot', nameKo: SCENE_TITLES_KO.build_plot, kind: 'plot', explored: true, rect: [plot.x0, plot.z0, plot.x1, plot.z1] }
     ]);
-    expect(info.scenes.map((s) => s.id).sort()).toEqual(Object.keys(SCENES).sort());
+    expect(info.scenes.map((s) => s.id).sort()).toEqual([...SURFACE].sort());
     const plaza = info.scenes.find((s) => s.id === 'plaza')!;
     expect([plaza.x, plaza.z]).toEqual([SCENES.plaza.player.x, SCENES.plaza.player.z]);
     expect(info.player).toEqual({ x: 150, z: 140, yaw: 0.5 });
@@ -123,7 +133,7 @@ describe('sector grid (3 x 3, docs/03 3.1)', () => {
     expect(areasIn(info, [96, 96, 192, 192]).map((a) => [a.id, a.zone])).toEqual([['plot', 'plot']]);
     expect(areasIn(info, [0, 0, 96, 96])).toEqual([]);
     const cells = sectorCells(info);
-    expect(knownScenes(info, cells)).toHaveLength(5);
+    expect(knownScenes(info, cells)).toHaveLength(IN_TOWN.length);
     const fogged = { ...info, sectors: info.sectors.map((s) => ({ ...s, explored: false })) };
     expect(knownScenes(fogged, sectorCells(fogged))).toEqual([]);
     expect(areasIn(fogged, [96, 96, 192, 192])).toEqual([]);
@@ -194,7 +204,7 @@ describe('screen-reader summary and particles', () => {
         F.mapSummaryPlaces(places.map((p) => p.nameKo))
       ].join(' ')
     );
-    expect(places.map((p) => p.id)).toEqual(['plaza', 'honey_cafe', 'trade_shop', 'build_plot', 'open_hill']);
+    expect(places.map((p) => p.id)).toEqual(IN_TOWN);
   });
   it('in a lesson says the teacher picks the place instead of listing places', () => {
     const s = mapSummary({ cells, playerCell: 4, near: null, band: 'surface', yaw: 0, places, lessonOn: true });
@@ -237,8 +247,8 @@ describe('MapPanel render', () => {
     const html = render({ world: fakeWorld(townInfo()) });
     expect(html.match(/class="lcw-map__cell/g)).toHaveLength(9);
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
-    expect(html.match(/data-scene="/g)).toHaveLength(5);
-    expect(html.match(/class="btn lcw-map__go/g)).toHaveLength(5);
+    expect(html.match(/data-scene="/g)).toHaveLength(IN_TOWN.length);
+    expect(html.match(/class="btn lcw-map__go/g)).toHaveLength(IN_TOWN.length);
     expect(html).toContain(`aria-label="${goLabel(SCENE_TITLES_KO.open_hill)}"`);
     expect(html.match(/class="lcw-map__stop /g)).toHaveLength(6);
     expect(html).toContain('aria-current="location"');
@@ -256,7 +266,7 @@ describe('MapPanel render', () => {
     expect(html).not.toContain('data-scene=');
     expect(html).not.toContain('lcw-map__go');
     expect(html).toContain(F.mapLessonNote);
-    expect(html.match(/lcw-map__pin[^"]*is-static/g)).toHaveLength(5);
+    expect(html.match(/lcw-map__pin[^"]*is-static/g)).toHaveLength(IN_TOWN.length);
   });
 
   it('marks the elevator stop for the band I am in', () => {

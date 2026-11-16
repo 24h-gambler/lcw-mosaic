@@ -43,6 +43,7 @@ import {
 import { listCollection } from './collection.js';
 import { readSettings, validateSettings, writeSettings } from './settings.js';
 import { applyErrandStep, getErrand } from './errand.js';
+import { applyPlayStep, PLAY_CTXS, registerPlayRoutes } from './play.js';
 import { plotStoreFor } from './plot.js';
 import { OPS_PER_REQUEST_MAX } from '@lcw/sim-core';
 
@@ -230,6 +231,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
   const app = new Hono();
 
   app.get('/health', (c) => c.json({ ok: true, service: 'lcw-edge' }));
+  registerPlayRoutes(app, deps);
 
   app.post('/v1/converse/understand', async (c) => {
     const raw = await c.req.json();
@@ -380,6 +382,19 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
             nowMs
           })
         : undefined;
+    // Play modes (play.ts, docs/03 D2·D4, docs/04 4.2): exchange, interview, boss, customer. Other contexts never enter.
+    const play = PLAY_CTXS.has(req.npc_ctx) && req.session_kind !== 'lesson'
+      ? applyPlayStep(deps.db, worldDo, {
+          playerId: req.player_id,
+          worldId: req.world_id,
+          dialogId: req.dialog_id,
+          ctx: req.npc_ctx,
+          pass: decision.pass,
+          stars: decision.stars,
+          askedKey,
+          nowMs
+        })
+      : undefined;
     if (worldDo) coinsTotal = worldDo.getPlayerBalance(req.player_id);
 
     // A dialog can be scored several times in the same millisecond (retries, ECHO); the suffix keeps ids unique.
@@ -465,6 +480,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       asked_key: askedKey,
       read_aloud_discount_pct: grantedItem && readAloudPct > 0 ? readAloudPct : undefined,
       errand,
+      play,
       target_text: decision.targetText !== req.target_text ? decision.targetText : undefined,
       memory_card: card ? { id: card.id, next_review_at: new Date(card.next_review_at).toISOString() } : null,
       audio_upload: audioUpload ?? undefined

@@ -51,6 +51,24 @@ export interface DialogResult {
   practice?: boolean;
   /** First-visit errand step this sentence moved (server state), and coins it paid on hand-over (docs/03 D1). */
   errand?: { state: 'offered' | 'accepted' | 'carrying' | 'done'; rewardCoins?: number };
+  /** Play modes (edge play.ts): what this sentence moved at the exchange or the office, as the server sent it. */
+  play?: PlayStepLike;
+}
+
+/** The server's `play` answer (edge play.ts PlayStepResult); the play domain (play/) reads it. */
+export interface PlayStepLike {
+  kind: 'interview' | 'shift' | 'customer' | 'exchange';
+  blocked?: string;
+  coins?: number;
+  hired?: string;
+  promoted?: string;
+  pay?: number;
+  tip?: number;
+  units?: number;
+  ore?: string;
+  late?: boolean;
+  interview_turn?: string | null;
+  served?: number;
 }
 
 /**

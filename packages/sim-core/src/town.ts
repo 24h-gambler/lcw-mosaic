@@ -5,6 +5,7 @@
  * client (what the child sees) and the WorldDO (what the server saves edits against) start from the same blocks.
  */
 import type { VoxelWorld } from './world.js';
+import { buildPlaySites } from './play-sites.js';
 
 /** Block ids the town uses (the same ids as `@lcw/content` BLOCK_PALETTE). */
 export const BK = {
@@ -67,7 +68,12 @@ export const BK = {
   terracottaHoney: 67,
   flowerBlue: 68,
   chalkboard: 69,
-  stoneBrick: 70
+  stoneBrick: 70,
+  oreCoal: 71,
+  oreIron: 72,
+  oreGold: 73,
+  oreRuby: 74,
+  oreDiamond: 75
 } as const;
 
 // ---- Deterministic hash + value noise (no Math.random, docs/03 3.3 결정론).
@@ -752,6 +758,9 @@ export function* buildTownSteps(world: VoxelWorld, counter?: { calls: number }):
   cottage(set, 168, 108, 7, 8, BK.stoneBrick, BK.roofBlue, true);
   yield;
   scatter(world, set);
+  yield;
+  // Play places (play domain, play-sites.ts): last, so the meadow trees never stand inside them.
+  buildPlaySites(world, set);
   if (counter) counter.calls = calls;
   return calls;
 }

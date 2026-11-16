@@ -51,10 +51,28 @@ const EN: NpcCastPack = {
     guide: { nameEn: 'Luna', nameKo: '안내인 루나 선생님', nameKoShort: '루나', age: 'adult', voice: { engine: 'aura2', speaker: 'athena' } },
     cafe_owner: { nameEn: 'Hannah', nameKo: '카페 주인 해나', nameKoShort: '해나', age: 'adult', voice: { engine: 'aura2', speaker: 'hera' } },
     shop_owner: { nameEn: 'Toby', nameKo: '상점 주인 토비', nameKoShort: '토비', age: 'adult', voice: { engine: 'aura2', speaker: 'apollo' } },
-    errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura2', speaker: 'delia' } }
+    errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura2', speaker: 'delia' } },
+    // Market hall (play domain, packages/sim-core/src/play-sites.ts): voices not used by anyone else (cast test).
+    tailor: { nameEn: 'Henry', nameKo: '재단사 헨리', nameKoShort: '헨리', age: 'adult', voice: { engine: 'aura2', speaker: 'hermes' } },
+    maker: { nameEn: 'Leo', nameKo: '장인 레오', nameKoShort: '레오', age: 'adult', voice: { engine: 'aura2', speaker: 'orion' } },
+    exchange_clerk: { nameEn: 'Oscar', nameKo: '환전소 오스카', nameKoShort: '오스카', age: 'adult', voice: { engine: 'aura2', speaker: 'atlas' } },
+    office_boss: { nameEn: 'Olivia', nameKo: '사장님 올리비아', nameKoShort: '올리비아', age: 'adult', voice: { engine: 'aura2', speaker: 'asteria' } },
+    office_customer: { nameEn: 'Ben', nameKo: '손님 벤', nameKoShort: '벤', age: 'adult', voice: { engine: 'aura2', speaker: 'arcas' } }
   },
   modelVoice: { engine: 'aura2', speaker: 'luna' },
-  ctxNpc: { cafe: 'cafe_owner', trade_shop: 'shop_owner', guide: 'guide', errand: 'errand_neighbor' }
+  ctxNpc: {
+    cafe: 'cafe_owner',
+    trade_shop: 'shop_owner',
+    guide: 'guide',
+    errand: 'errand_neighbor',
+    // play domain: each counter speaks in its keeper's voice
+    boutique: 'tailor',
+    makers_lab: 'maker',
+    exchange: 'exchange_clerk',
+    interview: 'office_boss',
+    boss: 'office_boss',
+    customer: 'office_customer'
+  }
 };
 
 export const NPC_CAST_PACKS: Readonly<Record<CastLang, NpcCastPack>> = { en: EN };

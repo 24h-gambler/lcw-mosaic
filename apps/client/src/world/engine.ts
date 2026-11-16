@@ -33,7 +33,7 @@ import { TEACHER_NPC_ID, disposePlate, makePlate, pickableNpc, plateText, teache
 import { WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
-import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
+import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, walksBetween, type NpcDef, type NpcLook, type Spot } from './town.js';
 
 export { TIER_SETTINGS };
 
@@ -926,7 +926,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     travel = (async () => {
       const pts = pathTo(target);
       hud.setScene(sceneTitle(target));
-      if (pts && !reduceMotion) {
+      // a scene on another floor (the mine under the market hall) is never walked to: the elevator fades (town.ts)
+      if (pts && !reduceMotion && walksBetween(body.y, spotY(SCENES[target].player))) {
         placeNpcForScene(target, true);
         autopilot = pts;
         autoStuck = 0;

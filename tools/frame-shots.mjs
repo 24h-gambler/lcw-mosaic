@@ -27,7 +27,9 @@ const VIEWPORTS = [
   { name: 'd1440', width: 1440, height: 900, touch: false },
   { name: 't1024', width: 1024, height: 768, touch: true },
   { name: 'p390', width: 390, height: 844, touch: true },
-  { name: 'l844', width: 844, height: 390, touch: true }
+  { name: 'l844', width: 844, height: 390, touch: true },
+  // EXTRA_SMALL=1: the smallest landscape phone too (gauges, a long goal and the Korean help squeeze the top row)
+  ...(process.env.EXTRA_SMALL === '1' ? [{ name: 'l667', width: 667, height: 375, touch: true }] : [])
 ];
 
 const SETTINGS = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;

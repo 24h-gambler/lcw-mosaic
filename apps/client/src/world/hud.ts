@@ -220,13 +220,15 @@ function tapOnly(b: HTMLElement, fire: () => void, look: (dx: number, dy: number
     if (!down || down.id !== e.pointerId) return;
     e.stopPropagation();
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) >= 14) down.far = true;
-    if (down.far) look(e.clientX - down.lx, e.clientY - down.ly);
+    // a finger turns the view at touch speed; a mouse look is the canvas's own (pointer lock), not this button's
+    if (down.far && e.pointerType !== 'mouse') look(e.clientX - down.lx, e.clientY - down.ly);
     down.lx = e.clientX;
     down.ly = e.clientY;
   });
+  // pointerup bubbles on: the window's first-gesture sound unlock hears it, and the HUD root ignores a finger whose
+  // pointerdown it never saw
   b.addEventListener('pointerup', (e) => {
     if (!down || down.id !== e.pointerId) return;
-    e.stopPropagation();
     const d = down;
     down = null;
     if (!d.far) fire();

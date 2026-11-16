@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
+import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
 import { TILE_NAMES, blockLook } from './blocks.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
@@ -41,6 +42,8 @@ const PLAYER_LOOK: NpcLook = { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3fa9f5, 
 export const TALK_RANGE = 3.6;
 /** a hand turn of the view holds off the walk's own view pull and arrival turn this long (ms) */
 const LOOK_HOLD_MS = 800;
+/** within this of a scene's standing spot the child is visiting that scene (m) */
+const VISIT_R = 10;
 const CAM_DIST_DEFAULT = 6.2;
 
 
@@ -445,6 +448,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   /** R2625 ⑤: the NPC to talk to next (errand step) and the ones already talked to in this visit */
   let goalNpcId: string | null = null;
   const talkedTo = new Set<string>();
+  /** the scene spot the child is at (within VISIT_R), however they got there: a new one starts a new visit */
+  let visitScene: SceneId | null = null;
   /** For the real-play check (getStats().interact / motion): talks opened by E, by a click or tap, jumps and climbs */
   const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0 };
   let promptOn = false;
@@ -1017,16 +1022,17 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         } else {
           // settle on the exact spot and facing
           playerYaw = SCENES[target].player.yaw;
-          camYaw = playerYaw + SCENES[target].cameraYaw;
-          camPitch = SCENES[target].camPitch ?? camPitch;
+          // a view the child is turning right now stays theirs (review: counter NPC walks end here)
+          if (performance.now() - lookAt > LOOK_HOLD_MS) {
+            camYaw = playerYaw + SCENES[target].cameraYaw;
+            camPitch = SCENES[target].camPitch ?? camPitch;
+          }
           camDist = SCENES[target].camDist ?? camDist;
         }
       } else {
         sfx.play('wld.door');
         await hud.fadeTo(sceneTitle(target), arriveBehindFade(target));
       }
-      // a new visit: the talk prompt shows again for NPCs met on an earlier one (R2625 ⑤ "not met yet in this visit")
-      if (target !== currentScene) talkedTo.clear();
       currentScene = target;
     })();
     try {
@@ -1603,6 +1609,21 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     // talked to keeps quiet (E and a tap still open the talk), so the same button does not pop up at every corner.
     promptOn = false;
     // (the floating "E" tag gives way to a speech bubble over the head; the touch talk button sits in the corner and stays)
+    // R2625 ⑤ "not met yet in this visit": arriving at another scene's spot (walked, warped or by the walk button)
+    // starts a new visit, so the prompt shows again for NPCs met on an earlier one (review)
+    let atScene: SceneId | null = null;
+    let atD = VISIT_R;
+    for (const id of SCENE_IDS) {
+      const d = Math.hypot(SCENES[id].player.x - body.x, SCENES[id].player.z - body.z);
+      if (d < atD) {
+        atD = d;
+        atScene = id;
+      }
+    }
+    if (atScene && atScene !== visitScene) {
+      if (visitScene) talkedTo.clear();
+      visitScene = atScene;
+    }
     promptWhy = !nearNpc
       ? 'none'
       : paused

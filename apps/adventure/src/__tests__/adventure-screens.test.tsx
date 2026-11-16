@@ -65,7 +65,7 @@ function finishedActivity() {
   addLine(r, { en: 'Hello! Nice to meet you.', ko: '안녕! 만나서 반가워.', mode: 'voice', ok: true, stars: 3 });
   addLine(r, { en: 'I am happy.', ko: '나는 기뻐.', mode: 'pick', ok: true, stars: 2 });
   wordHit(r, 'puppy', 'caught');
-  r.befriended.push('sprigget', 'puffmoth', 'bramblebun');
+  r.befriended.push('rootle', 'conekin', 'bramblebun');
   r.outcome = 'spared';
   return toActivity(r, Date.UTC(2026, 10, 16, 6, 9, 0));
 }
@@ -169,7 +169,7 @@ describe('adventure screens (A01–A06)', () => {
 
   it('A05 chapter end: stars, friends, words, used sentences, the way back to the document and the island map', () => {
     const act = finishedActivity();
-    const end = { activity: act, friends: ['Sprigget', 'Puffmoth', 'Bramblebun'], words: ['puppy', 'eagle', 'turtle'], nextNote: 'next-day' as const, back: 'https://english-day.pages.dev/smoke-adv/', sent: 'sent' as const };
+    const end = { activity: act, friends: ['Rootle', 'Conekin', 'Bramblebun'], words: ['puppy', 'eagle', 'turtle'], nextNote: 'next-day' as const, back: 'https://english-day.pages.dev/smoke-adv/', sent: 'sent' as const };
     const s = html(<Panel engine={engine} snap={base({ scene: 'end', end })} />);
     expect(s).toContain('data-testid="adv-end-stars"');
     expect(s).toContain('Bramblebun');

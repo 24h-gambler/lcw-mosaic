@@ -33,7 +33,7 @@ function mouth(p: Px, x: number, y: number, happy: boolean) {
   } else p.rect(x, y + 1, 2, 1, 'ink');
 }
 
-const sprigget: Painter = (p, happy) => {
+const rootle: Painter = (p, happy) => {
   p.tri(11, 2, 4, 6, 10, 9, 'leaf');
   p.tri(11, 2, 18, 5, 12, 9, 'leafD');
   p.line(11, 3, 11, 9, 'mossD');
@@ -46,20 +46,26 @@ const sprigget: Painter = (p, happy) => {
   p.outline();
 };
 
-const puffmoth: Painter = (p, happy) => {
-  p.ellipse(5, 9, 5, 6, 'grapeL');
-  p.ellipse(17, 9, 5, 6, 'grapeL');
-  p.ellipse(5, 9, 2, 3, 'white');
-  p.ellipse(17, 9, 2, 3, 'white');
-  p.ellipse(11, 12, 5.5, 6.5, 'cream');
-  for (const [x, y] of [[8, 7], [13, 8], [9, 16], [14, 15], [11, 18]] as const) p.set(x, y, 'paper');
-  p.line(9, 6, 7, 2, 'ink2');
-  p.line(13, 6, 15, 2, 'ink2');
-  p.set(7, 1, 'pink');
-  p.set(15, 1, 'pink');
-  eyes(p, 9, 11, 3, happy);
+/** Conekin: a round pinecone with overlapping scales, a sprout on top and stubby feet. */
+const conekin: Painter = (p, happy) => {
+  p.ellipse(11, 12, 7.5, 8.5, 'bark');
+  for (let row = 0; row < 5; row++) {
+    const y = 6 + row * 3;
+    const half = row === 0 || row === 4 ? 3 : 5;
+    for (let x = 11 - half; x <= 11 + half; x += 2) {
+      p.set(x + (row % 2), y, 'barkD');
+      p.set(x + (row % 2), y + 1, 'crust');
+    }
+  }
+  p.ellipse(11, 13, 4, 3, 'bread');
+  p.line(11, 3, 11, 1, 'leafD');
+  p.set(10, 1, 'leaf');
+  p.set(12, 0, 'leaf');
+  p.rect(7, 20, 3, 2, 'barkD');
+  p.rect(13, 20, 3, 2, 'barkD');
+  eyes(p, 9, 12, 4, happy);
   p.set(8, 14, 'pink');
-  p.set(15, 14, 'pink');
+  p.set(14, 14, 'pink');
   p.outline();
 };
 
@@ -186,7 +192,7 @@ const ovenna: Painter = (p, happy) => {
   p.outline();
 };
 
-const inkling: Painter = (p, happy) => {
+const blotling: Painter = (p, happy) => {
   p.tri(11, 1, 4, 13, 18, 13, 'grapeD');
   p.circle(11, 14, 7, 'grapeD');
   p.ellipse(8, 12, 2, 3, 'grape');
@@ -229,8 +235,8 @@ const hushwind: Painter = (p, happy) => {
 };
 
 export const CREATURE_PAINTERS: Readonly<Record<string, { size: number; paint: Painter }>> = {
-  sprigget: { size: 22, paint: sprigget },
-  puffmoth: { size: 22, paint: puffmoth },
+  rootle: { size: 22, paint: rootle },
+  conekin: { size: 22, paint: conekin },
   bramblebun: { size: 34, paint: bramblebun },
   bubblit: { size: 22, paint: bubblit },
   shellbop: { size: 22, paint: shellbop },
@@ -238,13 +244,13 @@ export const CREATURE_PAINTERS: Readonly<Record<string, { size: number; paint: P
   doughdot: { size: 22, paint: doughdot },
   sugarfly: { size: 22, paint: sugarfly },
   ovenna: { size: 34, paint: ovenna },
-  inkling: { size: 22, paint: inkling },
+  blotling: { size: 22, paint: blotling },
   paperkite: { size: 22, paint: paperkite },
   hushwind: { size: 34, paint: hushwind }
 };
 
 export function paintCreature(id: string, happy: boolean): Px {
-  const c = CREATURE_PAINTERS[id] ?? CREATURE_PAINTERS.sprigget!;
+  const c = CREATURE_PAINTERS[id] ?? CREATURE_PAINTERS.rootle!;
   const p = new Px(c.size, c.size);
   c.paint(p, happy);
   return p;

@@ -3,6 +3,8 @@
  * `/adventure/?ed=<student>&edd=<lesson day>&edk=<write key>&edr=<back URL>`. The four values stay in sessionStorage so
  * a reload keeps them. Without `ed` nothing is sent anywhere.
  */
+/** The student document's sites: the short address students use and the original one (same deploy, same results). */
+export const ED_ORIGINS = ['https://engday.pages.dev', 'https://english-day.pages.dev'] as const;
 export const ED_ORIGIN = 'https://english-day.pages.dev';
 export const ED_SESSION_KEY = 'lcw.adventure.ed';
 
@@ -22,7 +24,7 @@ export function safeBack(u: string | null | undefined): string | null {
   if (!u) return null;
   try {
     const url = new URL(u);
-    return url.origin === ED_ORIGIN && url.protocol === 'https:' ? url.toString() : null;
+    return (ED_ORIGINS as readonly string[]).includes(url.origin) && url.protocol === 'https:' ? url.toString() : null;
   } catch {
     return null;
   }
@@ -63,12 +65,17 @@ export function readEdLink(search: string, session: Pick<Storage, 'getItem' | 's
   }
 }
 
+/** The document site this link came from (its back URL's origin), else the original address. */
+export function edOrigin(link: EdLink): string {
+  return link.back ? new URL(link.back).origin : ED_ORIGIN;
+}
+
 /** Day files to try, most specific first. */
 export function dayFileUrls(link: EdLink): string[] {
-  const base = `${ED_ORIGIN}/${encodeURIComponent(link.student)}`;
+  const base = `${edOrigin(link)}/${encodeURIComponent(link.student)}`;
   return [...(link.date ? [`${base}/days/${link.date}.json`] : []), `${base}/today.json`];
 }
 
 export function resultUrl(link: EdLink): string | null {
-  return link.key ? `${ED_ORIGIN}/api/result?k=${encodeURIComponent(link.key)}` : null;
+  return link.key ? `${edOrigin(link)}/api/result?k=${encodeURIComponent(link.key)}` : null;
 }

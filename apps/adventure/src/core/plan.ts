@@ -151,13 +151,20 @@ export function misspellings(w: string, rng: Rng, n = 2): string[] {
 
 /** Same words, another order (the build TALK's wrong choice in ✅ pick). */
 function scrambleSentence(s: string, rng: Rng): string {
-  const words = s.replace(/[.!?]$/, '').split(' ');
-  if (words.length < 3) return `${words.reverse().join(' ')}.`;
+  // every word keeps its case ("I", names) except the sentence's own first capital; the new first word is capitalised
+  const raw = s.replace(/[.!?]$/, '').split(' ');
+  const first = raw[0] ?? '';
+  const words = [/^I(?:'|$)/.test(first) ? first : first.charAt(0).toLowerCase() + first.slice(1), ...raw.slice(1)];
+  const out = (ws: readonly string[]) => {
+    const t = ws.join(' ');
+    return `${t.charAt(0).toUpperCase()}${t.slice(1)}.`;
+  };
+  if (words.length < 3) return out([...words].reverse());
   for (let k = 0; k < 6; k++) {
-    const t = shuffle(words, rng).join(' ');
-    if (t !== words.join(' ')) return `${t[0]!.toUpperCase()}${t.slice(1).toLowerCase()}.`;
+    const t = shuffle(words, rng);
+    if (t.join(' ') !== words.join(' ')) return out(t);
   }
-  return `${[...words].reverse().join(' ')}.`;
+  return out([...words].reverse());
 }
 
 /** Word pieces for 🧩 build: the sentence's words, shuffled (never already in order when it has 3+ words). */
@@ -256,8 +263,9 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
   const greet = chapter.greet[level];
   const feel = chapter.feel[level];
   const befriend = chapter.befriend[level];
+  // an islander with its own reply to its question uses it; otherwise the island's greeting / feeling / bank line
   const answerFor = (c: AdventureCreature) =>
-    c.askKind === 'greet' ? { en: greet.en, ko: greet.ko } : c.askKind === 'feel' ? { en: feel.en, ko: feel.ko } : { en: bankLine, ko: bankKo[chapter.ctx] };
+    c.answer ? { en: c.answer[level].en, ko: c.answer[level].ko } : c.askKind === 'greet' ? { en: greet.en, ko: greet.ko } : c.askKind === 'feel' ? { en: feel.en, ko: feel.ko } : { en: bankLine, ko: bankKo[chapter.ctx] };
   const wordKo = (wc: WordCard) => (wc.ko ? `${wc.w} = ${wc.ko}` : null);
 
   const [c1, c2] = chapter.critters;

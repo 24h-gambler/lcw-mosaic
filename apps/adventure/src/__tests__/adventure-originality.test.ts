@@ -39,6 +39,11 @@ const BORROWED = [
   /\bdetermination\b/i,
   /\bmegalovania\b/i,
   /\bsave point\b/i,
+  // look-alikes found in review (11-16): a rhyme of the first meeting, its moth-like partner, another series' ink people
+  /\bsprigget\b/i,
+  /\bpuffmoth\b/i,
+  /\binklings?\b/i,
+  /splatoon/i,
   /언더테일/,
   /델타룬/
 ];

@@ -113,7 +113,8 @@ async function run(vp) {
   const tid = (t) => page.locator(`[data-testid="${t}"]`);
   const press = async (sel) => {
     const l = typeof sel === 'string' ? tid(sel) : sel;
-    if (vp.touch) await l.first().tap();
+    // force: the FRIEND button pulses when ready (a moving target is fine for a finger, not for the stability wait)
+    if (vp.touch) await l.first().tap({ force: true });
     else await l.first().click();
   };
   const exists = async (t) => (await tid(t).count()) > 0 && (await tid(t).first().isVisible());
@@ -265,7 +266,7 @@ async function run(vp) {
           modesUsed.add(b.choices[idx].mode);
           allModes.add(b.choices[idx].mode);
           const btn = page.locator('[data-testid=adv-talk-choice]').nth(idx);
-          if (vp.touch) await btn.tap();
+          if (vp.touch) await btn.tap({ force: true });
           else {
             for (let i = 0; i < idx; i++) await page.keyboard.press('ArrowDown');
             await page.keyboard.press('Enter');

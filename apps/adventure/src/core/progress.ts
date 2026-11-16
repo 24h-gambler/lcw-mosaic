@@ -2,9 +2,10 @@ import type { AdventureChapterId } from '@lcw/content';
 import type { AdventureActivity, AdventureOutcome } from '@lcw/schemas';
 
 /**
- * Progress across lesson days (docs/22 1.2): chapter 1 is always open; chapter k opens on a day after the one k-1 was
- * cleared on (Korea time), so the isles go one lesson day at a time. Cleared chapters can be replayed any time.
- * Kept in the device's localStorage and, for a linked child, in the server settings row (flat keys, 32-char values).
+ * Progress across lesson days (docs/22 1.2): chapter 1 is always open; chapter k opens on a lesson day after the one
+ * k-1 was cleared on, so the isles go one lesson day at a time. The lesson day is the student document's day when the
+ * page was opened from it (a new document day = a new lesson), else the Korea-time calendar day. Cleared chapters can
+ * be replayed any time. Kept in the device's localStorage and, for a linked child, in one server settings key.
  */
 
 export const CHAPTER_IDS: readonly AdventureChapterId[] = [1, 2, 3, 4];
@@ -96,45 +97,68 @@ export function parseProgress(raw: string | null | undefined): Progress {
   }
 }
 
-/** Server settings keys (docs/19 3장: flat, ≤40 keys, values ≤32 chars). */
+/**
+ * The server settings row holds ONE key for the adventure (docs/19 3장: flat, ≤40 keys, values ≤32 chars; the world
+ * already uses most keys). `adv` = "1" + per chapter 5 characters: the lesson day it was cleared on (3 base-36 digits,
+ * days since 2024-01-01), stars (0-3), outcome (s spared / f fought / q quit / - none); "-----" = not cleared yet.
+ * The words stay on the device (a new device plays the island's own words).
+ */
+export const SETTINGS_KEY = 'adv';
+const DAY0 = Date.UTC(2024, 0, 1);
+const DAY_MS = 86_400_000;
+
+function dayCode(day: string): string | null {
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return null;
+  const n = Math.round((ms - DAY0) / DAY_MS);
+  if (n < 0 || n >= 36 ** 3) return null;
+  return n.toString(36).padStart(3, '0');
+}
+
+function codeDay(code: string): string | null {
+  if (!/^[0-9a-z]{3}$/.test(code)) return null;
+  return new Date(DAY0 + parseInt(code, 36) * DAY_MS).toISOString().slice(0, 10);
+}
+
+const OUT_CODE: Record<AdventureOutcome, string> = { spared: 's', fought: 'f', quit: 'q' };
+const CODE_OUT: Record<string, AdventureOutcome> = { s: 'spared', f: 'fought', q: 'quit' };
+
 export function toSettings(p: Progress): Record<string, string> {
-  const out: Record<string, string> = {};
+  let v = '1';
+  let any = false;
   for (const c of CHAPTER_IDS) {
     const x = p.chapters[c];
-    if (!x?.clearedOn) continue;
-    out[`adv.c${c}`] = `${x.clearedOn}|${x.stars}|${x.outcome ?? ''}`.slice(0, 32);
-    let w = '';
-    for (const word of x.words) {
-      const n = w ? `${w},${word}` : word;
-      if (n.length > 32) break;
-      w = n;
+    const d = x?.clearedOn ? dayCode(x.clearedOn) : null;
+    if (!x || !d) {
+      v += '-----';
+      continue;
     }
-    if (w) out[`adv.w${c}`] = w;
+    any = true;
+    v += `${d}${x.stars}${x.outcome ? OUT_CODE[x.outcome] : '-'}`;
   }
-  return out;
+  return any ? { [SETTINGS_KEY]: v } : {};
 }
 
 /** Merges what the server remembers into this device's progress (the earlier clear day and the higher stars win). */
 export function mergeSettings(p: Progress, settings: Record<string, unknown> | null | undefined): Progress {
-  if (!settings) return p;
+  const v = settings?.[SETTINGS_KEY];
+  if (typeof v !== 'string' || v[0] !== '1' || v.length !== 1 + 5 * CHAPTER_IDS.length) return p;
   const out: Progress = { v: 1, chapters: { ...p.chapters } };
-  for (const c of CHAPTER_IDS) {
-    const v = settings[`adv.c${c}`];
-    if (typeof v !== 'string') continue;
-    const [day, s, outcome] = v.split('|');
-    if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
-    const stars = Math.max(0, Math.min(3, Number(s) || 0)) as ChapterProgress['stars'];
-    const w = settings[`adv.w${c}`];
-    const words = typeof w === 'string' ? w.split(',').filter(Boolean) : [];
+  CHAPTER_IDS.forEach((c, i) => {
+    const part = v.slice(1 + i * 5, 6 + i * 5);
+    const day = codeDay(part.slice(0, 3));
+    if (!day) return;
+    const stars = Math.max(0, Math.min(3, Number(part[3]) || 0)) as ChapterProgress['stars'];
+    const outcome = CODE_OUT[part[4] ?? ''] ?? null;
     const mine = out.chapters[c];
     out.chapters[c] = {
       clearedOn: mine?.clearedOn && mine.clearedOn < day ? mine.clearedOn : day,
       stars: Math.max(mine?.stars ?? 0, stars) as ChapterProgress['stars'],
-      outcome: mine?.outcome === 'spared' || outcome === 'spared' ? 'spared' : outcome === 'fought' ? 'fought' : (mine?.outcome ?? null),
-      words: mine?.words?.length ? mine.words : words,
+      outcome: mine?.outcome === 'spared' || outcome === 'spared' ? 'spared' : outcome === 'fought' ? 'fought' : (mine?.outcome ?? outcome),
+      words: mine?.words ?? [],
       last: mine?.last ?? null
     };
-  }
+  });
   return out;
 }
 

@@ -8,7 +8,7 @@
 
 탑다운으로 섬을 걸어 다니다가 섬 주민을 만나면 턴제 만남 화면으로 바뀝니다. 아이는 작은 **말풍선 영혼**을 움직여 날아오는 글자·잉크·빵을 피하고, 자기 차례에는 **POKE · TALK · POUCH · FRIEND** 넷 중 하나를 고릅니다. 이기는 길은 말입니다: 그날 배운 영어 문장을 말하거나(마이크, 안 되면 타이핑) 고르거나 철자를 맞춰 상대의 마음(Calm)을 채우면 FRIEND 로 친구가 됩니다. POKE 로도 끝낼 수 있지만 별은 1개까지이고 상대는 시무룩하게 떠납니다.
 
-장르의 형식(탑다운 탐험, 만남 → 턴제, 영혼 피하기, 네 가지 선택, 말로 화해)만 씁니다. 다른 작품의 이름·캐릭터·대사·그림·음악·지명은 쓰지 않고, 비슷하게 바꾼 이름도 쓰지 않습니다. 세계·인물·이야기·픽셀 그림·소리는 모두 이 저장소에서 새로 만들었습니다(그림 = `apps/adventure/src/art/sprites.ts` 문자 격자, 소리 = Web Audio 합성 `apps/adventure/src/audio/`, 외부 음원·이미지 파일 없음). 원작 낱말 목록은 `apps/adventure/src/__tests__/originality.test.ts` 가 소스 전체에서 막습니다.
+장르의 형식(탑다운 탐험, 만남 → 턴제, 영혼 피하기, 네 가지 선택, 말로 화해)만 씁니다. 다른 작품의 이름·캐릭터·대사·그림·음악·지명은 쓰지 않고, 비슷하게 바꾼 이름도 쓰지 않습니다. 세계·인물·이야기·픽셀 그림·소리는 모두 이 저장소에서 새로 만들었습니다(그림 = `apps/adventure/src/art/sprites.ts` 문자 격자, 소리 = Web Audio 합성 `apps/adventure/src/audio/`, 외부 음원·이미지 파일 없음). 원작 낱말 목록은 `apps/adventure/src/__tests__/adventure-originality.test.ts` 가 소스 전체에서 막습니다.
 
 ### 1.1 세계 — 휘파람 바람 섬들(The Hushwind Isles)
 
@@ -16,10 +16,10 @@
 
 | 장 | 섬 | 수호자(마지막 만남) | 길에서 만나는 주민 | LCW 문장 뱅크 상황 | 기본 낱말(문서 자료가 없을 때) |
 |---|---|---|---|---|---|
-| 1 | 이끼종 숲 Mossbell Woods | 브램블번 Bramblebun — 등에 방울 달린 이끼 고슴도치빵, 외로워서 숨음 | 스프리겟(새싹 가지) · 퍼프모스(솜털 나방) | `guide` 길 묻기 | animals: puppy, eagle, turtle |
+| 1 | 이끼종 숲 Mossbell Woods | 브램블번 Bramblebun — 등에 방울 달린 이끼 고슴도치빵, 외로워서 숨음 | 루틀 Rootle(새싹 뿌리) · 콘킨 Conekin(솔방울) | `guide` 길 묻기 | animals: puppy, eagle, turtle |
 | 2 | 소금유리 해변 Saltglass Shore | 클래터클로 선장 Captain Clatterclaw — 찻주전자 껍데기를 진 게, 아무것도 바꿔 주지 않음 | 버블릿(거품 해파리) · 셸밥(소라 굴러 다니기) | `trade_shop` 물물교환 | ocean: shell, island, boat |
 | 3 | 부스러기 마을 Crumbtown | 오베나 Ovenna — 빵 모자를 쓴 걸어 다니는 화덕, 아무도 주문하지 않아 불이 식음 | 도우닷(반죽 방울) · 슈가플라이(설탕 나비) | `cafe` 주문 | food: sweet, snack, bake |
-| 4 | 별다락 탑 Starloft Tower | 휘파람 바람 the Hushwind — 목도리를 두른 잿빛 구름, 아무도 말을 걸어 주지 않아 낱말을 모았음 | 잉클링(잉크 방울) · 페이퍼카이트(종이 연) | `errand` + 1~3장 복습 | 1~3장 낱말 복습 + space: star, moon, rocket |
+| 4 | 별다락 탑 Starloft Tower | 휘파람 바람 the Hushwind — 목도리를 두른 잿빛 구름, 아무도 말을 걸어 주지 않아 낱말을 모았음 | 블로틀링 Blotling(잉크 방울) · 페이퍼카이트(종이 연) | `errand` + 1~3장 복습 | 1~3장 낱말 복습 + space: star, moon, rocket |
 
 ### 1.2 하루에 한 장 (4장)
 

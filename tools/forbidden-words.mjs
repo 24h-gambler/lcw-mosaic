@@ -17,6 +17,7 @@ export const SCAN_DIRS = [
   'apps/web/src',
   'apps/client/src',
   'apps/edge/src',
+  'apps/adventure/src',
   ...(fs.existsSync(path.join(ROOT, 'packages'))
     ? fs
         .readdirSync(path.join(ROOT, 'packages'), { withFileTypes: true })

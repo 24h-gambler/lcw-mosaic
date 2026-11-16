@@ -3,7 +3,7 @@ import { npcCast, type NpcVoice } from './npc-cast.js';
 
 /**
  * The Hushwind Isles — the /adventure/ story (docs/22, R2625 ⑧⑨). Every name, line and place here was written for
- * LCW; nothing is borrowed from another work (apps/adventure/src/__tests__/originality.test.ts scans for that).
+ * LCW; nothing is borrowed from another work (apps/adventure/src/__tests__/adventure-originality.test.ts scans for that).
  *
  * The child walks four islands, one per lesson day. Islanders who lost their words throw letters and ink; the child
  * calms them by speaking that day's English (TALK), and a calm islander becomes a friend (FRIEND). English is what the
@@ -63,6 +63,8 @@ export interface AdventureCreature {
   asks: AdventureLine;
   /** Which of the island's sentences answers `asks` (greet / feel / the phrase-bank line). */
   askKind: 'greet' | 'feel' | 'bank';
+  /** Its own right reply to `asks` per level, when the island's sentence does not answer that question. */
+  answer?: Record<AdventureLevel, AdventureLine>;
 }
 
 export interface AdventureChapter {
@@ -134,38 +136,43 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     },
     critters: [
       {
-        id: 'sprigget',
-        nameEn: 'Sprigget',
-        nameKo: '스프리겟',
+        id: 'rootle',
+        nameEn: 'Rootle',
+        nameKo: '루틀',
         role: 'critter',
         voice: 'errand_neighbor',
-        sprite: 'sprigget',
+        sprite: 'rootle',
         patterns: ['acornDrop', 'letterCatch'],
-        intro: L('Sprigget pops out of the ground! It shakes its leaves at you.', '스프리겟이 땅에서 쏙 나왔어요! 잎을 흔들어요.'),
-        turns: [L('Sprigget wiggles. Acorns fall!', '스프리겟이 꿈틀! 도토리가 떨어져요!'), L('Letters spin out of its leaves.', '잎에서 글자가 빙글빙글 나와요.')],
+        intro: L('Rootle pops out of the ground! It shakes its leaves at you.', '루틀이 땅에서 쏙 나왔어요! 잎을 흔들어요.'),
+        turns: [L('Rootle wiggles. Acorns fall!', '루틀이 꿈틀! 도토리가 떨어져요!'), L('Letters spin out of its leaves.', '잎에서 글자가 빙글빙글 나와요.')],
         react: REACT_DEFAULT,
-        ready: L('Sprigget stops wiggling. It looks calm.', '스프리겟이 꿈틀거림을 멈췄어요. 차분해 보여요.'),
-        friend: L('Sprigget gives you a tiny leaf. Friends!', '스프리겟이 작은 잎을 줬어요. 친구가 됐어요!'),
-        poked: L('Ow! Sprigget pulls in its leaves.', '아야! 스프리겟이 잎을 오므려요.'),
-        leaves: L('Sprigget hides back in the ground.', '스프리겟이 땅속으로 숨어 버렸어요.'),
+        ready: L('Rootle stops wiggling. It looks calm.', '루틀이 꿈틀거림을 멈췄어요. 차분해 보여요.'),
+        friend: L('Rootle gives you a tiny leaf. Friends!', '루틀이 작은 잎을 줬어요. 친구가 됐어요!'),
+        poked: L('Ow! Rootle pulls in its leaves.', '아야! 루틀이 잎을 오므려요.'),
+        leaves: L('Rootle hides back in the ground.', '루틀이 땅속으로 숨어 버렸어요.'),
         asks: L('Hello? Who is there?', '안녕? 거기 누구야?'),
-        askKind: 'greet'
+        askKind: 'greet',
+        answer: {
+          1: L('It is me! Hello!', '나야! 안녕!'),
+          2: L("Hi, it's me. I am a new friend.", '안녕, 나야. 나는 새 친구야.'),
+          3: L("Hello! It's just me, a friend walking through the woods.", '안녕! 그냥 나야, 숲을 걷고 있는 친구.')
+        }
       },
       {
-        id: 'puffmoth',
-        nameEn: 'Puffmoth',
-        nameKo: '퍼프모스',
+        id: 'conekin',
+        nameEn: 'Conekin',
+        nameKo: '콘킨',
         role: 'critter',
         voice: 'errand_neighbor',
-        sprite: 'puffmoth',
+        sprite: 'conekin',
         patterns: ['leafRing', 'spellBubbles'],
-        intro: L('A fluffy Puffmoth flutters in front of you.', '복슬복슬 퍼프모스가 앞에서 팔랑여요.'),
-        turns: [L('Puffmoth spins. Leaves fly in a circle!', '퍼프모스가 빙글! 잎이 동그랗게 날아요!'), L('Puffmoth blows word bubbles.', '퍼프모스가 낱말 거품을 불어요.')],
+        intro: L('A round Conekin rolls out from under a fern.', '동글동글 콘킨이 고사리 밑에서 데굴데굴 굴러 나와요.'),
+        turns: [L('Conekin spins. Leaves fly in a circle!', '콘킨이 빙글! 잎이 동그랗게 날아요!'), L('Conekin shakes out word bubbles.', '콘킨이 몸을 흔들어 낱말 거품을 털어 내요.')],
         react: REACT_DEFAULT,
-        ready: L('Puffmoth lands on your lantern. It is calm now.', '퍼프모스가 등불에 앉았어요. 이제 차분해요.'),
-        friend: L('Puffmoth sprinkles soft dust. You are friends!', '퍼프모스가 부드러운 가루를 뿌려요. 친구가 됐어요!'),
-        poked: L('Puffmoth flaps away a little.', '퍼프모스가 조금 날아가 버려요.'),
-        leaves: L('Puffmoth flies far away.', '퍼프모스가 멀리 날아가 버렸어요.'),
+        ready: L('Conekin stops rolling and sits by your lantern. It is calm now.', '콘킨이 구르기를 멈추고 등불 옆에 앉았어요. 이제 차분해요.'),
+        friend: L('Conekin gives you a tiny seed. You are friends!', '콘킨이 작은 씨앗을 줬어요. 친구가 됐어요!'),
+        poked: L('Conekin rolls back a little.', '콘킨이 조금 뒤로 굴러가요.'),
+        leaves: L('Conekin rolls far away.', '콘킨이 멀리 굴러가 버렸어요.'),
         asks: L('How do you feel?', '기분이 어때?'),
         askKind: 'feel'
       }
@@ -194,7 +201,7 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
       friend: L('Ding! You are my first friend. Here, take back your words!', '딩! 넌 내 첫 친구야. 자, 네 낱말을 돌려줄게!'),
       poked: L('Ouch! Words would be nicer than that...', '아야! 그것보다 말이 더 좋을 텐데…'),
       leaves: L('Bramblebun rolls away into the dark woods.', '브램블번이 어두운 숲으로 굴러가 버렸어요.'),
-      asks: L('Are you lost in the woods?', '숲에서 길을 잃었어?'),
+      asks: L('You look lost. What do you want to ask me?', '길을 잃은 것 같네. 나한테 뭘 물어보고 싶어?'),
       askKind: 'bank'
     },
     music: 'woods'
@@ -219,8 +226,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     outro: L('Waves sing on the shore. Everyone is trading and laughing.', '파도가 해변에서 노래해요. 모두 물건을 바꾸며 웃어요.'),
     greet: {
       1: L('Hi! I like your shell.', '안녕! 네 조개 멋지다.'),
-      2: L('Hi, Captain! Your shell is so cool.', '안녕하세요, 선장님! 조개가 정말 멋져요.'),
-      3: L('Hello, Captain! I have never seen a shell as cool as yours.', '안녕하세요, 선장님! 이렇게 멋진 조개는 처음 봐요.')
+      2: L('Hi! Your shell is so cool.', '안녕! 네 조개 정말 멋지다.'),
+      3: L('Hello! I have never seen a shell as cool as yours.', '안녕! 이렇게 멋진 조개는 처음 봐.')
     },
     feel: {
       1: L('I am excited.', '나는 신나.'),
@@ -267,7 +274,12 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         poked: L('Shellbop hides inside its shell.', '셸밥이 껍데기 속에 숨어요.'),
         leaves: L('Shellbop rolls far down the beach.', '셸밥이 해변 멀리 굴러가 버렸어요.'),
         asks: L('Who are you?', '너는 누구야?'),
-        askKind: 'greet'
+        askKind: 'greet',
+        answer: {
+          1: L('I am your new friend.', '나는 너의 새 친구야.'),
+          2: L("I'm a friend. I came here by boat.", '나는 친구야. 배를 타고 왔어.'),
+          3: L("I'm a friend who sailed all the way here to say hello.", '나는 인사하려고 여기까지 배를 타고 온 친구야.')
+        }
       }
     ],
     guardian: {
@@ -367,7 +379,12 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         poked: L('Sugarfly buzzes away a little.', '슈가플라이가 조금 윙 날아가요.'),
         leaves: L('Sugarfly zooms over the roofs.', '슈가플라이가 지붕 너머로 휙 날아가 버렸어요.'),
         asks: L('Hi! Who are you?', '안녕! 너는 누구야?'),
-        askKind: 'greet'
+        askKind: 'greet',
+        answer: {
+          1: L('I am a friend. I like sweets!', '나는 친구야. 단 걸 좋아해!'),
+          2: L("I'm a friend, and I love sweet snacks.", '나는 친구고, 달콤한 간식을 정말 좋아해.'),
+          3: L("I'm a friend who came to Crumbtown because I love sweet snacks.", '나는 달콤한 간식을 좋아해서 부스러기 마을에 온 친구야.')
+        }
       }
     ],
     guardian: {
@@ -378,7 +395,7 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
       voice: 'cafe_owner',
       sprite: 'ovenna',
       patterns: ['rollBounce', 'wordCookies', 'sprinkleRain', 'letterCatch', 'wordCookies'],
-      intro: L('Ovenna stomps forward. Her door creaks. "Nobody orders. So I bake... BULLETS!"', '오베나가 쿵쿵 다가와요. 문이 삐걱. "아무도 주문 안 해. 그래서 난… 총알을 굽지!"'),
+      intro: L('Ovenna stomps forward. Her door creaks. "Nobody orders. So I bake... HOT SPARKS!"', '오베나가 쿵쿵 다가와요. 문이 삐걱. "아무도 주문 안 해. 그래서 난… 뜨거운 불꽃을 굽지!"'),
       turns: [
         L('Cold, cold, cold! My fire is going out.', '차가워, 차가워! 불이 꺼져 가.'),
         L('Do you even want to order something?', '너 뭐라도 주문하고 싶긴 해?'),
@@ -418,9 +435,9 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     },
     outro: L('The wind is warm now. Every word flies home to the isles.', '이제 바람이 따뜻해요. 모든 낱말이 섬으로 날아가요.'),
     greet: {
-      1: L('Hello, Hushwind!', '안녕, 휘파람 바람!'),
-      2: L('Hello, Hushwind. Can we talk for a minute?', '안녕, 휘파람 바람. 잠깐 얘기할 수 있어?'),
-      3: L('Hello, Hushwind. I climbed the whole tower because I wanted to talk to you.', '안녕, 휘파람 바람. 너랑 얘기하고 싶어서 탑을 끝까지 올라왔어.')
+      1: L('Hello! I am here to help.', '안녕! 도와주러 왔어.'),
+      2: L('Hello! Can we talk for a minute?', '안녕! 잠깐 얘기할 수 있어?'),
+      3: L('Hello! I climbed the whole tower because I wanted to talk to you.', '안녕! 너랑 얘기하고 싶어서 탑을 끝까지 올라왔어.')
     },
     feel: {
       1: L('I am brave.', '나는 용감해.'),
@@ -434,22 +451,27 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     },
     critters: [
       {
-        id: 'inkling',
-        nameEn: 'Inkling',
-        nameKo: '잉클링',
+        id: 'blotling',
+        nameEn: 'Blotling',
+        nameKo: '블로틀링',
         role: 'critter',
         voice: 'guide',
-        sprite: 'inkling',
+        sprite: 'blotling',
         patterns: ['inkRain', 'letterCatch'],
-        intro: L('An Inkling drips down from the ceiling. Plip!', '잉클링이 천장에서 똑 떨어져요. 퐁!'),
-        turns: [L('Inkling rains ink blots!', '잉클링이 잉크 방울을 뿌려요!'), L('Inky letters swirl around.', '잉크 글자가 빙글빙글 돌아요.')],
+        intro: L('A Blotling drips down from the ceiling. Plip!', '블로틀링이 천장에서 똑 떨어져요. 퐁!'),
+        turns: [L('Blotling rains ink blots!', '블로틀링이 잉크 방울을 뿌려요!'), L('Inky letters swirl around.', '잉크 글자가 빙글빙글 돌아요.')],
         react: REACT_DEFAULT,
-        ready: L('Inkling stops dripping. It is calm.', '잉클링이 그만 떨어져요. 차분해요.'),
-        friend: L('Inkling draws a smile on the wall. Friends!', '잉클링이 벽에 웃는 얼굴을 그려요. 친구가 됐어요!'),
-        poked: L('Inkling splashes and shrinks.', '잉클링이 철벅 튀더니 작아져요.'),
-        leaves: L('Inkling drips away through a crack.', '잉클링이 틈 사이로 흘러가 버렸어요.'),
+        ready: L('Blotling stops dripping. It is calm.', '블로틀링이 그만 떨어져요. 차분해요.'),
+        friend: L('Blotling draws a smile on the wall. Friends!', '블로틀링이 벽에 웃는 얼굴을 그려요. 친구가 됐어요!'),
+        poked: L('Blotling splashes and shrinks.', '블로틀링이 철벅 튀더니 작아져요.'),
+        leaves: L('Blotling drips away through a crack.', '블로틀링이 틈 사이로 흘러가 버렸어요.'),
         asks: L('Hello? Who is there?', '안녕? 거기 누구야?'),
-        askKind: 'greet'
+        askKind: 'greet',
+        answer: {
+          1: L('It is me! I came to help.', '나야! 도와주러 왔어.'),
+          2: L("It's me, the Keeper. I came to help.", '나야, 등불지기. 도와주러 왔어.'),
+          3: L("It's me, the Keeper. I climbed up here to bring the words home.", '나야, 등불지기. 낱말을 집으로 데려가려고 여기까지 올라왔어.')
+        }
       },
       {
         id: 'paperkite',
@@ -496,7 +518,12 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
       poked: L('That does not help... I only get stronger.', '그건 소용없어… 난 더 세질 뿐이야.'),
       leaves: L('The Hushwind blows away into the clouds, still lonely.', '휘파람 바람이 여전히 외로운 채로 구름 속으로 날아가 버렸어요.'),
       asks: L('Can you help me? I feel so alone.', '나 좀 도와줄래? 너무 외로워.'),
-      askKind: 'bank'
+      askKind: 'bank',
+      answer: {
+        1: L('Yes! I can help you.', '응! 내가 도와줄게.'),
+        2: L("Of course I'll help. You are not alone.", '당연히 도와줄게. 너는 혼자가 아니야.'),
+        3: L("Of course I'll help you. You're not alone anymore, because I'm here.", '당연히 도와줄게. 내가 있으니까 너는 이제 혼자가 아니야.')
+      }
     },
     music: 'tower'
   }
@@ -546,7 +573,7 @@ export const ADVENTURE_WORDS: Readonly<Record<string, AdventureWordInfo>> = {
   coral: W('산호', 'n', '🪸', ['I see red coral.', 'The coral under the sea is pretty.', 'I want to swim near the coral because it is so colorful.']),
   tide: W('밀물과 썰물', 'n', '🌊', ['The tide is high.', 'The tide comes in every day.', 'When the tide goes out, we can find shells on the sand.']),
   sail: W('항해하다', 'v', '⛵'),
-  beach: W('해변', 'n', '🏖️', ['I like the beach.', 'Let us play on the beach today.', 'I want to go to the beach because the sand is warm.']),
+  beach: W('해변', 'n', '🏖️', ['I like the beach.', "Let's play on the beach today.", 'I want to go to the beach because the sand is warm.']),
   pearl: W('진주', 'n', '🦪'),
   storm: W('폭풍', 'n', '⛈️', ['The storm is coming.', 'There is a big storm at sea.', 'We should stay inside because the storm is very strong.']),
   calm: W('잔잔한', 'adj', '😌', ['The sea is calm.', 'The sea is calm and quiet today.', 'The sea is calm now, so we can sail the boat.']),
@@ -679,7 +706,9 @@ export function adventureBankSentences(chapter: AdventureChapter, level: Adventu
   const pick = level === 3 ? 2 : 1;
   const out: string[] = [];
   // The errand bank also has "here is your water" hand-over lines; the tower only needs the offer to help.
-  for (const e of chapter.ctx === 'errand' ? entries.filter((x) => x.intent !== 'errand_deliver').slice(0, 1) : entries) {
+  // the shore only trades (its bank also has furniture shopping, which does not answer "What do you want to trade?")
+  const own = chapter.ctx === 'trade_shop' ? entries.filter((x) => x.intent === 'trade_item') : entries;
+  for (const e of chapter.ctx === 'errand' ? own.filter((x) => x.intent !== 'errand_deliver').slice(0, 1) : own) {
     const t = e.offers[pick]?.text;
     // A bakery orders something warm or sweet, not "large water"
     if (chapter.ctx === 'cafe' && /\bwater\b/i.test(t ?? '')) continue;

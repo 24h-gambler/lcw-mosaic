@@ -93,6 +93,17 @@ describe('adventure plan', () => {
     expect(cleanSentence('x'.repeat(130))).toBeNull();
   });
 
+  it('mixed-up reply choices keep "I" capitalised and start with a capital', () => {
+    for (const c of ADVENTURE_CHAPTERS)
+      for (const level of [1, 2, 3] as const)
+        for (const e of buildChapterPlan({ chapter: c.id, level }).encounters)
+          for (const t of e.talks.filter((x) => x.mode === 'pick'))
+            for (const choice of t.choices!) {
+              expect(choice, choice).not.toMatch(/(?:^|\s)i(?:\s|'|[.!?]|$)/);
+              expect(choice[0], choice).toMatch(/[A-Z]/);
+            }
+  });
+
   it('wrong spellings are never the word', () => {
     const rng = createRng(7);
     for (const w of Object.keys(ADVENTURE_WORDS)) {
@@ -162,14 +173,17 @@ describe('adventure progress (one island per lesson day)', () => {
     expect(parseProgress(JSON.stringify(p))).toEqual(p);
     expect(parseProgress('{broken')).toEqual(emptyProgress());
     const s = toSettings(p);
-    expect(s).toEqual({ 'adv.c1': '2026-11-16|3|spared', 'adv.w1': 'puppy,eagle,turtle' });
+    // one key for the whole adventure: the world already uses most of the 40 keys
+    expect(Object.keys(s)).toEqual(['adv']);
     for (const [k, v] of Object.entries(s)) {
       expect(k).toMatch(/^[a-z][a-zA-Z0-9_.]{0,39}$/);
       expect(v.length).toBeLessThanOrEqual(32);
     }
-    const other = mergeSettings(emptyProgress(), { 'adv.c1': '2026-11-16|3|spared', 'adv.w1': 'puppy,eagle,turtle', 'frame.quality': 'auto' });
-    expect(other.chapters[1]!.clearedOn).toBe('2026-11-16');
-    expect(other.chapters[1]!.words).toEqual(['puppy', 'eagle', 'turtle']);
+    const other = mergeSettings(emptyProgress(), { ...s, 'frame.quality': 'auto' });
+    expect(other.chapters[1]).toMatchObject({ clearedOn: '2026-11-16', stars: 3, outcome: 'spared' });
+    expect(other.chapters[2]).toBeUndefined();
+    expect(mergeSettings(emptyProgress(), { adv: 'garbage' })).toEqual(emptyProgress());
+    expect(toSettings(emptyProgress())).toEqual({});
     expect(isUnlocked(other, 2, '2026-11-19')).toBe(true);
   });
 });
@@ -223,6 +237,12 @@ describe('adventure record and the english-day envelope', () => {
     expect(dayFileUrls(link)).toEqual(['https://english-day.pages.dev/oreo/days/2026-11-19.json', 'https://english-day.pages.dev/oreo/today.json']);
     expect(resultUrl(link)).toBe('https://english-day.pages.dev/api/result?k=abcdefghijklmnopqrstuvwx');
     expect(safeBack('https://evil.example/oreo/')).toBeNull();
+    expect(safeBack('http://engday.pages.dev/oreo/')).toBeNull();
+    // the short student address: back, day file and results all go to the site the link came from
+    const short = parseEdLink('?ed=smoke-adv&edd=2026-11-19&edk=abcdefghijklmnopqrstuvwx&edr=' + encodeURIComponent('https://engday.pages.dev/smoke-adv/'))!;
+    expect(short.back).toBe('https://engday.pages.dev/smoke-adv/');
+    expect(dayFileUrls(short)[0]).toBe('https://engday.pages.dev/smoke-adv/days/2026-11-19.json');
+    expect(resultUrl(short)).toBe('https://engday.pages.dev/api/result?k=abcdefghijklmnopqrstuvwx');
     expect(parseEdLink('?ed=<x>')).toBeNull();
     expect(parseEdLink('')).toBeNull();
     const store = new Map<string, string>();

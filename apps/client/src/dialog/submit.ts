@@ -1,4 +1,5 @@
 import { converseFeedbackKo, decideConverseReward } from '@lcw/converse';
+import { GUIDE_PLACES } from '@lcw/content';
 import type { Level } from '@lcw/schemas';
 import { uploadClip } from '@lcw/audio';
 import type { DialogResult, NpcRef, UtteranceSubmit } from './types.js';
@@ -181,6 +182,8 @@ export function createPracticeSubmit(npc: NpcRef, level: Level = 'L1') {
       feedbackKo: converseFeedbackKo({ ...d, inputSource: u.stt_source }),
       missed: d.missed,
       matchedText: d.targetText !== u.target_text ? d.targetText : undefined,
+      // asking the way grants nothing either, so a guest is walked there like a child (App guideDestination)
+      askedKey: d.pass && npc.ctx === 'guide' ? GUIDE_PLACES.find((p) => (d.targetText || u.target_text).toLowerCase().includes(p.label))?.key : undefined,
       practice: true
     };
   };

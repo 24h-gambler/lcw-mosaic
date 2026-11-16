@@ -726,7 +726,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     let best: NpcRt | null = null;
     let bestD = Infinity;
     for (const n of npcs.values()) {
-      if (!npcTalkable(n.def, lessonMode)) continue;
+      if (!npcTalkable(n.def, lessonMode) || n.def.id === TEACHER_NPC_ID) continue;
       const hit = raycaster.ray.distanceSqToPoint(new THREE.Vector3(n.pos.x, n.pos.y + 1, n.pos.z));
       const along = raycaster.ray.origin.distanceTo(n.pos);
       if (hit < 0.6 && along < bestD) {
@@ -814,7 +814,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (focusNpc) return;
     let best = 6;
     for (const n of npcs.values()) {
-      if (!npcTalkable(n.def, lessonMode)) continue;
+      if (!npcTalkable(n.def, lessonMode) || n.def.id === TEACHER_NPC_ID) continue;
       const d = Math.hypot(n.pos.x - body.x, n.pos.z - body.z);
       if (d < best) {
         best = d;
@@ -1243,7 +1243,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     const wasGround = body.onGround;
     // In first person the eye is the body: a wider ring keeps a bumped-into face from filling the screen.
     const npcRing = camMode === 'first' ? 0.55 : 0.35;
-    const pushers = [...npcs.values()].map((n) => ({ x: n.pos.x, z: n.pos.z, r: npcRing }));
+    const pushers = [...npcs.values()].filter((n) => n.def.id !== TEACHER_NPC_ID).map((n) => ({ x: n.pos.x, z: n.pos.z, r: npcRing }));
     const preVy = body.vy;
     stepBody(body, intent, dt, blockAt, pushers);
     if (intent.jump && wasGround && !body.onGround) sfx.play('body.jump');
@@ -1320,7 +1320,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       n.char.root.rotation.y = n.yaw;
       n.char.possessed = possessedId === n.def.id;
       n.char.update(dt, { speed: sp, talking: hud.bubbleTyping(n.def.id), lookYaw: look });
-      if (pd < nearD && Math.abs(body.y - n.pos.y) < 2.5) {
+      // the visiting teacher is not an E/tap target: E and the dialog frame stay on the lesson's own NPCs
+      if (pd < nearD && Math.abs(body.y - n.pos.y) < 2.5 && n.def.id !== TEACHER_NPC_ID) {
         nearD = pd;
         nearNpc = n;
       }

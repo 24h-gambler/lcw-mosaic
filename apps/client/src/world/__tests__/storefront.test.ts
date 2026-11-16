@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { VoxelWorld } from '@lcw/sim-core';
 import { UI_STRINGS_EN } from '@lcw/content';
-import { STORES, nightAmount, storeName, storeWindows } from '../storefront.js';
+import { POST_HALF_W, STORES, nightAmount, storeName, storeWindows } from '../storefront.js';
 import { MINIMAP_AREA, edgePoint, minimapPixels, storeOfNpc } from '../wayfinding.js';
 import { SCENES, buildTown, sceneRoute } from '../town.js';
 
@@ -49,8 +49,8 @@ describe('store fronts (R2627: a store reads as a store at a glance)', () => {
           }
         }
       }
-      // two posts 1.3 m either side of the centre stand on open ground
-      for (const dz of [-1.3, 1.3]) {
+      // the two posts stand on open ground (not in a wall, a barrel or the curb's lamp)
+      for (const dz of [-(POST_HALF_W - 0.12), POST_HALF_W - 0.12]) {
         expect(world.getBlock(Math.floor(s.post.x), 1, Math.floor(s.post.z + dz))).toBe(0);
         expect(world.getBlock(Math.floor(s.post.x), 0, Math.floor(s.post.z + dz))).not.toBe(0);
       }

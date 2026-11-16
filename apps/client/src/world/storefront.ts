@@ -53,7 +53,7 @@ export const STORES: readonly StoreDef[] = [
     box: { x0: 166, x1: 178, z0: 128, z1: 140, y1: 6 },
     front: { x: 166, facing: -1 },
     fascia: { z0: 129.6, z1: 139.4, y0: 5.08, y1: 6.95 },
-    post: { x: 165.3, z: 141.7 },
+    post: { x: 165.3, z: 142.4 },
     badge: { x: 172.5, y: 17.2, z: 134.5 },
     door: { x: 165.2, z: 134.5 }
   },
@@ -66,11 +66,14 @@ export const STORES: readonly StoreDef[] = [
     box: { x0: 110, x1: 122, z0: 128, z1: 140, y1: 6 },
     front: { x: 123, facing: 1 },
     fascia: { z0: 129.6, z1: 139.4, y0: 5.08, y1: 6.95 },
-    post: { x: 122.7, z: 141.7 },
+    post: { x: 122.7, z: 142.4 },
     badge: { x: 116.5, y: 17.2, z: 134.5 },
     door: { x: 123.8, z: 135.5 }
   }
 ];
+
+/** Half the road sign's width (m); its two posts stand 0.12 m inside the ends. */
+export const POST_HALF_W = 1.25;
 
 /** Name painted on a store's signs: the learning language's title of its scene (SCENE_TITLES_KO resolves it). */
 export function storeName(def: Pick<StoreDef, 'scene'>): string {
@@ -337,9 +340,9 @@ export class Storefronts {
       const f = def.fascia;
       const fx = def.front.x + (def.front.facing === 1 ? 0.04 : -0.04);
       pushQuad(pos, uv, nrm, idx, fx, def.front.facing, f.z0, f.z1, f.y0, f.y1, 0, 1, 0.5, 1);
-      // the road sign: a board 2.8 x 0.95 m on two posts, both faces painted (bottom half of the canvas)
+      // the road sign: a board 2.5 x 0.95 m on two posts, both faces painted (bottom half of the canvas)
       const p = def.post;
-      const sw = 1.4;
+      const sw = POST_HALF_W;
       const sy0 = 2.15;
       const sy1 = 3.1;
       pushQuad(pos, uv, nrm, idx, p.x + 0.06, 1, p.z - sw, p.z + sw, sy0, sy1, 0, 1, 0, 0.5);

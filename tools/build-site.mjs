@@ -1,6 +1,8 @@
-// Assembles the static site for the edge Worker: apps/web/dist → apps/edge/public, apps/client/dist → apps/edge/public/game.
+// Assembles the static site for the edge Worker: apps/web/dist → apps/edge/public, apps/client/dist → apps/edge/public/world.
 // Files are copied over the previous build (no cleanup step; hashed asset names make stale files harmless).
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+// apps/edge/public is ignored by git, so "previous build" means this checkout only: deploy from the tree that made the
+// last deploy, or tabs opened before it lose their lazy chunks (/game/assets/* and /world/assets/* of older builds).
+import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,9 +13,12 @@ const out = join(root, 'apps/edge/public');
 for (const app of ['apps/web/dist', 'apps/client/dist']) {
   if (!existsSync(join(root, app, 'index.html'))) throw new Error(`${app} missing — run pnpm build first`);
 }
-mkdirSync(join(out, 'game'), { recursive: true });
+const oldChunks = ['game', 'world'].map((d) => join(out, d, 'assets')).filter((d) => existsSync(d) && readdirSync(d).length > 0);
+if (!oldChunks.length)
+  console.warn('build-site: no earlier world chunks in apps/edge/public (fresh checkout). Deploying from here drops the chunks tabs opened before the deploy still load; deploy from the tree that made the last deploy.');
+mkdirSync(join(out, 'world'), { recursive: true });
 cpSync(join(root, 'apps/web/dist'), out, { recursive: true, force: true });
-cpSync(join(root, 'apps/client/dist'), join(out, 'game'), { recursive: true, force: true });
+cpSync(join(root, 'apps/client/dist'), join(out, 'world'), { recursive: true, force: true });
 let sha = 'dev';
 try {
   sha = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim();

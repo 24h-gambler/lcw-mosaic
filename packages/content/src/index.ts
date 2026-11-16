@@ -5,3 +5,4 @@ export * from './lesson-events.js';
 export * from './lesson-outbox.js';
 export * from './npc-cast.js';
 export * from './world-setup.js';
+export * from './tts-lines.js';

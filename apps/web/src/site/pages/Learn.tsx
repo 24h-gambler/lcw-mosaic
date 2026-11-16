@@ -23,7 +23,7 @@ export const LEARN_ART_PARTS: Readonly<Record<string, Vox[][]>> = {
   open_question: [shift(floatingIsland('leaf', 'sun-d'), 0, 0, 2), shift(tree(), 3, 0, 3), placeAt(character({}), 2, 4, 3)]
 };
 /**
- * Scenes the game already has get a real /game capture (docs/14 §10.3); the others keep the drawn picture until the
+ * Scenes the game already has get a real /world capture (docs/14 §10.3); the others keep the drawn picture until the
  * world builds them (gear lab, court).
  */
 export const LEARN_STILL: Readonly<Record<string, { still: SiteStillKey; alt: string }>> = {

@@ -5,7 +5,7 @@ export const LESSON_STRINGS_KO = {
     sub: '수업 화면으로 바로 들어가요',
     enter: '들어가기',
     joining: '들어가는 중…',
-    /** The button on a bare /game/ (solo play) that opens the code entry. */
+    /** The button on a bare /world/ (solo play) that opens the code entry. */
     openFromWorld: '🎓 수업 코드 넣기',
     cancel: '혼자 놀기로 돌아가기',
     errors: {
@@ -17,7 +17,10 @@ export const LESSON_STRINGS_KO = {
     } as Record<string, string>
   },
   status: {
-    ok: (nickname: string) => (nickname ? `${nickname} · 선생님과 연결됨` : '선생님과 연결됨'),
+    ok: (nickname: string, teacher?: string | null) =>
+      `${nickname ? `${nickname} · ` : ''}${teacher && teacher !== '선생님' ? `${teacher} 선생님과 함께` : '선생님과 함께'}`,
+    /** The teacher console stopped beating (teacher left, device asleep): the child plays on alone. */
+    alone: (nickname: string) => `${nickname ? `${nickname} · ` : ''}혼자 놀기 — 선생님이 잠깐 자리를 비웠어요`,
     retrying: '다시 연결하는 중…',
     queued: (n: number) => `보낼 말 ${n}개 · 연결되면 보내요`,
     leave: '나가기',

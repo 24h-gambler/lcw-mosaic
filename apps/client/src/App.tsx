@@ -236,7 +236,7 @@ function startSceneFrom(search: string): SceneId | undefined {
 
 function NoWorld(): React.ReactElement {
   const code = new URLSearchParams(location.search).get('code');
-  // lite=1: /join keeps this device on the word cards (it sends 3D-capable devices to /game/ otherwise).
+  // lite=1: /join keeps this device on the word cards (it sends 3D-capable devices to /world/ otherwise).
   const href = `/join?${code ? `code=${encodeURIComponent(code)}&` : ''}lite=1`;
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C['paper-50'], padding: 16, fontFamily: T.fonts.ui }}>

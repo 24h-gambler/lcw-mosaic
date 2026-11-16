@@ -83,6 +83,11 @@ export interface WorldHandle {
    */
   setLessonBadge?(on: boolean): void;
   /**
+   * The teacher's name tag next to the lesson tag: present → "<name> 함께", absent → "혼자 놀기" (the teacher console
+   * stopped beating). null = no lesson (the plain lesson tag rules).
+   */
+  setTeacher?(t: { present: boolean; name: string | null } | null): void;
+  /**
    * Walk up to an NPC and face it, about 1.5 m in front (inside the talk range): the NPC's scene first when it is
    * far. Resolves on arrival (a dialog pausing the world ends the walk where it is). Unknown or hidden NPCs: no-op.
    */

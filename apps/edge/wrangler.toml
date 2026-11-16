@@ -1,4 +1,4 @@
-# Production: one Worker serves the site (apps/web at /), the game (apps/client at /game/) and the API (/v1/*, /health).
+# Production: one Worker serves the site (apps/web at /), the 3D world (apps/client at /world/; /game/ redirects there) and the API (/v1/*, /health).
 # Relational data + worlds live in one SQLite Durable Object (PlatformDO) — see apps/edge/src/worker.ts and docs/09.
 # Deploy: `pnpm deploy:edge` (builds web+client into ./public, then wrangler deploy). Secret: `wrangler secret put LCW_OPERATOR_TOKEN`.
 name = "lcw"
@@ -19,10 +19,16 @@ not_found_handling = "single-page-application"
 # src/showroom-page.ts), and every page is compressed by the Worker, since the no-transform that keeps Cloudflare's
 # analytics beacon out also turns off Cloudflare's compression (src/html-cache.ts). Hashed and binary files skip the
 # Worker and go straight from the asset store (the same list tools/site-headers.mjs detaches; a test keeps them equal).
-run_worker_first = ["/*", "!/assets/*", "!/game/assets/*", "!/media/*", "!/og/*", "!/og-report.png", "!/robots.txt", "!/sitemap.xml", "!/version.json", "!/family-sw.js", "!/family.webmanifest", "!/icons/*"]
+run_worker_first = ["/*", "!/assets/*", "!/world/assets/*", "!/game/assets/*", "!/media/*", "!/og/*", "!/og-report.png", "!/robots.txt", "!/sitemap.xml", "!/version.json", "!/family-sw.js", "!/family.webmanifest", "!/icons/*"]
 
 [ai]
 binding = "AI"
+
+# Neural NPC voice (src/tts.ts, docs/04 4.8): Workers AI Aura lines cached in the VOICE bucket under tts/v1/, metered by
+# the quota ladder. Any value but "on" sends every client back to the device voice (the client also falls back by itself
+# on any refusal, failure or a line slower than 1.5 s).
+[vars]
+TTS_NEURAL = "on"
 
 # Children's voice clips (src/voice.ts, docs/09 §10). Create once before the first deploy: `npx wrangler r2 bucket create lcw-voice`.
 [[r2_buckets]]

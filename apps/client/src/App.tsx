@@ -22,6 +22,7 @@ import { LessonAutoJoin, StartFlow } from './start/StartFlow.js';
 import { GuestPassLayer } from './start/PassLayer.js';
 import { passFromSearch } from './start/guestPass.js';
 import type { DeviceLessonSession } from './start/api.js';
+import { TeacherBar, teachFrom, teachTicketBody } from './world/TeacherBar.js';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
 export interface DialogConfig {
@@ -368,7 +369,8 @@ function DialogHost(props: {
  */
 export function startFlowFor(search: string, hasLessonSession: boolean): boolean {
   // a guest pass link (/world/?pass=) goes straight into the friend's world (docs/19 §8)
-  if (codeFromSearch(search) || hasLessonSession || passFromSearch(search) !== null) return false;
+  // the teacher walking in from the console (?teach=) goes straight into the world too
+  if (codeFromSearch(search) || hasLessonSession || passFromSearch(search) !== null || /[?&]teach=/.test(search)) return false;
   return !/[?&]scene=/.test(search);
 }
 
@@ -400,6 +402,8 @@ export function App(): React.ReactElement {
   const [lessonKey, setLessonKey] = useState(0);
   // A guest pass link (docs/19 §8): the friend's world for 30 minutes on the server clock.
   const passCode = useMemo(() => passFromSearch(location.search), []);
+  // The teacher in the world (?teach=<lesson id> from the console, TeacherBar.tsx): lesson room as role 'teacher'.
+  const teach = useMemo(() => teachFrom(location.search, browserStore()), []);
   const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
@@ -512,17 +516,19 @@ export function App(): React.ReactElement {
       // Lesson student token first, then the child's device token: an expired lesson token left in this tab answers
       // {room:null} and the device token still finds the family room in the same attempt.
       token: () => {
+        if (teach) return teach.token;
         const st = storedStudentToken();
         const id = identityRef.current;
         return [st && st.length >= 32 ? st : null, id?.kind === 'child' ? id.token : null];
       },
+      ...(teach ? { ticketBody: () => teachTicketBody(teach) } : {}),
       source: { pose: () => world.multiPose?.() ?? null },
       sink
     });
     room.start();
     (window as unknown as { __lcwRoom?: RoomClient }).__lcwRoom = room;
     return () => room.stop();
-  }, [world, identity?.kind]);
+  }, [world, identity?.kind, teach]);
 
   // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
   useEffect(() => {
@@ -634,7 +640,8 @@ export function App(): React.ReactElement {
           {/* the title screen holds the whole screen: the menu button and keys step aside like for a dialog */}
           <FrameLayer world={world} identity={identity} lessonOn={lessonOn} dialogOpen={dialogNpc !== null || startOpen} />
           {/* The title is the whole screen: no lesson-layer button over it (a ?code= address never opens the title). */}
-          {Lesson && !startOpen ? (
+          {world && teach ? <TeacherBar world={world} session={teach} /> : null}
+          {Lesson && !startOpen && !teach ? (
             <Lesson
               key={lessonKey}
               world={world}
@@ -681,7 +688,7 @@ export function App(): React.ReactElement {
               />
             </div>
           ) : null}
-          {MicGate && world && identity ? (
+          {MicGate && world && identity && !teach ? (
             <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null || startOpen} />
           ) : null}
           {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (

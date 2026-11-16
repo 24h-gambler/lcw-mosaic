@@ -60,6 +60,8 @@ export interface WorldStats {
 
 export interface WorldHandle {
   goToScene(id: SceneId): Promise<void>; // 걸어가거나 문을 지나는 연출 포함
+  /** Teacher in the world: stand two metres in front of the nearest person in the room (of a role); false = nobody placed. */
+  goNearPeer?(role?: string): Promise<boolean>;
   onNpcInteract(cb: (npc: NpcRef) => void): () => void; // E 키·탭으로 NPC에게 말 걸기
   npcSay(npcId: string, text: string, opts?: { possessed?: boolean }): void; // 말풍선(빙의 중엔 반짝임)
   playerSay(text: string): void;

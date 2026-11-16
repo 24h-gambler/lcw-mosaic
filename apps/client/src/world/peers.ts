@@ -50,20 +50,43 @@ export class PeerAvatars {
   constructor(
     private readonly scene: THREE.Scene,
     private readonly plateParent: HTMLElement,
-    private readonly look: (id: string) => NpcLook
+    private readonly look: (info: PeerInfo) => NpcLook,
+    private readonly plateOf: (info: PeerInfo) => string = (info) => info.name
   ) {}
 
   get count(): number {
     return this.peers.size;
   }
 
+  /** How many people with this role are in the room (a teacher in the world replaces the visiting-teacher figure). */
+  countRole(role: string): number {
+    let n = 0;
+    for (const rt of this.peers.values()) if (rt.info.role === role) n++;
+    return n;
+  }
+
+  /** Where the nearest placed person (of a role, if given) stands: for "학생 옆으로". */
+  nearest(me: THREE.Vector3, role?: string): { x: number; y: number; z: number; yaw: number } | null {
+    let best: PeerRt | null = null;
+    let bd = Infinity;
+    for (const rt of this.peers.values()) {
+      if (!rt.seen || (role !== undefined && rt.info.role !== role)) continue;
+      const d = rt.target.distanceTo(me);
+      if (d < bd) {
+        bd = d;
+        best = rt;
+      }
+    }
+    return best ? { x: best.target.x, y: best.target.y, z: best.target.z, yaw: best.targetYaw } : null;
+  }
+
   add(info: PeerInfo, pose?: readonly number[]): void {
     this.remove(info.id);
-    const char = new VoxelCharacter(this.look(info.id));
+    const char = new VoxelCharacter(this.look(info));
     this.scene.add(char.root);
     const plate = document.createElement('div');
     plate.className = 'lw-plate on';
-    plate.textContent = info.name;
+    plate.textContent = this.plateOf(info);
     plate.style.visibility = 'hidden';
     this.plateParent.appendChild(plate);
     const p = new THREE.Vector3(pose?.[0] ?? 0, pose?.[1] ?? 0, pose?.[2] ?? 0);

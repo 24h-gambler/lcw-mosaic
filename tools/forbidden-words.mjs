@@ -1,6 +1,6 @@
 // User-visible words the product never uses (docs/21-glossary.md, operator instruction 2026-11-16: "'게임'이라는 낱말을
-// 쓰면 안 됩니다"). Checked by tools/__tests__/forbidden-words.test.ts inside `pnpm test`, and on the live site by
-// tools/nightly-audit.mjs.
+// 쓰면 안 됩니다"). Checked by tools/__tests__/forbidden-words.test.ts inside `pnpm test`; `bannedIn` is also what a
+// live-site check should use.
 //
 // What counts as user-visible: every string literal, template piece and JSX text in the shipped sources (comments and
 // identifiers are not), plus the HTML entry pages and web manifests. Parsing goes through the TypeScript compiler so a
@@ -12,20 +12,39 @@ import ts from 'typescript';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Source folders whose strings reach a screen, a page, a push or a share preview. */
-export const SCAN_DIRS = ['apps/web/src', 'apps/client/src', 'apps/edge/src', 'packages/content/src', 'packages/ui/src'];
+/** Source folders whose strings reach a screen, a page, a push or a share preview: the three apps and every package. */
+export const SCAN_DIRS = [
+  'apps/web/src',
+  'apps/client/src',
+  'apps/edge/src',
+  ...(fs.existsSync(path.join(ROOT, 'packages'))
+    ? fs
+        .readdirSync(path.join(ROOT, 'packages'), { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => `packages/${d.name}/src`)
+    : [])
+];
+/** Scripts served as-is whose strings people read (the family push service worker titles its notifications). */
+export const SCAN_SCRIPTS = ['apps/web/public/family-sw.js'];
 /** Plain files served as-is (titles, meta tags, manifests). */
 export const SCAN_FILES = ['apps/web/index.html', 'apps/client/index.html', 'apps/web/public/family.webmanifest'];
 
 /**
- * The banned words. `ko` matches anywhere in a user-visible string. `en` matches as a whole word, but only in text that
- * reads as prose (has a space) so single-token identifiers passed as strings (`size: 'game'`, `'game-canvas-viewport'`)
- * stay legal. `path` catches the old /game URL, which users also see.
+ * The banned words. `ko` matches anywhere in a user-visible string (게임 and its short form 겜). `en` matches as a whole
+ * word (game, games, gaming, gamer, gameplay, minigame), but only in text that reads as prose (has a space) so
+ * single-token identifiers passed as strings (`size: 'game'`, `'game-canvas-viewport'`) stay legal; `enWord` catches a
+ * capitalised one-word label (`aria-label="Game"`, `title: 'Games'`), which is text people read, not an identifier.
+ * `path` catches the old /game URL anywhere in a string, absolute links included (`https://…/game/?code=`).
  */
 export const BANNED = [
-  { id: 'ko-game', ko: '게임', use: '월드 · 마을 · 놀이 · 플레이 (docs/21-glossary.md)' },
-  { id: 'en-game', en: /\bgames?\b/i, use: 'world · town · play (docs/21-glossary.md)' },
-  { id: 'path-game', path: /(^|[^A-Za-z0-9_-])\/game(?=[/?#'"`]|$)/, use: '/world/ (apps/edge/src/world-path.ts redirects /game/)' }
+  { id: 'ko-game', ko: /게임|겜/, use: '월드 · 마을 · 놀이 · 플레이 (docs/21-glossary.md)' },
+  {
+    id: 'en-game',
+    en: /\b(?:mini-?)?(?:games?|gaming|gamers?|gameplay)\b/i,
+    enWord: /^[\s"'([]*(?:Mini-?)?(?:Games?|Gaming|Gamers?|Gameplay|GAMES?)[\s"')\].,:;!?]*$/,
+    use: 'world · town · play (docs/21-glossary.md)'
+  },
+  { id: 'path-game', path: /\/game(?=[/?#'"`\s)]|$)/, use: '/world/ (apps/edge/src/world-path.ts redirects /game/)' }
 ];
 
 /**
@@ -98,8 +117,8 @@ function htmlPieces(code) {
 export function bannedIn(text, { prose = false } = {}) {
   const hits = [];
   for (const b of BANNED) {
-    if (b.ko && text.includes(b.ko)) hits.push(b.id);
-    if (b.en && b.en.test(text) && (prose || /\s/.test(text.trim()))) hits.push(b.id);
+    if (b.ko && b.ko.test(text)) hits.push(b.id);
+    if (b.en && b.en.test(text) && (prose || /\s/.test(text.trim()) || b.enWord.test(text))) hits.push(b.id);
     if (b.path && b.path.test(text)) hits.push(b.id);
   }
   return hits;
@@ -110,7 +129,7 @@ function allowed(file, id, text) {
 }
 
 /** All violations in the repository: { file, line, id, text, use }. */
-export function scanForbiddenWords({ dirs = SCAN_DIRS, files = SCAN_FILES } = {}) {
+export function scanForbiddenWords({ dirs = SCAN_DIRS, scripts = SCAN_SCRIPTS, files = SCAN_FILES } = {}) {
   const found = [];
   const check = (file, pieces) => {
     for (const p of pieces) {
@@ -120,7 +139,8 @@ export function scanForbiddenWords({ dirs = SCAN_DIRS, files = SCAN_FILES } = {}
       }
     }
   };
-  for (const f of dirs.flatMap(walkFiles)) check(f, visibleStrings(fs.readFileSync(path.join(ROOT, f), 'utf8'), f));
+  for (const f of [...dirs.flatMap(walkFiles), ...scripts.filter((f) => fs.existsSync(path.join(ROOT, f)))])
+    check(f, visibleStrings(fs.readFileSync(path.join(ROOT, f), 'utf8'), f));
   for (const f of files) {
     const abs = path.join(ROOT, f);
     if (fs.existsSync(abs)) check(f, htmlPieces(fs.readFileSync(abs, 'utf8')));

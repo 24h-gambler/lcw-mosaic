@@ -22,6 +22,8 @@ export const NON_HTML_CACHE = [
   // Content-hashed files (Vite assets, site captures) never change under one name: a year, no revalidation.
   ['/assets/*', 'public, max-age=31536000, immutable'],
   ['/world/assets/*', 'public, max-age=31536000, immutable'],
+  // Chunks of builds made before the move to /world/: a tab opened on /game/ before a deploy still loads them lazily.
+  ['/game/assets/*', 'public, max-age=31536000, immutable'],
   ['/media/*', 'public, max-age=31536000, immutable'],
   // Share pictures keep stable names (previewers cache by URL); a day is enough to pick up a re-capture.
   ['/og/*', 'public, max-age=86400'],

@@ -1,6 +1,7 @@
 // /game/ → /world/ (docs/21-glossary.md). Lesson links from the director console were `/game/?code=123456` until
 // 2026-11-16 and may sit in a chat or a bookmark, so the redirect must keep the whole query string.
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
 import type { LcwEnv } from '../platform.js';
 import { legacyWorldLocation, WORLD_PATH } from '../world-path.js';
@@ -24,8 +25,13 @@ describe('/game/ redirects to /world/ with the query intact', () => {
     expect(at('https://lcw/game/')).toBe('/world/');
     expect(at('https://lcw/game')).toBe('/world/');
     expect(at('https://lcw/game/?pass=ab-12&scene=honey_cafe&tier=high')).toBe('/world/?pass=ab-12&scene=honey_cafe&tier=high');
-    expect(at('https://lcw/game/assets/index-abc.js')).toBe('/world/assets/index-abc.js');
     expect(at('https://lcw/game/?q=%ED%95%9C%EA%B8%80')).toBe('/world/?q=%ED%95%9C%EA%B8%80');
+  });
+
+  it('leaves the old build chunks under /game/assets/ to the asset folder (a tab opened before a deploy still needs them)', () => {
+    expect(legacyWorldLocation(new URL('https://lcw/game/assets/DialogPanel-OLDHASH.js'))).toBeNull();
+    const toml = readFileSync(new URL('../../wrangler.toml', import.meta.url), 'utf8');
+    expect(toml).toContain('"!/game/assets/*"');
   });
 
   it('leaves other paths alone (no /games, /gamer, /world)', () => {

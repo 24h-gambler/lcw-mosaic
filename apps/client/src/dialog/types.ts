@@ -114,6 +114,8 @@ export interface DialogPanelProps {
   fontScale?: number;
   /** false hides the sentence voice buttons (memory-card reviews from the 1-day box on, docs/03 D8). */
   listen?: boolean;
+  /** The NPC's voice and face from another ctx than `npc.ctx` (the errand giver pointing the way, dialog/errand.ts). */
+  voiceCtx?: string;
   /** Test/preview seam: replaces the browser speech engine. */
   speech?: import('./speech.js').SpeechEngine;
   /** The guardian turned voice_store on (device /v1/device/me or lesson /v1/join): record spoken turns for replay. */

@@ -9,6 +9,7 @@ import { micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
 import type { SpeechEngine } from './speech.js';
 import { createDialogSpeechEngine } from './server-stt.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
+import { currentGoal, goalLine, goalWalkLabel, onGoalChange, type GoalDef } from './goals.js';
 
 /**
  * docs/08 G15 첫 접속 안내: mic check -> move -> first order within 3 minutes (docs/01 활성화, docs/09 첫 문장까지
@@ -55,6 +56,8 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
   const token = readStudentToken() || props.player?.deviceToken || '';
   const [intro, setIntro] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  /** The errand is behind the child (done and its reward line shown): the town goals take the goal line (R2625). */
+  const [errandOver, setErrandOver] = useState(false);
   const lastState = useRef<string | null>(null);
   /** State of the last full view fetched; a dialog that moved the errand only reports the new state. */
   const fetchedState = useRef<string | null>(null);
@@ -90,20 +93,25 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
     if (hidden) return;
     world.setGoal(errandGoalKo(errand));
     if (errand.state === 'done') {
-      if (prev && prev !== 'done') {
-        setToast(F.rewardToast.replace('{coins}', String(errand.reward_coins || 50)));
-        playSfx('coin.drop');
+      // done on an earlier visit: straight to the town goals
+      if (!prev || prev === 'done') {
+        setErrandOver(true);
+        return undefined;
       }
+      setToast(F.rewardToast.replace('{coins}', String(errand.reward_coins || 50)));
+      playSfx('coin.drop');
       const id = setTimeout(() => {
-        world.setGoal('');
         setToast(null);
+        setErrandOver(true);
       }, 5000);
       return () => clearTimeout(id);
     }
     return undefined;
   }, [errand, world, hidden]);
 
-  if (!token || !errand) return null;
+  // Guests have no errand (it needs a linked device): they start on the town goals at once.
+  if (!token || errandOver) return <TownGoals world={world} hidden={hidden} />;
+  if (!errand) return null;
   if (intro && !hidden) {
     return (
       <IntroCard
@@ -139,52 +147,129 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
             if (walk.npcId && world.walkToNpc) void world.walkToNpc(walk.npcId);
             else void world.goToScene(walk.scene);
           }}
-          style={{
-            position: 'absolute',
-            left: 12,
-            // above the world's controls line (hud .lw-help: bottom 80px on a desktop, 96px under 600px, ~26px tall),
-            // which it covered at bottom 96 on a 1440 screen (frame lane, 11-16)
-            bottom: 132,
-            minHeight: S.touchTargetMinPx,
-            padding: '8px 14px',
-            background: C['paper-0'],
-            color: C['ink-900'],
-            border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
-            borderRadius: S.radiusButtonPx,
-            boxShadow: S.shadowDefault,
-            fontFamily: T.fonts.ui,
-            fontWeight: 800,
-            fontSize: T.scale.body.sizePx,
-            pointerEvents: 'auto',
-            cursor: 'pointer'
-          }}
+          style={WALK_STYLE}
         >
           {walk.label}
         </button>
       ) : null}
       {toast ? (
-        <div
-          role="status"
-          className="lcw-errand-toast"
-          style={{
-            position: 'absolute',
-            left: '50%',
-            // under the goal line, which wraps to two lines on a phone (about 125px tall there)
-            top: 150,
-            transform: 'translateX(-50%)',
-            background: C.sun,
-            color: C['ink-900'],
-            border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
-            borderRadius: S.radiusCardPx,
-            boxShadow: S.shadowDefault,
-            padding: '8px 16px',
-            whiteSpace: 'nowrap',
-            fontFamily: T.fonts.ui,
-            fontWeight: 800,
-            fontSize: T.scale.body.sizePx
-          }}
-        >
+        <div role="status" className="lcw-errand-toast" style={TOAST_STYLE}>
           🪙 {toast}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+const WALK_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  left: 12,
+  // above the world's controls line (hud .lw-help: bottom 80px on a desktop, 96px under 600px, ~26px tall),
+  // which it covered at bottom 96 on a 1440 screen (frame lane, 11-16)
+  bottom: 132,
+  minHeight: S.touchTargetMinPx,
+  padding: '8px 14px',
+  background: C['paper-0'],
+  color: C['ink-900'],
+  border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
+  borderRadius: S.radiusButtonPx,
+  boxShadow: S.shadowDefault,
+  fontFamily: T.fonts.ui,
+  fontWeight: 800,
+  fontSize: T.scale.body.sizePx,
+  pointerEvents: 'auto',
+  cursor: 'pointer'
+};
+
+const TOAST_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  left: '50%',
+  // under the goal line, which wraps to two lines on a phone (about 125px tall there)
+  top: 150,
+  transform: 'translateX(-50%)',
+  background: C.sun,
+  color: C['ink-900'],
+  border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
+  borderRadius: S.radiusCardPx,
+  boxShadow: S.shadowDefault,
+  padding: '8px 16px',
+  whiteSpace: 'nowrap',
+  fontFamily: T.fonts.ui,
+  fontWeight: 800,
+  fontSize: T.scale.body.sizePx
+};
+
+/** The world's goal marker (world lane, 11-16): the NPC the goal points at gets a '!' and the talk prompt. */
+function setGoalNpc(world: WorldHandle, id: string | null): void {
+  (world as { setGoalNpc?: (id: string | null) => void }).setGoalNpc?.(id);
+}
+
+/**
+ * The town goals after the errand (dialog/goals.ts, R2625): the goal line, the '!' over the NPC to find, a walk
+ * button there, and a toast when a step is done. Hidden while a lesson or a dialog window is on screen; it puts its
+ * goal back when they close (the lesson clears the marker when it ends, this sets it again for solo play).
+ */
+export function TownGoals(props: { world: WorldHandle | null; hidden?: boolean }): React.ReactElement | null {
+  const { world, hidden } = props;
+  const [goal, setGoalState] = useState<GoalDef | null>(() => currentGoal());
+  const [toast, setToast] = useState<string | null>(null);
+  /** The tour ended in this visit: its "seen the whole town" line stays up with the toast. */
+  const [tourDone, setTourDone] = useState(false);
+  useEffect(
+    () =>
+      onGoalChange((next, finished) => {
+        setGoalState(next);
+        if (!finished) return;
+        setToast(next ? F.goalStepToast : F.goalTourDone);
+        if (!next) setTourDone(true);
+        playSfx('coin.drop');
+      }),
+    []
+  );
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => {
+      setToast(null);
+      if (tourDone) {
+        setTourDone(false);
+        world?.setGoal('');
+      }
+    }, 5000);
+    return () => clearTimeout(id);
+  }, [toast, tourDone, world]);
+  useEffect(() => {
+    if (!world || hidden) return;
+    if (goal) {
+      world.setGoal(goalLine(goal));
+      setGoalNpc(world, goal.npcId);
+    } else if (tourDone) {
+      world.setGoal(F.goalTourDone);
+      setGoalNpc(world, null);
+    }
+  }, [world, goal, hidden, tourDone]);
+  if (hidden) return null;
+  return (
+    <>
+      {goal && world ? (
+        <button
+          type="button"
+          className="lcw-errand-walk lcw-goal-walk"
+          data-goal={goal.id}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            unlockDialogAudio();
+            playSfx('ui.click');
+            if (world.walkToNpc) void world.walkToNpc(goal.npcId);
+            else void world.goToScene(goal.scene);
+          }}
+          style={WALK_STYLE}
+        >
+          {goalWalkLabel(goal)}
+        </button>
+      ) : null}
+      {toast ? (
+        <div role="status" className="lcw-errand-toast lcw-goal-toast" style={TOAST_STYLE}>
+          ⭐ {toast}
         </div>
       ) : null}
     </>

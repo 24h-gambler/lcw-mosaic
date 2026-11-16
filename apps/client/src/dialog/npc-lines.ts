@@ -1,6 +1,7 @@
 import { NPC_GENERIC_REACTIONS, NPC_OPENING_LINES, NPC_REVISIT_LINES, UI_STRINGS_EN, UI_STRINGS_KO } from '@lcw/content';
 import { evaluateOpenEndedAnswer, pickOpenEndedPrompt, shouldTriggerOpenEndedQuestion } from '@lcw/converse';
-import type { DialogResult, Level, UtteranceSubmit } from './types.js';
+import { noteSoloResult } from './goals.js';
+import type { DialogResult, Level, NpcRef, UtteranceSubmit } from './types.js';
 
 /**
  * What a solo NPC says, visit by visit (R2625, Dan 11-16: "계속 반복되는 말만 나와서"). The first visit hears the NPC's
@@ -69,6 +70,26 @@ export function createOpenAnswerScorer(ctx: string, level: Level): (u: Utterance
     const reaction = NPC_GENERIC_REACTIONS[k++ % NPC_GENERIC_REACTIONS.length]!;
     return { pass: true, stars: Math.min(3, Math.max(1, Math.floor(r.targetWordCount / 3))), feedbackKo: UI_STRINGS_KO.dialog.openAnswerOk, feedbackEn: reaction };
   };
+}
+
+/** What a plain solo window says (no errand step, no lesson): taken once when the window opens (App). */
+export interface SoloTalkPlan {
+  npcLine: string;
+  followUps?: string[];
+  followUpSubmit?: (u: UtteranceSubmit) => Promise<DialogResult>;
+}
+
+export function soloTalkPlan(npc: NpcRef, level: Level): SoloTalkPlan {
+  const npcLine = nextOpeningLine(npc.id, npc.ctx);
+  const q = openQuestionForNextTalk();
+  return q ? { npcLine, followUps: [q], followUpSubmit: createOpenAnswerScorer(npc.ctx, level) } : { npcLine };
+}
+
+/** A solo window finished: the talk count (open questions) and the town goal chain (goals.ts) move on a pass. */
+export function noteSoloDone(npcCtx: string, r: { pass: boolean; stars: number }): void {
+  if (!r.pass) return;
+  noteSoloTalkPassed();
+  noteSoloResult(npcCtx, r);
 }
 
 /** Test seam. */

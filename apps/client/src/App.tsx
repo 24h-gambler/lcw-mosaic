@@ -31,10 +31,16 @@ export interface DialogConfig {
   offers?: Array<{ stars: 1 | 2 | 3; text: string; hintTags: string[] }>;
   hint?: 'full' | 'keyword' | 'initial' | 'picture' | 'none';
   submit?: (u: unknown) => Promise<DialogResultLike>;
-  onDone?: (r: DialogResultLike) => void;
+  /** `info.followUpsDone`: the window asked all its `followUps` (dialog/types.ts DialogDoneInfo, R2625). */
+  onDone?: (r: DialogResultLike, info?: { followUpsDone: boolean }) => void;
   onClose?: () => void;
   /** The NPC's opening line in the window (a lesson stage's script); absent = the NPC's own greeting. */
   npcLine?: string;
+  /** What the NPC asks next in the same window after a pass (a lesson stage's follow-ups, a solo open question). */
+  followUps?: readonly string[];
+  followUpSubmit?: (u: unknown) => Promise<DialogResultLike>;
+  /** Voice and face of another ctx (the errand giver pointing the way). */
+  voiceCtx?: string;
 }
 
 export interface DialogResultLike {
@@ -63,6 +69,7 @@ interface ErrandDialogLike {
   npc: NpcRef;
   offers: NonNullable<DialogConfig['offers']>;
   npcLine: string;
+  voiceCtx?: string;
 }
 interface FirstVisitModule {
   /** docs/08 G15 first-visit guide + the 1-minute errand's goal and way (dialog domain). */
@@ -154,6 +161,10 @@ interface DialogModule {
   DialogPanel?: AnyComponent;
   /** Second argument: the linked child's device token and level, when there is one (guest otherwise). */
   createSoloSubmit?: (npc: NpcRef, player?: SoloPlayer) => (u: unknown) => Promise<DialogResultLike>;
+  /** A plain solo window's line (visit by visit) and its open question, taken once per opened window (R2625). */
+  soloTalkPlan?: (npc: NpcRef, level: Level) => { npcLine: string; followUps?: string[]; followUpSubmit?: (u: unknown) => Promise<DialogResultLike> };
+  /** A solo window finished: moves the town goal chain and the talk count (dialog/npc-lines.ts). */
+  noteSoloDone?: (npcCtx: string, r: DialogResultLike) => void;
 }
 interface ReviewModule {
   /** Review signs of the child's memory cards (dialog domain, docs/03 D8). */
@@ -294,10 +305,10 @@ function DialogHost(props: {
   // The panel reports the window's best result once it is finished (완료, or ✕/Esc after a pass, docs/19 3장), and
   // then never calls onClose; the window ends here so a passed solo dialog can close (lesson hosts ignore onClose).
   const onDone = useCallback(
-    (r: DialogResultLike) => {
+    (r: DialogResultLike, info?: { followUpsDone: boolean }) => {
       last.current = r;
       play(r);
-      cfg.onDone?.(r);
+      cfg.onDone?.(r, info);
       onClose(r);
     },
     [play, cfg, onClose]
@@ -358,6 +369,9 @@ function DialogHost(props: {
       offers={cfg.offers ?? []}
       hint={cfg.hint ?? 'full'}
       {...(cfg.npcLine ? { npcLine: cfg.npcLine } : {})}
+      {...(cfg.followUps ? { followUps: cfg.followUps } : {})}
+      {...(cfg.followUpSubmit ? { followUpSubmit: cfg.followUpSubmit } : {})}
+      {...(cfg.voiceCtx ? { voiceCtx: cfg.voiceCtx } : {})}
       submit={submit}
       onDone={onDone}
       onResult={play}
@@ -395,6 +409,7 @@ export function App(): React.ReactElement {
   const [errand, setErrand] = useState<ErrandLike | null>(null);
   // The errand shape of a solo dialog is fixed when its window opens (a step it moves must not swap its sentences).
   const errandDialog = useRef<{ npc: NpcRef | null; ed: ErrandDialogLike | null }>({ npc: null, ed: null });
+  const soloPlan = useRef<{ npc: NpcRef | null; plan: ReturnType<NonNullable<DialogModule['soloTalkPlan']>> | null }>({ npc: null, plan: null });
   const [failed, setFailed] = useState(false);
   const [identity, setIdentity] = useState<PlayerIdentity | null>(null);
   const [tooSlow, setTooSlow] = useState(false);
@@ -633,6 +648,15 @@ export function App(): React.ReactElement {
   }
   const ed = errandDialog.current.ed;
   const dialogNpc = ed?.npc ?? soloNpc;
+  // R2625: a plain solo window opens with this visit's line (not the same greeting every time) and, every fifth talk,
+  // asks one open question after the pass (docs/04 4.10). Taken once per opened window.
+  if (soloPlan.current.npc !== soloNpc) {
+    soloPlan.current = {
+      npc: soloNpc,
+      plan: soloNpc && !ed && dialogMod?.soloTalkPlan ? dialogMod.soloTalkPlan(soloNpc, soloLevel ?? 'L1') : null
+    };
+  }
+  const plan = soloPlan.current.plan;
   const soloSubmit = dialogNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(dialogNpc, soloPlayerOf(identity)) : null;
   // docs/03 D13: while the room lacks a kind of furniture (or the child just read it aloud), Toby sells that kind.
   const shopKind = room?.missing[0] ?? readKind;
@@ -641,8 +665,10 @@ export function App(): React.ReactElement {
   const soloCfg: DialogConfig = {
     ...(soloLevel ? { level: soloLevel } : {}),
     ...(shopOffers.length > 0 ? { offers: shopOffers } : {}),
-    ...(ed ? { offers: ed.offers, npcLine: ed.npcLine } : {}),
+    ...(plan ? { npcLine: plan.npcLine, ...(plan.followUps ? { followUps: plan.followUps } : {}), ...(plan.followUpSubmit ? { followUpSubmit: plan.followUpSubmit } : {}) } : {}),
+    ...(ed ? { offers: ed.offers, npcLine: ed.npcLine, ...(ed.voiceCtx ? { voiceCtx: ed.voiceCtx } : {}) } : {}),
     onDone: (r) => {
+      if (dialogNpc) dialogMod?.noteSoloDone?.(dialogNpc.ctx, r);
       const step = r.errand;
       if (step) setErrand((prev) => (prev && prev.state !== step.state ? { ...prev, state: step.state } : prev));
       // handed over: the server already moved the drink out of the bag (given); the hand and slot follow
@@ -722,7 +748,8 @@ export function App(): React.ReactElement {
           {MicGate && world && identity && !teach ? (
             <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null || startOpen} />
           ) : null}
-          {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (
+          {/* children run the errand, then the town goals; guests (no errand) start on the town goals (dialog/goals.ts) */}
+          {FirstVisit && (identity?.kind === 'child' || (identity?.kind === 'guest' && !passToken)) && !soloBlocked ? (
             <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null || startOpen} />
           ) : null}
           {world && !soloBlocked && SoloPanel && soloNpc && dialogNpc && soloSubmit ? (
@@ -732,7 +759,7 @@ export function App(): React.ReactElement {
               npc={dialogNpc}
               cfg={soloCfg}
               submit={soloSubmit}
-              onClose={(last) => closeSolo(soloNpc, last)}
+              onClose={(last) => closeSolo(dialogNpc, last)}
               recordClip={recordClipFor(identity)}
             />
           ) : null}

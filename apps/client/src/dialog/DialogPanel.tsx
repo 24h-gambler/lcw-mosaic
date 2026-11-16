@@ -35,6 +35,7 @@ import { FRAME_STRINGS } from '../frame/strings.js';
 
 export type { DialogOffer, DialogPanelProps, DialogResult, NpcRef, UtteranceSubmit } from './types.js';
 export { createLessonSubmit, createSoloSubmit, createSoloSubmitWith } from './submit.js';
+export { noteSoloDone, soloTalkPlan } from './npc-lines.js';
 
 const S = live('dialog');
 const SK = ko('dialog');
@@ -191,14 +192,14 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const npcLine = followTurn ? followUps?.[turn - 1] ?? openLine : openLine;
 
   // Voices from the cast pack: the NPC speaks in its own, the child's sentences are read in the model voice.
-  const npcVoice = voiceForCtx(npc.ctx);
+  const npcVoice = voiceForCtx(props.voiceCtx ?? npc.ctx);
   const modelVoice = npcCast().modelVoice;
   // NPC asks on open (docs/12: the mic only opens after the NPC line ends — a tap on the mic cuts the voice first).
   useEffect(() => {
     void speakEnglish(npcLine, level, npcVoice);
     return () => stopSpeaking();
-    // npcVoice follows npc.ctx
-  }, [npcLine, level, npc.ctx]);
+    // npcVoice follows npc.ctx / voiceCtx
+  }, [npcLine, level, npc.ctx, props.voiceCtx]);
   // The offers' model sentences are fetched once the NPC line is in (it goes first: four parallel new lines took
   // 1.2-1.7 s each against ~0.6 s alone, measured 11-16), so a 🔊 tap plays at once.
   useEffect(() => {
@@ -559,7 +560,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       <div className="lcw-dlg__win">
         <section className="lcw-dlg__side">
           <div className="lcw-dlg__npc">
-            <div className="lcw-dlg__avatar" aria-hidden="true">{npcImg ? <img src={npcImg} alt="" /> : NPC_EMOJI[npc.ctx] ?? '🙂'}</div>
+            <div className="lcw-dlg__avatar" aria-hidden="true">{npcImg ? <img src={npcImg} alt="" /> : NPC_EMOJI[props.voiceCtx ?? npc.ctx] ?? '🙂'}</div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className="lcw-dlg__name">{learnLang() !== 'en' ? `${npc.nameKo} · ${npc.nameEn}` : helpKoOn() ? `${npc.nameEn} · ${npc.nameKo}` : npc.nameEn}</div>
               <div className="lcw-dlg__bubble" lang="en">
@@ -591,7 +592,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               </>
             ) : (
               <div className="lcw-dlg__pics lcw-dlg__face" aria-hidden="true">
-                {npcImg ? <img className="lcw-dlg__item3d" src={npcImg} alt="" /> : <span>{NPC_EMOJI[npc.ctx] ?? '🙂'}</span>}
+                {npcImg ? <img className="lcw-dlg__item3d" src={npcImg} alt="" /> : <span>{NPC_EMOJI[props.voiceCtx ?? npc.ctx] ?? '🙂'}</span>}
               </div>
             )}
           </div>

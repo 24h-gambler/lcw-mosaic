@@ -1103,7 +1103,9 @@ export const NPC_REVISIT_LINES: Record<string, readonly string[]> = {
   guide: ['Hi again! Where do you want to go this time?', 'Hello! Do you need help finding a place?', 'You are back! Where should we go now?'],
   makers_lab: ['Welcome back! What should I build for you this time?'],
   boutique: ['Hi again! What do you want to wear this time?'],
-  exchange: ['Welcome back! What do you want to sell this time?']
+  exchange: ['Welcome back! What do you want to sell this time?'],
+  /** The errand giver once no errand runs (done, or a guest): she points the way like the guide (dialog/errand.ts). */
+  errand: ['Hi again! Where do you want to go next?', 'Hello, friend! Do you want to visit the trade shop or the cafe?', 'Hi! Do you need help finding a place?']
 };
 
 export const OPEN_ENDED_PROMPTS = [

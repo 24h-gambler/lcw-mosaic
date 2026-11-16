@@ -30,6 +30,8 @@ export interface PendingSignup {
   match?: { player_id: string; nickname: string } | null;
   /** No match because two or more teacher-made students have this name: the teacher picks. */
   match_ambiguous?: boolean;
+  /** The match is the signing family's own child (added after the sign-up). */
+  match_own_family?: boolean;
   /** A student with a guardian has this name now (after the sign-up): not as a new student; link or reject. */
   name_taken?: boolean;
   /** The student with a guardian who holds the name now (not linkable: player_has_guardian). */

@@ -371,6 +371,15 @@ export class ChunkRenderer {
     return n;
   }
 
+  /** Swaps the block materials on every mesh (a tier change between the fast and the lit material). */
+  setMaterials(m: ChunkMaterials): void {
+    this.materials = m;
+    for (const r of this.regions.values()) {
+      if (r.opaque) r.opaque.material = m.opaque;
+      if (r.translucent) r.translucent.material = m.translucent;
+    }
+  }
+
   setShadows(on: boolean): void {
     this.castShadows = on;
     for (const r of this.regions.values()) {

@@ -265,7 +265,7 @@ export class LessonController {
       }
       throw e;
     }
-    const result: DialogResult = { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, coinsTotal: r.coins_total };
+    const result: DialogResult = { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, ...(r.feedback_en ? { feedbackEn: r.feedback_en } : {}), coinsTotal: r.coins_total };
     // An answer that lands after "나가기", a new code or stop belongs to a lesson this screen no longer shows: the
     // panel still gets its result, the HUD chips do not move.
     if (run !== this.run || this.session !== s) return result;

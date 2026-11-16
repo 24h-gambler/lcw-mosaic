@@ -203,10 +203,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // ---- Renderer.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: tier.antialias, powerPreference: 'high-performance', alpha: false });
   const basePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-  // G14 화면 설정 over the start tier (setGraphics changes these live). Antialias, block material and particle cap
-  // stay what the world started with; shadows need the lit material, so only a world started on high can show them.
+  // G14 화면 설정 over the start tier (setGraphics changes these live). Antialias and the particle cap stay what the
+  // world started with; the block material follows the tier (high or shadows on: lit, else fast), so shadows come and go
+  // with a tier change or the shadow switch on any world (applyGraphics swaps the chunk materials).
   let tierName: WorldTier = opts.tier;
-  const canShadow = tier.material === 'lit';
+  const canShadow = true;
   let gfxReq: GraphicsSettings = opts.graphics ?? { quality: opts.tier, viewChunks: null, shadows: null, renderScale: null };
   if (gfxReq.quality !== 'auto') tierName = gfxReq.quality;
   let gfx = graphicsFor(tierName, gfxReq, canShadow);
@@ -223,7 +224,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const sky = new Sky(scene, viewDistance);
   const skyDefaultHour = sky.hour;
   sky.clouds.visible = gfx.clouds;
-  if (canShadow) {
+  {
     sky.sun.castShadow = gfx.shadows;
     sky.sun.shadow.mapSize.set(2048, 2048);
     const c = sky.sun.shadow.camera;
@@ -250,7 +251,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   atlas.colorSpace = THREE.SRGBColorSpace;
   atlas.needsUpdate = true;
   mark('atlas');
-  const chunkMats = makeBlockMaterials(atlas, tier.material);
+  /** Block materials per mode, made once each (a tier change swaps them on every chunk mesh). */
+  const matsByMode: Partial<Record<'fast' | 'lit', ReturnType<typeof makeBlockMaterials>>> = {};
+  const matsFor = (mode: 'fast' | 'lit') => (matsByMode[mode] ??= makeBlockMaterials(atlas, mode));
+  const materialModeOf = (t: WorldTier, shadows: boolean): 'fast' | 'lit' => (t === 'high' || shadows ? 'lit' : 'fast');
+  let chunkMats = matsFor(materialModeOf(tierName, gfx.shadows));
   const workerCount = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
   const chunks = new ChunkRenderer(world, chunkMats, workerCount, () =>
     new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module' })
@@ -541,6 +546,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   };
   const openChest = (): void => {
     if (!buildHud) return;
+    // the chest is the host's on a guest pass (docs/19 §8): say so instead of showing it
+    if (builder.guestCells) {
+      sayReason('not_yours');
+      return;
+    }
     sfx.play('ui.open');
     buildHud.openChest(builder.inv, hud.selectedSlot);
   };
@@ -927,7 +937,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
     travel = (async () => {
       const pts = pathTo(target);
-      hud.setScene(SCENE_TITLES_KO[target]);
+      hud.setScene(sceneTitle(target));
       if (pts && !reduceMotion) {
         placeNpcForScene(target, true);
         autopilot = pts;
@@ -944,7 +954,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         const spot = SCENES[target].player;
         if (Math.hypot(body.x - spot.x, body.z - spot.z) > 1.5) {
           sfx.play('wld.door');
-          await hud.fadeTo(SCENE_TITLES_KO[target], arriveBehindFade(target));
+          await hud.fadeTo(sceneTitle(target), arriveBehindFade(target));
         } else {
           // settle on the exact spot and facing
           playerYaw = SCENES[target].player.yaw;
@@ -954,7 +964,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         }
       } else {
         sfx.play('wld.door');
-        await hud.fadeTo(SCENE_TITLES_KO[target], arriveBehindFade(target));
+        await hud.fadeTo(sceneTitle(target), arriveBehindFade(target));
       }
       currentScene = target;
     })();
@@ -1131,6 +1141,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       viewDistance = viewChunks * 16;
       sky.setViewDistance(viewDistance);
     }
+    const mode = materialModeOf(tierName, next.shadows);
+    if (mode !== chunkMats.mode) {
+      chunkMats = matsFor(mode);
+      chunks.setMaterials(chunkMats);
+    }
     if (next.shadows !== gfx.shadows) {
       renderer.shadowMap.enabled = next.shadows;
       sky.sun.castShadow = next.shadows;
@@ -1157,7 +1172,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     const want = builder.inPlot(body.x, body.z) && !paused && autopilot.length === 0;
     if (want !== buildActive) {
       buildActive = want;
-      buildHud?.setActive(want, touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
+      const guest = !!builder.guestCells;
+      buildHud?.setActive(want, guest ? (touch ? W.buildHelpGuestTouch : W.buildHelpGuestDesktop) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
       buildHud?.setSync(buildAccess === 'saved' ? (plotSync?.status === 'offline' ? 'offline' : plotSync && plotSync.pending > 0 ? 'saving' : 'saved') : buildAccess === 'loading' ? 'loading' : buildAccess === 'local' ? 'local' : 'idle');
       if (want) refreshBuildSlots();
       else {
@@ -1209,11 +1225,21 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
   }
 
+  /** The HUD place name: the plot is the friend's on a guest pass. */
+  const sceneTitle = (id: SceneId): string => (id === 'build_plot' && builder.guestCells ? W.friendPlot : SCENE_TITLES_KO[id]);
+
   const startBuildAccess = (a: BuildAccess): void => {
     plotSync?.stop();
     plotSync = null;
-    buildToken = a.kind === 'saved' && !a.lesson ? { token: a.token, base: a.base } : null;
-    buildHud?.setShowroomVisible(a.kind === 'saved' && !a.lesson);
+    const own = a.kind === 'saved' && !('lesson' in a && a.lesson) && !('pass' in a && a.pass);
+    // a friend on a guest pass: place freely, break only their own cells, leave the chest and slots alone
+    builder.guestCells = a.kind === 'saved' && 'pass' in a && a.pass ? new Set() : null;
+    if (currentScene === 'build_plot') hud.setScene(sceneTitle(currentScene));
+    // the help line follows who owns the plot (shown again on the next entry)
+    if (buildActive) buildHud?.setActive(true, builder.guestCells ? (touch ? W.buildHelpGuestTouch : W.buildHelpGuestDesktop) : touch ? W.buildHelpTouch : W.buildHelpDesktop);
+    buildToken = own ? { token: a.token, base: a.base } : null;
+    // the showroom is the plot owner's (a lesson student's and a guest's never)
+    buildHud?.setShowroomVisible(own);
     if (a.kind === 'paused') {
       buildAccess = 'paused';
       builder.access = 'paused';
@@ -1232,6 +1258,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (buildActive) buildHud?.setSync('loading');
     const sync = new PlotSync({
       token: a.token,
+      pass: 'pass' in a && a.pass === true,
       base: a.base,
       store: browserStore(),
       onResync: (snap) => builder.applySnapshot(snap),
@@ -1240,7 +1267,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       },
       onDenied: (kind) => {
         if (plotSync !== sync) return;
-        if (kind === 'paused' && !a.lesson) {
+        // a guest pass ran out (410) or the host's seat stopped: the friend may still look until /guest-end, never build
+        // on this device as if the host's plot were theirs
+        const passOver = 'pass' in a && a.pass === true;
+        if (passOver || (kind === 'paused' && !('lesson' in a && a.lesson))) {
           // the seat stopped while playing: look, don't build (plot-sync already told the shell, world/seat.ts)
           buildAccess = 'paused';
           builder.access = 'paused';
@@ -1881,6 +1911,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       },
       full() {
         hud.bubble('player', '', W.roomFull, { me: true }, performance.now());
+      },
+      replaced() {
+        hud.bubble('player', '', W.roomReplaced, { me: true }, performance.now());
       },
       reset() {
         peers.clear();

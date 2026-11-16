@@ -35,6 +35,7 @@ const WORLD_STRINGS_KO = {
   loading: '마을을 짓는 중…',
   /** multi room at capacity (docs/03 D11, server room.ts 4003) */
   roomFull: '방이 가득 찼어요. 조금 뒤에 다시 들어가 볼게요',
+  roomReplaced: '다른 창에서 월드를 열었어요. 이 창으로 돌아오면 다시 같이 놀아요',
   loadingHint: '잠깐만요, 블록을 하나씩 쌓고 있어요',
   talk: '말 걸기',
   talkKey: 'E',
@@ -84,6 +85,10 @@ const WORLD_STRINGS_KO = {
   // Building on my plot (docs/03 D13).
   buildHelpDesktop: '내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · Z 되돌리기 · R 돌리기',
   buildHelpTouch: '내 부지예요! 톡 누르면 놓기 · 부수기를 고르고 길게 누르기',
+  // A friend on a guest pass in the host's plot (docs/19 §8).
+  friendPlot: '친구 부지',
+  buildHelpGuestDesktop: '친구 부지예요! 오른쪽 클릭 놓기 · 내가 놓은 것만 왼쪽 길게 눌러 부수기 · 1~5 고르기 · Z 되돌리기',
+  buildHelpGuestTouch: '친구 부지예요! 톡 누르면 놓기 · 내가 놓은 것만 부수기',
   toolPlace: '놓기',
   toolBreak: '부수기',
   chest: '상자',
@@ -121,6 +126,7 @@ const WORLD_STRINGS_KO = {
 const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   loading: 'Building your town…',
   roomFull: 'The room is full. We will try again soon',
+  roomReplaced: 'The world is open in another window. Come back here to play together again',
   loadingHint: 'Just a moment, stacking the blocks one by one',
   talk: 'Talk',
   talkKey: 'E',
@@ -167,6 +173,9 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   controlsTouch: 'Drag left to move · Drag right to look',
   buildHelpDesktop: 'Your plot! Right-click place · Hold left-click break · 1-5 pick · Z undo · R rotate',
   buildHelpTouch: 'Your plot! Tap to place · Pick break and hold',
+  friendPlot: "Friend's Plot",
+  buildHelpGuestDesktop: "Your friend's plot! Right-click place · Hold left-click to break what you placed · 1-5 pick · Z undo",
+  buildHelpGuestTouch: "Your friend's plot! Tap to place · Break only what you placed",
   toolPlace: 'Place',
   toolBreak: 'Break',
   chest: 'Chest',
@@ -242,7 +251,9 @@ const BUILD_REASONS_KO_SRC: Readonly<Record<string, string>> = {
   far: '너무 멀어요 · 가까이 가요',
   self: '내가 서 있는 자리예요',
   paused: '지금은 혼자 놀기가 쉬는 중이에요',
-  loading: '내 부지를 불러오는 중이에요'
+  loading: '내 부지를 불러오는 중이에요',
+  not_yours: '친구 땅이에요 · 내가 놓은 것만 부술 수 있어요',
+  pass_over: '친구 집 놀러 가기가 끝났어요'
 };
 const BUILD_REASONS_KO_EN: Readonly<Record<string, string>> = {
   not_my_plot: 'You can build only on your plot',
@@ -262,7 +273,9 @@ const BUILD_REASONS_KO_EN: Readonly<Record<string, string>> = {
   far: 'Too far · Move closer',
   self: "You're standing there",
   paused: 'Free play is resting for now',
-  loading: 'Loading your plot'
+  loading: 'Loading your plot',
+  not_yours: "It's your friend's land · You can break only what you placed",
+  pass_over: 'Your visit is over'
 };
 export const BUILD_REASONS_KO = biTable(BUILD_REASONS_KO_EN, BUILD_REASONS_KO_SRC);
 

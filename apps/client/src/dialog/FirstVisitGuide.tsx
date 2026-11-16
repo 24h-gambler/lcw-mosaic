@@ -1,5 +1,6 @@
+import { MIC_STATUS_KEY as LIVE_MIC_STATUS_KEY } from './mic-status.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { UI_STRINGS_KO } from '@lcw/content';
+import { live } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
 import { errandGiverNameKo, errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
@@ -16,7 +17,7 @@ import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
  * guardian" note are shown once (docs/12 3·4장). The server owns the errand; this screen shows the step and the way.
  */
 
-const F = UI_STRINGS_KO.firstVisit;
+const F = live('firstVisit');
 /** The world's errand giver at the honey cafe door (town.ts `errand_neighbor`). */
 export const ERRAND_GIVER_NPC_ID = 'errand_neighbor';
 const SEEN_KEY = 'lcw.firstVisitSeen';
@@ -141,7 +142,9 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
           style={{
             position: 'absolute',
             left: 12,
-            bottom: 96,
+            // above the world's controls line (hud .lw-help: bottom 80px on a desktop, 96px under 600px, ~26px tall),
+            // which it covered at bottom 96 on a 1440 screen (frame lane, 11-16)
+            bottom: 132,
             minHeight: S.touchTargetMinPx,
             padding: '8px 14px',
             background: C['paper-0'],
@@ -191,7 +194,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
 /** How the "Hello!" check ended: heard words, too quiet, no usable microphone (blocked / unsupported), or not tried. */
 export type MicCheckStatus = 'ok' | 'quiet' | 'none' | 'skipped';
 /** sessionStorage key the lesson client reads to tell the teacher console the student's mic (docs/19 4장). */
-export const MIC_STATUS_KEY = 'lcw.micStatus';
+export const MIC_STATUS_KEY = LIVE_MIC_STATUS_KEY;
 const LESSON_CHECK_KEY = 'lcw.lessonMicChecked';
 
 function sessionGet(k: string): string | null {

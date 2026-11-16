@@ -218,7 +218,12 @@ export type BuildAccess =
    * `lesson`: the token is the lesson student's own (saved to that child's plot, never seat-gated, no showroom: the
    * showroom belongs to a linked device). A lesson never saves with the device token of whoever this tablet is linked to.
    */
-  | { kind: 'saved'; token: string; base?: string; lesson?: true };
+  | { kind: 'saved'; token: string; base?: string; lesson?: true }
+  /**
+   * A friend on a guest pass (docs/19 §8): the token is the pass session, the plot is the host child's. The server lets
+   * the friend place with the host's carried blocks and break only what the friend placed ('not_yours' otherwise).
+   */
+  | { kind: 'saved'; token: string; base?: string; pass: true };
 
 export interface RoomCheckInfo {
   /** furniture kinds the room still needs (empty when only the shape is wrong, or the room is complete) */

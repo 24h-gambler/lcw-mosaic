@@ -44,7 +44,7 @@ import {
 } from '@lcw/schemas';
 import { gradeTryOrder } from '@lcw/content';
 import { runInTransaction, type SqliteExecutor } from './storage.js';
-import { seatState } from './seats.js';
+import { playAllowed, seatState } from './seats.js';
 import { ensureQuotaSchema } from './quota.js';
 
 const MIN = 60_000;
@@ -192,7 +192,7 @@ export async function guestPassFromRequest(
   d: Pick<FreePlayDeps, 'sql' | 'sha256Hex'>,
   req: Request,
   now: number
-): Promise<{ grant_id: string; seat_id: string; world_id: string; active: boolean; ends_at: number } | null> {
+): Promise<{ grant_id: string; seat_id: string; player_id: string; world_id: string; active: boolean; ends_at: number } | null> {
   const token = req.headers.get(GUEST_PASS_HEADER) ?? '';
   if (token.length < 32) return null;
   const th = await d.sha256Hex(`gp|${token}`);
@@ -201,7 +201,50 @@ export async function guestPassFromRequest(
     [th]
   );
   if (!g || g.ends_at === null) return null;
-  return { grant_id: g.id, seat_id: g.seat_id, world_id: `home-${g.player_id}`, active: grantState(g, now) === 'active', ends_at: g.ends_at };
+  // The host's seat must still run: a refunded or lapsed seat ends a running pass for every route at once (status
+  // answers 'ended', the plot and the world look answer 410), so the friend reaches /guest-end, not a dead plot.
+  const active = grantState(g, now) === 'active' && playAllowed(d.sql, g.player_id, now).allowed;
+  return { grant_id: g.id, seat_id: g.seat_id, player_id: g.player_id, world_id: `home-${g.player_id}`, active, ends_at: g.ends_at };
+}
+
+/** Grants whose friend-cell records the daily cleanup already dropped (one row per grant, kept small). */
+const GUEST_CELLS_SWEPT_SQL = 'create table if not exists guest_cells_swept (grant_id text primary key, at integer not null)';
+/** Most grants handled in one daily run; the rest wait for the next day. */
+export const GUEST_CELLS_SWEEP_LIMIT = 500;
+
+/**
+ * Daily retention cleanup (03:00): once a pass is over (ended on the server clock, or revoked after the friend came
+ * in), the record of which cells that friend placed in the host's plot (`plot_guest_cells`, docs/19 §8) has no use any
+ * more: the blocks stay in the host's plot as the host's own, only the "this friend may break it" mark goes.
+ * `drop(playerId, grantId)` removes one grant's rows from that child's home world and says how many went.
+ */
+export function sweepEndedGuestCells(
+  sql: SqliteExecutor,
+  now: number,
+  drop: (playerId: string, grantId: string) => number,
+  limit = GUEST_CELLS_SWEEP_LIMIT
+): { grants: number; cells: number; failed: number } {
+  sql.exec(GUEST_CELLS_SWEPT_SQL);
+  const over = sql.all<{ id: string; player_id: string }>(
+    `select g.id, s.player_id from guest_pass_grants g join seats s on s.id = g.seat_id
+     where g.started_at is not null and (g.revoked_at is not null or g.ends_at <= ?)
+       and g.id not in (select grant_id from guest_cells_swept)
+     order by coalesce(g.revoked_at, g.ends_at) limit ?`,
+    [now, limit]
+  );
+  let cells = 0;
+  let failed = 0;
+  for (const g of over) {
+    // one bad world never holds up the others; a failed grant is not marked, so the next day tries it again
+    try {
+      cells += drop(g.player_id, g.id);
+    } catch {
+      failed++;
+      continue;
+    }
+    sql.run('insert or ignore into guest_cells_swept (grant_id, at) values (?, ?)', [g.id, now]);
+  }
+  return { grants: over.length - failed, cells, failed };
 }
 
 export interface GuardianRefLike {
@@ -536,7 +579,7 @@ export function buildFreePlayApp(d: FreePlayDeps): Hono {
       world_id: g.world_id,
       started_at: row.started_at ?? now,
       ends_at: g.ends_at,
-      remaining_ms: Math.max(0, g.ends_at - now),
+      remaining_ms: g.active ? Math.max(0, g.ends_at - now) : 0,
       server_now: now
     };
     return c.json(body);

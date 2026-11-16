@@ -129,10 +129,12 @@ function sessionStoreOrNull(): Pick<Storage, 'getItem'> | null {
  * token, never seat-gated) once the join gave one, a guest builds on the device only. A lesson never uses the device
  * token: a borrowed or shared tablet is linked to another child, whose plot must not get this student's building.
  */
-export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | null, lessonLive = false): BuildAccess {
+export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | null, lessonLive = false, passToken: string | null = null): BuildAccess {
   // A lesson joined without a code in the address (/join hand-off, or the code typed in the world) is live with this
   // tab's student token: building saves to the student, never to a linked child's plot on the same tablet.
   if ((id?.kind === 'lesson' || lessonLive) && studentToken && studentToken.length >= 32) return { kind: 'saved', token: studentToken, lesson: true };
+  // On a guest pass the plot is the friend's (docs/19 §8), whoever this device is: never the device's own plot.
+  if (passToken && passToken.length >= 32) return { kind: 'saved', token: passToken, pass: true };
   if (id?.kind === 'child') return id.playAllowed ? { kind: 'saved', token: id.token } : { kind: 'paused' };
   return { kind: 'local' };
 }
@@ -197,7 +199,9 @@ export function guideDestination(npc: NpcRef, r: DialogResultLike): SceneId | nu
  * phones) covers the right edge; a bottom sheet or a centred window covers the bottom. Rect is the `.lcw-dlg__win`.
  */
 export function dialogViewInset(r: { left: number; top: number; width: number; height: number }, vw: number, vh: number): { bottom: number; right: number } {
-  const side = r.height >= vh * 0.9 && r.width < vw * 0.8;
+  // The side panel starts under the HUD star/coin chip (dialog styles: 52-56px down), so it is not full height: it
+  // reaches the bottom edge, covers most of the height and only part of the width.
+  const side = r.top + r.height >= vh - 2 && r.height >= vh * 0.75 && r.width < vw * 0.8;
   if (side) return { bottom: 0, right: Math.max(0, Math.round(vw - r.left)) };
   return { bottom: Math.max(0, Math.round(vh - r.top)), right: 0 };
 }
@@ -404,6 +408,10 @@ export function App(): React.ReactElement {
   const passCode = useMemo(() => passFromSearch(location.search), []);
   // The teacher in the world (?teach=<lesson id> from the console, TeacherBar.tsx): lesson room as role 'teacher'.
   const teach = useMemo(() => teachFrom(location.search, browserStore()), []);
+  /** The running pass session's token: the plot shown and built on is the host's while it is set. */
+  const [passToken, setPassToken] = useState<string | null>(null);
+  /** The host's world look while the pass runs; my own look comes back when it ends. */
+  const [passLook, setPassLook] = useState<WorldSetupChoice | null>(null);
   const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
@@ -427,12 +435,12 @@ export function App(): React.ReactElement {
   const lastLook = useRef<{ world: WorldHandle | null; key: string }>({ world: null, key: '' });
   useEffect(() => {
     if (!world || startOpen) return;
-    const look = lessonOn ? null : myLook;
+    const look = lessonOn ? null : (passLook ?? myLook);
     const key = JSON.stringify(look);
     if (lastLook.current.world === world && lastLook.current.key === key) return;
     lastLook.current = { world, key };
     world.setWorldLook?.(look);
-  }, [world, startOpen, lessonOn, myLook]);
+  }, [world, startOpen, lessonOn, myLook, passLook]);
 
   const onLessonSession = useCallback((s: DeviceLessonSession) => {
     // the title closes either way; already in this lesson (a poll answered twice): keep the running layer
@@ -448,12 +456,12 @@ export function App(): React.ReactElement {
   const lastAccess = useRef<{ world: WorldHandle | null; key: string }>({ world: null, key: '' });
   useEffect(() => {
     if (!world?.setBuildAccess || !identity) return;
-    const access = buildAccessOf(identity, identity.kind === 'lesson' || lessonOn ? storedStudentToken() : null, lessonOn);
+    const access = buildAccessOf(identity, identity.kind === 'lesson' || lessonOn ? storedStudentToken() : null, lessonOn, passToken);
     const key = JSON.stringify(access);
     if (lastAccess.current.world === world && lastAccess.current.key === key) return;
     lastAccess.current = { world, key };
     world.setBuildAccess(access);
-  }, [world, identity, lessonOn]);
+  }, [world, identity, lessonOn, passToken]);
 
   // A solo write answered 403 seat_inactive (seat stopped mid-play): same card as play_allowed=false, not an error.
   useEffect(
@@ -509,6 +517,7 @@ export function App(): React.ReactElement {
   // token is read on every (re)connect, so a lesson joined after the world opened is picked up by the next retry.
   const identityRef = useRef(identity);
   identityRef.current = identity;
+  const [roomClient, setRoomClient] = useState<RoomClient | null>(null);
   useEffect(() => {
     if (!world?.multi || !world.multiPose) return;
     const sink = world.multi;
@@ -527,7 +536,20 @@ export function App(): React.ReactElement {
     });
     room.start();
     (window as unknown as { __lcwRoom?: RoomClient }).__lcwRoom = room;
-    return () => room.stop();
+    setRoomClient(room);
+    // The same person in two tabs holds one seat (the newer tab wins, close 4009): coming back to this tab takes
+    // the seat back here, so the tab being looked at is the one in the room.
+    const back = (): void => {
+      if (document.visibilityState === 'visible') room.takeOver();
+    };
+    window.addEventListener('focus', back);
+    document.addEventListener('visibilitychange', back);
+    return () => {
+      window.removeEventListener('focus', back);
+      document.removeEventListener('visibilitychange', back);
+      setRoomClient(null);
+      room.stop();
+    };
   }, [world, identity?.kind, teach]);
 
   // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
@@ -640,7 +662,7 @@ export function App(): React.ReactElement {
           {/* the title screen holds the whole screen: the menu button and keys step aside like for a dialog */}
           <FrameLayer world={world} identity={identity} lessonOn={lessonOn} dialogOpen={dialogNpc !== null || startOpen} />
           {/* The title is the whole screen: no lesson-layer button over it (a ?code= address never opens the title). */}
-          {world && teach ? <TeacherBar world={world} session={teach} /> : null}
+          {world && teach ? <TeacherBar world={world} session={teach} room={roomClient} /> : null}
           {Lesson && !startOpen && !teach ? (
             <Lesson
               key={lessonKey}
@@ -655,7 +677,16 @@ export function App(): React.ReactElement {
               }}
             />
           ) : null}
-          {passCode !== null && !codeFromSearch(location.search) ? <GuestPassLayer code={passCode} world={world} /> : null}
+          {passCode !== null && !codeFromSearch(location.search) ? <GuestPassLayer
+              code={passCode}
+              world={world}
+              canWalk={() => !lessonActive.current}
+              onActive={(token, look) => {
+                setPassToken(token);
+                if (!token) setPassLook(null);
+                else if (look) setPassLook(look);
+              }}
+            /> : null}
           {startOpen ? (
             <StartFlow
               world={world}

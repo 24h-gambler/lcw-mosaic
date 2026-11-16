@@ -6,12 +6,15 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorldHandle } from '../world/api.js';
+import { PASS_CHECK_EVENT } from '../world/plot-sync.js';
+import type { WorldSetupChoice } from '@lcw/content';
 import type { FetchLike, KeyStore } from './api.js';
 import {
   PASS_END_PATH,
   PASS_STATUS_POLL_MS,
   installPassHeader,
   passDevice,
+  passHostWorld,
   passLeftMs,
   passStatus,
   readPassSession,
@@ -47,12 +50,23 @@ export function GuestPassLayer(props: {
   fetchFn?: FetchLike;
   /** where the end goes (tests): default location.replace */
   onEnd?: () => void;
+  /**
+   * The pass runs (token) or stopped (null): the shell builds on the host's plot with it and shows the host's world
+   * look (season, sky, animal friend) when the host made one.
+   */
+  onActive?: (token: string | null, look: WorldSetupChoice | null) => void;
+  /** false while a lesson runs: the walk to the host's plot waits for the teacher's time to end (skipped) */
+  canWalk?: () => boolean;
 }): React.ReactElement | null {
   const { code, world } = props;
   // Held in refs: a caller passing a fresh arrow each render must not re-run the entry (each redeem spends a lookup).
   const fetchRef = useRef<FetchLike>(props.fetchFn ?? ((i, init) => globalThis.fetch(i, init)));
   const onEndRef = useRef(props.onEnd);
   onEndRef.current = props.onEnd;
+  const onActiveRef = useRef(props.onActive);
+  onActiveRef.current = props.onActive;
+  const canWalkRef = useRef(props.canWalk);
+  canWalkRef.current = props.canWalk;
   const [view, setView] = useState<View>(code ? { kind: 'entering' } : { kind: 'refused', why: 'not_found' });
   const [tries, setTries] = useState(0);
   const ended = useRef(false);
@@ -112,6 +126,21 @@ export function GuestPassLayer(props: {
     if (!token) return;
     return installPassHeader(token);
   }, [token]);
+  // Into the friend's world: their plot (the shell's build access), their world look, and the walk to their plot.
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    onActiveRef.current?.(token, null);
+    void passHostWorld(token, fetchRef.current).then((look) => {
+      if (!alive) return;
+      if (look) onActiveRef.current?.(token, look);
+      if (canWalkRef.current?.() ?? true) void world?.goToScene?.('build_plot');
+    });
+    return () => {
+      alive = false;
+      onActiveRef.current?.(null, null);
+    };
+  }, [token, world]);
   useEffect(() => {
     if (!session) return;
     const left = passLeftMs(session, Date.now());
@@ -124,13 +153,18 @@ export function GuestPassLayer(props: {
   }, [session, end]);
   useEffect(() => {
     if (!token) return;
-    const poll = setInterval(() => {
+    const check = () =>
       void passStatus(token, fetchRef.current).then((st) => {
         if (st === 'ended') return end();
         if (st) setView((v) => (v.kind === 'active' && (v.s.endsAt !== st.endsAt || Math.abs(v.s.skewMs - st.skewMs) > 2000) ? { kind: 'active', s: { ...v.s, ...st } } : v));
       });
-    }, PASS_STATUS_POLL_MS);
-    return () => clearInterval(poll);
+    const poll = setInterval(check, PASS_STATUS_POLL_MS);
+    // the plot answered 410 (world/plot-sync.ts): ask now
+    window.addEventListener(PASS_CHECK_EVENT, check);
+    return () => {
+      clearInterval(poll);
+      window.removeEventListener(PASS_CHECK_EVENT, check);
+    };
   }, [token, end]);
 
   if (view.kind === 'entering') {

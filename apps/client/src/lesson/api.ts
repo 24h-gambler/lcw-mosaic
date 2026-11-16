@@ -4,10 +4,12 @@
  * Scores, stars and coins are always the server's (AGENTS 4.7).
  */
 import { UTTERANCE_CLIENT_ID_RE, type LessonDirectorEventKind, type LessonHintLevel, type LessonSceneId, type LessonUtteranceMode } from '@lcw/content';
-import type { DialogOffer, DialogResult, SttSource, UtteranceSubmit } from '../dialog/types.js';
+import type { DialogOffer, DialogResult as DialogResultBase, SttSource, UtteranceSubmit } from '../dialog/types.js';
 
 // The dialog domain's types are the contract (docs/19 §3); the lesson layer uses them as they are.
-export type { DialogOffer, DialogResult, SttSource, UtteranceSubmit };
+export type { DialogOffer, SttSource, UtteranceSubmit };
+/** The dialog's result plus the lesson server's English feedback line (the dialog shows it first, Korean as the help line). */
+export type DialogResult = DialogResultBase & { feedbackEn?: string };
 /** A sentence card of the current stage: the dialog's DialogOffer. */
 export type LessonOffer = DialogOffer;
 /** POST /v1/lesson/utterance body: UtteranceSubmit without the solo-route meta (the lesson body is strict). */
@@ -141,6 +143,8 @@ export interface UtteranceResult {
   score: number;
   stars: number;
   feedback_ko: string;
+  /** The same line in the language the child learns (older servers and stored resends leave it out). */
+  feedback_en?: string;
   coins_total: number;
   /** This lesson's star sum after this answer (server); absent on an older server. */
   lesson_stars?: number;

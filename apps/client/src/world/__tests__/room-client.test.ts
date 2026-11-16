@@ -34,6 +34,7 @@ function sinkLog() {
     pose: (id, x) => log.push(`pose ${id} ${x}`),
     emote: (id, e) => log.push(`emote ${id} ${e}`),
     full: (cap) => log.push(`full ${cap}`),
+    replaced: () => log.push('replaced'),
     reset: () => log.push('reset')
   };
   return { log, sink };
@@ -126,6 +127,33 @@ describe('room client (docs/03 D11, docs/02 §11 request budget)', () => {
     await flush();
     expect(sockets).toHaveLength(1);
     vi.advanceTimersByTime(1_500);
+    await flush();
+    expect(sockets).toHaveLength(2);
+    client.stop();
+  });
+
+  it('another tab of the same person takes the seat (4009): this tab stays alone until it takes it back', async () => {
+    const { client, sockets, log, fetchImpl } = setup();
+    client.takeOver(); // nothing to take back while not replaced
+    client.start();
+    await flush();
+    expect(sockets).toHaveLength(1);
+    sockets[0]!.onclose?.({ code: 4009 });
+    expect(client.status).toBe('replaced');
+    expect(log).toContain('replaced');
+    // no retry on its own: two tabs must not keep kicking each other
+    vi.advanceTimersByTime(10 * 60_000);
+    await flush();
+    expect(sockets).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    // the person comes back to this tab: a fresh ticket and socket at once
+    client.takeOver();
+    await flush();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.frame({ t: 'hello', you: 'me', cap: 8, peers: [] });
+    expect(client.status).toBe('in');
+    client.takeOver(); // already in: no second socket
     await flush();
     expect(sockets).toHaveLength(2);
     client.stop();

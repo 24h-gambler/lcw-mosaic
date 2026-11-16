@@ -9,6 +9,7 @@ import {
   mmss,
   passDevice,
   passFromSearch,
+  passHostWorld,
   passLeftMs,
   passStatus,
   readPassSession,
@@ -129,5 +130,24 @@ describe('guest pass device without storage', () => {
     expect(passDevice(broken, () => new Uint8Array(16).fill(++n))).toBe(a);
     expect(passDevice(null, () => new Uint8Array(16).fill(++n))).toBe(a);
     resetPassDeviceForTest();
+  });
+
+  it("reads the host's world look with the pass (season, sky, animal friend); none when not made or not answered", async () => {
+    const token = 'p'.repeat(43);
+    let heard: Record<string, string> = {};
+    const host: FetchLike = async (_url, init) => {
+      heard = { ...(init?.headers as Record<string, string>) };
+      return json(200, { made: true, visitor: true, world: { name: 'Juno Town', season: 'winter', time: 'sunset', buddy: 'bunny', seed: '0a1b2c3d4e5f' } });
+    };
+    expect(await passHostWorld(token, host)).toEqual({ season: 'winter', time: 'sunset', buddy: 'bunny' });
+    expect(heard[GUEST_PASS_HEADER]).toBe(token);
+    expect(heard.authorization).toBeUndefined();
+    expect(await passHostWorld(token, answer(200, { made: false, visitor: true }))).toBeNull();
+    expect(await passHostWorld(token, answer(401, { error: 'device_only' }))).toBeNull();
+    expect(await passHostWorld(token, answer(200, { made: true, world: { season: 'lava' } }))).toBeNull();
+    const offline: FetchLike = async () => {
+      throw new Error('offline');
+    };
+    expect(await passHostWorld(token, offline)).toBeNull();
   });
 });

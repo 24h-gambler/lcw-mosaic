@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { UI_STRINGS_KO, npcPersona } from '@lcw/content';
+import { npcPersona } from '@lcw/content';
+import { live } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
 import { DialogPanel } from './DialogPanel.js';
@@ -15,7 +16,7 @@ import type { DialogResult, Level, NpcRef } from './types.js';
  * with the hint of its box. Guests have no cards (nothing is stored for them), so the dock stays empty.
  */
 
-const R = UI_STRINGS_KO.review;
+const R = live('review');
 
 /** Fallback when the world has no NPC of that ctx: the names come from the cast pack (npc-cast.ts). */
 function castRef(id: string, ctx: NpcRef['ctx']): NpcRef {

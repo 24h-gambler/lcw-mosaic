@@ -62,6 +62,24 @@ describe('first ring before the reveal', () => {
   });
 });
 
+describe('block material follows the tier (shadows on any world)', () => {
+  it('setMaterials swaps the material on every mesh, and new meshes use it too', () => {
+    const r = new ChunkRenderer(town, mats, 0);
+    const x = 163.5;
+    const z = 134.5;
+    for (let k = 0; k < 400 && r.outstanding(x, z, FIRST_RING) > 0; k++) r.update(x, z, FIRST_RING, 64);
+    const lit = { opaque: new THREE.MeshLambertMaterial(), translucent: new THREE.MeshLambertMaterial({ transparent: true }) };
+    r.setMaterials(lit);
+    const meshes = r.group.children as THREE.Mesh[];
+    expect(meshes.length).toBeGreaterThan(0);
+    for (const m of meshes) expect([lit.opaque, lit.translucent]).toContain(m.material);
+    for (let k = 0; k < 2000 && r.outstanding(x, z, 4) > 0; k++) r.update(x, z, 4, 64);
+    for (const m of r.group.children as THREE.Mesh[]) expect([lit.opaque, lit.translucent]).toContain(m.material);
+    r.setMaterials(mats);
+    for (const m of r.group.children as THREE.Mesh[]) expect([mats.opaque, mats.translucent]).toContain(m.material);
+  });
+});
+
 describe('HTML splash', () => {
   it('uses the @lcw/ui token colours (index.html cannot import them)', () => {
     const html = readFileSync(fileURLToPath(new URL('../../../index.html', import.meta.url)), 'utf8');

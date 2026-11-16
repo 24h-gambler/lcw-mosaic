@@ -173,7 +173,7 @@ export function scoreFreeTalk(transcript: string): { pass: boolean; score: numbe
   return { pass: true, score: Math.min(1, w / 12), stars: w >= 12 ? 3 : w >= 6 ? 2 : 1 };
 }
 
-export function feedbackKo(r: {
+type FeedbackInput = {
   pass: boolean;
   stars: number;
   chosen: number;
@@ -181,14 +181,46 @@ export function feedbackKo(r: {
   mode: string;
   coreMissed?: boolean;
   typedCapped?: boolean;
-}): string {
-  if (!r.pass && r.coreMissed) return '내용은 좋아요! so that · because 같은 연결어를 넣어서 한 번 더 말해 볼까요?';
-  if (!r.pass) return '거의 다 왔어요! 화면의 문장을 보면서 한 번 더 천천히 말해 볼까요?';
-  if (r.typedCapped) return '좋아요! 다음엔 목소리로 말해 보면 별 3개까지 받을 수 있어요.';
-  if (r.capped) return '좋아요! so that · because 같은 연결어까지 넣으면 별 3개예요.';
-  if (r.mode === 'free') return r.stars >= 3 ? '와, 길게 잘 말했어요! 별 3개!' : '잘했어요! 조금 더 길게 이어 말하면 별이 늘어나요.';
-  if (r.stars >= 3) return '완벽해요! 별 3개!';
-  return r.stars >= r.chosen ? '통과! 다음엔 한 단계 위 문장에 도전해 볼까요?' : '통과했어요!';
+};
+type FeedbackKey = 'coreMissed' | 'retry' | 'typedCapped' | 'capped' | 'freeLong' | 'freeMore' | 'perfect' | 'passedTryUp' | 'passed';
+function feedbackKey(r: FeedbackInput): FeedbackKey {
+  if (!r.pass && r.coreMissed) return 'coreMissed';
+  if (!r.pass) return 'retry';
+  if (r.typedCapped) return 'typedCapped';
+  if (r.capped) return 'capped';
+  if (r.mode === 'free') return r.stars >= 3 ? 'freeLong' : 'freeMore';
+  if (r.stars >= 3) return 'perfect';
+  return r.stars >= r.chosen ? 'passedTryUp' : 'passed';
+}
+/** The Korean line (the help line; the web join page and older clients show it). */
+export const FEEDBACK_KO: Readonly<Record<FeedbackKey, string>> = {
+  coreMissed: '내용은 좋아요! so that · because 같은 연결어를 넣어서 한 번 더 말해 볼까요?',
+  retry: '거의 다 왔어요! 화면의 문장을 보면서 한 번 더 천천히 말해 볼까요?',
+  typedCapped: '좋아요! 다음엔 목소리로 말해 보면 별 3개까지 받을 수 있어요.',
+  capped: '좋아요! so that · because 같은 연결어까지 넣으면 별 3개예요.',
+  freeLong: '와, 길게 잘 말했어요! 별 3개!',
+  freeMore: '잘했어요! 조금 더 길게 이어 말하면 별이 늘어나요.',
+  perfect: '완벽해요! 별 3개!',
+  passedTryUp: '통과! 다음엔 한 단계 위 문장에 도전해 볼까요?',
+  passed: '통과했어요!'
+};
+/** The same line in the language the child learns (Dan 11-16: the world speaks it; Korean only as the help line). */
+export const FEEDBACK_EN: Readonly<Record<FeedbackKey, string>> = {
+  coreMissed: 'Nice idea! Add "so that" or "because" and say it again.',
+  retry: 'Almost! Look at the sentence and say it again slowly.',
+  typedCapped: 'Good! Say it with your voice next time for 3 stars.',
+  capped: 'Good! Add "so that" or "because" for 3 stars.',
+  freeLong: 'Wow, a long answer! 3 stars!',
+  freeMore: 'Nice! Say a little more to get more stars.',
+  perfect: 'Perfect! 3 stars!',
+  passedTryUp: 'You passed! Try a harder sentence next time?',
+  passed: 'You passed!'
+};
+export function feedbackKo(r: FeedbackInput): string {
+  return FEEDBACK_KO[feedbackKey(r)];
+}
+export function feedbackEn(r: FeedbackInput): string {
+  return FEEDBACK_EN[feedbackKey(r)];
 }
 
 const StartSchema = z
@@ -1281,6 +1313,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       score: Math.round(score * 1000) / 1000,
       stars,
       feedback_ko: feedbackKo({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
+      // The child's screen shows this one (the Korean only as the help line); answers stored before it lack it.
+      feedback_en: feedbackEn({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
       coins_total: coinsTotal,
       // This lesson's star sum right after this answer was stored: the HUD chip takes it as is (adding the answer's
       // stars to its own count could count one twice when a poll lands between the store and this answer).

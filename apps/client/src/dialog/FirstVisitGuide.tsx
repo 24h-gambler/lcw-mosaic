@@ -58,6 +58,8 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
   const [toast, setToast] = useState<string | null>(null);
   /** The errand is behind the child (done and its reward line shown): the town goals take the goal line (R2625). */
   const [errandOver, setErrandOver] = useState(false);
+  /** When the reward line for the hand-over started (once per page). */
+  const rewardAt = useRef<number | null>(null);
   const lastState = useRef<string | null>(null);
   /** State of the last full view fetched; a dialog that moved the errand only reports the new state. */
   const fetchedState = useRef<string | null>(null);
@@ -96,17 +98,22 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
     lastState.current = errand.state;
     world.setGoal(errandGoalKo(errand));
     if (errand.state === 'done') {
-      // done on an earlier visit: straight to the town goals
-      if (!prev || prev === 'done') {
-        setErrandOver(true);
-        return undefined;
+      if (rewardAt.current === null) {
+        // done on an earlier visit: straight to the town goals
+        if (!prev || prev === 'done') {
+          setErrandOver(true);
+          return undefined;
+        }
+        rewardAt.current = Date.now();
+        setToast(F.rewardToast.replace('{coins}', String(errand.reward_coins || 50)));
+        playSfx('coin.drop');
       }
-      setToast(F.rewardToast.replace('{coins}', String(errand.reward_coins || 50)));
-      playSfx('coin.drop');
+      // The refetch after the hand-over brings a new errand object and runs this again: the reward line keeps its
+      // 5 s (it was cut at once on a 1440 run, the second run reading the step as "done before this visit").
       const id = setTimeout(() => {
         setToast(null);
         setErrandOver(true);
-      }, 5000);
+      }, Math.max(0, 5000 - (Date.now() - (rewardAt.current ?? Date.now()))));
       return () => clearTimeout(id);
     }
     return undefined;

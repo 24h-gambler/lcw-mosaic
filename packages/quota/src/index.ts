@@ -47,7 +47,7 @@ export const NEURAL_TTS = {
   /** One NPC line (a teacher's possession line included); longer text is refused, not cut. */
   maxChars: 300,
   /** Operator prebuild: neurons one call may spend on fixed lines (the rest continues on the next call). */
-  prebuildBudgetNeurons: 2_000
+  prebuildBudgetNeurons: 4_500
 } as const;
 
 export type TtsEngine = keyof typeof NEURAL_TTS.models;

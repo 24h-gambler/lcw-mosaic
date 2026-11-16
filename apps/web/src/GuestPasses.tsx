@@ -36,11 +36,30 @@ export function canTakeBack(p: GuestPass): boolean {
 }
 
 /**
- * Passes worth a line: live ones and ones a friend played on (ended, or stopped mid-play: the server marks those revoked
- * with started_at). Passes nobody entered that were taken back or ran out of days are gone: they count for nothing.
+ * Passes worth a line: live ones, ones a friend played on (ended, or stopped mid-play: the server marks those revoked
+ * with started_at), and ones that ran out of days unused (a line with no button, so a friend's "the code does not open"
+ * has an answer; whether it counts is the server's rule, the line claims nothing about it). Passes taken back unused
+ * are gone.
  */
 export function shownPasses(passes: readonly GuestPass[]): GuestPass[] {
-  return passes.filter((p) => p.state === 'ready' || p.state === 'active' || p.state === 'ended' || (p.state === 'revoked' && p.started_at !== null)).slice(0, 6);
+  return passes.filter((p) => p.state !== 'revoked' || p.started_at !== null).slice(0, 6);
+}
+
+/** The take-back flow, without the component: read the pass again, ask, take back, word the result from the server. */
+export async function takeBack(
+  api: Pick<FamilyApi, 'guestPasses' | 'revokeGuestPass'>,
+  token: string,
+  seatId: string,
+  passId: string,
+  ask: (question: string) => boolean
+): Promise<PassNotice | undefined> {
+  // The screen's copy may be old (a friend may have entered since): ask about the pass as the server has it now.
+  const list = await api.guestPasses(token, seatId);
+  const fresh = list.passes.find((x) => x.id === passId);
+  if (!fresh || !canTakeBack(fresh)) return { kind: 'info', text: P.changed };
+  if (!ask(confirmText(fresh))) return undefined;
+  const r = await api.revokeGuestPass(token, passId);
+  return { kind: 'ok', text: revokeDone(r.pass, list.left_this_month, r.left_this_month) };
 }
 
 /** One line per pass state, in words. */
@@ -112,6 +131,11 @@ export function GuestPassesView({
       <span style={small} data-testid="guest-passes-left">
         {none ? P.noneLeft(day(summary.resets_at)) : P.left(summary.left_this_month, summary.per_month)}
       </span>
+      {none && shown.some((p) => p.state === 'ready') ? (
+        <span style={small} data-testid="guest-passes-ready-hint">
+          {P.noneLeftReady}
+        </span>
+      ) : null}
       {shown.length > 0 ? (
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: sp(2) }}>
           {shown.map((p) => (
@@ -232,15 +256,7 @@ export function GuestPasses({ api, token, seatId }: { api: FamilyApi; token: str
         })
       }
       onRevoke={(p) =>
-        void run(async () => {
-          // The screen's copy may be old (a friend may have entered since): ask about the pass as the server has it now.
-          const list = await api.guestPasses(token, seatId);
-          const fresh = list.passes.find((x) => x.id === p.id);
-          if (!fresh || !canTakeBack(fresh)) return { kind: 'info', text: P.changed };
-          if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm(confirmText(fresh))) return undefined;
-          const r = await api.revokeGuestPass(token, p.id);
-          return { kind: 'ok', text: revokeDone(r.pass, list.left_this_month, r.left_this_month) };
-        })
+        void run(() => takeBack(api, token, seatId, p.id, (q) => typeof window === 'undefined' || typeof window.confirm !== 'function' || window.confirm(q)))
       }
       onCopy={(p) => {
         const text = P.shareText(p.code, `${origin}${p.link}`, data.minutes);

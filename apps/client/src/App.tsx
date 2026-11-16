@@ -162,7 +162,10 @@ interface DialogModule {
   /** Second argument: the linked child's device token and level, when there is one (guest otherwise). */
   createSoloSubmit?: (npc: NpcRef, player?: SoloPlayer) => (u: unknown) => Promise<DialogResultLike>;
   /** A plain solo window's line (visit by visit) and its open question, taken once per opened window (R2625). */
-  soloTalkPlan?: (npc: NpcRef, level: Level) => { npcLine: string; followUps?: string[]; followUpSubmit?: (u: unknown) => Promise<DialogResultLike> };
+  soloTalkPlan?: (
+    npc: NpcRef,
+    level: Level
+  ) => { npcLine: string; offers?: NonNullable<DialogConfig['offers']>; followUps?: string[]; followUpSubmit?: (u: unknown) => Promise<DialogResultLike> };
   /** A solo window finished: moves the town goal chain and the talk count (dialog/npc-lines.ts). */
   noteSoloDone?: (npcCtx: string, r: DialogResultLike) => void;
 }
@@ -665,7 +668,7 @@ export function App(): React.ReactElement {
   const soloCfg: DialogConfig = {
     ...(soloLevel ? { level: soloLevel } : {}),
     ...(shopOffers.length > 0 ? { offers: shopOffers } : {}),
-    ...(plan ? { npcLine: plan.npcLine, ...(plan.followUps ? { followUps: plan.followUps } : {}), ...(plan.followUpSubmit ? { followUpSubmit: plan.followUpSubmit } : {}) } : {}),
+    ...(plan ? { npcLine: plan.npcLine, ...(plan.offers ? { offers: plan.offers } : {}), ...(plan.followUps ? { followUps: plan.followUps } : {}), ...(plan.followUpSubmit ? { followUpSubmit: plan.followUpSubmit } : {}) } : {}),
     ...(ed ? { offers: ed.offers, npcLine: ed.npcLine, ...(ed.voiceCtx ? { voiceCtx: ed.voiceCtx } : {}) } : {}),
     onDone: (r) => {
       if (dialogNpc) dialogMod?.noteSoloDone?.(dialogNpc.ctx, r);

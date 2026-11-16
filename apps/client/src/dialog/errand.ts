@@ -1,5 +1,6 @@
-import { FIRST_ERRAND, NPC_OPENING_LINES, npcPersona, type LangLevel } from '@lcw/content';
+import { FIRST_ERRAND, npcPersona, type LangLevel } from '@lcw/content';
 import { nextOpeningLine, openingLineFor } from './npc-lines.js';
+import { guideAskPlace } from './goals.js';
 import { learnLang } from '../world/lang.js';
 import { ui } from './strings.js';
 import { bankOffersFor } from './hints.js';
@@ -67,7 +68,7 @@ export function errandDialogFor(npc: NpcRef, errand: ErrandView | null, level: L
     if (!ERRAND_GIVER_CTXS.has(npc.ctx)) return null;
     const as: NpcRef = { ...npc, ctx: 'guide' };
     const line = nextOpeningLine(npc.id, 'errand');
-    return { npc: as, offers: bankOffersFor(as, level), npcLine: line === openingLineFor('errand', 0) ? openingLineFor('errand', 1) : line, voiceCtx: 'errand' };
+    return { npc: as, offers: bankOffersFor(as, level, guideAskPlace() ?? undefined), npcLine: line === openingLineFor('errand', 0) ? openingLineFor('errand', 1) : line, voiceCtx: 'errand' };
   }
   if (ERRAND_GIVER_CTXS.has(npc.ctx)) {
     // accepted: the giver reminds ("The honey cafe is right over there") and the child can say yes again (no step moves)
@@ -76,7 +77,8 @@ export function errandDialogFor(npc: NpcRef, errand: ErrandView | null, level: L
     return { npc: as, offers: bankOffersFor(as, level, step), npcLine: errand.npc_line };
   }
   if (npc.ctx === 'cafe' && errand.state === 'accepted') {
-    return { npc, offers: bankOffersFor(npc, level, FIRST_ERRAND.item, FIRST_ERRAND.mod), npcLine: NPC_OPENING_LINES.cafe! };
+    // the order counts as a visit, so the next plain visit greets with a revisit line (R2625)
+    return { npc, offers: bankOffersFor(npc, level, FIRST_ERRAND.item, FIRST_ERRAND.mod), npcLine: nextOpeningLine(npc.id, npc.ctx) };
   }
   return null;
 }

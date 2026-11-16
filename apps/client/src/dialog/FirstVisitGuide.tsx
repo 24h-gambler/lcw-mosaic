@@ -90,7 +90,9 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
     if (!errand || !world) return;
     const prev = lastState.current;
     lastState.current = errand.state;
-    if (hidden) return;
+    // the town goals own the goal line once the errand is over (first run: "Errand done!" came back over them each
+    // time a dialog closed)
+    if (hidden || errandOver) return;
     world.setGoal(errandGoalKo(errand));
     if (errand.state === 'done') {
       // done on an earlier visit: straight to the town goals
@@ -107,7 +109,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
       return () => clearTimeout(id);
     }
     return undefined;
-  }, [errand, world, hidden]);
+  }, [errand, world, hidden, errandOver]);
 
   // Guests have no errand (it needs a linked device): they start on the town goals at once.
   if (!token || errandOver) return <TownGoals world={world} hidden={hidden} />;

@@ -1,6 +1,8 @@
 import { NPC_GENERIC_REACTIONS, NPC_OPENING_LINES, NPC_REVISIT_LINES, UI_STRINGS_EN, UI_STRINGS_KO } from '@lcw/content';
 import { evaluateOpenEndedAnswer, pickOpenEndedPrompt, shouldTriggerOpenEndedQuestion } from '@lcw/converse';
-import { noteSoloResult } from './goals.js';
+import { guideAskPlace, noteSoloResult } from './goals.js';
+import { bankOffersFor } from './hints.js';
+import type { DialogOffer } from './types.js';
 import type { DialogResult, Level, NpcRef, UtteranceSubmit } from './types.js';
 
 /**
@@ -75,14 +77,22 @@ export function createOpenAnswerScorer(ctx: string, level: Level): (u: Utterance
 /** What a plain solo window says (no errand step, no lesson): taken once when the window opens (App). */
 export interface SoloTalkPlan {
   npcLine: string;
+  /** The window's sentences when the goal asks for other ones than the NPC's usual bank (the guide under ask_way). */
+  offers?: DialogOffer[];
   followUps?: string[];
   followUpSubmit?: (u: UtteranceSubmit) => Promise<DialogResult>;
 }
 
 export function soloTalkPlan(npc: NpcRef, level: Level): SoloTalkPlan {
   const npcLine = nextOpeningLine(npc.id, npc.ctx);
+  const place = npc.ctx === 'guide' ? guideAskPlace() : null;
+  const offers = place ? bankOffersFor(npc, level, place) : [];
   const q = openQuestionForNextTalk();
-  return q ? { npcLine, followUps: [q], followUpSubmit: createOpenAnswerScorer(npc.ctx, level) } : { npcLine };
+  return {
+    npcLine,
+    ...(offers.length > 0 ? { offers } : {}),
+    ...(q ? { followUps: [q], followUpSubmit: createOpenAnswerScorer(npc.ctx, level) } : {})
+  };
 }
 
 /** A solo window finished: the talk count (open questions) and the town goal chain (goals.ts) move on a pass. */

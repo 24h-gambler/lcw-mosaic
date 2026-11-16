@@ -137,7 +137,7 @@ export const UI_STRINGS_EN: UiStrings = {
     rewardToast: '+{coins} coins! Errand done',
     goalAskWay: 'Ask {guide} in the plaza the way to the trade shop',
     goalTrade: 'Trade or buy something from {shop} at the trade shop',
-    goalThreeStars: 'Order at the honey cafe from {cafe} with a ★★★ sentence',
+    goalCafeStars: 'Order at the honey cafe from {cafe} with a ★★ or better sentence',
     goalTourDone: 'You have seen the whole town! Talk to anyone you like',
     goalStepToast: 'Goal done! You have a new goal'
   },

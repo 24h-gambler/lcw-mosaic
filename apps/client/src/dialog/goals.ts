@@ -10,15 +10,16 @@ import { ui } from './strings.js';
  *
  *   ask_way      ask the guide (Luna) the way — her answer walks the child to the place (App guideDestination)
  *   trade        trade or buy something from the shop owner (Toby) at the trade shop
- *   three_stars  order at the honey cafe with a ★★★ sentence (docs/04: the better sentence is the cheaper one)
+ *   cafe_stars   order at the honey cafe with a ★★ or better sentence (docs/04: the better sentence is the cheaper one; typed
+ *               answers count up to ★★, so a child without a mic is never stuck on the last step)
  *
  * A step is done by a passed dialog with that NPC (the result the window hands back, never a guess). Children with a
  * device start after the errand; guests (no server errand) start at once. Progress is this device's own (localStorage):
  * the goals are a tour, not a ledger — coins and items stay on the server.
  */
 
-export type GoalId = 'ask_way' | 'trade' | 'three_stars';
-export const GOAL_CHAIN: readonly GoalId[] = ['ask_way', 'trade', 'three_stars'];
+export type GoalId = 'ask_way' | 'trade' | 'cafe_stars';
+export const GOAL_CHAIN: readonly GoalId[] = ['ask_way', 'trade', 'cafe_stars'];
 
 export interface GoalDef {
   id: GoalId;
@@ -27,14 +28,14 @@ export interface GoalDef {
   /** World NPC to walk to, and its scene for worlds without walkToNpc. */
   npcId: string;
   scene: SceneId;
-  /** Fewest stars that count (the ★★★ step). */
+  /** Fewest stars that count (the cafe step: ★★, what a typed answer can reach). */
   minStars: number;
 }
 
 export const GOALS: Record<GoalId, GoalDef> = {
   ask_way: { id: 'ask_way', ctx: 'guide', npcId: 'guide', scene: 'plaza', minStars: 1 },
   trade: { id: 'trade', ctx: 'trade_shop', npcId: 'shop_owner', scene: 'trade_shop', minStars: 1 },
-  three_stars: { id: 'three_stars', ctx: 'cafe', npcId: 'cafe_owner', scene: 'honey_cafe', minStars: 3 }
+  cafe_stars: { id: 'cafe_stars', ctx: 'cafe', npcId: 'cafe_owner', scene: 'honey_cafe', minStars: 2 }
 };
 
 const KEY = 'lcw.townGoals';
@@ -85,6 +86,14 @@ export function noteSoloResult(npcCtx: string, r: { pass: boolean; stars: number
   return g.id;
 }
 
+/**
+ * The place the guide's sentences ask for while the goal is "ask the way to the trade shop" (the goal line names it, so
+ * the window must offer it: the first run offered "Where is the cafe?" under that goal). Null = her usual bank.
+ */
+export function guideAskPlace(): string | null {
+  return currentGoal()?.id === 'ask_way' ? 'trade_shop' : null;
+}
+
 /** Test seam. */
 export function resetGoalsForTest(): void {
   try {
@@ -102,7 +111,7 @@ function nameOf(npcId: string): string {
 /** The goal line on top of the screen, in the language the child learns. */
 export function goalLine(g: GoalDef): string {
   const F = ui().firstVisit;
-  const t = g.id === 'ask_way' ? F.goalAskWay : g.id === 'trade' ? F.goalTrade : F.goalThreeStars;
+  const t = g.id === 'ask_way' ? F.goalAskWay : g.id === 'trade' ? F.goalTrade : F.goalCafeStars;
   return t.replace('{guide}', nameOf('guide')).replace('{shop}', nameOf('shop_owner')).replace('{cafe}', nameOf('cafe_owner'));
 }
 

@@ -91,7 +91,7 @@ describe('NPC lines visit by visit (R2625)', () => {
 });
 
 describe('town goals after the errand (R2625)', () => {
-  it('ask Luna the way -> trade with Toby -> order with ★★★ at the cafe, each moved only by a passed talk with that NPC', () => {
+  it('ask Luna the way -> trade with Toby -> order with ★★ or better at the cafe, each moved only by a passed talk with that NPC', () => {
     const seen: Array<[string | null, string | null]> = [];
     const off = onGoalChange((g, done) => seen.push([g?.id ?? null, done]));
     expect(currentGoal()?.id).toBe('ask_way');
@@ -100,16 +100,23 @@ describe('town goals after the errand (R2625)', () => {
     expect(noteSoloResult('guide', { pass: true, stars: 1 })).toBe('ask_way');
     expect(currentGoal()?.id).toBe('trade');
     expect(noteSoloResult('trade_shop', { pass: true, stars: 1 })).toBe('trade');
-    expect(noteSoloResult('cafe', { pass: true, stars: 2 })).toBeNull(); // ★★★ needed
-    expect(noteSoloResult('cafe', { pass: true, stars: 3 })).toBe('three_stars');
+    expect(noteSoloResult('cafe', { pass: true, stars: 1 })).toBeNull(); // ★★ needed
+    expect(noteSoloResult('cafe', { pass: true, stars: 2 })).toBe('cafe_stars');
     expect(currentGoal()).toBeNull();
     expect(seen).toEqual([
       ['trade', 'ask_way'],
-      ['three_stars', 'trade'],
-      [null, 'three_stars']
+      ['cafe_stars', 'trade'],
+      [null, 'cafe_stars']
     ]);
     off();
     expect(GOAL_CHAIN).toHaveLength(3);
+  });
+
+  it('under "ask the way to the trade shop" the guide offers that place (first run offered the cafe), then her usual bank', () => {
+    const asks = soloTalkPlan(LUNA, 'L1').offers!.map((o) => o.text);
+    expect(asks.every((t) => /trade shop/i.test(t))).toBe(true);
+    noteSoloDone('guide', { pass: true, stars: 1 });
+    expect(soloTalkPlan(LUNA, 'L1').offers).toBeUndefined();
   });
 
   it('noteSoloDone moves the chain like the App does after a window closes', () => {

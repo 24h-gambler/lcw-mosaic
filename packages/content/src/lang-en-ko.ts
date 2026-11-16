@@ -1282,7 +1282,7 @@ export const UI_STRINGS_KO = {
     /** Town goals after the errand (dialog/goals.ts, R2625): {guide}/{shop}/{cafe} are cast pack names. */
     goalAskWay: '광장의 {guide}에게 교환 상점 가는 길을 물어봐요',
     goalTrade: '교환 상점 {shop}와 물건을 바꾸거나 사 봐요',
-    goalThreeStars: '꿀벌 카페 {cafe}에게 ★★★ 문장으로 주문해 봐요',
+    goalCafeStars: '꿀벌 카페 {cafe}에게 ★★ 이상 문장으로 주문해 봐요',
     goalTourDone: '마을을 다 돌아봤어요! 이제 누구와도 이야기해 봐요',
     goalStepToast: '목표 완료! 다음 목표가 생겼어요'
   },

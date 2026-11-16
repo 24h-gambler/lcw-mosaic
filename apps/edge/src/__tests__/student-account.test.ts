@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
-import { SIGNUP_PENDING_TTL_MS, maskIdentity } from '../student-account.js';
+import { SIGNUP_PENDING_TTL_MS, maskIdentity, nicknameKey } from '../student-account.js';
 import { DEVICE_TOKEN_TTL_MS } from '../family.js';
 import { LINKED_DEVICE_TTL_MS } from '../lesson-mode.js';
 import { fakeDurableStorage } from './fake-do.js';
@@ -115,14 +115,94 @@ describe('student sign-up on the guardian account (student-account.ts)', () => {
     expect((await call(p, 'POST', '/v1/family/children', { nickname: 'Juno', birth_year: 2016 }, bearer(g1))).status).toBe(201);
     const juno = (await call(p, 'GET', '/v1/family/me', undefined, bearer(g1))).body.children.find((k: any) => k.nickname === 'Juno').player_id;
     const g2 = await adultSignsIn(p, 'fam-other');
-    const s = await call(p, 'POST', '/v1/student/signup', { nickname: 'Juno' }, bearer(g2));
+    // 'Juno' is a student with a real guardian: the name is taken, three free ones are offered.
+    const taken = await call(p, 'POST', '/v1/student/signup', { nickname: ' juno ' }, bearer(g2));
+    expect(taken).toEqual({ status: 409, body: { error: 'nickname_taken', suggestions: ['juno2', 'juno3', 'juno4'] } });
+    const s = await call(p, 'POST', '/v1/student/signup', { nickname: 'Juno2' }, bearer(g2));
+    expect(s.body.teacher_match).toBe(false);
     const id = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups[0].id;
+    // The teacher picking the real Juno by mistake still cannot move him.
     expect((await call(p, 'POST', `/v1/admin/student-signups/${id}/approve`, { player_id: juno, check: s.body.check })).body).toEqual({ error: 'player_has_guardian' });
     expect(p.sql.get('select family_id from players where id = ?', [juno])).toEqual({ family_id: 'fam-real' });
     const made = await call(p, 'POST', `/v1/admin/student-signups/${id}/approve`, { new_student: { level: 'L2' }, check: s.body.check });
-    expect(made.body).toMatchObject({ ok: true, nickname: 'Juno' });
+    expect(made.body).toMatchObject({ ok: true, nickname: 'Juno2' });
     expect(p.sql.get('select family_id, level from players where id = ?', [made.body.player_id])).toEqual({ family_id: 'fam-other', level: 'L2' });
-    expect((await call(p, 'GET', '/v1/student/signup/status', undefined, bearer(s.body.claim_token))).body).toMatchObject({ state: 'approved', nickname: 'Juno' });
+    expect((await call(p, 'GET', '/v1/student/signup/status', undefined, bearer(s.body.claim_token))).body).toMatchObject({ state: 'approved', nickname: 'Juno2' });
+  });
+
+  it('one name, one student: a waiting name is taken; the teacher-made row with that name waits for the 4-digit check', async () => {
+    expect(nicknameKey(' O-reo ')).toBe(nicknameKey('ＯＲＥＯ'));
+    const p = platform();
+    await teacherRow(p);
+    const g = await adultSignsIn(p, 'fam-oreo');
+    const a = await call(p, 'POST', '/v1/student/signup', { nickname: 'oreo' }, bearer(g));
+    expect(a.status).toBe(201);
+    expect(a.body.teacher_match).toBe(true);
+    const row = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups[0];
+    expect(row.match).toEqual({ player_id: 'stu-29ddc960', nickname: 'Oreo' });
+    // A second 'Oreo' while the first waits: taken (no two requests for one row).
+    const g2 = await adultSignsIn(p, 'fam-oreo-2');
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'O reo' }, bearer(g2))).body).toMatchObject({ error: 'nickname_taken' });
+    // Not as a new student under the teacher's student's name: join the row (with the screen's 4 digits) or reject.
+    expect((await call(p, 'POST', `/v1/admin/student-signups/${row.id}/approve`, { new_student: { level: 'L1' }, check: a.body.check })).body).toEqual({
+      error: 'nickname_taken'
+    });
+    expect((await call(p, 'POST', `/v1/admin/student-signups/${row.id}/approve`, { player_id: 'stu-29ddc960', check: a.body.check })).body).toMatchObject({
+      ok: true,
+      player_id: 'stu-29ddc960'
+    });
+    // Linked now: the name belongs to a guardian's child, nobody else can sign up as Oreo.
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'OREO' }, bearer(g2))).body).toMatchObject({ error: 'nickname_taken', suggestions: ['OREO2', 'OREO3', 'OREO4'] });
+    // A rejected or expired request frees the name again.
+    const b = await call(p, 'POST', '/v1/student/signup', { nickname: 'Mint' }, bearer(g2));
+    const bid = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'Mint').id;
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'mint' }, bearer(g))).status).toBe(409);
+    await call(p, 'POST', `/v1/admin/student-signups/${bid}/reject`, {});
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'mint' }, bearer(g))).status).toBe(201);
+    expect(b.status).toBe(201);
+  });
+
+  it('smoke and demo rows never own or match a name; two teacher rows with one name are not guessed', async () => {
+    const p = platform();
+    // The demo row and a smoke check's row: not students (hidden from the console list too).
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-demo', guardian_id: 'g-demo', player_id: 'player-demo', nickname: 'Demo' });
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-smoke', guardian_id: 'g-smoke', player_id: 'smoke-live-1', nickname: 'Smoke' });
+    const g = await adultSignsIn(p, 'fam-d');
+    const demo = await call(p, 'POST', '/v1/student/signup', { nickname: 'demo' }, bearer(g));
+    expect(demo.status).toBe(201);
+    expect(demo.body.teacher_match).toBe(false);
+    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups[0].match).toBeNull();
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'SMOKE' }, bearer(g))).body.teacher_match).toBe(false);
+    // A match recorded on a smoke row (before this fix) is not shown either.
+    const sid = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'SMOKE').id;
+    p.sql.run("update student_signups set match_player_id = 'smoke-live-1' where id = ?", [sid]);
+    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.id === sid).match).toBeNull();
+    // Two teacher-made rows called Mina: the sign-up waits for the teacher, who picks (no row guessed).
+    await teacherRow(p, 'stu-mina-1', 'Mina');
+    await teacherRow(p, 'stu-mina-2', 'Mina');
+    const mina = await call(p, 'POST', '/v1/student/signup', { nickname: 'mina' }, bearer(g));
+    expect(mina.body.teacher_match).toBe(true);
+    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'mina')).toMatchObject({
+      match: null,
+      match_ambiguous: true
+    });
+    // The match is counted again on every listing: a second 'Juno' row made after the sign-up stops the pick.
+    await teacherRow(p, 'stu-juno-1', 'Juno');
+    const juno = await call(p, 'POST', '/v1/student/signup', { nickname: 'juno' }, bearer(g));
+    const list1 = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'juno');
+    expect(list1).toMatchObject({ match: { player_id: 'stu-juno-1', nickname: 'Juno' }, match_ambiguous: false });
+    await teacherRow(p, 'stu-juno-2', 'JUNO');
+    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'juno')).toMatchObject({
+      match: null,
+      match_ambiguous: true
+    });
+    // Smoke and demo rows cannot be a sign-up's target even by id (any case for 'smoke-').
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-smk', guardian_id: 'g-smk', player_id: 'SMOKE-upper', nickname: 'Upper' });
+    for (const pid of ['player-demo', 'smoke-live-1', 'SMOKE-upper'])
+      expect((await call(p, 'POST', `/v1/admin/student-signups/${list1.id}/approve`, { player_id: pid, check: juno.body.check, confirm: true })).body).toEqual({
+        error: 'player_not_found'
+      });
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'upper' }, bearer(g))).body.teacher_match).toBe(false);
   });
 
   it('a pending nickname is not kept: cleared on reject or after 3 hours; bad nicknames refused', async () => {

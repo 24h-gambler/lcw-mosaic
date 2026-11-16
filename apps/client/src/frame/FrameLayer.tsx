@@ -7,8 +7,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WorldHandle } from '../world/api.js';
 import { storedStudentToken, type PlayerIdentity } from '../world/identity.js';
 import { watchConnection } from './connection.js';
-import { FRAME_STRINGS as F, setFrameLang, uiLang } from './strings.js';
-import { helpKoOn, onLearnLang } from '../world/lang.js';
+import { FRAME_STRINGS as F } from './strings.js';
+import { helpKoOn, learnLang, onLearnLang } from '../world/lang.js';
 import { PlayerMenu, tabForKey } from './menu/PlayerMenu.js';
 import { ensureMenuStyle } from './menu/styles.js';
 import { otherModalOpen, type FrameAuth, type MenuTab } from './menu/types.js';
@@ -18,7 +18,7 @@ import { frameSettings, graphicsOf, lookSettingsOf, motionReduced, onFrameSettin
 import { startSettingsSync } from './settings-sync.js';
 import { useGauges } from './useGauges.js';
 import { keyLabel } from './menu/SettingsPanel.js';
-import { setWorldFrameLang, type KeyHintLabels } from '../world/strings.js';
+import type { KeyHintLabels } from '../world/strings.js';
 
 export interface FrameLayerProps {
   world: WorldHandle | null;
@@ -78,7 +78,7 @@ const HOLD_EVERY_MS = 10 * 60_000;
 
 /** HUD help-line key names from the player's keys: "WASD" while the four move keys are single letters. */
 export function keyHintsOf(keys: Readonly<Record<'forward' | 'left' | 'back' | 'right' | 'jump' | 'talk' | 'undo' | 'rotate', string>>): KeyHintLabels {
-  const move = [keys.forward, keys.left, keys.back, keys.right].map(keyLabel);
+  const move = [keys.forward, keys.left, keys.back, keys.right].map((c) => keyLabel(c));
   return {
     move: move.every((m) => m.length === 1) ? move.join('') : move.join('/'),
     jump: keyLabel(keys.jump),
@@ -89,16 +89,13 @@ export function keyHintsOf(keys: Readonly<Record<'forward' | 'left' | 'back' | '
 }
 
 /**
- * Screens in the language being learned (frame/lang.ts uiLang): the menu strings, the frame's HUD strings (with the
- * Korean help notices while lang.ts helpKoOn) and <html lang>. Returns the applied "lang|helpKo" key.
+ * The page speaks the language being learned (world/lang.ts learnLang): <html lang> follows it; the strings tables read
+ * the language and the Korean help at the moment of use. Returns the applied "lang|helpKo" key.
  */
 export function applyFrameLang(): string {
-  const lang = uiLang();
-  const helpKo = helpKoOn();
-  setFrameLang(lang);
-  setWorldFrameLang(lang, { helpKo });
+  const lang = learnLang();
   if (typeof document !== 'undefined' && document.documentElement.lang !== lang) document.documentElement.lang = lang;
-  return `${lang}|${helpKo}`;
+  return `${lang}|${helpKoOn()}`;
 }
 
 /** Hotbar keys from the server's bag: the first five carried things. */
@@ -124,7 +121,7 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   useEffect(() => {
     let applied = '';
     const apply = (): void => {
-      if (`${uiLang()}|${helpKoOn()}` === applied) return;
+      if (`${learnLang()}|${helpKoOn()}` === applied) return;
       applied = applyFrameLang();
       setLangTick((n) => n + 1);
     };

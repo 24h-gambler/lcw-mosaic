@@ -60,6 +60,13 @@ describe('student sign-up client (/signup)', () => {
     expect(html).toContain(S.haveCode);
   });
 
+  it("'이미 가입했어요 · 로그인' (?mode=signin, from the world's title) is the same page with a sign-in title", () => {
+    const html = renderToStaticMarkup(React.createElement(StudentSignupPage, { hash: '', search: '?mode=signin' }));
+    expect(html).toContain(S.titleSignin);
+    expect(html).toContain(S.signinBody);
+    expect(html).not.toContain(S.startBody);
+  });
+
   it('back from OAuth: the one-use code is exchanged first (checking); a bare #g= token signs nobody in', () => {
     expect(renderToStaticMarkup(React.createElement(StudentSignupPage, { hash: `#oauth=${'c'.repeat(32)}` }))).toContain('data-step="checking"');
     expect(renderToStaticMarkup(React.createElement(StudentSignupPage, { hash: '#oauth_error=handoff_invalid' }))).toContain('data-step="checking"');
@@ -102,6 +109,65 @@ describe('director console: 승인 대기 (DirectorSignups.tsx)', () => {
     expect(html).toContain(Q.attest('guardian_19'));
     expect(html).toContain(Q.checkLabel);
     expect(html).toContain('data-testid="signup-check-input"');
+  });
+
+  it("a name that matched the teacher's student starts on that student, with a line saying so", () => {
+    const now = Date.parse('2026-11-16T06:00:00Z');
+    const html = renderToStaticMarkup(
+      React.createElement(SignupQueue, {
+        token: 'op',
+        now: () => now,
+        pollMs: 1e9,
+        initialSignups: [
+          {
+            id: 'sg-2',
+            nickname: 'oreo',
+            created_at: now - 60_000,
+            expires_at: now + 1e7,
+            family_students: [],
+            match: { player_id: 'stu-29ddc960', nickname: 'Oreo' }
+          }
+        ],
+        initialStudents: [
+          { player_id: 'stu-aaaa', nickname: 'Mia', level: 'L1' } as never,
+          { player_id: 'stu-29ddc960', nickname: 'Oreo', level: 'L1' } as never
+        ]
+      })
+    );
+    expect(html).toContain(Q.match('Oreo').replace(/'/g, '&#x27;'));
+    expect(html).toMatch(/<option value="stu-29ddc960" selected="">/);
+  });
+
+  it('a match that is not in the student list (a hidden smoke or demo row) is not picked or shown', () => {
+    const now = Date.parse('2026-11-16T06:00:00Z');
+    const html = renderToStaticMarkup(
+      React.createElement(SignupQueue, {
+        token: 'op',
+        now: () => now,
+        pollMs: 1e9,
+        initialSignups: [
+          { id: 'sg-3', nickname: 'demo', created_at: now - 60_000, expires_at: now + 1e7, family_students: [], match: { player_id: 'player-demo', nickname: 'Demo' } }
+        ],
+        initialStudents: [{ player_id: 'stu-29ddc960', nickname: 'Oreo', level: 'L1' } as never]
+      })
+    );
+    expect(html).not.toContain('data-testid="signup-match"');
+    expect(html).toContain('<option value="" selected="">');
+  });
+
+  it('two students with the sign-up name: no pick, one line asking the teacher to choose', () => {
+    const now = Date.parse('2026-11-16T06:00:00Z');
+    const html = renderToStaticMarkup(
+      React.createElement(SignupQueue, {
+        token: 'op',
+        now: () => now,
+        pollMs: 1e9,
+        initialSignups: [{ id: 'sg-4', nickname: 'mina', created_at: now - 60_000, expires_at: now + 1e7, family_students: [], match: null, match_ambiguous: true }],
+        initialStudents: [{ player_id: 'stu-mina-1', nickname: 'Mina', level: 'L1' } as never, { player_id: 'stu-mina-2', nickname: 'Mina', level: 'L1' } as never]
+      })
+    );
+    expect(html).toContain(Q.ambiguous('mina').replace(/'/g, '&#x27;'));
+    expect(html).toContain('<option value="" selected="">');
   });
 
   it('empty queue says where sign-ups come from', () => {

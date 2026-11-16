@@ -6,8 +6,15 @@
  */
 import { useEffect, useRef } from 'react';
 import type { WorldHandle } from '../world/api.js';
-import { WORLD_STRINGS as W } from '../world/strings.js';
+import { WORLD_STRINGS as W, worldSay } from '../world/strings.js';
 import { gaugeEffects, loadGauges, refillOf, saveGauges, stepGauges, useForGauges, type GaugeState } from './gauges.js';
+
+/** A low-gauge notice: the English, and the Korean help on a second line (a long line, never cut off on phones). */
+export function lowNotice(key: 'lowHunger' | 'lowThirst'): string {
+  const s = worldSay(key);
+  return s.help ? `${s.text}
+${s.help}` : s.text;
+}
 
 function storage(): Storage | null {
   try {
@@ -36,8 +43,8 @@ export function useGauges(world: WorldHandle | null, frozen: boolean, onUse: (it
       world.setGauges?.({ hunger: g.hunger, thirst: g.thirst, lowHunger: fx.lowHunger, lowThirst: fx.lowThirst, slow: fx.speedMult < 1 });
       world.setMove?.(fx.speedMult, fx.canRun);
       // say once why walking got slower, and what helps (the "reason to speak", docs/03 D1)
-      if (fx.lowThirst && !wasLowT) world.notice?.(W.lowThirst);
-      else if (fx.lowHunger && !wasLowH) world.notice?.(W.lowHunger);
+      if (fx.lowThirst && !wasLowT) world.notice?.(lowNotice('lowThirst'));
+      else if (fx.lowHunger && !wasLowH) world.notice?.(lowNotice('lowHunger'));
       wasLowH = fx.lowHunger;
       wasLowT = fx.lowThirst;
     };

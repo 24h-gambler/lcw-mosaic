@@ -1,64 +1,37 @@
-/** Player-facing Korean strings of the world domain (AGENTS 6 "문자열"). English target sentences come from content. */
+/**
+ * Player-facing strings of the world domain (AGENTS 6 "문자열"). The screen speaks the language the child learns
+ * (Dan 11-16 14:3x, world/lang.ts): each table has an English and a Korean side with the same keys, and the exported
+ * table answers the English one, with the Korean added after a dot when the Korean help is on ("Talk · 말 걸기").
+ * The export names keep their old `_KO` suffix so the frame and lesson lanes keep compiling; the words are English.
+ * English target sentences of the lesson come from content.
+ */
 import { teacherLabel } from '@lcw/content';
-import { uiLang } from '../frame/strings.js';
+import { helpKoOn, say, type Bi } from './lang.js';
+
+/** "en · ko" when the Korean help is on and the two differ, else the English. Shared with the frame (frame/strings.ts). */
+export function joinHelp(en: string, ko: string | undefined): string {
+  return helpKoOn() && ko && ko !== en ? `${en} · ${ko}` : en;
+}
 
 /**
- * The HUD strings the frame owns (status chip, connection band, weather, caption, gauges, help lines), one table per
- * screen language. `setWorldFrameLang()` copies the chosen table into the live `WORLD_STRINGS` (and `BAND_NAMES`), so
- * every `W.x` read follows the screen language. The rest of `WORLD_STRINGS` is the world lane's and stays as it is.
+ * A table read through the current language: every key answers the English entry (or function), with the Korean
+ * one after it when the help is on. Read at the moment of use, so a help switch shows on the next text the HUD sets.
  */
-export const WORLD_FRAME_STRINGS_KO = {
-  hotbarEmpty: '빈 칸',
-  hotbarAllEmpty: '가방이 비어 있어요 · 영어로 주문하면 여기에 들어와요',
-  offlineBand: '연결이 잠깐 끊겼어요 · 혼자 모드로 계속 중',
-  weatherClear: '맑음',
-  weatherSnow: '눈',
-  weatherNight: '밤',
-  hunger: '배고픔',
-  thirst: '목마름',
-  slowed: '느려짐',
-  useAgainFood: '한 번 더 누르면 먹어요',
-  useAgainDrink: '한 번 더 누르면 마셔요',
-  ate: '냠냠! 배고픔이 채워졌어요',
-  drank: '꿀꺽! 목마름이 채워졌어요',
-  restLater: '조금 있다가 다시 먹을 수 있어요',
-  lowHunger: '배가 고파서 느려졌어요 · 카페에서 영어로 주문해 봐요',
-  lowThirst: '목이 말라서 느려졌어요 · 카페에서 음료를 주문해 봐요',
-  controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
-  controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기',
-  // Building on my plot (docs/03 D13).
-  buildHelpDesktop: '내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · Z 되돌리기 · R 돌리기',
-  buildHelpTouch: '내 부지예요! 톡 누르면 놓기 · 부수기를 고르고 길게 누르기'
-};
+export function biTable<T extends object>(en: T, ko: { [K in keyof T]?: T[K] }): T {
+  return new Proxy(en, {
+    get(target, key) {
+      const e = (target as Record<PropertyKey, unknown>)[key];
+      const k = (ko as Record<PropertyKey, unknown>)[key];
+      if (typeof e === 'function') {
+        return (...a: unknown[]) => joinHelp(String((e as (...x: unknown[]) => unknown)(...a)), typeof k === 'function' ? String((k as (...x: unknown[]) => unknown)(...a)) : undefined);
+      }
+      if (typeof e === 'string') return joinHelp(e, typeof k === 'string' ? k : undefined);
+      return e;
+    }
+  });
+}
 
-export type WorldFrameStrings = typeof WORLD_FRAME_STRINGS_KO;
-
-/** English HUD (the learn language is English): short, warm, about as long as the Korean so one-line spots hold. */
-export const WORLD_FRAME_STRINGS_EN: WorldFrameStrings = {
-  hotbarEmpty: 'Empty',
-  hotbarAllEmpty: 'Your bag is empty · Order in English to fill it',
-  offlineBand: 'Offline for a moment · Keep playing on your own',
-  weatherClear: 'Sunny',
-  weatherSnow: 'Snow',
-  weatherNight: 'Night',
-  hunger: 'Hunger',
-  thirst: 'Thirst',
-  slowed: 'Slower',
-  useAgainFood: 'Press again to eat',
-  useAgainDrink: 'Press again to drink',
-  ate: 'Yum! Hunger filled up',
-  drank: 'Gulp! Thirst filled up',
-  restLater: 'You can eat again in a little while',
-  lowHunger: "Hungry, so you're slower · Try ordering food at the cafe",
-  lowThirst: "Thirsty, so you're slower · Try ordering a drink at the cafe",
-  controlsDesktop: 'WASD move · Drag mouse to look · Space jump · E talk', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
-  controlsTouch: 'Drag left to move · Drag right to look around',
-  buildHelpDesktop: 'My plot! Right-click place · Hold left-click break · 1~5 pick · Z undo · R turn',
-  buildHelpTouch: 'My plot! Tap to place · Pick break, then press and hold'
-};
-
-export const WORLD_STRINGS = {
-  ...WORLD_FRAME_STRINGS_KO,
+const WORLD_STRINGS_KO = {
   loading: '마을을 짓는 중…',
   /** multi room at capacity (docs/03 D11, server room.ts 4003) */
   roomFull: '방이 가득 찼어요. 조금 뒤에 다시 들어가 볼게요',
@@ -77,10 +50,17 @@ export const WORLD_STRINGS = {
   starsAgain: '한 번 더 해 볼까요?',
   starsGot: (n: number): string => `별 ${n}개!`,
   itemGot: (name: string): string => `${name}${objectParticle(name)} 받았어요`,
+  hotbarEmpty: '빈 칸',
+  hotbarAllEmpty: '가방이 비어 있어요 · 영어로 주문하면 여기에 들어와요',
+  offlineBand: '연결이 잠깐 끊겼어요 · 혼자 모드로 계속 중',
+  weatherClear: '맑음',
+  weatherSnow: '눈',
+  weatherNight: '밤',
   lessonBadge: '수업 중',
   teacherDefault: '선생님',
   /** name alone ("김민지"), or null: "👩‍🏫 김민지 선생님과 함께" / "👩‍🏫 선생님과 함께" (one label, @lcw/content). */
-  teacherWith: (name: string | null): string => `👩‍🏫 ${teacherLabel(name)}과 함께`,
+  // the Korean side is only the help line after the English one: no second emoji
+  teacherWith: (name: string | null): string => `${teacherLabel(name)}과 함께`,
   solo: '혼자 놀기',
   coinsLabel: '코인',
   // Seat paused (docs/19 6장): no price or payment words on a child screen, only "tell your grown-up".
@@ -88,7 +68,21 @@ export const WORLD_STRINGS = {
   seatPausedBody: '마을은 둘러볼 수 있어요. 다시 같이 놀고 싶으면 보호자에게 말해 주세요.',
   seatPausedOk: '알겠어요',
   seatPausedChip: '둘러보기만',
+  hunger: '배고픔',
+  thirst: '목마름',
+  slowed: '느려짐',
+  useAgainFood: '한 번 더 누르면 먹어요',
+  useAgainDrink: '한 번 더 누르면 마셔요',
+  ate: '냠냠! 배고픔이 채워졌어요',
+  drank: '꿀꺽! 목마름이 채워졌어요',
+  restLater: '조금 있다가 다시 먹을 수 있어요',
+  lowHunger: '배가 고파서 느려졌어요 · 카페에서 영어로 주문해 봐요',
+  lowThirst: '목이 말라서 느려졌어요 · 카페에서 음료를 주문해 봐요',
+  controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
+  controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기',
   // Building on my plot (docs/03 D13).
+  buildHelpDesktop: '내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · Z 되돌리기 · R 돌리기',
+  buildHelpTouch: '내 부지예요! 톡 누르면 놓기 · 부수기를 고르고 길게 누르기',
   toolPlace: '놓기',
   toolBreak: '부수기',
   chest: '상자',
@@ -118,11 +112,96 @@ export const WORLD_STRINGS = {
   showroomBusyNow: '올리는 중…',
   showroomDone: '올렸어요! 이 주소를 가족에게 보여 주세요',
   showroomCopy: '주소 복사',
-  showroomCopied: '복사했어요'
-} as const;
+  showroomCopied: '복사했어요',
+  blockWord: '블록',
+  furnitureWord: '가구'
+};
+
+const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
+  loading: 'Building your town…',
+  roomFull: 'The room is full. We will try again soon',
+  loadingHint: 'Just a moment, stacking the blocks one by one',
+  talk: 'Talk',
+  talkKey: 'E',
+  jump: 'Jump',
+  view: 'View',
+  viewThird: '3rd person',
+  viewFirst: '1st person',
+  viewMirror: 'Mirror',
+  goalLabel: 'Now',
+  noWebglTitle: "This device can't open the 3D town",
+  noWebglBody: 'You can have the same class with word cards.',
+  noWebglCta: 'Use word cards',
+  starsAgain: 'One more time?',
+  starsGot: (n: number): string => `${n} star${n === 1 ? '' : 's'}!`,
+  itemGot: (name: string): string => `You got ${name}!`,
+  hotbarEmpty: 'Empty',
+  hotbarAllEmpty: 'Your bag is empty · Order in English to fill it',
+  offlineBand: 'Connection lost for a moment · Playing on your own',
+  weatherClear: 'Sunny',
+  weatherSnow: 'Snow',
+  weatherNight: 'Night',
+  lessonBadge: 'Class',
+  teacherDefault: 'Teacher',
+  // the Korean title a console typed ("김민지 선생님") stays out of the English line
+  teacherWith: (name: string | null): string => `👩‍🏫 With ${teacherNameEn(name) ?? 'your teacher'}`,
+  solo: 'Free play',
+  coinsLabel: 'Coins',
+  seatPausedTitle: 'Free play is resting for now',
+  seatPausedBody: 'You can still look around the town. Tell your grown-up if you want to play again.',
+  seatPausedOk: 'OK',
+  seatPausedChip: 'Look only',
+  hunger: 'Hunger',
+  thirst: 'Thirst',
+  slowed: 'Slow',
+  useAgainFood: 'Press again to eat',
+  useAgainDrink: 'Press again to drink',
+  ate: 'Yum! Not hungry now',
+  drank: 'Gulp! Not thirsty now',
+  restLater: 'You can have it again a little later',
+  lowHunger: 'Hungry, so you are slow · Order food at the cafe in English',
+  lowThirst: 'Thirsty, so you are slow · Order a drink at the cafe',
+  controlsDesktop: 'WASD move · Drag mouse to look · Space jump · E talk',
+  controlsTouch: 'Drag left to move · Drag right to look',
+  buildHelpDesktop: 'Your plot! Right-click place · Hold left-click break · 1-5 pick · Z undo · R rotate',
+  buildHelpTouch: 'Your plot! Tap to place · Pick break and hold',
+  toolPlace: 'Place',
+  toolBreak: 'Break',
+  chest: 'Chest',
+  undo: 'Undo',
+  rotate: 'Rotate',
+  chestTitle: 'Storage chest',
+  chestHint: 'Pick one and it goes to the chosen slot. You can hold up to 5.',
+  chestHand: 'In your hands',
+  chestStore: 'Put in',
+  chestEmpty: 'The chest is empty',
+  close: 'Close',
+  syncSaved: 'Saved',
+  syncSaving: 'Saving…',
+  syncOffline: 'No internet · Keeping it on this device',
+  syncLocal: 'Practice · Not saved',
+  syncLoading: 'Loading your plot…',
+  roomTitle: 'Room check',
+  roomOk: 'OK',
+  buildCount: (n: number): string => `${n}`,
+  showroomBtn: 'Showroom',
+  showroomTitle: 'Put your plot in the showroom',
+  showroomHint: 'Only the block shapes and colors go up. Not your name or where you are.',
+  showroomName: 'Showroom name',
+  showroomDefault: 'My bee house',
+  showroomGo: 'Share',
+  showroomBusyNow: 'Sharing…',
+  showroomDone: 'Shared! Show this link to your family',
+  showroomCopy: 'Copy link',
+  showroomCopied: 'Copied',
+  blockWord: 'Block',
+  furnitureWord: 'Furniture'
+};
+
+export const WORLD_STRINGS = biTable(WORLD_STRINGS_EN, WORLD_STRINGS_KO);
 
 /** Why the showroom did not go up (no prices, no blame: what to do next). */
-export const SHOWROOM_REASONS_KO: Readonly<Record<string, string>> = {
+const SHOWROOM_REASONS_KO_SRC: Readonly<Record<string, string>> = {
   consent: '보호자가 쇼룸 공개를 허락해야 해요. 보호자에게 말해 주세요.',
   title: '다른 이름으로 해 볼까요?',
   busy: '조금 뒤에 다시 해요',
@@ -131,9 +210,19 @@ export const SHOWROOM_REASONS_KO: Readonly<Record<string, string>> = {
   seat: '지금은 혼자 놀기가 쉬는 중이에요',
   server: '지금은 안 돼요. 조금 뒤에 다시 해요'
 };
+const SHOWROOM_REASONS_KO_EN: Readonly<Record<string, string>> = {
+  consent: 'Your grown-up has to say yes first. Tell your grown-up.',
+  title: 'How about another name?',
+  busy: 'Try again in a little while',
+  offline: 'Try again when the internet is back',
+  unlinked: 'Only a device linked to your grown-up can share',
+  seat: 'Free play is resting for now',
+  server: 'Not right now. Try again in a little while'
+};
+export const SHOWROOM_REASONS_KO = biTable(SHOWROOM_REASONS_KO_EN, SHOWROOM_REASONS_KO_SRC);
 
 /** Why an edit did not happen (docs/03 D13 "빨강=불가+이유"). */
-export const BUILD_REASONS_KO: Readonly<Record<string, string>> = {
+const BUILD_REASONS_KO_SRC: Readonly<Record<string, string>> = {
   not_my_plot: '내 부지 안에서만 지을 수 있어요',
   fence: '울타리와 문은 그대로 둬요',
   too_low: '더 깊이는 못 파요',
@@ -153,6 +242,27 @@ export const BUILD_REASONS_KO: Readonly<Record<string, string>> = {
   paused: '지금은 혼자 놀기가 쉬는 중이에요',
   loading: '내 부지를 불러오는 중이에요'
 };
+const BUILD_REASONS_KO_EN: Readonly<Record<string, string>> = {
+  not_my_plot: 'You can build only on your plot',
+  fence: 'Leave the fence and gate as they are',
+  too_low: "You can't dig deeper",
+  too_high: "You can't stack higher",
+  chest: "That's the chest's spot",
+  empty_slot: 'Your hands are empty · Take something from the chest',
+  occupied: 'Something is already there',
+  no_block: 'Nothing to break here',
+  unbreakable: "This can't be broken",
+  not_buildable: "This can't be placed",
+  no_support: 'Put furniture on the floor',
+  bag_full: 'Your hands are full',
+  bad_op: 'Try again?',
+  rate: 'Slowly, one at a time!',
+  far: 'Too far · Move closer',
+  self: "You're standing there",
+  paused: 'Free play is resting for now',
+  loading: 'Loading your plot'
+};
+export const BUILD_REASONS_KO = biTable(BUILD_REASONS_KO_EN, BUILD_REASONS_KO_SRC);
 
 /** Korean gloss under the English room sentence (the English line is the one to read aloud). */
 export const ROOM_GLOSS_KO: Readonly<Record<string, string>> = {
@@ -168,7 +278,7 @@ export const ROOM_GLOSS_KO: Readonly<Record<string, string>> = {
 };
 
 /** Names of the 40 build blocks (content BLOCK_PALETTE keys). */
-export const BLOCK_NAMES_KO: Readonly<Record<string, string>> = {
+const BLOCK_NAMES_KO_SRC: Readonly<Record<string, string>> = {
   grass: '잔디', dirt: '흙', sand: '모래', gravel: '자갈', stone: '돌', cobblestone: '조약돌', stone_brick: '돌벽돌',
   brick: '벽돌', granite: '화강암', marble: '대리석', stone_slab: '돌 반 블록', stone_stair: '돌 계단', oak_plank: '참나무 판자',
   birch_plank: '자작나무 판자', pine_plank: '소나무 판자', dark_plank: '짙은 판자', plank: '판자', log: '통나무', fence: '울타리',
@@ -177,9 +287,19 @@ export const BLOCK_NAMES_KO: Readonly<Record<string, string>> = {
   wool_yellow: '노란 양털', wool_blue: '파란 양털', wool_green: '초록 양털', carpet: '카펫', flower_pot_block: '화분',
   leaves: '나뭇잎', hay_bale: '건초', jar_shelf: '꿀단지 선반', scaffold: '발판', nameplate: '문패'
 };
+const BLOCK_NAMES_KO_EN: Readonly<Record<string, string>> = {
+  grass: 'Grass', dirt: 'Dirt', sand: 'Sand', gravel: 'Gravel', stone: 'Stone', cobblestone: 'Cobblestone', stone_brick: 'Stone brick',
+  brick: 'Brick', granite: 'Granite', marble: 'Marble', stone_slab: 'Stone slab', stone_stair: 'Stone stairs', oak_plank: 'Oak plank',
+  birch_plank: 'Birch plank', pine_plank: 'Pine plank', dark_plank: 'Dark plank', plank: 'Plank', log: 'Log', fence: 'Fence',
+  door: 'Door', glass: 'Glass', stained_glass: 'Stained glass', torch: 'Torch', lantern: 'Lantern', roof_tile_red: 'Red roof',
+  roof_tile_blue: 'Blue roof', roof_slate: 'Slate roof', thatch: 'Thatch roof', wool_white: 'White wool', wool_red: 'Red wool',
+  wool_yellow: 'Yellow wool', wool_blue: 'Blue wool', wool_green: 'Green wool', carpet: 'Carpet', flower_pot_block: 'Flower pot',
+  leaves: 'Leaves', hay_bale: 'Hay bale', jar_shelf: 'Honey jar shelf', scaffold: 'Scaffold', nameplate: 'Name sign'
+};
+export const BLOCK_NAMES_KO = biTable(BLOCK_NAMES_KO_EN, BLOCK_NAMES_KO_SRC);
 
 /** Names of shop furniture (content FURNITURE_REGISTRY ids); others read as "가구". */
-export const FURNITURE_NAMES_KO: Readonly<Record<string, string>> = {
+const FURNITURE_NAMES_KO_SRC: Readonly<Record<string, string>> = {
   furn_lamp_table: '탁자 등', furn_lamp_floor: '스탠드', furn_chandelier: '샹들리에', furn_lantern_wall: '벽등',
   furn_bed_single: '침대', furn_bed_bunk: '이층 침대', furn_chair_wood: '나무 의자', furn_sofa_cozy: '소파', furn_armchair: '안락의자',
   furn_table_dining: '식탁', furn_desk_study: '책상', furn_workbench: '작업대', furn_counter_kitchen: '부엌 조리대',
@@ -187,38 +307,53 @@ export const FURNITURE_NAMES_KO: Readonly<Record<string, string>> = {
   job_flower_shelf: '화분 선반', job_display_stand: '진열대', job_mailbox: '우편함', job_easel: '이젤', job_map_table: '지도 탁자',
   job_instrument: '피아노', job_lab_desk: '실험대'
 };
+const FURNITURE_NAMES_KO_EN: Readonly<Record<string, string>> = {
+  furn_lamp_table: 'Table lamp', furn_lamp_floor: 'Floor lamp', furn_chandelier: 'Chandelier', furn_lantern_wall: 'Wall lamp',
+  furn_bed_single: 'Bed', furn_bed_bunk: 'Bunk bed', furn_chair_wood: 'Wooden chair', furn_sofa_cozy: 'Sofa', furn_armchair: 'Armchair',
+  furn_table_dining: 'Dining table', furn_desk_study: 'Desk', furn_workbench: 'Workbench', furn_counter_kitchen: 'Kitchen counter',
+  job_stove: 'Stove', job_sewing_machine: 'Sewing machine', job_stone_bench: 'Stone bench', job_saw_bench: 'Saw bench', job_anvil: 'Anvil',
+  job_flower_shelf: 'Flower shelf', job_display_stand: 'Display stand', job_mailbox: 'Mailbox', job_easel: 'Easel', job_map_table: 'Map table',
+  job_instrument: 'Piano', job_lab_desk: 'Lab desk'
+};
+export const FURNITURE_NAMES_KO = biTable(FURNITURE_NAMES_KO_EN, FURNITURE_NAMES_KO_SRC);
 
-export const SCENE_TITLES_KO = {
+const SCENE_TITLES_KO_SRC = {
   plaza: '중앙 광장',
   honey_cafe: '꿀 카페',
   trade_shop: '물물교환 상점',
   build_plot: '내 부지',
   open_hill: '바람 언덕'
-} as const;
+};
+const SCENE_TITLES_KO_EN: Record<keyof typeof SCENE_TITLES_KO_SRC, string> = {
+  plaza: 'Town Square',
+  honey_cafe: 'Honey Cafe',
+  trade_shop: 'Trading Shop',
+  build_plot: 'My Plot',
+  open_hill: 'Windy Hill'
+};
+export const SCENE_TITLES_KO: Record<keyof typeof SCENE_TITLES_KO_SRC, string> = biTable(SCENE_TITLES_KO_EN, SCENE_TITLES_KO_SRC);
 
 /** Vertical band names (docs/03 3.2) next to the scene title on the HUD. Keys are TUNING.verticalBands ids. */
-export const BAND_NAMES_KO = {
+const BAND_NAMES_KO_SRC = {
   deep_space: '심우주',
   space_station: '우주 정거장',
   sky_island: '하늘섬',
   surface: '지상',
   mine: '광산',
   deep_core: '네더'
-} as const;
-
-export type BandNames = { [K in keyof typeof BAND_NAMES_KO]: string };
-
-export const BAND_NAMES_EN: Readonly<BandNames> = {
-  deep_space: 'Deep space',
-  space_station: 'Space station',
-  sky_island: 'Sky islands',
-  surface: 'Ground',
-  mine: 'Mines',
-  deep_core: 'Nether'
 };
+const BAND_NAMES_KO_EN: Record<keyof typeof BAND_NAMES_KO_SRC, string> = {
+  deep_space: 'Deep Space',
+  space_station: 'Space Station',
+  sky_island: 'Sky Island',
+  surface: 'Ground',
+  mine: 'Mine',
+  deep_core: 'Deep Core'
+};
+export const BAND_NAMES_KO: Record<keyof typeof BAND_NAMES_KO_SRC, string> = biTable(BAND_NAMES_KO_EN, BAND_NAMES_KO_SRC);
 
 /** Item names shown when giveItem() puts something in a slot. Unknown keys fall back to a gift box. */
-export const ITEM_NAMES_KO: Record<string, string> = {
+const ITEM_NAMES_KO_SRC: Record<string, string> = {
   honey_tea: '꿀차',
   warm_honey_tea: '따뜻한 꿀차',
   iced_honey_tea: '시원한 꿀차',
@@ -253,6 +388,42 @@ export const ITEM_NAMES_KO: Record<string, string> = {
   helmet: '헬멧',
   gift: '선물'
 };
+const ITEM_NAMES_KO_EN: Record<string, string> = {
+  honey_tea: 'honey tea',
+  warm_honey_tea: 'warm honey tea',
+  iced_honey_tea: 'iced honey tea',
+  honey_latte: 'a honey latte',
+  hot_chocolate: 'hot chocolate',
+  lemonade: 'lemonade',
+  milk: 'milk',
+  juice: 'juice',
+  orange_juice: 'orange juice',
+  apple_juice: 'apple juice',
+  smoothie: 'a smoothie',
+  cookie: 'a cookie',
+  honey_cookie: 'a honey cookie',
+  muffin: 'a muffin',
+  cake: 'cake',
+  sandwich: 'a sandwich',
+  bread: 'bread',
+  apple: 'an apple',
+  banana: 'a banana',
+  sticker: 'a sticker',
+  toy_car: 'a toy car',
+  ball: 'a ball',
+  kite: 'a kite',
+  hat: 'a hat',
+  umbrella: 'an umbrella',
+  book: 'a book',
+  pencil: 'a pencil',
+  flower: 'a flower',
+  map: 'a map',
+  shell: 'a shell',
+  marble: 'a marble',
+  helmet: 'a helmet',
+  gift: 'a gift'
+};
+export const ITEM_NAMES_KO = biTable(ITEM_NAMES_KO_EN, ITEM_NAMES_KO_SRC);
 
 /** What an NPC says when tapped and no dialog module is attached (target language, docs/12 7장 voice is the dialog domain's). */
 export const NPC_GREETINGS_EN: Record<string, string> = {
@@ -268,6 +439,24 @@ export function itemNameKo(key: string): string {
   return ITEM_NAMES_KO[key] ?? ITEM_NAMES_KO.gift!;
 }
 
+/** "You got honey tea!" (and "· 꿀차를 받았어요" with the help on): each side gets the item name in its own language. */
+export function itemGotText(key: string): string {
+  const en = ITEM_NAMES_KO_EN[key] ?? ITEM_NAMES_KO_EN.gift!;
+  const ko = ITEM_NAMES_KO_SRC[key] ?? ITEM_NAMES_KO_SRC.gift!;
+  return joinHelp(WORLD_STRINGS_EN.itemGot(en), WORLD_STRINGS_KO.itemGot(ko));
+}
+
+/** The teacher's name for an English line: "Ms. Kim" as typed; "김 선생님" becomes "Teacher 김"; none is null. */
+export function teacherNameEn(name: string | null | undefined): string | null {
+  const n = (name ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
+  const bare = n.replace(/\s*선생님$/, '').trim();
+  if (!bare) return null;
+  return bare === n ? bare : `Teacher ${bare}`;
+}
+
+/** Data (a showroom title the server keeps), never a screen line: no help text mixed in. */
+export const SHOWROOM_DEFAULT_TITLE = WORLD_STRINGS_EN.showroomDefault;
+
 /** 을/를 by whether the last Hangul syllable has a final consonant (받침). Non-Hangul endings fall back to 을(를). */
 export function objectParticle(word: string): string {
   const last = word.trim().slice(-1);
@@ -277,9 +466,9 @@ export function objectParticle(word: string): string {
 }
 
 /** Sector names on the map (docs/08 G06). The central sector is the hand-built town; generated sectors bring their own. */
-export const SECTOR_NAMES_KO = {
-  town: '중앙 마을'
-} as const;
+const SECTOR_NAMES_KO_EN = { town: 'Middle Town' };
+const SECTOR_NAMES_KO_SRC = { town: '중앙 마을' };
+export const SECTOR_NAMES_KO: { town: string } = biTable(SECTOR_NAMES_KO_EN, SECTOR_NAMES_KO_SRC);
 
 /** Key names shown in the HUD help lines; the frame passes the player's own keys (G14 키 바꾸기). */
 export interface KeyHintLabels {
@@ -291,57 +480,49 @@ export interface KeyHintLabels {
   rotate: string;
 }
 export const DEFAULT_KEY_HINTS: Readonly<KeyHintLabels> = Object.freeze({ move: 'WASD', jump: 'Space', talk: 'E', undo: 'Z', rotate: 'R' });
+/** The desktop controls line with the player's keys, in the learn language (Korean after it with the help on). */
 export function controlsDesktopFor(k: Readonly<KeyHintLabels>): string {
-  return hudLang === 'en'
-    ? `${k.move} move · Drag mouse to look · ${k.jump} jump · ${k.talk} talk`
-    : `${k.move} 이동 · 마우스 끌기 시점 · ${k.jump} 점프 · ${k.talk} 말 걸기`;
+  return joinHelp(`${k.move} move · Drag mouse to look · ${k.jump} jump · ${k.talk} talk`, `${k.move} 이동 · 마우스 끌기 시점 · ${k.jump} 점프 · ${k.talk} 말 걸기`);
 }
 export function buildHelpDesktopFor(k: Readonly<KeyHintLabels>): string {
-  return hudLang === 'en'
-    ? `My plot! Right-click place · Hold left-click break · 1~5 pick · ${k.undo} undo · ${k.rotate} turn`
-    : `내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · ${k.undo} 되돌리기 · ${k.rotate} 돌리기`;
+  return joinHelp(
+    `Your plot! Right-click place · Hold left-click break · 1-5 pick · ${k.undo} undo · ${k.rotate} rotate`,
+    `내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · ${k.undo} 되돌리기 · ${k.rotate} 돌리기`
+  );
 }
 
-// ---- screen language of the frame's HUD strings
+/** A townsperson's name over their speech bubble: the English name, the Korean one after it with the help on. */
+export function npcName(def: { nameEn: string; nameKo: string }): string {
+  return joinHelp(def.nameEn || def.nameKo, def.nameKo);
+}
 
-export type HudLang = 'en' | 'ko';
-
-export const WORLD_FRAME_STRINGS_BY_LANG: Readonly<Record<HudLang, WorldFrameStrings>> = { en: WORLD_FRAME_STRINGS_EN, ko: WORLD_FRAME_STRINGS_KO };
-export const BAND_NAMES_BY_LANG: Readonly<Record<HudLang, Readonly<BandNames>>> = { en: BAND_NAMES_EN, ko: BAND_NAMES_KO };
-/** Window event after the HUD strings changed language or Korean help (world/hud.ts redraws its built-once text). */
-export const HUD_TEXT_EVENT = 'lcw:hud-text';
+type WorldLineKey = { [K in keyof typeof WORLD_STRINGS_EN]: (typeof WORLD_STRINGS_EN)[K] extends string ? K : never }[keyof typeof WORLD_STRINGS_EN];
 /**
- * HUD lines that carry the Korean in parentheses while Korean help is on and the screen is not Korean. The low-gauge
- * notices put it on a second line (the caption wraps there instead of cutting it off on phones); the band wraps itself.
+ * One HUD line as English plus its Korean help line (world/lang.ts `say`), for the spots that put the Korean on a line
+ * of its own instead of after a dot (the frame's connection band and low-gauge notices: long lines that must not be cut).
  */
-export const HUD_KO_HELP_KEYS = ['offlineBand', 'lowHunger', 'lowThirst'] as const;
-const HUD_KO_HELP_NEWLINE: ReadonlySet<string> = new Set(['lowHunger', 'lowThirst']);
-
-let hudLang: HudLang = uiLang();
-
-/** Live band names of the current screen language (the HUD place line and the map). */
-export const BAND_NAMES: BandNames = { ...BAND_NAMES_BY_LANG[hudLang] };
+export function worldSay(key: WorldLineKey, help = helpKoOn()): { text: string; help: string | null } {
+  return say({ en: WORLD_STRINGS_EN[key] as string, ko: WORLD_STRINGS_KO[key] as string }, help);
+}
 
 /**
- * Put the frame's HUD strings in `lang` (WORLD_STRINGS for the frame keys, BAND_NAMES, the help-line templates).
- * `helpKo`: the notices of HUD_KO_HELP_KEYS add the Korean in parentheses when the screen is not Korean.
+ * The English and Korean of a place, sector or band name, from the name as a world table gave it (English, Korean, or
+ * "English · Korean" with the help on), or null for a name no table knows. The frame puts each side in its own sentence
+ * ("Go to Town Square" / "중앙 광장으로 가기"), so a Korean particle never lands on an English name.
  */
-export function setWorldFrameLang(lang: HudLang, opts: { helpKo?: boolean } = {}): void {
-  hudLang = lang;
-  const table: Record<string, string> = { ...WORLD_FRAME_STRINGS_BY_LANG[lang] };
-  if (opts.helpKo && lang !== 'ko') for (const k of HUD_KO_HELP_KEYS) table[k] = `${table[k]}${HUD_KO_HELP_NEWLINE.has(k) ? '\n' : ' '}(${WORLD_FRAME_STRINGS_KO[k]})`;
-  Object.assign(WORLD_STRINGS, table);
-  Object.assign(BAND_NAMES, BAND_NAMES_BY_LANG[lang]);
-  try {
-    if (typeof window !== 'undefined') window.dispatchEvent(new Event(HUD_TEXT_EVENT));
-  } catch {
-    // no window (tests)
-  }
+const NAME_PAIRS: ReadonlyMap<string, Bi> = (() => {
+  const m = new Map<string, Bi>();
+  const add = (en: Record<string, string>, ko: Record<string, string>): void => {
+    for (const k of Object.keys(en)) {
+      const bi = { en: en[k]!, ko: ko[k] ?? en[k]! };
+      for (const name of [bi.en, bi.ko, `${bi.en} · ${bi.ko}`]) if (!m.has(name)) m.set(name, bi);
+    }
+  };
+  add(SCENE_TITLES_KO_EN, SCENE_TITLES_KO_SRC);
+  add(SECTOR_NAMES_KO_EN, SECTOR_NAMES_KO_SRC);
+  add(BAND_NAMES_KO_EN, BAND_NAMES_KO_SRC);
+  return m;
+})();
+export function nameBi(name: string | null | undefined): Bi | null {
+  return name ? (NAME_PAIRS.get(name) ?? null) : null;
 }
-
-/** The screen language of the frame's HUD strings now. */
-export function worldFrameLang(): HudLang {
-  return hudLang;
-}
-
-setWorldFrameLang(hudLang);

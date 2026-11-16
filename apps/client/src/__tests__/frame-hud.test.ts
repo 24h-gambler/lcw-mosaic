@@ -1,19 +1,8 @@
 // G01 HUD read-outs and the connection band (docs/08 8.1, 8.6): place · band, weather · clock, hotbar caption, offline.
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setFrameLang } from '../frame/strings.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bandOf, clockLabel, hotbarCaption, placeLabel } from '../frame/status.js';
 import { SERVER_UNREACHABLE_EVENT, watchConnection } from '../frame/connection.js';
-import { WORLD_STRINGS as W, setWorldFrameLang } from '../world/strings.js';
-
-// This file checks the Korean copy: pin the screen language to Korean (by default it follows the learn language).
-beforeAll(() => {
-  setFrameLang('ko');
-  setWorldFrameLang('ko');
-});
-afterAll(() => {
-  setFrameLang('en');
-  setWorldFrameLang('en');
-});
+import { WORLD_STRINGS as W } from '../world/strings.js';
 
 describe('status line', () => {
   it('names the vertical band of docs/03 3.2 by height', () => {
@@ -29,8 +18,9 @@ describe('status line', () => {
   });
 
   it('puts the place first, then the band', () => {
-    expect(placeLabel('중앙 광장', 'surface')).toBe('중앙 광장 · 지상');
-    expect(placeLabel('', 'mine')).toBe('광산');
+    // the band speaks the language the child learns (Dan 11-16 14:3x, world/lang.ts)
+    expect(placeLabel('Town Square', 'surface')).toBe('Town Square · Ground');
+    expect(placeLabel('', 'mine')).toBe('Mine');
   });
 
   it('shows weather in words next to a zero-padded world clock (night 19~05)', () => {

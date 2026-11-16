@@ -1,7 +1,8 @@
 /**
  * 12 weeks of one synthetic child through the real routes (docs/07 §2–§4, WP-309), on a fake clock:
  * the guardian links a device and pays for a seat; the child speaks through POST /v1/converse/score (free talk,
- * bank orders, read-aloud, recognition noise), reviews memory cards through /v1/review/due + /v1/review/attempt,
+ * bank orders, read-aloud, recognition noise), reviews memory cards through /v1/review/due + /v1/review/attempt and
+ * the repair NPC (/v1/review/repair + /pick), carries and stores its things (/v1/items, /equip, /use),
  * joins a weekly lesson (/v1/admin/lessons/start → /v1/join → /v1/lesson/utterance → end); the daily, hourly and
  * Monday crons run every day; the seat is extended when its 1-day notice appears. At the end the guardian opens
  * GET /v1/family/children/:pid/dashboard and every curve is compared with plain sums over what was actually sent.
@@ -111,6 +112,7 @@ async function twelveWeeks() {
     const statuses = new Map<string, number>();
     const count = (k: string) => statuses.set(k, (statuses.get(k) ?? 0) + 1);
     let extended = 0;
+    let repaired = 0;
     let order = 0;
     const days = new Map<number, SimUtterance[]>();
     for (const u of plan.utterances) {
@@ -184,7 +186,20 @@ async function twelveWeeks() {
         const due = await call(p, 'GET', '/v1/review/due', undefined, dev);
         expect(due.status).toBe(200);
         let k = 0;
-        for (const sign of due.body.signs as Array<{ card_id: string; text: string; box: number }>) {
+        // The signs (carried or recently used gear, at most 3), then the repair NPC for due gear stored in the chest.
+        const signs = [...(due.body.signs as Array<{ card_id: string; text: string; box: number }>)];
+        const repair = await call(p, 'GET', '/v1/review/repair', undefined, dev);
+        count(`repair:${repair.status}`);
+        for (const it of repair.body.items as Array<{ item_id: string; due: boolean }>) {
+          if (!it.due) continue;
+          const pick = await call(p, 'POST', '/v1/review/repair/pick', { item_id: it.item_id }, dev);
+          count(`pick:${pick.status}`);
+          if (pick.status === 200 && !signs.some((x) => x.card_id === pick.body.sign.card_id)) {
+            signs.push(pick.body.sign);
+            repaired++;
+          }
+        }
+        for (const sign of signs) {
           const t = rt + ++k * 30_000;
           at(t);
           const words = sign.text.trim().split(/\s+/).length;
@@ -210,6 +225,14 @@ async function twelveWeeks() {
             via: 'review'
           });
         }
+        // End of the play day: hold one carried thing, then put everything carried into the chest so tomorrow's
+        // purchases land in the bag (five slots, docs/03 D13).
+        const mine = await call(p, 'GET', '/v1/items', undefined, dev);
+        count(`items:${mine.status}`);
+        const bag = (mine.body.items as Array<{ item_id: string; item_key: string; location: string }>).filter((x) => x.location === 'bag');
+        expect(bag.length).toBeLessThanOrEqual(mine.body.bag_slots);
+        if (bag[0]) count(`use:${(await call(p, 'POST', '/v1/items/use', { item_key: bag[0].item_key }, dev)).status}`);
+        for (const x of bag) count(`equip:${(await call(p, 'POST', '/v1/items/equip', { item_id: x.item_id, to: 'chest' }, dev)).status}`);
       }
     }
 
@@ -235,7 +258,7 @@ async function twelveWeeks() {
       );
     }
     vi.useRealTimers();
-    return { res, s, sent, mastered, lessonStarts, truth, statuses, extended, cards, outbox };
+    return { res, s, sent, mastered, lessonStarts, truth, statuses, extended, cards, outbox, repaired };
   }
 }
 
@@ -304,14 +327,13 @@ describe('12 weeks through the real routes (docs/07, WP-309)', () => {
   });
 
   /*
-   * Known gap found by this simulation (reported to the world/review owner): review signs only appear for gear
-   * equipped or used in the last 7 days (docs/09 P4), the server has no equip state and no repair-NPC pick route,
-   * and the only "use" it records is the previous review. A card at box 3 (7-day interval) is therefore due exactly
-   * when its item drops out of the 7-day window, so no card can reach the 16- and 35-day reviews and the
-   * "마스터 문장" curve stays at 0 for every child. it.fails keeps this visible: when mastery becomes reachable this
-   * test starts failing and should become a plain `it`.
+   * Found by this simulation (fixed): with no equip state and no repair-NPC pick route, a card at box 3 was due
+   * exactly when its item dropped out of the 7-day window, so nothing reached the 16- and 35-day reviews. Now the
+   * child carries, stores and holds things through /v1/items/*, and stored gear is picked at /v1/review/repair.
    */
-  it.fails('a child who plays five days a week masters at least one card in 12 weeks (blocked: see the note above)', () => {
+  it('a child who plays five days a week masters at least one card in 12 weeks; stored gear goes through the repair NPC', () => {
+    expect(R.repaired).toBeGreaterThan(0);
+    expect(R.statuses.get('equip:200')).toBeGreaterThan(0);
     expect(R.mastered.length).toBeGreaterThan(0);
     expect(R.s.weeks[11].cum_mastered).toBeGreaterThan(0);
   });

@@ -245,7 +245,10 @@ for (const vp of VIEWPORTS) {
         }
       });
       check(vp.name, typeof stored === 'number' && stored > 1, `mouse look speed kept on the device (${stored})`);
-      check(vp.name, posts.some((x) => x.p === '/v1/settings' && /lookMouse|look_mouse/.test(x.body)), 'settings change did not reach the server');
+      // the server save is debounced: give a busy machine up to 6 s before calling it missing
+      const sent = () => posts.some((x) => x.p === '/v1/settings' && /lookMouse|look_mouse/.test(x.body));
+      for (let i = 0; i < 30 && !sent(); i++) await page.waitForTimeout(200);
+      check(vp.name, sent(), 'settings change did not reach the server');
       for (const sec of ['sound', 'screen', 'access', 'mic']) {
         await page.click(`#lcw-set-tab-${sec}`);
         await page.waitForTimeout(500);

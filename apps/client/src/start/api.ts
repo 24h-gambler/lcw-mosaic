@@ -3,7 +3,7 @@
  * guest) and the signed-in student's live lesson (student sign-up lane: GET /v1/device/lesson, POST
  * /v1/device/lesson/join). Pure functions over a fetch and a key store, so the flow is tested without a browser.
  */
-import { readWorldSetup, type WorldSetup, type WorldSetupChoice } from '@lcw/content';
+import { readLearnLang, readWorldSetup, type LearnLang, type WorldSetup, type WorldSetupChoice } from '@lcw/content';
 import type { PlayerIdentity } from '../world/identity.js';
 
 export const GUEST_WORLD_KEY = 'lcw.myWorld';
@@ -15,8 +15,11 @@ export interface KeyStore {
   removeItem(key: string): void;
 }
 
-/** What the start screen knows about my world: made (with its setup), not made yet, or unknown (offline). */
-export type MyWorldState = { made: true; world: WorldSetup } | { made: false } | { made: 'unknown' };
+/**
+ * What the start screen knows about my world: made (with its setup), not made yet, or unknown (offline); and the
+ * language the child learns as the server keeps it (null before the child chose, or unknown).
+ */
+export type MyWorldState = ({ made: true; world: WorldSetup } | { made: false } | { made: 'unknown' }) & { learnLang?: LearnLang | null };
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}`, accept: 'application/json', 'content-type': 'application/json' });
 
@@ -34,51 +37,53 @@ export function deviceSeed(rand: (n: number) => Uint8Array = (n) => crypto.getRa
   return Array.from(rand(8), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function loadMyWorld(id: PlayerIdentity | null, store: KeyStore | null, fetchFn: FetchLike, base = ''): Promise<MyWorldState> {
-  if (!id || id.kind === 'lesson') return { made: 'unknown' };
-  if (id.kind === 'guest') {
-    const w = readGuestWorld(store);
-    return w ? { made: true, world: w } : { made: false };
-  }
+/**
+ * My world as the server keeps it for a signed-in child. A guest has none (Dan 11-16 14:3x: no world before sign-up;
+ * the trial is /try), so a guest never asks.
+ */
+export async function loadMyWorld(id: PlayerIdentity | null, _store: KeyStore | null, fetchFn: FetchLike, base = ''): Promise<MyWorldState> {
+  if (id?.kind !== 'child') return { made: 'unknown' };
   try {
     const res = await fetchFn(`${base}/v1/my-world`, { headers: auth(id.token), cache: 'no-store' });
     if (!res.ok) return { made: 'unknown' };
-    const body = (await res.json()) as { made?: unknown; world?: unknown };
+    const body = (await res.json()) as { made?: unknown; world?: unknown; learn_lang?: unknown };
     const w = body.made === true ? readWorldSetup(body.world) : null;
-    return w ? { made: true, world: w } : body.made === false ? { made: false } : { made: 'unknown' };
+    const learnLang = readLearnLang(body.learn_lang);
+    return w ? { made: true, world: w, learnLang } : body.made === false ? { made: false, learnLang } : { made: 'unknown' };
   } catch {
     return { made: 'unknown' };
   }
 }
 
-/** Make my world: the server picks the seed for a signed-in child; a guest's world lives on this device. */
+/** Keep the language the child learns with the child (any device of theirs then speaks it). False when not kept. */
+export async function saveLearnLang(id: PlayerIdentity | null, lang: LearnLang, fetchFn: FetchLike, base = ''): Promise<boolean> {
+  if (id?.kind !== 'child') return false;
+  try {
+    const res = await fetchFn(`${base}/v1/my-world/lang`, { method: 'POST', headers: auth(id.token), body: JSON.stringify({ learn_lang: lang }) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Make my world: a signed-in child only (the server picks the seed). A guest cannot make one (null). */
 export async function makeMyWorld(
   id: PlayerIdentity | null,
   choice: WorldSetupChoice & { name: string },
-  store: KeyStore | null,
+  _store: KeyStore | null,
   fetchFn: FetchLike,
-  base = '',
-  seed: () => string = () => deviceSeed()
+  base = ''
 ): Promise<WorldSetup | null> {
-  if (id?.kind === 'child') {
-    try {
-      const res = await fetchFn(`${base}/v1/my-world`, { method: 'POST', headers: auth(id.token), body: JSON.stringify(choice) });
-      // 409: another device of the same child made it a moment ago; that world is the child's world.
-      if (!res.ok && res.status !== 409) return null;
-      const body = (await res.json()) as { world?: unknown };
-      return readWorldSetup(body.world);
-    } catch {
-      return null;
-    }
-  }
-  const world = readWorldSetup({ ...choice, seed: seed() });
-  if (!world) return null;
+  if (id?.kind !== 'child') return null;
   try {
-    store?.setItem(GUEST_WORLD_KEY, JSON.stringify(world));
+    const res = await fetchFn(`${base}/v1/my-world`, { method: 'POST', headers: auth(id.token), body: JSON.stringify(choice) });
+    // 409: another device of the same child made it a moment ago; that world is the child's world.
+    if (!res.ok && res.status !== 409) return null;
+    const body = (await res.json()) as { world?: unknown };
+    return readWorldSetup(body.world);
   } catch {
-    /* private window: the world lasts as long as the page */
+    return null;
   }
-  return world;
 }
 
 /** The id of my teacher's lesson running now (signed-in child devices only); null = none. Errors read as none. */
@@ -128,10 +133,13 @@ export function cleanLessonCode(raw: string): string | null {
   return d.length === 6 ? d : null;
 }
 
-/** Where the title screen starts the child (pure; the screen renders this). */
-export type TitleAction = 'lesson' | 'continue' | 'make' | 'wait';
-
+/**
+ * Where the title screen starts the child (pure; the screen renders this). A guest gets sign-up, sign-in and the
+ * trial only (Dan 11-16 14:3x: no world before sign-up); a signed-in child their lesson, or making / entering their world.
+ */
+export type TitleAction = 'lesson' | 'continue' | 'make' | 'wait' | 'signup';
 export function titleActions(id: PlayerIdentity | null, world: MyWorldState | null, live: boolean): TitleAction[] {
+  if (id?.kind === 'guest') return ['signup'];
   if (!id || !world) return ['wait'];
   const out: TitleAction[] = [];
   if (live && id.kind === 'child') out.push('lesson');
@@ -139,3 +147,8 @@ export function titleActions(id: PlayerIdentity | null, world: MyWorldState | nu
   out.push(world.made === false ? 'make' : 'continue');
   return out;
 }
+
+/** Where a guest signs up, signs in on another device (the sign-up lane: /signup?mode=signin), or tries. */
+export const SIGN_UP_PATH = '/signup';
+export const SIGN_IN_PATH = '/signup?mode=signin';
+export const TRY_PATH = '/try';

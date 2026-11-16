@@ -3,10 +3,11 @@
  * What counts as found is the server's record only (GET /v1/collection); unfound entries show as a "?" silhouette.
  */
 import React, { useEffect, useState } from 'react';
-import { FRAME_STRINGS as F } from '../strings.js';
+import { FRAME_STRINGS as F, FRAME_STRINGS_EN as E } from '../strings.js';
 import { fetchCollection, type CollectionBook, type CollectionView } from '../api.js';
 import type { MenuPanelProps } from './types.js';
 import { KoHelp } from './ko-help.js';
+import { achievementName, entryName } from './collection-names.js';
 
 export const BOOK_IDS = ['blocks', 'minerals', 'enemies', 'food', 'outfits', 'expressions'] as const;
 const BOOK_ICONS: Record<string, string> = { blocks: '🧱', minerals: '💎', enemies: '👾', food: '🍪', outfits: '👕', expressions: '💬' };
@@ -76,10 +77,10 @@ export function BookPanel(props: MenuPanelProps): React.ReactElement {
   return (
     <section>
       <style>{BOOK_CSS}</style>
-      <h2>{F.bookTitle}<KoHelp of={F.bookTitle} /></h2>
-      {state === 'guest' ? <p className="note">{F.guestNote}<KoHelp of={F.guestNote} /></p> : null}
-      {state === 'loading' ? <p className="muted">{F.loading}<KoHelp of={F.loading} /></p> : null}
-      {state === 'offline' ? <p className="note">{F.offline}<KoHelp of={F.offline} /></p> : null}
+      <h2>{E.bookTitle}<KoHelp of={E.bookTitle} /></h2>
+      {state === 'guest' ? <p className="note">{E.guestNote}<KoHelp of={E.guestNote} /></p> : null}
+      {state === 'loading' ? <p className="muted">{E.loading}<KoHelp of={E.loading} /></p> : null}
+      {state === 'offline' ? <p className="note">{E.offline}<KoHelp of={E.offline} /></p> : null}
       <div className="lcw-books" role="tablist" aria-label={F.bookTitle}>
         {books.map((b) => (
           <button key={b.id} type="button" role="tab" aria-selected={b.id === book.id} onClick={() => setSel(b.id)}>
@@ -94,7 +95,7 @@ export function BookPanel(props: MenuPanelProps): React.ReactElement {
       </div>
       <div role="tabpanel" aria-label={F.books[book.id] ?? book.id}>
         {book.entries.length === 0 ? (
-          <p className="note">{F.bookEmptyBook}<KoHelp of={F.bookEmptyBook} /></p>
+          <p className="note">{E.bookEmptyBook}<KoHelp of={E.bookEmptyBook} /></p>
         ) : (
           <ul className="lcw-entries">
             {book.entries.map((e) => (
@@ -102,7 +103,7 @@ export function BookPanel(props: MenuPanelProps): React.ReactElement {
                 <span className="e" aria-hidden="true">
                   {e.emoji ?? BOOK_ICONS[book.id]}
                 </span>
-                <span>{e.found ? e.name_ko : F.bookNotFound}</span>
+                <span>{e.found ? entryName(book.id, e.key, e.name_ko) : F.bookNotFound}</span>
               </li>
             ))}
           </ul>
@@ -110,17 +111,18 @@ export function BookPanel(props: MenuPanelProps): React.ReactElement {
       </div>
       {view?.achievements && view.achievements.length > 0 ? (
         <>
-          <h3>{F.achievementsTitle}<KoHelp of={F.achievementsTitle} /></h3>
+          <h3>{E.achievementsTitle}<KoHelp of={E.achievementsTitle} /></h3>
           <ul className="lcw-ach">
             {view.achievements.map((a) => {
               const pct = a.done ? 100 : a.goal ? Math.round(((a.progress ?? 0) / a.goal) * 100) : 0;
+              const name = achievementName(a.id, a.name_ko);
               return (
                 <li key={a.id} className={a.done ? 'done' : ''}>
                   <span>
                     {a.done ? '🏅 ' : ''}
-                    {a.name_ko}
+                    {name}
                   </span>
-                  <Bar pct={Math.max(0, Math.min(100, pct))} label={a.name_ko} />
+                  <Bar pct={Math.max(0, Math.min(100, pct))} label={name} />
                 </li>
               );
             })}

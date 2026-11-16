@@ -304,8 +304,10 @@ export const PARENT_STRINGS_KO = {
     body: (minutes: number) => `친구에게 코드나 링크를 보내면 친구가 우리 아이 월드에 ${minutes}분 동안 같이 들어와 놀 수 있습니다. 친구는 가입하지 않아도 됩니다.`,
     left: (left: number, per: number) => `이번 달 ${per}장 중 ${left}장 남았습니다.`,
     noneLeft: (date: string) => `지금은 초대권을 더 만들 수 없습니다. ${date}에 다시 생깁니다.`,
+    /** The next slot is a waiting code running out: true only if nobody enters it (a friend usually will). */
+    noneLeftCode: (when: string) => `지금은 초대권을 더 만들 수 없습니다. 기다리는 초대권에 아무도 들어오지 않으면 ${when}에 한 장이 다시 생깁니다.`,
     noneLeftReady: '아직 아무도 들어오지 않은 초대권은 회수할 수 있습니다.',
-    limit: (per: number, date: string) => `좌석마다 한 달에 ${per}장까지 쓸 수 있습니다. 지금은 더 만들 수 없습니다. ${date}에 다시 생깁니다.`,
+    limit: (per: number, back: string) => `좌석마다 한 달에 ${per}장까지 쓸 수 있습니다. ${back}`,
     seatInactive: '이용 중인 좌석에서만 초대권을 만들 수 있습니다.',
     needConsent: '서비스 이용에 동의하면 친구 초대권을 쓸 수 있습니다.',
     gone: '이 초대권을 찾지 못했습니다. 목록을 다시 불러왔습니다.',

@@ -1,50 +1,53 @@
 /**
- * Korean help (world/lang.ts helpKoOn, the same switch as the start screen's): while the screens show the learn language, a
- * small Korean line under the menu's tab labels, panel and section titles, setting names and hint paragraphs. Off, or
- * on Korean screens, it draws nothing. Read at render time; the frame re-renders the menu when either value changes
- * (FrameLayer, onLearnLang).
+ * Korean help (world/lang.ts helpKoOn, the same switch as the start screen's): a small Korean line under the menu's
+ * English tab labels, panel and section titles, setting names and hint paragraphs (world/lang.ts `say`: the English
+ * stays the screen line, the Korean is the help). Off, it draws nothing. Read at render time; the frame re-renders the
+ * menu when the switch changes (FrameLayer, onLearnLang). Short words elsewhere get the Korean after a dot instead
+ * (frame/strings.ts FRAME_STRINGS).
  */
 import React from 'react';
-import { helpKoOn } from '../../world/lang.js';
-import { FRAME_STRINGS_BY_LANG, FRAME_STRINGS_KO, frameLang, type FrameStrings } from '../strings.js';
+import { helpKoOn, say } from '../../world/lang.js';
+import { FRAME_STRINGS_EN, FRAME_STRINGS_KO, type FrameStrings } from '../strings.js';
 
-/** Korean help shows now: the player turned it on and the frame is not in Korean already. */
+/** Korean help shows now. */
 export function koHelpActive(): boolean {
-  return frameLang() !== 'ko' && helpKoOn();
+  return helpKoOn();
 }
 
 /** The Korean of one frame string (picked from the Korean table), or null while Korean help is off. */
 export function ko(get: (t: FrameStrings) => string | undefined): string | null {
-  if (!koHelpActive()) return null;
-  return get(FRAME_STRINGS_KO as FrameStrings) ?? null;
+  const en = get(FRAME_STRINGS_EN);
+  return say({ en: en ?? '', ko: get(FRAME_STRINGS_KO as FrameStrings) ?? '' }).help;
 }
 
-/** Screen-language text -> Korean, for strings passed around as plain text (setting rows). First match wins. */
-const reverse = new Map<string, Map<string, string>>();
-function reverseOf(lang: string): Map<string, string> {
-  let m = reverse.get(lang);
-  if (m) return m;
-  m = new Map();
+/** English text -> Korean, for strings passed around as plain text (setting rows). First match wins. */
+let reverse: Map<string, string> | null = null;
+function reverseMap(): Map<string, string> {
+  if (reverse) return reverse;
+  const m = new Map<string, string>();
   const walk = (a: unknown, k: unknown): void => {
     if (typeof a === 'string' && typeof k === 'string') {
-      if (!m!.has(a)) m!.set(a, k);
+      if (!m.has(a)) m.set(a, k);
     } else if (a && k && typeof a === 'object' && typeof k === 'object') {
       for (const key of Object.keys(a)) walk((a as Record<string, unknown>)[key], (k as Record<string, unknown>)[key]);
     }
   };
-  walk(FRAME_STRINGS_BY_LANG[lang as keyof typeof FRAME_STRINGS_BY_LANG], FRAME_STRINGS_KO);
-  reverse.set(lang, m);
+  walk(FRAME_STRINGS_EN, FRAME_STRINGS_KO);
+  reverse = m;
   return m;
 }
 
 export function koOf(text: string | undefined): string | null {
-  if (!text || !koHelpActive()) return null;
-  return reverseOf(frameLang()).get(text) ?? null;
+  if (!text) return null;
+  return say({ en: text, ko: reverseMap().get(text) ?? '' }).help;
 }
 
-/** `<KoHelp get={(t) => t.bagTitle} />` or `<KoHelp of={title} />`: the small Korean line, or nothing. */
-export function KoHelp(props: { get?: (t: FrameStrings) => string | undefined; of?: string }): React.ReactElement | null {
-  const text = props.get ? ko(props.get) : koOf(props.of);
+/**
+ * `<KoHelp get={(t) => t.bagTitle} />`, `<KoHelp of={englishText} />` or `<KoHelp text={korean} />`: the small Korean
+ * line, or nothing while the help is off.
+ */
+export function KoHelp(props: { get?: (t: FrameStrings) => string | undefined; of?: string; text?: string | null }): React.ReactElement | null {
+  const text = props.get ? ko(props.get) : props.of !== undefined ? koOf(props.of) : props.text && helpKoOn() ? props.text : null;
   if (!text) return null;
   return (
     <span className="ko" lang="ko">

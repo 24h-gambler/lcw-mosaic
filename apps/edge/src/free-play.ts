@@ -209,6 +209,9 @@ export interface GuardianRefLike {
   family_id: string;
 }
 
+/** Guardian pass list: passes a friend entered or that ran out unused, newest first, after every live one. */
+const GUEST_PASS_LIST_HISTORY = 24;
+
 /** Guardian routes, mounted from family.ts behind its guardian session check. */
 export function mountGuestPassGuardianRoutes(
   app: Hono,
@@ -261,7 +264,21 @@ export function mountGuestPassGuardianRoutes(
     const s = seatFor(g, c.req.param('id'));
     if (!s) return c.json({ error: 'seat_not_found' }, 404);
     const now = d.nowMs();
-    const rows = d.sql.all<GrantRow>('select * from guest_pass_grants where seat_id = ? order by issued_at desc limit 24', [s.id]);
+    // Every pass the guardian can still act on (waiting or running) is always in the list, together with the newest
+    // history rows (capped); all of them newest issue first.
+    // A pass taken back before anyone entered is left out: it counts for nothing, and issuing and taking back has no
+    // limit, so those rows would otherwise push an older waiting code out of a capped list (review of #94).
+    const live = d.sql.all<GrantRow>(
+      'select * from guest_pass_grants where seat_id = ? and revoked_at is null and ((started_at is null and redeem_until > ?) or (started_at is not null and ends_at > ?))',
+      [s.id, now, now]
+    );
+    const history = d.sql.all<GrantRow>(
+      'select * from guest_pass_grants where seat_id = ? and not (revoked_at is not null and started_at is null) order by issued_at desc limit ?',
+      [s.id, GUEST_PASS_LIST_HISTORY]
+    );
+    const byId = new Map<string, GrantRow>();
+    for (const r of [...live, ...history]) byId.set(r.id, r);
+    const rows = [...byId.values()].sort((a, b) => b.issued_at - a.issued_at);
     c.header('cache-control', 'private, no-store');
     return c.json({ passes: rows.map((r) => view(r, now)), ...summary(s.id, now) });
   });

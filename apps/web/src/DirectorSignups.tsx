@@ -91,7 +91,9 @@ export function SignupQueue(props: SignupQueueProps): React.ReactElement | null 
         text:
           c === 'player_has_guardian'
             ? Q.hasGuardian
-            : c === 'check_mismatch'
+            : c === 'nickname_taken'
+              ? Q.nickTaken
+              : c === 'check_mismatch'
               ? Q.checkWrong
               : c === 'player_has_devices'
                 ? Q.hasDevices(Number((e as StudentApiError).body.devices ?? 1))
@@ -111,7 +113,10 @@ export function SignupQueue(props: SignupQueueProps): React.ReactElement | null 
       {signups.length === 0 ? <p style={small}>{Q.empty}</p> : null}
       <div style={{ display: 'grid', gap: sp(3) }}>
         {signups.map((s) => {
-          const target = pick[s.id] ?? '';
+          // A name that matched a teacher-made student starts on that student (the 4 digits still decide), only when
+          // that student is one the teacher can pick in the list below (never a hidden smoke or demo row).
+          const match = s.match && students.some((st) => st.player_id === s.match!.player_id) ? s.match : null;
+          const target = pick[s.id] ?? match?.player_id ?? '';
           const check = checks[s.id] ?? '';
           const checkOk = /^\d{4}$/.test(check);
           const row = students.find((st) => st.player_id === target);
@@ -128,6 +133,15 @@ export function SignupQueue(props: SignupQueueProps): React.ReactElement | null 
                   </p>
                 ) : null}
                 {s.family_students.length ? <p style={small}>{Q.family(s.family_students.map((k) => k.nickname).join(', '))}</p> : null}
+                {match ? (
+                  <p style={small} data-testid="signup-match">
+                    {Q.match(match.nickname)}
+                  </p>
+                ) : s.match_ambiguous ? (
+                  <p style={small} data-testid="signup-match-ambiguous">
+                    {Q.ambiguous(s.nickname)}
+                  </p>
+                ) : null}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'end' }}>
                 <label style={{ ...labelStyle, flex: '0 0 150px' }}>

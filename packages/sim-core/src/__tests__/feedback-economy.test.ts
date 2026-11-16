@@ -4,6 +4,7 @@ import {
   claimReadAloudDiscount,
   computeOfferPrice,
   computeWeeklyPriceIndexes,
+  activeGearWindowMs,
   selectRepairPickCards,
   selectReviewSigns,
   TUNING,
@@ -36,25 +37,41 @@ describe('review signs (docs/09 P4, docs/03 D8)', () => {
     ];
     const equipped = new Set(['jetpack', 'drill', 'boots']);
     const lastUsed = { iron_pickaxe: NOW - 6 * DAY, wood_sword: NOW - 30 * DAY };
-    const signs = selectReviewSigns(cards, equipped, lastUsed, NOW);
+    const signs = selectReviewSigns(cards, equipped, lastUsed, NOW, new Set(['wood_sword']));
     expect(signs.map((c) => c.id)).toEqual(['c-used', 'c-drill', 'c-jet']);
     expect(signs.some((c) => c.id === 'c-old-chest')).toBe(false);
   });
 
   it('leaves chest-only gear unsigned, then reviews it when picked at the repair NPC', () => {
     const cards = [card('c-old', 'wood_sword', 40)];
-    expect(selectReviewSigns(cards, new Set(), {}, NOW)).toEqual([]);
+    expect(selectReviewSigns(cards, new Set(), {}, NOW, new Set(['wood_sword']))).toEqual([]);
     expect(selectRepairPickCards(cards, new Set(['wood_sword']), NOW)).toHaveLength(1);
     expect(selectRepairPickCards(cards, new Set(['jetpack']), NOW)).toHaveLength(0);
   });
 
-  it('ignores mastered and not-yet-due cards, and the 7-day window is inclusive', () => {
+  it('ignores mastered and not-yet-due cards; the active bonus window is inclusive', () => {
     const mastered = { ...card('m', 'jetpack', 5), masteredAtMs: NOW - DAY };
     const future = card('f', 'jetpack', -2);
     const edge = card('e', 'axe', 1);
-    const out = selectReviewSigns([mastered, future, edge], new Set(), { axe: NOW - 7 * DAY }, NOW);
-    expect(out.map((c) => c.id)).toEqual(['e']);
-    expect(selectReviewSigns([edge], new Set(), { axe: NOW - 7 * DAY - 1 }, NOW)).toEqual([]);
+    const older = card('o', 'pick', 3);
+    // box 2 (3-day interval): the window is the 7 days of docs/09 P4
+    const out = selectReviewSigns([mastered, future, older, edge], new Set(), { axe: NOW - 7 * DAY }, NOW);
+    expect(out.map((c) => c.id)).toEqual(['e', 'o']); // 10 + 1 day beats 0 + 3 days
+    // one millisecond out of the window: still due and shown, only without the bonus
+    expect(selectReviewSigns([older, edge], new Set(), { axe: NOW - 7 * DAY - 1 }, NOW).map((c) => c.id)).toEqual(['o', 'e']);
+  });
+
+  it('every due card gets its turn; the window stretches with the interval so 7-, 16- and 35-day reviews come (12-week simulation)', () => {
+    expect(activeGearWindowMs(0)).toBe(7 * DAY);
+    expect(activeGearWindowMs(3)).toBe(8 * DAY);
+    expect(activeGearWindowMs(4)).toBe(17 * DAY);
+    expect(activeGearWindowMs(5)).toBe(36 * DAY);
+    // reviewed 7 days ago into box 3: due now, still "recently used", so it beats an older unused card
+    const box3 = { ...card('b3', 'tea', 0), box: 3 };
+    const plain = card('p', 'map', 2);
+    expect(selectReviewSigns([plain, box3], new Set(), { tea: NOW - 7 * DAY }, NOW).map((c) => c.id)).toEqual(['b3', 'p']);
+    // a card whose thing is not gear at all (a lesson line) still comes due
+    expect(selectReviewSigns([card('l', 'lesson-u1|cafe', 9)], new Set(), {}, NOW)).toHaveLength(1);
   });
 });
 

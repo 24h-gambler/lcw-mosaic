@@ -1,20 +1,9 @@
 // HUD follows the player's settings (G14): key names in the help lines, syllable marks for the target sentence.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { setFrameLang } from '../frame/strings.js';
+import { describe, expect, it } from 'vitest';
 import { syllabify, syllabifySentence, syllablesOf } from '../frame/syllables.js';
 import { keyHintsOf } from '../frame/FrameLayer.js';
 import { DEFAULT_KEYS } from '../frame/settings.js';
-import { WORLD_STRINGS as W, DEFAULT_KEY_HINTS, buildHelpDesktopFor, controlsDesktopFor, setWorldFrameLang } from '../world/strings.js';
-
-// This file checks the Korean copy: pin the screen language to Korean (by default it follows the learn language).
-beforeAll(() => {
-  setFrameLang('ko');
-  setWorldFrameLang('ko');
-});
-afterAll(() => {
-  setFrameLang('en');
-  setWorldFrameLang('en');
-});
+import { WORLD_STRINGS as W, DEFAULT_KEY_HINTS, buildHelpDesktopFor, controlsDesktopFor } from '../world/strings.js';
 
 describe('syllable marks (docs/08 11장 읽기)', () => {
   it.each([
@@ -58,8 +47,10 @@ describe('HUD key hints follow the remapped keys', () => {
     const k = keyHintsOf({ ...DEFAULT_KEYS, talk: 'KeyF', forward: 'KeyZ', left: 'KeyQ', jump: 'ShiftLeft' });
     expect(k.talk).toBe('F');
     expect(k.move).toBe('ZQSD');
-    expect(controlsDesktopFor(k)).toContain('F 말 걸기');
-    expect(controlsDesktopFor(k)).toContain('왼쪽 Shift 점프');
+    // the line speaks the learn language (world/lang.ts); the keys are the player's own
+    expect(controlsDesktopFor(k)).toContain('F talk');
+    expect(controlsDesktopFor(k)).toContain(`${k.jump} jump`);
+    expect(controlsDesktopFor(k).startsWith('ZQSD move')).toBe(true);
     const odd = keyHintsOf({ ...DEFAULT_KEYS, forward: 'Numpad8' });
     expect(odd.move).toBe('Num 8/A/S/D');
   });

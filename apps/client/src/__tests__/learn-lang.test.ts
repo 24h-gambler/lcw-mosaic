@@ -12,6 +12,7 @@ import {
   setHelpKo,
   setLearnLang
 } from '../world/lang.js';
+import { BLOCK_NAMES_KO, SHOWROOM_DEFAULT_TITLE, WORLD_STRINGS, itemGotText, npcName } from '../world/strings.js';
 
 // node has no window: a memory localStorage and an event target stand in for it
 beforeAll(() => {
@@ -68,5 +69,21 @@ describe('learn language (Dan 11-16: the screen speaks the language the child le
     setHelpKo(true);
     expect(say({ en: 'Make my world', ko: '내 월드 만들기' })).toEqual({ text: 'Make my world', help: '내 월드 만들기' });
     expect(say({ en: 'LCW', ko: 'LCW' })).toEqual({ text: 'LCW', help: null });
+  });
+
+  it('world lines: English alone, the Korean after a dot with the help on, each side with its own words', () => {
+    expect(WORLD_STRINGS.talk).toBe('Talk');
+    expect(itemGotText('warm_honey_tea')).toBe('You got warm honey tea!');
+    expect(WORLD_STRINGS.teacherWith('Dan')).toBe('👩‍🏫 With Dan');
+    setHelpKo(true);
+    expect(WORLD_STRINGS.talk).toBe('Talk · 말 걸기');
+    expect(itemGotText('warm_honey_tea')).toBe('You got warm honey tea! · 따뜻한 꿀차를 받았어요');
+    expect(itemGotText('unknown_thing')).toBe('You got a gift! · 선물을 받았어요');
+    expect(WORLD_STRINGS.teacherWith('Dan')).toBe('👩‍🏫 With Dan · Dan 선생님과 함께');
+    expect(npcName({ nameEn: 'Hannah', nameKo: '카페 주인 해나' })).toBe('Hannah · 카페 주인 해나');
+    expect(BLOCK_NAMES_KO.brick).toBe('Brick · 벽돌');
+    expect(BLOCK_NAMES_KO.nope).toBeUndefined();
+    // data is never a screen line: the showroom title stays plain English
+    expect(SHOWROOM_DEFAULT_TITLE).toBe('My bee house');
   });
 });

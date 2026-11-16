@@ -6,7 +6,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { UI_STRINGS_KO } from '@lcw/content';
-import { FRAME_STRINGS as F } from '../strings.js';
+import { FRAME_STRINGS as F, FRAME_STRINGS_EN as E } from '../strings.js';
 import { fetchRepairGear, pickRepair, type RepairGearView } from '../api.js';
 import type { MenuPanelProps } from './types.js';
 import { KoHelp } from './ko-help.js';
@@ -104,18 +104,18 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
   return (
     <section>
       <style>{REPAIR_CSS}</style>
-      <h2>{F.repairTitle}<KoHelp of={F.repairTitle} /></h2>
-      <p className="muted">{F.repairIntro}<KoHelp of={F.repairIntro} /></p>
-      {props.lessonOn ? <p className="note">{F.repairInLesson}<KoHelp of={F.repairInLesson} /></p> : null}
+      <h2>{E.repairTitle}<KoHelp of={E.repairTitle} /></h2>
+      <p className="muted">{E.repairIntro}<KoHelp of={E.repairIntro} /></p>
+      {props.lessonOn ? <p className="note">{E.repairInLesson}<KoHelp of={E.repairInLesson} /></p> : null}
       {result ? (
         <p className={`lcw-res${result.pass ? '' : ' again'}`} role="status">
           {result.text}
         </p>
       ) : null}
-      {state === 'guest' ? <p className="note">{F.guestNote}<KoHelp of={F.guestNote} /></p> : null}
-      {state === 'loading' ? <p className="muted">{F.loading}<KoHelp of={F.loading} /></p> : null}
-      {state === 'offline' ? <p className="note">{F.offline}<KoHelp of={F.offline} /></p> : null}
-      {state === 'ready' && items && items.length === 0 ? <p className="note">{F.repairEmpty}<KoHelp of={F.repairEmpty} /></p> : null}
+      {state === 'guest' ? <p className="note">{E.guestNote}<KoHelp of={E.guestNote} /></p> : null}
+      {state === 'loading' ? <p className="muted">{E.loading}<KoHelp of={E.loading} /></p> : null}
+      {state === 'offline' ? <p className="note">{E.offline}<KoHelp of={E.offline} /></p> : null}
+      {state === 'ready' && items && items.length === 0 ? <p className="note">{E.repairEmpty}<KoHelp of={E.repairEmpty} /></p> : null}
       {state === 'ready' && items && items.length > 0 ? (
         <ul className="lcw-repair">
           {items.map((it) => (

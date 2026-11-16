@@ -4,7 +4,8 @@
  * Colors, type and motion come from @lcw/ui tokens only (AGENTS 6). No prices or payment on this screen (AGENTS 4.9).
  */
 import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
-import { WORLD_STRINGS as W, itemNameKo, controlsDesktopFor, DEFAULT_KEY_HINTS, HUD_TEXT_EVENT, type KeyHintLabels } from './strings.js';
+import { WORLD_STRINGS as W, itemGotText, itemNameKo, controlsDesktopFor, DEFAULT_KEY_HINTS, worldSay, type KeyHintLabels } from './strings.js';
+import { onLearnLang } from './lang.js';
 import { bandOf, clockLabel, hotbarCaption, isNight, placeLabel, type BandId } from '../frame/status.js';
 import { refillOf } from '../frame/gauges.js';
 
@@ -50,7 +51,7 @@ function css(): string {
 @keyframes lwGzLow{50%{opacity:.55}}
 .lw-net{position:absolute;top:0;left:0;right:0;display:none;overflow:hidden;align-items:center;justify-content:center;gap:8px;padding:4px 12px;background:${C.sun};color:${C['ink-900']};border-bottom:${S.borderWidthPx}px solid ${C['ink-900']};font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px}
 .lw-net i{width:10px;height:10px;border-radius:50%;background:${C['ink-900']};flex:none}
-.lw-net span{min-width:0;text-align:center;overflow-wrap:anywhere}
+.lw-net span{min-width:0;text-align:center;overflow-wrap:anywhere;white-space:pre-line}
 .lw-hud.off .lw-net{display:flex}
 .lw-hud.off .lw-chip,.lw-hud.off .lw-stars{top:calc(var(--lw-net-h,30px) + 14px)}
 .lw-hud.off .lw-goal.on{transform:translate(-50%,calc(var(--lw-net-h,30px) + 2px))}
@@ -265,8 +266,8 @@ export class WorldHud {
   private keys: Readonly<KeyHintLabels> = DEFAULT_KEY_HINTS;
   private netText!: HTMLSpanElement;
   private net!: HTMLDivElement;
-  /** the frame switched the screen language or Korean help (world/strings setWorldFrameLang) */
-  private readonly onHudText = (): void => this.redrawFrameText();
+  /** Korean help switched (world/lang.ts): redraw the text built once */
+  private offLang: (() => void) | null = null;
   private readonly onResizeNet = (): void => {
     if (this.root.classList.contains('off')) this.measureNet();
   };
@@ -321,8 +322,8 @@ export class WorldHud {
     this.net = net;
     net.setAttribute('role', 'status');
     el('i', '', net);
+    // the words are written only while offline: hidden text still read as "혼자 모드" to page-text checks
     this.netText = el('span', '', net);
-    this.netText.textContent = W.offlineBand;
     el('div', 'lw-aim', this.root);
 
     this.starsEl = el('div', 'lw-stars', this.root);
@@ -367,7 +368,7 @@ export class WorldHud {
     this.toast = el('div', 'lw-toast lw-card', this.root);
     this.cele = el('div', 'lw-cele', this.root);
     this.help = el('div', 'lw-help', this.root);
-    window.addEventListener(HUD_TEXT_EVENT, this.onHudText);
+    this.offLang = onLearnLang(() => this.redrawFrameText());
     window.addEventListener('resize', this.onResizeNet);
 
     // Touch layer (docs/08 7.2): left half stick, right half look, buttons on the right.
@@ -531,12 +532,23 @@ export class WorldHud {
   /** Connection to the server: false shows the "혼자 모드로 계속 중" band (the world keeps running). */
   setOnline(on: boolean): void {
     this.root.classList.toggle('off', !on);
-    if (!on) this.measureNet();
+    this.drawNet(on);
+  }
+
+  /** The band's words only while offline; with the Korean help on, the Korean on a line of its own under the English. */
+  private drawNet(on: boolean): void {
+    if (on) {
+      this.netText.textContent = '';
+      return;
+    }
+    const s = worldSay('offlineBand');
+    this.netText.textContent = s.help ? `${s.text}\n${s.help}` : s.text;
+    this.measureNet();
   }
 
   /**
-   * One line where it fits; a longer band (Korean help adds the Korean) wraps, and the chips, goal card and touch layer
-   * move down by its real height (--lw-net-h) instead of sliding under it.
+   * One line where it fits; a longer band (the Korean help line) wraps, and the chips, goal card and touch layer move
+   * down by its real height (--lw-net-h) instead of sliding under it.
    */
   private measureNet(): void {
     requestAnimationFrame(() => {
@@ -615,7 +627,7 @@ export class WorldHud {
     this.noticeUntil = performance.now() + ms;
     window.clearTimeout(this.capTimer);
     this.cap.textContent = text;
-    // a notice with its Korean help line (world/strings setWorldFrameLang) wraps instead of cutting the Korean off
+    // a notice with its Korean help line under it (frame useGauges, world/strings worldSay) keeps both lines
     this.cap.classList.toggle('two', text.includes('\n'));
     this.cap.classList.add('on');
     this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
@@ -713,7 +725,7 @@ export class WorldHud {
     ti.alt = '';
     this.toast.appendChild(ti);
     const tt = document.createElement('span');
-    tt.textContent = W.itemGot(itemNameKo(key));
+    tt.textContent = itemGotText(key);
     this.toast.appendChild(tt);
     this.toast.classList.add('on');
     window.clearTimeout(this.toastTimer);
@@ -950,8 +962,7 @@ export class WorldHud {
 
   /** Redraw the frame's HUD text that is built once (band, help line, gauge names, place line, clock, caption). */
   private redrawFrameText(): void {
-    this.netText.textContent = W.offlineBand;
-    if (this.root.classList.contains('off')) this.measureNet();
+    this.drawNet(!this.root.classList.contains('off'));
     if (this.help.textContent) this.help.textContent = this.touchOn ? W.controlsTouch : controlsDesktopFor(this.keys);
     if (this.bandId) this.drawScene();
     this.clockKey = '';
@@ -966,7 +977,7 @@ export class WorldHud {
   }
 
   dispose(): void {
-    window.removeEventListener(HUD_TEXT_EVENT, this.onHudText);
+    this.offLang?.();
     window.removeEventListener('resize', this.onResizeNet);
     this.root.remove();
   }

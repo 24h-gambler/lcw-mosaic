@@ -1,31 +1,20 @@
 /**
- * Player-facing strings of the frame domain (docs/08 8.6 G03 G04 G06 G10 G11 G14; AGENTS 6 "문자열"), one table per
- * screen language. The screens show in the language being learned (`uiLang()` below, world/lang.ts learnLang); Korean
- * is the assist the player can turn on (world/lang.ts helpKoOn; `ko()` in menu/ko-help.tsx).
+ * Player-facing strings of the frame domain (docs/08 8.6 G03 G04 G06 G10 G11 G14; AGENTS 6 "문자열"). The screens speak
+ * the language the child learns (Dan 11-16, world/lang.ts; English is the only one open): `FRAME_STRINGS_EN` is what
+ * the screen shows, `FRAME_STRINGS_KO` (same keys) is the Korean help the player can turn on (world/lang.ts helpKoOn).
  * Tone: short 해요체 / short warm English (A1-A2), never blaming (docs/08 10장). No prices, payment or deadlines on a
  * child screen (AGENTS 4.9). Never "게임" / "game" (docs/21-glossary.md).
  *
- * `FRAME_STRINGS` is one live object: `setFrameLang()` copies the chosen table into it, so every `F.x` read follows
- * the language without touching the call sites. Read it at render time, never into a module-level constant.
+ * Two ways to read them, the same as the world HUD (world/strings.ts biTable / joinHelp):
+ * - `FRAME_STRINGS` (F): the English, with the Korean after a dot when the help is on ("Close · 닫기"). Buttons, chips,
+ *   notes in one line, accessible names. Read at the moment of use, never into a module-level constant.
+ * - `FRAME_STRINGS_EN` (E) plus `<KoHelp>` (menu/ko-help.tsx): the English with the Korean on a small line of its own
+ *   under it, for tab labels, titles and hint paragraphs (world/lang.ts `say`).
+ * A function's Korean side is used only when its names come in both languages (`Bi` arguments, e.g. world/strings.ts
+ * nameBi): an English name never gets a Korean particle ("Town Square으로" is never written).
  */
-import { learnLang } from '../world/lang.js';
-
-/** UI_LANG_KEY: a device-only screen-language pin ('ko' shows the Korean tables; tests and demos). */
-const UI_LANG_KEY = 'lcw.uiLang';
-
-/**
- * The frame's screen language: the language being learned (every learn language is a screen language; English today),
- * unless this device pins the Korean screens with localStorage 'lcw.uiLang' = 'ko'.
- */
-export function uiLang(): 'en' | 'ko' {
-  try {
-    const pin = typeof localStorage === 'undefined' ? null : localStorage.getItem(UI_LANG_KEY);
-    if (pin === 'ko' || pin === 'en') return pin;
-  } catch {
-    /* storage blocked: follow the learn language */
-  }
-  return learnLang();
-}
+import { joinHelp } from '../world/strings.js';
+import type { Bi } from '../world/lang.js';
 
 export const FRAME_STRINGS_KO = {
   menu: '메뉴',
@@ -286,7 +275,7 @@ export const FRAME_STRINGS_KO = {
   noMicTitle: '마이크 없이 놀기',
   noMicHint: '말하기가 어려운 날엔 대화창의 🧩 단어 카드나 ⌨️ 글자로도 할 수 있어요.',
   helpKoTitle: '한국어 도움말',
-  helpKoHint: '메뉴 낱말 아래에 한국어를 보여 줘요.',
+  helpKoHint: '영어 낱말과 함께 한국어를 보여 줘요.',
   // G14 마이크 점검
   micCheckIntro: '"Hello!" 하고 말해서 마이크가 잘 들리는지 봐요. 언제든 다시 할 수 있어요.',
   micCheckLast: '지난 점검',
@@ -591,43 +580,74 @@ export const FRAME_STRINGS_EN: FrameStrings = {
   micCheckTips: ['Talk close to the mic in a quiet place.', 'If the browser asks about the mic, press "Allow".', 'A headset helps it hear you better.']
 };
 
-export type FrameLang = 'en' | 'ko';
+/** Words that go into other lines or tiny spots (compass words, key names, the two-line cell): English only. */
+const NO_HELP: ReadonlySet<string> = new Set(['compass', 'unexploredLines', 'keyNames', 'keys']);
 
-export const FRAME_STRINGS_BY_LANG: Readonly<Record<FrameLang, FrameStrings>> = { en: FRAME_STRINGS_EN, ko: FRAME_STRINGS_KO };
+function isBi(v: unknown): v is Bi {
+  return typeof v === 'object' && v !== null && typeof (v as Bi).en === 'string' && typeof (v as Bi).ko === 'string';
+}
+const LATIN = /[A-Za-z]/;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
+/**
+ * The live table: every string answers the English, joined with its Korean while the help is on (world/strings.ts
+ * joinHelp); nested tables and string lists the same way. A function gets each side its own arguments: a `Bi` gives
+ * `.en` to the English and `.ko` to the Korean; while any plain argument holds Latin letters (an English name or key)
+ * the Korean side is left out, so a Korean particle never lands on an English word.
+ */
+/** A string list (or a list of string pairs) with each item joined to the Korean at the same place. */
+function joinList(en: readonly unknown[], ko: unknown): unknown[] {
+  const k = Array.isArray(ko) ? ko : [];
+  return en.map((x, i) => (typeof x === 'string' ? joinHelp(x, typeof k[i] === 'string' ? (k[i] as string) : undefined) : Array.isArray(x) ? joinList(x, k[i]) : x));
 }
 
-function cloneDeep<T>(o: T): T {
-  if (!isPlainObject(o)) return o;
-  const out: Record<string, unknown> = {};
-  for (const k of Object.keys(o)) out[k] = cloneDeep(o[k]);
-  return out as T;
+/** True for an English-only name: a Latin string, or a list holding one (a `Bi` brings its own Korean). */
+function latinArg(x: unknown): boolean {
+  if (typeof x === 'string') return LATIN.test(x);
+  if (Array.isArray(x)) return x.some(latinArg);
+  return x === undefined;
 }
 
-/** Copy `src` into `dst`, keeping `dst`'s nested objects (so `F.tabs` held anywhere stays live); arrays are replaced. */
-function assignDeep(dst: Record<string, unknown>, src: Record<string, unknown>): void {
-  for (const k of Object.keys(src)) {
-    const v = src[k];
-    const d = dst[k];
-    if (isPlainObject(v) && isPlainObject(d)) assignDeep(d, v);
-    else dst[k] = cloneDeep(v);
-  }
+function frameTable<T extends object>(en: T, ko: unknown): T {
+  const k = (ko ?? {}) as Record<PropertyKey, unknown>;
+  return new Proxy(en, {
+    get(target, key) {
+      const e = (target as Record<PropertyKey, unknown>)[key];
+      // only the table's own entries are words (not toString, constructor, symbols)
+      if (typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(target, key) || NO_HELP.has(key)) return e;
+      const kv = k[key];
+      if (typeof e === 'string') return joinHelp(e, typeof kv === 'string' ? kv : undefined);
+      if (typeof e === 'function') {
+        const fn = (...a: unknown[]): string => {
+          const text = String((e as (...x: unknown[]) => unknown)(...a.map((x) => (isBi(x) ? x.en : x))));
+          // an English-only name (also inside a list) or a missing argument keeps the Korean sentence out
+          if (typeof kv !== 'function' || a.length < (e as (...x: unknown[]) => unknown).length || a.some(latinArg)) return text;
+          return joinHelp(text, String((kv as (...x: unknown[]) => unknown)(...a.map((x) => (isBi(x) ? x.ko : x)))));
+        };
+        Object.defineProperty(fn, 'length', { value: (e as (...x: unknown[]) => unknown).length });
+        return fn;
+      }
+      if (Array.isArray(e)) return joinList(e, kv);
+      if (e && typeof e === 'object') return frameTable(e as object, kv);
+      return e;
+    }
+  }) as T;
 }
 
-let current: FrameLang = uiLang();
+/** A function of the live table takes each name as one string or as both sides (`Bi`). */
+type BiArgs<A> = { [I in keyof A]: A[I] extends string ? string | Bi : A[I] };
+export type LiveFrameStrings<T = FrameStrings> = T extends (...a: infer A) => infer R
+  ? (...a: BiArgs<A>) => R
+  : T extends readonly unknown[]
+    ? T
+    : T extends object
+      ? { [K in keyof T]: LiveFrameStrings<T[K]> }
+      : T;
 
-/** The live strings: the table of the current screen language (the tables themselves are never changed). */
-export const FRAME_STRINGS: FrameStrings = cloneDeep(FRAME_STRINGS_BY_LANG[current] as FrameStrings);
+/** The live strings (see the header): English, the Korean help joined after a dot while it is on. */
+export const FRAME_STRINGS: LiveFrameStrings = frameTable(FRAME_STRINGS_EN, FRAME_STRINGS_KO) as LiveFrameStrings;
 
-/** Show the frame in `lang` from the next read on. */
-export function setFrameLang(lang: FrameLang): void {
-  current = lang;
-  assignDeep(FRAME_STRINGS as unknown as Record<string, unknown>, FRAME_STRINGS_BY_LANG[lang] as unknown as Record<string, unknown>);
-}
-
-/** The screen language the frame strings are in now. */
-export function frameLang(): FrameLang {
-  return current;
+/** Both sides of one frame string: `bi((t) => t.keyActions.jump)` -> { en: 'Jump', ko: '점프' }. */
+export function frameBi(get: (t: FrameStrings) => string | undefined): Bi {
+  const en = get(FRAME_STRINGS_EN) ?? '';
+  return { en, ko: get(FRAME_STRINGS_KO as FrameStrings) ?? en };
 }

@@ -2,14 +2,15 @@
 // sectors, zone colour + pattern, the band elevator, the screen-reader summary, and the rendered panel.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TUNING, VoxelWorld } from '@lcw/sim-core';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import type { SceneId, WorldHandle, WorldMapInfo } from '../world/api.js';
 import { buildMapInfo } from '../world/map-info.js';
 import { SCENES } from '../world/town.js';
-import { FRAME_STRINGS as F, withCopula, withDirection, setFrameLang } from '../frame/strings.js';
-import { setWorldFrameLang } from '../world/strings.js';
+import { BAND_NAMES_KO, SCENE_TITLES_KO, SECTOR_NAMES_KO } from '../world/strings.js';
+import { FRAME_STRINGS as F, withCopula, withDirection } from '../frame/strings.js';
+import { resetLangForTest, setHelpKo } from '../world/lang.js';
 import {
   areasIn,
   arrowDeg,
@@ -30,16 +31,6 @@ import {
 } from '../frame/menu/map-model.js';
 import { MapPanel, readMapSnapshot, startTrip } from '../frame/menu/MapPanel.js';
 import type { FrameAuth, MenuPanelProps } from '../frame/menu/types.js';
-
-// This file checks the Korean copy: pin the screen language to Korean (by default it follows the learn language).
-beforeAll(() => {
-  setFrameLang('ko');
-  setWorldFrameLang('ko');
-});
-afterAll(() => {
-  setFrameLang('en');
-  setWorldFrameLang('en');
-});
 
 const plot = new VoxelWorld().plot;
 const townInfo = (player = { x: 144.5, z: 152.3, yaw: Math.PI }): WorldMapInfo => buildMapInfo({ player, plot });
@@ -69,8 +60,8 @@ describe('getMap read-out (world/map-info)', () => {
     const info = townInfo({ x: 150, z: 140, yaw: 0.5 });
     expect(info.size_m).toBe(TUNING.world.sizeX);
     expect(info.sectors).toEqual([
-      { id: 'town', nameKo: '중앙 마을', kind: 'town', explored: true, rect: [96, 96, 192, 192] },
-      { id: 'plot', nameKo: '내 부지', kind: 'plot', explored: true, rect: [plot.x0, plot.z0, plot.x1, plot.z1] }
+      { id: 'town', nameKo: SECTOR_NAMES_KO.town, kind: 'town', explored: true, rect: [96, 96, 192, 192] },
+      { id: 'plot', nameKo: SCENE_TITLES_KO.build_plot, kind: 'plot', explored: true, rect: [plot.x0, plot.z0, plot.x1, plot.z1] }
     ]);
     expect(info.scenes.map((s) => s.id).sort()).toEqual(Object.keys(SCENES).sort());
     const plaza = info.scenes.find((s) => s.id === 'plaza')!;
@@ -107,7 +98,7 @@ describe('sector grid (3 x 3, docs/03 3.1)', () => {
     const cells = sectorCells(townInfo());
     expect(cells).toHaveLength(9);
     expect(cells.map((c) => [c.col, c.row])).toEqual([0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => [c, r])));
-    expect(cells[4]).toMatchObject({ rect: [96, 96, 192, 192], id: 'town', nameKo: '중앙 마을', explored: true, zone: 'core' });
+    expect(cells[4]).toMatchObject({ rect: [96, 96, 192, 192], id: 'town', nameKo: SECTOR_NAMES_KO.town, explored: true, zone: 'core' });
     for (const c of cells.filter((q) => q.index !== 4)) expect(c).toMatchObject({ id: null, nameKo: null, explored: false });
   });
 
@@ -158,7 +149,7 @@ describe('player arrow and labels', () => {
     expect(arrowDeg(Math.PI / 2)).toBe(90);
     expect(arrowDeg(Math.PI)).toBe(0);
     expect(arrowDeg(-Math.PI / 2)).toBe(270);
-    expect([0, Math.PI / 2, Math.PI, -Math.PI / 2, Math.PI * 0.75].map(compassKo)).toEqual(['남', '동', '북', '서', '북동']);
+    expect([0, Math.PI / 2, Math.PI, -Math.PI / 2, Math.PI * 0.75].map(compassKo)).toEqual(['south', 'east', 'north', 'west', 'northeast']);
   });
   it('keeps labels inside the map near the edges', () => {
     expect(labelPlace(50, 50)).toEqual({ above: false, align: 'center' });
@@ -177,7 +168,8 @@ describe('vertical band elevator (docs/03 3.2)', () => {
     const stops = bandStops(1);
     expect(stops.map((s) => s.id)).toEqual(TUNING.verticalBands.map((b) => b.id));
     expect(stops.map((s) => s.state)).toEqual(['locked', 'locked', 'locked', 'here', 'locked', 'locked']);
-    expect(stops.map((s) => s.nameKo)).toEqual(['심우주', '우주 정거장', '하늘섬', '지상', '광산', '네더']);
+    // the band names are the world domain's (they follow the learn language, world/lang.ts)
+    expect(stops.map((s) => s.nameKo)).toEqual(TUNING.verticalBands.map((b) => BAND_NAMES_KO[b.id as keyof typeof BAND_NAMES_KO]));
     expect(stops.map((s) => s.range)).toEqual(['+600 ~ +1,000m', '+300 ~ +600m', '+80 ~ +300m', '−8 ~ +80m', '−150 ~ −9m', '−400 ~ −151m']);
   });
   it('opens a stop for each reached band; the band under the player is "here"', () => {
@@ -195,14 +187,30 @@ describe('screen-reader summary and particles', () => {
   const places = knownScenes(info, cells);
   it('says how much is explored, where I am and face, and where I can go', () => {
     const s = mapSummary({ cells, playerCell: 4, near: places.find((p) => p.id === 'plaza')!, band: 'surface', yaw: Math.PI, places, lessonOn: false });
+    // the screen speaks the learn language: names from the world tables, the sentence around them from the frame's
     expect(s).toBe(
-      '지도예요. 온 세상 9칸 중 1칸을 가 봤어요. 나는 중앙 마을 중앙 광장 근처, 지상에서 북쪽을 보고 있어요. 갈 수 있는 곳은 중앙 광장, 꿀 카페, 물물교환 상점, 내 부지, 바람 언덕이에요.'
+      [
+        'This is the map. You have been to 1 of all 9 squares.',
+        F.mapSummaryHere(SECTOR_NAMES_KO.town, F.mapSummaryNear(SCENE_TITLES_KO.plaza), BAND_NAMES_KO.surface, 'north'),
+        F.mapSummaryPlaces(places.map((p) => p.nameKo))
+      ].join(' ')
     );
+    // with the Korean help on, the Korean paragraph follows with its own Korean names (no particle on English names)
+    setHelpKo(true);
+    try {
+      const both = mapSummary({ cells, playerCell: 4, near: places.find((p) => p.id === 'plaza')!, band: 'surface', yaw: Math.PI, places, lessonOn: false });
+      expect(both).toBe(
+        `${s} · 지도예요. 온 세상 9칸 중 1칸을 가 봤어요. 나는 중앙 마을 중앙 광장 근처, 지상에서 북쪽을 보고 있어요. 갈 수 있는 곳은 중앙 광장, 꿀 카페, 물물교환 상점, 내 부지, 바람 언덕이에요.`
+      );
+    } finally {
+      resetLangForTest();
+    }
+    expect(places.map((p) => p.id)).toEqual(['plaza', 'honey_cafe', 'trade_shop', 'build_plot', 'open_hill']);
   });
   it('in a lesson says the teacher picks the place instead of listing places', () => {
     const s = mapSummary({ cells, playerCell: 4, near: null, band: 'surface', yaw: 0, places, lessonOn: true });
     expect(s).toContain(F.mapLessonNote);
-    expect(s).not.toContain('갈 수 있는 곳은');
+    expect(s).not.toContain('You can go to');
   });
   it('picks 로/으로 and 예요/이에요 by the last syllable', () => {
     expect(['중앙 광장', '꿀 카페', '바람 언덕', '내 부지', '물물교환 상점', '골목길'].map(withDirection)).toEqual([
@@ -215,7 +223,15 @@ describe('screen-reader summary and particles', () => {
     ]);
     expect(withCopula('바람 언덕')).toBe('바람 언덕이에요');
     expect(withCopula('꿀 카페')).toBe('꿀 카페예요');
-    expect(goLabel('꿀 카페')).toBe('꿀 카페로 가기');
+    // the place button speaks English; the Korean sentence (with its own Korean name) comes with the help
+    expect(goLabel('꿀 카페')).toBe('Go to Honey Cafe');
+    expect(goLabel(SCENE_TITLES_KO.honey_cafe)).toBe('Go to Honey Cafe');
+    setHelpKo(true);
+    try {
+      expect(goLabel(SCENE_TITLES_KO.honey_cafe)).toBe('Go to Honey Cafe · 꿀 카페로 가기');
+    } finally {
+      resetLangForTest();
+    }
   });
 });
 
@@ -242,14 +258,14 @@ describe('MapPanel render', () => {
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
     expect(html.match(/data-scene="/g)).toHaveLength(5);
     expect(html.match(/class="btn lcw-map__go/g)).toHaveLength(5);
-    expect(html).toContain('aria-label="바람 언덕으로 가기"');
+    expect(html).toContain(`aria-label="${goLabel(SCENE_TITLES_KO.open_hill)}"`);
     expect(html.match(/class="lcw-map__stop /g)).toHaveLength(6);
     expect(html).toContain('aria-current="location"');
     for (const z of Object.values(F.zones)) expect(html).toContain(z);
     // eight silhouettes, each saying it is not visited yet
     expect(html.match(/lcw-map__cell is-fog/g)).toHaveLength(8);
     expect(html).toContain(F.unexplored);
-    expect(html).toContain('지도예요. 온 세상 9칸 중 1칸을 가 봤어요.');
+    expect(html).toContain('This is the map. You have been to 1 of all 9 squares.');
     // the player arrow and "나" are drawn when the town (the player's sector) is open
     expect(html).toContain('lcw-map__you');
   });
@@ -264,7 +280,7 @@ describe('MapPanel render', () => {
 
   it('marks the elevator stop for the band I am in', () => {
     const html = render({ world: fakeWorld(townInfo(), -40) });
-    expect(html).toMatch(/lcw-map__stop is-here[^>]*><span class="lcw-map__car"[^>]*>나<\/span><span><b>광산<\/b>/);
+    expect(html).toMatch(new RegExp(`lcw-map__stop is-here[^>]*><span class="lcw-map__car"[^>]*>${F.youAreHere}</span><span><b>${BAND_NAMES_KO.mine}</b>`));
   });
 
   it('says the map comes with the world when there is none', () => {

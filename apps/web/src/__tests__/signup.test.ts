@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SignupQueue } from '../DirectorSignups.js';
-import { StudentSignupPage, reloadOwnChildren, signupErrorText } from '../StudentSignup.js';
+import { StudentSignupPage, connectLabel, reloadOwnChildren, signupErrorText } from '../StudentSignup.js';
 import { SIGNUP_STRINGS_KO } from '../signupStrings.js';
 import { StudentApiError, createStudentAccountApi, isOAuthReturn, oauthStartPath } from '../studentAccountApi.js';
 
@@ -78,6 +78,26 @@ describe('student sign-up client (/signup)', () => {
     expect(await run(async () => ({ service_consented: true, children: kids }))).toEqual({ children: kids, out: 0 });
     expect(await run(async () => Promise.reject(new StudentApiError(401, 'unauthorized')))).toEqual({ out: 1 });
     expect(await run(async () => Promise.reject(new Error('offline')))).toEqual({ out: 0 });
+    expect(await reloadOwnChildren({ familyMe: async () => Promise.reject(new Error('offline')) } as never, G, () => undefined, () => undefined)).toBe('failed');
+  });
+
+  it('two children with one name: the buttons differ by birth year (or a number), and the message says there are two', () => {
+    const kids = [
+      { player_id: 'k1', nickname: 'Momo', level: 'L1', birth_year: 2015 },
+      { player_id: 'k2', nickname: 'momo', level: 'L1', birth_year: 2017 },
+      { player_id: 'k3', nickname: 'Lulu', level: 'L1', birth_year: null }
+    ];
+    expect(kids.map((k) => connectLabel(k, kids))).toEqual([
+      S.connectAs('Momo · 2015년생'),
+      S.connectAs('momo · 2017년생'),
+      S.connectAs('Lulu')
+    ]);
+    const noYear = [
+      { player_id: 'a', nickname: 'Pip', level: 'L1' },
+      { player_id: 'b', nickname: 'Pip', level: 'L1' }
+    ];
+    expect(noYear.map((k) => connectLabel(k, noYear))).toEqual([S.connectAs('Pip · 1'), S.connectAs('Pip · 2')]);
+    expect(signupErrorText(new StudentApiError(409, 'nickname_own_child', { error: 'nickname_own_child', player_id: null, nickname: 'Momo' }))).toBe(S.errOwnChildTwo('Momo'));
   });
 
   it('first screen: who signs in, the lesson code path stays one tap away', () => {

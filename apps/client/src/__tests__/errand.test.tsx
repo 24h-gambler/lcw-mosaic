@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { FIRST_ERRAND, NPC_OPENING_LINES, UI_STRINGS_EN } from '@lcw/content';
+import { FIRST_ERRAND, NPC_OPENING_LINES, NPC_REVISIT_LINES, UI_STRINGS_EN } from '@lcw/content';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { errandDialogFor, errandGoalKo, fetchErrand, type ErrandView } from '../dialog/errand.js';
@@ -93,9 +93,15 @@ describe('first-visit errand: client module against the real platform routes', (
     const after = await fetchErrand({ token: devToken, fetchImpl: f });
     expect(after.state).toBe('done');
     expect(after.first_order_at! - after.started_at).toBeLessThanOrEqual(180_000);
-    // once done, every NPC is back to its own talk
-    expect(errandDialogFor(MINA, after, 'L1')).toBeNull();
+    // once done, the cafe is back to its own talk and Mia points the way in her own voice (R2625: she asked for the
+    // water again on every visit), never with her first ask
     expect(errandDialogFor(HANI, after, 'L1')).toBeNull();
+    const mia = errandDialogFor(MINA, after, 'L1')!;
+    expect(mia.npc).toMatchObject({ id: 'errand_neighbor', ctx: 'guide' });
+    expect(mia.voiceCtx).toBe('errand');
+    expect(NPC_REVISIT_LINES.errand).toContain(mia.npcLine);
+    expect(mia.npcLine).not.toBe(FIRST_ERRAND.lines.ask);
+    expect(mia.offers.map((o) => o.text).join(' ')).toMatch(/where is the/i);
   });
 
   it('a revoked or missing token is an auth error (the guide hides)', async () => {
@@ -121,8 +127,12 @@ describe('FirstVisitGuide', () => {
   });
   const noFetch = (async () => new Response('{}', { status: 500 })) as typeof fetch;
 
-  it('guests (no token) and an unknown errand render nothing', () => {
-    expect(renderToStaticMarkup(<FirstVisitGuide world={world} errand={view('accepted')} onErrand={() => undefined} fetchImpl={noFetch} />)).toBe('');
+  it('guests (no token) start on the town goals; an unknown errand renders nothing', () => {
+    // R2625: a guest has no errand (it needs a linked device), so the town tour starts at once: ask Luna the way
+    const guest = renderToStaticMarkup(<FirstVisitGuide world={world} errand={view('accepted')} onErrand={() => undefined} fetchImpl={noFetch} />);
+    expect(guest).toContain('data-goal="ask_way"');
+    expect(guest).toContain('Go to Luna');
+    expect(renderToStaticMarkup(<FirstVisitGuide world={world} errand={null} onErrand={() => undefined} hidden fetchImpl={noFetch} />)).toBe('');
     expect(renderToStaticMarkup(<FirstVisitGuide world={world} player={{ deviceToken: 'd'.repeat(48) }} errand={null} onErrand={() => undefined} fetchImpl={noFetch} />)).toBe('');
   });
 

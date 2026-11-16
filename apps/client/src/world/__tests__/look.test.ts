@@ -62,6 +62,94 @@ describe('resolution governor', () => {
     expect(g.scale).toBe(TIER_SETTINGS.low.pixelScale);
   });
 
+  it('a 60 Hz screen gets full resolution back after the start-up hitches (S7: stuck at 0.6-0.8 before)', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    feed(g, 40, 3.1); // meshing the ground
+    expect(g.scale).toBeLessThanOrEqual(0.7);
+    feed(g, 1000 / 60, 40); // vsync-locked: never under 75 % of the budget
+    expect(g.scale).toBe(TIER_SETTINGS.mid.pixelScale);
+    expect(g.capMs).toBeNull();
+  });
+
+  it('a GPU-bound device settles just under the scale that was too slow instead of flapping', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    // full resolution costs 24 ms (41 fps); 0.85 and below keep up with 60 Hz
+    let downs = 0;
+    for (let t = 0; t < 120_000; ) {
+      const ms = Math.max(1000 / 60, 24 * g.scale * g.scale);
+      const before = g.scale;
+      g.frame(ms);
+      if (g.scale < before) downs++;
+      t += ms;
+    }
+    expect(g.scale).toBeGreaterThanOrEqual(0.8);
+    expect(g.scale).toBeLessThanOrEqual(0.85);
+    expect(downs).toBeLessThanOrEqual(6);
+  });
+
+  it('a 30 Hz cap that resolution cannot lift keeps full resolution and becomes the budget', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    feed(g, 33.4, 3.1);
+    expect(g.capMs).toBeCloseTo(33.4, 0);
+    expect(g.scale).toBe(TIER_SETTINGS.mid.pixelScale);
+    feed(g, 33.4, 30);
+    expect(g.scale).toBe(TIER_SETTINGS.mid.pixelScale); // not at the floor: the tier picker does not step down
+    // the cap goes away (power saving off): the tier budget is back
+    feed(g, 1000 / 60, 2.1);
+    expect(g.capMs).toBeNull();
+  });
+
+  it('a ~32 fps headless pace is found even when start-up hitches already pushed the scale to the floor', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.high); // floor 0.75
+    feed(g, 40, 3.1);
+    expect(g.scale).toBe(TIER_SETTINGS.high.minScale);
+    feed(g, 31.3, 6);
+    expect(g.capMs).toBeCloseTo(31.3, 0);
+    expect(g.scale).toBe(TIER_SETTINGS.high.pixelScale);
+  });
+
+  it('a device bound at 35-40 fps (CPU or GPU) still reaches the floor so the tier can step down', () => {
+    // CPU-bound: the same 25 ms whatever the resolution
+    const cpu = new ResolutionGovernor(TIER_SETTINGS.high);
+    feed(cpu, 25, 30);
+    expect(cpu.capMs).toBeNull();
+    expect(cpu.scale).toBe(TIER_SETTINGS.high.minScale);
+    // GPU-bound, still 40 fps at the floor (45 ms x scale^2): no cap guess either, and it stays at the floor
+    const gpu = new ResolutionGovernor(TIER_SETTINGS.high);
+    let atFloor = 0;
+    for (let t = 0; t < 60_000; ) {
+      const ms = 45 * gpu.scale * gpu.scale;
+      gpu.frame(ms);
+      t += ms;
+      if (t > 20_000 && gpu.scale <= TIER_SETTINGS.high.minScale) atFloor += ms;
+    }
+    expect(gpu.capMs).toBeNull();
+    expect(atFloor).toBeGreaterThan(39_000);
+  });
+
+  it('a failed probe goes back to the scale that held (no slide below it)', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    const seen = new Set<number>();
+    let changes = 0;
+    for (let t = 0; t < 200_000; ) {
+      const ms = Math.max(1000 / 60, 22 * g.scale * g.scale); // 0.85 keeps 60 Hz, 0.9 does not quite
+      const before = g.scale;
+      g.frame(ms);
+      if (g.scale !== before) changes++;
+      if (t > 30_000) seen.add(g.scale);
+      t += ms;
+    }
+    expect(Math.min(...seen)).toBeGreaterThanOrEqual(0.85);
+    expect(changes).toBeLessThanOrEqual(14);
+  });
+
+  it('a device under 29 fps still goes down to the floor (no cap guess there)', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    feed(g, 36, 10);
+    expect(g.capMs).toBeNull();
+    expect(g.scale).toBe(TIER_SETTINGS.mid.minScale);
+  });
+
   it('a 60 fps tier still treats anything under 30 fps as too slow', () => {
     const g = new ResolutionGovernor(TIER_SETTINGS.mid);
     feed(g, 21, 1.05); // 47 fps: over 60 fps budget x 1.15

@@ -204,22 +204,33 @@ Dan 11-16 결정: 수업 중 실시간 경보는 디렉터 콘솔이 이미 보�
 - `POST /v1/admin/outbox/cards/ack` `{ items: [{ ref, updated_at, spine_id? }] }` → `{ acked }`. 가져간 판(`updated_at`)만 받음으로 칩니다. 가져간 뒤 카드가 고쳐졌으면 함에 남아 다시 갑니다.
 - 같은 카드를 다시 넣어도 내용이 같으면 그대로 둡니다(받은 카드가 다시 가지 않음). 수업 종료를 두 번 눌러도(다른 기기·두 번 탭) 새 카드가 생기지 않습니다.
 
-### 지금 중계 (오늘부터): 집 PC 작업 `LCW-LessonWatch`
+### 중계: 집 PC 작업 `Dan-LCW-Relay` (5분마다, 하루 종일)
 
-`node tools/lesson-watch.mjs --relay --from 15:00 --to 17:30 --every 5` 를 씁니다. 수업 창 동안 5분마다, 그리고 창이 끝난 뒤 한 번 더 함을 가져가 척추에 올립니다.
+automation 저장소의 `server/lcw_relay.py` 가 한 번 돌 때(회차) 다음을 합니다. 작업은 `Dan-LCW-Relay` 이고, 5분마다 끝없이 반복하며 task-wrap 과 `conhost --headless` 로 돕니다.
+1. 중계 전용 클론 `Z:/lcw-audit/relay/lcw-mosaic` 을 `origin/main` 으로 맞춥니다(fetch + `checkout --force --detach`). fetch 가 실패하면 마지막 체크아웃으로 돌립니다.
+2. main 의 `node tools/lesson-watch.mjs --relay --once --out Z:/lcw-audit/relay/out` 를 한 번 돌립니다.
+3. `Z:/lcw-audit/relay/state.json` 에 마지막 실행·성공, 회차 수, 연속 실패를 적습니다.
 
-- 출처 보정과 천장은 수업 감시와 같은 규칙을 씁니다(`readAdjust`·`planSettle`·`settleImportance`). 올리기 전에 척추가 이 출처에 더할 보정의 위 한계를 읽고, 그만큼 낮춰 요청한 뒤 위로만 올립니다. 카드 중요도를 넘지 않고, 함 카드는 어떤 경우에도 2를 넘지 않습니다(`RELAY_MAX_IMPORTANCE`).
+- 출처 보정과 천장은 수업 감시와 같은 규칙을 씁니다(`readAdjust`·`planSettle`·`settleImportance`). 올리기 전에 척추가 이 출처에 더할 보정의 위 한계를 읽고, 그만큼 낮춰 요청한 뒤 위로만 올립니다. 그래서 카드 중요도를 넘지 않고, 함 카드는 어떤 경우에도 2를 넘지 않습니다(`RELAY_MAX_IMPORTANCE`).
 - 2 이상에만 앉을 수 있는 중요도 1 카드는 그 차례에 올리지 않고(`card_skipped_high`) 함에 남깁니다.
 - 받았다고 알리는 데 실패하면 다음 차례에 다시 올립니다. 척추는 같은 (source, ref) 의 열린 카드를 고쳐 쓰므로 두 장이 되지 않습니다.
+- **실패하면**: 한 회차 실패는 다음 회차(5분 뒤)가 이어 갑니다. 3회차 연속 실패부터는 종료 1 이 되고, automation health 가 `task:Dan-LCW-Relay` 를 올립니다. 작업이 아예 안 돌면 health 가 35분 뒤 '안 돎' 으로 잡습니다.
 - 기록 파일:
-  - `<out>/lesson-watch-relay-YYYYMMDD.jsonl` — 차례마다 가져옴·올림·받음·건너뜀·실패 수와 읽은 보정
-  - `<out>/lesson-watch-alerts.jsonl` — 카드 단위 문제
+  - `Z:/lcw-audit/relay/out/lesson-watch-relay-YYYYMMDD.jsonl` — 차례마다 가져옴·올림·받음·건너뜀·실패 수와 읽은 보정
+  - `Z:/lcw-audit/relay/out/lesson-watch-alerts.jsonl` — 카드 단위 문제
+- 확인: `uv run --project danos python server/lcw_relay.py --status`(automation). 자세한 것은 automation `docs/handbook/06-pipelines/outsourcing.md` 'LCW 허브 카드 중계' 절에 있습니다.
 
-**두 번 가지 않게**: 함을 올리는 쪽은 언제나 하나입니다. 11-16 사본 갱신 때 `run-lesson-watch.cmd` 를 `--relay` 로 바꿉니다. 그 뒤 이 작업은 예전 실시간 경보 카드와 창 끝 요약 카드를 더 만들지 않습니다(그 코드는 `--relay` 없이 돌릴 때만 씁니다). 예전 실행이 남긴 카드(`outsourcing:lcw:watch:…`)와 새 카드는 ref 가 달라 서로 덮지 않습니다.
+**두 번 가지 않게**: 함을 올리는 쪽은 언제나 하나입니다. 11-16 임시 중계 `LCW-LessonWatch`(`Z:/tmp/lcw-watch` 사본)는 `register-lcw-relay.ps1` 이 사용 안 함으로 바꿉니다(지우지 않음). 예전 실시간 경보 카드(`outsourcing:lcw:watch:…`)와 새 카드는 ref 가 달라 서로 덮지 않습니다.
 
-### 다음 (척추 #986 배포 뒤): 척추가 직접 가져가기
+### 수업 창 밖의 카드: 매시 크론
 
-- 척추 수집기 하나가 같은 두 경로를 몇 분마다 부르고, `add(..., ceiling=card.importance)` 로 올립니다. 이렇게 하면 출처 보정·mute 를 척추 안에서 정확히 지키고, 비밀은 VM 의 LCW 운영자 열쇠 하나입니다.
-- 그다음 집 PC 작업 `LCW-LessonWatch` 를 내립니다. 그러면 부품은 서버(카드 만들기)와 척추(가져가기) 둘만 남습니다.
-- 바꾸는 순서: 척추 수집기를 켬 → 하루 동안 두 쪽이 같은 ref 로 올리는지 확인(척추가 고쳐 써서 한 장) → 작업 내리기.
-- 수업 창 밖에 끝난 수업이나 혼자 놀이도 그날 안에 카드가 되게 하려면 매시 크론(`0 * * * *`)이 그날 말한 학생의 하루 기록을 다시 넣게 합니다. 이건 척추가 직접 가져가게 된 뒤에 붙입니다(집 PC 중계는 수업 창에만 돕니다).
+- 매시 크론(`0 * * * *`)이 지난 2시간 안에 말한 학생마다 그날(한국 시간)의 하루 기록을 함에 다시 넣습니다(`enqueueRecentStudentDays`). 수업이든 혼자 놀이든 같습니다.
+- 그래서 교사가 '수업 끝'을 누르지 않은 수업이나 수업 밖 놀이도 그날 안에 허브에 갑니다. 2시간을 보는 것은 자정 직전 몇 분도 그날 카드에 넣기 위해서입니다.
+- 숫자가 그대로면 카드도 그대로 두고, 받은 카드를 다시 보내지 않습니다(`enqueueCard`). 점검·시연 학생은 넣지 않습니다.
+- 출처 주소는 `LCW_PUBLIC_ORIGIN`, 없으면 운영 주소(`OPS_CARD_ORIGIN`)이고, 콘솔 단추가 실제 사이트를 엽니다.
+
+### 다른 길: 척추가 직접 가져가기
+
+- 척추 수집기 하나가 같은 두 경로를 몇 분마다 부르고 `add(..., ceiling=card.importance)` 로 올리는 길도 있습니다(척추 #986 이 천장을 넣었습니다).
+- 이 길로 가려면 VM 에 LCW 운영자 열쇠 사본이 하나 더 있어야 합니다. 지금은 열쇠가 집 PC 한 곳에만 있도록 집 PC 중계를 씁니다.
+- 바꾼다면 순서는 이렇습니다: 척추 수집기를 켬 → 하루 동안 두 쪽이 같은 ref 로 올리는지 확인(척추가 고쳐 써서 한 장) → `Dan-LCW-Relay` 를 사용 안 함으로.

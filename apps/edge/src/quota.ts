@@ -71,6 +71,8 @@ export function quotaView(sql: SqliteExecutor, meter: QuotaMeter, nowMs: number)
     bank_only: st.bankOnlyMode,
     ops_alert: st.opsAlert,
     lesson_reserve_active: st.lessonReservedActive,
+    /** The operator and test share (OPS_SHARE, R2627): operator try/prebuild and smoke/demo students spend only this. */
+    ops: meter.opsStatus(),
     settings: readQuotaSettings(sql),
     alert_days: sql
       .all<{ day: string; stage: number }>("select day, used as stage from quota_daily where k = 'alert_stage' order by day desc limit 14")

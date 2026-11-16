@@ -51,6 +51,17 @@ export const NEURAL_TTS = {
   prebuildBudgetNeurons: 4_500
 } as const;
 
+/**
+ * The operator and test share (R2627, 11-16): one operator prebuild (`POST /v1/admin/tts/prebuild`, 16:02 KST) made
+ * 48 Aura-2 lines in two minutes, 5,100 neurons on the Cloudflare account, and the day went from 2,957 to 8,122 on
+ * the meter (stage 2: the children's new lines went back to the device voice). Operator calls (try, prebuild, an
+ * operator's own `/v1/tts`) and smoke/demo students spend from this share only: at most `dailyNeurons` a day, and
+ * nothing that would take the day past `stopAtRatio` (stage 1), so the rest of the day stays the children's. It is
+ * counted inside the day's neurons too (one Workers AI free tier). The scheduled prebuild (hourly cron) is the
+ * service's own and stays on the day.
+ */
+export const OPS_SHARE = { dailyNeurons: 1_000, stopAtRatio: 0.7, seat: 'ops' } as const;
+
 export type TtsEngine = keyof typeof NEURAL_TTS.models;
 
 export function ttsNeurons(engine: TtsEngine, chars: number): number {
@@ -93,6 +104,8 @@ export class MemoryQuotaStore implements QuotaStore {
 /** Counter keys in a QuotaStore (one day per store). */
 export const QUOTA_KEYS = {
   neurons: 'neurons',
+  /** Neurons the operator and test share spent today (OPS_SHARE), also counted in `neurons`. */
+  opsNeurons: 'ops_neurons',
   doRequests: 'do_requests',
   d1Writes: 'd1_writes',
   seat: (seatId: string, kind: 'llm' | 'craft' | 'stt_sec') => `seat:${seatId}:${kind}`
@@ -104,6 +117,8 @@ export class QuotaMeter {
   private providerOutage = false;
   private scheduledLessonStartsAtMs: number[] = [];
   private store: QuotaStore;
+  /** Set on the view `opsView()` hands out: every spend also goes through the operator and test share. */
+  private opsShare = false;
 
   constructor(day: string, neuronsLimit: number = FREE_TIER_LIMITS.dailyNeurons, store: QuotaStore = new MemoryQuotaStore()) {
     this.day = day;
@@ -117,6 +132,26 @@ export class QuotaMeter {
 
   getDay(): string {
     return this.day;
+  }
+
+  /**
+   * The same day's meter for operator and test traffic (OPS_SHARE): same counters and ladder, but a spend is refused
+   * past the share's daily cap or when it would take the day past `stopAtRatio`. Made per request (it copies the
+   * outage and the lesson reserve as they are now).
+   */
+  opsView(): QuotaMeter {
+    const view = new QuotaMeter(this.day, this.neuronsLimit, this.store);
+    view.providerOutage = this.providerOutage;
+    view.scheduledLessonStartsAtMs = [...this.scheduledLessonStartsAtMs];
+    view.opsShare = true;
+    return view;
+  }
+
+  /** What the operator and test share spent today and may still spend (for the operator's quota view). */
+  opsStatus(): { used: number; limit: number; left: number } {
+    const used = this.store.get(QUOTA_KEYS.opsNeurons);
+    const byDay = Math.max(0, Math.floor(this.neuronsLimit * OPS_SHARE.stopAtRatio) - this.neuronsUsed);
+    return { used, limit: OPS_SHARE.dailyNeurons, left: this.providerOutage ? 0 : Math.max(0, Math.min(OPS_SHARE.dailyNeurons - used, byDay)) };
   }
 
   setProviderOutage(outage: boolean): void {
@@ -262,6 +297,12 @@ export class QuotaMeter {
     if (neurons < 0 || !Number.isFinite(neurons)) return false;
     if (this.neuronsUsed + neurons > this.neuronsLimit) {
       return false; // Never allow overage billing (AGENTS.md 4.8)
+    }
+    if (this.opsShare) {
+      if (this.providerOutage || this.neuronsLimit <= 0) return false;
+      if (this.store.get(QUOTA_KEYS.opsNeurons) + neurons > OPS_SHARE.dailyNeurons) return false;
+      if (this.neuronsUsed + neurons > this.neuronsLimit * OPS_SHARE.stopAtRatio) return false;
+      this.store.add(QUOTA_KEYS.opsNeurons, neurons);
     }
     this.store.add(QUOTA_KEYS.neurons, neurons);
     if (kind === 'llm') this.store.add(QUOTA_KEYS.seat(seatId, 'llm'), 1);

@@ -30,7 +30,7 @@ import { htmlForClient } from './html-cache.js';
 import { injectShowroomShareMeta, showroomTokenFromPath } from './showroom-page.js';
 import { createInitialPlayerState } from '@lcw/sim-core';
 import { z } from 'zod';
-import { FREE_TIER_LIMITS, type QuotaMeter } from '@lcw/quota';
+import { FREE_TIER_LIMITS, OPS_SHARE, ttsNeurons, type QuotaMeter, type TtsEngine } from '@lcw/quota';
 import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
@@ -86,6 +86,11 @@ export interface LcwEnv {
   VOICE?: R2BucketLike;
   /** Neural NPC voice (tts.ts): "on" serves /v1/tts to players; anything else keeps the device voice (default off). */
   TTS_NEURAL?: string;
+  /**
+   * "on" lets a local `wrangler dev` origin call Workers AI (aiForRequest). Off by default: the binding is the real
+   * account's even in local dev. Pass `--var LCW_LOCAL_AI:on` only for a check that needs a real model answer.
+   */
+  LCW_LOCAL_AI?: string;
   /** Cloudflare Realtime SFU app for live lesson listening (lesson-audio.ts). Both unset → the window is text only. */
   REALTIME_APP_ID?: string;
   REALTIME_APP_TOKEN?: string;
@@ -641,6 +646,30 @@ function utcDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+/** A request to a local `wrangler dev` (localhost, 127.0.0.1, ::1, 0.0.0.0, *.localhost). */
+export function isLocalOrigin(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return host === 'localhost' || host.endsWith('.localhost') || host === '0.0.0.0' || host === '[::1]' || host === '::1' || /^127\./.test(host);
+}
+
+/**
+ * The Workers AI binding for one request. Under `wrangler dev` the AI binding is always the real Cloudflare account
+ * while the meter is the local object's, so a lane's local checks spent the production day unseen (R2627, 11-16:
+ * 38 Aura lines, 2,287 neurons, at 02 UTC with no production voice request; the account counted 18,327 neurons
+ * against the meter's 8,555). A local origin gets no AI, so the client keeps the device voice and the board, unless
+ * `LCW_LOCAL_AI=on`.
+ */
+export function aiForRequest(env: Pick<LcwEnv, 'AI' | 'LCW_LOCAL_AI'>, req: Request): AiBinding | undefined {
+  if (!env.AI) return undefined;
+  if (isLocalOrigin(req.url) && env.LCW_LOCAL_AI !== 'on') return undefined;
+  return env.AI;
+}
+
 export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): Hono {
   const app = new Hono();
   const publicHealth = () => ({ ok: true, service: 'lcw-edge', build: env.BUILD_SHA ?? 'dev' });
@@ -838,19 +867,23 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       await drain();
       return blocked;
     }
-    return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota: () => platform.quota, ai: env.AI, nowMs: () => Date.now() });
+    // smoke-check and demo students spend only the operator and test share (OPS_SHARE)
+    const quota = () => (isTestPlayerId(playerId) ? platform.quota.opsView() : platform.quota);
+    return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota, ai: aiForRequest(env, c.req.raw), nowMs: () => Date.now() });
   });
   // Neural NPC voice (tts.ts): cached lines for anyone, new fixed lines through the meter, other text only for a
   // child's own token; off unless TTS_NEURAL=on (the operator may always try and prebuild).
-  const ttsDeps = (): TtsDeps => ({
+  // `ops`: operator and smoke/demo traffic spends only the operator and test share (OPS_SHARE, R2627); the cron's
+  // prebuild is the service's own and stays on the day. `req`: a local `wrangler dev` origin gets no AI (aiForRequest).
+  const ttsDeps = (req?: Request, ops = false): TtsDeps => ({
     enabled: env.TTS_NEURAL === 'on',
-    quota: () => platform.quota,
-    ai: env.AI,
+    quota: () => (ops ? platform.quota.opsView() : platform.quota),
+    ai: req ? aiForRequest(env, req) : env.AI,
     store: env.VOICE as TtsDeps['store'],
     nowMs: () => Date.now(),
     sha256Hex
   });
-  app.get('/v1/tts/status', () => ttsStatus(ttsDeps()));
+  app.get('/v1/tts/status', (c) => ttsStatus(ttsDeps(c.req.raw)));
   app.get('/v1/tts', async (c) => {
     const operator = isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN);
     const student = operator ? null : await platform.studentFromRequest(c.req.raw);
@@ -858,7 +891,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const playerId = student?.player_id ?? device?.player_id ?? null;
     // smoke-check and demo students hear cached lines only (they never spend the day's neurons)
     const cachedOnly = !!playerId && isTestPlayerId(playerId);
-    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student), cachedOnly }, ttsDeps());
+    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student), cachedOnly }, ttsDeps(c.req.raw, operator));
   });
   // Operator measurement: one uncached synthesis with its time (engine/voice choice, docs/04 4.8).
   app.post('/v1/admin/tts/try', async (c) => {
@@ -866,16 +899,25 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const body = (await c.req.json().catch(() => null)) as { voice?: string; text?: string } | null;
     const voice = parseTryVoice(body?.voice);
     const text = normalizeTtsText(body?.text ?? '');
-    if (!voice || !text || !env.AI) return c.json({ error: 'voice_text_ai_required' }, 400);
+    const ai = aiForRequest(env, c.req.raw);
+    if (!voice || !text || !ai) return c.json({ error: 'voice_text_ai_required' }, 400);
+    // through the meter like every AI call (AGENTS 4.8), from the operator and test share only (11-16: two tries
+    // spent 289 neurons the meter never saw)
+    if (!platform.quota.opsView().consumeNeurons(OPS_SHARE.seat, ttsNeurons(voice.engine as TtsEngine, text.length), 'tts')) {
+      return c.json({ error: 'ops_quota', ops: platform.quota.opsStatus() }, 429);
+    }
     const t0 = Date.now();
-    const bytes = await synthesize(env.AI, voice, text).catch(() => null);
+    const bytes = await synthesize(ai, voice, text).catch(() => null);
     if (!bytes) return c.json({ error: 'tts_failed' }, 502);
     return new Response(bytes as unknown as BodyInit, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'no-store', 'x-lcw-tts-ms': String(Date.now() - t0) } });
   });
   app.post('/v1/admin/tts/prebuild', async (c) => {
     if (!isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return c.json({ error: 'operator_only' }, 401);
     const body = (await c.req.json().catch(() => ({}))) as { budget_neurons?: number; voice?: string };
-    return c.json(await prebuildFixedLines(ttsDeps(), { budgetNeurons: body.budget_neurons, voice: body.voice }));
+    // the operator and test share only (R2627: one call here took the day from 2,957 to 8,122); the full set is the
+    // hourly cron's (00 UTC and the 23 UTC leftovers)
+    const r = await prebuildFixedLines(ttsDeps(c.req.raw, true), { budgetNeurons: body.budget_neurons, voice: body.voice });
+    return c.json({ ...r, ops: platform.quota.opsStatus() });
   });
   // My plot (WP-207): the child's own home world, from the same tokens. Building alone is solo play, so a linked
   // device whose seat has paused play may still look (GET) but not build (docs/01 §4; the client shows the notice).

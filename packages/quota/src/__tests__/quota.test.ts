@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FREE_TIER_LIMITS, QuotaMeter, ttsNeurons } from '../index.js';
+import { FREE_TIER_LIMITS, OPS_SHARE, QuotaMeter, ttsNeurons } from '../index.js';
 
 describe('@lcw/quota WP-112 acceptance', () => {
   it('transitions cleanly across degradation stages 0..4 and prioritizes lessons', () => {
@@ -54,6 +54,35 @@ describe('@lcw/quota WP-112 acceptance', () => {
     const zeroMeter = new QuotaMeter('2026-11-15', 0);
     expect(zeroMeter.getStatus(0).bankOnlyMode).toBe(true);
     expect(zeroMeter.canUseCreativeLlm({ seatId: 's1', isLesson: false, nowMs: 0 })).toBe(false);
+  });
+});
+
+describe('operator and test share (OPS_SHARE, R2627)', () => {
+  it('caps operator and test spending a day and leaves the rest of the day to the children', () => {
+    const m = new QuotaMeter('2026-11-16', 10_000);
+    const ops = m.opsView();
+    expect(ops.consumeNeurons(OPS_SHARE.seat, 600, 'tts')).toBe(true);
+    // the 11-16 prebuild (48 Aura-2 lines, ~5,100 neurons) is refused past the share
+    expect(m.opsView().consumeNeurons(OPS_SHARE.seat, 5_100, 'tts')).toBe(false);
+    expect(ops.consumeNeurons(OPS_SHARE.seat, OPS_SHARE.dailyNeurons - 600, 'tts')).toBe(true);
+    expect(m.opsView().consumeNeurons(OPS_SHARE.seat, 1, 'tts')).toBe(false);
+    // the share is inside the one day count, and the children's own spends are not capped by it
+    expect(m.getStatus(0).neuronsUsed).toBe(OPS_SHARE.dailyNeurons);
+    expect(m.consumeNeurons('child', 5_000, 'tts')).toBe(true);
+    expect(m.opsStatus()).toEqual({ used: OPS_SHARE.dailyNeurons, limit: OPS_SHARE.dailyNeurons, left: 0 });
+  });
+
+  it('never takes the day past stage 1, nor spends in an outage or a bank-only day', () => {
+    const m = new QuotaMeter('2026-11-16', 10_000);
+    m.consumeNeurons('child', 6_900, 'tts');
+    expect(m.opsStatus().left).toBe(100);
+    expect(m.opsView().consumeNeurons(OPS_SHARE.seat, 101, 'tts')).toBe(false);
+    expect(m.opsView().consumeNeurons(OPS_SHARE.seat, 100, 'tts')).toBe(true);
+    expect(m.getStatus(0).neuronsUsed).toBe(7_000);
+    const out = new QuotaMeter('2026-11-16', 10_000);
+    out.setProviderOutage(true);
+    expect(out.opsView().consumeNeurons(OPS_SHARE.seat, 1, 'stt', 1)).toBe(false);
+    expect(new QuotaMeter('2026-11-16', 0).opsView().consumeNeurons(OPS_SHARE.seat, 1, 'tts')).toBe(false);
   });
 });
 

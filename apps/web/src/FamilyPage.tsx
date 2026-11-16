@@ -215,7 +215,8 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
 function SignInButtons({ providers }: { providers: OAuthProvider[] }): React.ReactElement | null {
   if (!providers.length) return null;
   const inApp = typeof navigator !== 'undefined' && detectInAppBrowser(navigator.userAgent).kind !== null;
-  const shown = providers.filter((p) => p !== 'google' || !inApp);
+  // Kakao first: most guardians here have it, and it works inside KakaoTalk too.
+  const shown = (['kakao', 'google'] as OAuthProvider[]).filter((p) => providers.includes(p) && (p !== 'google' || !inApp));
   return (
     <div data-testid="family-sign-in" style={{ display: 'grid', gap: sp(2), marginTop: sp(3) }}>
       <p style={{ margin: 0 }}>{F.signInLead}</p>

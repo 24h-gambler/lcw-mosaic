@@ -84,6 +84,8 @@ export interface LcwEnv {
   LCW_KAKAO_CLIENT_SECRET?: string;
   /** Local real-path rig only: a stand-in Google / Kakao (oauth.ts devProviderSpecs). Never set in production. */
   LCW_OAUTH_DEV_PROVIDER?: string;
+  /** Site origin the sign-in providers know for their callback; unset → the request's own origin (https). */
+  LCW_PUBLIC_ORIGIN?: string;
 }
 interface DoState {
   storage: DurableStorageLike;
@@ -803,7 +805,8 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       ...familyDeps,
       config: oauthConfig,
       roles: { guardian: guardianOAuthHandler(guardianOAuth) },
-      specs: env.LCW_OAUTH_DEV_PROVIDER ? devProviderSpecs(env.LCW_OAUTH_DEV_PROVIDER) : undefined
+      specs: env.LCW_OAUTH_DEV_PROVIDER ? devProviderSpecs(env.LCW_OAUTH_DEV_PROVIDER) : undefined,
+      publicOrigin: env.LCW_PUBLIC_ORIGIN
     })
   );
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));

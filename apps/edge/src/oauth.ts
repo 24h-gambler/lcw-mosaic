@@ -358,6 +358,8 @@ export interface OAuthDeps {
   fetch?: Fetch;
   /** Provider endpoints; default PROVIDER_SPECS (devProviderSpecs for the local rig). */
   specs?: Record<OAuthProvider, ProviderSpec>;
+  /** LCW_PUBLIC_ORIGIN: the site origin the providers know (e.g. https://lcw.worldwidesomething.com). */
+  publicOrigin?: string;
 }
 
 const COOKIE = (p: OAuthProvider) => `lcw_oauth_${p}`;
@@ -386,7 +388,14 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
     c.header('referrer-policy', 'no-referrer');
     return c.redirect(`${returnTo}#oauth_error=${error}`, 302);
   };
-  const callbackUrl = (req: Request, p: OAuthProvider) => `${new URL(req.url).origin}/v1/oauth/${p}/callback`;
+  // The callback registered with each provider must match exactly: the configured public origin, else the request's
+  // own origin (https unless it is a loopback dev server — the platform DO can see a plain-http URL).
+  const callbackUrl = (req: Request, p: OAuthProvider) => {
+    const u = new URL(req.url);
+    const loop = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(u.hostname);
+    const origin = d.publicOrigin?.replace(/\/$/, '') ?? (loop ? u.origin : `https://${u.host}`);
+    return `${origin}/v1/oauth/${p}/callback`;
+  };
 
   app.get('/v1/oauth/config', (c) => {
     c.header('cache-control', 'no-store');

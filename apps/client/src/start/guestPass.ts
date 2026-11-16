@@ -4,7 +4,7 @@
  * requests carry `x-lcw-guest-pass`, the remaining time comes from `GET /v1/guest-pass/status` (counted on the
  * server clock), and the end sends the child to `/guest-end`. Pure functions over a fetch and a key store.
  */
-import { GUEST_PASS_HEADER, formatGuestPassCode, normalizeGuestPassCode } from '@lcw/schemas';
+import { GUEST_PASS_HEADER, normalizeGuestPassCode } from '@lcw/schemas';
 import type { FetchLike, KeyStore } from './api.js';
 
 /** The same device id /try keeps (docs/19 §8: a random value on the device; the server stores only a hash). */
@@ -25,16 +25,29 @@ export interface PassSession {
   skewMs: number;
 }
 
-/** `?pass=` from the address, as the 8-character code (null when it cannot be a pass code). */
+/**
+ * `?pass=` from the address: the 8-character code, '' when the address carries a pass that cannot be a code (the
+ * layer shows "not found" instead of dropping the child on the title), or null when there is no pass at all.
+ */
 export function passFromSearch(search: string): string | null {
   const raw = new URLSearchParams(search).get('pass');
-  return raw ? normalizeGuestPassCode(raw) : null;
+  if (raw === null) return null;
+  return normalizeGuestPassCode(raw) ?? '';
 }
 
-export const showCode = (code: string): string => formatGuestPassCode(code);
+/**
+ * Without storage (private window, blocked site data) the id is held for the page's life: a retry after a lost answer
+ * must send the same device, or the server, which already bound the pass to the first one, answers pass_in_use.
+ */
+let memoryDevice: string | null = null;
+
+/** Tests only: forget the page-life device id. */
+export function resetPassDeviceForTest(): void {
+  memoryDevice = null;
+}
 
 export function passDevice(store: KeyStore | null, rand: (n: number) => Uint8Array = (n) => crypto.getRandomValues(new Uint8Array(n))): string {
-  const make = () => Array.from(rand(16), (b) => b.toString(16).padStart(2, '0')).join('');
+  const make = () => (memoryDevice ??= Array.from(rand(16), (b) => b.toString(16).padStart(2, '0')).join(''));
   try {
     const have = store?.getItem(PASS_DEVICE_KEY);
     if (have && have.length >= 16 && have.length <= 64) return have;
@@ -66,8 +79,11 @@ export function savePassSession(store: KeyStore | null, s: PassSession | null): 
   }
 }
 
-/** Why a pass cannot be entered: ended (→ /guest-end), in use on another device, not found, or try again. */
-export type PassRefusal = 'ended' | 'in_use' | 'not_found' | 'retry';
+/**
+ * Why a pass cannot be entered: ended (→ /guest-end), in use on another device, not found (or not a code), too many
+ * lookups from this network (the hour window, docs/19 §8), or try again (offline, server trouble).
+ */
+export type PassRefusal = 'ended' | 'in_use' | 'not_found' | 'busy' | 'retry';
 
 const ENDED = new Set(['pass_ended', 'pass_expired', 'pass_revoked', 'seat_inactive']);
 
@@ -89,7 +105,8 @@ export async function redeemPass(
       const error = typeof b.error === 'string' ? b.error : '';
       if (res.status === 410 || ENDED.has(error)) return { ok: false, why: 'ended' };
       if (error === 'pass_in_use') return { ok: false, why: 'in_use' };
-      if (res.status === 404 || error === 'pass_not_found') return { ok: false, why: 'not_found' };
+      if (res.status === 404 || res.status === 400 || error === 'pass_not_found') return { ok: false, why: 'not_found' };
+      if (res.status === 429) return { ok: false, why: 'busy' };
       return { ok: false, why: 'retry' };
     }
     if (typeof b.token !== 'string' || typeof b.ends_at !== 'number' || typeof b.server_now !== 'number') return { ok: false, why: 'retry' };
@@ -137,7 +154,7 @@ export function passLeftMs(s: Pick<PassSession, 'endsAt' | 'skewMs'>, localNow: 
   return Math.max(0, s.endsAt - (localNow + s.skewMs));
 }
 
-/** m:ss for the chip ("29:41"); never negative. */
+/** m:ss ("29:41"), never negative; not shown to the child (AGENTS §4.9), kept for the end timer's logs and tests. */
 export function mmss(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;

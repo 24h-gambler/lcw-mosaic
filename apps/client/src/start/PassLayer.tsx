@@ -1,8 +1,8 @@
 /**
  * Guest pass layer (docs/19 §8, PR #79): on `/world/?pass=` the child enters the friend's world without the title.
  * Entering redeems the code once on this device (or reads this tab's session back with the status), then a chip
- * counts the time left on the server clock; every request to our API carries the pass header; at zero, or when the
- * server says the pass ended, the page goes to `/guest-end`.
+ * says whose invitation this is; every request to our API carries the pass header; the 30 minutes run on the server
+ * clock out of sight (no clock on a child's screen, AGENTS §4.9 and docs/10 §7) and the end goes to `/guest-end`.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorldHandle } from '../world/api.js';
@@ -11,7 +11,6 @@ import {
   PASS_END_PATH,
   PASS_STATUS_POLL_MS,
   installPassHeader,
-  mmss,
   passDevice,
   passLeftMs,
   passStatus,
@@ -42,6 +41,7 @@ function localStoreOrNull(): KeyStore | null {
 }
 
 export function GuestPassLayer(props: {
+  /** the 8-character code, or '' when the address carried something that is not a pass code */
   code: string;
   world: WorldHandle | null;
   fetchFn?: FetchLike;
@@ -49,10 +49,12 @@ export function GuestPassLayer(props: {
   onEnd?: () => void;
 }): React.ReactElement | null {
   const { code, world } = props;
-  const fetchFn = useMemo<FetchLike>(() => props.fetchFn ?? ((i, init) => globalThis.fetch(i, init)), [props.fetchFn]);
-  const [view, setView] = useState<View>({ kind: 'entering' });
+  // Held in refs: a caller passing a fresh arrow each render must not re-run the entry (each redeem spends a lookup).
+  const fetchRef = useRef<FetchLike>(props.fetchFn ?? ((i, init) => globalThis.fetch(i, init)));
+  const onEndRef = useRef(props.onEnd);
+  onEndRef.current = props.onEnd;
+  const [view, setView] = useState<View>(code ? { kind: 'entering' } : { kind: 'refused', why: 'not_found' });
   const [tries, setTries] = useState(0);
-  const [, setTick] = useState(0);
   const ended = useRef(false);
   useEffect(() => injectStyle(), []);
   const end = useMemo(
@@ -60,15 +62,17 @@ export function GuestPassLayer(props: {
       if (ended.current) return;
       ended.current = true;
       savePassSession(sessionStoreOrNull(), null);
-      if (props.onEnd) props.onEnd();
+      if (onEndRef.current) onEndRef.current();
       else location.replace(PASS_END_PATH);
     },
-    [props.onEnd]
+    []
   );
 
   // Enter: this tab's session first (status, no lookup spent), else redeem on this device.
   useEffect(() => {
+    if (!code) return;
     let alive = true;
+    const fetchFn = fetchRef.current;
     void (async () => {
       const kept = readPassSession(sessionStoreOrNull(), code);
       if (kept) {
@@ -91,39 +95,42 @@ export function GuestPassLayer(props: {
     return () => {
       alive = false;
     };
-  }, [code, fetchFn, end, tries]);
+  }, [code, end, tries]);
 
   // The title camera while the pass is being checked or refused; the world once inside.
   const active = view.kind === 'active';
   useEffect(() => {
     world?.setAttract?.(!active);
+    return () => world?.setAttract?.(false);
   }, [world, active]);
 
-  // Inside: the pass header on our requests, the countdown, and the server clock read again now and then.
-  const token = active ? view.s.token : null;
+  // Inside: the pass header on our requests, the end timer on the server clock, the clock read again now and then.
+  const session = active ? view.s : null;
+  const token = session?.token ?? null;
   useEffect(() => {
     if (!token) return;
     return installPassHeader(token);
   }, [token]);
   useEffect(() => {
+    if (!session) return;
+    const left = passLeftMs(session, Date.now());
+    if (left <= 0) {
+      end();
+      return;
+    }
+    const t = setTimeout(end, left);
+    return () => clearTimeout(t);
+  }, [session, end]);
+  useEffect(() => {
     if (!token) return;
-    const tick = setInterval(() => setTick((n) => n + 1), 1000);
     const poll = setInterval(() => {
-      void passStatus(token, fetchFn).then((st) => {
+      void passStatus(token, fetchRef.current).then((st) => {
         if (st === 'ended') return end();
-        if (st) setView((v) => (v.kind === 'active' ? { kind: 'active', s: { ...v.s, ...st } } : v));
+        if (st) setView((v) => (v.kind === 'active' && (v.s.endsAt !== st.endsAt || Math.abs(v.s.skewMs - st.skewMs) > 2000) ? { kind: 'active', s: { ...v.s, ...st } } : v));
       });
     }, PASS_STATUS_POLL_MS);
-    return () => {
-      clearInterval(tick);
-      clearInterval(poll);
-    };
-  }, [token, fetchFn, end]);
-
-  const left = active ? passLeftMs(view.s, Date.now()) : null;
-  useEffect(() => {
-    if (left === 0) end();
-  }, [left, end]);
+    return () => clearInterval(poll);
+  }, [token, end]);
 
   if (view.kind === 'entering') {
     return (
@@ -134,7 +141,13 @@ export function GuestPassLayer(props: {
   }
   if (view.kind === 'refused') {
     const [title, hint] =
-      view.why === 'in_use' ? [X.pass.inUse, X.pass.inUseHint] : view.why === 'not_found' ? [X.pass.notFound, X.pass.notFoundHint] : [X.pass.retry, X.pass.retryHint];
+      view.why === 'in_use'
+        ? [X.pass.inUse, X.pass.inUseHint]
+        : view.why === 'not_found'
+          ? [X.pass.notFound, X.pass.notFoundHint]
+          : view.why === 'busy'
+            ? [X.pass.busy, X.pass.busyHint]
+            : [X.pass.retry, X.pass.retryHint];
     return (
       <div className="lcw-invite lcw-card" role="alertdialog" data-testid={`pass-${view.why}`} style={{ top: '30%' }}>
         <b>{title}</b>
@@ -153,8 +166,8 @@ export function GuestPassLayer(props: {
     );
   }
   return (
-    <div className="lcw-pass-chip" role="timer" aria-live="off" data-testid="pass-chip">
-      {X.pass.chip(view.s.hostNickname, mmss(left ?? 0))}
+    <div className="lcw-pass-chip" role="status" data-testid="pass-chip">
+      {X.pass.chip(view.s.hostNickname)}
     </div>
   );
 }

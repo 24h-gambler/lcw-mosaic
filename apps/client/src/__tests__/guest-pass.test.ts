@@ -13,6 +13,7 @@ import {
   passStatus,
   readPassSession,
   redeemPass,
+  resetPassDeviceForTest,
   savePassSession
 } from '../start/guestPass.js';
 
@@ -27,7 +28,8 @@ describe('guest pass in the world (docs/19 §8)', () => {
   it('reads ?pass= as the 8-character code and skips the title for it', () => {
     expect(passFromSearch('?pass=abcd-efgh')).toBe('ABCDEFGH');
     expect(passFromSearch('?pass=ABCD EFGH&x=1')).toBe('ABCDEFGH');
-    expect(passFromSearch('?pass=ABC0-EFGH')).toBeNull(); // 0 is not in the code alphabet
+    expect(passFromSearch('?pass=ABC0-EFGH')).toBe(''); // 0 is not in the code alphabet: a 'not found' card, not the title
+    expect(startFlowFor('?pass=ABC0-EFGH', false)).toBe(false);
     expect(passFromSearch('?code=123456')).toBeNull();
     expect(startFlowFor('?pass=ABCD-EFGH', false)).toBe(false);
   });
@@ -58,7 +60,9 @@ describe('guest pass in the world (docs/19 §8)', () => {
     for (const e of ['pass_ended', 'pass_expired', 'pass_revoked', 'seat_inactive']) expect(await redeemPass('ABCDEFGH', 'd', answer(410, { error: e }))).toEqual({ ok: false, why: 'ended' });
     expect(await redeemPass('ABCDEFGH', 'd', answer(409, { error: 'pass_in_use' }))).toEqual({ ok: false, why: 'in_use' });
     expect(await redeemPass('ABCDEFGH', 'd', answer(404, { error: 'pass_not_found' }))).toEqual({ ok: false, why: 'not_found' });
-    expect(await redeemPass('ABCDEFGH', 'd', answer(429, { error: 'too_many_requests' }))).toEqual({ ok: false, why: 'retry' });
+    expect(await redeemPass('ABCDEFGH', 'd', answer(429, { error: 'too_many_requests' }))).toEqual({ ok: false, why: 'busy' });
+    expect(await redeemPass('ABCDEFGH', 'd', answer(400, { error: 'invalid' }))).toEqual({ ok: false, why: 'not_found' });
+    expect(await redeemPass('ABCDEFGH', 'd', answer(503, {}))).toEqual({ ok: false, why: 'retry' });
     expect(await redeemPass('ABCDEFGH', 'd', async () => Promise.reject(new Error('offline')))).toEqual({ ok: false, why: 'retry' });
   });
 
@@ -99,10 +103,29 @@ describe('guest pass in the world (docs/19 §8)', () => {
     await target.fetch('https://lcw.example/v1/dialog');
     await target.fetch('/world/assets/x.js');
     await target.fetch('https://other.example/v1/x');
-    expect(seen.map((s) => s.pass)).toEqual(['tok', 'tok', null, null]);
+    await target.fetch(new Request('https://lcw.example/v1/build', { method: 'POST', body: 'x' }));
+    expect(seen.map((s) => s.pass)).toEqual(['tok', 'tok', null, null, 'tok']);
     undo();
     expect(target.fetch).toBe(original);
     expect(isOwnApi('/v1/x', 'https://lcw.example')).toBe(true);
     expect(isOwnApi('https://evil.example/v1/x', 'https://lcw.example')).toBe(false);
+  });
+});
+
+describe('guest pass device without storage', () => {
+  it('keeps one id for the page when storage throws, so a retry is the same device', () => {
+    resetPassDeviceForTest();
+    const broken: KeyStore = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => undefined,
+      removeItem: () => undefined
+    };
+    let n = 0;
+    const a = passDevice(broken, () => new Uint8Array(16).fill(++n));
+    expect(passDevice(broken, () => new Uint8Array(16).fill(++n))).toBe(a);
+    expect(passDevice(null, () => new Uint8Array(16).fill(++n))).toBe(a);
+    resetPassDeviceForTest();
   });
 });

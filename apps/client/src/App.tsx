@@ -352,7 +352,7 @@ function DialogHost(props: {
  */
 export function startFlowFor(search: string, hasLessonSession: boolean): boolean {
   // a guest pass link (/world/?pass=) goes straight into the friend's world (docs/19 §8)
-  if (codeFromSearch(search) || hasLessonSession || passFromSearch(search)) return false;
+  if (codeFromSearch(search) || hasLessonSession || passFromSearch(search) !== null) return false;
   return !/[?&]scene=/.test(search);
 }
 
@@ -603,7 +603,7 @@ export function App(): React.ReactElement {
               }}
             />
           ) : null}
-          {passCode && !codeFromSearch(location.search) ? <GuestPassLayer code={passCode} world={world} /> : null}
+          {passCode !== null && !codeFromSearch(location.search) ? <GuestPassLayer code={passCode} world={world} /> : null}
           {startOpen ? (
             <StartFlow
               world={world}

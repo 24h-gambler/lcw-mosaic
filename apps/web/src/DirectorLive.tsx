@@ -27,6 +27,7 @@ import { formatClock } from './lessonFlow.js';
 import { Box, Notice, Stat, border, inputStyle, sp } from './lessonUi.js';
 import { DIRECTOR_LIVE_STRINGS_KO as L } from './directorLiveStrings.js';
 import { P } from './presenceStrings.js';
+import { micIssueLine } from './autoCloseStrings.js';
 
 const C = TOKENS.colors;
 const T = TOKENS.typography;
@@ -62,6 +63,8 @@ export function StudentScreenBox(p: { live: DirectorLiveView; localNow: number; 
   const sceneName = (id: string | null | undefined) => (id ? (L.sceneNames[id] ?? id) : '—');
   const mismatch = v && v.expected_scene_id && v.scene_id && v.scene_id !== v.expected_scene_id;
   const possessed = getLessonNpc(p.live.possessedNpcId);
+  // The child's last mic error with what to do, until a turn hears words again (talk lane PR 122 sets mic 'ok' then).
+  const micLine = v?.mic_issue && v.mic !== 'ok' ? micIssueLine(v.mic_issue.issue, v.mic_issue.raw) : null;
   return (
     <Box
       title={L.screenTitle}
@@ -85,6 +88,11 @@ export function StudentScreenBox(p: { live: DirectorLiveView; localNow: number; 
           </span>
           <Stat label={L.possessTitle.split(' · ')[0]!} value={possessed ? possessed.nameKo : '—'} />
         </div>
+        {micLine ? (
+          <div role="status" data-testid="student-mic-issue" style={{ fontWeight: 700, color: C['danger-d'] }}>
+            {micLine}
+          </div>
+        ) : null}
         {mismatch ? <Notice kind="info">{L.sceneMismatch(sceneName(v?.expected_scene_id))}</Notice> : null}
         {v?.goal_ko ? (
           <div>

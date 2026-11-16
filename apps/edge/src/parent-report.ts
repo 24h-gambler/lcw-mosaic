@@ -271,6 +271,62 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
   return { ...base, summary_ko: lessonSummaryKo(base) };
 }
 
+/**
+ * One report for a lesson that was continued (lesson-mode.ts: an auto-closed lesson picked up again the same day): the
+ * parts in time order become one lesson for the parent. Counts add up, the time spans the first start to the last end
+ * while the minutes are the parts' own (the gap between them is not lesson time), quotes and expressions stay within
+ * their limits, and the one-liner is rebuilt from the summed numbers.
+ */
+export function mergeLessonParentFacts(parts: readonly LessonParentFacts[]): LessonParentFacts | null {
+  const xs = [...parts].sort((a, b) => a.started_at - b.started_at);
+  const first = xs[0];
+  if (!first) return null;
+  if (xs.length === 1) return first;
+  const sum = (f: (p: LessonParentFacts) => number) => xs.reduce((a, p) => a + f(p), 0);
+  const stages = new Map<string, LessonParentStage>();
+  for (const s of xs.flatMap((p) => p.stages)) {
+    const prev = stages.get(s.id);
+    stages.set(s.id, prev ? { ...prev, utterances: prev.utterances + s.utterances, passes: prev.passes + s.passes } : { ...s });
+  }
+  const seen = new Set<string>();
+  const expressions = xs
+    .flatMap((p) => p.expressions)
+    .filter((e) => {
+      const k = e.toLowerCase().replace(/[.?!]$/, '');
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .slice(0, MAX_EXPRESSIONS);
+  const base = {
+    lesson_day: first.lesson_day,
+    lesson_number: first.lesson_number,
+    started_at: first.started_at,
+    ended_at: Math.max(...xs.map((p) => p.ended_at)),
+    duration_min: sum((p) => p.duration_min),
+    utterances: sum((p) => p.utterances),
+    passes: sum((p) => p.passes),
+    stars_total: sum((p) => p.stars_total),
+    three_star_passes: sum((p) => p.three_star_passes),
+    hintless_passes: sum((p) => p.hintless_passes),
+    words_spoken: sum((p) => p.words_spoken),
+    free_words: sum((p) => p.free_words),
+    speaking_sec: sum((p) => p.speaking_sec),
+    longest_words: Math.max(...xs.map((p) => p.longest_words)),
+    // Each part already picked its best lines; keep the strongest of them, shown in time order.
+    quotes: xs
+      .flatMap((p, i) => p.quotes.map((q, j) => ({ q, i, j })))
+      .sort((a, b) => b.q.stars - a.q.stars || a.i - b.i || a.j - b.j)
+      .slice(0, MAX_QUOTES)
+      .sort((a, b) => a.i - b.i || a.j - b.j)
+      .map((x) => x.q),
+    expressions,
+    coaching_moments: sum((p) => p.coaching_moments),
+    stages: [...stages.values()]
+  };
+  return { ...base, summary_ko: lessonSummaryKo(base) };
+}
+
 /** What the public /v1/reports/:token returns. Explicit allow-list: nothing else from the rows reaches the page. */
 export interface PublicReportView {
   kind: string;

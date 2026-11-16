@@ -102,6 +102,21 @@ export function readLessonMicStatus(store: { getItem(k: string): string | null }
     return null;
   }
 }
+/**
+ * The last mic error on this device with the browser's own code, kept by the talk lane (PR 122 dialog/mic-status.ts
+ * noteMicIssue, sessionStorage 'lcw.micIssue' = "<issue>:<raw>|<epoch ms>"). Sent as it is with the state poll; the
+ * console turns it into one line with what to do. Same key and format as the talk lane (a test pins both).
+ */
+export const LESSON_MIC_ISSUE_KEY = 'lcw.micIssue';
+const MIC_ISSUE_RE = /^([a-z_]{1,20}):([a-z0-9_-]{0,40})\|(\d{10,14})$/;
+export function readLessonMicIssue(store: { getItem(k: string): string | null } | null = safeSessionStorage()): string | null {
+  try {
+    const v = store?.getItem(LESSON_MIC_ISSUE_KEY) ?? null;
+    return v && MIC_ISSUE_RE.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
 function safeSessionStorage(): { getItem(k: string): string | null } | null {
   try {
     return typeof sessionStorage === 'undefined' ? null : sessionStorage;
@@ -253,12 +268,16 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
   }
   return {
     join: (code: string) => request<JoinResult>('POST', '/v1/join', null, { code }),
-    state: (token: string, q: { cursor?: number | null; scene?: string; ui?: '3d' | 'cards'; mic?: LessonMicStatus | null } = {}) => {
+    state: (
+      token: string,
+      q: { cursor?: number | null; scene?: string; ui?: '3d' | 'cards'; mic?: LessonMicStatus | null; micIssue?: string | null } = {}
+    ) => {
       const p = new URLSearchParams();
       if (q.cursor !== undefined && q.cursor !== null) p.set('cursor', String(Math.floor(q.cursor)));
       if (q.scene) p.set('scene', q.scene);
       if (q.ui) p.set('ui', q.ui);
       if (q.mic) p.set('mic', q.mic);
+      if (q.micIssue) p.set('mic_issue', q.micIssue);
       const qs = p.toString();
       return request<StudentLessonState>('GET', `/v1/lesson/state${qs ? `?${qs}` : ''}`, token);
     },

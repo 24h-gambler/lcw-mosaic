@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
+import { LESSON_SWEEP_CRON, buildLessonModeApp, studentFromRequest, type IdleSweepResult } from './lesson-mode.js';
 import { buildExportApp } from './export-csv.js';
 import { markSeatUse, playAllowed, sweepSeatNotices } from './seats.js';
 import { legacyWorldRedirect } from './world-path.js';
@@ -35,7 +35,8 @@ import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
 import { handleServerStt } from './stt.js';
-import { handleTts, parseTryVoice, prebuildFixedLines, synthesize, ttsStatus, type TtsDeps } from './tts.js';
+import { isTestPlayerId } from './nickname.js';
+import { handleTts, parseTryVoice, prebuildFixedLines, runTtsCron, synthesize, ttsStatus, type TtsDeps } from './tts.js';
 import { normalizeTtsText } from '@lcw/content';
 import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaHealth, readQuotaSettings, rollupQuota } from './quota.js';
 import {
@@ -48,6 +49,7 @@ import {
 } from './do-sqlite.js';
 import { EdgePlatformDb, LessonDO, WorldDO, type SqliteExecutor } from './storage.js';
 import { ROOM_CONNECT_PATH, ROOM_TICKET_SCHEMA, buildRoomApp, redeemRoomTicket, routeRoomConnect } from './room.js';
+import { OPS_CARD_ORIGIN, enqueueRecentStudentDays } from './ops-cards.js';
 
 /**
  * Production platform (entry module: worker.ts). One SQLite Durable Object ("platform") holds the relational
@@ -495,6 +497,26 @@ export class PlatformDO {
     return n;
   }
 
+  /** Set when the routes are built (lesson-mode.ts sweepIdleLessons). */
+  lessonSweep: ((now: number, origin: string | null, dryRun?: boolean) => IdleSweepResult) | null = null;
+
+  /** Abandoned lessons closed on every cron, recorded as their own ops run only when something closed or it failed. */
+  sweepIdleLessons(cron: string): IdleSweepResult | { error: string } {
+    try {
+      const r = this.lessonSweep?.(Date.now(), this.env.LCW_PUBLIC_ORIGIN ?? null) ?? { open: 0, idle: [], closed: [], cards: [], dry_run: false };
+      // A card that could not be queued fails the run (the teacher's console box still lists the lesson).
+      const cardFailed = r.cards.some((x) => x.card.startsWith('failed:'));
+      if (r.closed.length || cron === '0 3 * * *') {
+        this.recordRun('lesson_idle_sweep', !cardFailed, { cron, open: r.open, closed: r.closed, cards: r.cards });
+      }
+      return r;
+    } catch (err) {
+      const detail = { error: err instanceof Error ? err.message : String(err) };
+      this.recordRun('lesson_idle_sweep', false, { cron, ...detail });
+      return detail;
+    }
+  }
+
   runCron(cron: string): { task: string; ok: boolean; detail: unknown } {
     const now = Date.now();
     let task = 'hourly_quota_rollup';
@@ -532,10 +554,18 @@ export class PlatformDO {
       } else {
         // Seat notices run in their own try: a failure there never hides the report reminders, and the reverse.
         const seats = this.runSeatNotices(now);
+        // docs/09-ops.md 15: each student's day record goes to the hub outbox every hour, lessons or not. Own try too.
+        let studentCards: unknown;
+        try {
+          studentCards = enqueueRecentStudentDays(this.sql, now, this.env.LCW_PUBLIC_ORIGIN ?? OPS_CARD_ORIGIN).length;
+        } catch (err) {
+          studentCards = { error: err instanceof Error ? err.message : String(err) };
+          this.recordRun('hourly_student_cards', false, studentCards);
+        }
         const r = this.db.processPendingReportReminders(now);
         // docs/09 P9: the day's stage; a day that reached 85% is kept as an alert day.
         const quota = rollupQuota(this.sql, this.quota, now);
-        detail = { reminded: r.remindedCount, seat_notices: seats, quota };
+        detail = { reminded: r.remindedCount, seat_notices: seats, quota, student_cards: studentCards };
       }
       this.recordRun(task, true, detail);
       return { task, ok: true, detail };
@@ -630,10 +660,15 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.post('/internal/cron', async (c) => {
     if (c.req.header('x-lcw-internal') !== 'cron') return c.json({ error: 'forbidden' }, 403);
     const body = (await c.req.json()) as { cron: string };
+    // Every cron closes abandoned lessons (lesson-mode.ts LESSON_IDLE_CLOSE_MS); the 5-minute one does only that.
+    const lessons = platform.sweepIdleLessons(body.cron);
+    if (body.cron === LESSON_SWEEP_CRON) return c.json({ task: 'lesson_idle_sweep', ok: !('error' in lessons), lessons });
     const r = platform.runCron(body.cron);
     const voice = await platform.runVoiceCron(body.cron, Date.now());
     const push = await platform.runPushCron(body.cron, Date.now());
-    return c.json({ ...r, voice, push });
+    // the hourly cron: the morning lesson/NPC prebuild and the nightly leftovers (tts.ts runTtsCron)
+    const tts = body.cron === '0 * * * *' ? await runTtsCron(ttsDeps(), Date.now()).catch((e: unknown) => ({ task: 'tts_error', error: String(e).slice(0, 160) })) : null;
+    return c.json({ ...r, voice, push, tts, lessons });
   });
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
   // or outside a lesson with their linked device token. Who, which world and which level come from the token and
@@ -821,7 +856,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const student = operator ? null : await platform.studentFromRequest(c.req.raw);
     const device = operator || student ? null : await platform.deviceFromRequest(c.req.raw);
     const playerId = student?.player_id ?? device?.player_id ?? null;
-    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student) }, ttsDeps());
+    // smoke-check and demo students hear cached lines only (they never spend the day's neurons)
+    const cachedOnly = !!playerId && isTestPlayerId(playerId);
+    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student), cachedOnly }, ttsDeps());
   });
   // Operator measurement: one uncached synthesis with its time (engine/voice choice, docs/04 4.8).
   app.post('/v1/admin/tts/try', async (c) => {
@@ -1027,9 +1064,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))
   );
-  app.route(
-    '/',
-    buildLessonModeApp({
+  const lessonApp = buildLessonModeApp({
       sql: platform.sql,
       db: platform.db,
       nowMs: () => Date.now(),
@@ -1056,8 +1091,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
         if (res.ok) await platform.pushReportNotices(Date.now()).catch(() => undefined);
         return res;
       }
-    })
-  );
+    });
+  platform.lessonSweep = lessonApp.sweepIdleLessons;
+  app.route('/', lessonApp);
   app.route('/', inner);
   return app;
 }
@@ -1098,12 +1134,22 @@ export const workerHandler = {
   async fetch(request: Request, env: LcwEnv): Promise<Response> {
     return htmlForClient(await routeWorkerRequest(request, env), request);
   },
-  async scheduled(event: { cron: string }, env: LcwEnv): Promise<void> {
-    const res = await platformStub(env).fetch('https://platform/internal/cron', {
-      method: 'POST',
-      headers: { 'x-lcw-internal': 'cron', 'content-type': 'application/json' },
-      body: JSON.stringify({ cron: event.cron })
-    });
-    if (!res.ok) throw new Error(`cron_failed_${res.status}`);
+  async scheduled(event: { cron: string; scheduledTime?: number }, env: LcwEnv): Promise<void> {
+    // The 5-minute trigger (abandoned-lesson sweep) also carries the hourly tasks at minute 0: the account keeps three
+    // cron triggers (Cloudflare counts them per account), and '0 * * * *' stays the hourly task's name everywhere.
+    const crons =
+      event.cron === LESSON_SWEEP_CRON
+        ? new Date(event.scheduledTime ?? Date.now()).getUTCMinutes() < 5
+          ? ['0 * * * *']
+          : [LESSON_SWEEP_CRON]
+        : [event.cron];
+    for (const cron of crons) {
+      const res = await platformStub(env).fetch('https://platform/internal/cron', {
+        method: 'POST',
+        headers: { 'x-lcw-internal': 'cron', 'content-type': 'application/json' },
+        body: JSON.stringify({ cron })
+      });
+      if (!res.ok) throw new Error(`cron_failed_${res.status}`);
+    }
   }
 };

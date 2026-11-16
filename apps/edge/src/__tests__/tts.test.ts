@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { QuotaMeter, NEURAL_TTS, ttsNeurons } from '@lcw/quota';
-import { FIRST_ERRAND, castVoices, fixedTtsLines, npcCast, ttsVoiceId, voiceForCtx } from '@lcw/content';
-import { handleTts, parseTryVoice, prebuildFixedLines, ttsCacheKey, ttsStatus, type TtsCaller, type TtsDeps } from '../tts.js';
+import { FIRST_ERRAND, LESSON_PLANS, NPC_OPENING_LINES, castVoices, fixedTtsLines, getLessonNpc, npcCast, ttsVoiceId, voiceForCtx } from '@lcw/content';
+import { TTS_CRON, handleTts, parseTryVoice, prebuildFixedLines, runTtsCron, ttsCacheKey, ttsStatus, type TtsCaller, type TtsDeps } from '../tts.js';
 
 async function sha256Hex(s: string): Promise<string> {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
@@ -126,4 +126,76 @@ describe('neural NPC voice (tts.ts)', () => {
     const model = npcCast().modelVoice;
     expect(lines.filter((l) => l.voice === model).length).toBeGreaterThan(100);
   });
+
+  it('a cached line plays in the neural voice at every stage, even with the day used up (11-16 "기계음")', async () => {
+    const r = rig({ limit: 1000 });
+    const line = NPC_OPENING_LINES.cafe!;
+    const hera = ttsVoiceId(voiceForCtx('cafe'));
+    expect((await handleTts(url(hera, line), guest, r.deps)).status).toBe(200); // made at stage 0
+    r.meter.consumeNeurons('x', r.meter.getStatus(0).neuronsLimit - r.meter.getStatus(0).neuronsUsed, 'llm'); // 100%
+    expect(r.meter.getStatus(r.deps.nowMs()).stage).toBe(3);
+    for (const who of [guest, child, { ...child, lesson: true }]) {
+      const res = await handleTts(url(hera, line), who, r.deps);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-lcw-tts')).toBe('hit');
+    }
+    expect(r.calls).toHaveLength(1);
+  });
+
+  it('smoke/demo students and `c=1` (headless checks) get cached lines only and never spend neurons', async () => {
+    const r = rig();
+    const hera = ttsVoiceId(voiceForCtx('cafe'));
+    const made = NPC_OPENING_LINES.cafe!;
+    await handleTts(url(hera, made), guest, r.deps);
+    const fresh = NPC_OPENING_LINES.guide!;
+    const athena = ttsVoiceId(voiceForCtx('guide'));
+    const smoke: TtsCaller = { operator: false, player_id: 'smoke-kid', lesson: true, cachedOnly: true };
+    const miss = await handleTts(url(athena, fresh), smoke, r.deps);
+    expect(miss.status).toBe(404);
+    expect(await miss.json()).toMatchObject({ error: 'tts_not_cached', fallback: 'device' });
+    const c1 = new URL(url(athena, fresh));
+    c1.searchParams.set('c', '1');
+    expect((await handleTts(c1, guest, r.deps)).status).toBe(404);
+    expect((await handleTts(url(hera, made), smoke, r.deps)).headers.get('x-lcw-tts')).toBe('hit');
+    expect(r.calls).toHaveLength(1);
+    expect(r.meter.getStatus(r.deps.nowMs()).neuronsUsed).toBe(ttsNeurons('aura2', made.length));
+  });
+
+  it('the lesson plans are fixed lines: scripts and follow-ups in the stage NPC voice, targets in the model voice', () => {
+    const priority = fixedTtsLines('en', { priorityOnly: true });
+    const all = fixedTtsLines();
+    expect(priority.length).toBeLessThan(all.length);
+    for (const plan of LESSON_PLANS) {
+      for (const st of plan.stages) {
+        const v = voiceForCtx(getLessonNpc(st.npcId)?.ctx ?? 'guide');
+        for (const t of [st.teacherScriptEn, ...(st.followUpsEn ?? [])]) {
+          expect(priority.some((l) => l.text === t.replace(/\s+/g, ' ').trim() && ttsVoiceId(l.voice) === ttsVoiceId(v))).toBe(true);
+        }
+        for (const tg of st.targets) expect(priority.some((l) => l.text === tg.text.replace(/\s+/g, ' ').trim() && l.voice === npcCast().modelVoice)).toBe(true);
+      }
+    }
+  });
+
+  it('the hourly cron prebuilds the lesson and NPC lines at 00 UTC and the bank on the leftovers at 23 UTC', async () => {
+    const at = (h: number) => Date.parse(`2026-11-16T${String(h).padStart(2, '0')}:00:00Z`);
+    const off = rig({ enabled: false });
+    expect(await runTtsCron(off.deps, at(0))).toBeNull();
+    const r = rig({ limit: 1_000_000 });
+    expect(await runTtsCron(r.deps, at(5))).toBeNull();
+    const morning = await runTtsCron(r.deps, at(TTS_CRON.morningHourUtc));
+    expect(morning).toMatchObject({ task: 'tts_morning' });
+    expect(morning!.neurons!).toBeLessThanOrEqual(TTS_CRON.morningBudgetNeurons);
+    const priority = fixedTtsLines('en', { priorityOnly: true }).map((l) => l.text);
+    for (const c of r.calls) expect(priority).toContain(String(c.input.text));
+    // night: what is left minus the reserve, nothing when the day is spent
+    const n = rig({ limit: 10_000 });
+    n.meter.consumeNeurons('x', 6_000, 'llm');
+    const night = await runTtsCron(n.deps, at(TTS_CRON.nightHourUtc));
+    expect(night).toMatchObject({ task: 'tts_night' });
+    expect(night!.neurons!).toBeGreaterThan(0);
+    expect(night!.neurons!).toBeLessThanOrEqual(10_000 - 6_000 - TTS_CRON.nightReserveNeurons);
+    const spent = rig({ limit: 10_000 });
+    spent.meter.consumeNeurons('x', 9_500, 'llm');
+    expect(await runTtsCron(spent.deps, at(TTS_CRON.nightHourUtc))).toEqual({ task: 'tts_night', made: 0, neurons: 0 });
+  }, 30_000);
 });

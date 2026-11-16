@@ -115,4 +115,54 @@ describe('hub cards from the server (ops-cards.ts outbox)', () => {
     expect((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards).toEqual([]);
     expect((await call(p, 'POST', '/v1/admin/outbox/cards/ack', { items: [] })).status).toBe(400);
   });
+
+  it('every hour the day record of a student who spoke goes out even with no lesson end; unchanged it is not resent', async () => {
+    let now = Date.parse('2026-11-16T15:00:00+09:00');
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const p = platform();
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-o', guardian_id: 'g-o', player_id: 'kid-o', nickname: 'Ollie', level: 'L1' });
+    await lessonWithSpeech(p, 2); // the lesson is never ended (a tab closed, nobody pressed end)
+    const cron = { 'x-lcw-internal': 'cron', 'content-type': 'application/json' };
+    now += 30 * 60_000;
+    const r = await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, cron);
+    expect(r.status).toBe(200);
+    expect(r.body.detail.student_cards).toBe(1);
+    const box = (await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards as Array<{ ref: string; updated_at: number; card: any }>;
+    expect(box.map((c) => c.ref)).toEqual([`${OPS_CARD_SOURCE}:lcw:student:kid-o:2026-11-16`]);
+    const first = box[0]!;
+    expect(first.card.importance).toBe(STUDENT_DAILY_IMPORTANCE);
+    expect(first.card.actions[0].url).toBe('https://lcw.worldwidesomething.com/director'); // no request: the real site
+    await call(p, 'POST', '/v1/admin/outbox/cards/ack', { items: [{ ref: first.ref, updated_at: first.updated_at }] });
+    now += 60 * 60_000;
+    expect((await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, cron)).body.detail.student_cards).toBe(0); // same numbers
+    expect((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards).toEqual([]);
+    now += 3 * 3_600_000; // more than two hours quiet: nothing to look at
+    expect((await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, cron)).body.detail.student_cards).toBe(0);
+  });
+
+  it("the hourly day record leaves smoke-check and demo students out", async () => {
+    const p = platform();
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-s', guardian_id: 'g-s', player_id: 'smoke-lesson', nickname: 'Smoke', level: 'L1' });
+    const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'smoke-lesson' });
+    const j = await call(p, 'POST', '/v1/join', { code: s.body.join_code }, { 'content-type': 'application/json' });
+    const st = { authorization: `Bearer ${j.body.student_token}`, 'content-type': 'application/json' };
+    await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000, client_id: 'usmoke0001abc' }, st);
+    const r = await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, { 'x-lcw-internal': 'cron', 'content-type': 'application/json' });
+    expect(r.body.detail.student_cards).toBe(0);
+    expect((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards).toEqual([]);
+  });
+
+  it('speech at 23:59 KST goes on that day\'s card when the 00:00 cron runs (the two-hour look back)', async () => {
+    let now = Date.parse('2026-11-16T23:59:00+09:00');
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const p = platform();
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-o', guardian_id: 'g-o', player_id: 'kid-o', nickname: 'Ollie', level: 'L1' });
+    await lessonWithSpeech(p, 1);
+    now = Date.parse('2026-11-17T00:00:00+09:00');
+    const r = await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, { 'x-lcw-internal': 'cron', 'content-type': 'application/json' });
+    expect(r.body.detail.student_cards).toBe(1);
+    const refs = ((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards as Array<{ ref: string }>).map((c) => c.ref);
+    expect(refs).toEqual([`${OPS_CARD_SOURCE}:lcw:student:kid-o:2026-11-16`]);
+  });
 });

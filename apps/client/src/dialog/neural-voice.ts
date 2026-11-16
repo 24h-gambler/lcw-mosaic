@@ -81,8 +81,22 @@ function token(): string {
   }
 }
 
+/**
+ * Cached lines only (`c=1`, edge tts.ts): a browser under automation (headless checks and measurements set
+ * navigator.webdriver) or `?voice=cached` never makes a new line, so tests do not spend the children's day of neurons
+ * (11-16: the day reached 86% on checks). A real child's browser never sets it.
+ */
+export function cachedOnlyVoice(): boolean {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.webdriver === true) return true;
+    return new URLSearchParams(location.search).get('voice') === 'cached';
+  } catch {
+    return false;
+  }
+}
+
 export function ttsUrl(base: string, voice: NpcVoice, text: string): string {
-  return `${base}/v1/tts?v=${encodeURIComponent(ttsVoiceId(voice))}&t=${encodeURIComponent(normalizeTtsText(text))}`;
+  return `${base}/v1/tts?v=${encodeURIComponent(ttsVoiceId(voice))}&t=${encodeURIComponent(normalizeTtsText(text))}${cachedOnlyVoice() ? '&c=1' : ''}`;
 }
 
 const cache = new Map<string, Promise<ArrayBuffer | null>>();

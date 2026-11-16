@@ -24,10 +24,10 @@ function css(): string {
 .lw-goal .k{font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;color:${C['brand-d']}}
 .lw-goal .g{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1));font-weight:700}
 .lw-goal .t{font-family:${T.fonts.target};font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.h3.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;color:${C['sky-d']}}
-.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:center}
+.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:calc(100vw - 230px)}
 .lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1))}
 .lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));border:2px solid ${C['ink-900']};display:none}
-.lw-chip .l.on{display:inline-block}
+.lw-chip .l.on{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lw-chip .l.solo{background:${C['paper-0']};color:${C['ink-700']};border-style:dashed}
 .lw-chip .s{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px}
 .lw-chip .w{display:inline-flex;align-items:center;gap:6px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1));font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9}
@@ -48,12 +48,13 @@ function css(): string {
 .lw-chip .gz em{display:none;font-style:normal;color:${C.sun};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
 .lw-chip .gz.slow em{display:inline}
 @keyframes lwGzLow{50%{opacity:.55}}
-.lw-net{position:absolute;top:0;left:0;right:0;display:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;align-items:center;justify-content:center;gap:8px;padding:4px 12px;background:${C.sun};color:${C['ink-900']};border-bottom:${S.borderWidthPx}px solid ${C['ink-900']};font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px}
+.lw-net{position:absolute;top:0;left:0;right:0;display:none;overflow:hidden;align-items:center;justify-content:center;gap:8px;padding:4px 12px;background:${C.sun};color:${C['ink-900']};border-bottom:${S.borderWidthPx}px solid ${C['ink-900']};font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px}
 .lw-net i{width:10px;height:10px;border-radius:50%;background:${C['ink-900']};flex:none}
+.lw-net span{min-width:0;text-align:center;overflow-wrap:anywhere}
 .lw-hud.off .lw-net{display:flex}
-.lw-hud.off .lw-chip,.lw-hud.off .lw-stars{top:44px}
-.lw-hud.off .lw-goal.on{transform:translate(-50%,32px)}
-.lw-hud.off .lw-touch{top:32px}
+.lw-hud.off .lw-chip,.lw-hud.off .lw-stars{top:calc(var(--lw-net-h,30px) + 14px)}
+.lw-hud.off .lw-goal.on{transform:translate(-50%,calc(var(--lw-net-h,30px) + 2px))}
+.lw-hud.off .lw-touch{top:calc(var(--lw-net-h,30px) + 2px)}
 .lw-aim{position:absolute;left:50%;top:50%;width:20px;height:20px;transform:translate(-50%,-50%);display:none}
 .lw-aim::before,.lw-aim::after{content:"";position:absolute;background:${C['paper-0']};box-shadow:0 0 0 1px ${C['ink-900']}}
 .lw-aim::before{left:9px;top:2px;width:2px;height:16px}
@@ -89,6 +90,8 @@ function css(): string {
 .lw-slot .i{font-family:${T.fonts.pixel};font-size:12px;position:absolute;left:3px;top:2px;color:${C.silver}}
 .lw-cap{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:${night};color:${C['paper-0']};padding:4px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));text-align:center;opacity:0;transition:opacity ${M.baseMs}ms ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lw-cap.on{opacity:1}
+.lw-cap.two{white-space:pre-line;overflow-wrap:anywhere}
+.lw-hud:has(.lw-cap.on.two) .lw-help{opacity:0}
 .lw-hud.dlg .lw-cap{opacity:0}
 .lw-slot img{width:36px;height:36px;image-rendering:pixelated}
 .lw-slot.pop{animation:lwpop ${M.popMs}ms ease-out}
@@ -142,9 +145,9 @@ function css(): string {
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
 @media (max-width:600px),(max-height:500px){.lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.15)}}
-@media (max-width:600px){.lw-hud.gz .lw-goal{top:calc(84px + 64px * (var(--lcw-hs,1) - 1))}}
+@media (max-width:600px){.lw-hud.gz .lw-goal{top:calc(84px + 64px * (var(--lcw-hs,1) - 1))}.lw-hud.gz:has(.lw-chip .l.on) .lw-goal{top:calc(116px + 64px * (var(--lcw-hs,1) - 1))}}
 @media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
-.lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,32px)}}
+.lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,calc(var(--lw-net-h,30px) + 2px))}}
 @media (prefers-reduced-motion:reduce){.lw-chip .gz .low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
 }
@@ -256,8 +259,12 @@ export class WorldHud {
   private talkKbd: HTMLElement | null = null;
   private keys: Readonly<KeyHintLabels> = DEFAULT_KEY_HINTS;
   private netText!: HTMLSpanElement;
+  private net!: HTMLDivElement;
   /** the frame switched the screen language or Korean help (world/strings setWorldFrameLang) */
   private readonly onHudText = (): void => this.redrawFrameText();
+  private readonly onResizeNet = (): void => {
+    if (this.root.classList.contains('off')) this.measureNet();
+  };
   private touchOn = false;
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
@@ -306,6 +313,7 @@ export class WorldHud {
     this.lessonChip.textContent = W.lessonBadge;
     // G01 empty state: the connection dropped, the world keeps going on this device (docs/08 8.6).
     const net = el('div', 'lw-net', this.root);
+    this.net = net;
     net.setAttribute('role', 'status');
     el('i', '', net);
     this.netText = el('span', '', net);
@@ -355,6 +363,7 @@ export class WorldHud {
     this.cele = el('div', 'lw-cele', this.root);
     this.help = el('div', 'lw-help', this.root);
     window.addEventListener(HUD_TEXT_EVENT, this.onHudText);
+    window.addEventListener('resize', this.onResizeNet);
 
     // Touch layer (docs/08 7.2): left half stick, right half look, buttons on the right.
     this.touch = el('div', 'lw-touch', this.root);
@@ -517,6 +526,18 @@ export class WorldHud {
   /** Connection to the server: false shows the "혼자 모드로 계속 중" band (the world keeps running). */
   setOnline(on: boolean): void {
     this.root.classList.toggle('off', !on);
+    if (!on) this.measureNet();
+  }
+
+  /**
+   * One line where it fits; a longer band (Korean help adds the Korean) wraps, and the chips, goal card and touch layer
+   * move down by its real height (--lw-net-h) instead of sliding under it.
+   */
+  private measureNet(): void {
+    requestAnimationFrame(() => {
+      const h = this.net.getBoundingClientRect().height;
+      if (h > 0) this.root.style.setProperty('--lw-net-h', `${Math.ceil(h)}px`);
+    });
   }
 
   /** Camera mode from the world: the centre crosshair shows only in first person (hidden under a dialog). */
@@ -544,6 +565,7 @@ export class WorldHud {
       return;
     }
     this.cap.textContent = text;
+    this.cap.classList.remove('two');
     this.cap.classList.add('on');
     this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
   }
@@ -587,6 +609,8 @@ export class WorldHud {
   notice(text: string, ms = 2400): void {
     window.clearTimeout(this.capTimer);
     this.cap.textContent = text;
+    // a notice with its Korean help line (world/strings setWorldFrameLang) wraps instead of cutting the Korean off
+    this.cap.classList.toggle('two', text.includes('\n'));
     this.cap.classList.add('on');
     this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
   }
@@ -921,6 +945,7 @@ export class WorldHud {
   /** Redraw the frame's HUD text that is built once (band, help line, gauge names, place line, clock, caption). */
   private redrawFrameText(): void {
     this.netText.textContent = W.offlineBand;
+    if (this.root.classList.contains('off')) this.measureNet();
     if (this.help.textContent) this.help.textContent = this.touchOn ? W.controlsTouch : controlsDesktopFor(this.keys);
     if (this.bandId) this.drawScene();
     this.clockKey = '';
@@ -936,6 +961,7 @@ export class WorldHud {
 
   dispose(): void {
     window.removeEventListener(HUD_TEXT_EVENT, this.onHudText);
+    window.removeEventListener('resize', this.onResizeNet);
     this.root.remove();
   }
 }

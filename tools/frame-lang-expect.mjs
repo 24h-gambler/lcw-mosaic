@@ -10,6 +10,7 @@ export const KO_HELP = process.env.KO_HELP === '1' || process.env.KO_HELP === 't
 export const COPY = {
   emptyBar: /Your bag is empty/,
   drank: /Gulp!/,
+  useAgainFood: /Press again to eat/,
   offlineBand: /Keep playing on your own/,
   snow: /^Snow /,
   lowThirst: /Thirsty, so you're slower/,

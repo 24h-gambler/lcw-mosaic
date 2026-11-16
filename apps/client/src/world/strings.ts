@@ -306,8 +306,12 @@ export const WORLD_FRAME_STRINGS_BY_LANG: Readonly<Record<HudLang, WorldFrameStr
 export const BAND_NAMES_BY_LANG: Readonly<Record<HudLang, Readonly<BandNames>>> = { en: BAND_NAMES_EN, ko: BAND_NAMES_KO };
 /** Window event after the HUD strings changed language or Korean help (world/hud.ts redraws its built-once text). */
 export const HUD_TEXT_EVENT = 'lcw:hud-text';
-/** HUD notices that carry the Korean in parentheses while Korean help is on and the screen is not Korean. */
+/**
+ * HUD lines that carry the Korean in parentheses while Korean help is on and the screen is not Korean. The low-gauge
+ * notices put it on a second line (the caption wraps there instead of cutting it off on phones); the band wraps itself.
+ */
 export const HUD_KO_HELP_KEYS = ['offlineBand', 'lowHunger', 'lowThirst'] as const;
+const HUD_KO_HELP_NEWLINE: ReadonlySet<string> = new Set(['lowHunger', 'lowThirst']);
 
 let hudLang: HudLang = uiLang();
 
@@ -321,7 +325,7 @@ export const BAND_NAMES: BandNames = { ...BAND_NAMES_BY_LANG[hudLang] };
 export function setWorldFrameLang(lang: HudLang, opts: { helpKo?: boolean } = {}): void {
   hudLang = lang;
   const table: Record<string, string> = { ...WORLD_FRAME_STRINGS_BY_LANG[lang] };
-  if (opts.helpKo && lang !== 'ko') for (const k of HUD_KO_HELP_KEYS) table[k] = `${table[k]} (${WORLD_FRAME_STRINGS_KO[k]})`;
+  if (opts.helpKo && lang !== 'ko') for (const k of HUD_KO_HELP_KEYS) table[k] = `${table[k]}${HUD_KO_HELP_NEWLINE.has(k) ? '\n' : ' '}(${WORLD_FRAME_STRINGS_KO[k]})`;
   Object.assign(WORLD_STRINGS, table);
   Object.assign(BAND_NAMES, BAND_NAMES_BY_LANG[lang]);
   try {

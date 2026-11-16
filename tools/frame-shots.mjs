@@ -148,8 +148,8 @@ for (const vp of VIEWPORTS) {
   const b = await boxes(page);
   await page.screenshot({ path: `${out}/${vp.name}-2items.png` });
   check(vp.name, b.empties === 3, `expected 3 empty slots after two items, got ${b.empties}`);
-  // item names are the world lane's (ITEM_NAMES_KO), still Korean
-  check(vp.name, b.cap?.text === '쿠키', `caption should name the selected slot (${b.cap?.text})`);
+  // item names are the world lane's (ITEM_NAMES_KO), still Korean; a food in hand adds how to eat it (G01)
+  check(vp.name, (b.cap?.text ?? '').startsWith('쿠키') && COPY.useAgainFood.test(b.cap?.text ?? ''), `caption should name the selected slot (${b.cap?.text})`);
   check(vp.name, b.coins?.text === '120', `coins should read 120 (${b.coins?.text})`);
   // drink: the honey tea in slot 1, picked twice (the second pick uses the slot in hand)
   for (let n = 0; n < 2; n++) {
@@ -189,10 +189,13 @@ for (const vp of VIEWPORTS) {
   const netOneLine = await page.evaluate(() => {
     const s = document.querySelector('.lw-net span');
     if (!s) return null;
-    return { lines: Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight || '16')), clipped: s.scrollWidth > s.clientWidth + 1 };
+    const band = s.parentElement.getBoundingClientRect();
+    const b = s.getBoundingClientRect();
+    return { lines: Math.round(b.height / parseFloat(getComputedStyle(s).lineHeight || '20')), clipped: b.left < band.left - 0.5 || b.right > band.right + 0.5 || s.scrollWidth > s.clientWidth + 1 };
   });
   report.push({ vp: vp.name, netOneLine });
   check(vp.name, !overlap(c.net, c.scene) && !overlap(c.net, c.stars), 'connection band covers the status chips');
+  check(vp.name, !!netOneLine && !netOneLine.clipped, `connection band text clipped (${JSON.stringify(netOneLine)})`);
   for (const btn of c.buttons) check(vp.name, !overlap(btn, c.stars) && !overlap(btn, c.net), `touch button "${btn.text}" covered while offline`);
   check(vp.name, COPY.snow.test(c.clock?.text ?? ''), `snow not shown in words (${c.clock?.text})`);
 
@@ -208,7 +211,12 @@ for (const vp of VIEWPORTS) {
   check(vp.name, !!d.aim && Math.abs(d.aim.x + d.aim.w / 2 - d.vw / 2) < 2 && Math.abs(d.aim.y + d.aim.h / 2 - d.vh / 2) < 2, 'crosshair not centred');
   if (vp.name === 'd1440' || vp.name === 'p390') {
     // low gauges from the device record: slower walking is said once and shown on the chip
-    await page.evaluate(() => localStorage.setItem('lcw.gauges', JSON.stringify({ g: { hunger: 50, thirst: 12 }, used: [] })));
+    // the page saves its own gauges on pagehide: write ours after that save (a listener added later runs later)
+    await page.evaluate(() => {
+      const low = JSON.stringify({ g: { hunger: 50, thirst: 12 }, used: [] });
+      window.addEventListener('pagehide', () => localStorage.setItem('lcw.gauges', low));
+      localStorage.setItem('lcw.gauges', low);
+    });
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
     await page.waitForTimeout(1500);

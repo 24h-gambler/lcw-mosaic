@@ -197,7 +197,9 @@ export function guideDestination(npc: NpcRef, r: DialogResultLike): SceneId | nu
  * phones) covers the right edge; a bottom sheet or a centred window covers the bottom. Rect is the `.lcw-dlg__win`.
  */
 export function dialogViewInset(r: { left: number; top: number; width: number; height: number }, vw: number, vh: number): { bottom: number; right: number } {
-  const side = r.height >= vh * 0.9 && r.width < vw * 0.8;
+  // The side panel starts under the HUD star/coin chip (dialog styles: 52-56px down), so it is not full height: it
+  // reaches the bottom edge, covers most of the height and only part of the width.
+  const side = r.top + r.height >= vh - 2 && r.height >= vh * 0.75 && r.width < vw * 0.8;
   if (side) return { bottom: 0, right: Math.max(0, Math.round(vw - r.left)) };
   return { bottom: Math.max(0, Math.round(vh - r.top)), right: 0 };
 }

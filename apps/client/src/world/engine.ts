@@ -609,7 +609,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       camMode = toggleMirror(camMode, camBeforeMirror);
       hud.setCamMode(camMode);
     }
-    if (e.code.startsWith('Digit')) {
+    if (e.code.startsWith('Digit') && !paused) {
       const n = Number(e.code.slice(5)) - 1;
       if (n >= 0 && n < 5) {
         hud.selectSlot(n);

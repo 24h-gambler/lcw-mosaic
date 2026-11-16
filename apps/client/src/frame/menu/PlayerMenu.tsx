@@ -63,7 +63,12 @@ export function PlayerMenu(props: PlayerMenuProps): React.ReactElement {
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     winRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
-    return () => before?.focus?.();
+    return () => {
+      // a dialog that closed the menu keeps the focus; otherwise back to what had it, else the menu button
+      if (otherModalOpen()) return;
+      if (before && before !== document.body && before.isConnected) before.focus?.();
+      else requestAnimationFrame(() => document.querySelector<HTMLElement>('.lcw-hudbtn--bag')?.focus());
+    };
   }, []);
 
   useEffect(() => {

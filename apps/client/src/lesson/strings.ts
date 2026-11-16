@@ -59,3 +59,77 @@ export const LESSON_STRINGS_KO = {
   },
   lowTier: '이 기기에서는 단어 카드 화면으로 수업해요…'
 } as const;
+
+type Widen<T> = T extends string
+  ? string
+  : T extends (...a: infer A) => infer R
+    ? (...a: A) => Widen<R>
+    : T extends Record<string, string>
+      ? Record<string, string>
+      : T extends object
+        ? { readonly [K in keyof T]: Widen<T[K]> }
+        : T;
+/** The lesson layer's copy, one shape for every language. */
+export type LessonStrings = Widen<typeof LESSON_STRINGS_KO>;
+
+/**
+ * English copy for the lesson layer (the world is in the language the child learns; Korean only as the optional help
+ * line). Very short words and an icon on every button, so a first-time child is never stuck; the teacher is there.
+ */
+export const LESSON_STRINGS_EN: LessonStrings = {
+  code: {
+    title: '🔢 Type the 6 numbers from your teacher',
+    sub: 'You go right into the lesson',
+    enter: '✅ Go',
+    joining: 'Going in…',
+    cancel: '🏠 Back to my town',
+    errors: {
+      invalid_code: '❌ Not the right numbers. Ask your teacher again.',
+      too_many_attempts: '⏸ Lots of tries! Take a short break, then try again.',
+      expired: '⌛ This lesson link ended. Ask for new numbers.',
+      network: '📶 Check the internet.',
+      default: "🔁 Couldn't get in. Try again?"
+    }
+  },
+  status: {
+    ok: (nickname: string, teacher?: string | null) => `${nickname ? `${nickname} · ` : ''}👩‍🏫 With ${teacher?.trim() || 'Teacher'}`,
+    alone: (nickname: string) => `${nickname ? `${nickname} · ` : ''}Playing alone — your teacher stepped away`,
+    retrying: 'Connecting again…',
+    queued: (n: number) => `${n} to send · sends when online`,
+    leave: '🚪 Leave',
+    leaveAsk: 'Leave the lesson?',
+    leaveYes: '🚪 Leave',
+    leaveNo: '▶️ Stay'
+  },
+  goal: {
+    label: "🎯 Today's goal"
+  },
+  speak: {
+    title: (npc: string) => `Talk to ${npc}`,
+    pickStars: 'Pick a sentence to try',
+    mic: '🎤 Speak',
+    micStop: '✅ Done',
+    listening: '👂 Listening…',
+    typeInstead: '⌨️ Type',
+    typePlaceholder: 'Type in English',
+    send: '📨 Send',
+    sending: 'Sending…',
+    heard: 'I heard',
+    free: 'No wrong answers. Say anything in English — say a lot!',
+    notHeard: "🙉 I couldn't hear you. Say it again, louder!",
+    micBlocked: "🎤 No mic here — let's type.",
+    failed: "🔁 Didn't send. Tap again!",
+    queued: "📶 The internet dropped. I kept what you said and will send it when you're back."
+  },
+  result: {
+    coins: (n: number) => `🪙 ${n} coins`
+  },
+  possessed: 'Teacher',
+  ended: {
+    title: '🎉 Lesson done! Great job!',
+    body: 'See you next time.',
+    today: (n: number) => `You said ${n} English sentences today`,
+    stars: (n: number) => `⭐ ${n} stars this lesson`
+  },
+  lowTier: '🃏 This device does the lesson with word cards…'
+};

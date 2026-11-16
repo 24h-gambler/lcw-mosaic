@@ -1235,6 +1235,8 @@ export const UI_STRINGS_KO = {
     headset: '헤드셋이나 이어폰을 쓰면 내 목소리가 더 잘 들려요.',
     volume: '소리 크기는 보호자와 함께 알맞게 맞춰 주세요.',
     micTitle: '마이크 점검',
+    /** Lesson students see only the mic check when they join (audit G15). */
+    lessonMicTitle: '수업 전에 마이크를 점검해요',
     micCta: '"Hello!" 하고 말해 보기',
     micListening: '듣고 있어요… 다 말하면 한 번 더 눌러요',
     micOk: '잘 들려요! "{heard}"',

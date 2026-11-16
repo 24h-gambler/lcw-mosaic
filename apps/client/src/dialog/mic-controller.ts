@@ -42,6 +42,8 @@ export interface MicView {
   level: number;
   /** Whole seconds left before the soft turn cap, only in its last COUNTDOWN_MS (else absent). */
   secondsLeft?: number;
+  /** The turn ended and its words are on the way (the server rung uploads and transcribes): the panel says so. */
+  processing?: boolean;
 }
 
 export interface MicControllerEvents {
@@ -217,6 +219,8 @@ export class MicController {
         this.deliver(said ? { transcript: said, confidence: 0.5 } : null);
       });
       s.stop();
+      // still waiting for the engine (the server rung's upload and Whisper): say "listening to your answer" meanwhile
+      if (this.finishing && gen === this.gen) this.ev.onView({ recording: false, interim: this.interim, hangover: false, level: 0, processing: true });
     } else this.deliver(null);
   }
 

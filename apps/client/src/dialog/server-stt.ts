@@ -16,8 +16,14 @@ import { readStudentToken } from './submit.js';
 export const SERVER_STT_PATH = '/v1/converse/stt';
 /** RMS of a voiced 100 ms frame (0..1 float samples); quieter frames count as silence. */
 export const VOICE_RMS = 0.02;
-/** Upload + model time the mic controller waits for after the turn ends. */
-export const SERVER_STT_STOP_GRACE_MS = 9000;
+/**
+ * Upload + model time the mic controller waits for after the turn ends. R2627: at 9 s a slow answer (a cold model, a
+ * 40 s turn on school wifi) came back after the turn had been given up as "not heard" — the words were transcribed and
+ * paid for, and thrown away. The upload now has its own deadline (SERVER_STT_UPLOAD_TIMEOUT_MS, then 'stt_failed'
+ * 'timeout' with a say-again line), and the controller's grace only backs that up.
+ */
+export const SERVER_STT_UPLOAD_TIMEOUT_MS = 40_000;
+export const SERVER_STT_STOP_GRACE_MS = SERVER_STT_UPLOAD_TIMEOUT_MS + 5_000;
 const FRAME_MS = 100;
 
 interface RecorderLike {
@@ -158,9 +164,12 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
       };
       const upload = async (blob: Blob, ms: number) => {
         let res: Response;
+        const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = ctl ? setTimeout(() => ctl.abort(), SERVER_STT_UPLOAD_TIMEOUT_MS) : null;
         try {
           res = await env.fetch(`${opts.baseUrl ?? ''}${SERVER_STT_PATH}`, {
             method: 'POST',
+            ...(ctl ? { signal: ctl.signal } : {}),
             headers: {
               authorization: `Bearer ${env.token()}`,
               'content-type': blob.type || 'audio/webm',
@@ -170,7 +179,9 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
             body: blob
           });
         } catch {
-          return fail('network', 'fetch');
+          return fail(ctl?.signal.aborted ? 'stt_failed' : 'network', ctl?.signal.aborted ? 'timeout' : 'fetch');
+        } finally {
+          if (timer) clearTimeout(timer);
         }
         if (aborted) return;
         // R2627: each refusal says what it was. The daily meter (429) is a pause, not "no mic": word cards for this

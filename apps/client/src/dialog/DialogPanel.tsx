@@ -423,7 +423,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
     };
   }, [engine, recordClip]);
 
-  const micDisabled = !!micIssue || phase === 'scoring' || (!followTurn && offers.length === 0 && !needsUnderstand);
+  const micDisabled = !!micIssue || phase === 'scoring' || !!mic.processing || (!followTurn && offers.length === 0 && !needsUnderstand);
   const toggleMic = useCallback(() => {
     unlockDialogAudio();
     if (micIssue) return;
@@ -648,6 +648,12 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
             </div>
           ) : null}
           {notice ? <div className="lcw-note" role="status">{notice}</div> : null}
+          {mic.processing && phase === 'listening' ? (
+            <div className="lcw-res" aria-live="polite" data-testid="dlg-processing">
+              <span className="lcw-dots" aria-hidden="true"><i /><i /><i /></span>
+              <div className="lcw-res__fb">{S.processing}</div>
+            </div>
+          ) : null}
 
           {phase === 'result' && result ? (
             <div className="lcw-res" aria-live="polite" data-repeat={result.repeat ? 'true' : undefined}>

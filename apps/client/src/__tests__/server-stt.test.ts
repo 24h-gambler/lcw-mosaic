@@ -225,9 +225,31 @@ describe('server Whisper engine through the mic controller and the real route', 
     await settle();
     h.clock.advance(5000); // longer than the browser engine's 3 s grace
     expect(h.finals).toEqual([]);
+    // R2627: 12 s later (the old 9 s grace gave the turn up as "not heard") the words still come through
+    h.clock.advance(12_000);
+    expect(h.finals).toEqual([]);
+    expect(h.issues).toEqual([]);
     release!();
     await settle();
     expect(h.finals).toEqual([{ transcript: 'Here you are.', confidence: 0.7 }]);
+    expect(readMicTurns()).toMatchObject({ started: 1, lost: 0 });
+  });
+
+  it('while the words are on the way the panel is told (processing), not left on an idle mic', async () => {
+    let release: (() => void) | null = null;
+    const slowAi = { run: () => new Promise((r) => { release = () => r({ text: 'Here you are.' }); }) } as unknown as LcwEnv['AI'];
+    const h = await harness({ level: () => 0.1, ai: slowAi });
+    const seen: boolean[] = [];
+    const ctrl = new MicController(h.engine, { onView: (v) => seen.push(!!v.processing), onFinal: () => undefined, onIssue: () => undefined }, h.clock);
+    ctrl.tap();
+    await settle();
+    h.clock.advance(1000);
+    ctrl.tap();
+    await settle();
+    expect(seen[seen.length - 1]).toBe(true);
+    release!();
+    await settle();
+    expect(seen[seen.length - 1]).toBe(false);
   });
 
   it('is only offered with a secure page, a recorder and a child token', () => {

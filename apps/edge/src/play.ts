@@ -278,9 +278,22 @@ export interface PlayStepResult {
   served?: number;
   /** The same window said it again: 'better' raised that turn's stars (coins = the difference), 'same' moved nothing. */
   retry?: 'better' | 'same';
+  /** The office's next sentence set after this step (the client opens the next dialog on it without waiting a poll). */
+  next?: PlayState['next'];
 }
 
 export function applyPlayStep(
+  db: EdgePlatformDb,
+  world: WorldDO | undefined,
+  s: { playerId: string; worldId: string; dialogId: string; ctx: string; pass: boolean; stars: number; askedKey?: string; nowMs: number }
+): PlayStepResult | undefined {
+  const r = officeOrExchangeStep(db, world, s);
+  if (!r || r.kind === 'exchange') return r;
+  // what the office expects next, so a child who opens the next dialog at once gets the next question (11-16 phone run)
+  return { ...r, next: expectedNext(jobOf(db, s.playerId, s.worldId), clockOf(clockRow(db, s.playerId, s.worldId).play_ms)) };
+}
+
+function officeOrExchangeStep(
   db: EdgePlatformDb,
   world: WorldDO | undefined,
   s: { playerId: string; worldId: string; dialogId: string; ctx: string; pass: boolean; stars: number; askedKey?: string; nowMs: number }

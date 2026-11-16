@@ -40,6 +40,8 @@ export interface PlayStep {
   units?: number;
   /** The same window said it again (edge play.ts retryTurn / sellOre). */
   retry?: 'better' | 'same';
+  /** The office's next sentence set after this step (server-decided). */
+  next?: PlayState['next'];
   ore?: string;
   late?: boolean;
   interview_turn?: string | null;

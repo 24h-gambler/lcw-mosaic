@@ -4,7 +4,7 @@ import type { NpcRef } from '../../world/api.js';
 import { SCENES } from '../../world/town.js';
 import type { PlayState } from '../api.js';
 import { playDialogFor, playStepKo } from '../dialogs.js';
-import { elevatorNear, playIntercept, resetPlayStore, shownClock, taskScene, veinNear } from '../PlayLayer.js';
+import { elevatorNear, onPlayResult, playDialogFor as layerDialogFor, playIntercept, resetPlayStore, shownClock, taskScene, veinNear } from '../PlayLayer.js';
 import { PLAY_KO } from '../strings.js';
 
 const npc = (id: string, ctx: NpcRef['ctx']): NpcRef => ({ id, ctx, nameKo: id, nameEn: id }) as NpcRef;
@@ -104,6 +104,20 @@ describe('play dialogs (which sentences a hall NPC offers now)', () => {
     expect(shownClock(s, 1000, 600_000)).toBe('09:28');
     const late = { clock: { day: 0, minute: 1439, hhmm: '23:59', hours: 'closed' } } as unknown as PlayState;
     expect(shownClock(late, 0, 2000)).toBe('00:01');
+  });
+});
+
+describe('a step result moves the next dialog at once (no poll wait)', () => {
+  it('the next interview question opens right after an answer', () => {
+    const s0 = { clock: { day: 1, minute: 500, hhmm: '08:20', hours: 'on_time' }, job: { rank: null, progress: { have: 0, need: 3, next: 'staff' }, has_suit: true, interview_turn: 'interview_intro', pay: null }, shift: null, next: { ctx: 'interview', key: 'interview_intro' }, ores: {}, market: {}, tool_tier: 1, resting: {}, exchange_total: 0, coins: 0 } as unknown as PlayState;
+    resetPlayStore({ token: 't', state: s0 });
+    onPlayResult({ kind: 'interview', next: { ctx: 'interview', key: 'interview_why' } });
+    const d = layerDialogFor(boss, 'L2');
+    expect(d?.offers.length).toBeGreaterThan(0);
+    expect(d?.npcLine).toMatch(/why/i);
+    onPlayResult({ kind: 'interview', hired: 'intern', next: { ctx: 'boss', key: 'boss_report' } });
+    expect(layerDialogFor(boss, 'L2')?.npcLine).toMatch(/morning/i);
+    resetPlayStore();
   });
 });
 

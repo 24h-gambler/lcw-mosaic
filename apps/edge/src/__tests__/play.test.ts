@@ -66,7 +66,7 @@ describe('the office day (docs/03 D4, docs/04 4.2 면접·상사·고객)', () =
 
     // no suit: the interview does not start
     const early = await e.say('d-i0', 'interview', line('interview', 'interview_intro', 2), 2);
-    expect(early.play).toEqual({ kind: 'interview', blocked: 'no_suit' });
+    expect(early.play).toMatchObject({ kind: 'interview', blocked: 'no_suit' });
 
     // the tailor sells the suit on the normal purchase path
     const suit = await e.say('d-suit', 'boutique', line('boutique', 'suit', 2), 2);
@@ -74,7 +74,7 @@ describe('the office day (docs/03 D4, docs/04 4.2 면접·상사·고객)', () =
     expect((await e.state()).job.has_suit).toBe(true);
 
     // 07:30 -> 08:10: the office is open
-    expect((await e.say('d-i1', 'interview', line('interview', 'interview_intro', 2), 2)).play).toEqual({ kind: 'interview', blocked: 'before_open' });
+    expect((await e.say('d-i1', 'interview', line('interview', 'interview_intro', 2), 2)).play).toMatchObject({ kind: 'interview', blocked: 'before_open' });
     await e.playFor(40);
     s = await e.state();
     expect(s.clock.hours).toBe('on_time');
@@ -88,6 +88,8 @@ describe('the office day (docs/03 D4, docs/04 4.2 면접·상사·고객)', () =
     // the weakest turn decides: 2 stars = intern with a contract bonus (25% of a day's pay)
     const bonus = Math.round(TUNING.career.ranks.intern.dailyPay * TUNING.play.contractBonusPct);
     expect(last.play).toMatchObject({ kind: 'interview', hired: 'intern', coins: bonus });
+    // the answer says what the office expects next (the client opens the next dialog on it at once)
+    expect(last.play.next).toEqual({ ctx: 'boss', key: 'boss_report' });
     expect(e.world.getPlayerBalance('kid')).toBe(coinsBefore + bonus);
     // a second hire pays nothing
     expect((await e.say('d-int9', 'interview', line('interview', 'interview_intro', 3), 3)).play).toMatchObject({ blocked: 'done' });
@@ -97,8 +99,8 @@ describe('the office day (docs/03 D4, docs/04 4.2 면접·상사·고객)', () =
     expect(s.job).toMatchObject({ rank: 'intern', pay: TUNING.career.ranks.intern.dailyPay });
     expect(s.next).toEqual({ ctx: 'boss', key: 'boss_report' });
     // customers wait for the clock-in
-    expect((await e.say('d-c0', 'customer', line('customer', 'customer_cold_coffee', 2), 2)).play).toEqual({ kind: 'customer', blocked: 'no_shift' });
-    expect((await e.say('d-b1', 'boss', line('boss', 'boss_report', 2), 2)).play).toEqual({ kind: 'shift', late: false });
+    expect((await e.say('d-c0', 'customer', line('customer', 'customer_cold_coffee', 2), 2)).play).toMatchObject({ kind: 'customer', blocked: 'no_shift' });
+    expect((await e.say('d-b1', 'boss', line('boss', 'boss_report', 2), 2)).play).toMatchObject({ kind: 'shift', late: false });
     expect((await e.say('d-b2', 'boss', line('boss', 'boss_report', 2), 2)).play).toMatchObject({ blocked: 'done' });
 
     const paidBefore = e.world.getPlayerBalance('kid');
@@ -138,7 +140,7 @@ describe('the office day (docs/03 D4, docs/04 4.2 면접·상사·고객)', () =
     expect(s.clock.hours).toBe('late');
     expect(s.next).toEqual({ ctx: 'boss', key: 'boss_late' });
     expect((await e.say('d-b0', 'boss', line('boss', 'boss_report', 2), 2)).play).toMatchObject({ blocked: 'wrong_turn' });
-    expect((await e.say('d-b1', 'boss', line('boss', 'boss_late', 1), 1)).play).toEqual({ kind: 'shift', late: true });
+    expect((await e.say('d-b1', 'boss', line('boss', 'boss_late', 1), 1)).play).toMatchObject({ kind: 'shift', late: true });
     let pay = 0;
     for (let n = 0; n < 2; n++) {
       const st = await e.state();

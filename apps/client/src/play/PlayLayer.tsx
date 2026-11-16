@@ -97,6 +97,13 @@ export function playDialogFor(npc: NpcRef, level: LangLevel): { npc: NpcRef; off
 
 export function onPlayResult(step: PlayStep | { kind: string; [k: string]: unknown }): void {
   for (const line of playStepKo(step as PlayStep, rankKo)) playToast(line);
+  // the server said what comes next: the next dialog opens on it at once, the poll fills in the rest
+  const s = step as PlayStep;
+  const st = store.state;
+  if (st && s.next !== undefined && !s.blocked) {
+    const job = { ...st.job, rank: s.hired ?? s.promoted ?? st.job.rank, interview_turn: s.next?.ctx === 'interview' ? s.next.key : null };
+    setStore({ state: { ...st, next: s.next, job } });
+  }
   void refresh();
 }
 

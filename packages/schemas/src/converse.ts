@@ -169,7 +169,8 @@ export const ScoreResponseSchema = z
         late: z.boolean().optional(),
         interview_turn: z.string().max(40).nullable().optional(),
         served: z.number().int().optional(),
-        retry: z.enum(['better', 'same']).optional()
+        retry: z.enum(['better', 'same']).optional(),
+        next: z.object({ ctx: z.enum(['interview', 'boss', 'customer']), key: z.string().max(40) }).strict().nullable().optional()
       })
       .strict()
       .optional(),

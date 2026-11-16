@@ -527,7 +527,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const retry = () => {
     setResult(null);
     setNotice(null);
-    setPhase(micIssue ? (offers.length > 0 ? 'board' : 'keyboard') : 'choose');
+    // a follow-up is free talk: no sentence to build on the board, so a child without a mic types
+    setPhase(micIssue ? (offers.length > 0 && !followTurn ? 'board' : 'keyboard') : 'choose');
     setCardsPicked([]);
     readyAt.current = Date.now();
   };

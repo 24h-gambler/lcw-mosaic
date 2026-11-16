@@ -496,11 +496,12 @@ export function App(): React.ReactElement {
     if (!world?.multi || !world.multiPose) return;
     const sink = world.multi;
     const room = new RoomClient({
+      // Lesson student token first, then the child's device token: an expired lesson token left in this tab answers
+      // {room:null} and the device token still finds the family room in the same attempt.
       token: () => {
         const st = storedStudentToken();
-        if (st && st.length >= 32) return st;
         const id = identityRef.current;
-        return id?.kind === 'child' ? id.token : null;
+        return [st && st.length >= 32 ? st : null, id?.kind === 'child' ? id.token : null];
       },
       source: { pose: () => world.multiPose?.() ?? null },
       sink

@@ -318,7 +318,9 @@ export function buildRoomApp(d: RoomTicketDeps): Hono {
   app.post('/v1/room/ticket', async (c) => {
     const body = ((await c.req.json().catch(() => ({}))) ?? {}) as { room?: unknown; name?: unknown; key?: unknown };
     const seat = await roomSeatFor(d, c.req.raw, body);
-    if (!seat) return c.json({ error: 'no_room' }, 401);
+    // No room for this caller (guest, expired lesson token): a plain answer, not 401 — every non-2xx fetch is a console
+    // error on the child's page, and the client simply stays alone and asks again much later.
+    if (!seat) return c.json({ room: null, reason: 'no_room' });
     const t = await issueRoomTicket(d, seat);
     return c.json({ ticket: t.ticket, expires_at: t.expires_at, room: seat.room, cap: TUNING.multi.roomCapacity, connect: '/v1/room/connect' });
   });

@@ -45,7 +45,10 @@ async function ticket(room, i) {
     try {
       const r = await fetch(`${base}/v1/room/ticket`, { method: 'POST', headers: op, body: JSON.stringify({ room, name: `bot-${i}`, key: `bot-${i}` }) });
       if (!r.ok) throw new Error(`ticket ${r.status} ${await r.text()}`);
-      return (await r.json()).ticket;
+      const j = await r.json();
+      // a wrong operator token now answers 200 {room:null} (room.ts), not 401
+      if (!j.ticket) throw new Error(`no ticket: ${JSON.stringify(j)} (operator token?)`);
+      return j.ticket;
     } catch (e) {
       if (attempt >= 3) throw e;
       await new Promise((res) => setTimeout(res, 300 * (attempt + 1)));

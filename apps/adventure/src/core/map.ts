@@ -164,3 +164,55 @@ export function moveFeet(m: IslandMap, px: number, py: number, dx: number, dy: n
   if (dy && !boxBlocked(m, feetBox(x, y + dy))) y += dy;
   return { x, y };
 }
+
+export interface TileStep {
+  tx: number;
+  ty: number;
+}
+
+/**
+ * Tap-to-walk route (A02): the shortest 4-way walk over open tiles from `from` to `to`, avoiding `solid` tiles
+ * (islanders who are not friends yet, stones). A blocked target walks to its nearest open neighbour; a target that
+ * cannot be reached walks as close as it can. Returns the steps after `from` ([] = already there).
+ */
+export function findPath(m: IslandMap, from: TileStep, to: TileStep, solid: (tx: number, ty: number) => boolean): TileStep[] {
+  const free = (x: number, y: number) => !blocks(tileAt(m, x, y)) && !solid(x, y);
+  const key = (x: number, y: number) => y * m.w + x;
+  const DIRS = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1]
+  ] as const;
+  const goals = new Set<number>();
+  if (free(to.tx, to.ty)) goals.add(key(to.tx, to.ty));
+  else for (const [dx, dy] of DIRS) if (free(to.tx + dx, to.ty + dy)) goals.add(key(to.tx + dx, to.ty + dy));
+  const start = key(from.tx, from.ty);
+  const prev = new Map<number, number>([[start, -1]]);
+  const queue = [start];
+  let best = start;
+  const dist = (k: number) => Math.abs((k % m.w) - to.tx) + Math.abs(Math.floor(k / m.w) - to.ty);
+  let found = -1;
+  for (let i = 0; i < queue.length; i++) {
+    const k = queue[i]!;
+    if (goals.has(k)) {
+      found = k;
+      break;
+    }
+    if (dist(k) < dist(best)) best = k;
+    const x = k % m.w;
+    const y = Math.floor(k / m.w);
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx;
+      const ny = y + dy;
+      const nk = key(nx, ny);
+      if (prev.has(nk) || !free(nx, ny)) continue;
+      prev.set(nk, k);
+      queue.push(nk);
+    }
+  }
+  const end = found >= 0 ? found : best;
+  const steps: TileStep[] = [];
+  for (let k = end; k !== start && k >= 0; k = prev.get(k)!) steps.push({ tx: k % m.w, ty: Math.floor(k / m.w) });
+  return steps.reverse();
+}

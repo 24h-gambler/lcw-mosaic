@@ -63,7 +63,7 @@
 
 - **학생 문서(english-day)**: 계약은 자동화 저장소 `docs/handbook/06-pipelines/english-day-results.md`(결과 계약 v1)입니다.
   - 문서 페이지가 `/adventure/?ed=<학생키>&edd=<수업 날>&edk=<쓰기 키>&edr=<문서 주소>` 로 엽니다. 모험은 네 값을 `sessionStorage`(`lcw.adventure.ed`)에 두고 `https://english-day.pages.dev/<ed>/days/<edd>.json`(없으면 `today.json`)을 읽어 그날 낱말·문장·단계를 씁니다.
-  - 장이 끝날 때마다, 그리고 중간에 떠날 때(`pagehide`) `navigator.sendBeacon('https://english-day.pages.dev/api/result?k=<edk>', 봉투)`(text/plain)로 보냅니다. `ed` 없이 열리면 보내지 않습니다.
+  - 장이 끝날 때마다 `POST https://english-day.pages.dev/api/result?k=<edk>`(text/plain, 봉투)를 보내고 응답을 기다립니다. 실패하면 1.5초·4초 뒤 두 번 더 보내고, 그래도 안 되면 화면은 그대로 두고 다음 장 끝이나 페이지를 떠날 때(`pagehide`·탭 숨김, `navigator.sendBeacon`) 같은 봉투를 다시 보냅니다(같은 장 id 는 덮어씀). 장 끝 화면의 '저장했어요 ✓' 는 응답 OK 를 받은 뒤에만 보입니다. `ed` 없이 열리면 보내지 않습니다.
   - 봉투: `{v:1, source:'lcw-adventure', student, date, activities:[{id:'ch<N>', kind:'chapter', label:'모험 N장', startedAt, endedAt, seconds, stars, starsMax:3, correct, total, words:[{w, ok, caught, missed}], lines:[{en, ko, mode:'voice'|'typed'|'pick'|'spell', ok, tries}], extra:{outcome:'spared'|'fought'|'quit', hp_lost, level}}], summaryKo}` — `packages/schemas/src/adventure.ts` 가 모양과 한도(64KB, words·lines ≤ 60, 문자열 ≤ 300자)를 검사합니다.
   - 아이 별명·문장만 갑니다. 음성은 기기를 떠나지 않습니다(브라우저 인식 글자만 채점).
 - **신경망 목소리**: 섬 주민 대사는 배역 팩 목소리(`ADVENTURE_CAST` → `npc-cast.ts` 의 기존 목소리), 아이 문장은 `modelVoice`. 고정 대사와 내장 낱말 문장은 `fixedTtsLines()` 에 들어 있어 손님도 신경망 목소리를 듣고, 문서 자료에서 온 새 문장은 아이 토큰이 있을 때만 서버가 만듭니다(없으면 기기 목소리).
@@ -80,4 +80,5 @@
 | 장 별 | 수호자와 친구 + 모든 만남 친구 + 말한 문장 3개 이상(별 2 이상) = 별 3 · 수호자와 친구 = 별 2 · 끝냄 = 별 1 | 말로 화해를 가장 높게 |
 | 기운이 바닥나면 | 같은 만남을 처음부터, 탄막 20% 느리게 | 벌 대신 쉬운 길 |
 | 깜빡임 | 초당 3번 이하, 화면 흔들림 0.3도·300ms 이하 | `MOTION_TOKENS` |
+| 결과 다시 보내기 | 처음 + 1.5초 뒤 + 4초 뒤 | 문서 쪽이 잠깐 없거나 바빠도 결과를 잃지 않게 |
 | 프레임 | 논리 화면 320×240, 고정 60Hz 갱신, 그리기는 rAF | 1440·390·844 폭 모두 30fps 이상 |

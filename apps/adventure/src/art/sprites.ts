@@ -286,6 +286,7 @@ export function paintKeeper(dir: 0 | 1 | 2, frame: 0 | 1): Px {
   return p;
 }
 
+/** The player's marker in a meeting: a small speech bubble (your voice). */
 export function paintSoul(): Px {
   const p = new Px(10, 10);
   p.grid(0, 1, ['.kkkkkkkk.', 'kwwwwwwwwk', 'kwsssssswk', 'kwsssssswk', 'kwwwwwwwwk', '.kkwkkkkk.', '..kwk.....', '..kk......'], {

@@ -14,7 +14,7 @@ import { ADV } from './core/tuning.js';
 import { buildChapterPlan, type ChapterPlan, type TalkItem } from './core/plan.js';
 import { Battle, type Command, type ItemKey } from './core/battle.js';
 import { gradeExact, gradePick, gradeSpoken, type Graded } from './core/grade.js';
-import { buildIsland, feetBox, moveFeet, type IslandMap, type MapEntity } from './core/map.js';
+import { buildIsland, feetBox, findPath, moveFeet, type IslandMap, type MapEntity } from './core/map.js';
 import { createRng, hashSeed } from './core/rng.js';
 import {
   CHAPTER_IDS,
@@ -95,7 +95,7 @@ export interface Snapshot {
     words: string[];
     nextNote: 'next-day' | 'done-all' | 'replay';
     back: string | null;
-    sent: 'sent' | 'failed' | 'off';
+    sent: 'sending' | 'sent' | 'failed' | 'off';
   } | null;
   progress: Progress;
   hint: AdventureLine | null;
@@ -156,7 +156,10 @@ export class Engine {
   /** Input */
   keys = new Set<string>();
   pad = { x: 0, y: 0 };
+  /** Tap-to-walk: the tapped spot (drawn as a marker), the tile route to it, and the islander or thing tapped. */
   walkTo: { x: number; y: number } | null = null;
+  walkPath: Array<{ x: number; y: number }> = [];
+  walkTarget: EntityState | null = null;
   drag: { x: number; y: number } | null = null;
   fade = 0;
   t = 0;
@@ -166,7 +169,8 @@ export class Engine {
   private snap: Snapshot;
   private lastTouch: string | null = null;
   private lastPhaseKey = '';
-  private sendFailed = false;
+  /** The last envelope the document answered OK to (nothing new → no beacon on leaving). */
+  private confirmed: string | null = null;
 
   constructor() {
     this.sound.setEnabled(this.soundOn);
@@ -546,7 +550,7 @@ export class Engine {
     this.sound.unlock();
     if (this.scene === 'explore' && !this.exploreMsg) {
       if (kind === 'up') return;
-      this.walkTo = { x: x + this.camX, y };
+      this.walkToward(x + this.camX, y);
     } else if (this.scene === 'battle' && this.battle?.phase === 'dodge') {
       if (kind === 'down') this.drag = { x, y };
       else if (kind === 'move' && this.drag) {
@@ -676,6 +680,44 @@ export class Engine {
     if (es && es.talked === 0) es.talked = 1;
   }
 
+  private stopWalk() {
+    this.walkTo = null;
+    this.walkPath = [];
+    this.walkTarget = null;
+  }
+
+  /** A tap on the island: walk round what is in the way; a tapped islander, stone or bell is talked to on arrival. */
+  private walkToward(wx: number, wy: number) {
+    const isl = this.island;
+    if (!isl) return;
+    const T = ADV.tile;
+    const p = this.player;
+    const hit = this.entities.find((e) => e.state !== 'gone' && overlaps({ x: wx, y: wy, w: 1, h: 1 }, grow(entityBox(e), 6))) ?? null;
+    const solidAt = (tx: number, ty: number) =>
+      this.entities.some((e) => e.state === 'idle' && overlaps({ x: tx * T + 1, y: ty * T + 1, w: T - 2, h: T - 2 }, entityBox(e)));
+    const from = { tx: Math.floor(p.x / T), ty: Math.floor((p.y - 1) / T) };
+    const to = hit ? { tx: Math.floor(hit.x / T), ty: Math.floor((hit.y - 4) / T) } : { tx: Math.floor(wx / T), ty: Math.floor(wy / T) };
+    const steps = findPath(isl, from, to, (tx, ty) => !(tx === from.tx && ty === from.ty) && solidAt(tx, ty));
+    this.walkPath = steps.map((st) => ({ x: st.tx * T + T / 2, y: st.ty * T + T - 2 }));
+    this.walkTarget = hit;
+    this.walkTo = { x: wx, y: wy };
+  }
+
+  /** End of a tap-walk: face what was tapped and talk to it. */
+  private arrive() {
+    const t = this.walkTarget;
+    this.stopWalk();
+    if (!t || t.state === 'gone') return;
+    const p = this.player;
+    const dx = t.x - p.x;
+    const dy = t.y - 4 - (p.y - 4);
+    if (Math.abs(dx) > Math.abs(dy)) {
+      p.dir = 2;
+      p.flip = dx < 0;
+    } else p.dir = dy < 0 ? 1 : 0;
+    this.touchEntity(t, true);
+  }
+
   private stepExplore(dt: number) {
     const isl = this.island;
     if (!isl) return;
@@ -690,15 +732,17 @@ export class Engine {
       dx += this.pad.x;
       dy += this.pad.y;
       if (!dx && !dy && this.walkTo) {
-        const wx = this.walkTo.x - p.x;
-        const wy = this.walkTo.y - (p.y - 4);
-        if (Math.hypot(wx, wy) < 3) this.walkTo = null;
-        else {
-          dx = wx;
-          dy = wy;
+        let wp = this.walkPath[0];
+        while (wp && Math.hypot(wp.x - p.x, wp.y - p.y) < 1) {
+          this.walkPath.shift();
+          wp = this.walkPath[0];
         }
-      } else if (dx || dy) this.walkTo = null;
-    } else this.walkTo = null;
+        if (wp) {
+          dx = wp.x - p.x;
+          dy = wp.y - p.y;
+        } else this.arrive();
+      } else if (dx || dy) this.stopWalk();
+    } else this.stopWalk();
     const m = Math.hypot(dx, dy);
     if (m > 0) {
       const k = (ADV.player.speed * dt) / Math.max(1, m);
@@ -710,10 +754,10 @@ export class Engine {
       const solid = this.entities.find((e) => e.state === 'idle' && overlaps(feetBox(next.x, next.y), entityBox(e)));
       if (solid) {
         next = before;
-        this.walkTo = null;
-        this.touchEntity(solid);
+        this.stopWalk();
+        this.touchEntity(solid, solid === this.walkTarget);
       } else this.lastTouch = this.entities.some((e) => overlaps(feetBox(next.x, next.y), grow(entityBox(e), 4))) ? this.lastTouch : null;
-      if (this.walkTo && next.x === before.x && next.y === before.y) this.walkTo = null;
+      if (this.walkTo && next.x === before.x && next.y === before.y) this.stopWalk();
       p.x = next.x;
       p.y = next.y;
       if (Math.abs(dx) > Math.abs(dy)) {
@@ -814,13 +858,19 @@ export class Engine {
     this.saveLocal();
     void this.saveServer();
     this.sessionActs.set(act.id, act);
-    const sent = this.sendResults();
     const friends = r.befriended.map((id) => {
       const c = [...this.plan!.chapter.critters, this.plan!.chapter.guardian].find((x) => x.id === id);
       return c?.nameEn ?? id;
     });
     const nextNote: NonNullable<Snapshot['end']>['nextNote'] = this.chapter === 4 ? 'done-all' : wasCleared ? 'replay' : 'next-day';
-    this.end = { activity: act, friends, words: this.plan.words.map((w) => w.w), nextNote, back: this.ed?.back ?? null, sent };
+    this.end = { activity: act, friends, words: this.plan.words.map((w) => w.w), nextNote, back: this.ed?.back ?? null, sent: this.ed ? 'sending' : 'off' };
+    const end = this.end;
+    void this.postResults().then((sent) => {
+      if (this.end === end) {
+        this.end = { ...end, sent };
+        this.notify();
+      }
+    });
     this.scene = 'end';
     this.record = null;
     this.fade = 1;
@@ -829,11 +879,9 @@ export class Engine {
     this.notify();
   }
 
-  /** Sends what this tab played to the student document (contract v1). */
-  sendResults(includeOpen = false): 'sent' | 'failed' | 'off' {
-    if (!this.ed) return 'off';
-    const url = resultUrl(this.ed);
-    if (!url) return 'off';
+  /** The envelope of what this tab played (contract v1); `includeOpen` adds an island left half way. */
+  private envelope(includeOpen: boolean): string | null {
+    if (!this.ed) return null;
     const acts = [...this.sessionActs.values()];
     if (includeOpen && this.record && this.record.lines.length) {
       const open = toActivity(this.record, Date.now());
@@ -842,13 +890,41 @@ export class Engine {
       if (!this.sessionActs.has(open.id) && !(prev && prev.extra.outcome !== 'quit' && prev.endedAt.slice(0, 10) === this.today())) acts.push(open);
     }
     const env = buildEnvelope(this.ed.student, this.ed.date ?? this.day?.date ?? this.today(), acts);
-    if (!env) return 'off';
+    return env ? JSON.stringify(env) : null;
+  }
+
+  /**
+   * At a chapter's end: POST and wait for the answer, retrying twice (the document's endpoint may be missing or busy).
+   * Whatever is not confirmed goes again with the next chapter's end or when the page is left (same ids overwrite).
+   */
+  async postResults(): Promise<'sent' | 'failed' | 'off'> {
+    const url = this.ed ? resultUrl(this.ed) : null;
+    const body = this.envelope(false);
+    if (!url || !body) return 'off';
+    for (const wait of ADV.resultRetryMs) {
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      try {
+        const r = await fetch(url, { method: 'POST', body, headers: { 'content-type': 'text/plain;charset=UTF-8' }, keepalive: true });
+        if (r.ok) {
+          this.confirmed = body;
+          return 'sent';
+        }
+      } catch {
+        // offline or blocked: try again
+      }
+    }
+    return 'failed';
+  }
+
+  /** Leaving the page: one beacon with everything not confirmed yet, the island in progress included. */
+  sendResults(includeOpen = false): 'sent' | 'failed' | 'off' {
+    const url = this.ed ? resultUrl(this.ed) : null;
+    const body = this.envelope(includeOpen);
+    if (!url || !body) return 'off';
+    if (body === this.confirmed) return 'sent';
     try {
-      const ok = navigator.sendBeacon(url, new Blob([JSON.stringify(env)], { type: 'text/plain;charset=UTF-8' }));
-      this.sendFailed = !ok;
-      return ok ? 'sent' : 'failed';
+      return navigator.sendBeacon(url, new Blob([body], { type: 'text/plain;charset=UTF-8' })) ? 'sent' : 'failed';
     } catch {
-      this.sendFailed = true;
       return 'failed';
     }
   }

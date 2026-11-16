@@ -1,3 +1,4 @@
+import React from 'react';
 import { ADVENTURE_CHAPTERS } from '@lcw/content';
 import type { Engine, Snapshot } from '../engine.js';
 import { CHAPTER_IDS } from '../core/progress.js';

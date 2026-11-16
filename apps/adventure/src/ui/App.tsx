@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ADV } from '../core/tuning.js';
 import { Renderer } from '../render.js';
 import type { Engine } from '../engine.js';
@@ -143,7 +143,7 @@ export function App({ engine }: { engine: Engine }) {
   return (
     <div className={`adv ${lay.side ? 'side' : 'stack'}`} data-testid="adv-root" data-scene={snap.scene}>
       {!lay.side && top}
-      <div className="adv-stage" style={{ width: lay.side ? lay.stageW : '100%', height: lay.stageH }}>
+      <div className="adv-stage" style={{ width: lay.side ? lay.stageW : '100%', height: lay.side ? '100%' : lay.stageH }}>
         <canvas
           ref={cvRef}
           width={ADV.screen.w}

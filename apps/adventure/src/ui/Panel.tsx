@@ -1,3 +1,4 @@
+import React from 'react';
 import { ADVENTURE_CHAPTERS } from '@lcw/content';
 import type { Engine, Snapshot } from '../engine.js';
 import { ITEM_INFO, type ItemKey } from '../core/battle.js';
@@ -295,7 +296,7 @@ function Battle({ engine, snap }: { engine: Engine; snap: Snapshot }) {
         <Line l={S.befriendSay} help={help} cls="ko" />
         <Speak help={help} placeholder={S.typeHere.en} onAnswer={(t, mode) => engine.befriend(true, t, mode)} testid="adv-befriend-type" />
         <button type="button" className="btn go" onClick={() => engine.befriend(false)} data-testid="adv-befriend-go" style={{ alignItems: 'center' }}>
-          💛 {S.befriendBtn.en}
+          🤝 {S.befriendBtn.en}
         </button>
       </div>
     );
@@ -366,7 +367,7 @@ function End({ engine, snap }: { engine: Engine; snap: Snapshot }) {
         </ul>
       </div>
       <Line l={S.endNext[e.nextNote]} help={help} />
-      {e.sent === 'sent' && <div className="ko">{S.sent.en}</div>}
+      {e.sent === 'sent' && <div className="ko" data-testid="adv-sent">{S.sent.en}</div>}
       {e.back && (
         <a className="btn go" href={e.back} data-testid="adv-back-doc" style={{ textDecoration: 'none', alignItems: 'center' }}>
           {S.backToDoc.en}

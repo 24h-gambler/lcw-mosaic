@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Listener, canListen, type ListenEnd } from '../audio/listen.js';
 import { S } from './strings.js';
 

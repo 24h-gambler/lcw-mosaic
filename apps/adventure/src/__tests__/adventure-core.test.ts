@@ -9,7 +9,7 @@ import { addLine, buildEnvelope, chapterStars, startRecord, summaryKo, toActivit
 import { dayFileUrls, parseEdLink, readEdLink, resultUrl, safeBack } from '../core/edlink.js';
 import { arenaRect, autopilotDir, startPattern, stepPattern } from '../core/bullets.js';
 import { Battle } from '../core/battle.js';
-import { blocks, buildIsland, moveFeet, reachable, tileAt } from '../core/map.js';
+import { blocks, buildIsland, findPath, moveFeet, reachable, tileAt } from '../core/map.js';
 import { ADV } from '../core/tuning.js';
 
 const DAY = EnglishDayFileSchema.parse({
@@ -387,5 +387,34 @@ describe('adventure voice lines', () => {
     const intro = ADVENTURE_CHAPTERS[0]!.guardian.intro.en;
     expect([...fixed].some((k) => k.endsWith(`|${intro}`))).toBe(true);
     expect([...fixed].some((k) => k.endsWith('|I see an eagle.'))).toBe(true);
+  });
+});
+
+describe('adventure tap-to-walk', () => {
+  it('tap-to-walk goes round a stone and stops next to a tapped islander', () => {
+    const m = buildIsland(1);
+    const stone = m.entities.find((e) => e.kind === 'stone')!;
+    const critter = m.entities.find((e) => e.kind === 'critter')!;
+    const solid = (tx: number, ty: number) => (tx === stone.tx && ty === stone.ty) || (tx === critter.tx && ty === critter.ty);
+    // from the tile left of the stone to the tile right of it
+    const from = { tx: stone.tx - 1, ty: stone.ty };
+    const steps = findPath(m, from, { tx: stone.tx + 1, ty: stone.ty }, solid);
+    expect(steps.at(-1)).toEqual({ tx: stone.tx + 1, ty: stone.ty });
+    expect(steps.some((s) => s.tx === stone.tx && s.ty === stone.ty)).toBe(false);
+    for (const s of steps) expect(blocks(tileAt(m, s.tx, s.ty))).toBe(false);
+    // each step is one tile away from the one before
+    let prev = from;
+    for (const s of steps) {
+      expect(Math.abs(s.tx - prev.tx) + Math.abs(s.ty - prev.ty)).toBe(1);
+      prev = s;
+    }
+    // a tapped islander: the walk ends beside it
+    const toCritter = findPath(m, m.start, { tx: critter.tx, ty: critter.ty }, solid);
+    const last = toCritter.at(-1)!;
+    expect(Math.abs(last.tx - critter.tx) + Math.abs(last.ty - critter.ty)).toBe(1);
+    // water or a wall cannot be reached: the walk gets as close as it can
+    const far = findPath(m, m.start, { tx: 0, ty: 0 }, solid);
+    expect(far.length).toBeGreaterThan(0);
+    expect(blocks(tileAt(m, far.at(-1)!.tx, far.at(-1)!.ty))).toBe(false);
   });
 });

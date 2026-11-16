@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import type { Graded } from '../core/grade.js';
 import type { TalkItem } from '../core/plan.js';
 import type { Engine } from '../engine.js';

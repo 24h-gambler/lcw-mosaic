@@ -40,7 +40,9 @@ export const ADV = {
   /** docs/08 MOTION_TOKENS: no more than 3 flashes a second, shake ≤ 0.3° / 300 ms (we shake by pixels ≤ 2). */
   hitFlashMs: 340,
   shakePx: 2,
-  shakeMs: 240
+  shakeMs: 240,
+  /** Result POST at a chapter end: first try, then two retries after these waits (docs/22 5장). */
+  resultRetryMs: [0, 1500, 4000]
 } as const;
 
 export type CreatureClass = 'critter' | 'guardian' | 'final';

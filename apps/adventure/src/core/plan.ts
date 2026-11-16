@@ -268,15 +268,16 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
 
   const critter1: TalkItem[] = [
     item('c1-greet', 'greet', 'say', greet.en, greet.ko, rng),
+    // the islander's own question comes in the first three (a critter is often a friend after one TALK)
+    pickItem('c1-pick', c1, answerFor(c1), rng),
     item('c1-word', 'word', 'build', w0.sentence, wordKo(w0), rng, { word: w0.w, emoji: w0.emoji }),
-    item('c1-spell', 'word', 'spell', w0.w, wordKo(w0), rng, { word: w0.w, emoji: w0.emoji }),
-    pickItem('c1-pick', c1, answerFor(c1), rng)
+    item('c1-spell', 'word', 'spell', w0.w, wordKo(w0), rng, { word: w0.w, emoji: w0.emoji })
   ];
   const critter2: TalkItem[] = [
     item('c2-feel', 'feel', 'say', feel.en, feel.ko, rng),
-    item('c2-word', 'word', 'say', w1.sentence, wordKo(w1), rng, { word: w1.w, emoji: w1.emoji }),
+    pickItem('c2-pick', c2, answerFor(c2), rng),
     item('c2-spell', 'word', 'spell', w1.w, wordKo(w1), rng, { word: w1.w, emoji: w1.emoji }),
-    pickItem('c2-pick', c2, answerFor(c2), rng)
+    item('c2-word', 'word', 'say', w1.sentence, wordKo(w1), rng, { word: w1.w, emoji: w1.emoji })
   ];
   const guardianTalks: TalkItem[] = [
     item('g-bank', 'bank', 'say', bankLine, bankKo[chapter.ctx], rng),

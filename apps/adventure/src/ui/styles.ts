@@ -13,7 +13,7 @@ html,body,#root{margin:0;height:100%;background:var(--c-night-900);color:var(--c
 body{font-family:var(--f-ui);-webkit-tap-highlight-color:transparent;word-break:keep-all;overflow-wrap:break-word}
 .adv{position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden}
 .adv.side{flex-direction:row}
-.adv-stage{position:relative;flex:none;background:var(--c-night-900);display:flex;align-items:center;justify-content:center}
+.adv-stage{position:relative;flex:none;align-self:stretch;background:var(--c-night-900);display:flex;align-items:center;justify-content:center}
 .adv-stage canvas{width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none;display:block}
 .adv-side{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--c-night-700);border-left:2px solid var(--c-ink-900)}
 .adv.stack .adv-side{border-left:0;border-top:2px solid var(--c-ink-900)}
@@ -31,6 +31,11 @@ body{font-family:var(--f-ui);-webkit-tap-highlight-color:transparent;word-break:
 .btn[disabled]{opacity:.45;cursor:default}
 .btn .ko,.ko{font:500 12px var(--f-ui);color:var(--c-ink-500)}
 .dark .ko,.msg .ko,.hintline .ko{color:var(--c-silver)}
+.dark .card .ko,.dark .btn .ko,.dark .target .ko{color:var(--c-ink-700)}
+.dark .btn.primary .ko,.dark .btn.go .ko{color:var(--c-ink-900)}
+.dark .btn.ghost .ko{color:var(--c-silver)}
+.card .btn.ghost{color:var(--c-ink-900);border-color:var(--c-ink-900)}
+.dark .card .btn.ghost .ko{color:var(--c-ink-700)}
 .btn.sel{outline:3px solid var(--c-sky);outline-offset:2px}
 .cmds{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .cmds .btn{min-height:var(--btn);font-family:var(--f-pixel);font-size:16px;align-items:center;text-align:center}

@@ -42,6 +42,11 @@ export interface WorldHandle {
   getPlayerLook?(): NpcLook;                        // 거울 화면(G04)이 같은 복셀 캐릭터를 따로 그릴 때 쓰는 생김새
   setLookSettings?(s: LookSettings): void;          // 설정(G14): 마우스·터치 둘러보기 감도, 상하 반전
   setGraphics?(g: GraphicsSettings): void;          // 설정(G14) 화질: quality auto|low|mid|high, viewChunks 3~8, shadows, renderScale 0.5~1 (null = 단계 기본)
+  setKeyHints?(k: KeyHintLabels): void;             // 설정(G14) 키 바꾸기: HUD 도움말 줄·말 걸기 키 이름(world/strings.ts controlsDesktopFor)
+  onUse?(cb: (itemKey: string) => void): () => void; // 손에 든 칸을 다시 고르면 '사용'(G01 먹기·마시기)
+  setGauges?(g: { hunger; thirst; lowHunger; lowThirst; slow } | null): void; // G01 배고픔·목마름 막대(상태 칩 셋째 줄)
+  setMove?(mult: number, canRun: boolean): void;   // G01 낮은 게이지: 걷기 배율(0.3~1)·달리기 허용(docs/03 D1)
+  notice?(text: string): void;                      // 핫바 위 한 줄 알림(먹었어요·느려졌어요)
 }
 // WorldMapInfo = { size_m; sectors: {id,nameKo,kind:'town'|'biome'|'ruin'|'plot'|…,explored,rect:[x0,z0,x1,z1]}[];
 //                  scenes: {id,nameKo,x,z}[]; player: {x,z,yaw} }
@@ -54,6 +59,10 @@ export interface WorldHandle {
 // 대화창(.lcw-dlg)이 열리거나 HUD 가 .dlg 표시·숨김(타이틀 화면)이면 메뉴는 비켜 섭니다. 서버 경로는 frame/api.ts 한 곳:
 // GET /v1/items · POST /v1/items/equip · POST /v1/items/use · GET /v1/collection · GET /v1/review/repair ·
 // POST /v1/review/repair/pick · GET/PUT /v1/settings. 손님(연결 안 된 기기)은 서버를 부르지 않습니다.
+// G01 게이지(frame/gauges.ts · useGauges.ts): 배고픔 20분·목마름 14분에 100→0, 새 기기 45%, 20% 이하 느려짐, 0% 달리기 불가.
+// 수업·대화창·메뉴·숨은 탭에서는 시계가 멈춥니다. 음식·음료는 손에 든 칸을 한 번 더 고르면 채워지고(물건마다 10분에 한 번),
+// 물건은 가방에 남습니다(배운 말이 사라지지 않게). 사용은 POST /v1/items/use 로 서버에 남고, 값은 기기 'lcw.gauges' 에 둡니다.
+// HUD 글자 크기: 설정 글자 크기(--lcw-fs)를 따르되 HUD 는 125%(폰·낮은 가로 화면 115%)까지만 커지고, 메뉴·대화창은 전부 따릅니다.
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
 export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
 ```

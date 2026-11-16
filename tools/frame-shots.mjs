@@ -134,7 +134,7 @@ for (const vp of VIEWPORTS) {
   const b = await boxes(page);
   await page.screenshot({ path: `${out}/${vp.name}-2items.png` });
   check(vp.name, b.empties === 3, `expected 3 empty slots after two items, got ${b.empties}`);
-  check(vp.name, b.cap?.text === '쿠키', `caption should name the selected slot (${b.cap?.text})`);
+  check(vp.name, /^쿠키( · 한 번 더 누르면 먹어요)?$/.test(b.cap?.text ?? ''), `caption should name the selected slot (${b.cap?.text})`);
   check(vp.name, b.coins?.text === '120', `coins should read 120 (${b.coins?.text})`);
   // drink: the honey tea in slot 1, picked twice (the second pick uses the slot in hand)
   for (let n = 0; n < 2; n++) {
@@ -186,7 +186,14 @@ for (const vp of VIEWPORTS) {
   check(vp.name, !!d.aim && Math.abs(d.aim.x + d.aim.w / 2 - d.vw / 2) < 2 && Math.abs(d.aim.y + d.aim.h / 2 - d.vh / 2) < 2, 'crosshair not centred');
   if (vp.name === 'd1440' || vp.name === 'p390') {
     // low gauges from the device record: slower walking is said once and shown on the chip
-    await page.evaluate(() => localStorage.setItem('lcw.gauges', JSON.stringify({ g: { hunger: 50, thirst: 12 }, used: [] })));
+    // set at the new page's start: the old page saves its own values on pagehide
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.setItem('lcw.gauges', JSON.stringify({ g: { hunger: 50, thirst: 12 }, used: [] }));
+      } catch {
+        /* storage blocked */
+      }
+    });
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
     await page.waitForTimeout(1500);

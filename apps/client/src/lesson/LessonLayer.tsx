@@ -19,7 +19,7 @@ import { TOKENS } from '@lcw/ui';
 import { codeFromSearch, createStudentLessonApi, loadStudentSession, type DialogResult, type LessonOffer, type StudentLessonApi, type UtteranceSubmit } from './api.js';
 import { LessonController, goalTargetEn, initialLessonView, type LessonView, type LessonWorld } from './controller.js';
 import { MIC_BLOCKING_ERRORS, maskTarget, micUnreliable, pickHeard, type HeardAlternative } from './hint.js';
-import { LESSON_STRINGS as S } from './strings.js';
+import { LESSON_STRINGS as S, lessonGoal } from './strings.js';
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
 import { SubmitError } from '../dialog/submit.js';
 import { TeacherPanel } from './TeacherPanel.js';
@@ -159,7 +159,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     const v = ctl.state;
     if (!w || v.phase !== 'live') return;
     if (v.sceneId) void goToSceneChecked(w, v.sceneId).catch(() => undefined);
-    if (v.goalKo) w.setGoal(v.goalKo, goalTargetEn(v.hint, v.offers));
+    if (v.goalKo || v.goalEn) w.setGoal(lessonGoal(v.goalEn, v.goalKo), goalTargetEn(v.hint, v.offers));
     w.setPossessed?.(v.possessedNpcId);
     if (v.coins !== null) w.setCoins?.(v.coins);
     w.setStars?.(v.lessonStars);
@@ -299,7 +299,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
               className="lcw-btn"
               style={{ ...bigButton(C['brand-d']), pointerEvents: 'auto', width: '100%', maxWidth: 720, minHeight: TOKENS.shape.micButtonPx, fontSize: T.scale.h3.sizePx }}
             >
-              🎤 {S.speak.title(npcRef.nameKo)}
+              🎤 {S.speak.title(npcRef)}
             </button>
           </div>
         ) : (
@@ -345,7 +345,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
         ) : (
           <div className="lcw-top" style={{ display: 'flex', flexDirection: 'column', gap: SP[2], flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>
             <div style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-              <GoalBar goalKo={view.goalKo} />
+              <GoalBar goal={lessonGoal(view.goalEn, view.goalKo)} />
               <StatusPill view={view} onLeave={() => ctl.leave()} />
             </div>
             <Bubbles view={view} />
@@ -533,13 +533,13 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
   );
 }
 
-function GoalBar({ goalKo }: { goalKo: string }) {
-  if (!goalKo) return null;
+function GoalBar({ goal }: { goal: string }) {
+  if (!goal) return null;
   return (
     <div style={{ display: 'flex', flex: '1 1 260px', minWidth: 0 }}>
       <div style={{ ...card, background: C['night-900'], color: C['paper-0'], padding: `${SP[1]}px ${SP[3]}px`, display: 'flex', gap: SP[2], alignItems: 'center', maxWidth: 640 }}>
         <span style={{ background: C.sun, color: C['ink-900'], fontWeight: 800, fontSize: T.scale.micro.sizePx, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>{S.goal.label}</span>
-        <span style={{ fontSize: T.scale.body.sizePx, fontWeight: 700 }}>{goalKo}</span>
+        <span style={{ fontSize: T.scale.body.sizePx, fontWeight: 700 }}>{goal}</span>
       </div>
     </div>
   );
@@ -855,7 +855,7 @@ function SpeakPanel({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: SP[2], marginBottom: SP[2] }}>
         <strong style={{ fontSize: T.scale['body-l'].sizePx, color: C['ink-900'] }}>
           {view.possessedNpcId === npc.id ? <span className="lcw-sparkle">✨ </span> : null}
-          {S.speak.title(npc.nameKo)}
+          {S.speak.title(npc)}
         </strong>
         {!free && offers.length > 1 ? <span className="lcw-hint-note" style={{ fontSize: T.scale.small.sizePx, color: C['ink-500'] }}>{S.speak.pickStars}</span> : null}
       </div>

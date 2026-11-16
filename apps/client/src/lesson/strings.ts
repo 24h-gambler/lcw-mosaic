@@ -32,7 +32,7 @@ export const LESSON_STRINGS_KO = {
     label: '오늘의 목표'
   },
   speak: {
-    title: (npc: string) => `${npc}에게 말하기`,
+    title: (npc: { nameEn: string; nameKo: string }) => `${npc.nameKo}에게 말하기`,
     pickStars: '도전할 문장을 골라요',
     mic: '말하기',
     micStop: '다 말했어요',
@@ -106,7 +106,7 @@ export const LESSON_STRINGS_EN: LessonStrings = {
     label: "🎯 Today's goal"
   },
   speak: {
-    title: (npc: string) => `Talk to ${npc}`,
+    title: (npc: { nameEn: string; nameKo: string }) => `Talk to ${npc.nameEn || npc.nameKo}`,
     pickStars: 'Pick a sentence to try',
     mic: '🎤 Speak',
     micStop: '✅ Done',
@@ -166,3 +166,13 @@ function biDeep<T extends object>(en: T, ko: object | undefined): T {
  * with the Korean after a dot when the child turned the Korean help on (Dan 11-16 14:3x, world/lang.ts).
  */
 export const LESSON_STRINGS: LessonStrings = biDeep(LESSON_STRINGS_EN, LESSON_STRINGS_KO);
+
+/** The stage goal the child sees: the English goal (with the Korean help when on); the Korean alone from an older server. */
+export function lessonGoal(en: string | undefined, ko: string): string {
+  return en ? joinHelp(en, ko) : ko;
+}
+
+/** One line in the language the child learns, the Korean after a dot when the help is on (for tables outside this file). */
+export function helpLine(en: string, ko: string): string {
+  return joinHelp(en, ko);
+}

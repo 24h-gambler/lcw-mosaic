@@ -41,4 +41,40 @@ describe('the lesson layer reads the language the child learns, Korean only as t
     expect(LESSON_STRINGS.code.errors.nope).toBeUndefined();
     resetLangForTest();
   });
+
+  it('names the NPC in English (Korean name only in the help line), and the stage goal the same way', async () => {
+    const { LESSON_STRINGS, lessonGoal } = await import('../lesson/strings.js');
+    const { setHelpKo, resetLangForTest } = await import('../world/lang.js');
+    const guide = { nameEn: 'Guide', nameKo: '안내인 선생님' };
+    resetLangForTest();
+    expect(LESSON_STRINGS.speak.title(guide)).toBe('Talk to Guide');
+    expect(lessonGoal('Order a drink', '음료를 주문해요')).toBe('Order a drink');
+    expect(lessonGoal('', '음료를 주문해요')).toBe('음료를 주문해요');
+    setHelpKo(true);
+    expect(LESSON_STRINGS.speak.title(guide)).toBe('Talk to Guide · 안내인 선생님에게 말하기');
+    expect(lessonGoal('Order a drink', '음료를 주문해요')).toBe('Order a drink · 음료를 주문해요');
+    resetLangForTest();
+  });
+
+  it('the 1PC teacher button and lock card a child can meet are English with an icon; the teacher-only lines stay Korean', async () => {
+    const { PANEL_STRINGS_EN, PANEL_STRINGS_KO } = await import('../lesson/TeacherPanel.js');
+    for (const [k, v] of Object.entries(PANEL_STRINGS_EN)) {
+      expect(k in PANEL_STRINGS_KO).toBe(true);
+      expect(v).not.toMatch(/[가-힣]/);
+      expect(v).toMatch(/^\p{Extended_Pictographic}/u);
+    }
+    expect(Object.keys(PANEL_STRINGS_EN)).not.toContain('script');
+    expect(Object.keys(PANEL_STRINGS_EN)).not.toContain('answers');
+  });
+
+  it('every stage of every lesson plan has a short English goal with no Korean', async () => {
+    const { LESSON_PLANS } = await import('@lcw/content');
+    const stages = LESSON_PLANS.flatMap((p) => p.stages);
+    expect(stages.length).toBeGreaterThan(0);
+    for (const s of stages) {
+      expect(s.studentGoalEn.trim().length).toBeGreaterThan(0);
+      expect(s.studentGoalEn).not.toMatch(/[가-힣]/);
+      expect(s.studentGoalEn.length).toBeLessThanOrEqual(50);
+    }
+  });
 });

@@ -10,6 +10,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { LESSON_PLANS, getLessonPlan, type LessonStage } from '@lcw/content';
 import { TOKENS } from '@lcw/ui';
+import { helpLine } from './strings.js';
 
 export const OPERATOR_TOKEN_KEY = 'lcw.operatorToken';
 export const PANEL_BEAT_MS = 15_000;
@@ -34,7 +35,26 @@ export const PANEL_STRINGS_KO = {
   stage: (n: number, t: string) => `${n}단계 · ${t}`,
   lastStage: '마지막 단계예요.'
 } as const;
-const S = PANEL_STRINGS_KO;
+/**
+ * What the child can meet on the 1PC screen (the small button and the lock card) is in the language the child learns,
+ * Korean as the help line; what only the unlocked teacher reads (script, answers, stage steps) stays Korean like the console.
+ */
+export const PANEL_STRINGS_EN: Partial<Record<keyof typeof PANEL_STRINGS_KO, string>> = {
+  open: '👩‍🏫 Teacher',
+  pinLabel: '🔒 Teacher number',
+  unlock: '🔓 Open',
+  cancel: '↩️ Back',
+  wrongPin: '❌ Not the right number',
+  tooMany: '⏳ Too many tries. Try again in 10 minutes',
+  failed: '📶 No connection. Tap again'
+};
+const S = new Proxy(PANEL_STRINGS_KO, {
+  get(ko, key: keyof typeof PANEL_STRINGS_KO) {
+    const en = PANEL_STRINGS_EN[key];
+    const k = ko[key];
+    return en && typeof k === 'string' ? helpLine(en, k) : k;
+  }
+}) as { readonly [K in keyof typeof PANEL_STRINGS_KO]: (typeof PANEL_STRINGS_KO)[K] extends string ? string : (typeof PANEL_STRINGS_KO)[K] };
 
 export interface PanelApi {
   unlock(op: string, lessonId: string, pin: string): Promise<'ok' | 'wrong_pin' | 'no_pin' | 'too_many_attempts' | 'error'>;

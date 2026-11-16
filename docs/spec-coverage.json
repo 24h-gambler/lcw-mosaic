@@ -4630,7 +4630,8 @@
       },
       "tests": [
         "apps/client/src/world/__tests__/build.test.ts::sends queued ops in order, resends the remainder when the pace ran out, and survives a reload",
-        "apps/client/src/__tests__/client.test.ts::builds Three.js voxel scene from generated chunks and supports F5/Tab/slot/place/undo"
+        "apps/client/src/world/__tests__/world.test.ts::falls under gravity and lands on the floor",
+        "apps/client/src/world/__tests__/startup.test.ts::meshes only the chunks around the start spot and shows them"
       ],
       "evidence": [
         "apps/client/src/world/engine.ts:184",

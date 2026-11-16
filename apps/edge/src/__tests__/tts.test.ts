@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { QuotaMeter, NEURAL_TTS, ttsNeurons } from '@lcw/quota';
-import { FIRST_ERRAND, LESSON_PLANS, NPC_OPENING_LINES, castVoices, fixedTtsLines, getLessonNpc, npcCast, ttsVoiceId, voiceForCtx } from '@lcw/content';
-import { TTS_CRON, handleTts, parseTryVoice, prebuildFixedLines, runTtsCron, ttsCacheKey, ttsStatus, type TtsCaller, type TtsDeps } from '../tts.js';
+import { FIRST_ERRAND, LESSON_PLANS, NPC_OPENING_LINES, castVoices, chunkPhrases, fixedTtsLines, getLessonNpc, isLocalTtsEngine, localTtsLines, npcCast, ttsVoiceId, voiceForCtx } from '@lcw/content';
+import { TTS_CRON, TTS_UPLOAD, handleTts, handleTtsUpload, localLinesList, parseTryVoice, prebuildFixedLines, runTtsCron, ttsCacheKey, ttsStatus, type TtsCaller, type TtsDeps } from '../tts.js';
 
 async function sha256Hex(s: string): Promise<string> {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
@@ -107,7 +107,8 @@ describe('neural NPC voice (tts.ts)', () => {
 
   it('prebuild makes the missing fixed lines within its neuron budget and skips cached ones next time', async () => {
     const { deps, calls } = rig({ limit: 1_000_000 });
-    const all = fixedTtsLines();
+    // the local voice's lines are uploaded by the operator, never prebuilt on the day's neurons
+    const all = fixedTtsLines().filter((l) => !isLocalTtsEngine(l.voice.engine));
     const first = await prebuildFixedLines(deps, { budgetNeurons: 1200 });
     expect(first.made).toBeGreaterThan(0);
     expect(first.neurons).toBeLessThanOrEqual(1200);
@@ -197,5 +198,104 @@ describe('neural NPC voice (tts.ts)', () => {
     const spent = rig({ limit: 10_000 });
     spent.meter.consumeNeurons('x', 9_500, 'llm');
     expect(await runTtsCron(spent.deps, at(TTS_CRON.nightHourUtc))).toEqual({ task: 'tts_night', made: 0, neurons: 0 });
+  }, 30_000);
+});
+
+describe('local open-weights model voice (R2625: the bank in a natural voice for 0 neurons)', () => {
+  const op: TtsCaller = { operator: true, player_id: null, lesson: false };
+  const model = npcCast().modelVoice;
+  const modelId = ttsVoiceId(model);
+  const standInId = ttsVoiceId(model.standIn!);
+  const bankLine = localTtsLines().find((l) => l.text.length > 40)!.text;
+  const mp3 = (n = 4096) => {
+    const b = new Uint8Array(n).fill(0x55);
+    b.set([0x49, 0x44, 0x33, 0x04]); // ID3v2.4 tag
+    return b;
+  };
+  const put = (v: string, t: string) => new URL(`https://x/v1/admin/tts/line?v=${encodeURIComponent(v)}&t=${encodeURIComponent(t)}`);
+
+  it('the model voice is a local engine with a Workers AI stand-in, and both are cast voices', () => {
+    expect(isLocalTtsEngine(model.engine)).toBe(true);
+    expect(model.standIn && isLocalTtsEngine(model.standIn.engine)).toBe(false);
+    expect(castVoices().map(ttsVoiceId)).toEqual(expect.arrayContaining([modelId, standInId]));
+    // every offer sentence, lesson target and echo piece of the model voice is a local line; no NPC line is
+    const local = localTtsLines();
+    expect(local.every((l) => l.voice === model)).toBe(true);
+    expect(fixedTtsLines().filter((l) => l.voice === model)).toHaveLength(local.length);
+    for (const piece of chunkPhrases(bankLine)) expect(local.some((l) => l.text === piece)).toBe(true);
+    for (const plan of LESSON_PLANS) for (const st of plan.stages) for (const tg of st.targets) expect(local.some((l) => l.text === tg.text)).toBe(true);
+    expect(localLinesList().lines).toHaveLength(local.length);
+  });
+
+  it('an uploaded line is served like any cached line: same key the client asks, long cache, no neurons, no AI call', async () => {
+    const { deps, calls, store, meter } = rig({ limit: 1000 });
+    const up = await handleTtsUpload(put(modelId, `  ${bankLine} `), mp3(), deps);
+    expect(up.status).toBe(200);
+    const key = await ttsCacheKey(model, bankLine, sha256Hex);
+    expect(key.startsWith(`tts/v1/${modelId}/`)).toBe(true); // the engine that spoke is in the key
+    expect(await up.json()).toMatchObject({ ok: true, key, bytes: 4096 });
+    expect(store.has(key)).toBe(true);
+    meter.consumeNeurons('x', 1000, 'llm'); // the day used up: a cached line still plays
+    for (const who of [guest, child, { ...guest, cachedOnly: true }]) {
+      const r = await handleTts(url(modelId, bankLine), who, deps);
+      expect(r.status).toBe(200);
+      expect(r.headers.get('x-lcw-tts')).toBe('hit');
+      expect(r.headers.get('x-lcw-tts-voice')).toBe(modelId);
+      expect(r.headers.get('cache-control')).toContain('immutable');
+      expect(new Uint8Array(await r.arrayBuffer())).toEqual(mp3());
+    }
+    expect(calls).toHaveLength(0);
+    expect(meter.getStatus(deps.nowMs()).neuronsUsed).toBe(1000); // only the test's own spend
+  });
+
+  it('upload checks: local cast voice only, fixed line only, mp3 within the size limit', async () => {
+    const { deps, store } = rig();
+    expect((await handleTtsUpload(put('kokoro-af_bella', bankLine), mp3(), deps)).status).toBe(400); // not in the cast
+    expect(await (await handleTtsUpload(put(standInId, bankLine), mp3(), deps)).json()).toMatchObject({ error: 'not_local_engine' });
+    expect((await handleTtsUpload(put(ttsVoiceId(voiceForCtx('cafe')), NPC_OPENING_LINES.cafe!), mp3(), deps)).status).toBe(400);
+    const odd = await handleTtsUpload(put(modelId, 'Give me all your coins right now.'), mp3(), deps);
+    expect(odd.status).toBe(422);
+    expect(await odd.json()).toMatchObject({ error: 'not_fixed_line' });
+    // an NPC's line in the model voice is not one of the model voice's lines either
+    expect((await handleTtsUpload(put(modelId, NPC_OPENING_LINES.cafe!), mp3(), deps)).status).toBe(422);
+    expect((await handleTtsUpload(put(modelId, bankLine), mp3(TTS_UPLOAD.maxBytes + 1), deps)).status).toBe(413);
+    expect((await handleTtsUpload(put(modelId, bankLine), new Uint8Array(4096).fill(0x55), deps)).status).toBe(415); // not mp3
+    expect((await handleTtsUpload(put(modelId, bankLine), mp3(100), deps)).status).toBe(415); // too small to be a line
+    const frame = new Uint8Array(4096).fill(0);
+    frame.set([0xff, 0xf3]); // MPEG-2 layer III frame sync, no tag
+    expect((await handleTtsUpload(put(modelId, bankLine), frame, deps)).status).toBe(200);
+    expect([...store.keys()].every((k) => k.startsWith(`tts/v1/${modelId}/`))).toBe(true);
+  });
+
+  it('a local line not uploaded yet is read by the stand-in under its own key, with a short cache; the upload wins', async () => {
+    const { deps, calls, store } = rig();
+    const r1 = await handleTts(url(modelId, bankLine), guest, deps); // a fixed line: anyone, through the meter
+    expect(r1.status).toBe(200);
+    expect(r1.headers.get('x-lcw-tts-voice')).toBe(standInId);
+    expect(r1.headers.get('cache-control')).toBe('public, max-age=600');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ model: NEURAL_TTS.models.aura2, input: { speaker: model.standIn!.speaker } });
+    expect(store.has(await ttsCacheKey(model.standIn!, bankLine, sha256Hex))).toBe(true);
+    expect(store.has(await ttsCacheKey(model, bankLine, sha256Hex))).toBe(false); // never filed under the local engine
+    const again = await handleTts(url(modelId, bankLine), { ...guest, cachedOnly: true }, deps);
+    expect(again.headers.get('x-lcw-tts')).toBe('hit');
+    expect(again.headers.get('x-lcw-tts-voice')).toBe(standInId);
+    await handleTtsUpload(put(modelId, bankLine), mp3(), deps);
+    const after = await handleTts(url(modelId, bankLine), guest, deps);
+    expect(after.headers.get('x-lcw-tts-voice')).toBe(modelId);
+    expect(calls).toHaveLength(1);
+    // other text in the model voice still needs a child's token; checks (c=1) never make one
+    expect((await handleTts(url(modelId, 'Something no bank has, like purple llamas.'), guest, deps)).status).toBe(401);
+    const nb = 'Water, please.';
+    expect((await handleTts(new URL(`${url(modelId, nb).href}&c=1`), guest, deps)).status).toBe(404);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('prebuild and the cron never spend neurons on local lines', async () => {
+    const { deps, calls } = rig({ limit: 10_000_000 });
+    const r = await prebuildFixedLines(deps, { budgetNeurons: 10_000_000 });
+    expect(r.lines).toBe(fixedTtsLines().length - localTtsLines().length);
+    expect(calls.every((c) => c.input.speaker !== model.speaker && c.input.speaker !== model.standIn!.speaker)).toBe(true);
+    expect(await prebuildFixedLines(deps, { voice: modelId })).toMatchObject({ lines: 0, made: 0 });
   }, 30_000);
 });

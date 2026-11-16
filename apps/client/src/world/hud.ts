@@ -154,6 +154,8 @@ function css(): string {
 @media (max-width:600px){.lw-hud .lw-goal{top:calc(var(--lw-chip-b,74px) + 10px)}}
 /* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
 @media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}}
+/* short landscape: the goal card sits between the status chip and the stars, with a smaller line so it stays short */
+@media (max-height:500px){.lw-hud .lw-goal{max-width:calc(100% - 2 * var(--lw-side,200px));padding:6px 10px}.lw-hud .lw-goal .t{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1))}.lw-hud .lw-goal .g{font-size:calc(${T.scale.body.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.body.lineHeightPx}px * var(--lcw-hs,1))}}
 @media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
 .lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,calc(var(--lw-net-h,30px) + 2px))}}
 @media (prefers-reduced-motion:reduce){.lw-chip .gz .low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
@@ -277,6 +279,7 @@ export class WorldHud {
     if (this.root.classList.contains('off')) this.measureNet();
   };
   private touchOn = false;
+  private measureSides: (() => void) | null = null;
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -322,12 +325,6 @@ export class WorldHud {
     this.gz = el('span', 'gz', sc);
     this.lessonChip = el('span', 'l', chip);
     this.lessonChip.textContent = W.lessonBadge;
-    // the chip's height (its top is 12px) for the goal card under it on a phone: it grows with the gauges, a wrapped
-    // lesson tag and the Korean help line, so it is measured instead of guessed
-    if (typeof ResizeObserver !== 'undefined') {
-      this.chipObs = new ResizeObserver(() => this.root.style.setProperty('--lw-chip-b', `${Math.ceil(12 + chip.offsetHeight)}px`));
-      this.chipObs.observe(chip);
-    }
     // G01 empty state: the connection dropped, the world keeps going on this device (docs/08 8.6).
     const net = el('div', 'lw-net', this.root);
     this.net = net;
@@ -338,6 +335,24 @@ export class WorldHud {
     el('div', 'lw-aim', this.root);
 
     this.starsEl = el('div', 'lw-stars', this.root);
+    // The goal card keeps clear of the status chip and the stars, both measured (they grow with the gauges, a wrapped
+    // lesson tag and the Korean help line): under the chip on a phone (--lw-chip-b, its top is 12px), between the two on
+    // a short landscape screen (--lw-side).
+    if (typeof ResizeObserver !== 'undefined') {
+      const stars = this.starsEl;
+      const measure = (): void => {
+        this.root.style.setProperty('--lw-chip-b', `${Math.ceil(12 + chip.offsetHeight)}px`);
+        // on touch the talk button (right 96px, it comes and goes by the NPC) keeps its column free too
+        const talk = this.touchOn ? 96 + Math.max(this.talkBtn?.offsetWidth ?? 0, S.micButtonPx * 1.6) : 0;
+        const side = Math.max(chip.offsetLeft + chip.offsetWidth, this.root.clientWidth - stars.offsetLeft, talk);
+        if (stars.offsetWidth > 0) this.root.style.setProperty('--lw-side', `${Math.ceil(side + 8)}px`);
+      };
+      this.measureSides = measure;
+      this.chipObs = new ResizeObserver(measure);
+      this.chipObs.observe(chip);
+      this.chipObs.observe(stars);
+      this.chipObs.observe(this.root);
+    }
     const si = el('span', '', this.starsEl);
     si.textContent = '★';
     this.starsN = el('span', '', this.starsEl);
@@ -501,6 +516,7 @@ export class WorldHud {
 
   setTouch(on: boolean): void {
     this.touchOn = on;
+    this.measureSides?.();
     this.touch.classList.toggle('on', on);
     this.touch.style.pointerEvents = on ? 'auto' : 'none';
     this.help.textContent = this.helpText();

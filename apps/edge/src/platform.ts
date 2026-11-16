@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
-import { playAllowed, sweepSeatNotices } from './seats.js';
+import { markSeatUse, playAllowed, sweepSeatNotices } from './seats.js';
 import { legacyWorldRedirect } from './world-path.js';
 import {
   VOICE_PUBLIC_ROUTES,
@@ -598,7 +598,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
    */
   const seatBlocked = (s: { player_id: string; device: boolean }): Response | null => {
     if (!s.device) return null;
-    const gate = playAllowed(platform.sql, s.player_id, Date.now());
+    const now = Date.now();
+    const gate = playAllowed(platform.sql, s.player_id, now);
+    if (gate.allowed) markSeatUse(platform.sql, s.player_id, now, 'play');
     return gate.allowed ? null : Response.json({ error: 'seat_inactive', seat: { state: gate.seat?.state ?? null } }, { status: 403 });
   };
   /** Forwards a child's own request to the inner app with who/which world/level filled in by the server. */

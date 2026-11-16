@@ -26,6 +26,19 @@ export const COLOR_TOKENS = {
 
 export type ColorTokenName = keyof typeof COLOR_TOKENS;
 
+/**
+ * Colour-vision assist palette (docs/08 11장 "색각 보정 팔레트 1종", G14 설정). Red–green confusion is the common case,
+ * so success moves to a bluish green and warning to an orange (Okabe–Ito hues) that differ in hue and lightness for
+ * protan/deutan viewers. Only these semantic tokens change; each keeps the docs/08 2.2 contrast rules (white text on the
+ * `-d` shade, ink text on the light fill, `-d` text on cream, the light fill on the night HUD) — checked in ui.test.ts.
+ */
+export const COLOR_ASSIST_TOKENS: Readonly<Partial<Record<ColorTokenName, string>>> = {
+  leaf: '#1FB28A',
+  'leaf-d': '#00684C',
+  danger: '#F07A1A',
+  'danger-d': '#A84400'
+};
+
 export const SEMANTIC_TOKENS = {
   stars: {
     1: { color: 'silver' as ColorTokenName, starCount: 1, borderWidthPx: 1 },

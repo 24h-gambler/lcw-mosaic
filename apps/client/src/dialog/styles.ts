@@ -13,7 +13,7 @@ const t = TYPOGRAPHY_TOKENS.scale;
 const px = (n: number) => `calc(${n}px * var(--fs))`;
 
 export const DIALOG_CSS = `
-.lcw-dlg{${vars}--fs:1;--shadow:${SHAPE_TOKENS.shadowDefault};--shadow-p:${SHAPE_TOKENS.shadowPressed};
+.lcw-dlg{${vars}--fs:var(--lcw-fs,1);--shadow:${SHAPE_TOKENS.shadowDefault};--shadow-p:${SHAPE_TOKENS.shadowPressed};
   position:fixed;inset:0;z-index:40;display:flex;align-items:flex-end;justify-content:center;
   padding:12px;box-sizing:border-box;font-family:${TYPOGRAPHY_TOKENS.fonts.ui};color:var(--c-ink-900);
   background:color-mix(in srgb, var(--c-night-900) 45%, transparent);-webkit-tap-highlight-color:transparent}

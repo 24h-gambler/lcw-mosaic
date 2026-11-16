@@ -12,6 +12,9 @@ import { PlayerMenu, tabForKey } from './menu/PlayerMenu.js';
 import { ensureMenuStyle } from './menu/styles.js';
 import type { FrameAuth, MenuTab } from './menu/types.js';
 import { fetchItems, holdThing, type ItemsView } from './api.js';
+import { getAudioRuntime } from '../audio/runtime.js';
+import { frameSettings, graphicsOf, lookSettingsOf, motionReduced, onFrameSettings, sameGraphics, startFrameSettings, type GraphicsSettings } from './settings.js';
+import { startSettingsSync } from './settings-sync.js';
 
 export interface FrameLayerProps {
   world: WorldHandle | null;
@@ -29,21 +32,34 @@ export function frameAuthOf(id: PlayerIdentity | null, studentToken: string | nu
   return { kind: 'guest', token: null };
 }
 
-/** True while the world HUD carries its dialog mark (any dialog: solo, lesson, review). */
+/** The HUD is hidden (the title screen's attract mode hides its root) on it or on its container. */
+function hudHidden(hud: HTMLElement): boolean {
+  for (const el of [hud, hud.parentElement]) {
+    if (el && (el.style.visibility === 'hidden' || el.style.display === 'none' || el.style.opacity === '0')) return true;
+  }
+  return false;
+}
+
+/**
+ * True while the world HUD carries its dialog mark (any dialog: solo, lesson, review) or is hidden (title screen):
+ * the menu button and the menu keys step aside then.
+ */
 function useHudDialog(): boolean {
   const [on, setOn] = useState(false);
   useEffect(() => {
     let obs: MutationObserver | null = null;
     let raf = 0;
     const attach = (): void => {
-      const hud = document.querySelector('.lw-hud');
+      const hud = document.querySelector<HTMLElement>('.lw-hud');
       if (!hud) {
         raf = requestAnimationFrame(attach);
         return;
       }
-      setOn(hud.classList.contains('dlg'));
-      obs = new MutationObserver(() => setOn(hud.classList.contains('dlg')));
-      obs.observe(hud, { attributes: true, attributeFilter: ['class'] });
+      const read = (): void => setOn(hud.classList.contains('dlg') || hudHidden(hud));
+      read();
+      obs = new MutationObserver(read);
+      obs.observe(hud, { attributes: true, attributeFilter: ['class', 'style'] });
+      if (hud.parentElement) obs.observe(hud.parentElement, { attributes: true, attributeFilter: ['style'] });
     };
     attach();
     return () => {
@@ -70,6 +86,37 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   const blocked = dialogOpen || hudDialog;
   // the lesson token appears once the join answered (lessonOn flips then)
   const auth = useMemo(() => frameAuthOf(identity, identity?.kind === 'lesson' ? storedStudentToken() : null), [identity, lessonOn]);
+  // G14 settings: the device copy is put into effect at start (audio buses, text size, font, colours, motion, keys).
+  useEffect(() => startFrameSettings(() => getAudioRuntime()), []);
+
+  // ...and the world gets its part now and on every change (look speed, inversion, motion, FPS).
+  useEffect(() => {
+    if (!world) return;
+    // Graphics: the start tier comes from savedTier() (App.pickTier); the performance lane's `setGraphics` (optional
+    // until it lands) gets the whole choice at start and on every graphics change, applied live.
+    const live = world as WorldHandle & { setGraphics?: (g: GraphicsSettings) => void };
+    let sent: GraphicsSettings | null = null;
+    const push = (): void => {
+      const s = frameSettings();
+      world.setLookSettings?.(lookSettingsOf(s));
+      world.setReduceMotion?.(motionReduced());
+      world.setShowFps?.(s.showFps);
+      const g = graphicsOf(s);
+      if (!sent || !sameGraphics(sent, g)) {
+        sent = g;
+        live.setGraphics?.(g);
+      }
+    };
+    push();
+    return onFrameSettings(push);
+  }, [world]);
+
+  // A linked child or a lesson student keeps the settings on the server too (other devices pick them up).
+  const settingsToken = auth.token;
+  useEffect(() => {
+    if (!settingsToken) return;
+    return startSettingsSync({ token: settingsToken });
+  }, [settingsToken]);
 
   // Connection band: the world keeps running on the device while the server is away.
   useEffect(() => {

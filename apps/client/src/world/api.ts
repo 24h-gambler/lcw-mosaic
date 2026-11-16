@@ -106,6 +106,12 @@ export interface WorldHandle {
   setCoins?(total: number | null): void;
   /** Server reachable? false shows the HUD band "혼자 모드로 계속 중" (docs/08 G01); the world keeps running. */
   setOnline?(on: boolean): void;
+  /** Player settings G14 (frame/settings.ts): drag-to-look speed for mouse and touch (1 = default), up/down inverted. */
+  setLookSettings?(o: { mouse: number; touch: number; invertY: boolean }): void;
+  /** G14 움직임 줄이기 (docs/08 5장): burst and star effects off. Starts from the device's prefers-reduced-motion. */
+  setReduceMotion?(on: boolean): void;
+  /** G14: the frame counter in the HUD corner (also on with ?fps). */
+  setShowFps?(on: boolean): void;
   /**
    * Map read-out for the map screen (docs/08 G06): sectors (one town sector until world generation lands, then the
    * 3 x 3 sectors), the walkable places, and where the player stands. World coordinates in metres.

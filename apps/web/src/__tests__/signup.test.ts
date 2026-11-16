@@ -138,6 +138,23 @@ describe('director console: 승인 대기 (DirectorSignups.tsx)', () => {
     expect(html).toMatch(/<option value="stu-29ddc960" selected="">/);
   });
 
+  it('a match that is not in the student list (a hidden smoke or demo row) is not picked or shown', () => {
+    const now = Date.parse('2026-11-16T06:00:00Z');
+    const html = renderToStaticMarkup(
+      React.createElement(SignupQueue, {
+        token: 'op',
+        now: () => now,
+        pollMs: 1e9,
+        initialSignups: [
+          { id: 'sg-3', nickname: 'demo', created_at: now - 60_000, expires_at: now + 1e7, family_students: [], match: { player_id: 'player-demo', nickname: 'Demo' } }
+        ],
+        initialStudents: [{ player_id: 'stu-29ddc960', nickname: 'Oreo', level: 'L1' } as never]
+      })
+    );
+    expect(html).not.toContain('data-testid="signup-match"');
+    expect(html).toContain('<option value="" selected="">');
+  });
+
   it('empty queue says where sign-ups come from', () => {
     const html = renderToStaticMarkup(React.createElement(SignupQueue, { token: 'op', pollMs: 1e9 }));
     expect(html).toContain(Q.empty);

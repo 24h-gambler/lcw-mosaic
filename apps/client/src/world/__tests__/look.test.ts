@@ -62,6 +62,50 @@ describe('resolution governor', () => {
     expect(g.scale).toBe(TIER_SETTINGS.low.pixelScale);
   });
 
+  it('a 60 Hz screen gets full resolution back after the start-up hitches (S7: stuck at 0.6-0.8 before)', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    feed(g, 40, 3.1); // meshing the ground
+    expect(g.scale).toBeLessThanOrEqual(0.7);
+    feed(g, 1000 / 60, 40); // vsync-locked: never under 75 % of the budget
+    expect(g.scale).toBe(TIER_SETTINGS.mid.pixelScale);
+    expect(g.capMs).toBeNull();
+  });
+
+  it('a GPU-bound device settles just under the scale that was too slow instead of flapping', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    // full resolution costs 24 ms (41 fps); 0.85 and below keep up with 60 Hz
+    let downs = 0;
+    for (let t = 0; t < 120_000; ) {
+      const ms = Math.max(1000 / 60, 24 * g.scale * g.scale);
+      const before = g.scale;
+      g.frame(ms);
+      if (g.scale < before) downs++;
+      t += ms;
+    }
+    expect(g.scale).toBeGreaterThanOrEqual(0.8);
+    expect(g.scale).toBeLessThanOrEqual(0.85);
+    expect(downs).toBeLessThanOrEqual(6);
+  });
+
+  it('a 30 Hz cap that resolution cannot lift keeps full resolution and becomes the budget', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    feed(g, 33.4, 3.1);
+    expect(g.capMs).toBeCloseTo(33.4, 0);
+    expect(g.scale).toBe(TIER_SETTINGS.mid.pixelScale);
+    feed(g, 33.4, 30);
+    expect(g.scale).toBe(TIER_SETTINGS.mid.pixelScale); // not at the floor: the tier picker does not step down
+    // the cap goes away (power saving off): the tier budget is back
+    feed(g, 1000 / 60, 2.1);
+    expect(g.capMs).toBeNull();
+  });
+
+  it('a device under 29 fps still goes down to the floor (no cap guess there)', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    feed(g, 36, 10);
+    expect(g.capMs).toBeNull();
+    expect(g.scale).toBe(TIER_SETTINGS.mid.minScale);
+  });
+
   it('a 60 fps tier still treats anything under 30 fps as too slow', () => {
     const g = new ResolutionGovernor(TIER_SETTINGS.mid);
     feed(g, 21, 1.05); // 47 fps: over 60 fps budget x 1.15

@@ -32,13 +32,32 @@ export const TIER_SETTINGS: Readonly<Record<WorldTier, TierSettings>> = {
 };
 
 /**
- * Dynamic resolution: average frame time over ~1 s windows; too slow → scale down 10 %, comfortably fast → back up
- * 5 % (never above the tier scale, never below its floor). Returns the scale to apply.
+ * Dynamic resolution: average frame time over ~1 s windows; too slow → scale down 10 %, fast enough → back up 5 %
+ * (never above the tier scale, never below its floor). Returns the scale to apply.
+ *
+ * Measured on a Galaxy S7 in production (docs/02 §11): the frame time of a 60 Hz screen never goes under 16.7 ms, so
+ * "comfortably fast" (< 75 % of the budget) was never seen there and the meshing hitches of the first seconds left the
+ * picture at 0.6-0.8 for the whole session although full resolution also held 60 fps. Now:
+ * - at the refresh rate (within 8 % of the budget) for 3 windows in a row the scale probes 5 % up again;
+ * - a probe up that turned out too slow is not tried again for 30 windows (no flapping on a GPU-bound device);
+ * - a frame cap that resolution cannot lift (a 30 Hz power-saving mode, a 30 fps headless browser) is recognised when
+ *   two steps down bring no gain while the world already runs at 29 fps or more: the scale goes back up and that
+ *   frame time becomes the budget, so the tier is not stepped down for nothing (AutoTierPicker waits for the floor).
  */
 export class ResolutionGovernor {
   scale: number;
+  /** frame time of a cap that resolution does not lift (ms), or null */
+  capMs: number | null = null;
   private acc = 0;
   private frames = 0;
+  private atRate = 0;
+  private lastDownAvg: number | null = null;
+  private noGain = 0;
+  private hold = 0;
+  private ceiling = Infinity;
+  private ceilingFor = 0;
+  /** windows since this governor last stepped up (a step down right after it means that probe failed) */
+  private sinceUp = Infinity;
   constructor(private readonly t: Pick<TierSettings, 'pixelScale' | 'minScale' | 'targetFps'>, private readonly windowMs = 1000) {
     this.scale = t.pixelScale;
   }
@@ -50,11 +69,53 @@ export class ResolutionGovernor {
     const avg = this.acc / this.frames;
     this.acc = 0;
     this.frames = 0;
-    const budget = 1000 / this.t.targetFps;
+    if (this.hold > 0) this.hold--;
+    this.sinceUp++;
+    if (this.ceilingFor > 0 && --this.ceilingFor === 0) this.ceiling = Infinity;
     const before = this.scale;
+    // the cap went away (the screen left power saving): back to the tier's own budget
+    if (this.capMs !== null && avg < this.capMs * 0.85) this.capMs = null;
+    const budget = Math.max(1000 / this.t.targetFps, this.capMs ?? 0);
     // Below 30 fps is never acceptable even when the target is 60 (WP-004 floor).
-    if (avg > Math.min(budget * 1.15, 1000 / 30)) this.scale = Math.max(this.t.minScale, +(this.scale - 0.1).toFixed(2));
-    else if (avg < budget * 0.75) this.scale = Math.min(this.t.pixelScale, +(this.scale + 0.05).toFixed(2));
+    const slowMs = this.capMs !== null ? budget * 1.15 : Math.min(budget * 1.15, 1000 / 30);
+    if (avg > slowMs) {
+      this.atRate = 0;
+      // the last step down did not help and the world already runs at >= 29 fps: a cap, not load
+      this.noGain = this.lastDownAvg !== null && avg >= this.lastDownAvg * 0.97 && avg <= 1000 / 29 ? this.noGain + 1 : 0;
+      if (this.noGain >= 2) {
+        this.capMs = avg;
+        this.scale = this.t.pixelScale;
+        this.lastDownAvg = null;
+        this.noGain = 0;
+        this.ceiling = Infinity;
+        this.ceilingFor = 0;
+        return this.scale !== before;
+      }
+      if (this.scale > this.t.minScale) {
+        this.hold = 3;
+        // our own probe up was too much: do not try that scale again for a while (a load spike sets no ceiling)
+        if (this.sinceUp <= 2) {
+          this.ceiling = before;
+          this.ceilingFor = 30;
+        }
+      }
+      this.lastDownAvg = avg;
+      this.scale = Math.max(this.t.minScale, +(this.scale - 0.1).toFixed(2));
+      return this.scale !== before;
+    }
+    this.lastDownAvg = null;
+    this.noGain = 0;
+    const fast = avg < budget * 0.75;
+    this.atRate = avg <= budget * 1.08 ? this.atRate + 1 : 0;
+    if (this.hold === 0 && (fast || this.atRate >= 3)) {
+      const up = Math.min(this.t.pixelScale, +(this.scale + 0.05).toFixed(2));
+      // clear headroom (under 75 % of the budget) always climbs; a probe at the refresh rate stays under the ceiling
+      if (up > this.scale && (fast || up < this.ceiling - 0.001)) {
+        this.scale = up;
+        this.atRate = 0;
+        this.sinceUp = 0;
+      }
+    }
     return this.scale !== before;
   }
 }

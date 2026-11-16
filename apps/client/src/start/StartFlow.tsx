@@ -33,7 +33,7 @@ export interface StartFlowProps {
 
 type Stage = 'title' | 'make' | 'reveal';
 
-function injectStyle(): void {
+export function injectStyle(): void {
   if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return;
   const st = document.createElement('style');
   st.id = STYLE_ID;
@@ -83,8 +83,9 @@ function injectStyle(): void {
 .lcw-flip--home .lcw-flip__face{background:${C.sun}}
 .lcw-reveal__chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;font-weight:700}
 .lcw-reveal__chips span{background:${C['paper-0']};border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;padding:4px 10px}
-.lcw-invite{position:absolute;left:50%;top:16px;transform:translateX(-50%);width:min(420px,calc(100% - 32px));padding:14px;display:flex;flex-direction:column;gap:10px;z-index:30;animation:lcw-start-pop ${M.slowMs}ms ease-out both}
+.lcw-invite{position:absolute;left:0;right:0;margin:0 auto;top:16px;box-sizing:border-box;width:min(420px,calc(100% - 32px));padding:14px;display:flex;flex-direction:column;gap:10px;z-index:30;animation:lcw-start-pop ${M.slowMs}ms ease-out both}
 .lcw-invite b{font-size:${T.scale.h3.sizePx}px}
+.lcw-pass-chip{position:absolute;left:50%;top:64px;transform:translateX(-50%);z-index:30;padding:6px 14px;background:${C["paper-50"]};border:${S.borderWidthPx}px solid ${C["ink-900"]};border-radius:${S.radiusButtonPx}px;box-shadow:${S.shadowDefault};font-family:${T.fonts.ui};font-weight:800;font-size:${T.scale.body.sizePx}px;color:${C["ink-900"]};white-space:nowrap;font-variant-numeric:tabular-nums;pointer-events:none}
 .lcw-invite__row{display:flex;gap:8px}
 .lcw-invite__row .lcw-btn{flex:1}
 @keyframes lcw-start-pop{from{opacity:0;transform:translateY(-12px) scale(.96)}to{opacity:1;transform:none}}

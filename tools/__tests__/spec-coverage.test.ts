@@ -7,14 +7,21 @@ import { checkCoverage, parseTestRef, runCheck, testExists } from '../spec-cover
 import { brokenRefs, specIds } from '../spec-ids.mjs';
 // @ts-expect-error plain .mjs tools without types
 import { auditPlan, frameOutliers, summarize } from '../nightly-audit.mjs';
+import { FEATURE_IDS } from '../../apps/web/src/site/featureStatus';
+import coverageFile from '../../docs/spec-coverage.json';
 
 type Check = { errors: string[]; gaps: Record<string, { id: string; status: string }[]>; counts: Record<string, number> };
 type Doc = { id: string; kind: string; title: string; sources: string[] };
 
 const doc = (id: string, kind = 'screen'): Doc => ({ id, kind, title: id, sources: ['docs/x.md:1'] });
-const files: Record<string, string> = { 'a.test.ts': "it('opens the map', () => {})", 'tools/e2e.mjs': '// e2e' };
+const files: Record<string, string> = {
+  'a.test.ts': ["// it('a commented-out test', () => {})", "it('opens the map', () => {})", "const s = 'opens the arena';"].join('\n'),
+  'tools/e2e.mjs': "const pw = await import('playwright-core');",
+  'tools/helper.mjs': 'export const x = 1;',
+  'docs/08.md': '| G07 | 월드 고르기 |'
+};
 const read = (f: string) => files[f] ?? null;
-const done = { status: 'done', owner: 'world', tests: ['a.test.ts::opens the map'], e2e: { route: '/world/', expect: ['canvas'] }, evidence: ['x:1'] };
+const done = { status: 'done', owner: 'world', title: 'G06', tests: ['a.test.ts::opens the map'], e2e: { route: '/world/', expect: ['canvas'] }, evidence: ['x:1'] };
 const run = (over: Partial<Parameters<typeof checkCoverage>[0]>) =>
   checkCoverage({ docs: [doc('G06')], coverage: { ids: { G06: done }, features: [], broken_refs: [] }, base: null, broken: [], readFile: read, ...over }) as Check;
 
@@ -22,6 +29,17 @@ describe('the repository coverage list (docs/spec-coverage.json)', () => {
   it('carries every id the docs promise and breaks no rule', () => {
     const r = runCheck() as Check;
     expect(r.errors).toEqual([]);
+  });
+
+  it('fails, never passes silently, when the main it compares against cannot be found', () => {
+    const was = process.env.LCW_COVERAGE_BASE;
+    process.env.LCW_COVERAGE_BASE = 'no-such-ref-for-the-test';
+    try {
+      expect((runCheck() as Check).errors[0]).toContain('[대조 기준 없음]');
+    } finally {
+      if (was === undefined) delete process.env.LCW_COVERAGE_BASE;
+      else process.env.LCW_COVERAGE_BASE = was;
+    }
   });
 
   it('reads the screen list of docs/08 §8.6 and the site map of docs/14 §2 completely', () => {
@@ -36,6 +54,19 @@ describe('the repository coverage list (docs/spec-coverage.json)', () => {
     expect(all.filter((d) => d.kind === 'flow').length).toBeGreaterThan(100);
     expect(all.map((d) => d.id)).toContain('C02.2.로그인');
     expect(all.map((d) => d.id)).toContain('C01.6.탐험가');
+  });
+
+  it('extracts the empty/error states, the docs/10 §1 role edges and the docs/11 work packages', () => {
+    const all = specIds() as Doc[];
+    const ids = all.map((d) => d.id);
+    expect(all.filter((d) => d.kind === 'state').length).toBe(11);
+    for (const id of ['G07.state', 'P04.state', 'F10.1.S-F', 'F10.1.F-W', 'WP-001', 'WP-503', 'WP-706']) expect(ids).toContain(id);
+    expect(all.filter((d) => d.kind === 'wp').length).toBe(72);
+  });
+
+  it('lists exactly the features the site reads (apps/web/src/site/featureStatus.ts FEATURE_IDS)', () => {
+    const listed = (coverageFile as { features: { id: string }[] }).features.map((f) => f.id).sort();
+    expect(listed).toEqual([...FEATURE_IDS].sort());
   });
 
   it('reports the missing docs/06 as a known broken reference, owned by a domain', () => {
@@ -112,11 +143,26 @@ describe('rules (fault injection: each one must fail)', () => {
     expect(r.gaps.world?.map((g) => g.id)).toEqual(['G07']);
   });
 
-  it('test references: exact it() name in the file, or a tools/*.mjs e2e script', () => {
+  it('test references: an exact it() title in a test file, or a real-screen tool — nothing else counts', () => {
     expect(parseTestRef('a.test.ts::opens the map')).toEqual({ file: 'a.test.ts', name: 'opens the map' });
     expect(testExists('a.test.ts::opens the map', read)).toBe(true);
     expect(testExists('tools/e2e.mjs', read)).toBe(true);
+    // review 11-16: a substring, a string that is not a test title, a commented-out test, a doc, a helper all passed before
+    expect(testExists('a.test.ts::opens', read)).toBe(false);
+    expect(testExists('a.test.ts::opens the arena', read)).toBe(false);
+    expect(testExists('a.test.ts::a commented-out test', read)).toBe(false);
+    expect(testExists('docs/08.md::G07', read)).toBe(false);
+    expect(testExists('tools/helper.mjs', read)).toBe(false);
     expect(testExists('a.test.ts', read)).toBe(false);
+  });
+
+  it('③c ③d ③e unknown fields, postponing in the note, and a spec line that moved all fail', () => {
+    const extra = run({ coverage: { ids: { G06: { ...done, deadline: '17:00' } } } });
+    expect(extra.errors.join()).toContain('[모르는 필드] G06');
+    const said = run({ docs: [doc('G06'), doc('G07')], coverage: { ids: { G06: done, G07: { status: 'missing', owner: 'world', title: 'G07', note: '월드 고르기는 다음 PR 에서' } } } });
+    expect(said.errors.join()).toContain('[시점 미루기] G07');
+    const moved = run({ coverage: { ids: { G06: { ...done, title: '예전 문장' } } } });
+    expect(moved.errors.join()).toContain('[설계서 바뀜] G06');
   });
 });
 
@@ -151,9 +197,23 @@ describe('nightly audit joins production screens with the list', () => {
     expect(rep.unverified.map((u: { id: string }) => u.id)).toEqual(['T01']);
   });
 
-  it('flags internal screens whose frame differs from the rest', () => {
-    const f = (route: string, font: string) => ({ route, size: 'd', frame: { font, bg: 'rgb(255, 249, 238)', maxWidth: '' } });
+  it('flags internal screens whose font, background or width differ from the rest; a tie names nobody', () => {
+    const f = (route: string, font: string, maxWidth = '') => ({ route, size: 'd', frame: { font, bg: 'rgb(255, 249, 238)', maxWidth } });
     const out = frameOutliers([f('/director', 'Pretendard'), f('/family', 'Pretendard'), f('/seats', 'Arial')]) as { route: string }[];
     expect(out.map((o) => o.route)).toEqual(['/seats']);
+    const wide = frameOutliers([f('/director', 'Pretendard'), f('/family', 'Pretendard'), f('/window', 'Pretendard', '1200px')]) as { route: string }[];
+    expect(wide.map((o) => o.route)).toEqual(['/window']);
+    expect(frameOutliers([f('/director', 'Pretendard'), f('/seats', 'Arial')])).toEqual([]);
+  });
+
+  it('with the operator key, a key screen is checked signed in and is no longer "unverified"; a missing key marker is a regression', () => {
+    const cov = { ids: { T01: { status: 'done', owner: 'lesson', e2e: { route: '/director', expect: ['text:선생님 열쇠'], auth: 'operator', authExpect: ['testid:director-plan'] } } }, features: [] };
+    const plan = auditPlan(cov);
+    const anon = { route: '/director', size: 'd', status: 200, marks: { 'text:선생님 열쇠': true }, pageErrors: [] };
+    const ok = summarize({ base: 'x', sha: 's', plan, coverage: cov, check, results: [anon, { route: '/director', size: 'key', signedIn: true, status: 200, marks: { 'testid:director-plan': true }, pageErrors: [] }] });
+    expect(ok.unverified).toEqual([]);
+    expect(ok.regressions).toEqual([]);
+    const bad = summarize({ base: 'x', sha: 's', plan, coverage: cov, check, results: [anon, { route: '/director', size: 'key', signedIn: true, status: 200, marks: { 'testid:director-plan': false }, pageErrors: [] }] });
+    expect(bad.regressions.map((r: { id: string; sizes: string[] }) => `${r.id}:${r.sizes.join('')}`)).toEqual(['T01:key']);
   });
 });

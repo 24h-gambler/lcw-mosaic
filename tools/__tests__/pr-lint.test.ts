@@ -25,9 +25,26 @@ describe('pr-lint: postponing is narrowing (fault injection)', () => {
   });
 
   it('quotes and code are not the author postponing', () => {
-    expect(ids('> 왜 수업뒤에 넣어요? 제 말이 제대로 전달이 안되고 있나요?')).toEqual([]);
+    expect(ids('> Dan 원문: 왜 수업뒤에 넣어요? 제 말이 제대로 전달이 안되고 있나요?')).toEqual([]);
+    // an unattributed quote or a long code span is the author's own text
+    expect(ids('> 로그인은 나중에 붙입니다')).toEqual(['later']);
+    expect(ids('`로그인은 다음 PR 에서 붙이겠습니다`')).toEqual(['later']);
     expect(ids('```\nnode tools/pr-lint.mjs 69 # 나중에\n```')).toEqual([]);
     expect(ids('검사 문구 `수업 뒤` 를 막는 규칙을 넣었습니다.')).toEqual([]);
+  });
+
+  it('catches the ways around it found in review (fault injection)', () => {
+    for (const t of ['이번 PR에 넣지 않았습니다', '다음 작업으로 넘깁니다', '별도 PR로 분리', '이번엔 수업 모드만 합니다', '17시 이후에 머지', '오후 5시 넘어서',
+      '수업이 끝난 다음 배포합니다', '2차로 미룹니다', '범위 밖이라 제외', 'subsequent PR', 'Not included: login',
+      'Login will be added later.', 'deferred to the next PR', 'merge after 5pm', '## Not in this PR'])
+      expect(ids(t).length, t).toBeGreaterThan(0);
+  });
+
+  it('does not flag the lesson domain words or plain engineering lines', () => {
+    for (const t of ['수업 후 리포트가 학부모에게 갑니다', '일단 실패하면 다시 시도', '임시로 만든 토큰', 'stub 서버', 'TODO 주석을 지웠습니다', '2시간 후 다시 시도',
+      '15:00 수업 경로를 실측했습니다', '비밀은 저장소에 넣지 않았습니다', '30 days later, 0 signs', 'A later full run on a loaded machine', 'after 7 days',
+      'A provider without settings is left out', '이 PR 만 먼저 배포되면 그 경로는 404 입니다', '결정 없는 deferred 는 실패합니다'])
+      expect(ids(t), t).toEqual([]);
   });
 
   it('plain PR text passes (a lesson "next stage" is not postponing)', () => {

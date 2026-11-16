@@ -138,18 +138,22 @@ Cloudflare 수치는 공식 요금 문서에서, AWS는 공식 안내 문서에�
 
 ## 10. 설계서 대조 (2026-11-16, 운영자 지시 R2553)
 
-설계서에 있는 화면(08 §8.6의 G07 월드 고르기, G15 첫 접속 안내)과 약속(02 로그인 OAuth)이 만들어지지 않았는데도 '완료'로 보고된 일이 있었습니다. 그 뒤로 '완료'는 사람의 주의가 아니라 아래 시험이 정합니다. 다른 에이전트는 이 장만 읽고 같은 구조를 다시 만들 수 있어야 합니다.
+설계서에 있는 화면(08 §8.6의 G07 월드 고르기, G15 첫 접속 안내)과 약속(02 로그인 OAuth)이 만들어지지 않았는데도 '완료'로 보고된 일이 있었습니다. 운영자 결정 없이 범위가 줄거나 시점이 밀린 일도 있었습니다(하루 4번: 3D 대신 수업 모드, 일회용 링크, 월드 고르기, 17:00 뒤 머지). 그래서 이제 '완료'는 사람의 주의가 아니라 아래 시험이 정합니다. 다른 에이전트도 이 장만 읽으면 같은 구조를 다시 만들고 고쳐 갈 수 있어야 합니다.
 
 ### 10.1 무엇이 목록에 오르나 — `tools/spec-ids.mjs`
 
 | 종류 | 출처 | id 모양 |
 |---|---|---|
-| 화면 | 표 머리가 `ID | 화면` 또는 `ID | 주소`인 표의 행(08 §8.6, 14 §2). `W01~W09`처럼 범위는 펼침 | `G07`, `T01`, `P04`, `W06` |
-| 흐름 | 10 §1–§7 도표: 순서도는 자동 번호, 흐름도는 노드 이름. §8 표는 행 × 역할 칸 | `F10.2.07`, `F10.3.A2`, `F10.8.+3분.player` |
+| 화면 | 표 머리가 `ID | 화면` 또는 `ID | 주소`인 표의 행(08 §8.6, 14 §2). `W01~W09` 같은 범위는 펼침 | `G07`, `T01`, `P04`, `W06` |
+| 빈·오류 상태 | 08 §8.6 '빈 상태 / 오류 상태' 칸. 화면과 따로 판정 | `G01.state`, `P01.state` |
+| 흐름 | 10 §1–§7 도표. 순서도는 자동 번호, 흐름도는 노드 이름(이중 괄호 포함), 라벨이 붙은 화살표는 양 끝. §8 표는 행 × 역할 칸 | `F10.2.07`, `F10.3.A2`, `F10.1.S-F`, `F10.8.+3분.player` |
 | 핵심 약속 | 01의 §1 문장·모든 표 행·글머리, 02 §1 원칙과 §2 기술 스택 행 | `C01.3.체험_씬`, `C02.2.로그인` |
-| 끊긴 참조 | 문서가 가리키는 번호(`06`, `06-이름.md`)에 해당 파일이 없음 | `docs/08-design-system.md#06` |
+| 작업 묶음 | 11 WP 표의 행(내용 + 수용 기준) | `WP-104` |
+| 끊긴 참조 | 문서가 가리키는 번호(`06`, `06-이름.md`)의 파일이 없음 | `docs/08-design-system.md#06` |
 
-`node tools/spec-ids.mjs --summary`로 수와 끊긴 참조를 봅니다. 설계서를 고치면 목록이 저절로 바뀝니다.
+- `node tools/spec-ids.mjs --summary`로 수와 끊긴 참조를 봅니다. 설계서를 고치면 목록이 저절로 바뀝니다.
+- 위치 번호로 만든 id(`C01.1.s2`, `C01.4.b3`, `F10.2.07`)는 설계서 위쪽에 줄이 끼면 밀립니다. 목록은 id마다 설계서 문장(`title`)을 함께 저장하고, 시험이 둘을 비교해 다르면 `[설계서 바뀜]`으로 실패합니다.
+- 실패하면 밀린 id들의 상태를 새 문장 기준으로 다시 판정하고 `title`을 맞춥니다. 다른 id의 done을 그대로 옮겨 붙이지 않습니다.
 
 ### 10.2 목록 — `docs/spec-coverage.json`
 
@@ -157,8 +161,8 @@ Cloudflare 수치는 공식 요금 문서에서, AWS는 공식 안내 문서에�
 {
   "ids": {
     "G07": { "kind": "screen", "title": "월드 고르기·만들기", "status": "missing", "owner": "world", "tests": [], "evidence": [], "note": "무엇이 빠졌는지" },
-    "T01": { "status": "done", "owner": "lesson", "route": "/director",
-             "e2e": { "route": "/director", "expect": ["text:선생님 열쇠"], "auth": "operator" },
+    "T01": { "kind": "screen", "title": "디렉터 콘솔", "status": "done", "owner": "lesson", "route": "/director",
+             "e2e": { "route": "/director", "expect": ["text:선생님 열쇠"], "auth": "operator", "authExpect": ["testid:director-plan || testid:director-live"] },
              "tests": ["apps/web/src/__tests__/directorLive.test.ts::<it 이름 그대로>"], "evidence": ["apps/web/src/LessonDirector.tsx:65"] }
   },
   "features": [ { "id": "showroom", "status": "live", "owner": "outsider", "evidence": "…", "route": "/s/demo", "e2e": { … }, "tests": [ … ] } ],
@@ -166,37 +170,83 @@ Cloudflare 수치는 공식 요금 문서에서, AWS는 공식 안내 문서에�
 }
 ```
 
-- `status`: `done`(사용자 화면에서 동작 + 시험 + 실화면 확인) · `partial`(일부, `note`에 빠진 것, `evidence` 필수) · `missing`(없음, `note` 필수) · `deferred`/`retired`(운영자 결정으로만, `decision` 필수).
-- `owner`: `world` · `talk` · `lesson` · `parent` · `outsider` · `ops`. 빈틈은 이 소유자에게 갑니다.
-- `tests`: `파일::it 이름`(파일 안에 그 이름이 그대로 있어야 함) 또는 `tools/*.mjs` 실화면 도구.
-- `e2e`: 야간 감사가 운영에서 여는 주소와 화면에 보여야 할 표시(`canvas`, `text:…`, `testid:…`). `auth`는 열쇠가 있어야 보이는 화면임을 뜻하고, 감사는 열쇠 없이 보이는 화면까지만 확인했다고 적습니다.
-- `features`: 소개 사이트가 약속을 기능 상태와 묶어 읽는 구역(외부인 도메인이 import). `live`는 `done`과 같은 규칙.
-- 처음 상태(2026-11-16)는 코드 대조와 독립 감사(운영 43장 촬영)로 채웠습니다. missing 이 많은 것이 정직한 상태입니다.
+필드는 정해진 것만 씁니다.
+- id: `kind` `title` `status` `owner` `route` `e2e` `tests` `evidence` `note` `decision`
+- 기능: `id` `status` `owner` `route` `e2e` `tests` `evidence` `note` `decision`
+- `e2e`: `route` `expect` `auth` `authExpect`
+
+다른 필드(`deadline`, `target`, `after_17` 같은 새 미루기 이름)는 `[모르는 필드]`로 실패합니다.
+
+- **`status`**
+  - `done`: 사용자 화면에서 동작하고, 시험과 실화면 확인이 있습니다.
+  - `partial`: 일부만 있습니다. `note`에 빠진 것을 적고, `evidence`는 반드시 씁니다.
+  - `missing`: 없습니다. `note`는 반드시 씁니다.
+  - `deferred`/`retired`: 운영자 결정이 있을 때만 씁니다. `decision`을 반드시 적습니다.
+- **`owner`**: `world` · `talk` · `lesson` · `parent` · `outsider` · `ops` 중 하나. 빈틈은 이 소유자에게 갑니다.
+- **`tests`** 는 둘 중 하나만 인정합니다.
+  - `*.test.ts(x)` 파일과 그 안의 `it()`/`test()` 이름을 **글자 그대로** 적은 것. 주석 안의 시험, 이름 일부, 시험 이름이 아닌 문자열은 인정하지 않습니다.
+  - 브라우저나 운영 사이트를 실제로 여는 `tools/*.mjs` 도구.
+- **`e2e`**: 야간 감사가 운영에서 여는 주소와, 화면에 **보여야** 할 표시입니다.
+  - 표시 종류: `canvas`, `text:…`, `testid:…`, `notext:…`. `a || b`는 둘 중 하나만 있어도 된다는 뜻입니다.
+  - 표시를 고르는 법: 그 기능이 **될 때만** 나오는 글이나 testid를 고릅니다. 페이지 바깥 틀(`main`의 testid), 오류 화면에도 나오는 글, 숨겨진 카드의 글은 고르지 않습니다. 감사는 화면에 보이지 않는 것(`display:none`, `opacity 0`)을 표시로 세지 않습니다.
+- **`auth`**: 열쇠가 있어야 보이는 화면이라는 뜻입니다. `operator`, `guardian`, `lesson`, `report-link`.
+  - `authExpect`: 열쇠를 넣고 열었을 때 보여야 할 표시입니다. 운영자 열쇠가 있으면 감사가 로그인한 채로 한 번 더 열어 확인합니다.
+  - 확인하지 못한 열쇠 화면(보호자·수업·리포트 링크)은 통과가 아니라 '열쇠 화면만 확인'으로 따로 셉니다.
+- **`features`**: 소개 사이트가 약속을 기능 상태와 묶어 읽는 구역입니다(`apps/web/src/site/featureStatus.ts`가 import). `live`에는 `done`과 같은 규칙이 붙고, id 목록은 `FEATURE_IDS`와 같아야 합니다.
+- **`decision`**: 결정 카드 id(`d_…`) 또는 원장 줄(`R…`)이어야 합니다.
+  - 저장소 시험은 모양만 봅니다. 그 id가 실제로 있는지는 야간 실행기가 척추(`GET /decisions/<id>`)와 원장(`docs/BACKLOG.md`)에서 확인합니다. 없는 id는 허브 카드에 '근거 없는 결정'으로 올라갑니다.
+- 처음 상태(2026-11-16)는 코드 대조, 운영 감사 43장 촬영, 독립 검토 두 번으로 채웠습니다. missing이 많은 것이 정직한 상태입니다.
 
 ### 10.3 무엇이 머지를 막나 — `pnpm test`의 `tools/__tests__/spec-coverage.test.ts`
 
 1. 설계서에 있는데 목록에 없는 id.
-2. `done`(또는 `live`)인데 시험이 없거나, 시험 파일·이름을 찾을 수 없거나, `e2e`가 없는 것.
-3. 범위 축소: 목록에서 id·기능을 지움, `deferred`/`retired`로 바꿈, 기능을 `planned`로 내림 — 운영자 결정 id(`d_…` 결정 카드 또는 `R…` 원장)가 `decision`에 없으면 실패. 비교 기준은 main 과 갈라진 지점의 목록(`git merge-base HEAD origin/main`, 바꾸려면 `LCW_COVERAGE_BASE=<ref>`).
-3b. 시점 미루기: id·기능에 시점 필드(`deferred_until`, `after_lesson`, `later`, `not_before`, `phase` 등, 목록은 `tools/spec-coverage.mjs`의 `TIMING_FIELDS`)가 있는데 `decision`이 없는 것.
-4. 새로 끊긴 문서 참조. 이미 아는 끊긴 참조는 `broken_refs`에 소유자·할 일과 함께 두고, 고쳐지면 목록에서 빼야 통과합니다.
+2. `done`(또는 `live`)인데 다음 중 하나에 해당하는 것.
+   - 시험이 없음
+   - 시험 이름이 파일의 `it()` 이름과 글자 그대로 같지 않음
+   - `e2e`가 없음
+3. 범위 축소. 아래 일을 했는데 `decision`에 운영자 결정 id가 없으면 실패합니다.
+   - 목록에서 id·기능을 지움
+   - `deferred`/`retired`로 바꿈
+   - 기능을 `planned`로 내림
+
+   비교 기준은 main과 갈라진 지점의 목록입니다(`git merge-base HEAD origin/main`, 바꾸려면 `LCW_COVERAGE_BASE=<ref>`). 기준을 못 찾으면(origin/main 없음, 얕은 복제, 잘못된 ref) `[대조 기준 없음]`으로 실패하고, 조용히 통과시키지 않습니다. 실패하면 `git fetch origin`부터 하세요.
+4. 시점 미루기. 다음 중 하나가 있는데 `decision`이 없으면 실패합니다.
+   - 시점 필드(`deferred_until`·`after_lesson`·`later`·`not_before`·`phase` 등, `TIMING_FIELDS`)
+   - 미루거나 줄이는 말이 든 `note`('다음 PR', '17:00 뒤' 등, `tools/pr-lint.mjs` 규칙)
+5. 정해지지 않은 필드.
+6. 설계서 문장과 다른 `title`(10.1).
+7. 새로 끊긴 문서 참조. 이미 아는 끊긴 참조는 `broken_refs`에 소유자·할 일과 함께 두고, 고쳐지면 목록에서 빼야 통과합니다.
 
 `missing`·`partial`은 실패가 아닙니다. `node tools/spec-coverage.mjs`가 소유자별 빈틈 목록으로 보여 줍니다.
 
 ### 10.4 매일 밤 운영 화면 — `tools/nightly-audit.mjs`
 
 ```bash
-PLAYWRIGHT_CORE=<playwright-core/index.mjs> node tools/nightly-audit.mjs --base https://lcw.worldwidesomething.com --out <폴더>
+PLAYWRIGHT_CORE=<playwright-core/index.mjs> [LCW_OPERATOR_TOKEN=<운영자 열쇠>] node tools/nightly-audit.mjs --base https://lcw.worldwidesomething.com --out <폴더>
 ```
 
-- 목록의 모든 `e2e`·`route`와 사이트 페이지를 1440×900, 390×844 에서 헤드리스(창 없음, 소리 끔)로 엽니다.
-- 경로·크기마다 HTTP 상태, 도착 주소, 콘솔·페이지 오류, 가로 넘침, 금지어(`docs/21` 5장), 사용자 화면의 내부 번호(WP-305, T01, R2553), 한국어 줄바꿈(`word-break: keep-all`), 내부 화면(콘솔·보호자 화면)의 공통 틀(글꼴·배경)을 적고 촬영합니다.
-- `done`인데 운영에서 열리지 않거나 표시가 없으면 **회귀**입니다. 결과는 `<폴더>/report.json`과 `summary.md`.
-- 집 PC 예약 작업 `Dan-LCW-Nightly-Audit`(자동화 저장소 `server/lcw_nightly_audit.py`)이 매일 밤 돌리고, 회귀·빈틈·디자인 문제가 있으면 허브에 정보 카드(P3) 한 장을 올립니다.
+- 목록의 모든 `e2e`·`route`와 사이트 페이지를 1440×900, 390×844 크기로 헤드리스(창 없음, 소리 끔)로 엽니다.
+- 표시는 화면에 **보이는** 것만 셉니다. 최대 20초까지 기다립니다.
+- `done`인데 표시가 없거나 열리지 않으면 한 번 더 열어 본 뒤 **회귀**로 적습니다.
+- 운영자 열쇠가 있으면 열쇠 화면(`auth: operator`)을 로그인한 채로 한 번 더 열어 `authExpect`를 확인합니다. 페이지를 불러오기만 하고 아무것도 누르지 않습니다.
+- 경로·크기마다 다음을 적고 촬영합니다.
+  - HTTP 상태, 도착 주소, 콘솔·페이지 오류, 가로 넘침
+  - 금지어(`docs/21` 5장), 사용자 화면에 드러난 내부 번호(WP-305, T01, R2553)
+  - 보이는 한국어 글의 줄바꿈(`word-break: keep-all`)
+  - 내부 화면(콘솔·보호자 화면)의 공통 틀: 글꼴·배경·폭. 동률이면 다수가 없다고 보고 적지 않습니다.
+- 결과는 `<폴더>/report.json`과 `summary.md`에 남습니다.
+- 집 PC 예약 작업 `Dan-LCW-Nightly-Audit`(자동화 저장소 `server/lcw_nightly_audit.py`)이 매일 02:50에 돕니다.
+  - 운영자 열쇠를 넘기고, `decision` id가 실제로 있는지도 확인합니다.
+  - 결과는 허브에 정보 카드 한 장으로 올리고, 전날 카드는 닫습니다.
 
 ### 10.5 일하는 사람의 규칙
 
-- '완료'라고 보고하려면 그 id 가 `done`이고 시험과 실화면 확인이 통과해야 합니다(AGENTS.md 0.5).
-- 화면을 만들면 같은 PR 에서 그 id 의 `status`·`tests`·`e2e`·`evidence`를 고칩니다.
-- 범위를 줄이려면 먼저 운영자 결정(결정 카드)을 받고 그 id 를 `decision`에 적습니다(AGENTS.md 0.6).
-- 시점 미루기도 범위 축소입니다(AGENTS.md 0.7). PR 은 머지 직전에 `node tools/pr-lint.mjs <PR 번호>`를 통과해야 합니다: 본문(`gh pr view`)에 '나중에·다음 PR·수업 뒤·17:00 뒤·오늘은 ○○ 대신·우선 ○○만·follow-up PR' 같은 표현이 있으면 같은 문단에 결정 id(`d_…`/`R…`)가 있어야 합니다. 인용(`> …`)·코드는 검사하지 않습니다. 시험: `tools/__tests__/pr-lint.test.ts`.
+- '완료'라고 보고하려면 그 id가 `done`이고, 시험과 실화면 확인이 통과해야 합니다(AGENTS.md 0.5). 열쇠 화면이 '열쇠 화면만 확인'에 남아 있으면 그렇다고 함께 말합니다.
+- 화면을 만들면 같은 PR에서 그 id의 `status`·`tests`·`e2e`·`evidence`를 고칩니다. WP를 끝냈다고 보고하려면 그 `WP-…` id도 `done`이어야 합니다.
+- 범위를 줄이려면 먼저 운영자 결정(결정 카드)을 받고, 그 id를 `decision`에 적습니다(AGENTS.md 0.6).
+- 시점 미루기도 범위 축소입니다(AGENTS.md 0.7).
+  - PR은 머지 직전에 `node tools/pr-lint.mjs <PR 번호>`를 통과해야 합니다.
+  - 본문(`gh pr view`)에 '나중에·다음 PR·별도 PR·수업 뒤·17:00 뒤·17시 이후·오늘은 ○○ 대신·우선 ○○만·이번엔 ○○만·범위 밖·follow-up PR·Not in this PR' 같은 표현이 있으면, 같은 문단에 결정 id(`d_…`/`R…`)가 있어야 합니다.
+  - 검사하지 않는 것은 세 가지뿐입니다. 코드 블록, 짧은(15자 이하) 코드 조각, 운영자의 말이라고 밝힌 인용(`> Dan: …`).
+  - 시험: `tools/__tests__/pr-lint.test.ts`(최근 PR 32개로 오탐·회피를 맞춤).
+  - 레인의 머지 경로(자동화 저장소)도 lcw-mosaic PR을 머지하기 전에 같은 두 검사(`pnpm test`의 설계서 대조, `pr-lint`)를 돌립니다.

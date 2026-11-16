@@ -10,12 +10,17 @@
 //      `deferred`/`retired` (or a feature lowered to `planned`), with no `decision` (d_… decision card or R… ledger line)
 //   3b. postponing is narrowing too (operator 2026-11-16: "왜 수업뒤에 넣어요?"): any timing field on an id or feature
 //      (deferred_until, later, after, after_lesson, not_before, eta, target_date, phase, …) needs the same decision id
+//   3c. a field the list does not define (a new way to postpone, a "deadline", "target"…): only ID_FIELDS/FEATURE_FIELDS
+//   3d. a `note` that postpones or narrows in words ("17:00 뒤", "다음 PR") without a decision (tools/pr-lint.mjs rules)
+//   3e. a title that no longer matches the spec: the spec moved (a line was added above a position-numbered id) or
+//       changed, so the status has to be judged again
 //   4. a reference to a doc that does not exist (`06` while docs/ has no 06-*.md) that is not on the known list
 // `missing` and `partial` are honest states, not failures: they show up as the gap list per owner.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lintPrText } from './pr-lint.mjs';
 import { brokenRefs, specIds } from './spec-ids.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -28,6 +33,10 @@ const NARROWED = new Set(['deferred', 'retired']);
 /** Fields that move work to a later time. Any of them, on an id or a feature, needs `decision` (postponing = narrowing). */
 export const TIMING_FIELDS = ['deferred_until', 'defer_until', 'later', 'after', 'after_lesson', 'not_before', 'eta', 'target_date', 'phase', 'milestone', 'until', 'when'];
 const timingOf = (e) => TIMING_FIELDS.filter((k) => e[k] !== undefined && e[k] !== null && e[k] !== '');
+/** The only fields an entry may carry; anything else fails (a new way to postpone cannot slip in under another name). */
+export const ID_FIELDS = ['kind', 'title', 'status', 'owner', 'route', 'e2e', 'tests', 'evidence', 'note', 'decision'];
+export const FEATURE_FIELDS = ['id', 'status', 'owner', 'route', 'e2e', 'tests', 'evidence', 'note', 'decision'];
+export const E2E_FIELDS = ['route', 'expect', 'auth', 'authExpect'];
 
 /** "path/to/file.test.ts::exact it() name" → { file, name } */
 export function parseTestRef(ref) {
@@ -40,14 +49,26 @@ function defaultReadFile(rel) {
   return fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
 }
 
-/** A test reference is real when the file exists and carries the test name (tools/*.mjs e2e scripts: the file is enough). */
+/** Titles of the it()/test() calls in a test file (first argument, quotes unescaped; comments ignored). */
+export function testTitles(src) {
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const out = new Set();
+  const re = /\b(?:it|test)(?:\.(?:only|skip|todo|concurrent|fails))?\s*\(\s*(['"`])((?:\\.|(?!\1)[^\\])*)\1/g;
+  for (const m of code.matchAll(re)) out.add(m[2].replace(/\\(.)/g, '$1'));
+  return out;
+}
+
+/**
+ * A test reference is real when it names a test file (`*.test.ts(x)`) and one of its it()/test() titles exactly, or a
+ * real-screen tool under tools/ (a script that drives a browser or the live site: playwright or fetch against a base).
+ */
 export function testExists(ref, readFile = defaultReadFile) {
   const { file, name } = parseTestRef(ref);
   const src = readFile(file);
   if (src === null) return false;
-  if (!name) return /\.(mjs|js)$/.test(file);
-  const norm = (s) => s.replace(/\\(['"`])/g, '$1');
-  return norm(src).includes(name);
+  if (!name) return /^tools\/[\w-]+\.mjs$/.test(file) && /playwright|chromium|smoke-live|fetch\(\s*(?:base|new URL)/.test(src);
+  if (!/\.test\.tsx?$/.test(file)) return false;
+  return testTitles(src).has(name);
 }
 
 function e2eOk(e2e) {
@@ -71,6 +92,11 @@ export function checkCoverage({ docs, coverage, base, broken, readFile = default
     if (!docIds.has(id) && e.status !== 'retired') errors.push(`[설계서에 없음] ${id}: 설계서에서 사라진 id 는 status "retired" 와 decision 으로만 남깁니다`);
     if (NARROWED.has(e.status) && !DECISION.test(e.decision ?? '')) errors.push(`[범위 축소] ${id}: "${e.status}" 는 운영자 결정 id(d_… 또는 R…)가 decision 에 있어야 합니다`);
     for (const k of timingOf(e)) if (!DECISION.test(e.decision ?? '')) errors.push(`[시점 미루기] ${id}: ${k}="${e[k]}" — 시점 미루기도 범위 축소입니다. 운영자 결정 id(d_… 또는 R…)가 decision 에 있어야 합니다`);
+    for (const k of Object.keys(e)) if (!ID_FIELDS.includes(k) && !TIMING_FIELDS.includes(k)) errors.push(`[모르는 필드] ${id}: "${k}" — 쓸 수 있는 필드는 ${ID_FIELDS.join(', ')}`);
+    for (const k of Object.keys(e.e2e ?? {})) if (!E2E_FIELDS.includes(k)) errors.push(`[모르는 필드] ${id}: e2e.${k}`);
+    if (e.note && !DECISION.test(e.decision ?? '')) for (const h of lintPrText(e.note)) errors.push(`[시점 미루기] ${id}: note 의 "${h.phrase}" — 미루거나 줄이는 말은 운영자 결정 id 가 decision 에 있어야 합니다`);
+    const spec = docIds.get(id);
+    if (spec && e.title !== undefined && e.title !== (spec.title ?? '').slice(0, 140)) errors.push(`[설계서 바뀜] ${id}: 목록의 title 이 설계서와 다릅니다 — 설계서 "${(spec.title ?? '').slice(0, 60)}" / 목록 "${String(e.title).slice(0, 60)}". 상태를 다시 판정하고 title 을 맞추세요`);
     if (e.status === 'done') {
       const tests = e.tests ?? [];
       if (!tests.length) errors.push(`[거짓 done] ${id}: done 인데 tests 가 비었습니다`);
@@ -90,6 +116,8 @@ export function checkCoverage({ docs, coverage, base, broken, readFile = default
     if (!OWNERS.includes(f.owner)) errors.push(`[기능 소유] ${f.id}: owner "${f.owner}"`);
     if (!f.evidence) errors.push(`[기능 근거] ${f.id}: evidence 가 없습니다`);
     for (const k of timingOf(f)) if (!DECISION.test(f.decision ?? '')) errors.push(`[시점 미루기] 기능 ${f.id}: ${k}="${f[k]}" — 운영자 결정 id 가 decision 에 있어야 합니다`);
+    for (const k of Object.keys(f)) if (!FEATURE_FIELDS.includes(k) && !TIMING_FIELDS.includes(k)) errors.push(`[모르는 필드] 기능 ${f.id}: "${k}"`);
+    if (f.note && !DECISION.test(f.decision ?? '')) for (const h of lintPrText(f.note)) errors.push(`[시점 미루기] 기능 ${f.id}: note 의 "${h.phrase}"`);
     if (f.status === 'live') {
       if (!(f.tests ?? []).length) errors.push(`[거짓 live] ${f.id}: live 인데 tests 가 비었습니다`);
       for (const t of f.tests ?? []) if (!testExists(t, readFile)) errors.push(`[거짓 live] ${f.id}: 시험 "${t}" 를 찾을 수 없습니다`);
@@ -134,15 +162,29 @@ export function checkCoverage({ docs, coverage, base, broken, readFile = default
   return { errors, gaps, counts, byKind, features: feats.reduce((a, f) => ((a[f.status] = (a[f.status] ?? 0) + 1), a), {}) };
 }
 
-/** docs/spec-coverage.json as it was where this branch left main (null when unknown: no git, no main, first version). */
+/**
+ * docs/spec-coverage.json as it was where this branch left main. { base: null } only when main did not have the file
+ * yet (the first version); a git failure (no origin/main, shallow clone, bad LCW_COVERAGE_BASE) is an error, never a
+ * silent pass: without the base the removal check cannot run.
+ */
 export function baseCoverage() {
-  if (process.env.LCW_COVERAGE_BASE === 'none') return null;
+  const git = (...a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  let ref;
   try {
-    const git = (...a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    const ref = process.env.LCW_COVERAGE_BASE || git('merge-base', 'HEAD', 'origin/main');
-    return JSON.parse(git('show', `${ref}:${COVERAGE_FILE}`));
+    ref = process.env.LCW_COVERAGE_BASE || git('merge-base', 'HEAD', 'origin/main');
+    git('rev-parse', '--verify', `${ref}^{commit}`);
+  } catch (e) {
+    return { base: null, error: `[대조 기준 없음] main 과 갈라진 지점을 찾지 못했습니다(${String(e.message ?? e).split('\n')[0].slice(0, 120)}). git fetch origin 뒤 다시 돌리세요 — 기준 없이 통과시키지 않습니다` };
+  }
+  try {
+    git('cat-file', '-e', `${ref}:${COVERAGE_FILE}`);
   } catch {
-    return null;
+    return { base: null }; // main had no list yet
+  }
+  try {
+    return { base: JSON.parse(git('show', `${ref}:${COVERAGE_FILE}`)) };
+  } catch (e) {
+    return { base: null, error: `[대조 기준 없음] ${ref}:${COVERAGE_FILE} 를 읽지 못했습니다(${String(e.message ?? e).slice(0, 120)})` };
   }
 }
 
@@ -151,7 +193,10 @@ export function loadCoverage() {
 }
 
 export function runCheck() {
-  return checkCoverage({ docs: specIds(), coverage: loadCoverage(), base: baseCoverage(), broken: brokenRefs() });
+  const b = baseCoverage();
+  const r = checkCoverage({ docs: specIds(), coverage: loadCoverage(), base: b.base, broken: brokenRefs() });
+  if (b.error) r.errors.unshift(b.error);
+  return r;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

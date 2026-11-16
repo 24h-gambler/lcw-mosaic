@@ -6,8 +6,13 @@
 // Sources (each one a plain markdown structure, so a spec edit changes the list without touching this file):
 //   screen  — every table row in docs/*.md whose first cell is a screen ID (G01, T01, P01, W01, "W01~W09" expands).
 //             docs/08 §8.6 is the screen list; docs/14 §2 adds the site's W rows.
-//   flow    — docs/10 §2–§7 diagrams: sequence messages by their autonumber (F10.2.07), flowchart nodes by node name
-//             (F10.3.A2); §8 trigger table cells by row and role (F10.8.+3분.player).
+//   state   — the "빈 상태 / 오류 상태" cell of a screen row (docs/08 §8.6): G01.state, P01.state.
+//   flow    — docs/10 §1–§7 diagrams: sequence messages by their autonumber (F10.2.07), flowchart nodes by node name
+//             (F10.3.A2, double-paren nodes too), labelled edges by their ends (F10.1.S-W); §8 trigger table cells by
+//             row and role (F10.8.+3분.player).
+//   wp      — docs/11 work packages with their acceptance criteria (WP-104): an agent reporting "WP done" is checked too.
+// Ids built from a position (C01.1.s2, C01.4.b3, F10.2.07) move when the spec gains a line above them: the coverage
+// check compares each stored title with the spec's and fails on a mismatch, so the status is judged again.
 //   promise — docs/01 (§1 sentences, every table row, every bullet) and docs/02 §1 principles and §2 stack rows:
 //             C01.3.체험_씬, C02.2.로그인.
 // Broken references: a doc number in backticks (`06`) or a file name (06-lesson-teacher.md) with no docs/NN-*.md.
@@ -54,7 +59,9 @@ export function slug(s) {
     .slice(0, 40);
 }
 
+const states = new Map();
 function screens() {
+  states.clear();
   const out = new Map();
   for (const f of docFiles()) {
     const lines = read(f);
@@ -81,6 +88,9 @@ function screens() {
         // A range row ("W01~W09 소개 사이트") only names the group; an exact row elsewhere carries the real title.
         if (prev && !b) entry.title = title;
         entry.sources.push(`docs/${f}:${i + 1}`);
+        // 08 §8.6 "빈 상태 / 오류 상태": its own promise, judged apart from the screen (an empty state is easy to skip).
+        if (header[4] && /빈 상태|오류 상태/.test(header[4]) && c[4])
+          states.set(`${id}.state`, { id: `${id}.state`, kind: 'state', title: `${c[1]}: ${c[4]}`, sources: [`docs/${f}:${i + 1}`] });
         for (const r of c.join(' ').matchAll(/`(\d{2})`/g)) entry.refs.push(r[1]);
         out.set(id, entry);
       }
@@ -124,11 +134,18 @@ function flows() {
         }
         return;
       }
-      for (const m of l.matchAll(/\b([A-Za-z]\w*)\s*(?:\[\s*"([^"]*)"\s*\]|\{\s*"([^"]*)"\s*\}|\(\s*"([^"]*)"\s*\))/g)) {
+      for (const m of l.matchAll(/\b([A-Za-z]\w*)\s*(?:\[\s*"([^"]*)"\s*\]|\{\s*"([^"]*)"\s*\}|\(\(\s*"([^"]*)"\s*\)\)|\(\s*"([^"]*)"\s*\))/g)) {
         const id = `F10.${s}.${m[1]}`;
         if (seen.has(id)) continue;
         seen.add(id);
-        out.push({ id, kind: 'flow', title: m[2] ?? m[3] ?? m[4] ?? '', sources: [`docs/${f}:${i + 1}`] });
+        out.push({ id, kind: 'flow', title: m[2] ?? m[3] ?? m[4] ?? m[5] ?? '', sources: [`docs/${f}:${i + 1}`] });
+      }
+      // a labelled edge is a promise of its own ("S -->|게스트 패스| F"): what goes from one role to another
+      for (const m of l.matchAll(/\b([A-Za-z]\w*)\s*[-=.]+>\s*\|\s*"?([^"|]+?)"?\s*\|\s*([A-Za-z]\w*)/g)) {
+        let id = `F10.${s}.${m[1]}-${m[3]}`;
+        for (let n = 2; seen.has(id); n++) id = `F10.${s}.${m[1]}-${m[3]}_${n}`;
+        seen.add(id);
+        out.push({ id, kind: 'flow', title: `${m[1]}→${m[3]}: ${m[2].trim()}`, sources: [`docs/${f}:${i + 1}`] });
       }
       return;
     }
@@ -212,8 +229,27 @@ export function brokenRefs() {
   return out;
 }
 
+function workPackages() {
+  const out = [];
+  const f = docFiles().find((x) => x.startsWith('11-'));
+  if (!f) return out;
+  let header = [];
+  read(f).forEach((l, i) => {
+    const c = cells(l);
+    if (!c) return;
+    if (c[0] === 'WP') {
+      header = c;
+      return;
+    }
+    if (header[0] !== 'WP' || !/^WP-\d{3}$/.test(c[0])) return;
+    out.push({ id: c[0], kind: 'wp', title: `${c[1]} — 수용 기준: ${c[2] ?? ''}`.slice(0, 200), sources: [`docs/${f}:${i + 1}`] });
+  });
+  return out;
+}
+
 export function specIds() {
-  return [...screens(), ...flows(), ...promises()];
+  const scr = screens();
+  return [...scr, ...states.values(), ...flows(), ...promises(), ...workPackages()];
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

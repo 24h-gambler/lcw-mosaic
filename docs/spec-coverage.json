@@ -259,7 +259,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does",
@@ -283,7 +286,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::plan choice: both lessons offered, the remembered one is picked, unknown or blocked storage falls back to the first"
@@ -305,7 +311,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::after the lesson ends the report link and preview are shown"
@@ -327,7 +336,13 @@
         "expect": [
           "testid:seats-admin"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "text:확인함",
+          "notext:운영자 키를 먼저 넣어 주세요",
+          "notext:운영자 키가 맞지 않습니다",
+          "notext:불러오지 못했습니다"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/seats-page.test.ts::route is known and renders the seats page; without a key it points to the director console"
@@ -482,7 +497,13 @@
         "expect": [
           "testid:seats-admin"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "text:확인함",
+          "notext:운영자 키를 먼저 넣어 주세요",
+          "notext:운영자 키가 맞지 않습니다",
+          "notext:불러오지 못했습니다"
+        ]
       },
       "tests": [
         "apps/edge/src/__tests__/seats.test.ts::Solo: manual issue at list price, one seat per child, 7-day full refund, then play stops"
@@ -683,10 +704,176 @@
       ],
       "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
     },
+    "G01.state": {
+      "kind": "state",
+      "title": "HUD: 연결 끊김 띠 \"혼자 모드로 계속 중\"",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "tests": [
+        "apps/client/src/__tests__/frame-hud.test.ts::shows the band on offline and on a network failure, and drops it only after /v1/health answers"
+      ],
+      "evidence": [
+        "apps/client/src/frame/connection.ts:1"
+      ],
+      "note": "띠와 시험은 있음(main #75). 운영에서 연결을 끊어 띠가 보이는지 확인하는 실화면 확인 없음(tools/frame-shots.mjs 는 로컬)"
+    },
+    "G02.state": {
+      "kind": "state",
+      "title": "대화창: 마이크 권한 없음 → 조합판·키보드 안내",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "tests": [
+        "apps/client/src/__tests__/dialog.test.tsx::sends in-app browsers, insecure pages and missing APIs to the word cards"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/mic-controller.ts:1",
+        "apps/client/src/dialog/DialogPanel.tsx:113"
+      ],
+      "note": "마이크 거부를 단어 카드로 보내는 경로·시험은 있음. 운영에서 권한 거부를 만들어 안내 문구를 확인하는 실화면 확인 없음"
+    },
+    "G06.state": {
+      "kind": "state",
+      "title": "지도: 미탐험 섹터는 실루엣",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "지도 화면(G06)이 없어 미탐험 섹터 실루엣도 없음"
+    },
+    "G07.state": {
+      "kind": "state",
+      "title": "월드 고르기·만들기: 월드 없음 → 첫 월드 만들기",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "월드 고르기(G07)가 없어 \"첫 월드 만들기\" 빈 상태도 없음"
+    },
+    "G08.state": {
+      "kind": "state",
+      "title": "공개 서버 목록: 서버 없음 → 내 월드 공개하기",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "서버 목록(G08)이 없어 \"내 월드 공개하기\"도 없음"
+    },
+    "G09.state": {
+      "kind": "state",
+      "title": "제작 미리보기: 검문 거절 → 가까운 기성품 3개 제안",
+      "status": "missing",
+      "owner": "talk",
+      "tests": [],
+      "evidence": [],
+      "note": "AI 제작(G09)·검문 거절 뒤 기성품 3개 제안 없음"
+    },
+    "T04.state": {
+      "kind": "state",
+      "title": "운영 확인함: 비어 있음 \"처리할 일이 없어요\"",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/SeatsPage.tsx:375",
+        "apps/web/src/parentStrings.ts:336"
+      ],
+      "note": "좌석 확인함(환불 요청)이 비면 \"확인할 일이 없습니다\"는 있음. 신고·한도·격리 개체 확인함과 그 빈 상태는 없음",
+      "route": "/seats"
+    },
+    "P01.state": {
+      "kind": "state",
+      "title": "대시보드 홈: 데이터 없음 → \"첫 플레이를 기다리는 중\"",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/dashboard.test.ts::waiting, no session, /dashboard route, family link"
+      ],
+      "evidence": [
+        "apps/web/src/parentStrings.ts:121",
+        "apps/web/src/DashboardPage.tsx:27"
+      ],
+      "note": "\"첫 플레이를 기다리는 중\" 표시"
+    },
+    "P02.state": {
+      "kind": "state",
+      "title": "성장: 표본 부족 안내",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/dashboard.test.ts::think-and-speak index: needs 30 free sentences in the week and a start made of two such weeks"
+      ],
+      "evidence": [
+        "packages/metrics/src/index.ts:410",
+        "apps/web/src/DashboardPage.tsx:656"
+      ],
+      "note": "표본 부족(주 30문장 미만) 안내"
+    },
+    "P04.state": {
+      "kind": "state",
+      "title": "수업 창문: 수업 중 아님 → 다음 수업 시각. 30초 넘게 신호가 없으면 \"신호를 기다리는 중\"",
+      "status": "done",
+      "owner": "parent",
+      "route": "/window",
+      "e2e": {
+        "route": "/window",
+        "expect": [
+          "testid:lesson-window-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson-window-page.test.ts::a status older than 30 s reads \"waiting for signal\" (docs/08 P04)",
+        "apps/web/src/__tests__/lesson-window-page.test.ts::idle shows the next lesson; consent off shows one explicit switch-on button; no session points to /family"
+      ],
+      "evidence": [
+        "apps/web/src/LessonWindowPage.tsx:292",
+        "apps/web/src/strings.ts:77"
+      ],
+      "note": "다음 수업 시각·30초 신호 없음 안내"
+    },
+    "P05.state": {
+      "kind": "state",
+      "title": "음성 박물관: 음성 저장 미동의 → 동의 안내",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/voice-clips.test.ts::consent off and empty periods say so; no guardian on this device shows nothing"
+      ],
+      "evidence": [
+        "apps/web/src/VoiceClips.tsx:32"
+      ],
+      "note": "음성 저장 미동의 안내"
+    },
     "F10.1.S": {
       "kind": "flow",
       "title": "플레이어 (유료 좌석)",
-      "status": "done",
+      "status": "partial",
       "owner": "world",
       "route": "/world/",
       "e2e": {
@@ -704,12 +891,12 @@
         "apps/client/src/world/identity.ts:1",
         "apps/edge/src/seats.ts:310"
       ],
-      "note": "좌석·기기 연결·월드 플레이는 이어짐(좌석 발급은 운영자 수동)"
+      "note": "역할 노드: 이 역할이 받기로 한 흐름(F10.1.S-*, F10.1.*-S) 중 빠진 것이 있음 — 갈래 id 참고"
     },
     "F10.1.T": {
       "kind": "flow",
       "title": "교사 (운영자 1인)",
-      "status": "done",
+      "status": "partial",
       "owner": "lesson",
       "route": "/director",
       "e2e": {
@@ -717,7 +904,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report",
@@ -727,12 +917,12 @@
         "apps/web/src/LessonDirector.tsx:722",
         "apps/edge/src/lesson-mode.ts:413"
       ],
-      "note": "교사 콘솔로 수업 전체 진행 가능; 일정·계획 자동 준비는 없음"
+      "note": "역할 노드: 이 역할이 받기로 한 흐름(F10.1.T-*, F10.1.*-T) 중 빠진 것이 있음 — 갈래 id 참고"
     },
     "F10.1.P": {
       "kind": "flow",
       "title": "학부모",
-      "status": "done",
+      "status": "partial",
       "owner": "parent",
       "route": "/family",
       "e2e": {
@@ -750,7 +940,7 @@
         "apps/web/src/FamilyPage.tsx:49",
         "apps/edge/src/family.ts:287"
       ],
-      "note": "가족 화면·동의·리포트·대시보드·창문 연결됨; 계정은 교사 초대로만 생성"
+      "note": "역할 노드: 이 역할이 받기로 한 흐름(F10.1.P-*, F10.1.*-P) 중 빠진 것이 있음 — 갈래 id 참고"
     },
     "F10.1.O": {
       "kind": "flow",
@@ -794,6 +984,228 @@
       ],
       "note": "/pass 입력 화면만 있고 패스 발급·3D 월드의 ?pass 처리 없음"
     },
+    "F10.1.W": {
+      "kind": "flow",
+      "title": "월드와 회화 엔진",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "tests": [],
+      "evidence": [
+        "apps/client/src/world/town.ts:7",
+        "apps/edge/src/app.ts:239"
+      ],
+      "note": "마을 하나와 문장 뱅크 회화 엔진은 있음. 288m 무작위 월드·9섹터·월드 여러 개·멀티 룸·운영 LLM 없음"
+    },
+    "F10.1.S-W": {
+      "kind": "flow",
+      "title": "S→W: 말하기, 건축, 플레이 기록",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "tests": [],
+      "evidence": [
+        "apps/client/src/dialog/DialogPanel.tsx:113",
+        "apps/client/src/world/build.ts:310"
+      ],
+      "note": "말하기·건축은 있음. 플레이 기록은 발화·부지 저장뿐(전투·탐험·직업 기록 없음)"
+    },
+    "F10.1.W-S": {
+      "kind": "flow",
+      "title": "W→S: 재미, 보상, 복습",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "tests": [],
+      "evidence": [
+        "apps/client/src/dialog/ReviewDock.tsx:32",
+        "apps/edge/src/errand.ts:111"
+      ],
+      "note": "별·코인 보상·복습 징후는 있음. 전투·탐험·도감 같은 놀이 보상 없음"
+    },
+    "F10.1.T-W": {
+      "kind": "flow",
+      "title": "T→W: 빙의, 사건, 던전, 캠페인",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/DirectorLive.tsx:35",
+        "apps/edge/src/lesson-mode.ts:478"
+      ],
+      "note": "빙의·사건 6종은 있음. 던전(전투 없음)·캠페인 노트 없음"
+    },
+    "F10.1.W-T": {
+      "kind": "flow",
+      "title": "W→T: 타깃, 대화 밀도, 수업 기록",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:239",
+        "apps/web/src/DirectorLive.tsx:439"
+      ],
+      "note": "대화 밀도·수업 기록은 있음. 학생별 타깃 자동 준비(T02) 없음"
+    },
+    "F10.1.W-P": {
+      "kind": "flow",
+      "title": "W→P: 성장 지표, 육성 클립",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/dashboard.test.ts::home: headline with the 4-week ratio, four cards whose numbers equal this week, interpretation lines",
+        "apps/web/src/__tests__/voice-clips.test.ts::lists the child’s turns with a player each, quoted in English, time in KST"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:918",
+        "apps/web/src/VoiceClips.tsx:32"
+      ],
+      "note": "성장 그래프·육성 클립이 보호자 화면에 있음"
+    },
+    "F10.1.T-P": {
+      "kind": "flow",
+      "title": "T→P: 수업 리포트, 수업 창문",
+      "status": "done",
+      "owner": "parent",
+      "route": "/window",
+      "e2e": {
+        "route": "/window",
+        "expect": [
+          "testid:lesson-window-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report",
+        "apps/web/src/__tests__/lesson-window-page.test.ts::live: status bar with place · situation, goal sentence, density band, captions, listen-only note — no media elements"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:715",
+        "apps/web/src/LessonWindowPage.tsx:32"
+      ],
+      "note": "수업 리포트와 수업 창문"
+    },
+    "F10.1.P-T": {
+      "kind": "flow",
+      "title": "P→T: 좌석 요금 또는 과외비",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/seats",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/seats.ts:310"
+      ],
+      "note": "운영자가 좌석을 수동 발급. 보호자가 좌석 요금·과외비를 직접 내는 결제 없음(P07)"
+    },
+    "F10.1.P-S": {
+      "kind": "flow",
+      "title": "P→S: 동의, 친구 승인",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/family",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/FamilyPage.tsx:49"
+      ],
+      "note": "동의는 있음. 친구 기능이 없어 친구 승인 없음"
+    },
+    "F10.1.S-F": {
+      "kind": "flow",
+      "title": "S→F: 게스트 패스",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/pass",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Info.tsx:104"
+      ],
+      "note": "/pass 입력 화면뿐. 플레이어가 패스를 발급하는 경로 없음"
+    },
+    "F10.1.F-W": {
+      "kind": "flow",
+      "title": "F→W: 60분 체험",
+      "status": "missing",
+      "owner": "outsider",
+      "tests": [],
+      "evidence": [],
+      "note": "3D 월드가 ?pass 를 읽지 않아 60분 체험 없음"
+    },
+    "F10.1.F-O": {
+      "kind": "flow",
+      "title": "F→O: 부모님께 소개 보내기",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/guest-end",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/App.tsx:1"
+      ],
+      "note": "/guest-end 화면과 \"부모님께 소개 보내기\" 버튼은 있으나 보내는 경로가 연결되지 않음"
+    },
+    "F10.1.P-O": {
+      "kind": "flow",
+      "title": "P→O: 쇼룸 링크 공유",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/s/demo",
+      "e2e": {
+        "route": "/s/demo",
+        "expect": [
+          "text:하늘 카페 마을"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/showroom.test.ts::needs the showroom consent, then serves only the allow-listed snapshot the site can draw"
+      ],
+      "evidence": [
+        "apps/edge/src/showroom.ts:143",
+        "apps/web/src/site/pages/Showroom.tsx:60"
+      ],
+      "note": "쇼룸 링크 공유"
+    },
+    "F10.1.O-W": {
+      "kind": "flow",
+      "title": "O→W: 체험 씬, 소개 페이지",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/try",
+      "e2e": {
+        "route": "/try",
+        "expect": [
+          "canvas",
+          "text:카페에서 영어로 주문해 볼까요?"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::golden path: start → walk → greet → choose → speak → receive → drink → save → end"
+      ],
+      "evidence": [
+        "apps/web/src/site/TryScene.tsx:224"
+      ],
+      "note": "체험 씬과 소개 페이지"
+    },
+    "F10.1.O-T": {
+      "kind": "flow",
+      "title": "O→T: 좌석 구매 또는 과외 문의",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/pricing",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Pricing.tsx:28"
+      ],
+      "note": "요금·과외 안내는 있음. 사이트에서 좌석을 사거나 결제하는 경로 없음(운영자 수동 발급)"
+    },
     "F10.2.01": {
       "kind": "flow",
       "title": "D→T: 오늘의 계획 (복습 대상, 신규 표현, 사건 후보)",
@@ -805,7 +1217,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::plan choice: both lessons offered, the remembered one is picked, unknown or blocked storage falls back to the first"
@@ -827,7 +1242,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::with a key: student list with a start button and the registration form",
@@ -862,7 +1280,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "packages/content/src/__tests__/lesson-plans.test.ts::every stage carries timed steps for the teacher and follow-up lines in English"
@@ -943,7 +1364,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API",
@@ -966,7 +1390,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines"
@@ -1012,7 +1439,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::maps F1 → coaching, F2 → expression, nothing else",
@@ -1104,7 +1534,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [],
       "evidence": [
@@ -1123,7 +1556,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::maps F1 → coaching, F2 → expression, nothing else",
@@ -1146,7 +1582,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [],
       "evidence": [
@@ -1202,7 +1641,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::after the lesson ends the report link and preview are shown"
@@ -1224,7 +1666,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/edge/src/__tests__/lesson-mode.test.ts::runs a 3-minute lesson with npc lines, events and pins and puts lesson-only facts in the report",
@@ -1247,7 +1692,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/edge/src/__tests__/lesson-mode.test.ts::ending twice (two consoles, a double tap) keeps the first report link and comment"
@@ -1604,7 +2052,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/web.test.ts::renders teacher director console with 7-stage arc, teacher scripts, bilateral barter, events/pins, and report tracker"
@@ -1640,7 +2091,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/seats-page.test.ts::route is known and renders the seats page; without a key it points to the director console"
@@ -1673,7 +2127,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines"
@@ -1694,7 +2151,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "packages/content/src/__tests__/lesson-plans.test.ts::stages add up, are ordered and unique"
@@ -1715,7 +2175,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::after the lesson ends the report link and preview are shown"
@@ -1759,6 +2222,17 @@
       ],
       "note": "nextTargetsUpdated 를 늘 true 로 돌려줄 뿐 다음 수업 타깃 갱신 없음"
     },
+    "F10.4.T5-T6": {
+      "kind": "flow",
+      "title": "T5→T6: 열람",
+      "status": "partial",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/storage.ts:565"
+      ],
+      "note": "갈래 \"열람\": T5(done)→T6(partial) 중 낮은 쪽. nextTargetsUpdated 를 늘 true 로 돌려줄 뿐 다음 수업 타깃 갱신 없음"
+    },
     "F10.4.T7": {
       "kind": "flow",
       "title": "다시 알림 1회",
@@ -1772,6 +2246,18 @@
         "apps/edge/src/platform.ts:466"
       ],
       "note": "48시간 크론이 상태만 바꾸고 보호자에게 실제 알림 안 보냄"
+    },
+    "F10.4.T5-T7": {
+      "kind": "flow",
+      "title": "T5→T7: 미열람 2일",
+      "status": "partial",
+      "owner": "parent",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/storage.ts:572",
+        "apps/edge/src/platform.ts:466"
+      ],
+      "note": "갈래 \"미열람 2일\": T5(done)→T7(partial) 중 낮은 쪽. 48시간 크론이 상태만 바꾸고 보호자에게 실제 알림 안 보냄"
     },
     "F10.4.T8": {
       "kind": "flow",
@@ -1835,6 +2321,18 @@
       ],
       "note": "소개·과외 페이지와 리포트 예시 화면"
     },
+    "F10.5.P0-P1": {
+      "kind": "flow",
+      "title": "P0→P1: 과외 상담",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/tutoring",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Tutoring.tsx:133"
+      ],
+      "note": "갈래 \"과외 상담\": P0(partial)→P1(done) 중 낮은 쪽. 페이지 이벤트만 셈; 유입 경로(상담·아이 소개·검색) 구분 없음"
+    },
     "F10.5.P2": {
       "kind": "flow",
       "title": "친구 월드 쇼룸과 소개 페이지",
@@ -1857,6 +2355,19 @@
       ],
       "note": "쇼룸 구경 후 소개 페이지로 이어짐"
     },
+    "F10.5.P0-P2": {
+      "kind": "flow",
+      "title": "P0→P2: 아이가 소개를 보냄",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/s/<토큰>",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Showroom.tsx:60",
+        "apps/edge/src/showroom.ts:143"
+      ],
+      "note": "갈래 \"아이가 소개를 보냄\": P0(partial)→P2(done) 중 낮은 쪽. 페이지 이벤트만 셈; 유입 경로(상담·아이 소개·검색) 구분 없음"
+    },
     "F10.5.P3": {
       "kind": "flow",
       "title": "소개 페이지와 체험 씬",
@@ -1878,6 +2389,18 @@
         "apps/web/src/site/TryScene.tsx:224"
       ],
       "note": "체험 씬 동작"
+    },
+    "F10.5.P0-P3": {
+      "kind": "flow",
+      "title": "P0→P3: 검색, 지인 공유",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/try",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/TryScene.tsx:224"
+      ],
+      "note": "갈래 \"검색, 지인 공유\": P0(partial)→P3(done) 중 낮은 쪽. 페이지 이벤트만 셈; 유입 경로(상담·아이 소개·검색) 구분 없음"
     },
     "F10.5.P4": {
       "kind": "flow",
@@ -1913,7 +2436,13 @@
         "expect": [
           "testid:seats-admin"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "text:확인함",
+          "notext:운영자 키를 먼저 넣어 주세요",
+          "notext:운영자 키가 맞지 않습니다",
+          "notext:불러오지 못했습니다"
+        ]
       },
       "tests": [
         "apps/edge/src/__tests__/seats.test.ts::Solo: manual issue at list price, one seat per child, 7-day full refund, then play stops"
@@ -2102,6 +2631,19 @@
       ],
       "note": "창문·리포트는 있으나 '표현의 여정' 화면 없음"
     },
+    "F10.5.P13-P14": {
+      "kind": "flow",
+      "title": "P13→P14: 예",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/family",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/FamilyPage.tsx:232",
+        "apps/web/src/ParentReportPage.tsx:391"
+      ],
+      "note": "갈래 \"예\": P13(done)→P14(partial) 중 낮은 쪽. 창문·리포트는 있으나 '표현의 여정' 화면 없음"
+    },
     "F10.5.P15": {
       "kind": "flow",
       "title": "월간 상담",
@@ -2122,6 +2664,18 @@
         "apps/web/src/FamilyPage.tsx:224"
       ],
       "note": "가족·대시보드 화면에 과외 안내 링크 없음"
+    },
+    "F10.5.P13-P16": {
+      "kind": "flow",
+      "title": "P13→P16: 아니오",
+      "status": "missing",
+      "owner": "parent",
+      "route": "/family",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/FamilyPage.tsx:224"
+      ],
+      "note": "갈래 \"아니오\": P13(done)→P16(missing) 중 낮은 쪽. 가족·대시보드 화면에 과외 안내 링크 없음"
     },
     "F10.5.P17": {
       "kind": "flow",
@@ -2175,6 +2729,18 @@
       ],
       "note": "월드가 ?pass 를 안 읽고 서버 발급도 없어 친구 월드 60분 없음"
     },
+    "F10.6.O0-O1": {
+      "kind": "flow",
+      "title": "O0→O1: 친구가 게스트 패스를 줌",
+      "status": "missing",
+      "owner": "outsider",
+      "route": "/world/?pass=",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Info.tsx:104"
+      ],
+      "note": "갈래 \"친구가 게스트 패스를 줌\": O0(partial)→O1(missing) 중 낮은 쪽. 월드가 ?pass 를 안 읽고 서버 발급도 없어 친구 월드 60분 없음"
+    },
     "F10.6.O2": {
       "kind": "flow",
       "title": "월드 구경",
@@ -2196,6 +2762,18 @@
       ],
       "note": "쇼룸 월드 돌려 보기"
     },
+    "F10.6.O0-O2": {
+      "kind": "flow",
+      "title": "O0→O2: 쇼룸 링크",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/s/<토큰>",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Showroom.tsx:60"
+      ],
+      "note": "갈래 \"쇼룸 링크\": O0(partial)→O2(done) 중 낮은 쪽. 쇼룸·검색 입구는 있음; 게스트 패스 입구 미연결"
+    },
     "F10.6.O3": {
       "kind": "flow",
       "title": "표현 페이지",
@@ -2215,6 +2793,18 @@
         "apps/web/src/site/pages/Learn.tsx:58"
       ],
       "note": "표현 페이지 있음"
+    },
+    "F10.6.O0-O3": {
+      "kind": "flow",
+      "title": "O0→O3: 검색",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/learn/<slug>",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Learn.tsx:58"
+      ],
+      "note": "갈래 \"검색\": O0(partial)→O3(done) 중 낮은 쪽. 쇼룸·검색 입구는 있음; 게스트 패스 입구 미연결"
     },
     "F10.6.O4": {
       "kind": "flow",
@@ -2332,6 +2922,19 @@
       ],
       "note": "Solo/Duo 안내·운영자 발급만; 사이트에서 가입·구매 경로 없음"
     },
+    "F10.6.O8-O9": {
+      "kind": "flow",
+      "title": "O8→O9: 보호자",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/pricing",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Pricing.tsx:28",
+        "apps/edge/src/seats.ts:310"
+      ],
+      "note": "갈래 \"보호자\": O8(partial)→O9(partial) 중 낮은 쪽. Solo/Duo 안내·운영자 발급만; 사이트에서 가입·구매 경로 없음"
+    },
     "F10.6.O10": {
       "kind": "flow",
       "title": "성인 계정, Solo",
@@ -2340,6 +2943,17 @@
       "tests": [],
       "evidence": [],
       "note": "성인 계정 없음"
+    },
+    "F10.6.O8-O10": {
+      "kind": "flow",
+      "title": "O8→O10: 성인 학습자",
+      "status": "missing",
+      "owner": "outsider",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/routes.ts:28"
+      ],
+      "note": "갈래 \"성인 학습자\": O8(partial)→O10(missing) 중 낮은 쪽. 성인 계정 없음"
     },
     "F10.6.O11": {
       "kind": "flow",
@@ -2362,6 +2976,19 @@
         "apps/web/src/site/pages/Tutoring.tsx:184"
       ],
       "note": "신청 저장은 됨; 운영자가 보는 화면 없음(API만)"
+    },
+    "F10.6.O8-O11": {
+      "kind": "flow",
+      "title": "O8→O11: 과외 문의",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/tutoring",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/site.ts:111",
+        "apps/web/src/site/pages/Tutoring.tsx:184"
+      ],
+      "note": "갈래 \"과외 문의\": O8(partial)→O11(partial) 중 낮은 쪽. 신청 저장은 됨; 운영자가 보는 화면 없음(API만)"
     },
     "F10.6.O12": {
       "kind": "flow",
@@ -2521,10 +3148,23 @@
       ],
       "note": "Duo 좌석·할인 계산은 운영자 발급으로만"
     },
+    "F10.7.G-H": {
+      "kind": "flow",
+      "title": "G→H: 지우네와 Duo",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/family",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/seats.ts:310",
+        "packages/quota/src/duo.ts:1"
+      ],
+      "note": "갈래 \"지우네와 Duo\": G(partial)→H(partial) 중 낮은 쪽. Duo 좌석·할인 계산은 운영자 발급으로만"
+    },
     "F10.7.I": {
       "kind": "flow",
       "title": "민준의 월드",
-      "status": "done",
+      "status": "partial",
       "owner": "world",
       "route": "/world/?scene=build_plot",
       "e2e": {
@@ -2540,7 +3180,19 @@
       "evidence": [
         "apps/edge/src/plot.ts:215"
       ],
-      "note": "새 아이도 자기 땅에서 시작(게스트 보관함 이어받기는 미연결)"
+      "note": "Solo 결제는 운영자 수동 발급. 게스트 보관함 이어받기가 좌석에 연결되지 않음"
+    },
+    "F10.7.G-I": {
+      "kind": "flow",
+      "title": "G→I: Solo",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/plot.ts:215"
+      ],
+      "note": "갈래 \"Solo\": G(partial)→I(partial) 중 낮은 쪽. 구매 버튼·결제 없음"
     },
     "F10.7.J": {
       "kind": "flow",
@@ -2765,7 +3417,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [],
       "evidence": [
@@ -2784,7 +3439,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::after the lesson ends the report link and preview are shown"
@@ -2836,7 +3494,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/edge/src/__tests__/worker.test.ts::records cron runs so a keeper can detect silent failures"
@@ -3047,7 +3708,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [],
       "evidence": [
@@ -3169,7 +3833,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does",
@@ -3237,7 +3904,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters",
@@ -3364,7 +4034,7 @@
     "C01.4.Solo": {
       "kind": "promise",
       "title": "Solo (1좌석) · 14,900원 · 119,000원 · 9,917원 · 연 33% 할인",
-      "status": "done",
+      "status": "partial",
       "owner": "parent",
       "route": "/pricing",
       "e2e": {
@@ -3382,12 +4052,12 @@
         "apps/web/src/site/copy.ts:301",
         "packages/quota/src/duo.ts:9"
       ],
-      "note": "14,900·119,000·9,917원이 사이트와 좌석 화면·서버 가격표에 있음"
+      "note": "가격은 사이트·서버 가격표에 있음. 보호자가 스스로 사거나 해지하는 화면 없음(P07, 운영자 수동 발급)"
     },
     "C01.4.Duo": {
       "kind": "promise",
       "title": "Duo (2좌석) · 19,900원 · 159,000원 · 6,625원 · 월 결제도 좌석당 33% 할인, 연 결제는 56% 할인",
-      "status": "done",
+      "status": "partial",
       "owner": "parent",
       "route": "/pricing",
       "e2e": {
@@ -3404,7 +4074,7 @@
         "apps/web/src/site/copy.ts:310",
         "packages/quota/src/duo.ts:11"
       ],
-      "note": "19,900·159,000·6,625원이 사이트와 좌석 화면에 있음"
+      "note": "가격과 Duo 정산은 있음. 보호자가 스스로 사거나 해지하는 화면 없음(P07, 운영자 수동 발급)"
     },
     "C01.4.좌석_추가": {
       "kind": "promise",
@@ -3483,7 +4153,13 @@
         "expect": [
           "testid:seats-admin"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "text:확인함",
+          "notext:운영자 키를 먼저 넣어 주세요",
+          "notext:운영자 키가 맞지 않습니다",
+          "notext:불러오지 못했습니다"
+        ]
       },
       "tests": [
         "apps/edge/src/__tests__/seats.test.ts::Duo: one payer; one seat refunded → payer gets the difference, the other seat becomes Solo, other family sees no name or money",
@@ -3506,7 +4182,13 @@
         "expect": [
           "testid:seats-admin"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "text:확인함",
+          "notext:운영자 키를 먼저 넣어 주세요",
+          "notext:운영자 키가 맞지 않습니다",
+          "notext:불러오지 못했습니다"
+        ]
       },
       "tests": [
         "apps/edge/src/__tests__/seats.test.ts::Solo: manual issue at list price, one seat per child, 7-day full refund, then play stops",
@@ -3529,7 +4211,13 @@
         "expect": [
           "testid:seats-admin"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "text:확인함",
+          "notext:운영자 키를 먼저 넣어 주세요",
+          "notext:운영자 키가 맞지 않습니다",
+          "notext:불러오지 못했습니다"
+        ]
       },
       "tests": [
         "packages/quota/src/__tests__/duo.test.ts::refunds Duo minus Solo when one seat leaves within 7 days (monthly and yearly)",
@@ -3552,7 +4240,13 @@
         "expect": [
           "testid:seats-admin"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "text:확인함",
+          "notext:운영자 키를 먼저 넣어 주세요",
+          "notext:운영자 키가 맞지 않습니다",
+          "notext:불러오지 못했습니다"
+        ]
       },
       "tests": [
         "packages/quota/src/__tests__/duo.test.ts::never refunds more than was paid and requires exactly one payer_id",
@@ -3567,7 +4261,7 @@
     "C01.4.b6": {
       "kind": "promise",
       "title": "과외 패키지의 가격은 선생님이 정합니다. 이 플랫폼의 역할은 과외비 인상의 근거를 보여 주는 것입니다(`06`, `07`).",
-      "status": "done",
+      "status": "partial",
       "owner": "lesson",
       "route": "/tutoring",
       "e2e": {
@@ -3584,7 +4278,7 @@
         "apps/web/src/site/copy.ts:327",
         "apps/edge/src/app.ts:830"
       ],
-      "note": "과외비는 선생님이 정한다고 안내, 기여 근거는 수업 리포트 숫자로 제공"
+      "note": "과외비 근거 계산(computeTeacherContribution)은 /v1/lessons/:id/complete-and-send-report 에서만 쓰이고 이 경로를 화면이 부르지 않음. 실제 수업 리포트(lesson-mode.ts:715)에 14일 이전율·35일 유지율 없음"
     },
     "C01.5.창작_AI_호출": {
       "kind": "promise",
@@ -3835,7 +4529,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "packages/metrics/src/__tests__/metrics.test.ts::computes lesson talk ratio, long silence minutes, and anchor task delta",
@@ -4132,7 +4829,10 @@
         "expect": [
           "text:선생님 열쇠"
         ],
-        "auth": "operator"
+        "auth": "operator",
+        "authExpect": [
+          "testid:director-plan || testid:director-live"
+        ]
       },
       "tests": [
         "apps/edge/src/__tests__/lesson-window.test.ts::live lesson: text status (schema-valid), density band, captions from both sides; listen-only audio contract",
@@ -4306,6 +5006,1244 @@
         "apps/edge/wrangler.toml:1"
       ],
       "note": "수업 감시 도구가 Worker tail 만 읽음, 클라이언트 오류 수집 엔드포인트와 Workers Logs 설정 없음"
+    },
+    "WP-001": {
+      "kind": "wp",
+      "title": "모노레포 구성(`02`의 7장), 형식 검사, 단위 시험, CI — 수용 기준: `pnpm test`와 `pnpm lint`가 빈 저장소에서 통과",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [],
+      "evidence": [
+        "package.json:8",
+        "tools/ci-workflow.yml:3"
+      ],
+      "note": "모노레포·pnpm test(vitest)·pnpm lint(lint-invariants) 는 로컬 통과. CI 없음(tools/ci-workflow.yml 은 .github 밖 사본, GitHub Actions 비용 문제로 안 씀) · \"빈 저장소에서 통과\"를 확인하는 시험 없음"
+    },
+    "WP-002": {
+      "kind": "wp",
+      "title": "`packages/schemas`: 명세·메시지·이벤트 스키마 — 수용 기준: `04`와 `05`의 JSON 예시가 모두 스키마를 통과",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "packages/schemas/src/__tests__/schemas.test.ts::validates all conversation JSON examples from docs/04 4.5",
+        "packages/schemas/src/__tests__/schemas.test.ts::validates both ItemSpec v2 examples from docs/05 1.1 and rejects unknown fields"
+      ],
+      "evidence": [
+        "packages/schemas/src/converse.ts:4",
+        "apps/edge/src/app.ts:241"
+      ],
+      "note": "04 4.5 대화 JSON·05 1.1 ItemSpec v2 예시가 스키마 통과, 같은 스키마로 edge 가 요청 검증(safeParse). 예시는 시험 안에 복사본(문서를 직접 읽지 않음) · 운영 화면에서 확인할 주소가 없어(도구·서버만) done 이 아니라 partial"
+    },
+    "WP-003": {
+      "kind": "wp",
+      "title": "Edge 앱: 정적 자산 제공, 상태 확인 API, D1 이관 스크립트 — 수용 기준: `02`의 9.1 SQL이 그대로 적용됨",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::boots the platform schema on DO SQLite and reports health without auth",
+        "apps/edge/src/__tests__/worker.test.ts::routes /v1 and /health to the platform DO and everything else to static assets"
+      ],
+      "evidence": [
+        "apps/edge/src/platform.ts:550",
+        "apps/edge/migrations/0001_init.sql:3"
+      ],
+      "note": "Workers 정적 자산·/health 는 동작. D1 이 아니라 DO SQLite(platform.ts·storage.ts 내장 스키마)를 씀 · migrations/0001_init.sql 은 02 9.1 표 22개+2개지만 코드·시험 어디서도 적용하지 않음(9.1 SQL \"그대로 적용\" 시험 없음)"
+    },
+    "WP-004": {
+      "kind": "wp",
+      "title": "클라이언트 껍데기: 캔버스, 평평한 땅, 1인칭 이동, HUD 틀 — 수용 기준: 미리보기 주소에서 30fps 이상으로 걷기",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "tests": [
+        "apps/client/src/world/__tests__/look.test.ts::a 60 fps tier still treats anything under 30 fps as too slow",
+        "apps/client/src/world/__tests__/world.test.ts::falls under gravity and lands on the floor"
+      ],
+      "evidence": [
+        "apps/client/src/world/engine.ts:129",
+        "apps/client/src/App.tsx:421"
+      ],
+      "note": "캔버스·마을 지형·1인칭/3인칭 이동·HUD 틀은 /world/ 에서 동작. 30fps 를 단언하는 시험 없음 — tools/world-shots.mjs 실측(shots/world/report.json, 헤드리스 mid)은 20~32fps 로 여러 장면이 30 미만"
+    },
+    "WP-005": {
+      "kind": "wp",
+      "title": "`packages/ui`: 토큰(`08`의 2~5장), 버튼·카드·패널 — 수용 기준: 대비 검사 스크립트 통과",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "packages/ui/src/__tests__/ui.test.ts::passes all 26 WCAG contrast pairs and rejects the 2 forbidden pairs from docs/08 2.2"
+      ],
+      "evidence": [
+        "packages/ui/src/contrast.ts:8",
+        "packages/ui/src/tokens.ts:1"
+      ],
+      "note": "토큰·버튼·카드·패널이 @lcw/ui 에 있고 client·web 전 화면이 씀. 대비 검사(26쌍 통과·금지 2쌍 거절)가 pnpm test 에 있음 · 운영 화면에서 확인할 주소가 없어(도구·서버만) done 이 아니라 partial"
+    },
+    "WP-101": {
+      "kind": "wp",
+      "title": "`sim-core`: 큐빅 청크, 팔레트 압축, 그리디 메싱(Worker) — 수용 기준: 청크 1개 메싱 4ms 이하(보통 등급 기기)",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-101 & WP-208: meshes a populated chunk in <4ms and propagates torch light in <8ms",
+        "apps/client/src/world/__tests__/world.test.ts::merges a flat floor into one quad per exposed face and culls hidden faces"
+      ],
+      "evidence": [
+        "packages/sim-core/src/chunk.ts:24",
+        "apps/client/src/world/engine.ts:233"
+      ],
+      "note": "팔레트 압축 큐빅 청크(sim-core)·Worker 메싱(client mesher.ts)은 실경로. 4ms 시험은 실경로가 안 쓰는 sim-core greedyMeshChunk 를 개발 PC 에서 잰 것 — 실제 mesher.ts 의 청크당 시간·보통 등급 기기 측정 없음"
+    },
+    "WP-102": {
+      "kind": "wp",
+      "title": "중앙 광장과 런던 섹터 1개를 손으로 만든 프리팹으로 배치 — 수용 기준: 스폰에서 카페까지 도로로 이동",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/world.test.ts::keeps the auto-walk paths from the plaza walkable (no wall taller than a step)",
+        "apps/client/src/world/__tests__/world.test.ts::walks scene to scene the same way as before when starting on a scene spot"
+      ],
+      "evidence": [
+        "packages/sim-core/src/town.ts:732",
+        "apps/client/src/world/town.ts:146"
+      ],
+      "note": "손으로 지은 마을(광장·꿀 카페·상점·부지·언덕 5장면)에서 광장→카페 길이 걸어서 이어짐(계단 1칸 이하 시험). 런던 테마 섹터는 아님 — sim-core 의 london_demo 배치는 클라이언트가 안 씀"
+    },
+    "WP-103": {
+      "kind": "wp",
+      "title": "캐릭터(`08`의 6.2), 3인칭·거울 뷰, 소켓 — 수용 기준: `F5`, `Tab` 동작, 장비가 소켓에 붙음",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "tests": [
+        "apps/client/src/world/__tests__/dialog-shot.test.ts::starts in first person; F5 swaps to third person and back; Tab is the mirror and returns",
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-103 & WP-104: toggles F5/Tab cameras, attaches sockets, and decays gauges at D1 rates"
+      ],
+      "evidence": [
+        "apps/client/src/world/engine.ts:506",
+        "packages/sim-core/src/player-and-gauges.ts:92"
+      ],
+      "note": "F5(3인칭)·Tab(거울) 은 3D 월드에서 동작. 장비를 캐릭터 소켓에 붙이는 것은 sim-core equipToSocket 함수뿐(character.ts 에 소켓 없음), 거울 뷰 장비 목록 화면 없음"
+    },
+    "WP-104": {
+      "kind": "wp",
+      "title": "게이지(배고픔, 목마름), 5칸 슬롯, 사용 — 수용 기준: `03`의 D1 표의 속도로 감소, 20% 이하 감속",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-103 & WP-104: toggles F5/Tab cameras, attaches sockets, and decays gauges at D1 rates",
+        "packages/sim-core/src/__tests__/plot.test.ts::starts with five carried stacks and a stocked chest including furniture"
+      ],
+      "evidence": [
+        "packages/sim-core/src/player-and-gauges.ts:96",
+        "packages/sim-core/src/plot.ts:27"
+      ],
+      "note": "배고픔·목마름 게이지는 sim-core stepGauges 함수뿐, 월드·HUD 에 없음(감속도 없음). 5칸 슬롯은 건축 재료 가방으로만 있음"
+    },
+    "WP-105": {
+      "kind": "wp",
+      "title": "`converse`: 상태 기계(`04`의 4.1), 정규화, 의도·슬롯 파서 — 수용 기준: 상태 전이 단위 시험, 혼용 발화 20개 정규화",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "packages/converse/src/__tests__/converse.test.ts::WP-105: normalizes 20 mixed Korean-English utterances",
+        "apps/client/src/__tests__/dialog.test.tsx::shows Korean-mixed speech converted to English (docs/04 4.4) and colours heard words"
+      ],
+      "evidence": [
+        "packages/converse/src/normalizer.ts:56",
+        "apps/client/src/dialog/hints.ts:12"
+      ],
+      "note": "혼용 발화 20개 정규화·의도/슬롯 파서는 대화창·edge 실경로에서 씀. 상태 전이 시험은 ConversationMachine 클래스 대상인데 대화창은 이 클래스를 안 쓰고 자체 흐름(ECHO 2회 실패 등은 edge 가 판정)"
+    },
+    "WP-106": {
+      "kind": "wp",
+      "title": "음성 입력: 기기 내 인식 → Workers AI → 조합판 순서의 폴백 — 수용 기준: 마이크 없는 환경에서 조합판만으로 주문 완료",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/dialog.test.tsx::a phone without speech recognition opens on the word cards with a warm notice",
+        "apps/client/src/__tests__/server-stt.test.ts::a bank-only day (429) closes the server rung: the panel gets \"unsupported\" and goes to the word cards"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/DialogPanel.tsx:22",
+        "apps/client/src/dialog/server-stt.ts:102"
+      ],
+      "note": "브라우저 인식 → 서버 Whisper → 단어 카드(조합판) 순서 동작, 마이크 없이 단어 카드로 주문 완료 가능(kakao-ladder 실측). 기기 내 WebGPU Whisper 는 경로 선택 함수만"
+    },
+    "WP-107": {
+      "kind": "wp",
+      "title": "문장 뱅크(카페 맥락, L1~L3)와 조회 — 수용 기준: 뱅크만으로 음료 12종 × 수식 6종 응답",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "packages/content/src/__tests__/content.test.ts::resolves all 12 drinks x 6 modifiers = 72 combinations across L1..L3 from the phrase bank (WP-107)",
+        "apps/client/src/__tests__/dialog.test.tsx::every 12 x 6 request answers with a natural sentence set"
+      ],
+      "evidence": [
+        "packages/content/src/lang-en-ko.ts:166"
+      ],
+      "note": "카페 L1~L3 뱅크로 음료 12×수식 6 응답, 대화창이 NPC 별 뱅크 제안을 띄움"
+    },
+    "WP-108": {
+      "kind": "wp",
+      "title": "채점(`04`의 4.6), 보상, 장부 — 수용 기준: 같은 입력에 같은 점수, 장부 합과 잔액 일치, 핵심 문형(0.45)을 빼고 내용어만 말한 3성 문장은 통과하지 못함",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/converse-score.test.ts::same input gives the same score, and ledger sum equals balance over many orders",
+        "apps/edge/src/__tests__/converse-score.test.ts::a 3-star target said without its connector does not pass and costs nothing, whatever the client sends"
+      ],
+      "evidence": [
+        "apps/edge/src/app.ts:239",
+        "packages/converse/src/scoring.ts:193"
+      ],
+      "note": "서버 채점(/v1/converse/score)·보상·장부가 실경로. 같은 입력 같은 점수, 장부 합=잔액, 핵심 문형 없는 3성은 불통과 시험 있음"
+    },
+    "WP-109": {
+      "kind": "wp",
+      "title": "대화창 UI(`08`의 8.2), 조합판, 힌트 꼬리표 — 수용 기준: 150% 글자에서도 한 화면",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/client.test.ts::fits dialog layout within 720px at 150% font scale and excludes pricing/payment copy on child HUD (WP-109)",
+        "apps/client/src/__tests__/dialog.test.tsx::keeps sizes in the font-scale variable so 150% scales everything (docs/08: one screen at 150%)"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/DialogPanel.tsx:113",
+        "apps/client/src/dialog/styles.ts:5"
+      ],
+      "note": "대화창·단어 카드·힌트 단계가 동작. 150% 한 화면은 계산·CSS 변수 시험 + 스크린샷(shots/dialog/02-*-fs150) — 실제 브라우저 레이아웃을 재는 자동 시험은 없음"
+    },
+    "WP-110": {
+      "kind": "wp",
+      "title": "`audio`: 버스, 덕킹, 마이크 순서, 임시 효과음 — 수용 기준: `12`의 자동 시험 4종",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "packages/audio/src/__tests__/audio.test.ts::ducking: overlapping reasons apply only the deepest cut per bus, and every bus returns when all end",
+        "packages/audio/src/__tests__/audio.test.ts::mic order: no recording before the NPC voice ends; then 150 ms, the cue, and recording after the cue"
+      ],
+      "evidence": [
+        "packages/audio/src/index.ts:287",
+        "apps/client/src/audio/runtime.ts:82"
+      ],
+      "note": "버스·덕킹·마이크 순서·폭발 병합·임시 효과음이 월드 런타임에 연결, 12 의 자동 시험 4종(덕킹·상한·폭발·마이크 순서) 통과"
+    },
+    "WP-111": {
+      "kind": "wp",
+      "title": "1분 심부름, 첫 접속 안내 — 수용 기준: 봇이 스폰부터 첫 주문 완료까지 3분 이내",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "packages/bots/src/__tests__/bots.test.ts::completes full golden path end-to-end with spawn-to-order < 3 minutes (3600 ticks)",
+        "apps/client/src/__tests__/errand.test.tsx::Mia asks -> accept -> the cafe sells only the cold water -> hand it over -> done with +50"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/FirstVisitGuide.tsx:39",
+        "apps/edge/src/errand.ts:6"
+      ],
+      "note": "첫 접속 안내·미아 심부름이 실경로. pnpm test 의 3분 봇은 sim 봇(packages/bots) — 실제 월드는 tools/errand-bot.mjs 수동 실측(스폰→첫 주문 39.7s/17.9s). 기기 연결 아이만 첫 주문 안내"
+    },
+    "WP-112": {
+      "kind": "wp",
+      "title": "`quota`: 한도 계기와 강등 사다리 — 수용 기준: 한도 0으로 두어도 주문이 뱅크로 완료",
+      "status": "done",
+      "owner": "ops",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/quota-ladder.test.ts::bank only at limit 0: the solo order is scored, charged and granted; understand answers from the bank; no AI call",
+        "packages/quota/src/__tests__/quota.test.ts::transitions cleanly across degradation stages 0..4 and prioritizes lessons"
+      ],
+      "evidence": [
+        "apps/edge/src/quota.ts:71",
+        "packages/quota/src/index.ts:33"
+      ],
+      "note": "한도 계기·0~4단계 강등이 서버 호출 앞에 있고 한도 0 에서 주문이 뱅크로 완료(shots/dialog/quota0-errand-report 실측). 운영 LLM 은 꺼져 있어 늘 뱅크"
+    },
+    "WP-201": {
+      "kind": "wp",
+      "title": "블록 놓기·부수기(`03`의 D13 조작 표), 윤곽선, 회수 — 수용 기준: 한 입력에 한 칸, 초당 4칸 상한",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/build.test.ts::places and breaks one block per input through setBlock, remeshes it, and undoes the last 20",
+        "apps/client/src/world/__tests__/build.test.ts::paces a flood of taps like the server (D13 4 a second) instead of letting the server refuse them"
+      ],
+      "evidence": [
+        "apps/client/src/world/build.ts:94",
+        "packages/sim-core/src/plot.ts:222"
+      ],
+      "note": "내 부지에서 한 입력 한 칸 놓기·부수기, 빨간 윤곽선+사유, 100% 회수, 초당 4칸(클라·서버) 동작. R 회전·Z 회수 조작은 없음(G05)"
+    },
+    "WP-202": {
+      "kind": "wp",
+      "title": "구역 판정과 `setBlock` 단일 입구, 직접 쓰기 금지 린트 — 수용 기준: 청크 배열을 직접 쓰는 코드가 있으면 CI 실패",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-201 & WP-202: enforces 4 blocks/sec, Z undo, and lint fails on direct chunk writes",
+        "apps/client/src/world/__tests__/world.test.ts::places blocks only through the setter and is deterministic"
+      ],
+      "evidence": [
+        "packages/sim-core/src/world.ts:97",
+        "tools/lint-invariants.mjs:25"
+      ],
+      "note": "구역 판정·setBlock 단일 입구가 클라·서버 실경로, 직접 쓰기 린트가 pnpm lint 에서 실패시킴. CI 가 없어 \"CI 실패\"는 로컬 린트로만 성립"
+    },
+    "WP-203": {
+      "kind": "wp",
+      "title": "`packages/destruction`: 참조 커널 이식(`13`, `17`) — 수용 기준: 시나리오 16개 통과, 결함 주입 4종 검출, 무작위 24시드 × 1,000행동 통과",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/destruction/src/__tests__/destruction.test.ts::detects all 4 fault-injection mutants (mutants.mjs)",
+        "packages/destruction/src/__tests__/destruction.test.ts::passes 24 seeds x 1000 random actions with determinism and clean rewind (WP-203 & WP-204)"
+      ],
+      "evidence": [
+        "packages/destruction/src/kernel.ts:64"
+      ],
+      "note": "참조 커널 이식과 시나리오 16·결함 주입 4·24시드×1000 시험 통과. 그러나 @lcw/destruction 을 어느 앱도 import 하지 않음(월드에 폭발 없음)"
+    },
+    "WP-204": {
+      "kind": "wp",
+      "title": "임시층 복구, 저널, 스냅샷, 되감기 — 수용 기준: 되감기 후 월드 해시가 스냅샷과 일치",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/destruction/src/__tests__/destruction.test.ts::supports snapshots, rewind, and visitor-specific edit rollback (WP-204)",
+        "apps/edge/src/__tests__/edge.test.ts::enters Safe Mode after 2 consecutive load failures and rewinds cleanly to R2 snapshot"
+      ],
+      "evidence": [
+        "packages/destruction/src/kernel.ts:164",
+        "apps/edge/src/storage.ts:1125"
+      ],
+      "note": "임시층·스냅샷·되감기는 destruction 커널과 storage.rewindToSnapshot(/v1/worlds 경로, 클라이언트 미사용)뿐. 실제 건축 경로(plot)는 저널만 있고 스냅샷·되감기 없음"
+    },
+    "WP-205": {
+      "kind": "wp",
+      "title": "`WorldDO`: 월드 저장(델타), 불변식 점검, 안전 모드 — 수용 기준: 저장 도중 강제 중단해도 이전 상태 유지",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/plot.test.ts::a write that fails mid-transaction leaves neither disk nor memory changed",
+        "apps/edge/src/__tests__/edge.test.ts::rolls back atomic WorldDO chunk save cleanly on simulated mid-tx failure (WP-205)"
+      ],
+      "evidence": [
+        "apps/edge/src/plot.ts:36",
+        "apps/edge/src/platform.ts:698"
+      ],
+      "note": "부지 저장(델타+저널, 트랜잭션)이 실경로이고 중간 실패 시 이전 상태 유지 시험 있음. 독립 WorldDO 가 아니라 PlatformDO 안의 표, 안전 모드는 /v1/worlds 경로(storage)에만"
+    },
+    "WP-206": {
+      "kind": "wp",
+      "title": "다이너마이트, 물폭탄, 로켓 아이템과 효과(`08`의 6.5, `12`의 6장) — 수용 기준: 화면 파편·소리 상한 준수",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/audio/src/__tests__/audio.test.ts::explosions: 20 within 100 ms play once (+3 dB at most); at most 3 explosion sounds at a time",
+        "packages/destruction/src/__tests__/destruction.test.ts::T03: 512 dynamite chain respects pending queue cap and drains completely"
+      ],
+      "evidence": [
+        "apps/client/src/world/blocks.ts:44",
+        "packages/audio/src/index.ts:287"
+      ],
+      "note": "폭발 소리 병합·상한 규칙과 커널 시나리오만. 다이너마이트는 블록 텍스처뿐이고 물폭탄·로켓 아이템·폭발 효과·화면 파편이 월드에 없음"
+    },
+    "WP-207": {
+      "kind": "wp",
+      "title": "내 부지, 보관 상자, 블록 팔레트 1차(40종) — 수용 기준: 새로고침 뒤 건축물 유지",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/build.test.ts::a server snapshot puts the plot back exactly (town + saved delta), furniture and bag included",
+        "apps/edge/src/__tests__/plot.test.ts::starts from the town plot with the starter bag, saves only what changed, and survives a restart"
+      ],
+      "evidence": [
+        "packages/sim-core/src/plot.ts:32",
+        "apps/client/src/world/plot-sync.ts:13"
+      ],
+      "note": "내 부지·보관 상자·40종 팔레트, 서버 저장 후 새로고침해도 건축물 유지. 상자 격자 화면은 없음(G03)"
+    },
+    "WP-208": {
+      "kind": "wp",
+      "title": "블록 광원과 조명 전파 — 수용 기준: 횃불 1개 설치 시 갱신 8ms 이하",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-101 & WP-208: meshes a populated chunk in <4ms and propagates torch light in <8ms",
+        "packages/sim-core/src/__tests__/town-steps.test.ts::setBlock keeps the light registry exact and the zones for players"
+      ],
+      "evidence": [
+        "packages/sim-core/src/chunk.ts:282",
+        "apps/client/src/world/blocks.ts:29"
+      ],
+      "note": "광원 BFS 전파는 sim-core 함수(개발 PC 8ms 시험)뿐. 3D 월드는 propagateBlockLight 를 안 쓰고 발광 블록 색조만, 횃불 설치 시 조명 갱신 없음"
+    },
+    "WP-301": {
+      "kind": "wp",
+      "title": "가족 계정, 아이 프로필, 동의 4종, 기기 연결 코드 — 수용 기준: 동의 없이는 음성이 저장되지 않음",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::voice is stored only while voice_store is on, and revoking strips it (AGENTS 4.5)",
+        "apps/edge/src/__tests__/parent.test.ts::guardian creates a child profile and links a device with a one-time 6-digit code"
+      ],
+      "evidence": [
+        "apps/edge/src/family.ts:391",
+        "apps/edge/src/voice.ts:7"
+      ],
+      "note": "가족 계정(교사 초대 링크)·아이 프로필·동의 4종+·6자리 기기 연결이 /family·/link 에서 동작, 동의 없이는 음성 미저장. OAuth·자가 가입 없음"
+    },
+    "WP-302": {
+      "kind": "wp",
+      "title": "발화 기록과 모드 분류(`04`의 4.9), 열린 질문(4.10) — 수용 기준: 모드별 저장 단위 시험",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "tests": [
+        "packages/converse/src/__tests__/converse.test.ts::WP-302, WP-410, WP-502, WP-508: classifies modes, adjusts levels, matches voice skills <400ms, and filters bubbles",
+        "packages/metrics/src/__tests__/dashboard.test.ts::weekly numbers: free words, speech rate, median response, connectors; low confidence excluded; lesson vs solo modes"
+      ],
+      "evidence": [
+        "apps/edge/src/app.ts:363",
+        "packages/converse/src/modes-and-levels.ts:23"
+      ],
+      "note": "발화는 mode 와 함께 utterances 표에 저장(요청·수업 단계가 정함). 4.9 자동 분류(classifyUtteranceMode)와 4.10 열린 질문 자동 트리거는 함수뿐 실경로 미사용, 모드별 저장 단위 시험 없음"
+    },
+    "WP-303": {
+      "kind": "wp",
+      "title": "`packages/metrics`: 지표 전부(`07`의 2장) — 수용 기준: 고정 입력에 대한 기대값 시험, 표본 부족 처리, 레벨이 올라 문장이 길어져도 단어당 준비 시간이 같으면 생각말하기 지수의 반응 시간 항목이 내려가지 않음, 양만 늘어난 ",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/metrics.test.ts::returns insufficient_sample when fewer than 30 free utterances exist",
+        "packages/metrics/src/__tests__/metrics.test.ts::does not lower the prep-time term when sentences get longer at the same per-word latency (L1 -> L3)"
+      ],
+      "evidence": [
+        "packages/metrics/src/index.ts:410",
+        "apps/edge/src/dashboard.ts:6"
+      ],
+      "note": "지표 전부가 보호자 대시보드 실경로에 쓰임. 고정 입력 기대값·표본 부족·단어당 준비 시간·양만 는 아이 지수 100(growth-12w) 시험 있음"
+    },
+    "WP-304": {
+      "kind": "wp",
+      "title": "`LessonDO`: 수업 시작·종료, 분 단위 집계, 핀 3종 — 수용 기준: 120분 모의 수업의 집계가 입력과 일치. 교사 단축키 F1(코칭)·F2(새 표현)는 시각만 저장하고 `extractBookmarkWindows`가 앞뒤 30초 전사문과 ",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "tests": [
+        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report",
+        "packages/metrics/src/__tests__/bookmarks.test.ts::cuts a 30 second window each side and returns lines in order"
+      ],
+      "evidence": [
+        "apps/edge/src/storage.ts:1286",
+        "apps/edge/src/lesson-mode.ts:7"
+      ],
+      "note": "수업 시작·종료·분 단위 집계·핀 3종(expression/coaching/highlight)·F1/F2 앞뒤 30초 창이 실경로. 120분 모의 수업 집계 시험 없음(3분 수업으로만), LessonDO 는 별도 DO 가 아닌 PlatformDO 안 클래스"
+    },
+    "WP-305": {
+      "kind": "wp",
+      "title": "2인 동행(교사 + 학생)과 디렉터 콘솔(`06`의 3장) — 수용 기준: 빙의, 이벤트 6종, 진행표. 빙의 중 교사 아바타는 벤치에서 지도를 읽는 대기 자세, 빙의된 NPC에만 반짝임(`10`의 2장)",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "tests": [
+        "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does",
+        "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API"
+      ],
+      "evidence": [
+        "apps/web/src/DirectorLive.tsx:3",
+        "apps/client/src/world/engine.ts:341"
+      ],
+      "note": "디렉터 콘솔 빙의·이벤트 6종·진행표가 학생 3D 월드에 반영, 빙의 NPC 반짝임 있음. 교사 아바타(벤치에서 지도 읽기)는 미연결 프로토타입(WebUx resolvePossessionLook)뿐, 교사가 월드에 같이 있는 2인 동행 없음"
+    },
+    "WP-306": {
+      "kind": "wp",
+      "title": "음성 감지와 대화 밀도, 수업 녹음, 클립 자르기 — 수용 기준: 채널별 발화 시간 오차 5% 이내(합성 음성 시험)",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/window",
+      "tests": [
+        "apps/edge/src/__tests__/lesson-window.test.ts::live lesson: text status (schema-valid), density band, captions from both sides; listen-only audio contract",
+        "apps/edge/src/__tests__/voice.test.ts::a speech turn with consent uploads once; non-audio, oversize and replays are refused"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:42",
+        "apps/edge/src/lesson-window.ts:160"
+      ],
+      "note": "대화 밀도는 학생 발화 길이 + 교사 줄 단어 수×상수 추정. 채널별 음성 감지·수업 전체 녹음·클립 자르기 없음(발화별 클립만), 5% 오차 합성 음성 시험 없음"
+    },
+    "WP-307": {
+      "kind": "wp",
+      "title": "수업 창문(`06`의 5장): 청취 전용 연결, 밀도 띠, 자막 — 수용 기준: 보호자 마이크가 연결되지 않음. 맨 위 한 줄 상태바(위치·상황·목표 문장)와 장면 아이콘이 10초마다 글 신호만으로 갱신됨(`LessonWindowStatus`). 실시",
+      "status": "done",
+      "owner": "parent",
+      "route": "/window",
+      "e2e": {
+        "route": "/window",
+        "expect": [
+          "testid:lesson-window-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson-window-page.test.ts::live: status bar with place · situation, goal sentence, density band, captions, listen-only note — no media elements",
+        "apps/edge/src/__tests__/lesson-audio.test.ts::listener: anything that would send (or no direction = sendrecv) is refused"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-window.ts:8",
+        "apps/edge/src/lesson-audio.ts:23"
+      ],
+      "note": "수업 창문: 글 신호 상태바·밀도 띠·자막·Realtime SFU recvonly 듣기(보내는 답 거절), 보호자 마이크 미연결. SFU 비밀 없으면 텍스트만"
+    },
+    "WP-308": {
+      "kind": "wp",
+      "title": "수업 리포트(`06`의 6장)와 공유 링크 — 수용 기준: 본문 숫자가 사실표와 다르면 틀 문장으로 대체",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/r/<token>",
+      "tests": [
+        "packages/metrics/src/__tests__/metrics.test.ts::replaces report body if numbers are fabricated or causal claims appear (WP-308)",
+        "apps/web/src/__tests__/parent-report.test.ts::quotes first in the target-language font, stars as shapes + text, the numbers exactly as the fact sheet"
+      ],
+      "evidence": [
+        "packages/metrics/src/index.ts:640",
+        "apps/edge/src/app.ts:872"
+      ],
+      "note": "수업 종료 → 사실표 검증 리포트(verifyOrReplaceReportBody)·공유 링크 /r/<토큰> 실경로. 생성 후 한마디 수정·발송 버튼 없음(링크 복사) · 운영 화면에서 확인할 주소가 없어(도구·서버만) done 이 아니라 partial"
+    },
+    "WP-309": {
+      "kind": "wp",
+      "title": "학부모 대시보드 홈·성장·수업(`07`의 4장, `08`의 9장) — 수용 기준: 그래프마다 표 보기 제공. 12주 합성 아이(계산·실제 경로·화면 세 층)의 곡선이 보낸 발화의 단순 합산과 같음(`07`의 7장)",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/dashboard.test.ts::every graph has a table view (7 graphs → 7 tables when tables are on)",
+        "apps/edge/src/__tests__/growth-12w-e2e.test.ts::every curve is the plain sum over what was sent: weekly amounts, cumulative lines, calendar, lesson ticks"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:2",
+        "apps/edge/src/family.ts:423"
+      ],
+      "note": "홈·성장·수업 목록, 그래프마다 표 보기, 12주 합성 아이 계산·실경로·화면 세 층 시험 있음. 07 4.3 수업 상세(표현의 여정) 없음"
+    },
+    "WP-310": {
+      "kind": "wp",
+      "title": "복습 20분·1일과 수업 유래 표현 추적 — 수용 기준: 전이율 계산 단위 시험",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/review.test.ts::the sign appears at 20 minutes with the full sentence and voice, then at 1 day without voice",
+        "packages/metrics/src/__tests__/metrics.test.ts::calculates teacher contribution rates: 14-day solo transfer and 35-day retention"
+      ],
+      "evidence": [
+        "apps/edge/src/review.ts:30",
+        "packages/metrics/src/index.ts:11"
+      ],
+      "note": "20분·1일 복습 징후와 수업 유래 표현 카드가 월드 실경로, 전이율 계산 단위 시험 있음. 리포트엔 전이율 비율이 아니라 다시 쓴 표현 개수만"
+    },
+    "WP-311": {
+      "kind": "wp",
+      "title": "멘토 던전 1종(정보 격차), 봉인 상자, 즉석 제작권(기성품 범위) — 수용 기준: 두 사람이 말하지 않으면 못 여는 문",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/world/?code=",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-311, WP-410, WP-509: verifies bilateral trade settlement, mentor dungeon gate, level ladder, and 7-stage continuous lesson tracker"
+      ],
+      "evidence": [
+        "packages/sim-core/src/domains.ts:486",
+        "apps/client/src/world/engine.ts:1501"
+      ],
+      "note": "정보 격차 문(두 사람 발화)은 sim-core evaluateMentorDungeonGate 함수뿐, 월드는 멘토 던전 이벤트 반짝임·효과음만. 봉인 상자·즉석 제작권 없음"
+    },
+    "WP-401": {
+      "kind": "wp",
+      "title": "월드젠(`03`의 3.3): 섹터 배치 제약, 지형, 도로, 프리팹, 지하 — 수용 기준: 시드 100개에서 필수 서비스 4종 존재, 두 기기 해시 일치",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-401: generates 100 deterministic seeds with all 4 required services and identical hashes"
+      ],
+      "evidence": [
+        "packages/sim-core/src/worldgen.ts:102",
+        "apps/edge/src/storage.ts:18"
+      ],
+      "note": "시드 100개·필수 서비스 4종·해시 일치는 sim-core 시험 통과. 288m 시드 배치는 서버 저장에만 쓰이고 화면은 손으로 지은 마을 하나, 두 기기 해시 비교 경로 없음"
+    },
+    "WP-402": {
+      "kind": "wp",
+      "title": "바이옴 팩 6종과 기후 게이지 — 수용 기준: 경계를 넘으면 게이지 규칙 전환",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/schemas/src/__tests__/schemas.test.ts::validates the biome manifest JSON example from docs/03 3.4",
+        "packages/content/src/__tests__/content.test.ts::provides 12 biome packs, 40+ blocks, 120+ parts, 44 ability tags, 80 furniture items, and 12 residents"
+      ],
+      "evidence": [
+        "packages/content/src/registries.ts:22",
+        "packages/sim-core/src/worldgen.ts:69"
+      ],
+      "note": "바이옴 매니페스트 데이터만. 기후 게이지·경계에서 규칙 전환 없음(게이지 자체가 없음)"
+    },
+    "WP-403": {
+      "kind": "wp",
+      "title": "부티크, 제작소, 환전소와 뱅크 — 수용 기준: 맥락별 뱅크 적중 시험",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/?scene=trade_shop",
+      "tests": [
+        "packages/content/src/__tests__/content.test.ts::hits the bank for all 4 essential shop contexts (WP-403)"
+      ],
+      "evidence": [
+        "packages/content/src/lang-en-ko.ts:326",
+        "apps/client/src/world/api.ts:7"
+      ],
+      "note": "부티크·제작소·환전소 뱅크 맥락 적중 시험은 있으나 월드에는 꿀 카페·물물교환 상점만. 부티크·제작소·환전소 건물·NPC 없음"
+    },
+    "WP-404": {
+      "kind": "wp",
+      "title": "채굴, 광물표, 도구 등급, 시세 — 수용 기준: `03`의 D2 표와 일치",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+      ],
+      "evidence": [
+        "packages/sim-core/src/domains.ts:68"
+      ],
+      "note": "채굴·광물표·도구 등급은 sim-core 함수(D2 표 시험)뿐, 월드에 채굴·시세 화면 없음"
+    },
+    "WP-405": {
+      "kind": "wp",
+      "title": "경제: 가격식, 별 할인, 힌트 보너스, 밸런서 — 수용 기준: 봇 1시간 플레이의 수입·지출이 목표 범위. 시세 지수는 월드별 수입·지출로만 계산(다른 월드의 수입 변화가 영향 0). 소리 내어 읽기 할인은 가구 종류당 하루 1회. 드릴·다이너마이트",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/?scene=honey_cafe",
+      "tests": [
+        "apps/edge/src/__tests__/economy.test.ts::another world's income changing has zero effect (fault check: a server-wide sum would move it)",
+        "apps/edge/src/__tests__/furniture.test.ts::reading the sentence gives 10% once; reading again the same day gives nothing; another kind is separate"
+      ],
+      "evidence": [
+        "apps/edge/src/economy.ts:1",
+        "apps/edge/src/furniture.ts:8"
+      ],
+      "note": "별 할인 가격·월드별 주간 시세 지수·소리 내어 읽기 할인(종류당 하루 1회)은 실경로. 봇 1시간 수입·지출 목표 범위 시험 없음, 드릴·다이너마이트 별도 SKU 는 sim-core 함수뿐, 밸런서 없음"
+    },
+    "WP-406": {
+      "kind": "wp",
+      "title": "복습 전 구간과 힌트 페이드, 수리소, 마스터 도안 — 수용 기준: 시간 가속 시험으로 35일 경로 통과. 징후는 장착·최근 사용 장비 우선 3건, 창고 장비는 수리소에서 고를 때만",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "tests": [
+        "apps/edge/src/__tests__/review.test.ts::time-accelerated: passing every due review reaches the master blueprint after 35 days; the bonus is paid once into the ledger",
+        "apps/edge/src/__tests__/review.test.ts::picks equipped and recently used cards by 10 + days overdue; chest gear gets no sign"
+      ],
+      "evidence": [
+        "apps/edge/src/review.ts:16",
+        "apps/client/src/dialog/ReviewDock.tsx:78"
+      ],
+      "note": "35일 시간 가속 경로·장착/최근 장비 우선 3건·힌트 페이드는 실경로 시험 통과. 수리소 건물·수리 화면 없음, 마스터 도안은 코인 보너스뿐 아이템 없음"
+    },
+    "WP-407": {
+      "kind": "wp",
+      "title": "직업(면접, 출근, 승진), 고객 응대 — 수용 기준: 소유자 접속 중에만 시간 진행",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+      ],
+      "evidence": [
+        "packages/sim-core/src/domains.ts:271"
+      ],
+      "note": "직업(면접·출근·승진)·소유자 접속 중 시간 진행은 sim-core tickCareerClock 함수뿐, 화면 없음"
+    },
+    "WP-408": {
+      "kind": "wp",
+      "title": "대소동과 법정, 재범 누진 — 수용 기준: 판결 표와 일치",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+      ],
+      "evidence": [
+        "packages/sim-core/src/domains.ts:277"
+      ],
+      "note": "판결 표·재범 누진은 sim-core resolveCourtVerdict 함수뿐, 대소동·법정 화면 없음"
+    },
+    "WP-409": {
+      "kind": "wp",
+      "title": "복권(확률표 게시, 하루 3장) — 수용 기준: 100만 회 모의 추첨의 기대값이 표와 일치",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-409: 1,000,000-trial lottery simulation matches expected values 63 / 101 / 139"
+      ],
+      "evidence": [
+        "packages/sim-core/src/domains.ts:311"
+      ],
+      "note": "100만 회 모의 추첨 기대값 시험 통과(sim-core). 복권 판매·확률표 게시·하루 3장 화면 없음"
+    },
+    "WP-410": {
+      "kind": "wp",
+      "title": "레벨 사다리와 자동 조정 — 수용 기준: 조정 규칙 단위 시험",
+      "status": "partial",
+      "owner": "talk",
+      "tests": [
+        "packages/converse/src/__tests__/converse.test.ts::WP-302, WP-410, WP-502, WP-508: classifies modes, adjusts levels, matches voice skills <400ms, and filters bubbles",
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-311, WP-410, WP-509: verifies bilateral trade settlement, mentor dungeon gate, level ladder, and 7-stage continuous lesson tracker"
+      ],
+      "evidence": [
+        "packages/converse/src/modes-and-levels.ts:76"
+      ],
+      "note": "레벨 조정 규칙 단위 시험 통과. 실경로는 교사가 정한 L1~L3 를 쓰고 자동 조정(computeLevelAdjustment)을 어디서도 호출 안 함"
+    },
+    "WP-501": {
+      "kind": "wp",
+      "title": "멀티 룸: 입장, 스냅샷 동기화, 블록 확정·거절 — 수용 기준: 8명 봇 30분, 불일치 0",
+      "status": "missing",
+      "owner": "world",
+      "tests": [
+        "packages/schemas/src/__tests__/schemas.test.ts::validates WorldDO room messages from docs/02 9.3"
+      ],
+      "evidence": [
+        "packages/schemas/src/messages.ts:77"
+      ],
+      "note": "룸 메시지 스키마만. WebSocket 멀티 룸·입장·스냅샷 동기화·블록 확정/거절 없음, 8명 봇 30분 시험 없음"
+    },
+    "WP-502": {
+      "kind": "wp",
+      "title": "말풍선, 문장 휠, 이모트, 필터 — 수용 기준: 사전 치환 뒤에도 목표 언어 70% 미만이면 전송되지 않음. 치환되면 영어로 바뀐 문장을 보내고 본인에게 알림",
+      "status": "partial",
+      "owner": "talk",
+      "tests": [
+        "packages/converse/src/__tests__/converse.test.ts::WP-502: blocks speech bubbles under 70% target language or with PII",
+        "packages/converse/src/__tests__/converse.test.ts::feedback 4.12: bubbles substitute Korean via dictionary instead of blocking"
+      ],
+      "evidence": [
+        "packages/converse/src/modes-and-levels.ts:175",
+        "apps/edge/src/showroom.ts:115"
+      ],
+      "note": "필터(70% 미만 거절·사전 치환) 함수는 있고 닉네임·쇼룸 제목·인용 검사에 씀. 플레이어 말풍선·문장 휠·이모트·본인 알림 없음"
+    },
+    "WP-503": {
+      "kind": "wp",
+      "title": "친구, 보호자 승인, 승인된 친구 음성 — 수용 기준: 미승인 상대와 음성 연결 불가",
+      "status": "missing",
+      "owner": "parent",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/storage.ts:91",
+        "apps/edge/src/family.ts:59"
+      ],
+      "note": "friends 표와 friend_voice 동의 토글만 있음. 친구 맺기·보호자 승인·친구 음성 연결 없음, 미승인 음성 차단 시험 없음"
+    },
+    "WP-504": {
+      "kind": "wp",
+      "title": "게스트 패스(60분, 음성 미저장) — 수용 기준: 종료 시 \"부모님께 소개 보내기\"만 표시. 첫 아이템 ID·첫 발화는 기기 `localStorage`에 7일 암호화 보관(어깨너머 방지용), 보호자가 기기 코드로 7일 안에 이어받음",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/pass",
+      "tests": [
+        "apps/web/src/__tests__/webux.test.ts::expires exactly at 7 days",
+        "apps/web/src/__tests__/webux.test.ts::claims with the device code once, and rejects a wrong code without consuming"
+      ],
+      "evidence": [
+        "apps/web/src/guestClaim.ts:68",
+        "apps/web/src/WebUx.tsx:371"
+      ],
+      "note": "/pass 코드 입력 화면·7일 암호화 보관함 함수·/guest-end 화면은 있음. 패스 발급·60분·/world 의 ?pass 처리 없음, saveGuestKeepsake 호출처 없음, \"부모님께 소개 보내기\" 버튼 미연결"
+    },
+    "WP-505": {
+      "kind": "wp",
+      "title": "다중 월드, 모드 5종, 보관함, 월드 설정 — 수용 기준: 계정 귀속·월드 귀속 구분 시험",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::keeps worlds apart in one database through table prefixes"
+      ],
+      "evidence": [
+        "apps/edge/src/platform.ts:738",
+        "apps/edge/src/do-sqlite.ts:56"
+      ],
+      "note": "운영자 API 로 월드 생성·월드별 표 분리만. 아이가 월드를 고르거나 만드는 화면, 모드 5종, 보관함, 월드 설정, 계정/월드 귀속 구분 시험 없음"
+    },
+    "WP-506": {
+      "kind": "wp",
+      "title": "공개 서버 목록, 방문자 권한, 추방·차단, 신고 — 수용 기준: 미성년 계정에 성인 대상 서버가 보이지 않음. 기본 월드(`visitorBuild` 꺼짐)에서 허가 없는 방문자의 부지·자유·도시 편집(폭발·로켓·물 포함)이 0건, 누구도 도시에 금고",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/destruction/src/__tests__/destruction.test.ts::visitorBuild=true lets visitors edit WILD and CITY but never PLOT, CITY vault or shop front",
+        "packages/destruction/src/__tests__/destruction.test.ts::fault injection: turning each new check off makes its scenario fail"
+      ],
+      "evidence": [
+        "packages/destruction/src/kernel.ts:94",
+        "apps/edge/src/app.ts:580"
+      ],
+      "note": "방문자 편집 금지·금고·상점 앞 2칸·결함 주입 3종은 destruction 커널 시험뿐(앱 미사용), 신고 3건 자동 정지는 API 만. 공개 서버 목록·추방·차단 화면 없음, 미성년 성인 서버 숨김 시험 없음"
+    },
+    "WP-507": {
+      "kind": "wp",
+      "title": "전투: 무기, 적 8종, 쓰러짐, 방어구 — 수용 기준: `03`의 D9 표와 일치",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-507, WP-607, WP-608: checks combat table, 400-block room flood-fill, and vertical bands"
+      ],
+      "evidence": [
+        "packages/sim-core/src/domains.ts:331"
+      ],
+      "note": "피해 계산 D9 표는 sim-core 함수뿐. 무기·적 8종·쓰러짐·방어구가 월드에 없음"
+    },
+    "WP-508": {
+      "kind": "wp",
+      "title": "음성 스킬 12종, 아레나 3규칙, PvP 설정 — 수용 기준: 스킬 인식 지연 400ms 이하",
+      "status": "partial",
+      "owner": "talk",
+      "tests": [
+        "packages/converse/src/__tests__/converse.test.ts::WP-302, WP-410, WP-502, WP-508: classifies modes, adjusts levels, matches voice skills <400ms, and filters bubbles"
+      ],
+      "evidence": [
+        "packages/converse/src/modes-and-levels.ts:123"
+      ],
+      "note": "음성 스킬 인식 함수(400ms 이하 시험)뿐. 스킬 12종 사용·아레나 3규칙·PvP 설정 화면 없음"
+    },
+    "WP-509": {
+      "kind": "wp",
+      "title": "거래 창 — 수용 기준: 양쪽 발화 후에만 성사, 장부 일치",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "apps/edge/src/__tests__/edge.test.ts::executes bilateral trade atomically, tracks solo expression reuse, sends parent report, triggers 48h reminder, and updates on open"
+      ],
+      "evidence": [
+        "apps/edge/src/storage.ts:869",
+        "apps/edge/src/app.ts:705"
+      ],
+      "note": "양쪽 발화 후 성사·장부 일치는 /v1/worlds/:id/trades API 와 시험뿐. 플레이어 간 거래 창 화면 없음(멀티 없음), NPC 물물교환만 월드에 있음"
+    },
+    "WP-601": {
+      "kind": "wp",
+      "title": "`guard`: 검문 G1~G8, 불변식(`05`) — 수용 기준: `05`의 시험 9종",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "packages/guard/src/__tests__/guard.test.ts::Test 1: survives 10,000 randomly mutated specs without throwing any unhandled exception",
+        "packages/guard/src/__tests__/guard.test.ts::Test 4: forced interruption mid-commit preserves exact pre-commit bytes (G7)"
+      ],
+      "evidence": [
+        "packages/guard/src/index.ts:89",
+        "apps/edge/src/app.ts:555"
+      ],
+      "note": "검문 G1~G8·불변식과 05 의 시험 9종 통과. 호출처는 운영자 전용 objects/propose 뿐 — AI 제작 경로가 없어 사용자 경로에 연결 안 됨"
+    },
+    "WP-602": {
+      "kind": "wp",
+      "title": "부품 레지스트리 1차(120종)와 조립 렌더 — 수용 기준: 부품 6개 아이템 그리기 1회 호출",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/content/src/__tests__/content.test.ts::provides 12 biome packs, 40+ blocks, 120+ parts, 44 ability tags, 80 furniture items, and 12 residents"
+      ],
+      "evidence": [
+        "packages/content/src/registries.ts:314"
+      ],
+      "note": "부품 120종 레지스트리 데이터만. 조립 렌더·그리기 1회 호출 시험 없음"
+    },
+    "WP-603": {
+      "kind": "wp",
+      "title": "`ItemSpec`·`SkinSpec` 제작 흐름과 미리보기 — 수용 기준: 규칙 경로(LLM 없음)로 기본 주문 처리",
+      "status": "missing",
+      "owner": "talk",
+      "tests": [
+        "packages/schemas/src/__tests__/schemas.test.ts::validates both ItemSpec v2 examples from docs/05 1.1 and rejects unknown fields"
+      ],
+      "evidence": [
+        "packages/schemas/src/specs.ts:49"
+      ],
+      "note": "ItemSpec·SkinSpec 스키마만. 제작 주문 흐름·미리보기·규칙 경로 기본 주문 처리 없음"
+    },
+    "WP-604": {
+      "kind": "wp",
+      "title": "능력 태그와 시험장(G5) — 수용 기준: 태그가 커널 4함수 밖을 부르지 못함",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/guard/src/__tests__/guard.test.ts::Test 9 & WP-606: crafted items with ability tags stay strictly within docs/13 kernel caps & share code re-runs guard"
+      ],
+      "evidence": [
+        "packages/guard/src/index.ts:89"
+      ],
+      "note": "능력 태그가 커널 상한 안에 머무는지는 guard 함수 시험뿐. 시험장(G5) 화면·태그 실행 경로 없음"
+    },
+    "WP-605": {
+      "kind": "wp",
+      "title": "`PetSpec`, `QuestSpec`, `RuleSpec` — 수용 기준: 범위 밖 구역 규칙 거절",
+      "status": "partial",
+      "owner": "talk",
+      "tests": [
+        "packages/guard/src/__tests__/guard.test.ts::Test 3: rejects RuleSpec outside player plot or arena at G5"
+      ],
+      "evidence": [
+        "packages/schemas/src/specs.ts:132",
+        "packages/guard/src/index.ts:89"
+      ],
+      "note": "부지·아레나 바깥을 겨냥한 RuleSpec 거절은 guard 함수 시험뿐. PetSpec·QuestSpec·RuleSpec 제작·적용 경로 없음"
+    },
+    "WP-606": {
+      "kind": "wp",
+      "title": "복셀·픽셀 직접 편집기, 공유 코드 — 수용 기준: 가져오기 시 검문 재실행",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/guard/src/__tests__/guard.test.ts::Test 9 & WP-606: crafted items with ability tags stay strictly within docs/13 kernel caps & share code re-runs guard"
+      ],
+      "evidence": [
+        "packages/guard/src/index.ts:89"
+      ],
+      "note": "공유 코드 가져오기 시 검문 재실행은 guard 함수 시험뿐. 복셀·픽셀 직접 편집기 화면 없음"
+    },
+    "WP-607": {
+      "kind": "wp",
+      "title": "방 판정과 주민 12명(`03`의 D13), 가구 80종 — 수용 기준: 판정 400칸 상한, 부족 조건 문장 표시",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "packages/sim-core/src/__tests__/plot.test.ts::a hole lets the walk leak outside: capped at 400 cells and reported",
+        "apps/client/src/world/__tests__/build.test.ts::runs the room check when a nameplate goes up, then 1 s after the room changes"
+      ],
+      "evidence": [
+        "packages/sim-core/src/plot.ts:419",
+        "apps/client/src/world/build.ts:16"
+      ],
+      "note": "건축 부지에서 방 판정(400칸 상한)과 부족 조건 영어 문장 표시가 실경로. 주민 12명은 입주 안내 문구뿐 실제 이사 없음, 가구 80종은 레지스트리 데이터(월드에서 쓰는 건 일부)"
+    },
+    "WP-608": {
+      "kind": "wp",
+      "title": "수직 밴드: 하늘섬, 정거장, 네더, 블랙홀과 환경 규칙 — 수용 기준: 밴드 경계에서 물리 전환, 엘리베이터 정류장",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "tests": [
+        "apps/client/src/__tests__/frame-hud.test.ts::names the vertical band of docs/03 3.2 by height",
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-507, WP-607, WP-608: checks combat table, 400-block room flood-fill, and vertical bands"
+      ],
+      "evidence": [
+        "packages/sim-core/src/domains.ts:346",
+        "apps/client/src/frame/status.ts:11"
+      ],
+      "note": "HUD 가 높이로 수직 밴드 이름만 표시. 하늘섬·정거장·네더·블랙홀 지형, 경계 물리 전환, 엘리베이터 정류장 없음"
+    },
+    "WP-609": {
+      "kind": "wp",
+      "title": "바이옴 팩 12종 완성, 시즌 팩 구조 — 수용 기준: ",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/content/src/__tests__/content.test.ts::provides 12 biome packs, 40+ blocks, 120+ parts, 44 ability tags, 80 furniture items, and 12 residents"
+      ],
+      "evidence": [
+        "packages/content/src/registries.ts:22"
+      ],
+      "note": "바이옴 팩 12종 데이터만, 월드에 적용 안 됨. 시즌 팩 구조 없음(수용 기준 비어 있음)"
+    },
+    "WP-701": {
+      "kind": "wp",
+      "title": "소개 사이트 9개 페이지(`14`) — 수용 기준: 성능 예산과 접근성 점검 통과",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/",
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::resolves all nine W pages, aliases and parameter routes",
+        "apps/web/src/__tests__/site.test.tsx::ships every captured file the pages name, and keeps clips inside the 1.5 MB per 15 s budget (docs/14 §11)"
+      ],
+      "evidence": [
+        "apps/web/src/site/routes.ts:31",
+        "apps/web/src/site/SiteRoot.tsx:14"
+      ],
+      "note": "9개 페이지 사전 렌더·운영 200. 성능 예산은 영상 1.5MB/15초만 시험, 페이지 무게·LCP 예산과 접근성(axe 등) 점검 시험 없음"
+    },
+    "WP-702": {
+      "kind": "wp",
+      "title": "체험 씬(계정 없음, 5분) — 수용 기준: 서버 호출 없이 주문 1회 완료",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/try",
+      "e2e": {
+        "route": "/try",
+        "expect": [
+          "canvas",
+          "text:카페에서 영어로 주문해 볼까요?"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::golden path: start → walk → greet → choose → speak → receive → drink → save → end",
+        "apps/web/src/__tests__/site.test.tsx::starts without asking for anything and states that voice is not stored"
+      ],
+      "evidence": [
+        "apps/web/src/site/tryState.ts:3",
+        "apps/web/src/site/TryScene.tsx:391"
+      ],
+      "note": "계정 없이 카페 주문→마시기→저장 질문까지 기기 안 상태로 완료(브라우저 인식+뱅크). 집계 비컨(track) 외 서버 호출 없음 — \"서버 호출 0\"을 직접 단언하는 시험은 없음"
+    },
+    "WP-703": {
+      "kind": "wp",
+      "title": "쇼룸 스냅샷과 공유 — 수용 기준: 실시간 위치·음성·실명 미포함",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/s/<token>",
+      "tests": [
+        "apps/edge/src/__tests__/showroom.test.ts::rejects extra fields, live data, bad colors and personal data in the title",
+        "apps/web/src/__tests__/site.test.tsx::accepts the sample and rejects live position, voice or real-name fields"
+      ],
+      "evidence": [
+        "apps/edge/src/showroom.ts:13",
+        "apps/client/src/world/showroom.ts:2"
+      ],
+      "note": "월드에서 동의 후 부지 스냅샷 게시 → 정적 쇼룸 링크. 실시간 위치·음성·실명 필드 거절 시험 있음 · 운영 화면에서 확인할 주소가 없어(도구·서버만) done 이 아니라 partial"
+    },
+    "WP-704": {
+      "kind": "wp",
+      "title": "좌석 관리, 요금제, 수동 발급, 만료 처리 — 수용 기준: 만료 후 30일 읽기 전용. Duo 한 좌석 7일 내 환불 시 남은 좌석 Solo 전환, `payer_id` 1명",
+      "status": "done",
+      "owner": "parent",
+      "route": "/seats",
+      "e2e": {
+        "route": "/seats",
+        "expect": [
+          "testid:seats-admin"
+        ],
+        "auth": "operator",
+        "authExpect": [
+          "text:확인함",
+          "notext:운영자 키를 먼저 넣어 주세요",
+          "notext:운영자 키가 맞지 않습니다",
+          "notext:불러오지 못했습니다"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/seats.test.ts::expiry: read-only 30 days then archived; extend reopens; hourly cron records notices once",
+        "apps/edge/src/__tests__/seats.test.ts::Duo: one payer; one seat refunded → payer gets the difference, the other seat becomes Solo, other family sees no name or money"
+      ],
+      "evidence": [
+        "apps/edge/src/seats.ts:44",
+        "apps/web/src/SeatsPage.tsx:37"
+      ],
+      "note": "좌석 수동 발급·만료 30일 읽기 전용·Duo 부분 환불 시 Solo 전환·payer_id 1명 동작. 결제·보호자 요금제 선택·3번째 좌석(extra) 발급 없음"
+    },
+    "WP-705": {
+      "kind": "wp",
+      "title": "운영 확인함, 크론 3개, 백업(`09`) — 수용 기준: 모의 사고 8종 대응 절차 점검",
+      "status": "partial",
+      "owner": "ops",
+      "route": "/seats",
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::records cron runs so a keeper can detect silent failures",
+        "apps/edge/src/__tests__/quota-ladder.test.ts::the hourly cron records the stage and keeps a day that reached 85% as an alert day"
+      ],
+      "evidence": [
+        "apps/edge/wrangler.toml:42",
+        "apps/edge/src/platform.ts:556"
+      ],
+      "note": "크론 3개·실행 기록과 좌석 확인함(/seats)은 있음. 신고·한도·격리 확인함 없음, 백업 없음, 모의 사고 8종 점검 시험 없음"
+    },
+    "WP-706": {
+      "kind": "wp",
+      "title": "음성 박물관, 월간 리포트 — 수용 기준: ",
+      "status": "partial",
+      "owner": "ops",
+      "route": "/r/<token>",
+      "tests": [
+        "apps/edge/src/__tests__/voice.test.ts::only the guardian of that child hears it, through short signed URLs; the report link carries no audio"
+      ],
+      "evidence": [
+        "apps/web/src/VoiceClips.tsx:32",
+        "apps/edge/src/voice.ts:322"
+      ],
+      "note": "수업 리포트 안에 이번 수업 음성 목록·재생만. 음성 박물관 화면·월간 리포트 없음(수용 기준 비어 있음)"
+    },
+    "WP-707": {
+      "kind": "wp",
+      "title": "표현 페이지 생성기 — 수용 기준: 뱅크에서 페이지 자동 생성",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/learn",
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::each page has three growing sentences, explanations, mistakes and a try button"
+      ],
+      "evidence": [
+        "apps/web/src/site/copy.ts:473",
+        "apps/web/src/site/pages/Learn.tsx:3"
+      ],
+      "note": "/learn 표현 페이지는 있으나 copy.ts 에 손으로 쓴 목록 — 뱅크에서 페이지를 자동 생성하는 생성기 없음"
+    },
+    "WP-708": {
+      "kind": "wp",
+      "title": "약관·처리방침 게시, 동의 화면 문구 확정 — 수용 기준: 전문가 검토 완료(`16`)",
+      "status": "partial",
+      "owner": "ops",
+      "route": "/terms",
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::renders every public page with its own title, description, canonical and content",
+        "apps/web/src/__tests__/family.test.ts::after service consent: five optional consents, each its own switch, all off by default, no \"all on\" control"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Info.tsx:61",
+        "apps/web/src/FamilyPage.tsx:2"
+      ],
+      "note": "약관·처리방침 페이지와 동의 화면 문구는 게시됨. 전문가 검토 완료(16) 근거가 저장소에 없음"
     }
   },
   "features": [

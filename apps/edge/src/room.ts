@@ -37,12 +37,15 @@ interface Attachment {
   name: string;
   role: RoomRole;
   pose: RoomPose;
+  proto?: number;
+  /** when that pose was set (ms) */
+  at?: number;
 }
 
 declare const WebSocketPair: { new (): { 0: WsLike; 1: WsLike } };
 declare const WebSocketRequestResponsePair: (new (req: string, res: string) => unknown) | undefined;
 
-export const ROOM_HEADERS = { room: 'x-lcw-room', key: 'x-lcw-room-key', name: 'x-lcw-room-name', role: 'x-lcw-room-role' } as const;
+export const ROOM_HEADERS = { room: 'x-lcw-room', key: 'x-lcw-room-key', name: 'x-lcw-room-name', role: 'x-lcw-room-role', proto: 'x-lcw-room-proto' } as const;
 const ROLES: readonly RoomRole[] = ['student', 'player', 'teacher', 'bot'];
 
 function shortId(): string {
@@ -89,7 +92,8 @@ export class WorldRoomDO {
     const client = pair[0];
     const server = pair[1];
     const id = shortId();
-    const res = this.core.join({ id, key, name, role }, Date.now());
+    const proto = request.headers.get(ROOM_HEADERS.proto) === '2' ? 2 : 1;
+    const res = this.core.join({ id, key, name, role, proto }, Date.now());
     this.state.acceptWebSocket(server, [id]);
     if (!res.ok) {
       // Accept, say why, close: a refused upgrade gives the browser no reason it can read.
@@ -98,7 +102,7 @@ export class WorldRoomDO {
       return new Response(null, { status: 101, webSocket: client } as ResponseInit);
     }
     const m = this.core.members.get(id)!;
-    server.serializeAttachment({ id, key: m.key, name: m.name, role: m.role, pose: m.pose } satisfies Attachment);
+    server.serializeAttachment({ id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt } satisfies Attachment);
     if (res.replaces) {
       for (const old of this.state.getWebSockets(res.replaces)) old.close(ROOM_CLOSE.replaced, 'replaced');
       this.broadcast(JSON.stringify({ t: 'leave', id: res.replaces }), id);
@@ -176,7 +180,7 @@ export class WorldRoomDO {
     if (out) {
       // The attachment carries the last pose so a room that hibernates can still greet a newcomer with it.
       for (const m of out.moved) {
-        for (const ws of this.state.getWebSockets(m.id)) ws.serializeAttachment({ id: m.id, key: m.key, name: m.name, role: m.role, pose: m.pose } satisfies Attachment);
+        for (const ws of this.state.getWebSockets(m.id)) ws.serializeAttachment({ id: m.id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt } satisfies Attachment);
       }
       this.broadcast(out.frame, null);
     }
@@ -370,5 +374,6 @@ export async function routeRoomConnect(request: Request, platform: DoStubLike, r
   headers.set(ROOM_HEADERS.key, seat.key);
   headers.set(ROOM_HEADERS.name, encodeURIComponent(seat.name));
   headers.set(ROOM_HEADERS.role, seat.role);
+  headers.set(ROOM_HEADERS.proto, url.searchParams.get('v') === '2' ? '2' : '1');
   return rooms.get(rooms.idFromName(seat.room)).fetch(new Request(`https://room/${encodeURIComponent(seat.room)}`, { headers }));
 }

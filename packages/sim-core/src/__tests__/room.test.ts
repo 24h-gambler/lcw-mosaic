@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROOM_CLOSE, RoomCore, TUNING, cleanRoomName, parseRoomPose } from '../index.js';
+import { ROOM_CLOSE, RoomCore, TUNING, cleanRoomName, parseRoomPose, predictPose } from '../index.js';
 
 const join = (core: RoomCore, i: number, now = 0) => core.join({ id: `id${i}`, key: `k${i}`, name: `p${i}`, role: 'bot' }, now);
 
@@ -38,8 +38,27 @@ describe('multi room core (docs/03 D11 capacity, docs/02 §11)', () => {
     if (!r.ok) return;
     const hello = JSON.parse(r.hello);
     expect(hello).toMatchObject({ t: 'hello', you: 'id1', cap: 8 });
-    expect(hello.peers).toEqual([['id0', 'p0', 'bot', 1.23, 2, 3, 0.5, 1]]);
-    expect(JSON.parse(r.joinFrame)).toEqual({ t: 'join', id: 'id1', name: 'p1', role: 'bot' });
+    // [id, name, role, x, y, z, yaw, anim, protocol, vx, vz, turn rate, pose age ms]
+    expect(hello.peers).toEqual([['id0', 'p0', 'bot', 1.23, 2, 3, 0.5, 1, 1, 0, 0, 0, 0]]);
+    expect(JSON.parse(r.joinFrame)).toEqual({ t: 'join', id: 'id1', name: 'p1', role: 'bot', v: 1 });
+  });
+
+  it('hello carries protocol, velocity, turn rate and pose age so a newcomer draws the others moving', () => {
+    const core = new RoomCore();
+    core.join({ id: 'a', key: 'ka', name: 'A', role: 'player', proto: 2 }, 0);
+    core.receive('a', JSON.stringify({ t: 'p', p: [1, 0, 2, 0, 1, 1, 4.5, -1, 0.5] }), 1000);
+    core.receive('a', JSON.stringify({ t: 'e', e: 'wave' }), 2500); // not a pose: the age keeps running
+    const r = core.join({ id: 'b', key: 'kb', name: 'B', role: 'player', proto: 2 }, 3000);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(JSON.parse(r.hello).peers).toEqual([['a', 'A', 'player', 1, 0, 2, 0, 1, 2, 4.5, -1, 0.5, 2000]]);
+    expect(JSON.parse(r.joinFrame)).toMatchObject({ t: 'join', id: 'b', v: 2 });
+    // after hibernation the pose time comes back from the socket attachment
+    const core2 = new RoomCore();
+    core2.restore({ id: 'a', key: 'ka', name: 'A', role: 'player', pose: [1, 0, 2, 0, 1, 1, 4.5, -1, 0.5], proto: 2, at: 1000 }, 9000);
+    const r2 = core2.join({ id: 'c', key: 'kc', name: 'C', role: 'player' }, 9500);
+    if (!r2.ok) return;
+    expect(JSON.parse(r2.hello).peers[0].slice(8)).toEqual([2, 4.5, -1, 0.5, 8500]);
   });
 
   it('poses are batched: many sends between flushes become one frame with each mover once', () => {
@@ -49,7 +68,7 @@ describe('multi room core (docs/03 D11 capacity, docs/02 §11)', () => {
     for (let s = 0; s < 5; s++) core.receive('id0', JSON.stringify({ t: 'p', p: [s, 0, 0, 0, 1, s] }), 10 + s);
     const out = core.flush();
     expect(out).not.toBeNull();
-    expect(JSON.parse(out!.frame)).toEqual({ t: 'poses', p: [['id0', 4, 0, 0, 0, 1, 4]] });
+    expect(JSON.parse(out!.frame)).toEqual({ t: 'poses', p: [['id0', 4, 0, 0, 0, 1, 4, 0, 0, 0]] });
     expect(core.flush()).toBeNull();
   });
 
@@ -85,12 +104,28 @@ describe('multi room core (docs/03 D11 capacity, docs/02 §11)', () => {
   });
 
   it('pose and name validation', () => {
-    expect(parseRoomPose([1, 2, 3, 0, 1])).toEqual([1, 2, 3, 0, 1, 0]);
+    expect(parseRoomPose([1, 2, 3, 0, 1])).toEqual([1, 2, 3, 0, 1, 0, 0, 0, 0]);
+    // velocity and turn rate ride along; out-of-range ones are refused
+    expect(parseRoomPose([1, 2, 3, 0, 1, 5, 4.567, -1, 0.5])).toEqual([1, 2, 3, 0, 1, 5, 4.57, -1, 0.5]);
+    expect(parseRoomPose([1, 2, 3, 0, 1, 5, 99, 0, 0])).toBeNull();
+    expect(parseRoomPose([1, 2, 3, 0, 1, 5, 1, 0, 50])).toBeNull();
+    expect(parseRoomPose([1, 2, 3, 0, 1, 5, 1, 0, 0, 9])).toBeNull();
     expect(parseRoomPose([1, 2, 3, 0, 1.5])).toBeNull();
     expect(parseRoomPose([Number.NaN, 2, 3, 0, 1])).toBeNull();
     expect(parseRoomPose('1,2,3')).toBeNull();
     expect(cleanRoomName('‮abc\u0000')).toBe('abc');
     expect(cleanRoomName('')).toBe('친구');
     expect(cleanRoomName('가'.repeat(30))).toHaveLength(16);
+  });
+});
+
+describe('pose prediction (predictPose, docs/02 §11.3)', () => {
+  it('a straight walk moves along the velocity; a turning one follows the circle', () => {
+    expect(predictPose(1, 2, 3, -1, 0, 2)).toEqual([7, 0]);
+    // 4.5 m/s turning at 1.5 rad/s: a circle of radius 3 m comes back to the start after 2π/1.5 s
+    const [x, z] = predictPose(0, 0, 0, 4.5, 1.5, (2 * Math.PI) / 1.5);
+    expect(Math.hypot(x, z)).toBeLessThan(1e-6);
+    const [hx, hz] = predictPose(0, 0, 0, 4.5, 1.5, Math.PI / 1.5);
+    expect(Math.hypot(hx, hz)).toBeCloseTo(6, 6); // half way round: the diameter
   });
 });

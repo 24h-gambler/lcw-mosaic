@@ -7,21 +7,46 @@
  * blocks, stars) ever rides on them (AGENTS 4.7).
  *
  * Wire format (JSON text frames, compact arrays to keep 10 Hz cheap):
- *   client → room   {"t":"p","p":[x,y,z,yaw,anim,seq?]}   pose, at most poseHz while moving
+ *   client → room   {"t":"p","p":[x,y,z,yaw,anim,seq?,vx?,vz?,w?]}   pose with ground velocity (m/s) and turn rate
+ *                                                        (rad/s, predictPose): only when the
+ *                                                        receivers' prediction (pose + velocity × age) would be off,
+ *                                                        within a per-sender budget (TUNING.multi.poseBudgetHz)
  *                   {"t":"e","e":"wave"}                    emote from TUNING.multi.emotes
  *                   {"t":"ping","c":<client ms>}            round trip through the room (load bots, latency read-out)
  *                   "ping"                                  keep-alive, answered "pong" by the platform without waking the room
- *   room → client   {"t":"hello","you":id,"cap":8,"peers":[[id,name,role,x,y,z,yaw,anim],...]}
- *                   {"t":"join","id","name","role"} / {"t":"leave","id"}
- *                   {"t":"poses","p":[[id,x,y,z,yaw,anim,seq],...]}  every changed pose, batched per broadcastMs
+ *   room → client   {"t":"hello","you":id,"cap":8,"peers":[[id,name,role,x,y,z,yaw,anim,proto,vx,vz,w,ageMs],...]}
+ *                   {"t":"join","id","name","role","v":proto} / {"t":"leave","id"}
+ *                   proto 2 = draws others from velocity + turn rate (connect URL `&v=2`); a sender keeps the old
+ *                   steady 5 Hz while anyone with proto 1 (a page loaded before the change) is in the room
+ *                   {"t":"poses","p":[[id,x,y,z,yaw,anim,seq,vx,vz,w],...]}  every changed pose, batched per broadcastMs
  *                   {"t":"e","id","e"} / {"t":"pong","c"}
  *                   {"t":"full","cap"} then close 4003     the room is at capacity ("방이 가득 찼어요")
  */
 import { TUNING } from './tuning.js';
 
 export type RoomRole = 'student' | 'player' | 'teacher' | 'bot';
-/** x, y, z (metres), yaw (radians), anim (0 idle, 1 walk, 2 run, 3 jump, …), seq (sender's counter, latency probes) */
-export type RoomPose = [number, number, number, number, number, number];
+/**
+ * x, y, z (metres), yaw (radians), anim (0 idle, 1 walk, 2 run, 3 jump, …), seq (sender's counter, latency probes),
+ * vx, vz (ground velocity, m/s) and w (how fast the walking direction turns, rad/s): the receiver moves the figure
+ * along that arc until the next pose (predictPose, docs/02 §11.3).
+ */
+export type RoomPose = [number, number, number, number, number, number, number, number, number];
+
+/** most a walking direction may turn per second in a pose (a tight circle is ~1.5) */
+export const MAX_TURN_RATE = 6;
+
+/**
+ * Where a pose has gone after `ageS` seconds: along its ground velocity, the direction turning at w rad/s (heading as
+ * yaw: x = sin, z = cos). Sender and receivers use the same function, so the sender knows exactly what the others
+ * draw and sends only when that is off.
+ */
+export function predictPose(x: number, z: number, vx: number, vz: number, w: number, ageS: number): [number, number] {
+  if (Math.abs(w) < 1e-3) return [x + vx * ageS, z + vz * ageS];
+  const sp = Math.hypot(vx, vz);
+  const h0 = Math.atan2(vx, vz);
+  const h1 = h0 + w * ageS;
+  return [x + (sp * (Math.cos(h0) - Math.cos(h1))) / w, z + (sp * (Math.sin(h1) - Math.sin(h0))) / w];
+}
 
 export const ROOM_CLOSE = {
   full: 4003,
@@ -38,6 +63,10 @@ export interface RoomMember {
   name: string;
   role: RoomRole;
   pose: RoomPose;
+  /** 1 = an older page that only eases toward the last pose; 2 = predicts from velocity + turn rate */
+  proto: number;
+  /** when the pose was last set (ms, server clock): a newcomer gets its age to carry it along */
+  poseAt: number;
   lastMsgAt: number;
   winStart: number;
   winCount: number;
@@ -63,7 +92,7 @@ export type RoomReceive =
   | { kind: 'close'; code: number; reason: string };
 
 const NAME_MAX = 16;
-const ZERO_POSE: RoomPose = [0, 0, 0, 0, 0, 0];
+const ZERO_POSE: RoomPose = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export function cleanRoomName(raw: unknown): string {
   // Control characters and bidi overrides out, trimmed, at most 16 visible characters.
@@ -78,15 +107,20 @@ const r3 = (n: number): number => Math.round(n * 1000) / 1000;
 
 /** Validates a pose array from the wire; null when anything is off (wrong length, not finite, out of the world). */
 export function parseRoomPose(p: unknown, limit = TUNING.multi.coordLimit): RoomPose | null {
-  if (!Array.isArray(p) || p.length < 5 || p.length > 6) return null;
+  if (!Array.isArray(p) || p.length < 5 || p.length > 9) return null;
   for (const v of p) if (typeof v !== 'number' || !Number.isFinite(v)) return null;
   const [x, y, z, yaw, anim] = p as number[];
   const seq = (p[5] as number | undefined) ?? 0;
+  const vx = (p[6] as number | undefined) ?? 0;
+  const vz = (p[7] as number | undefined) ?? 0;
+  const w = (p[8] as number | undefined) ?? 0;
   if (Math.abs(x!) > limit || Math.abs(y!) > limit || Math.abs(z!) > limit) return null;
   if (Math.abs(yaw!) > 100) return null;
   if (!Number.isInteger(anim) || anim! < 0 || anim! > 15) return null;
   if (!Number.isInteger(seq) || seq < 0 || seq > 2 ** 31) return null;
-  return [r2(x!), r2(y!), r2(z!), r3(yaw!), anim!, seq];
+  if (Math.abs(vx) > TUNING.multi.maxPoseSpeed || Math.abs(vz) > TUNING.multi.maxPoseSpeed) return null;
+  if (Math.abs(w) > MAX_TURN_RATE) return null;
+  return [r2(x!), r2(y!), r2(z!), r3(yaw!), anim!, seq, r2(vx), r2(vz), r3(w)];
 }
 
 export class RoomCore {
@@ -113,7 +147,7 @@ export class RoomCore {
    * the room refuses once it holds `capacity` people.
    */
   join(
-    p: { id: string; key: string; name: string; role: RoomRole; pose?: RoomPose },
+    p: { id: string; key: string; name: string; role: RoomRole; pose?: RoomPose; proto?: number },
     now: number
   ): { ok: true; hello: string; joinFrame: string; replaces: string | null } | { ok: false; frame: string } {
     const old = this.memberByKey(p.key);
@@ -128,6 +162,8 @@ export class RoomCore {
       name: cleanRoomName(p.name),
       role: p.role,
       pose: p.pose ?? old?.pose ?? [...ZERO_POSE],
+      proto: p.proto === 2 ? 2 : 1,
+      poseAt: p.pose || !old ? now : old.poseAt,
       lastMsgAt: now,
       winStart: now,
       winCount: 0,
@@ -136,18 +172,19 @@ export class RoomCore {
     };
     this.members.set(m.id, m);
     this.counters.joins++;
-    const peers = [...this.members.values()].filter((o) => o.id !== m.id).map((o) => [o.id, o.name, o.role, ...o.pose.slice(0, 5)]);
+    const peers = [...this.members.values()].filter((o) => o.id !== m.id).map((o) => [o.id, o.name, o.role, ...o.pose.slice(0, 5), o.proto, o.pose[6], o.pose[7], o.pose[8], Math.min(Math.max(0, now - o.poseAt), 60_000)]);
     return {
       ok: true,
       hello: JSON.stringify({ t: 'hello', you: m.id, cap: this.capacity, peers }),
-      joinFrame: JSON.stringify({ t: 'join', id: m.id, name: m.name, role: m.role }),
+      joinFrame: JSON.stringify({ t: 'join', id: m.id, name: m.name, role: m.role, v: m.proto }),
       replaces: old?.id ?? null
     };
   }
 
   /** Puts a member back after the Durable Object woke from hibernation (from the socket's attachment). */
-  restore(m: { id: string; key: string; name: string; role: RoomRole; pose: RoomPose }, now: number): void {
-    this.members.set(m.id, { ...m, lastMsgAt: now, winStart: now, winCount: 0, invalid: 0, dirty: false });
+  restore(m: { id: string; key: string; name: string; role: RoomRole; pose: RoomPose; proto?: number; at?: number }, now: number): void {
+    const { at, ...rest } = m;
+    this.members.set(m.id, { ...rest, proto: m.proto === 2 ? 2 : 1, poseAt: typeof at === 'number' && at <= now ? at : now, lastMsgAt: now, winStart: now, winCount: 0, invalid: 0, dirty: false });
   }
 
   leave(id: string): string | null {
@@ -179,6 +216,7 @@ export class RoomCore {
       const pose = parseRoomPose(msg.p, this.t.coordLimit);
       if (!pose) return this.bad(m);
       m.pose = pose;
+      m.poseAt = now;
       m.dirty = true;
       return { kind: 'dirty' };
     }

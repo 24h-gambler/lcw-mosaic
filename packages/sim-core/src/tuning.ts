@@ -191,8 +191,27 @@ export const TUNING = {
      * 100k DO requests even if every received message counts as one). Checked poseTickHz times a second so a start,
      * stop or jump goes out at once; nothing is sent while standing still or while alone in the room.
      */
-    poseHz: 5,
-    poseTickHz: 10,
+    poseHz: 10,
+    poseTickHz: 20,
+    /**
+     * Pose budget per sender (docs/02 §11.3, operator 11-16 "8명이 2시간 걸어도 하루 10만 요청 안"): a pose goes out
+     * only when the receivers' prediction (last pose + velocity × age) is off by more than poseErrM (poseErrFarM when
+     * nobody is within poseNearM), the yaw by more than poseYawRad (far: poseYawFarRad), the animation changed, or
+     * poseRefreshMs passed while moving; and never faster than a token bucket of poseBurst refilled poseBudgetHz a
+     * second. 8 people × 2 h × 1.2 = 69,120 messages at the very worst (turning all the time), under 100k with the
+     * platform's own requests. Receivers stop extrapolating after poseHorizonMs (a frozen tab does not walk away).
+     */
+    poseBudgetHz: 1.2,
+    poseBurst: 3,
+    poseErrM: 0.3,
+    poseErrFarM: 1.0,
+    poseYawRad: 0.35,
+    poseYawFarRad: 0.8,
+    poseNearM: 24,
+    poseRefreshMs: 3000,
+    poseHorizonMs: 4000,
+    /** fastest ground speed a pose may carry (m/s; running is ~6) */
+    maxPoseSpeed: 20,
     /** plain "ping" keep-alive (answered by the platform without waking the room) */
     idleKeepaliveMs: 5000,
     /** the room sends changed poses at once, then at most one batch per broadcastMs per socket */

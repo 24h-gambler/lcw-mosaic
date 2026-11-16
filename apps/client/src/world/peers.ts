@@ -1,13 +1,15 @@
 /**
  * Other people in the same multi room (docs/03 D11), drawn as voxel figures with a name plate.
  *
- * The room sends poses at most 10 times a second (TUNING.multi); each figure eases toward its latest pose so the
- * motion stays smooth at 60 fps, and its walk animation follows how fast it actually moves. Figures beyond the view
+ * A sender sends a pose only when the receivers' prediction would be off (room-client.ts, at most ~1.2 a second on
+ * average); between poses each figure walks on along the velocity that came with the pose and eases out corrections
+ * (peer-motion.ts), so the motion stays smooth at 60 fps, and its walk animation follows how fast it actually moves. Figures beyond the view
  * distance are hidden and skip their animation. Nothing here is authoritative: a peer's pose is only where to draw it.
  */
 import * as THREE from 'three';
 import { CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import type { NpcLook } from './town.js';
+import { PeerMotion, peerMotionOf } from './peer-motion.js';
 
 export interface PeerInfo {
   id: string;
@@ -19,9 +21,8 @@ interface PeerRt {
   info: PeerInfo;
   char: VoxelCharacter;
   pos: THREE.Vector3;
-  target: THREE.Vector3;
+  motion: PeerMotion;
   yaw: number;
-  targetYaw: number;
   speed: number;
   plate: HTMLDivElement;
   plateKey: string;
@@ -29,12 +30,6 @@ interface PeerRt {
 }
 
 type Project = (x: number, y: number, z: number) => { sx: number; sy: number; vis: boolean };
-
-function wrap(a: number): number {
-  while (a > Math.PI) a -= Math.PI * 2;
-  while (a < -Math.PI) a += Math.PI * 2;
-  return a;
-}
 
 /** Same look for the same id on every screen: the shirt comes from the town's own palette. */
 export function peerLook(id: string, base: NpcLook, shirts: readonly number[]): NpcLook {
@@ -69,15 +64,19 @@ export class PeerAvatars {
   nearest(me: THREE.Vector3, role?: string): { x: number; y: number; z: number; yaw: number } | null {
     let best: PeerRt | null = null;
     let bd = Infinity;
+    const now = performance.now();
+    let at: { x: number; y: number; z: number; yaw: number } | null = null;
     for (const rt of this.peers.values()) {
       if (!rt.seen || (role !== undefined && rt.info.role !== role)) continue;
-      const d = rt.target.distanceTo(me);
+      const p = rt.motion.predicted(now);
+      const d = Math.hypot(p.x - me.x, p.y - me.y, p.z - me.z);
       if (d < bd) {
         bd = d;
         best = rt;
+        at = p;
       }
     }
-    return best ? { x: best.target.x, y: best.target.y, z: best.target.z, yaw: best.targetYaw } : null;
+    return best && at ? at : null;
   }
 
   add(info: PeerInfo, pose?: readonly number[]): void {
@@ -90,7 +89,16 @@ export class PeerAvatars {
     plate.style.visibility = 'hidden';
     this.plateParent.appendChild(plate);
     const p = new THREE.Vector3(pose?.[0] ?? 0, pose?.[1] ?? 0, pose?.[2] ?? 0);
-    const rt: PeerRt = { info, char, pos: p.clone(), target: p, yaw: pose?.[3] ?? 0, targetYaw: pose?.[3] ?? 0, speed: 0, plate, plateKey: '', seen: !!pose };
+    const motion = new PeerMotion();
+    // a hello entry carries velocity, turn rate and age: keep drawing them moving from where they are by now
+    const m = pose ? peerMotionOf(pose) : null;
+    if (pose && m) {
+      const now = performance.now();
+      motion.set(p.x, p.y, p.z, pose[3] ?? 0, m.vx, m.vz, now - m.ageMs, m.w);
+      motion.settle(now);
+      p.set(motion.x, motion.y, motion.z);
+    }
+    const rt: PeerRt = { info, char, pos: p, motion, yaw: pose ? motion.yaw : 0, speed: 0, plate, plateKey: '', seen: !!pose };
     // Not placed yet (joined, no pose so far): stay hidden instead of standing at the world origin.
     char.root.visible = rt.seen;
     this.peers.set(info.id, rt);
@@ -105,11 +113,10 @@ export class PeerAvatars {
     this.peers.delete(id);
   }
 
-  pose(id: string, x: number, y: number, z: number, yaw: number): void {
+  pose(id: string, x: number, y: number, z: number, yaw: number, vx = 0, vz = 0, w = 0): void {
     const rt = this.peers.get(id);
     if (!rt) return;
-    rt.target.set(x, y, z);
-    rt.targetYaw = yaw;
+    rt.motion.set(x, y, z, yaw, vx, vz, performance.now(), w);
     if (!rt.seen) {
       rt.seen = true;
       rt.pos.set(x, y, z);
@@ -125,16 +132,13 @@ export class PeerAvatars {
   }
 
   update(dt: number, project: Project, viewDistance: number, me: THREE.Vector3, showPlates: boolean): void {
-    // ~150 ms to close the gap (poses come every 200 ms while walking): smooth, and never more than one pose behind.
-    const k = 1 - Math.exp(-dt / 0.15);
+    const now = performance.now();
     for (const rt of this.peers.values()) {
       if (!rt.seen) continue;
       this.tmp.copy(rt.pos);
-      const far = rt.target.distanceTo(rt.pos);
-      // A jump of several metres (teleport, scene change) snaps instead of sliding through walls.
-      if (far > 8) rt.pos.copy(rt.target);
-      else rt.pos.lerp(rt.target, k);
-      rt.yaw += wrap(rt.targetYaw - rt.yaw) * k;
+      rt.motion.step(dt, now);
+      rt.pos.set(rt.motion.x, rt.motion.y, rt.motion.z);
+      rt.yaw = rt.motion.yaw;
       const moved = dt > 0 ? Math.hypot(rt.pos.x - this.tmp.x, rt.pos.z - this.tmp.z) / dt : 0;
       rt.speed += (moved - rt.speed) * Math.min(1, dt * 8);
       const visible = rt.pos.distanceTo(me) < viewDistance;

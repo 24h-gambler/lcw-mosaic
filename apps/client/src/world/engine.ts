@@ -1868,8 +1868,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         peers.remove(id);
         syncTeacherFigure();
       },
-      pose(id, x, y, z, yaw) {
-        peers.pose(id, x, y, z, yaw);
+      pose(id, x, y, z, yaw, _anim, vx, vz, w) {
+        peers.pose(id, x, y, z, yaw, vx ?? 0, vz ?? 0, w ?? 0);
       },
       emote(id, e) {
         peers.emote(id, e);

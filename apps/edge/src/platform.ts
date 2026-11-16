@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
 import { playAllowed, sweepSeatNotices } from './seats.js';
+import { legacyWorldRedirect } from './world-path.js';
 import {
   VOICE_PUBLIC_ROUTES,
   buildVoiceApp,
@@ -14,6 +15,8 @@ import {
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { buildPushAdminApp, deliverPush, enqueueGuardianNotices, enqueueReportNotices, vapidKeys, webPushSender, type PushSender } from './push.js';
 import { buildGuardianViewAdminApp } from './guardian-view.js';
+import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, oauthConfigFrom } from './oauth.js';
+import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandler } from './guardian-oauth.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
@@ -27,6 +30,8 @@ import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
 import { handleServerStt } from './stt.js';
+import { handleTts, parseTryVoice, prebuildFixedLines, synthesize, ttsStatus, type TtsDeps } from './tts.js';
+import { normalizeTtsText } from '@lcw/content';
 import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaHealth, readQuotaSettings, rollupQuota } from './quota.js';
 import {
   createDurableSqliteExecutor,
@@ -41,7 +46,7 @@ import { EdgePlatformDb, LessonDO, WorldDO, type SqliteExecutor } from './storag
 /**
  * Production platform (entry module: worker.ts). One SQLite Durable Object ("platform") holds the relational
  * data that docs/02 §9.1 puts in D1 plus every world (table-prefixed). The synchronous DO SQL API
- * lets the tested storage code run unchanged. Static pages (apps/web at /, apps/client at /game/)
+ * lets the tested storage code run unchanged. Static pages (apps/web at /, apps/client at /world/)
  * are served by Workers static assets; only /v1/* and /health reach this code.
  */
 
@@ -67,6 +72,8 @@ export interface LcwEnv {
   BUILD_SHA?: string;
   /** R2 bucket for children's voice clips (voice.ts). Unbound → uploads answer 503 and nothing is stored. */
   VOICE?: R2BucketLike;
+  /** Neural NPC voice (tts.ts): "on" serves /v1/tts to players; anything else keeps the device voice (default off). */
+  TTS_NEURAL?: string;
   /** Cloudflare Realtime SFU app for live lesson listening (lesson-audio.ts). Both unset → the window is text only. */
   REALTIME_APP_ID?: string;
   REALTIME_APP_TOKEN?: string;
@@ -75,6 +82,15 @@ export interface LcwEnv {
   REALTIME_TURN_KEY_TOKEN?: string;
   /** Local real-path rig only: a stand-in SFU. Never set in production. */
   REALTIME_API_BASE?: string;
+  /** Sign-in with Google / Kakao (oauth.ts). A provider without its settings is hidden. */
+  LCW_GOOGLE_CLIENT_ID?: string;
+  LCW_GOOGLE_CLIENT_SECRET?: string;
+  LCW_KAKAO_REST_KEY?: string;
+  LCW_KAKAO_CLIENT_SECRET?: string;
+  /** Local real-path rig only: a stand-in Google / Kakao (oauth.ts devProviderSpecs). Never set in production. */
+  LCW_OAUTH_DEV_PROVIDER?: string;
+  /** Site origin the sign-in providers know for their callback; unset → the request's own origin (https). */
+  LCW_PUBLIC_ORIGIN?: string;
 }
 interface DoState {
   storage: DurableStorageLike;
@@ -88,7 +104,7 @@ export const MAX_RESIDENT_WORLDS = 16;
 /** Share tokens shorter than this are never served (guessable). Server-made tokens are 32+ chars. */
 export const MIN_SHARE_TOKEN_CHARS = 16;
 
-/** Routes anyone may call. Everything else under /v1 needs the operator token until guardian OAuth (WP-301) exists. */
+/** Routes anyone may call. Everything else under /v1 needs the operator token. */
 export function isPublicRoute(method: string, path: string): boolean {
   if (path === '/health' || path === '/v1/health') return true;
   if (method === 'GET' && path === '/v1/trades/scenarios') return true;
@@ -99,6 +115,10 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (path.startsWith('/v1/lesson/')) return true;
   // Guardian (WP-301): /v1/family/* checks its own guardian session token, /v1/device/* the child device token.
   if (FAMILY_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Sign-in with Google / Kakao (oauth.ts): state, ticket or ID token checked by the module; /family sign-in links
+  // check the guardian session (guardian-oauth.ts).
+  if (OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  if (GUARDIAN_OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Public site (docs/14): cookie-free counters and the tutoring consult form, see site.ts.
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
@@ -685,6 +705,41 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     }
     return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota: () => platform.quota, ai: env.AI, nowMs: () => Date.now() });
   });
+  // Neural NPC voice (tts.ts): cached lines for anyone, new fixed lines through the meter, other text only for a
+  // child's own token; off unless TTS_NEURAL=on (the operator may always try and prebuild).
+  const ttsDeps = (): TtsDeps => ({
+    enabled: env.TTS_NEURAL === 'on',
+    quota: () => platform.quota,
+    ai: env.AI,
+    store: env.VOICE as TtsDeps['store'],
+    nowMs: () => Date.now(),
+    sha256Hex
+  });
+  app.get('/v1/tts/status', () => ttsStatus(ttsDeps()));
+  app.get('/v1/tts', async (c) => {
+    const operator = isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN);
+    const student = operator ? null : await platform.studentFromRequest(c.req.raw);
+    const device = operator || student ? null : await platform.deviceFromRequest(c.req.raw);
+    const playerId = student?.player_id ?? device?.player_id ?? null;
+    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student) }, ttsDeps());
+  });
+  // Operator measurement: one uncached synthesis with its time (engine/voice choice, docs/04 4.8).
+  app.post('/v1/admin/tts/try', async (c) => {
+    if (!isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return c.json({ error: 'operator_only' }, 401);
+    const body = (await c.req.json().catch(() => null)) as { voice?: string; text?: string } | null;
+    const voice = parseTryVoice(body?.voice);
+    const text = normalizeTtsText(body?.text ?? '');
+    if (!voice || !text || !env.AI) return c.json({ error: 'voice_text_ai_required' }, 400);
+    const t0 = Date.now();
+    const bytes = await synthesize(env.AI, voice, text).catch(() => null);
+    if (!bytes) return c.json({ error: 'tts_failed' }, 502);
+    return new Response(bytes as unknown as BodyInit, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'no-store', 'x-lcw-tts-ms': String(Date.now() - t0) } });
+  });
+  app.post('/v1/admin/tts/prebuild', async (c) => {
+    if (!isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return c.json({ error: 'operator_only' }, 401);
+    const body = (await c.req.json().catch(() => ({}))) as { budget_neurons?: number; voice?: string };
+    return c.json(await prebuildFixedLines(ttsDeps(), { budgetNeurons: body.budget_neurons, voice: body.voice }));
+  });
   // My plot (WP-207): the child's own home world, from the same tokens. Building alone is solo play, so a linked
   // device whose seat has paused play may still look (GET) but not build (docs/01 §4; the client shows the notice).
   // A lesson token always may: the lesson is the teacher's time.
@@ -780,6 +835,20 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildFamilyApp(familyDeps));
   app.route('/', buildPushAdminApp(familyDeps));
   app.route('/', buildGuardianViewAdminApp(familyDeps));
+  const oauthConfig = oauthConfigFrom(env as unknown as Record<string, unknown>);
+  const guardianOAuth = { ...familyDeps, config: oauthConfig };
+  app.route('/', buildGuardianOAuthApp(guardianOAuth));
+  // Roles plug in here: the teacher handler (operator-login.ts, lesson lane) joins `roles` next to the guardian one.
+  app.route(
+    '/',
+    buildOAuthApp({
+      ...familyDeps,
+      config: oauthConfig,
+      roles: { guardian: guardianOAuthHandler(guardianOAuth) },
+      specs: env.LCW_OAUTH_DEV_PROVIDER ? devProviderSpecs(env.LCW_OAUTH_DEV_PROVIDER) : undefined,
+      publicOrigin: env.LCW_PUBLIC_ORIGIN
+    })
+  );
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
@@ -828,6 +897,9 @@ function platformStub(env: LcwEnv): DoStub {
 
 async function routeWorkerRequest(request: Request, env: LcwEnv): Promise<Response> {
   const url = new URL(request.url);
+  // The world moved from /game/ to /world/ (world-path.ts): old lesson and pass links keep their query.
+  const moved = legacyWorldRedirect(url);
+  if (moved) return moved;
   if (url.pathname === '/health' || url.pathname.startsWith('/v1/')) {
     return platformStub(env).fetch(request);
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FREE_TIER_LIMITS, QuotaMeter } from '../index.js';
+import { FREE_TIER_LIMITS, QuotaMeter, ttsNeurons } from '../index.js';
 
 describe('@lcw/quota WP-112 acceptance', () => {
   it('transitions cleanly across degradation stages 0..4 and prioritizes lessons', () => {
@@ -54,5 +54,20 @@ describe('@lcw/quota WP-112 acceptance', () => {
     const zeroMeter = new QuotaMeter('2026-11-15', 0);
     expect(zeroMeter.getStatus(0).bankOnlyMode).toBe(true);
     expect(zeroMeter.canUseCreativeLlm({ seatId: 's1', isLesson: false, nowMs: 0 })).toBe(false);
+  });
+});
+
+describe('neural voice on the ladder (canUseTts)', () => {
+  const now = Date.parse('2026-11-16T03:00:00Z');
+  it('solo play gives it up from stage 2, lessons from stage 3, and the lesson reserve holds it back', () => {
+    const m = new QuotaMeter('2026-11-16', 1000);
+    expect(m.canUseTts({ isLesson: false, nowMs: now })).toBe(true);
+    m.consumeNeurons('a', 860, 'tts');
+    expect(m.canUseTts({ isLesson: false, nowMs: now })).toBe(false);
+    expect(m.canUseTts({ isLesson: true, nowMs: now })).toBe(true);
+    m.consumeNeurons('a', 100, 'tts');
+    expect(m.canUseTts({ isLesson: true, nowMs: now })).toBe(false);
+    expect(ttsNeurons('aura', 50)).toBe(69);
+    expect(ttsNeurons('melo', 50)).toBe(3);
   });
 });

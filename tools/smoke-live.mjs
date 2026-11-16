@@ -56,8 +56,16 @@ if (token) {
     return q;
   });
 }
-const BROWSER_UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
-for (const page of ['/', '/try', '/parents', '/game/']) {
+// Lesson links sent before 2026-11-16 say /game/?code=…; they must land on the world with the code intact (world-path.ts).
+await check('old lesson link /game/?code= → /world/?code=', async () => {
+  const r = await req('/game/?code=058779&scene=plaza', { redirect: 'manual', headers: { accept: 'text/html' } });
+  expect(r.status === 302, `status ${r.status}`);
+  const location = r.headers.get('location');
+  expect(location === '/world/?code=058779&scene=plaza', `location ${location}`);
+  return { location };
+});
+const BROWSER_UA ='Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
+for (const page of ['/', '/try', '/parents', '/world/']) {
   await check(`page ${page}`, async () => {
     const r = await req(page, { headers: { accept: 'text/html', 'user-agent': BROWSER_UA, 'accept-encoding': 'gzip, br' } });
     expect(r.status === 200, `status ${r.status}`);

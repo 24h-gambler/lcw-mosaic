@@ -233,13 +233,24 @@ export function mountGuestPassGuardianRoutes(
     started_at: row.started_at,
     ends_at: row.ends_at
   });
+  // When a slot opens again: a waiting code runs out of its 7 days, or the month turns (only if something was played
+  // this month; waiting codes keep their slot across the turn).
+  const nextSlotAt = (sid: string, now: number): number => {
+    const waiting = d.sql.get<{ t: number | null }>(
+      'select min(redeem_until) as t from guest_pass_grants where seat_id = ? and started_at is null and revoked_at is null and redeem_until > ?',
+      [sid, now]
+    )?.t;
+    const monthTurn = passesPlayedThisMonth(d.sql, sid, now) > 0 ? nextKstMonthStart(now) : Infinity;
+    const t = Math.min(waiting ?? Infinity, monthTurn);
+    return Number.isFinite(t) ? t : nextKstMonthStart(now);
+  };
   const summary = (sid: string, now: number) => {
     const used = passesUsedThisMonth(d.sql, sid, now);
     return {
       per_month: FREE_PLAY_LIMITS.guestPassesPerSeatPerMonth,
       minutes: FREE_PLAY_LIMITS.guestPassMinutes,
       left_this_month: Math.max(0, FREE_PLAY_LIMITS.guestPassesPerSeatPerMonth - used),
-      resets_at: nextKstMonthStart(now),
+      resets_at: nextSlotAt(sid, now),
       server_now: now
     };
   };

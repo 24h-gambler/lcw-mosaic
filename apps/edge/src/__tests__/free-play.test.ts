@@ -171,7 +171,8 @@ describe('guest pass: 30 minutes from the first entry, 2 per seat per month', ()
     expect(b.body.left_this_month).toBe(0);
     const c = await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g);
     expect(c.status).toBe(409);
-    expect(c.body).toMatchObject({ error: 'monthly_limit', resets_at: nextKstMonthStart(T0) });
+    // Nothing played yet: the next slot opens when the first waiting code runs out of its 7 days, not at the month turn.
+    expect(c.body).toMatchObject({ error: 'monthly_limit', resets_at: T0 + FREE_PLAY_LIMITS.guestPassRedeemDays * DAY });
     // Revoking an unused pass gives the slot back.
     expect((await call(p, 'POST', `/v1/family/guest-passes/${b.body.pass.id}/revoke`, {}, g)).body.left_this_month).toBe(1);
     expect((await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).status).toBe(201);
@@ -261,6 +262,8 @@ describe('guest pass: 30 minutes from the first entry, 2 per seat per month', ()
     expect((await call(p, 'POST', '/v1/guest-pass/redeem', { code: b.code, device: DEV_A })).status).toBe(201);
     expect((await call(p, 'POST', '/v1/guest-pass/redeem', { code: c.code, device: DEV_B })).status).toBe(201);
     expect(passesPlayedThisMonth(p.sql, sid, dec1)).toBe(2);
+    // Both played this month and nothing waiting: the slot opens at the month turn.
+    expect((await call(p, 'GET', `/v1/family/seats/${sid}/guest-passes`, undefined, g)).body.resets_at).toBe(nextKstMonthStart(dec1));
     expect(passesPlayedThisMonth(p.sql, sid, lastNight)).toBe(1);
     expect((await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.error).toBe('monthly_limit');
     // Second line: a waiting code left from the older count (issue month) cannot become a third played pass in December.

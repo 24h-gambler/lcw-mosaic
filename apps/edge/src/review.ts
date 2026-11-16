@@ -1,6 +1,7 @@
 import { scoreUtterance } from '@lcw/converse';
 import {
   CAFE_MENU,
+  FURNITURE_SHOP_GOODS,
   GUIDE_PLACES,
   PHRASE_BANK,
   TRADE_SHOP_GOODS,
@@ -10,12 +11,14 @@ import {
   type LangLevel
 } from '@lcw/content';
 import {
+  SLOT_COUNT,
   TUNING,
   getHintLevelForBox,
   reviewMemoryCard,
   selectRepairPickCards,
   selectReviewSigns,
-  type MemoryCardState
+  type MemoryCardState,
+  type SocketName
 } from '@lcw/sim-core';
 import type { HintLevel } from '@lcw/schemas';
 import type { EdgePlatformDb, WorldDO } from './storage.js';
@@ -68,6 +71,7 @@ export function itemKeyOfCard(itemId: string): string {
 
 const NAME_KO = new Map<string, { nameKo: string; emoji: string }>([
   ...CAFE_MENU.map((d) => [d.key, { nameKo: d.nameKo, emoji: d.emoji }] as const),
+  ...FURNITURE_SHOP_GOODS.map((g) => [g.key, { nameKo: g.nameKo, emoji: g.emoji }] as const),
   ...TRADE_SHOP_GOODS.map((g) => [g.key, { nameKo: g.nameKo, emoji: g.emoji }] as const),
   ...GUIDE_PLACES.map((g) => [g.key, { nameKo: g.nameKo, emoji: g.emoji }] as const)
 ]);
@@ -108,7 +112,28 @@ function ownedThings(world: WorldDO, playerId: string): Array<{ id: string; loca
   );
 }
 
-/** Move the child's own thing to the bag (carry) or the chest (store). Carrying it is a use. */
+/** Carried things in the bag (legacy rows say 'hotbar'); sockets are worn, not carried. */
+const BAG_LOCATIONS = ['bag', 'hotbar'] as const;
+
+/** How many of the child's things are carried in the bag now (docs/03 D13: five slots, the chest is unlimited). */
+export function bagCount(world: WorldDO, playerId: string): number {
+  return Number(
+    world.sql.get<{ n: number }>("select count(*) as n from items where owner = ? and location in ('bag', 'hotbar')", [playerId])?.n ?? 0
+  );
+}
+
+/**
+ * Where a newly bought thing lands: the bag while it has a free slot, else the home chest (docs/03 D13 "5칸 슬롯의
+ * 결핍감은 들고 다니는 것에만"). A thing that already exists (the same purchase said again for more stars) stays where
+ * the child put it.
+ */
+export function landingPlace(world: WorldDO, playerId: string, itemId: string): string {
+  const row = world.sql.get<{ location: string }>('select location from items where id = ? and owner = ?', [itemId, playerId]);
+  if (row) return row.location;
+  return bagCount(world, playerId) < SLOT_COUNT ? 'bag' : 'chest';
+}
+
+/** Move the child's own thing to the bag (carry) or the chest (store). Carrying it is a use. The bag holds five. */
 export function placeItem(
   db: EdgePlatformDb,
   world: WorldDO,
@@ -116,12 +141,72 @@ export function placeItem(
   itemId: string,
   to: ItemPlace,
   nowMs: number
-): { ok: true; item_id: string; location: ItemPlace } | { ok: false; status: 404; error: 'item_not_found' } {
+):
+  | { ok: true; item_id: string; location: ItemPlace }
+  | { ok: false; status: 404; error: 'item_not_found' }
+  | { ok: false; status: 409; error: 'bag_full'; bag_slots: number } {
   const row = ownedThings(world, playerId).find((r) => r.id === itemId);
   if (!row) return { ok: false, status: 404, error: 'item_not_found' };
+  const inBag = (BAG_LOCATIONS as readonly string[]).includes(row.location);
+  if (to === 'bag' && !inBag && bagCount(world, playerId) >= SLOT_COUNT) {
+    return { ok: false, status: 409, error: 'bag_full', bag_slots: SLOT_COUNT };
+  }
   world.sql.run('update items set location = ? where id = ? and owner = ?', [to, itemId, playerId]);
   if (to === 'bag') recordItemUse(db, playerId, itemId, nowMs);
   return { ok: true, item_id: itemId, location: to };
+}
+
+export type ItemLocation = 'bag' | 'chest' | 'socket';
+export interface ItemView {
+  item_id: string;
+  item_key: string;
+  item_name_ko: string;
+  emoji: string;
+  location: ItemLocation;
+  socket: SocketName | null;
+  durability: number;
+  card: { box: number; due: boolean; mastered: boolean } | null;
+}
+
+/**
+ * The child's things for the bag/chest screen and the mirror view (G03, G04): everything owned and not handed over,
+ * with the card each one carries. No route puts a thing into a socket yet, so `socket` is null for every row.
+ */
+export function listItems(
+  db: EdgePlatformDb,
+  world: WorldDO | undefined,
+  playerId: string,
+  nowMs: number
+): { bag_slots: number; items: ItemView[]; coins_total: number } {
+  if (!world) return { bag_slots: SLOT_COUNT, items: [], coins_total: 0 };
+  const cards = new Map(listMemoryCards(db, playerId).map((r) => [r.item_id, r]));
+  const items: ItemView[] = [];
+  for (const r of world.sql.all<{ id: string; location: string; durability: number }>(
+    "select id, location, durability from items where owner = ? and location in ('bag', 'hotbar', 'socket', 'equipped', 'chest') order by rowid asc",
+    [playerId]
+  )) {
+    const key = itemKeyOfCard(r.id);
+    const label = itemLabelKo(key);
+    const card = cards.get(r.id);
+    const location: ItemLocation = r.location === 'chest' ? 'chest' : r.location === 'socket' || r.location === 'equipped' ? 'socket' : 'bag';
+    items.push({
+      item_id: r.id,
+      item_key: key,
+      item_name_ko: label.nameKo,
+      emoji: label.emoji,
+      location,
+      socket: null,
+      durability: Number(r.durability),
+      card: card
+        ? {
+            box: Number(card.box),
+            due: card.mastered_at === null && Number(card.next_review_at) <= nowMs,
+            mastered: card.mastered_at !== null
+          }
+        : null
+    });
+  }
+  return { bag_slots: SLOT_COUNT, items, coins_total: world.getPlayerBalance(playerId) };
 }
 
 /** Holding a thing in hand: a use when the child owns and carries it (unknown or stored things change nothing). */

@@ -26,7 +26,7 @@ import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMi
 import { FirstPersonHands } from './viewmodel.js';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
-import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
+import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, walksBetween, type NpcDef, type NpcLook, type Spot } from './town.js';
 
 export { TIER_SETTINGS };
 
@@ -802,8 +802,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     travel = (async () => {
       const pts = pathTo(target);
       hud.setScene(SCENE_TITLES_KO[target]);
-      // a scene on another floor (the mine under the market hall) is never walked to: the elevator fades
-      if (pts && !reduceMotion && Math.abs(spotY(SCENES[target].player) - body.y) < 4) {
+      // a scene on another floor (the mine under the market hall) is never walked to: the elevator fades (town.ts)
+      if (pts && !reduceMotion && walksBetween(body.y, spotY(SCENES[target].player))) {
         placeNpcForScene(target, true);
         autopilot = pts;
         autoStuck = 0;

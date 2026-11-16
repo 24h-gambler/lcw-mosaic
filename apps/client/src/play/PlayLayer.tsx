@@ -29,9 +29,11 @@ interface Toast {
 interface Store {
   token: string;
   state: PlayState | null;
+  /** When `state` arrived (the card clock runs on from it between heartbeats). */
+  at: number;
   toasts: Toast[];
 }
-let store: Store = { token: '', state: null, toasts: [] };
+let store: Store = { token: '', state: null, at: 0, toasts: [] };
 const listeners = new Set<() => void>();
 let toastSeq = 0;
 
@@ -51,12 +53,22 @@ export function playToast(text: string, ms = 4200): void {
 async function refresh(beat = false): Promise<void> {
   if (!store.token) return;
   const s = await fetchPlayState(store.token, { beat });
-  if (s) setStore({ state: s });
+  if (s) setStore({ state: s, at: Date.now() });
+}
+
+/**
+ * The card's clock between two heartbeats: the server's minute plus the real seconds since (one game minute = one
+ * real second), never more than one heartbeat's worth ahead. Display only: the server judges the hours itself.
+ */
+export function shownClock(s: PlayState, at: number, now: number): string {
+  const ahead = Math.max(0, Math.min(TUNING.play.beatMaxAddMs, now - at));
+  const m = (s.clock.minute + Math.floor(ahead / TUNING.play.realMsPerGameMinute)) % (24 * 60);
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
 
 /** For tests: start from a known store. */
 export function resetPlayStore(s: Partial<Store> = {}): void {
-  store = { token: '', state: null, toasts: [], ...s };
+  store = { token: '', state: null, at: 0, toasts: [], ...s };
   for (const l of listeners) l();
 }
 export function playStoreState(): PlayState | null {
@@ -193,6 +205,13 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
     return () => window.clearInterval(id);
   }, [deviceToken]);
 
+  // the card clock ticks each real second (one game minute) between heartbeats
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // where the child stands (4 times a second; cheap: getStats reads numbers the engine already has)
   useEffect(() => {
     if (!world?.getStats) return;
@@ -299,13 +318,13 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
         >
           <span aria-hidden>💼</span>
           <span>{PLAY_KO.cardTitle}</span>
-          {state ? <span style={{ fontFamily: T.fonts.pixel, color: C['paper-0'] }}>{state.clock.hhmm}</span> : null}
+          {state ? <span style={{ fontFamily: T.fonts.pixel, color: C['paper-0'] }}>{shownClock(state, st.at, now)}</span> : null}
         </button>
         {open ? (
           <div data-play="card-body" style={{ ...box, ...(narrow ? { marginBottom: 8 } : { marginTop: 8 }), alignSelf: 'stretch', padding: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: T.scale.small.sizePx, lineHeight: `${T.scale.small.lineHeightPx}px` }}>
             {state ? (
               <>
-                <div style={{ fontWeight: 800 }}>{PLAY_KO.clock(state.clock.hhmm)}</div>
+                <div style={{ fontWeight: 800 }}>{PLAY_KO.clock(shownClock(state, st.at, now))}</div>
                 <div>
                   {state.job.rank && state.job.pay !== null ? PLAY_KO.rankLine(rankKo(state.job.rank), state.job.pay) : PLAY_KO.noJob}
                 </div>

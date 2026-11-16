@@ -65,7 +65,6 @@ export function boxHits(blockAt: BlockAt, x: number, y: number, z: number, hw = 
   return false;
 }
 
-/** Height of the floor directly under the box (max collide top among blocks below feet), or -Infinity. */
 /** Any solid block in the column under (x, z) within `depth` m below y (the mine floors under the town). */
 function groundBelow(blockAt: BlockAt, x: number, y: number, z: number, depth: number): boolean {
   const bx = Math.floor(x);
@@ -74,6 +73,7 @@ function groundBelow(blockAt: BlockAt, x: number, y: number, z: number, depth: n
   return false;
 }
 
+/** Height of the floor directly under the box (max collide top among blocks below feet), or -Infinity. */
 function floorUnder(blockAt: BlockAt, x: number, y: number, z: number): number {
   const hw = PLAYER_HALF_W - 1e-3;
   let best = -Infinity;

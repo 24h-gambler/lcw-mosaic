@@ -9,6 +9,7 @@
  *   play_mine   — when each vein was last taken (on play time)
  *   play_market — the world's price index per ore (docs/03 D2 평균 회귀, docs/09 P7 월드별)
  *   play_sales  — one exchange sale per dialog (a better retry tops up the difference, never pays twice)
+ *   play_turns  — which office turn a dialog answered (a better retry in the same window raises that turn's stars)
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -28,6 +29,7 @@ import {
   heartbeatAddMs,
   hhmm,
   interviewOutcome,
+  JOB_RANKS,
   marketAfterSale,
   marketRecovered,
   mineCheck,
@@ -41,6 +43,7 @@ import {
   shiftPay,
   toolTierOf,
   veinById,
+  veinRespawnMs,
   type JobRank,
   type JobState,
   type OfficeHours,
@@ -58,7 +61,8 @@ create table if not exists play_clock (player_id text not null, world_id text no
 create table if not exists play_job (player_id text not null, world_id text not null, rank text, days_worked integer not null default 0, three_star_customers integer not null default 0, on_time_streak integer not null default 0, negotiations integer not null default 0, promo_points integer not null default 0, interview_stars text not null default '[]', shift text, hired_at integer, updated_at integer not null, primary key (player_id, world_id));
 create table if not exists play_mine (player_id text not null, world_id text not null, vein_id text not null, last_play_ms integer not null, primary key (player_id, world_id, vein_id));
 create table if not exists play_market (world_id text not null, ore text not null, idx real not null, updated_at integer not null, primary key (world_id, ore));
-create table if not exists play_sales (dialog_id text not null, player_id text not null, world_id text not null, ore text not null, units integer not null, idx real not null, stars integer not null, coins integer not null, at integer not null, primary key (dialog_id, ore));
+create table if not exists play_sales (dialog_id text not null, player_id text not null, world_id text not null, ore text not null, units integer not null, idx real not null, stars integer not null, coins integer not null, at integer not null, primary key (player_id, world_id, dialog_id, ore));
+create table if not exists play_turns (player_id text not null, world_id text not null, dialog_id text not null, kind text not null, day integer not null, idx integer not null, item text not null, stars integer not null, primary key (player_id, world_id, dialog_id, item));
 `);
 }
 
@@ -228,7 +232,7 @@ export function playState(db: EdgePlatformDb, world: WorldDO | undefined, player
   const resting: Record<string, number> = {};
   const mined = db.sql.all<{ vein_id: string; last_play_ms: number }>('select vein_id, last_play_ms from play_mine where player_id = ? and world_id = ?', [playerId, worldId]);
   for (const m of mined) {
-    const left = Number(m.last_play_ms) + TUNING.play.mine.veinRespawnPlayMs - c.play_ms;
+    const left = Number(m.last_play_ms) + veinRespawnMs(veinById(m.vein_id)?.ore ?? '') - c.play_ms;
     if (left > 0) resting[m.vein_id] = left;
   }
   return {
@@ -268,6 +272,8 @@ export interface PlayStepResult {
   late?: boolean;
   interview_turn?: InterviewTurn | null;
   served?: number;
+  /** The same window said it again: 'better' raised that turn's stars (coins = the difference), 'same' moved nothing. */
+  retry?: 'better' | 'same';
 }
 
 export function applyPlayStep(
@@ -277,8 +283,8 @@ export function applyPlayStep(
 ): PlayStepResult | undefined {
   if (!PLAY_CTXS.has(s.ctx) || !s.pass || s.stars < 1 || !s.askedKey) return undefined;
   const stars = Math.min(3, s.stars) as Stars;
-  const c = clockRow(db, s.playerId, s.worldId);
-  const clock = clockOf(c.play_ms);
+  // a scored sentence is a heartbeat too: the office hours are judged at this second, not at the last 15 s beat
+  const clock = clockOf(beat(db, s.playerId, s.worldId, s.nowMs));
   const hours = officeHours(clock.minute);
   const job = jobOf(db, s.playerId, s.worldId);
   const pay = (delta: number, reason: string, ref: string): number => {
@@ -291,12 +297,36 @@ export function applyPlayStep(
 
   if (s.ctx === 'exchange') return sellOre(db, world, s, stars);
 
+  // The same window said again (docs/04 4.3 "별 하나 더 도전"): a better sentence raises that turn, never twice.
+  const turn = db.sql.get<{ kind: string; day: number; idx: number; item: string; stars: number }>(
+    'select kind, day, idx, item, stars from play_turns where player_id = ? and world_id = ? and dialog_id = ? and item = ?',
+    [s.playerId, s.worldId, s.dialogId, s.askedKey]
+  );
+  // (the same sentence set only: another turn's sentence in this window is a new turn)
+  if (turn) {
+    const t = { kind: turn.kind, day: Number(turn.day), idx: Number(turn.idx), item: turn.item, stars: Number(turn.stars) as Stars };
+    return retryTurn(db, s, job, t, stars, pay);
+  }
+  const logTurn = (kind: string, day: number, idx: number, item: string): void => {
+    db.sql.run('insert or ignore into play_turns (player_id, world_id, dialog_id, kind, day, idx, item, stars) values (?, ?, ?, ?, ?, ?, ?, ?)', [
+      s.playerId,
+      s.worldId,
+      s.dialogId,
+      kind,
+      day,
+      idx,
+      item,
+      stars
+    ]);
+  };
+
   if (s.ctx === 'interview') {
     if (job.rank) return { kind: 'interview', blocked: 'done', hired: job.rank };
     if (!ownedKeys(world, s.playerId).includes('suit')) return { kind: 'interview', blocked: 'no_suit' };
     if (hours === 'before_open' || hours === 'closed') return { kind: 'interview', blocked: hours };
     const want = INTERVIEW_TURNS[job.interviewStars.length]!;
     if (s.askedKey !== want) return { kind: 'interview', blocked: 'wrong_turn', interview_turn: want };
+    logTurn('interview', clock.day, job.interviewStars.length, want);
     job.interviewStars = [...job.interviewStars, stars];
     if (job.interviewStars.length < INTERVIEW_TURNS.length) {
       saveJob(db, s.playerId, s.worldId, job, s.nowMs);
@@ -318,6 +348,7 @@ export function applyPlayStep(
     const want = hours === 'late' ? 'boss_late' : 'boss_report';
     if (s.askedKey !== want) return { kind: 'shift', blocked: 'wrong_turn' };
     const r = clockIn(clock.day, hours, stars);
+    logTurn('boss', clock.day, 0, want);
     job.shift = r.shift;
     if (r.promoPoint) job.promoPoints += 1;
     saveJob(db, s.playerId, s.worldId, job, s.nowMs);
@@ -329,6 +360,7 @@ export function applyPlayStep(
   if (today.paid || today.customersServed >= TUNING.play.shift.customersPerShift) return { kind: 'customer', blocked: 'done', served: today.customersServed };
   const want = customerKeyFor(job.rank, clock.day, today.customersServed);
   if (s.askedKey !== want) return { kind: 'customer', blocked: 'wrong_turn' };
+  logTurn('customer', clock.day, today.customersServed, want);
   const served = serveCustomer(today, stars);
   let shift = served.shift;
   if (served.regular) job.threeStarCustomers += 1;
@@ -353,6 +385,53 @@ export function applyPlayStep(
   return { kind: 'customer', tip, pay: dayPay || undefined, coins: tip + dayPay, promoted, served: shift.customersServed };
 }
 
+/**
+ * A better sentence in a window that already moved a turn: the interview turn's stars (a better hire while no day was
+ * worked yet), the clock-in (full pay, a promotion point at 3 stars) or the customer's tip difference.
+ */
+function retryTurn(
+  db: EdgePlatformDb,
+  s: { playerId: string; worldId: string; dialogId: string; nowMs: number },
+  job: JobRow,
+  t: { kind: string; day: number; idx: number; item: string; stars: Stars },
+  stars: Stars,
+  pay: (delta: number, reason: string, ref: string) => number
+): PlayStepResult {
+  const kind: PlayStepResult['kind'] = t.kind === 'boss' ? 'shift' : t.kind === 'interview' ? 'interview' : 'customer';
+  if (stars <= t.stars) return { kind, retry: 'same' };
+  db.sql.run('update play_turns set stars = ? where player_id = ? and world_id = ? and dialog_id = ? and item = ?', [stars, s.playerId, s.worldId, s.dialogId, t.item]);
+  let coins = 0;
+  const out: PlayStepResult = { kind, retry: 'better' };
+  if (t.kind === 'interview') {
+    if (job.interviewStars[t.idx] !== undefined) job.interviewStars[t.idx] = Math.max(job.interviewStars[t.idx]!, stars) as Stars;
+    // already hired from this interview and not one day worked yet: the better answers count for the hire
+    if (job.rank && job.interviewStars.length === INTERVIEW_TURNS.length && job.daysWorked === 0 && !job.shift) {
+      const o = interviewOutcome(job.interviewStars);
+      if (JOB_RANKS.indexOf(o.rank) > JOB_RANKS.indexOf(job.rank)) {
+        job.rank = o.rank;
+        out.hired = o.rank;
+      }
+      coins += pay(o.contractBonus, 'play:contract', `play:contract:${s.worldId}`);
+    }
+  } else if (t.kind === 'boss' && job.shift && job.shift.day === t.day && !job.shift.paid) {
+    const better = clockIn(t.day, job.shift.late ? 'late' : 'on_time', stars);
+    job.shift = { ...job.shift, payFactor: Math.max(job.shift.payFactor, better.shift.payFactor) };
+    if (stars === 3 && t.stars < 3) job.promoPoints += 1;
+    out.late = job.shift.late;
+  } else if (t.kind === 'customer') {
+    const diff = TUNING.play.customerTipByStars[stars] - TUNING.play.customerTipByStars[t.stars];
+    const tip = pay(diff, 'play:tip:better_stars', `play:tip:${s.worldId}:${t.day}:${t.idx}:${stars}`);
+    coins += tip;
+    if (tip > 0) out.tip = tip;
+    if (job.shift && job.shift.day === t.day) job.shift = { ...job.shift, tips: job.shift.tips + tip };
+    if (stars === 3 && t.stars < 3) job.threeStarCustomers += 1;
+    if (t.item === NEGOTIATION.key && stars >= 2 && t.stars < 2) job.negotiations += 1;
+  }
+  saveJob(db, s.playerId, s.worldId, job, s.nowMs);
+  if (coins > 0) out.coins = coins;
+  return out;
+}
+
 /** docs/04 4.2 환전소: sells every unit of that ore in the bag; a better retry in the same dialog pays the difference. */
 function sellOre(
   db: EdgePlatformDb,
@@ -362,21 +441,30 @@ function sellOre(
 ): PlayStepResult {
   const ore = s.askedKey!;
   if (!world) return { kind: 'exchange', blocked: 'no_world', ore };
-  const prior = db.sql.get<{ units: number; idx: number; stars: number; coins: number }>('select units, idx, stars, coins from play_sales where dialog_id = ? and ore = ?', [s.dialogId, ore]);
+  const prior = db.sql.get<{ units: number; idx: number; stars: number; coins: number }>('select units, idx, stars, coins from play_sales where player_id = ? and world_id = ? and dialog_id = ? and ore = ?',
+    [s.playerId, s.worldId, s.dialogId, ore]
+  );
   if (prior) {
-    if (stars <= Number(prior.stars)) return { kind: 'exchange', ore, units: Number(prior.units), coins: 0 };
+    if (stars <= Number(prior.stars)) return { kind: 'exchange', ore, units: Number(prior.units), coins: 0, retry: 'same' };
     const better = exchangePayout(ore, Number(prior.units), Number(prior.idx), stars);
     const diff = better - Number(prior.coins);
-    if (diff > 0) world.appendLedger(s.playerId, diff, `play:exchange:${ore}:${stars}:better_stars`, `play:sale:${s.dialogId}:${ore}:${stars}`, s.nowMs);
-    db.sql.run('update play_sales set stars = ?, coins = ? where dialog_id = ? and ore = ?', [stars, better, s.dialogId, ore]);
-    return { kind: 'exchange', ore, units: Number(prior.units), coins: Math.max(0, diff) };
+    if (diff > 0) world.appendLedger(s.playerId, diff, `play:exchange:${ore}:${stars}:better_stars`, `play:sale:${s.worldId}:${s.dialogId}:${ore}:${stars}`, s.nowMs);
+    db.sql.run('update play_sales set stars = ?, coins = ? where player_id = ? and world_id = ? and dialog_id = ? and ore = ?', [
+      stars,
+      better,
+      s.playerId,
+      s.worldId,
+      s.dialogId,
+      ore
+    ]);
+    return { kind: 'exchange', ore, units: Number(prior.units), coins: Math.max(0, diff), retry: 'better' };
   }
   const rows = oresInBag(world, s.playerId).get(ore) ?? [];
   if (rows.length === 0) return { kind: 'exchange', blocked: 'no_ore', ore, units: 0 };
   const idx = marketIndex(db, s.worldId, ore, s.nowMs);
   const coins = exchangePayout(ore, rows.length, idx, stars);
   for (const r of rows) world.sql.run("update items set location = 'sold' where id = ?", [r.id]);
-  world.appendLedger(s.playerId, coins, `play:exchange:${ore}:${stars}`, `play:sale:${s.dialogId}:${ore}`, s.nowMs);
+  world.appendLedger(s.playerId, coins, `play:exchange:${ore}:${stars}`, `play:sale:${s.worldId}:${s.dialogId}:${ore}`, s.nowMs);
   setMarketIndex(db, s.worldId, ore, marketAfterSale(idx, rows.length), s.nowMs);
   db.sql.run('insert into play_sales (dialog_id, player_id, world_id, ore, units, idx, stars, coins, at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
     s.dialogId,
@@ -403,6 +491,7 @@ export function mine(db: EdgePlatformDb, world: WorldDO | undefined, p: { player
   const vein = veinById(p.veinId);
   if (!vein) return { ok: false, reason: 'unknown_vein' };
   if (!world) return { ok: false, reason: 'no_world' };
+  beat(db, p.playerId, p.worldId, p.nowMs); // a swing is a heartbeat too (the vein's rest is play time)
   const c = clockRow(db, p.playerId, p.worldId);
   const last = db.sql.get<{ last_play_ms: number }>('select last_play_ms from play_mine where player_id = ? and world_id = ? and vein_id = ?', [p.playerId, p.worldId, vein.id]);
   const check = mineCheck({

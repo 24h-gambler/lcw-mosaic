@@ -603,7 +603,7 @@ export function App(): React.ReactElement {
           {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (
             <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null} />
           ) : null}
-          {Play && world && !soloBlocked ? <Play world={world} deviceToken={soloPlayerOf(identity)?.deviceToken} hidden={lessonOn || soloNpc !== null} /> : null}
+          {Play && world && !soloBlocked && !lessonOn && identity?.kind !== 'lesson' ? <Play world={world} deviceToken={soloPlayerOf(identity)?.deviceToken} hidden={soloNpc !== null} /> : null}
           {world && !soloBlocked && SoloPanel && soloNpc && dialogNpc && soloSubmit ? (
             <DialogHost
               Panel={SoloPanel}

@@ -4,7 +4,7 @@ import type { NpcRef } from '../../world/api.js';
 import { SCENES } from '../../world/town.js';
 import type { PlayState } from '../api.js';
 import { playDialogFor, playStepKo } from '../dialogs.js';
-import { elevatorNear, playIntercept, resetPlayStore, taskScene, veinNear } from '../PlayLayer.js';
+import { elevatorNear, playIntercept, resetPlayStore, shownClock, taskScene, veinNear } from '../PlayLayer.js';
 import { PLAY_KO, RANK_KO } from '../strings.js';
 
 const npc = (id: string, ctx: NpcRef['ctx']): NpcRef => ({ id, ctx, nameKo: id, nameEn: id }) as NpcRef;
@@ -88,7 +88,22 @@ describe('play dialogs (which sentences a hall NPC offers now)', () => {
       ...playStepKo({ kind: 'exchange', blocked: 'no_ore', ore: 'gold' }, rk)
     ];
     expect(lines).toEqual([PLAY_KO.result.hired('인턴', 25), PLAY_KO.result.tip(60), PLAY_KO.result.pay(100), PLAY_KO.result.promoted('사원'), PLAY_KO.result.sold(2, 'coal', 9), PLAY_KO.result.noOre('gold')]);
-    for (const l of lines) expect(l).not.toMatch(/게임|정답|오답|시험|평가|결제|가격/);
+    for (const l of lines) expect(l).not.toMatch(/게임|정답|오답|시험|평가|결제|가격|합격|시세/);
+    // the same window said again: better = the difference or a raised star, same = nothing
+    expect(playStepKo({ kind: 'customer', retry: 'better', coins: 30 }, rk)).toEqual([PLAY_KO.result.soldBetter(30)]);
+    expect(playStepKo({ kind: 'interview', retry: 'better' }, rk)).toEqual([PLAY_KO.result.better]);
+    expect(playStepKo({ kind: 'interview', retry: 'better', hired: 'staff' }, rk)).toEqual([PLAY_KO.result.hired('사원', 0)]);
+    expect(playStepKo({ kind: 'exchange', ore: 'coal', units: 2, coins: 0, retry: 'same' }, rk)).toEqual([]);
+    for (const l of Object.values(PLAY_KO.market)) if (typeof l === 'string') expect(l).not.toMatch(/시세|가격/);
+  });
+
+  it('the card clock runs on between heartbeats, one game minute a real second, at most one heartbeat ahead (review L1)', () => {
+    const s = { clock: { day: 0, minute: 8 * 60 + 58, hhmm: '08:58', hours: 'on_time' } } as unknown as PlayState;
+    expect(shownClock(s, 1000, 1000)).toBe('08:58');
+    expect(shownClock(s, 1000, 3500)).toBe('09:00');
+    expect(shownClock(s, 1000, 600_000)).toBe('09:28');
+    const late = { clock: { day: 0, minute: 1439, hhmm: '23:59', hours: 'closed' } } as unknown as PlayState;
+    expect(shownClock(late, 0, 2000)).toBe('00:01');
   });
 });
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   BK,
+  JOB_RANKS,
+  dailyPay,
+  veinRespawnMs,
   TERRAIN_MAX,
   TERRAIN_MIN,
   TUNING,
@@ -128,7 +131,7 @@ describe('play rules (play.ts, docs/03 D2 D4, docs/04 4.2)', () => {
     expect(interviewOutcome([1, 3, 3])).toEqual({ rank: 'intern', contractBonus: 0 });
   });
 
-  it('office hours and clock-in: late 1 star halves the pay, late 3 stars earns a promotion point', () => {
+  it('office hours and clock-in: late 1 star halves the pay, 3 stars earns a promotion point', () => {
     expect(officeHours(479)).toBe('before_open');
     expect(officeHours(480)).toBe('on_time');
     expect(officeHours(540)).toBe('on_time');
@@ -136,7 +139,8 @@ describe('play rules (play.ts, docs/03 D2 D4, docs/04 4.2)', () => {
     expect(officeHours(1020)).toBe('closed');
     expect(clockIn(0, 'late', 1).shift.payFactor).toBe(0.5);
     expect(clockIn(0, 'late', 3).promoPoint).toBe(true);
-    expect(clockIn(0, 'on_time', 3).promoPoint).toBe(false);
+    expect(clockIn(0, 'on_time', 3).promoPoint).toBe(true);
+    expect(clockIn(0, 'on_time', 2).promoPoint).toBe(false);
   });
 
   it('promotion: intern after 3 paid days, counters restart at the new rank', () => {
@@ -179,5 +183,20 @@ describe('mining income (docs/03 D3: 채굴 초반 10분 300 ~ 500)', () => {
     const base = floor1.reduce((s, v) => s + TUNING.mining.ores[v.ore]!.price, 0) * rounds;
     expect(base).toBeGreaterThanOrEqual(300);
     expect(Math.round(base * (1 + TUNING.play.exchangeBonusByStars[3]))).toBeLessThanOrEqual(500);
+  });
+
+  it('a deeper floor pays more per hour, and no floor pays more than the best day wage per hour at list price (M5)', () => {
+    const perHour = (floor: string) =>
+      mineVeins()
+        .filter((v) => v.floor === floor)
+        .reduce((s, v) => s + (TUNING.mining.ores[v.ore]!.price * 3600 * 1000) / veinRespawnMs(v.ore), 0);
+    const [b1, b2, b3] = ['mine', 'mine_deep', 'mine_core'].map(perHour) as [number, number, number];
+    expect(b2).toBeGreaterThan(b1);
+    expect(b3).toBeGreaterThan(b2);
+    const dayMs = 24 * 60 * TUNING.play.realMsPerGameMinute;
+    const bestWagePerHour = (Math.max(...JOB_RANKS.map((r) => dailyPay(r))) * 3600 * 1000) / dayMs;
+    expect(b3).toBeLessThanOrEqual(bestWagePerHour);
+    expect(veinRespawnMs('coal')).toBe(TUNING.play.mine.veinRespawnPlayMs);
+    expect(veinRespawnMs('diamond')).toBeGreaterThan(veinRespawnMs('gold'));
   });
 });

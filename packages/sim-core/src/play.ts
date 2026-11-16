@@ -117,13 +117,13 @@ export interface ShiftState {
   paid: boolean;
 }
 
-/** Clock-in (docs/04 4.2 상사): on time any pass is full pay; late 1★ half, 2★ full, 3★ full + a promotion point. */
+/** Clock-in (docs/04 4.2 상사 '지각·보고'): late 1★ half pay, 2★ full; 3★ full + a promotion point (on time or late). */
 export function clockIn(day: number, hours: OfficeHours, stars: Stars): { shift: ShiftState; promoPoint: boolean } {
   const late = hours === 'late';
   const payFactor = late && stars === 1 ? P.lateOneStarPayFactor : 1;
   return {
     shift: { day, late, payFactor, customersServed: 0, tips: 0, paid: false },
-    promoPoint: stars === 3 && late
+    promoPoint: stars === 3
   };
 }
 
@@ -193,6 +193,13 @@ export function toolTierOf(itemKeys: Iterable<string>): number {
 
 export type MineRefusal = 'tool' | 'resting' | 'too_fast';
 
+/** Play time a vein of this ore needs to grow back (deeper, richer ores slower; tuning.play.mine). */
+export function veinRespawnMs(ore: string): number {
+  const price = TUNING.mining.ores[ore]?.price ?? P.mine.respawnReferencePrice;
+  const k = Math.max(1, Math.pow(price / P.mine.respawnReferencePrice, P.mine.respawnValueExponent));
+  return Math.round((P.mine.veinRespawnPlayMs * k) / 1000) * 1000;
+}
+
 /**
  * Can this swing take the vein's ore? `lastMinedPlayMs` is the child's play time when they last took this vein
  * (respawn runs on play time, so leaving the device on a shelf grows nothing).
@@ -209,7 +216,7 @@ export function mineCheck(p: {
   if (p.toolTier < need) return { ok: false, reason: 'tool' };
   if (p.lastSwingAtMs !== null && p.nowMs - p.lastSwingAtMs < P.mine.minIntervalMs) return { ok: false, reason: 'too_fast' };
   if (p.lastMinedPlayMs !== null) {
-    const ready = p.lastMinedPlayMs + P.mine.veinRespawnPlayMs;
+    const ready = p.lastMinedPlayMs + veinRespawnMs(p.ore);
     if (p.playMs < ready) return { ok: false, reason: 'resting', waitMs: ready - p.playMs };
   }
   return { ok: true };

@@ -166,7 +166,8 @@ export const ScoreResponseSchema = z
         ore: z.string().max(20).optional(),
         late: z.boolean().optional(),
         interview_turn: z.string().max(40).nullable().optional(),
-        served: z.number().int().optional()
+        served: z.number().int().optional(),
+        retry: z.enum(['better', 'same']).optional()
       })
       .strict()
       .optional(),

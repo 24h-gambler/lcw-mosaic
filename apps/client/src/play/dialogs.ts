@@ -106,9 +106,16 @@ export function playDialogFor(npc: NpcRef, state: PlayState | null, level: LangL
 }
 
 /** The Korean line for what a sentence moved (shown as a toast after the dialog result). */
-export function playStepKo(step: { kind: string; blocked?: string; coins?: number; hired?: string; promoted?: string; pay?: number; tip?: number; units?: number; ore?: string; late?: boolean; interview_turn?: string | null }, rankKo: (r: string) => string): string[] {
+export function playStepKo(step: { kind: string; blocked?: string; coins?: number; hired?: string; promoted?: string; pay?: number; tip?: number; units?: number; ore?: string; late?: boolean; interview_turn?: string | null; retry?: 'better' | 'same' }, rankKo: (r: string) => string): string[] {
   const out: string[] = [];
   const R = PLAY_KO.result;
+  // the same window said again: a better sentence raised that turn (the difference in coins), the same one moved nothing
+  if (step.retry) {
+    if (step.retry === 'same') return out;
+    if (step.hired) out.push(R.hired(rankKo(step.hired), step.coins ?? 0));
+    else out.push((step.coins ?? 0) > 0 ? R.soldBetter(step.coins ?? 0) : R.better);
+    return out;
+  }
   if (step.blocked) {
     if (step.blocked === 'no_ore' && step.ore) out.push(R.noOre(step.ore));
     else if (step.blocked === 'no_suit') out.push(PLAY_KO.gate.no_suit);

@@ -363,6 +363,18 @@ export function talkSpotFor(world: VoxelWorld, npc: { x: number; y: number; z: n
   return null;
 }
 
+/** Below this the child stands on a mine floor (the town itself never goes deeper than y -8, see standHeight). */
+export const UNDERGROUND_Y = -8;
+
+/**
+ * Does the engine walk from height `fromY` to a scene standing at `toY`? Above ground always (open_hill stands at y 10,
+ * a child may be on a roof); a mine floor only to a spot on the same floor: other floors are an elevator fade.
+ */
+export function walksBetween(fromY: number, toY: number): boolean {
+  if (fromY >= UNDERGROUND_Y && toY >= UNDERGROUND_Y) return true;
+  return Math.abs(toY - fromY) < 4;
+}
+
 /** Topmost walkable surface at a column at or below `fromY` (for spawning and NPC placement). */
 export function standHeight(world: VoxelWorld, x: number, z: number, fromY = 40): number {
   const bx = Math.floor(x);

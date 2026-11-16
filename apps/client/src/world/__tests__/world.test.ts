@@ -7,7 +7,7 @@ import { BK, BLOCK_LOOKS, TILE_LAYER, TILE_NAMES, blockLook, collideHeight, isOp
 import { TILE_PX, buildAtlasPixels } from '../atlas.js';
 import { AO_CURVE, PAD, meshChunk, padIndex } from '../mesher.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type BlockAt } from '../physics.js';
-import { NPCS, SCENES, castNpcs, WANDERERS, buildTown, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
+import { NPCS, SCENES, castNpcs, WANDERERS, buildTown, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, walksBetween, type Spot } from '../town.js';
 import { PAGE_KEYS_ON_BUTTONS, TALK_RANGE, keyIsPressable, keyIsTyping } from '../engine.js';
 import { extractPadded } from '../chunks.js';
 import { skyAt } from '../sky.js';
@@ -365,6 +365,19 @@ describe('player physics', () => {
     for (let i = 0; i < 120; i++) stepBody(b, { dx: 0, dz: 0, run: false, jump: false }, 1 / 60, floor);
     expect(b.onGround).toBe(true);
     expect(b.y).toBeCloseTo(0, 3);
+  });
+
+  it('walks to every scene above ground however high (open_hill y 10, a roof), fades between mine floors (review M2)', () => {
+    const town = new VoxelWorld();
+    buildTown(town);
+    const y = (id: keyof typeof SCENES) => standHeight(town, SCENES[id].player.x, SCENES[id].player.z, Math.ceil(SCENES[id].player.y) + 1);
+    expect(walksBetween(y('plaza'), y('open_hill'))).toBe(true);
+    expect(walksBetween(y('open_hill'), y('honey_cafe'))).toBe(true);
+    expect(walksBetween(14, y('trade_shop'))).toBe(true);
+    expect(walksBetween(y('exchange'), y('mine'))).toBe(false);
+    expect(walksBetween(y('mine'), y('mine_deep'))).toBe(false);
+    expect(walksBetween(y('mine'), y('exchange'))).toBe(false);
+    expect(walksBetween(-23, -23.5)).toBe(true);
   });
 
   it('stands on a mine floor under the town (play domain); falling into the void still puts the player back on top', () => {

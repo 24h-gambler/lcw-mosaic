@@ -38,6 +38,8 @@ export interface PlayStep {
   pay?: number;
   tip?: number;
   units?: number;
+  /** The same window said it again (edge play.ts retryTurn / sellOre). */
+  retry?: 'better' | 'same';
   ore?: string;
   late?: boolean;
   interview_turn?: string | null;

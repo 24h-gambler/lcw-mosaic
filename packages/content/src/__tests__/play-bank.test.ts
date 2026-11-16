@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUSTOMER_SCENARIOS, EXCHANGE_ORES, INTERVIEW_TURNS, NEGOTIATION, PHRASE_BANK, PLAY_BANK, PLAY_SHOP_GOODS, bankItemKey } from '../index.js';
+import { CUSTOMER_SCENARIOS, EXCHANGE_ORES, INTERVIEW_TURNS, NEGOTIATION, PHRASE_BANK, PLAY_BANK, PLAY_SHOP_GOODS, bankItemKey, findBankOffer } from '../index.js';
 
 /** Play phrase bank (play-bank.ts): every play sentence set exists at L1-L3 and follows the star ladder. */
 
@@ -34,6 +34,30 @@ describe('play bank', () => {
       if (priced.has(bankItemKey(e))) expect(price, e.id).toBeGreaterThan(0);
       else expect(e.offers.every((o) => o.price === 0), e.id).toBe(true);
     }
+  });
+
+  it('a sentence belongs to one item of its context (the bank finds the item by the words, review H1)', () => {
+    const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+    const owner = new Map<string, string>();
+    const ctxs = new Set(PLAY_BANK.map((e) => e.ctx));
+    for (const e of PHRASE_BANK) {
+      if (!ctxs.has(e.ctx)) continue;
+      for (const o of e.offers) {
+        const k = `${e.ctx}|${norm(o.text)}`;
+        const item = bankItemKey(e);
+        expect(owner.get(k) ?? item, `${e.id}: "${o.text}"`).toBe(item);
+        owner.set(k, item);
+      }
+    }
+  });
+
+  it('every play sentence at every level and star is found as its own item (the server turn check)', () => {
+    for (const e of PLAY_BANK)
+      for (const o of e.offers) {
+        const hit = findBankOffer({ ctx: e.ctx, level: e.level, text: o.text });
+        expect(hit && bankItemKey(hit.entry), `${e.id} ${o.stars}: "${o.text}"`).toBe(bankItemKey(e));
+        expect(hit?.offer.stars, `${e.id} ${o.stars}`).toBe(o.stars);
+      }
   });
 
   it('no banned words on the child screen (docs/21): no game, test or right/wrong answer words', () => {

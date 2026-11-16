@@ -25,6 +25,7 @@ function env(startCoins = 1000) {
   const world = new WorldDO({ sql: createNodeSqliteExecutor(':memory:'), r2: new InMemoryR2Store(), seed: 's' });
   world.appendLedger('kid', startCoins, 'starter', 'starter', 1);
   const app = createEdgeApp({ db, worlds: new Map([['w', world]]), lessons: new Map(), quota: new QuotaMeter('2026-11-16'), nowMs: () => now });
+  db.ensureFamilyAndPlayer({ familyId: 'f2', guardianId: 'g2', playerId: 'kid2', nickname: 'Kid2', level: 'L2', nowMs: 1 });
   const say = async (dialog: string, ctx: string, text: string, stars: 1 | 2 | 3, extra: Record<string, unknown> = {}) => {
     const res = await app.request('/v1/converse/score', {
       method: 'POST',
@@ -212,7 +213,8 @@ describe('the mine and the exchange (docs/03 D2, docs/04 4.2 환전소)', () => 
     expect((await e.mine(veins[1]!.id)).body).toMatchObject({ ok: true, count: 2 });
     e.tick(TUNING.play.mine.minIntervalMs);
     const rest = await e.mine(veins[0]!.id);
-    expect(rest.body).toMatchObject({ ok: false, reason: 'resting', wait_ms: TUNING.play.mine.veinRespawnPlayMs });
+    // every swing is a heartbeat: the two 1.2 s waits were play time
+    expect(rest.body).toMatchObject({ ok: false, reason: 'resting', wait_ms: TUNING.play.mine.veinRespawnPlayMs - 2 * TUNING.play.mine.minIntervalMs });
     expect((await e.mine('nowhere.9')).status).toBe(400);
     const s = await e.state();
     expect(s.ores).toEqual({ coal: 2 });
@@ -230,8 +232,8 @@ describe('the mine and the exchange (docs/03 D2, docs/04 4.2 환전소)', () => 
     expect(sold.coins_total).toBe(two);
     const three = Math.round(TUNING.mining.ores.coal!.price * 2 * (1 + TUNING.play.exchangeBonusByStars[3]));
     const better = await e.say('d-ex', 'exchange', line('exchange', 'coal', 3), 3);
-    expect(better.play).toEqual({ kind: 'exchange', ore: 'coal', units: 2, coins: three - two });
-    expect((await e.say('d-ex', 'exchange', line('exchange', 'coal', 3), 3)).play).toMatchObject({ coins: 0 });
+    expect(better.play).toEqual({ kind: 'exchange', ore: 'coal', units: 2, coins: three - two, retry: 'better' });
+    expect((await e.say('d-ex', 'exchange', line('exchange', 'coal', 3), 3)).play).toMatchObject({ coins: 0, retry: 'same' });
     expect(e.world.getPlayerBalance('kid')).toBe(three);
     // the ore left the bag; selling again finds none; the world's price dipped
     expect((await e.say('d-ex2', 'exchange', line('exchange', 'coal', 2), 2)).play).toEqual({ kind: 'exchange', blocked: 'no_ore', ore: 'coal', units: 0 });
@@ -243,6 +245,63 @@ describe('the mine and the exchange (docs/03 D2, docs/04 4.2 환전소)', () => 
     // the vein grows back after 10 minutes of play
     await e.playFor(TUNING.play.mine.veinRespawnPlayMs / TUNING.play.realMsPerGameMinute);
     expect((await e.mine(veins[0]!.id)).body).toMatchObject({ ok: true });
+  });
+});
+
+describe('review fixes: every level, saying it again, one child per sale', () => {
+  const hireAndClockIn = async (e: ReturnType<typeof env>, level: 'L1' | 'L2' | 'L3') => {
+    await e.say('d-suit', 'boutique', line('boutique', 'suit', 2), 2);
+    await e.playFor(40);
+    for (const [i, t] of INTERVIEW_TURNS.entries()) await e.say(`d-i${i}`, 'interview', line('interview', t, 2, level), 2, { level });
+    expect((await e.state()).job.rank).toBe('intern');
+    await e.say('d-b', 'boss', line('boss', 'boss_report', 1, level), 1, { level });
+  };
+
+  for (const level of ['L1', 'L3'] as const)
+    it(`${level}: a 1-star sorry reaches the customer who is waiting (H1: no claim shares a sentence)`, async () => {
+      const e = env();
+      await hireAndClockIn(e, level);
+      for (let n = 0; n < 2; n++) {
+        const st = await e.state();
+        const r = await e.say(`d-c${n}`, 'customer', line('customer', st.next.key, 1, level), 1, { level });
+        expect(r.play, `${level} ${st.next.key}`).toMatchObject({ kind: 'customer', served: n + 1 });
+      }
+      expect((await e.state()).shift).toMatchObject({ served: 2, paid: true });
+    });
+
+  it('the same window said better raises that turn once: interview stars, the customer tip difference (M4)', async () => {
+    const e = env();
+    await e.say('d-suit', 'boutique', line('boutique', 'suit', 2), 2);
+    await e.playFor(40);
+    // turn 1 at 1 star, then the same window at 3 stars
+    await e.say('d-i0', 'interview', line('interview', INTERVIEW_TURNS[0]!, 1), 1);
+    expect((await e.say('d-i0', 'interview', line('interview', INTERVIEW_TURNS[0]!, 3), 3)).play).toMatchObject({ kind: 'interview', retry: 'better' });
+    expect((await e.say('d-i0', 'interview', line('interview', INTERVIEW_TURNS[0]!, 3), 3)).play).toMatchObject({ retry: 'same' });
+    await e.say('d-i1', 'interview', line('interview', INTERVIEW_TURNS[1]!, 3), 3);
+    const hired = await e.say('d-i2', 'interview', line('interview', INTERVIEW_TURNS[2]!, 3), 3);
+    // the weakest turn is now 3 stars: staff, not the intern the first 1-star answer would have made
+    expect(hired.play).toMatchObject({ hired: 'staff' });
+    await e.say('d-b', 'boss', line('boss', 'boss_report', 3), 3);
+    const st = await e.state();
+    const first = await e.say('d-c0', 'customer', line('customer', st.next.key, 1), 1);
+    expect(first.play).toMatchObject({ served: 1, tip: TUNING.play.customerTipByStars[1] });
+    const before = e.world.getPlayerBalance('kid');
+    const again = await e.say('d-c0', 'customer', line('customer', st.next.key, 3), 3);
+    expect(again.play).toMatchObject({ retry: 'better', coins: TUNING.play.customerTipByStars[3] - TUNING.play.customerTipByStars[1] });
+    expect(e.world.getPlayerBalance('kid')).toBe(before + TUNING.play.customerTipByStars[3] - TUNING.play.customerTipByStars[1]);
+    expect((await e.say('d-c0', 'customer', line('customer', st.next.key, 3), 3)).play).toMatchObject({ retry: 'same' });
+    // the retry did not count as the second customer
+    expect((await e.state()).shift).toMatchObject({ served: 1, paid: false });
+  });
+
+  it("another child sending my sale's dialog id gets no top-up (M1)", async () => {
+    const e = env(0);
+    const coal = mineVeins().find((v) => v.floor === 'mine' && v.ore === 'coal')!;
+    expect((await e.mine(coal.id)).body).toMatchObject({ ok: true });
+    await e.say('d-ex', 'exchange', line('exchange', 'coal', 2), 2);
+    const other = await e.say('d-ex', 'exchange', line('exchange', 'coal', 3), 3, { player_id: 'kid2' });
+    expect(other.play).toMatchObject({ kind: 'exchange', blocked: 'no_ore' });
+    expect(e.world.getPlayerBalance('kid2')).toBe(0);
   });
 });
 

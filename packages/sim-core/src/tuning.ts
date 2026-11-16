@@ -216,6 +216,13 @@ export const TUNING = {
        * "채굴(초반 10분) 300 ~ 500" (tested in play-sites.test.ts).
        */
       veinRespawnPlayMs: 150 * 1000,
+      /**
+       * Deeper ores grow back slower: respawn = base × (price / referencePrice)^exponent, never below base. Gold 384 s,
+       * ruby 501 s, diamond 780 s: a floor pays more the deeper it is (the D2 loop "더 깊이") yet one floor stays near the
+       * best day wage per hour (D3 "코인이 빠듯해야", review M5; play-sites.test.ts measures it).
+       */
+      respawnReferencePrice: 10,
+      respawnValueExponent: 0.75,
       /** Two swings closer than this are one (anti-autoclick; the hold animation is longer). */
       minIntervalMs: 1200,
       /** Every child owns a wooden pickaxe (tier 1, docs/03 D2 "나무 곡괭이"); bought tools raise it. */

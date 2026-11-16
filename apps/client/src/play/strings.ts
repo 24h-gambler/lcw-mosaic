@@ -43,7 +43,7 @@ export const PLAY_KO = {
   },
   result: {
     interviewNext: '좋아요! 사장님이 다음 질문을 해요.',
-    hired: (rank: string, bonus: number) => (bonus > 0 ? `합격! ${rank}이 됐어요 · 계약 코인 +${bonus}` : `합격! ${rank}이 됐어요`),
+    hired: (rank: string, bonus: number) => (bonus > 0 ? `함께 일하게 됐어요! ${rank}이 됐어요 · 계약 코인 +${bonus}` : `함께 일하게 됐어요! ${rank}이 됐어요`),
     clockedIn: '출근했어요! 손님이 곧 와요.',
     clockedInLate: '늦은 사정을 잘 말했어요. 손님이 기다려요.',
     tip: (n: number) => `손님이 고마워해요 · 팁 코인 +${n}`,
@@ -52,6 +52,7 @@ export const PLAY_KO = {
     promoted: (rank: string) => `승진! 이제 ${rank}이에요`,
     sold: (units: number, ore: string, coins: number) => `${itemNameKo(ore)} ${units}개를 팔았어요 · 코인 +${coins}`,
     soldBetter: (coins: number) => `더 좋은 문장이라 코인 +${coins}`,
+    better: '더 좋은 문장이에요! 별이 올랐어요.',
     noOre: (ore: string) => `가방에 ${itemNameKo(ore)}이 없어요. 광산에서 캐 와요.`,
     wrongTurn: '지금 할 이야기가 아니에요. 화면 위 할 일을 봐요.'
   },
@@ -71,7 +72,7 @@ export const PLAY_KO = {
     up: '⬆ 상가로'
   },
   market: {
-    title: '오늘의 광석 시세',
+    title: '오늘 광석 코인',
     mine: (n: number) => `내 가방 ${n}`,
     hint: '별 2개 문장이면 10%, 별 3개면 25% 더 받아요'
   }

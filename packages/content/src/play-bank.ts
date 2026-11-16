@@ -177,9 +177,10 @@ export const CUSTOMER_SCENARIOS = [
 export type CustomerScenarioKey = (typeof CUSTOMER_SCENARIOS)[number]['key'];
 
 function customerLines(s: (typeof CUSTOMER_SCENARIOS)[number], level: LangLevel): Three {
-  if (level === 'L1') return ['I am sorry.', 'I am so sorry about that.', `I am sorry. Let me ${s.fix}.`];
+  // every line names this customer's thing: the bank finds a sentence by its words, so no two claims may share one
+  if (level === 'L1') return [`Sorry, the ${s.thing}.`, `I am so sorry about the ${s.thing}.`, `I am sorry. Let me ${s.fix}.`];
   if (level === 'L2') return [`I'm sorry about the ${s.thing}.`, `I'm sorry, I can ${s.fix}.`, `I'm sorry, I will ${s.fix} because ${s.because}.`];
-  return ["I'm very sorry about that.", `I'm sorry for the trouble; could I ${s.fix}?`, `I'm sorry for the trouble, so let me ${s.fix} right away.`];
+  return [`I'm very sorry about your ${s.thing}.`, `I'm sorry for the trouble; could I ${s.fix}?`, `I'm sorry for the trouble, so let me ${s.fix} right away.`];
 }
 
 const CUSTOMER_TAGS: Record<'L1' | 'L2' | 'L3', string[]> = { L1: ['sorry', 'let me'], L2: ['I can', 'because'], L3: ['could I', 'so let me'] };

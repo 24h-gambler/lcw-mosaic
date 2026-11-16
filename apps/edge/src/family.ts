@@ -6,7 +6,7 @@ import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicRe
 import { buildLessonWindow } from './lesson-window.js';
 import { answerListening, closeListeners, lessonAudioState, listenerOf, startListening, touchListener, type RealtimeClient } from './lesson-audio.js';
 import { buildDashboard } from './dashboard.js';
-import { mountSeatRoutes, playAllowed } from './seats.js';
+import { markSeatUse, mountSeatRoutes, playAllowed } from './seats.js';
 import { drainVoicePurge, reportClips, type VoiceBlobStore } from './voice.js';
 import { SubscribeSchema, deliverPush, enqueueTest, familyPushState, subscribe, unsubscribe, vapidKeys, type PushSender } from './push.js';
 
@@ -612,6 +612,8 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     // Seat gate for solo play (docs/09 5): read-only/archived/refunded seat -> play_allowed false; lessons are not gated.
     // The child device gets the state only, never a date (AGENTS 4.9: no deadlines on child screens).
     const seat = playAllowed(d.sql, dev.player_id, now);
+    // The child's world opened on a linked device: the seat is in use from now (its paid period is no longer refunded).
+    if (seat.allowed) markSeatUse(d.sql, dev.player_id, now, 'world');
     return c.json({
       nickname: kid?.nickname ?? '',
       level: kid?.level ?? 'L1',

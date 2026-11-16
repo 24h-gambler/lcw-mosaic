@@ -1,9 +1,10 @@
+import { GUEST_PASS_HEADER } from '@lcw/schemas';
 // Building on my plot in the client (docs/03 D13, WP-201/205/207), the seat stop mid-play (docs/19 6장) and 쇼룸 공개
 // (docs/19 7장): rules applied at once, server answers win, nothing lost on reload, no error screens for a paused seat.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BK, VoxelWorld, blockRef, buildTown, cellKey, furnitureRef } from '@lcw/sim-core';
 import { PlotBuilder, type PlotOp, type RoomCheckEvent } from '../build.js';
-import { PLOT_QUEUE_KEY, PlotSync, plotQueueKey } from '../plot-sync.js';
+import { PASS_CHECK_EVENT, PLOT_QUEUE_KEY, PlotSync, plotQueueKey } from '../plot-sync.js';
 import { SEAT_INACTIVE_EVENT, noteSeatResponse, onSeatInactive } from '../seat.js';
 import { DEVICE_PLAY_BLOCKED_KEY, DEVICE_TOKEN_KEY, type KeyStore } from '../identity.js';
 import { blockTokenMap, nearestToken, plotSnapshot, publishShowroom } from '../showroom.js';
@@ -11,6 +12,7 @@ import { buildAtlasPixels } from '../atlas.js';
 import { buildAccessOf, withSeatStopped } from '../../App.js';
 import { parseShowroomSnapshot } from '../../../../web/src/site/showroom.js';
 import { SubmitError, createSoloSubmitWith } from '../../dialog/submit.js';
+import { BUILD_REASONS_KO } from '../strings.js';
 
 class MemStore implements KeyStore {
   m = new Map<string, string>();
@@ -124,6 +126,32 @@ describe('PlotBuilder: aim, one input one block, undo (WP-201)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("a friend on a guest pass places with the host's blocks, breaks only their own, never opens the host's chest (docs/19 §8)", () => {
+    const { b } = builder();
+    b.applySnapshot({ cells: [[X + 1, 1, Z, BK.glass]], furniture: [], inv: { slots: [{ ref: 'b18', n: 5 }], chest: { b4: 3 } }, rev: 1 });
+    b.guestCells = new Set();
+    b.applySnapshot({ cells: [[X + 1, 1, Z, BK.glass], [X + 2, 1, Z, BK.glass]], furniture: [], inv: { slots: [{ ref: 'b18', n: 5 }], chest: { b4: 3 } }, rev: 2, guest_cells: [[X + 2, 1, Z]] });
+    const sent: unknown[] = [];
+    b.onOp = (op) => sent.push(op);
+    const me = { x: X + 0.5, y: 1, z: Z - 1.5 };
+    // the host's glass: red aim with the reason, and the break never leaves the device
+    expect(b.aim({ x: X + 1, y: 1, z: Z, nx: 0, ny: 1, nz: 0 }, me, 0).breakReason).toBe('not_yours');
+    expect(b.breakAt({ x: X + 1, y: 1, z: Z }, 0)).toEqual({ ok: false, reason: 'not_yours' });
+    expect(b.world.getBlock(X + 1, 1, Z)).toBe(BK.glass);
+    // the friend's own glass (from an earlier visit on this pass) may go
+    expect(b.aim({ x: X + 2, y: 1, z: Z, nx: 0, ny: 1, nz: 0 }, me, 0).breakReason).toBeNull();
+    expect(b.breakAt({ x: X + 2, y: 1, z: Z }, 0).ok).toBe(true);
+    // a new block is theirs at once
+    expect(b.place({ x: X, y: 1, z: Z }, 0, 0).ok).toBe(true);
+    expect(b.breakAt({ x: X, y: 1, z: Z }, 0).ok).toBe(true);
+    // the chest and the slots stay the host's
+    expect(b.take('b4', 1, undefined, 0)).toEqual({ ok: false, reason: 'not_yours' });
+    expect(b.store(0, 0)).toEqual({ ok: false, reason: 'not_yours' });
+    expect(b.swap(0, 1, 0)).toEqual({ ok: false, reason: 'not_yours' });
+    expect(sent.map((o: any) => o.op)).toEqual(['break', 'place', 'break']);
+    expect(BUILD_REASONS_KO.not_yours).toBeTruthy();
   });
 
   it('a server snapshot puts the plot back exactly (town + saved delta), furniture and bag included', () => {
@@ -280,6 +308,42 @@ describe('PlotSync: server answers win, nothing lost (WP-205/207)', () => {
   });
 });
 
+describe('PlotSync on a guest pass (docs/19 §8)', () => {
+  beforeEach(() => vi.stubGlobal('window', new EventTarget()));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('sends the pass header (never a bearer), and a 410 at the end of the pass stops saving like an unlinked token', async () => {
+    const pass = 'p'.repeat(43);
+    const seen: Array<{ url: string; headers: Record<string, string> }> = [];
+    let ended = false;
+    const fetchFn = async (url: string, init?: RequestInit): Promise<Response> => {
+      seen.push({ url, headers: { ...(init?.headers as Record<string, string>) } });
+      if (ended) return new Response(JSON.stringify({ error: 'pass_ended' }), { status: 410 });
+      if (url.endsWith('/v1/plot')) return new Response(JSON.stringify(snap), { status: 200 });
+      return new Response(JSON.stringify({ results: [{ ok: true }], processed: 1, inv: {}, rev: 1 }), { status: 200 });
+    };
+    const denied = vi.fn();
+    const sync = new PlotSync({ token: pass, pass: true, store: new MemStore(), fetchFn, onResync: () => undefined, onDenied: denied });
+    expect(await sync.start()).toEqual(snap);
+    sync.push({ op: 'place', x: 110, y: 1, z: 170, slot: 0 });
+    await sync.flush();
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    for (const c of seen) {
+      expect(c.headers[GUEST_PASS_HEADER]).toBe(pass);
+      expect(c.headers.authorization).toBeUndefined();
+    }
+    ended = true;
+    const asked = vi.fn();
+    window.addEventListener(PASS_CHECK_EVENT, asked);
+    sync.push({ op: 'place', x: 111, y: 1, z: 170, slot: 0 });
+    await sync.flush();
+    expect(denied).toHaveBeenCalledWith('unlinked');
+    // the pass layer is asked to check the pass now (it sends the friend to /guest-end)
+    expect(asked).toHaveBeenCalledTimes(1);
+    expect(await sync.load()).toBeNull();
+  });
+});
+
 describe('seat stop mid-play (docs/19 6장, #23 seat_inactive)', () => {
   beforeEach(() => vi.stubGlobal('window', new EventTarget()));
   afterEach(() => vi.unstubAllGlobals());
@@ -328,6 +392,13 @@ describe('seat stop mid-play (docs/19 6장, #23 seat_inactive)', () => {
     expect(buildAccessOf({ ...child, playAllowed: false }, 'y'.repeat(48), true)).toEqual({ kind: 'saved', token: 'y'.repeat(48), lesson: true });
     expect(buildAccessOf({ kind: 'guest' }, 'y'.repeat(48), true)).toEqual({ kind: 'saved', token: 'y'.repeat(48), lesson: true });
     expect(buildAccessOf(child, 'y'.repeat(48), false)).toEqual({ kind: 'saved', token: child.token });
+    // a friend on a guest pass builds on the host's plot (docs/19 §8), even on a linked tablet; a live lesson still wins
+    const pass = 'p'.repeat(43);
+    expect(buildAccessOf({ kind: 'guest' }, null, false, pass)).toEqual({ kind: 'saved', token: pass, pass: true });
+    expect(buildAccessOf(child, null, false, pass)).toEqual({ kind: 'saved', token: pass, pass: true });
+    expect(buildAccessOf({ ...child, playAllowed: false }, null, false, pass)).toEqual({ kind: 'saved', token: pass, pass: true });
+    expect(buildAccessOf(child, 'y'.repeat(48), true, pass)).toEqual({ kind: 'saved', token: 'y'.repeat(48), lesson: true });
+    expect(buildAccessOf({ kind: 'guest' }, null, false, 'short')).toEqual({ kind: 'local' });
   });
 });
 

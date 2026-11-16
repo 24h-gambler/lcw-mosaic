@@ -38,6 +38,8 @@ export type { PlotOp };
 
 /** What GET /v1/plot returns (edge plot.ts PlotSnapshot). */
 export interface PlotSnapshotLike {
+  /** on a guest pass (docs/19 §8): the cells this friend placed and may break again */
+  guest_cells?: unknown;
   cells: Array<[number, number, number, number]>;
   furniture: Array<[number, number, number, string, number]>;
   inv: unknown;
@@ -160,6 +162,7 @@ export class PlotBuilder {
       }
     }
     let breakReason: BuildReason | null = paused ?? (far(hit) ? 'far' : plotCellRule(this.world, hit.x, hit.y, hit.z));
+    if (!breakReason && this.guestCells && !this.guestCells.has(cellKey(hit.x, hit.y, hit.z))) breakReason = 'not_yours';
     const id = this.world.getBlock(hit.x, hit.y, hit.z);
     const isFurn = this.state.furniture.has(cellKey(hit.x, hit.y, hit.z));
     if (!breakReason && !isFurn) {
@@ -170,13 +173,28 @@ export class PlotBuilder {
     return { hit: { x: hit.x, y: hit.y, z: hit.z }, place, placeReason, breakReason, breakS: isFurn ? 0.2 : breakSeconds(id) };
   }
 
+  /**
+   * A friend on a guest pass builds in the host's plot (docs/19 §8): non-null = the cells this friend placed (the only
+   * ones they may break). The chest and the slots stay the host's. The server holds the same rule; this shows it at once.
+   */
+  guestCells: Set<string> | null = null;
+
+  private notYours(op: PlotOp): boolean {
+    if (!this.guestCells) return false;
+    if (op.op === 'place') return false;
+    return !(op.op === 'break' && this.guestCells.has(cellKey(op.x, op.y, op.z)));
+  }
+
   /** Run one op locally (rules, pace), record undo, queue it for the server. */
   private run(op: PlotOp, nowMs: number, record: boolean): { ok: boolean; reason?: BuildReason } {
     if (this.access === 'paused' || this.access === 'loading') return { ok: false, reason: this.access };
+    if (this.notYours(op)) return { ok: false, reason: 'not_yours' };
     if ((op.op === 'place' || op.op === 'break') && !this.bucket.take(nowMs)) return { ok: false, reason: 'rate' };
     const r = applyPlotOp(this.state, 'me', op);
     if (!r.ok) return { ok: false, reason: r.reason };
     this.edits++;
+    if (this.guestCells && op.op === 'place') this.guestCells.add(cellKey(op.x, op.y, op.z));
+    if (this.guestCells && op.op === 'break') this.guestCells.delete(cellKey(op.x, op.y, op.z));
     this.onOp?.(op);
     if (op.op === 'place' || op.op === 'break') {
       const furn = op.op === 'place' ? this.state.furniture.get(cellKey(op.x, op.y, op.z)) : r.prevFurniture;
@@ -290,6 +308,12 @@ export class PlotBuilder {
     if (inv) {
       this.state.inv.slots = inv.slots;
       this.state.inv.chest = inv.chest;
+    }
+    if (this.guestCells) {
+      this.guestCells.clear();
+      for (const c of Array.isArray(snap.guest_cells) ? snap.guest_cells : []) {
+        if (Array.isArray(c) && c.length >= 3) this.guestCells.add(cellKey(Number(c[0]), Number(c[1]), Number(c[2])));
+      }
     }
     this.undo = [];
     this.scanNameplates();

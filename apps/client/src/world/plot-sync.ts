@@ -8,6 +8,7 @@
 import type { PlotOp, PlotSnapshotLike } from './build.js';
 import { DEVICE_TOKEN_KEY, type FetchLike, type KeyStore } from './identity.js';
 import { noteSeatResponse } from './seat.js';
+import { GUEST_PASS_HEADER } from '@lcw/schemas';
 
 /** The queue key before it was kept per token; only ever written under this device's own linked token. */
 export const PLOT_QUEUE_KEY = 'lcw.plotQueue';
@@ -26,8 +27,16 @@ const MAX_BATCH = 32;
 
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'offline' | 'paused';
 
+/**
+ * The plot answered a guest pass with 410 (the pass ended, or the host's seat stopped): the pass layer checks the pass
+ * at once instead of waiting for its next poll, so the friend reaches /guest-end without a dead half-minute.
+ */
+export const PASS_CHECK_EVENT = 'lcw:pass-check';
+
 export interface PlotSyncOptions {
   token: string;
+  /** the token is a guest-pass session (docs/19 §8): sent as `x-lcw-guest-pass`, the plot is the host's */
+  pass?: boolean;
   base?: string;
   fetchFn?: FetchLike;
   store?: KeyStore | null;
@@ -79,6 +88,7 @@ export class PlotSync {
   }
 
   private headers(): Record<string, string> {
+    if (this.o.pass) return { [GUEST_PASS_HEADER]: this.o.token, 'content-type': 'application/json', accept: 'application/json' };
     return { authorization: `Bearer ${this.o.token}`, 'content-type': 'application/json', accept: 'application/json' };
   }
 
@@ -144,7 +154,9 @@ export class PlotSync {
   async load(): Promise<PlotSnapshotLike | null> {
     try {
       const res = await this.fetchFn(`${this.o.base ?? ''}/v1/plot`, { headers: this.headers(), cache: 'no-store' });
-      if (res.status === 401) {
+      // 410: the guest pass ran out (the pass layer sends the friend to /guest-end)
+      if (res.status === 401 || res.status === 410) {
+        if (res.status === 410) this.passOver();
         this.o.onDenied?.('unlinked');
         return null;
       }
@@ -209,7 +221,8 @@ export class PlotSync {
     // Only the seat answer (403 seat_inactive: the shell swaps to the seat card) or a dead token (401) stops saving.
     // Any other 403 refuses this batch alone: drop it and take the server's plot, like a refused op.
     const seatStopped = res.status === 403 && (await noteSeatResponse(res, this.o.store));
-    if (seatStopped || res.status === 401) {
+    if (seatStopped || res.status === 401 || res.status === 410) {
+      if (res.status === 410) this.passOver();
       this.inFlight = null;
       this.queue = [];
       this.persist();
@@ -259,6 +272,15 @@ export class PlotSync {
   private async resync(): Promise<void> {
     const snap = await this.load();
     if (snap) this.o.onResync(snap);
+  }
+
+  private passOver(): void {
+    if (!this.o.pass) return;
+    try {
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event(PASS_CHECK_EVENT));
+    } catch {
+      /* no window (tests, workers): the pass layer's own poll still ends it */
+    }
   }
 
   stop(): void {

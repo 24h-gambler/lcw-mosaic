@@ -192,7 +192,7 @@ export async function guestPassFromRequest(
   d: Pick<FreePlayDeps, 'sql' | 'sha256Hex'>,
   req: Request,
   now: number
-): Promise<{ grant_id: string; seat_id: string; world_id: string; active: boolean; ends_at: number } | null> {
+): Promise<{ grant_id: string; seat_id: string; player_id: string; world_id: string; active: boolean; ends_at: number } | null> {
   const token = req.headers.get(GUEST_PASS_HEADER) ?? '';
   if (token.length < 32) return null;
   const th = await d.sha256Hex(`gp|${token}`);
@@ -201,7 +201,7 @@ export async function guestPassFromRequest(
     [th]
   );
   if (!g || g.ends_at === null) return null;
-  return { grant_id: g.id, seat_id: g.seat_id, world_id: `home-${g.player_id}`, active: grantState(g, now) === 'active', ends_at: g.ends_at };
+  return { grant_id: g.id, seat_id: g.seat_id, player_id: g.player_id, world_id: `home-${g.player_id}`, active: grantState(g, now) === 'active', ends_at: g.ends_at };
 }
 
 export interface GuardianRefLike {

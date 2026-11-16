@@ -129,10 +129,12 @@ function sessionStoreOrNull(): Pick<Storage, 'getItem'> | null {
  * token, never seat-gated) once the join gave one, a guest builds on the device only. A lesson never uses the device
  * token: a borrowed or shared tablet is linked to another child, whose plot must not get this student's building.
  */
-export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | null, lessonLive = false): BuildAccess {
+export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | null, lessonLive = false, passToken: string | null = null): BuildAccess {
   // A lesson joined without a code in the address (/join hand-off, or the code typed in the world) is live with this
   // tab's student token: building saves to the student, never to a linked child's plot on the same tablet.
   if ((id?.kind === 'lesson' || lessonLive) && studentToken && studentToken.length >= 32) return { kind: 'saved', token: studentToken, lesson: true };
+  // On a guest pass the plot is the friend's (docs/19 §8), whoever this device is: never the device's own plot.
+  if (passToken && passToken.length >= 32) return { kind: 'saved', token: passToken, pass: true };
   if (id?.kind === 'child') return id.playAllowed ? { kind: 'saved', token: id.token } : { kind: 'paused' };
   return { kind: 'local' };
 }
@@ -404,6 +406,8 @@ export function App(): React.ReactElement {
   const passCode = useMemo(() => passFromSearch(location.search), []);
   // The teacher in the world (?teach=<lesson id> from the console, TeacherBar.tsx): lesson room as role 'teacher'.
   const teach = useMemo(() => teachFrom(location.search, browserStore()), []);
+  /** The running pass session's token: the plot shown and built on is the host's while it is set. */
+  const [passToken, setPassToken] = useState<string | null>(null);
   const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
@@ -448,12 +452,12 @@ export function App(): React.ReactElement {
   const lastAccess = useRef<{ world: WorldHandle | null; key: string }>({ world: null, key: '' });
   useEffect(() => {
     if (!world?.setBuildAccess || !identity) return;
-    const access = buildAccessOf(identity, identity.kind === 'lesson' || lessonOn ? storedStudentToken() : null, lessonOn);
+    const access = buildAccessOf(identity, identity.kind === 'lesson' || lessonOn ? storedStudentToken() : null, lessonOn, passToken);
     const key = JSON.stringify(access);
     if (lastAccess.current.world === world && lastAccess.current.key === key) return;
     lastAccess.current = { world, key };
     world.setBuildAccess(access);
-  }, [world, identity, lessonOn]);
+  }, [world, identity, lessonOn, passToken]);
 
   // A solo write answered 403 seat_inactive (seat stopped mid-play): same card as play_allowed=false, not an error.
   useEffect(
@@ -655,7 +659,14 @@ export function App(): React.ReactElement {
               }}
             />
           ) : null}
-          {passCode !== null && !codeFromSearch(location.search) ? <GuestPassLayer code={passCode} world={world} /> : null}
+          {passCode !== null && !codeFromSearch(location.search) ? <GuestPassLayer
+              code={passCode}
+              world={world}
+              onActive={(token, look) => {
+                setPassToken(token);
+                if (look) setMyLook(look);
+              }}
+            /> : null}
           {startOpen ? (
             <StartFlow
               world={world}

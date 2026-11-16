@@ -5,6 +5,7 @@
  * server clock), and the end sends the child to `/guest-end`. Pure functions over a fetch and a key store.
  */
 import { GUEST_PASS_HEADER, normalizeGuestPassCode } from '@lcw/schemas';
+import { readWorldSetup, type WorldSetupChoice } from '@lcw/content';
 import type { FetchLike, KeyStore } from './api.js';
 
 /** The same device id /try keeps (docs/19 §8: a random value on the device; the server stores only a hash). */
@@ -145,6 +146,22 @@ export async function passStatus(
     if (b.state === 'ended') return 'ended';
     if (b.state !== 'active' || typeof b.ends_at !== 'number' || typeof b.server_now !== 'number') return null;
     return { endsAt: b.ends_at, skewMs: b.server_now - now() };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The host child's world as the host made it (season, sky, animal friend), read with the pass (GET /v1/my-world answers
+ * a running pass with the host's setup). null when not made, not answered or offline: the town's own look then.
+ */
+export async function passHostWorld(token: string, fetchFn: FetchLike, base = ''): Promise<WorldSetupChoice | null> {
+  try {
+    const res = await fetchFn(`${base}/v1/my-world`, { headers: { [GUEST_PASS_HEADER]: token, accept: 'application/json' }, cache: 'no-store' });
+    if (!res.ok) return null;
+    const b = (await res.json().catch(() => ({}))) as { made?: unknown; world?: unknown };
+    const w = b.made === true ? readWorldSetup(b.world) : null;
+    return w ? { season: w.season, time: w.time, buddy: w.buddy } : null;
   } catch {
     return null;
   }

@@ -331,3 +331,87 @@ describe('guest pass: 30 minutes from the first entry, 2 per seat per month', ()
     expect((await call(p, 'GET', '/v1/guest-pass/check?code=ABCD-EFGH', undefined, ip('198.51.100.67'))).status).toBe(404);
   });
 });
+
+describe("a friend on a guest pass plays in the host's world (docs/19 §8)", () => {
+  const X = 126;
+  const Z = 170;
+  it("opens the host's plot, builds with the host's blocks, never breaks the host's build, and stops at the end", async () => {
+    const p = platform();
+    const { g, sid } = await guardianWithSeat(p);
+    // the host child builds a block of their own first (linked device)
+    const code6 = (await call(p, 'POST', '/v1/family/children/kid-host/device-code', {}, g)).body.code;
+    const dev = bearer((await call(p, 'POST', '/v1/device/link', { code: code6, label: 'tab' })).body.device_token);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X, y: 1, z: Z, slot: 0 }] }, dev)).body.results).toEqual([{ ok: true }]);
+    await call(p, 'POST', '/v1/my-world', { name: 'Juno Town', season: 'winter', time: 'sunset', buddy: 'bunny' }, dev);
+
+    const code = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass.code;
+    const r = await call(p, 'POST', '/v1/guest-pass/redeem', { code, device: DEV_A });
+    const h = { ...anon, [GUEST_PASS_HEADER]: r.body.token };
+    // the host's plot and world look, read with the pass alone
+    const plot = await call(p, 'GET', '/v1/plot', undefined, h);
+    expect(plot.status).toBe(200);
+    expect(plot.body.cells.some((c: number[]) => c[0] === X && c[1] === 1 && c[2] === Z)).toBe(true);
+    expect((await call(p, 'GET', '/v1/my-world', undefined, h)).body).toMatchObject({ made: true, visitor: true, world: { season: 'winter', time: 'sunset', buddy: 'bunny' } });
+    // place: yes (host's carried blocks); break the friend's own: yes; break the host's, or the chest: not_yours
+    const ops = await call(
+      p,
+      'POST',
+      '/v1/plot/ops',
+      {
+        ops: [
+          { op: 'place', x: X + 2, y: 1, z: Z, slot: 0 },
+          { op: 'break', x: X, y: 1, z: Z },
+          { op: 'take', ref: 'b1', n: 1 },
+          { op: 'place', x: X + 3, y: 1, z: Z, slot: 0 }
+        ],
+        batch: 'guestbatch01'
+      },
+      h
+    );
+    expect(ops.body.results).toEqual([{ ok: true }, { ok: false, reason: 'not_yours' }, { ok: false, reason: 'not_yours' }, { ok: true }]);
+    // a later request may break what this friend placed (remembered per pass)
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'break', x: X + 2, y: 1, z: Z }] }, h)).body.results).toEqual([{ ok: true }]);
+    // the friend's snapshot says which cells are theirs to break again; the host's never carries that list
+    expect((await call(p, 'GET', '/v1/plot', undefined, h)).body.guest_cells).toEqual([[X + 3, 1, Z]]);
+    expect((await call(p, 'GET', '/v1/plot?guest_grant=anything', undefined, dev)).body.guest_cells).toBeUndefined();
+    // the host sees the friend's block in their own plot
+    const after = (await call(p, 'GET', '/v1/plot', undefined, dev)).body;
+    expect(after.cells.some((c: number[]) => c[0] === X + 3 && c[2] === Z)).toBe(true);
+    expect(after.cells.some((c: number[]) => c[0] === X && c[1] === 1 && c[2] === Z)).toBe(true);
+    // a body cannot pose as another child or grant: the server fills them
+    const forged = await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'break', x: X, y: 1, z: Z }], player_id: 'kid-other', guest_grant: 'x' }, h);
+    expect(forged.body.results).toEqual([{ ok: false, reason: 'not_yours' }]);
+    // the host breaks the friend's block and builds there again: that cell is the host's now
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'break', x: X + 3, y: 1, z: Z }] }, dev)).body.results).toEqual([{ ok: true }]);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 3, y: 1, z: Z, slot: 0 }] }, dev)).body.results).toEqual([{ ok: true }]);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'break', x: X + 3, y: 1, z: Z }] }, h)).body.results).toEqual([{ ok: false, reason: 'not_yours' }]);
+    expect((await call(p, 'GET', '/v1/plot', undefined, h)).body.guest_cells).toEqual([]);
+    // the end: reads and writes answer 410; no pass at all is the operator gate
+    at(T0 + 30 * MIN);
+    expect((await call(p, 'GET', '/v1/plot', undefined, h)).status).toBe(410);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 4, y: 1, z: Z, slot: 0 }] }, h)).status).toBe(410);
+    expect((await call(p, 'GET', '/v1/my-world', undefined, h)).status).toBe(401);
+    expect((await call(p, 'GET', '/v1/plot', undefined, { ...anon, [GUEST_PASS_HEADER]: 'x'.repeat(48) })).status).toBe(401);
+  });
+
+  it("a stopped host seat ends the friend's building; a child's own token is never taken for the pass", async () => {
+    const p = platform();
+    const { g, sid } = await guardianWithSeat(p);
+    const code = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass.code;
+    const token = (await call(p, 'POST', '/v1/guest-pass/redeem', { code, device: DEV_A })).body.token;
+    const h = { ...anon, [GUEST_PASS_HEADER]: token };
+    // a resent guest batch is answered once (the journal keys guests apart from the host)
+    const batch = { ops: [{ op: 'place', x: X + 1, y: 1, z: Z, slot: 0 }], batch: 'guestbatch02' };
+    expect((await call(p, 'POST', '/v1/plot/ops', batch, h)).body.results).toEqual([{ ok: true }]);
+    expect((await call(p, 'POST', '/v1/plot/ops', batch, h)).body.results).toEqual([{ ok: true }]);
+    // the friend's own linked device with its own token gets its own plot, not the host's
+    const own = await guardianWithSeat(p, 'kid-friend', 'fam-friend');
+    const code6 = (await call(p, 'POST', '/v1/family/children/kid-friend/device-code', {}, own.g)).body.code;
+    const dev = (await call(p, 'POST', '/v1/device/link', { code: code6, label: 'tab' })).body.device_token;
+    const mine = (await call(p, 'GET', '/v1/plot', undefined, { ...bearer(dev), [GUEST_PASS_HEADER]: token })).body;
+    expect(mine.cells.some((c: number[]) => c[0] === X + 1 && c[2] === Z)).toBe(false);
+    // the host's seat is refunded: no more building on the pass
+    expect((await call(p, 'POST', `/v1/admin/seats/${sid}/refund`, {}, op)).status).toBe(200);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 2, y: 1, z: Z, slot: 0 }] }, h)).status).toBe(410);
+  });
+});

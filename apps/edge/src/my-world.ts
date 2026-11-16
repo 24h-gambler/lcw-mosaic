@@ -37,6 +37,8 @@ export interface MyWorldDeps {
   randomBytes: (n: number) => Uint8Array;
   /** The child behind the request's token (device or lesson student), or null. */
   soloPlayer: (req: Request) => Promise<{ player_id: string } | null>;
+  /** A friend on a running guest pass: the host child (docs/19 §8), or null. Reads only. */
+  passHost?: (req: Request) => Promise<string | null>;
   /** The child's home world id (created if missing). */
   ensureHomeWorld: (playerId: string) => string;
 }
@@ -54,7 +56,13 @@ export function buildMyWorldApp(d: MyWorldDeps): Hono {
 
   app.get('/v1/my-world', async (c) => {
     const who = await d.soloPlayer(c.req.raw);
-    if (!who) return c.json({ error: 'device_only' }, 401);
+    if (!who) {
+      // a friend on a guest pass sees the host's world as the host made it (no language: that is the host's own)
+      const host = d.passHost ? await d.passHost(c.req.raw) : null;
+      if (!host) return c.json({ error: 'device_only' }, 401);
+      const hosted = readMyWorld(d.sql, d.ensureHomeWorld(host));
+      return c.json(hosted ? { made: true, world: hosted, visitor: true } : { made: false, visitor: true });
+    }
     const world = readMyWorld(d.sql, d.ensureHomeWorld(who.player_id));
     const learn_lang = readPlayerLearnLang(d.sql, who.player_id);
     return c.json(world ? { made: true, world, learn_lang } : { made: false, learn_lang });

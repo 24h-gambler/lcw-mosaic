@@ -77,6 +77,8 @@ export function playAgain(): void {
  */
 let speechGen = 0;
 let neuralPlaying: HTMLAudioElement | null = null;
+/** Ends the playing line through its own promise (settles it exactly as the old load error did: resolve(started)). */
+let neuralEnd: (() => void) | null = null;
 
 /**
  * Lets go of a line's element and its blob URL. The element is detached from the URL first: revoking a URL the element
@@ -97,9 +99,12 @@ function releaseNeural(a: HTMLAudioElement, url: string): void {
 
 function stopNeural(): void {
   const a = neuralPlaying;
+  const end = neuralEnd;
   neuralPlaying = null;
-  if (!a) return;
-  releaseNeural(a, a.src);
+  neuralEnd = null;
+  // the line's own end() releases the element and settles its promise (a detached element fires no error to do it)
+  if (end) end();
+  else if (a) releaseNeural(a, a.src);
 }
 
 if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener(NPC_VOICE_CUT_EVENT, stopNeural);
@@ -155,10 +160,13 @@ async function playNeural(bytes: ArrayBuffer, level: LangLevel, gen: number): Pr
       if (finished) return;
       finished = true;
       if (neuralPlaying === a) neuralPlaying = null;
+      if (neuralEnd === stop) neuralEnd = null;
       releaseNeural(a, url);
       if (started && gen === speechGen) rt.npcVoiceEnded();
       resolve(ok || started);
     };
+    const stop = (): void => end(false);
+    neuralEnd = stop;
     a.onplaying = () => {
       if (started) return;
       started = true;

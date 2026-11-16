@@ -23,6 +23,7 @@ import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
 import { PlotSync } from './plot-sync.js';
+import { buildMapInfo } from './map-info.js';
 import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMirror, toggleThirdPerson, type CamMode } from './dialog-shot.js';
 import { FirstPersonHands } from './viewmodel.js';
 import { PeerAvatars, peerLook } from './peers.js';
@@ -149,7 +150,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const tier = TIER_SETTINGS[opts.tier];
   const hudParent = opts.hudRoot ?? canvas.parentElement ?? document.body;
   const touch = isTouchDevice();
-  const reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // G14 look settings (setLookSettings): mouse and touch drag speed, up/down inversion (-1).
+  let lookMouse = 1;
+  let lookTouch = 1;
+  let lookY = 1;
 
   // ---- HUD first so the loading card shows while the town is built.
   const input = { fwd: 0, side: 0, run: false, jump: false, stickX: 0, stickZ: 0, stick: false, keys: new Set<string>() };
@@ -173,12 +178,13 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       input.stick = active;
     },
     onLook: (dx, dy) => {
-      camYaw -= dx * 0.008;
-      camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.006));
+      camYaw -= dx * 0.008 * lookTouch;
+      camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.006 * lookTouch * lookY));
     },
     onSlot: (i) => {
       hud.selectSlot(i);
       sfx.play('ui.click');
+      slotPicked(i);
     }
   });
   hud.setTouch(touch);
@@ -421,6 +427,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let lastAutoPos = new THREE.Vector3();
   const interactCbs = new Set<(npc: NpcRef) => void>();
   const hotbar: Array<string | null> = [null, null, null, null, null];
+  // the child picked a slot holding a thing: a use of that thing (frame domain records it on the server, docs/09 P4)
+  const holdListeners = new Set<(itemKey: string) => void>();
+  const slotPicked = (i: number): void => {
+    const k = hotbar[i];
+    if (k) for (const cb of holdListeners) cb(k);
+  };
   let possessedId: string | null = null;
   /** a lesson is live (setLessonBadge): solo-only NPCs (the errand giver) step out of it */
   let lessonMode = false;
@@ -428,7 +440,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let fps = 60;
   let frameMs = 16.7;
   let lastStats = { draw: 0, tris: 0 };
-  const showFps = new URLSearchParams(location.search).has('fps');
+  let showFps = new URLSearchParams(location.search).has('fps');
   hud.setScene(SCENE_TITLES_KO[currentScene]);
 
   // ---- Initial meshing: the chunks right around the start spot (FIRST_RING) are meshed and merged before the world
@@ -598,11 +610,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       camMode = toggleMirror(camMode, camBeforeMirror);
       hud.setCamMode(camMode);
     }
-    if (e.code.startsWith('Digit')) {
+    if (e.code.startsWith('Digit') && !paused) {
       const n = Number(e.code.slice(5)) - 1;
       if (n >= 0 && n < 5) {
         hud.selectSlot(n);
         refreshBuildSlots();
+        slotPicked(n);
       }
     }
     // Space jumps; keep the page from scrolling only when nothing on the page has focus (or the canvas has).
@@ -697,8 +710,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     lastX = e.clientX;
     lastY = e.clientY;
     dragMoved += Math.abs(dx) + Math.abs(dy);
-    camYaw -= dx * 0.006;
-    camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005));
+    camYaw -= dx * 0.006 * lookMouse;
+    camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005 * lookMouse * lookY));
   };
   const pointerUp = (e: PointerEvent): void => {
     buildRelease(e);
@@ -1555,6 +1568,20 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       effects.sparkle(hp.x, hp.y, hp.z);
       sfx.play('item.get');
     },
+    setBag(keys) {
+      for (let i = 0; i < hotbar.length; i++) {
+        const k = keys[i] ?? null;
+        if (hotbar[i] === k) continue;
+        hotbar[i] = k;
+        hud.setItem(i, k);
+      }
+      if (heldItem && heldKey && !hotbar.includes(heldKey)) {
+        player.hand.remove(heldItem);
+        heldItem = null;
+        heldKey = null;
+        hands.setItem(null);
+      }
+    },
     takeItem(itemKey) {
       const slot = hotbar.lastIndexOf(itemKey);
       if (slot < 0) return false;
@@ -1718,6 +1745,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       }
     },
     setBuildAccess: (a) => startBuildAccess(a),
+    getPlayerLook: () => ({ ...PLAYER_LOOK }),
+    onHold(cb) {
+      holdListeners.add(cb);
+      return () => holdListeners.delete(cb);
+    },
     onRoomCheck(cb) {
       roomCbs.add(cb);
       return () => {
@@ -1732,7 +1764,22 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       if (on && nearNpc && !npcTalkable(nearNpc.def, true)) nearNpc = null;
     },
     setCoins: (total) => hud.setCoins(total),
+    // Map screen (docs/08 G06): read once when the menu opens (the menu pauses the world). The arrow follows the view;
+    // in the mirror view the camera faces the child, so the body's facing is the one that means "where I look".
+    getMap: () => buildMapInfo({ player: { x: body.x, z: body.z, yaw: camMode === 'mirror' ? playerYaw : camYaw }, plot: world.plot }),
     setOnline: (on) => hud.setOnline(on),
+    setLookSettings: (o) => {
+      lookMouse = Math.max(0.1, o.mouse);
+      lookTouch = Math.max(0.1, o.touch);
+      lookY = o.invertY ? -1 : 1;
+    },
+    setReduceMotion: (on) => {
+      reduceMotion = on;
+    },
+    setShowFps: (on) => {
+      showFps = on || new URLSearchParams(location.search).has('fps');
+      if (!showFps) hud.setFps(null);
+    },
     setStars: (total) => hud.setStars(total),
     setPlayerName(name) {
       const clean = name ? name.trim().slice(0, 16) : '';

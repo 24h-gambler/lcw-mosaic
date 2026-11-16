@@ -3,6 +3,7 @@
  * The required members match docs/19 exactly; the optional ones are additions recorded there in the same PR.
  */
 import type { NpcContext } from '@lcw/schemas';
+import type { NpcLook } from './town.js';
 
 export type SceneId = 'plaza' | 'honey_cafe' | 'trade_shop' | 'build_plot' | 'open_hill';
 
@@ -68,6 +69,15 @@ export interface WorldHandle {
    * hand too. False when no slot held it. Shells call it after the server already moved the item.
    */
   takeItem?(itemKey: string): boolean;
+  /**
+   * The bag as the server keeps it (frame domain reads GET /v1/items): slot i shows keys[i], quietly (no toast, no
+   * sparkle). A thing in hand that left the bag leaves the hand too.
+   */
+  setBag?(keys: ReadonlyArray<string | null>): void;
+  /** The player's look (skin, hair, clothes) for the mirror screen (G04), which draws its own small copy. */
+  getPlayerLook?(): NpcLook;
+  /** The child picked a hotbar slot that holds a thing (key, 1~5, tap). Returns an unsubscribe. */
+  onHold?(cb: (itemKey: string) => void): () => void;
   /** 별 연출·효과음. `add` = how many stars the HUD chip gains (default `stars`; a retry that beats 1 star with 2 adds 1). */
   celebrate(stars: 0 | 1 | 2 | 3, opts?: { add?: number }): void;
   setGoal(goalKo: string, targetEn?: string): void; // 화면 맨 위 목표 한 줄
@@ -104,6 +114,12 @@ export interface WorldHandle {
   setCoins?(total: number | null): void;
   /** Server reachable? false shows the HUD band "혼자 모드로 계속 중" (docs/08 G01); the world keeps running. */
   setOnline?(on: boolean): void;
+  /** Player settings G14 (frame/settings.ts): drag-to-look speed for mouse and touch (1 = default), up/down inverted. */
+  setLookSettings?(o: { mouse: number; touch: number; invertY: boolean }): void;
+  /** G14 움직임 줄이기 (docs/08 5장): burst and star effects off. Starts from the device's prefers-reduced-motion. */
+  setReduceMotion?(on: boolean): void;
+  /** G14: the frame counter in the HUD corner (also on with ?fps). */
+  setShowFps?(on: boolean): void;
   /**
    * Map read-out for the map screen (docs/08 G06): sectors (one town sector until world generation lands, then the
    * 3 x 3 sectors), the walkable places, and where the player stands. World coordinates in metres.

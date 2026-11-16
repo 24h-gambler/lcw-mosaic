@@ -14,6 +14,7 @@ import { FrameFloorWatch, TIER_SETTINGS, gpuClassOf, readGpuRenderer, type GpuCl
 import { RoomClient } from './world/room-client.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { FrameLayer } from './frame/FrameLayer.js';
+import { savedTier } from './frame/settings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { DEFAULT_WORLD_CHOICE, type WorldSetupChoice } from '@lcw/content';
 import { codeFromSearch, loadStudentSession, saveStudentSession } from './lesson/api.js';
@@ -222,9 +223,20 @@ export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveI
   };
 }
 
-export function pickTier(search: string, nav: { deviceMemory?: number; hardwareConcurrency?: number }, coarse: boolean, gpu: GpuClass = 'unknown'): WorldTier {
+/**
+ * Start tier: `?tier=` wins, then the quality the player picked in settings (`saved`, G14 화질, frame/settings.ts
+ * savedTier), then the device guess (GPU class, memory, cores, touch).
+ */
+export function pickTier(
+  search: string,
+  nav: { deviceMemory?: number; hardwareConcurrency?: number },
+  coarse: boolean,
+  saved: WorldTier | null = null,
+  gpu: GpuClass = 'unknown'
+): WorldTier {
   const q = new URLSearchParams(search).get('tier');
   if (q === 'low' || q === 'mid' || q === 'high') return q;
+  if (saved) return saved;
   // Software GL draws every pixel on the CPU; an integrated GPU does not carry sun shadows + MSAA (docs/02 §11).
   if (gpu === 'software') return 'low';
   const mem = nav.deviceMemory ?? null;
@@ -463,10 +475,11 @@ export function App(): React.ReactElement {
     let handle: WorldHandle | null = null;
     let cancelled = false;
     const nav = navigator as Navigator & { deviceMemory?: number };
-    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches, gpuClassOf(readGpuRenderer()));
-    // ?tier= pins the tier (headless checks); otherwise the world measures itself (G14 'auto'; the settings screen
-    // overrides it through setGraphics).
-    const pinned = new URLSearchParams(location.search).has('tier');
+    const saved = savedTier();
+    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches, saved, gpuClassOf(readGpuRenderer()));
+    // ?tier= (headless checks) or a quality picked in settings pins the tier; otherwise the world measures itself
+    // (G14 'auto'; the settings screen changes it live through setGraphics).
+    const pinned = new URLSearchParams(location.search).has('tier') || saved !== null;
     const graphics = { quality: pinned ? tier : ('auto' as const), viewChunks: null, shadows: null, renderScale: null };
     createWorld({ canvas: canvasRef.current, tier, startScene: startSceneFrom(location.search), hudRoot: hudRef.current ?? undefined, graphics })
       .then((h) => {
@@ -618,7 +631,8 @@ export function App(): React.ReactElement {
       <div ref={hudRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
         <div style={{ pointerEvents: 'auto' }}>
-          <FrameLayer world={world} identity={identity} />
+          {/* the title screen holds the whole screen: the menu button and keys step aside like for a dialog */}
+          <FrameLayer world={world} identity={identity} lessonOn={lessonOn} dialogOpen={dialogNpc !== null || startOpen} />
           {/* The title is the whole screen: no lesson-layer button over it (a ?code= address never opens the title). */}
           {Lesson && !startOpen ? (
             <Lesson

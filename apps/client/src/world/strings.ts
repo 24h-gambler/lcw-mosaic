@@ -445,6 +445,11 @@ export function objectParticle(word: string): string {
   return code % 28 === 0 ? '를' : '을';
 }
 
+/** Sector names on the map (docs/08 G06). The central sector is the hand-built town; generated sectors bring their own. */
+export const SECTOR_NAMES_KO = {
+  town: '중앙 마을'
+} as const;
+
 /** A townsperson's name over their speech bubble: the English name, the Korean one after it with the help on. */
 export function npcName(def: { nameEn: string; nameKo: string }): string {
   return joinHelp(def.nameEn || def.nameKo, def.nameKo);

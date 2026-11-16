@@ -106,7 +106,12 @@ export const TILE_NAMES = [
   'terracotta_honey',
   'flower_blue',
   'chalkboard',
-  'stone_brick'
+  'stone_brick',
+  'ore_coal',
+  'ore_iron',
+  'ore_gold',
+  'ore_ruby',
+  'ore_diamond'
 ] as const;
 
 export type TileName = (typeof TILE_NAMES)[number];
@@ -240,6 +245,12 @@ export const BLOCK_LOOKS: ReadonlyArray<BlockLook | undefined> = (() => {
   put({ ...cube(68, 'flower_blue', 'plant'), shape: 'plant', collideH: 0 });
   put(cube(69, 'chalkboard', 'wood', { top: 'dark_plank', bottom: 'dark_plank' }));
   put(cube(70, 'stone_brick', 'stone'));
+  // mine veins (play domain): stone with big gems, mined through the server, never broken into blocks
+  put(cube(71, 'ore_coal', 'stone'));
+  put(cube(72, 'ore_iron', 'stone'));
+  put(cube(73, 'ore_gold', 'stone', { glow: 3 }));
+  put(cube(74, 'ore_ruby', 'stone', { glow: 3 }));
+  put(cube(75, 'ore_diamond', 'stone', { glow: 5 }));
   return t;
 })();
 

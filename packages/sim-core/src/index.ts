@@ -6,3 +6,5 @@ export * from './player-and-gauges.js';
 export * from './domains.js';
 export * from './town.js';
 export * from './plot.js';
+export * from './play-sites.js';
+export * from './play.js';

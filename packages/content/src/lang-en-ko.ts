@@ -1,3 +1,5 @@
+import { PLAY_BANK } from './play-bank.js';
+
 export type LangLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
 
 export interface PhraseOffer {
@@ -901,7 +903,9 @@ export const PHRASE_BANK: readonly PhraseBankEntry[] = [
   ...GENERATED_GUIDE_BANK,
   ...GENERATED_FURNITURE_BANK,
   ...GENERATED_ERRAND_BANK,
-  ...DOMAIN_BANK_ENTRIES
+  ...DOMAIN_BANK_ENTRIES,
+  // Play modes (play-bank.ts): market hall goods, exchange, interview, boss, customers.
+  ...PLAY_BANK
 ];
 
 export function lookupPhraseBank(params: {

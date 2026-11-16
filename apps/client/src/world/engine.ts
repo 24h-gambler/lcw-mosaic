@@ -799,7 +799,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     travel = (async () => {
       const pts = pathTo(target);
       hud.setScene(SCENE_TITLES_KO[target]);
-      if (pts && !reduceMotion) {
+      // a scene on another floor (the mine under the market hall) is never walked to: the elevator fades
+      if (pts && !reduceMotion && Math.abs(spotY(SCENES[target].player) - body.y) < 4) {
         placeNpcForScene(target, true);
         autopilot = pts;
         autoStuck = 0;

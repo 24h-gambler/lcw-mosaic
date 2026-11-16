@@ -38,7 +38,13 @@ const EN: NpcCastPack = {
     guide: { nameEn: 'Luna', nameKo: '안내인 루나 선생님', nameKoShort: '루나', age: 'adult', voice: { engine: 'aura', speaker: 'asteria' } },
     cafe_owner: { nameEn: 'Hannah', nameKo: '카페 주인 해나', nameKoShort: '해나', age: 'adult', voice: { engine: 'aura', speaker: 'stella' } },
     shop_owner: { nameEn: 'Toby', nameKo: '상점 주인 토비', nameKoShort: '토비', age: 'adult', voice: { engine: 'aura', speaker: 'arcas' } },
-    errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura', speaker: 'luna' } }
+    errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura', speaker: 'luna' } },
+    // Market hall (play domain, packages/sim-core/src/play-sites.ts).
+    tailor: { nameEn: 'Grace', nameKo: '재단사 그레이스', nameKoShort: '그레이스', age: 'adult', voice: { engine: 'aura', speaker: 'athena' } },
+    maker: { nameEn: 'Leo', nameKo: '장인 레오', nameKoShort: '레오', age: 'adult', voice: { engine: 'aura', speaker: 'orion' } },
+    exchange_clerk: { nameEn: 'Oscar', nameKo: '환전소 오스카', nameKoShort: '오스카', age: 'adult', voice: { engine: 'aura', speaker: 'perseus' } },
+    office_boss: { nameEn: 'Olivia', nameKo: '사장님 올리비아', nameKoShort: '올리비아', age: 'adult', voice: { engine: 'aura', speaker: 'hera' } },
+    office_customer: { nameEn: 'Ben', nameKo: '손님 벤', nameKoShort: '벤', age: 'adult', voice: { engine: 'aura', speaker: 'angus' } }
   }
 };
 

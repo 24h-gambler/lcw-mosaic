@@ -650,6 +650,26 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (!s) return next();
     return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id }));
   });
+  // Play modes (play.ts): the clock, the office state and mining run on the child's own home world, from the same
+  // tokens. Reads stay open on a paused seat; heartbeats and swings are solo play and are seat-gated.
+  app.get('/v1/play/state', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+  });
+  for (const path of ['/v1/play/beat', '/v1/play/mine'] as const) {
+    app.post(path, async (c, next) => {
+      if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+      const s = await soloPlayer(c.req.raw);
+      if (!s) return next();
+      const body = await readBody(c);
+      const blocked = seatBlocked(s);
+      if (blocked) return blocked;
+      if (!body) return c.json({ error: 'invalid_play_request' }, 400);
+      return forwardSolo(c.req.url, s, body, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+    });
+  }
   app.get('/v1/furniture/discounts', async (c, next) => {
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await soloPlayer(c.req.raw);

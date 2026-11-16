@@ -260,7 +260,8 @@ export function talkSpotFor(world: VoxelWorld, npc: { x: number; y: number; z: n
 export function standHeight(world: VoxelWorld, x: number, z: number, fromY = 40): number {
   const bx = Math.floor(x);
   const bz = Math.floor(z);
-  for (let y = fromY; y > -8; y--) {
+  // down to 40 m under the start (the mine floors under the market hall sit at y -24, -72, -120)
+  for (let y = fromY; y > Math.min(-8, fromY - 40); y--) {
     const h = collideHeight(world.getBlock(bx, y, bz));
     if (h > 0) return y + h;
   }

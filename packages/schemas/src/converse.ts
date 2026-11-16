@@ -152,6 +152,24 @@ export const ScoreResponseSchema = z
     read_aloud_discount_pct: z.number().min(0).max(1).optional(),
     /** First-visit errand (docs/03 D1): its state after this sentence, and the coins it paid (hand-over only). */
     errand: z.object({ state: z.enum(['offered', 'accepted', 'carrying', 'done']), reward_coins: z.number().int().optional() }).optional(),
+    /** Play modes (edge play.ts, docs/03 D2·D4): what this sentence moved at the exchange or the office. */
+    play: z
+      .object({
+        kind: z.enum(['interview', 'shift', 'customer', 'exchange']),
+        blocked: z.string().max(40).optional(),
+        coins: z.number().int().optional(),
+        hired: z.enum(['intern', 'staff', 'manager', 'director']).optional(),
+        promoted: z.enum(['intern', 'staff', 'manager', 'director']).optional(),
+        pay: z.number().int().optional(),
+        tip: z.number().int().optional(),
+        units: z.number().int().optional(),
+        ore: z.string().max(20).optional(),
+        late: z.boolean().optional(),
+        interview_turn: z.string().max(40).nullable().optional(),
+        served: z.number().int().optional()
+      })
+      .strict()
+      .optional(),
     /** Free talk without a chosen sentence: the bank sentence the server matched and scored. */
     target_text: z.string().min(1).optional(),
     /**

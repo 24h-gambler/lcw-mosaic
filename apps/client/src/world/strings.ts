@@ -134,7 +134,15 @@ export const SCENE_TITLES_KO = {
   honey_cafe: '꿀 카페',
   trade_shop: '물물교환 상점',
   build_plot: '내 부지',
-  open_hill: '바람 언덕'
+  open_hill: '바람 언덕',
+  // Market hall and mine (play domain, packages/sim-core/src/play-sites.ts).
+  tailor: '옷가게',
+  workshop: '제작소',
+  exchange: '환전소',
+  office: '사무실',
+  mine: '광산 1층',
+  mine_deep: '광산 2층',
+  mine_core: '광산 3층'
 } as const;
 
 /** Item names shown when giveItem() puts something in a slot. Unknown keys fall back to a gift box. */
@@ -171,6 +179,15 @@ export const ITEM_NAMES_KO: Record<string, string> = {
   shell: '조개껍데기',
   marble: '구슬',
   helmet: '헬멧',
+  // Market hall goods and ores (play domain).
+  suit: '정장',
+  pickaxe: '철 곡괭이',
+  drill: '드릴',
+  coal: '석탄',
+  iron: '철광석',
+  gold: '금',
+  ruby: '루비',
+  diamond: '다이아몬드',
   gift: '선물'
 };
 

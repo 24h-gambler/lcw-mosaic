@@ -533,8 +533,24 @@ const PAINT: Record<TileName, (p: Painter, seed: number) => void> = {
     p.circle(11, 20, 1, C.white, 0.85);
     p.circle(9, 22.5, 0.8, C.white, 0.85);
   },
-  stone_brick: (p) => bigBricks(p, soft(0xd8cbb6, 0.1), soft(0xb7a68c, 0.15), 2)
+  stone_brick: (p) => bigBricks(p, soft(0xd8cbb6, 0.1), soft(0xb7a68c, 0.15), 2),
+  // Mine veins: the stone tile with four big rounded gems of the ore's color (one motif, docs/08 6.1).
+  ore_coal: (p, s) => oreVein(p, s, hex(0x3a4152), hex(0x8a93a6)),
+  ore_iron: (p, s) => oreVein(p, s, soft(0xd99a6c, 0.1), soft(0xf0c9a8, 0.1)),
+  ore_gold: (p, s) => oreVein(p, s, soft(0xffc53d, 0.05), hex(0xfff1b8)),
+  ore_ruby: (p, s) => oreVein(p, s, soft(0xe5484d, 0.05), soft(0xff9aa0, 0.1)),
+  ore_diamond: (p, s) => oreVein(p, s, soft(0x5fd4f0, 0.05), hex(0xe6fbff))
 };
+
+function oreVein(p: Painter, s: number, gem: RGB, shine: RGB): void {
+  pebbles(p, s, shade(C.stone, 0.88), [shade(C.stone, 0.95), shade(C.stone, 0.84)], 6, 4, 7);
+  const spots: Array<[number, number, number]> = [[9, 9, 4.5], [23, 11, 3.8], [12, 23, 3.6], [24, 24, 4.4]];
+  for (const [x, y, r] of spots) {
+    p.circle(x + 0.8, y + 0.8, r, shade(gem, 0.7));
+    p.circle(x, y, r, gem);
+    p.circle(x - r * 0.35, y - r * 0.35, r * 0.35, shine, 0.85);
+  }
+}
 
 /** Shader bevel strength per tile (materials.ts): 1 = full toy bevel, lower on ground so roads stay calm. */
 const CALM: ReadonlySet<TileName> = new Set<TileName>(['grass_top', 'path_top', 'road', 'sand', 'snow', 'gravel', 'dirt', 'grass_side', 'water']);

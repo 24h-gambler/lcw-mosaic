@@ -23,10 +23,10 @@ function css(): string {
 .lw-goal .k{font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px;font-weight:700;color:${C['brand-d']}}
 .lw-goal .g{font-size:${T.scale['body-l'].sizePx}px;line-height:${T.scale['body-l'].lineHeightPx}px;font-weight:700}
 .lw-goal .t{font-family:${T.fonts.target};font-size:${T.scale.h3.sizePx}px;line-height:${T.scale.h3.lineHeightPx}px;font-weight:700;color:${C['sky-d']}}
-.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:center}
+.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:calc(100vw - 230px)}
 .lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.small.sizePx}px}
 .lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.micro.sizePx}px;border:2px solid ${C['ink-900']};display:none}
-.lw-chip .l.on{display:inline-block}
+.lw-chip .l.on{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lw-chip .l.solo{background:${C['paper-0']};color:${C['ink-700']};border-style:dashed}
 .lw-chip .s{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px}
 .lw-chip .w{display:inline-flex;align-items:center;gap:6px;font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px;font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9}

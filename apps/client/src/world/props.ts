@@ -81,11 +81,11 @@ function sharedMat(): THREE.MeshLambertMaterial {
 /** Item held in the right hand (attached to the hand pivot, pointing forward). One mesh. */
 export function makeItemModel(key: string): THREE.Group {
   const g = new THREE.Group();
-  const drink = /tea|latte|choco|juice|lemonade|milk|smoothie|coffee|cocoa/.test(key);
+  const drink = /water|tea|latte|choco|juice|lemonade|milk|smoothie|coffee|cocoa/.test(key);
   const food = /cookie|muffin|cake|sandwich|bread|apple|banana/.test(key);
   const pieces: Piece[] = [];
   if (drink) {
-    const liquid = /choco|cocoa|latte|coffee/.test(key) ? 0x8a5a2b : /lemon|juice|orange/.test(key) ? 0xffb347 : /milk/.test(key) ? 0xffffff : /smoothie/.test(key) ? 0xff9cc2 : 0xffc53d;
+    const liquid = /choco|cocoa|latte|coffee/.test(key) ? 0x8a5a2b : /lemon|juice|orange/.test(key) ? 0xffb347 : /milk/.test(key) ? 0xffffff : /smoothie/.test(key) ? 0xff9cc2 : /water/.test(key) ? 0x9fd8ff : 0xffc53d;
     pieces.push(vox(4, 5, 4, 0xfff9ee, 0, 0, 2), vox(3.4, 0.6, 3.4, liquid, 0, 2.6, 2), vox(1, 3, 1, 0xfff9ee, 2.5, 0, 2));
     if (/honey/.test(key)) pieces.push(vox(4.2, 1, 4.2, 0xffc53d, 0, -1, 2));
   } else if (food) {

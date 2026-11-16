@@ -12,7 +12,7 @@ import type { NpcRef } from '../dialog/types.js';
 
 /**
  * WP-111 / docs/03 D1 from the child's side: the client errand module drives the real PlatformDO routes with a
- * device token — Mia (the neighbour at the cafe door) asks, the cafe sells the cold water, Mina takes it, +50 once —
+ * device token — Mia (the neighbour at the cafe door) asks, the cafe sells the cold water, Mia takes it, +50 once —
  * and the dialog shapes match. Luna stays the guide.
  */
 

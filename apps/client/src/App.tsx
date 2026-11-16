@@ -65,7 +65,7 @@ interface FirstVisitModule {
   }>;
   errandDialogFor?: (npc: NpcRef, errand: ErrandLike | null, level: Level) => ErrandDialogLike | null;
   /** The "Hello!" mic check for lesson students (once per lesson) and guests (once per device), audit G15. */
-  MicCheckGate?: React.ComponentType<{ audience: 'lesson' | 'guest'; lessonCode?: string; hidden?: boolean }>;
+  MicCheckGate?: React.ComponentType<{ identityKind: string; lessonCode?: string; hidden?: boolean }>;
 }
 
 /** Props the shell passes to the lesson layer (docs/19 5장). */
@@ -313,9 +313,15 @@ function DialogHost(props: {
       world.setViewInset?.(0);
     };
   }, [world]);
+  // world api renderPreview (world lane): 3D thumbnails of the item and the NPC for the dialog preview (audit G02)
+  const renderPreview = useMemo(() => {
+    const r = (world as { renderPreview?: (req: unknown, size: number) => Promise<string | null> }).renderPreview;
+    return r ? (req: unknown, size: number) => r.call(world, req, size) : undefined;
+  }, [world]);
   return (
     <Panel
       npc={npc}
+      {...(renderPreview ? { renderPreview } : {})}
       level={cfg.level ?? 'L1'}
       mode={cfg.mode ?? 'guided'}
       offers={cfg.offers ?? []}
@@ -566,8 +572,9 @@ export function App(): React.ReactElement {
               />
             </div>
           ) : null}
-          {MicGate && world && identity?.kind === 'lesson' ? <MicGate audience="lesson" lessonCode={identity.code} /> : null}
-          {MicGate && world && identity?.kind === 'guest' ? <MicGate audience="guest" hidden={soloNpc !== null} /> : null}
+          {MicGate && world && identity ? (
+            <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null} />
+          ) : null}
           {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (
             <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null} />
           ) : null}

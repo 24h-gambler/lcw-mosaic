@@ -8,6 +8,7 @@ import {
   convertMixedSpeech,
   distractorsFor,
   heardMask,
+  itemFor,
   listenAllowed,
   picturesFor,
   renderHintTokens,
@@ -134,6 +135,11 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
 
   const [selected, setSelected] = useState<1 | 2 | 3>(() => (initialOffers[0]?.stars ?? 1) as 1 | 2 | 3);
   const offer = offers.find((o) => o.stars === selected) ?? offers[0];
+  // Audit G02: the preview shows what this sentence buys (the world's 3D of the item, or its picture) and its price,
+  // and the NPC's face; without the world's renderPreview it falls back to pictures.
+  const item = offer ? itemFor(offer.text) : null;
+  const itemImg = usePreview(props.renderPreview, item ? { kind: 'item', itemKey: item.itemKey, ...(item.modifier ? { modifier: item.modifier } : {}) } : null, 160);
+  const npcImg = usePreview(props.renderPreview, { kind: 'npc', npcId: npc.id }, 112);
   const [phase, setPhase] = useState<Phase>(availability.ok ? 'choose' : initialOffers.length > 0 ? 'board' : 'keyboard');
   const [micIssue, setMicIssue] = useState<MicIssue | null>(availability.ok ? null : availability.issue);
   const [notice, setNotice] = useState<string | null>(null);
@@ -454,7 +460,9 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const listenOk = listenAllowed(hint) && props.listen !== false;
   const extUrl = typeof location !== 'undefined' ? kakaoOpenExternalUrl(location.href) : '#';
   const style = { ['--fs' as string]: String(fontScale) } as React.CSSProperties;
-  const pictures = offer ? picturesFor(offer.text) : ['💬'];
+  const pictures = offer ? picturesFor(offer.text) : [];
+  const priced = offers.filter((o) => (o.price ?? 0) > 0);
+  const cheaper = offer?.price ? priced.filter((o) => o.stars > offer.stars && o.price! < offer.price!).sort((a, b) => a.price! - b.price!)[0] : undefined;
   // Recall ('initial') hides the chips: a tag like "can i have" would give the masked sentence away.
   const showTags = offer && (hint === 'full' || hint === 'keyword');
 
@@ -464,7 +472,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       <div className="lcw-dlg__win">
         <section className="lcw-dlg__side">
           <div className="lcw-dlg__npc">
-            <div className="lcw-dlg__avatar" aria-hidden="true">{NPC_EMOJI[npc.ctx] ?? '🙂'}</div>
+            <div className="lcw-dlg__avatar" aria-hidden="true">{npcImg ? <img src={npcImg} alt="" /> : NPC_EMOJI[npc.ctx] ?? '🙂'}</div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className="lcw-dlg__name">{npc.nameKo} · {npc.nameEn}</div>
               <div className="lcw-dlg__bubble" lang="en">
@@ -478,8 +486,27 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               </button>
             ) : null}
           </div>
-          <div className="lcw-dlg__preview" aria-hidden="true">
-            {pictures.map((p, i) => <span key={i}>{p}</span>)}
+          <div className="lcw-dlg__preview">
+            {item ? (
+              <>
+                <div className="lcw-dlg__pics" aria-hidden="true">
+                  {itemImg ? <img className="lcw-dlg__item3d" src={itemImg} alt="" /> : pictures.map((p, i) => <span key={i}>{p}</span>)}
+                </div>
+                <div className="lcw-dlg__pv">
+                  <b>{item.nameKo}</b>
+                  {offer?.price ? <span className="lcw-dlg__coin">{S.previewBuy.replace('{coins}', String(offer.price))}</span> : null}
+                </div>
+                {cheaper ? (
+                  <div className="lcw-dlg__cheaper">{S.previewCheaper.replace('{stars}', starsText(cheaper.stars)).replace('{coins}', String(cheaper.price))}</div>
+                ) : offer?.price && priced.length > 1 ? (
+                  <div className="lcw-dlg__cheaper best">{S.previewBest}</div>
+                ) : null}
+              </>
+            ) : (
+              <div className="lcw-dlg__pics lcw-dlg__face" aria-hidden="true">
+                {npcImg ? <img className="lcw-dlg__item3d" src={npcImg} alt="" /> : <span>{NPC_EMOJI[npc.ctx] ?? '🙂'}</span>}
+              </div>
+            )}
           </div>
           {showTags && offer.hintTags.length > 0 ? (
             <div className="lcw-dlg__tags">
@@ -570,7 +597,10 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               <div className="lcw-dlg__offers">
                 {offers.map((o) => (
                   <button key={o.stars} type="button" className="lcw-offer" data-s={o.stars} aria-pressed={o.stars === selected} onClick={() => pickOffer(o.stars)}>
-                    <span className="lcw-offer__stars" aria-label={S.starsAria.replace('{n}', String(o.stars))}>{starsText(o.stars)}</span>
+                    <span className="lcw-offer__stars" aria-label={S.starsAria.replace('{n}', String(o.stars))}>
+                    {starsText(o.stars)}
+                    {o.price ? <small className="lcw-offer__price" aria-label={S.priceAria.replace('{coins}', String(o.price))}>🪙{o.price}</small> : null}
+                  </span>
                     <OfferText offer={o} hint={hint} />
                     <span />
                   </button>
@@ -634,7 +664,10 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                   aria-pressed={!freeTalk && o.stars === selected}
                   onClick={() => pickOffer(o.stars)}
                 >
-                  <span className="lcw-offer__stars" aria-label={S.starsAria.replace('{n}', String(o.stars))}>{starsText(o.stars)}</span>
+                  <span className="lcw-offer__stars" aria-label={S.starsAria.replace('{n}', String(o.stars))}>
+                    {starsText(o.stars)}
+                    {o.price ? <small className="lcw-offer__price" aria-label={S.priceAria.replace('{coins}', String(o.price))}>🪙{o.price}</small> : null}
+                  </span>
                   <OfferText offer={o} hint={hint} missed={o.stars === selected ? missedWords : undefined} />
                   {listenOk ? (
                     <span
@@ -697,4 +730,24 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       </div>
     </div>
   );
+}
+
+/** One world thumbnail (renderPreview); null until it arrives or when the world has none. */
+function usePreview(render: DialogPanelProps['renderPreview'], req: import('./types.js').PreviewRequest | null, size: number): string | null {
+  const key = req ? JSON.stringify(req) : '';
+  const [img, setImg] = useState<{ key: string; url: string | null }>({ key: '', url: null });
+  useEffect(() => {
+    if (!render || !req) return;
+    let live = true;
+    render(req, size)
+      .then((url) => {
+        if (live) setImg({ key, url });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+    // `key` stands for req (a new object every render)
+  }, [render, key, size]);
+  return img.key === key ? img.url : null;
 }

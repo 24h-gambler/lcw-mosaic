@@ -14,13 +14,24 @@ import { noteMicIssue, noteMicTurn } from './mic-status.js';
  * Dialog microphone (docs/08 7.1, docs/12 9): tap to start, tap again to finish, or auto-stop after
  * DIALOG_MIC_AUTO_STOP_SILENCE_MS of silence once the child has started speaking (reduceDialogMic).
  * After the conversation VAD hangover (1,500 ms) of silence the panel nudges "다 말했으면 한 번 더 눌러요".
- * A child who has not started yet gets FIRST_SPEECH_WAIT_MS before the turn ends (4.1: 6 s silence → re-prompt),
- * and one turn never exceeds MAX_TURN_MS (4.1: 12 s).
+ * A child who has not started yet gets FIRST_SPEECH_WAIT_MS before the turn ends (4.1: 6 s silence → re-prompt).
+ *
+ * Turn length (Oreo lesson 11-16: the first answer was cut at 12 s mid-sentence, "…because it makes" — the "the
+ * recognition cuts off" Dan reported): a stage-1 fixed task is three sentences, about 20 s. Silence ends a turn;
+ * MAX_TURN_MS (45 s) is only a soft cap that never cuts a child who is speaking — past it the turn ends at the
+ * first pause of PAUSE_AT_CAP_MS — and HARD_TURN_MS (60 s, the server Whisper limit) is the one hard stop.
+ * The last COUNTDOWN_MS before the soft cap show the seconds left (MicView.secondsLeft) so the end never surprises.
  */
 
 export const MIC_FRAME_MS = 100;
 export const FIRST_SPEECH_WAIT_MS = 6_000;
-export const MAX_TURN_MS = 12_000;
+export const MAX_TURN_MS = 45_000;
+/** Past MAX_TURN_MS the turn ends at the first pause this long (a speaking child is never cut). */
+export const PAUSE_AT_CAP_MS = 700;
+/** The one hard stop (server Whisper takes up to 60 s, packages/quota SERVER_STT.maxSec). */
+export const HARD_TURN_MS = 60_000;
+/** The seconds left show for this long before the soft cap. */
+export const COUNTDOWN_MS = 10_000;
 
 export interface MicView {
   recording: boolean;
@@ -29,6 +40,8 @@ export interface MicView {
   hangover: boolean;
   /** 0..1 level for the bar animation (recent speech activity). */
   level: number;
+  /** Whole seconds left before the soft turn cap, only in its last COUNTDOWN_MS (else absent). */
+  secondsLeft?: number;
 }
 
 export interface MicControllerEvents {
@@ -155,7 +168,8 @@ export class MicController {
       this.lastActivityAt = now;
     }
     const elapsed = now - this.startedAt;
-    if (elapsed >= MAX_TURN_MS || (!this.spoke && elapsed >= FIRST_SPEECH_WAIT_MS)) {
+    const pausedAtCap = elapsed >= MAX_TURN_MS && now - this.lastActivityAt >= PAUSE_AT_CAP_MS;
+    if (elapsed >= HARD_TURN_MS || pausedAtCap || (!this.spoke && elapsed >= FIRST_SPEECH_WAIT_MS)) {
       this.state = MIC_CAPTURE_IDLE;
       this.finish();
       return;
@@ -174,7 +188,9 @@ export class MicController {
   private emit(): void {
     const now = this.clock.now();
     const quiet = now - this.lastActivityAt;
+    const left = MAX_TURN_MS - (now - this.startedAt);
     this.ev.onView({
+      ...(this.state.recording && this.spoke && left <= COUNTDOWN_MS ? { secondsLeft: Math.max(0, Math.ceil(left / 1000)) } : {}),
       recording: this.state.recording,
       interim: this.interim,
       hangover: this.spoke && quiet >= vadHangoverMs('conversation'),

@@ -106,7 +106,7 @@ export const RECOGNITION_KEEPALIVE = {
   shortRunMs: 1500,
   /** Pause before listening again (Chrome needs the old session to let go of the mic, or the new one aborts). */
   restartDelayMs: 250,
-  /** Safety cap on restarts in one turn (>= 15 s of restarts, past the mic controller's 12 s turn cap). */
+  /** Safety cap on restarts in one turn (60 x ≥250 ms; the mic controller's turn ends at a pause past 45 s, hard at 60 s). */
   maxRestarts: 60,
   /** Short ends in one turn that mark the turn as cut by the browser. */
   flakyShortEnds: 3,

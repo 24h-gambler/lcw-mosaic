@@ -46,7 +46,7 @@ export const UnderstandRequestSchema = z
     dialog_id: z.string().min(1).max(64),
     npc_ctx: NpcContextSchema,
     level: LevelSchema,
-    transcript: z.string().max(400),
+    transcript: z.string().max(1000),
     stt: SttMetaSchema
   })
   .strict();
@@ -106,7 +106,7 @@ export const ScoreRequestSchema = z
     dialog_id: z.string().min(1).max(64),
     chosen_stars: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     hint_level: HintLevelSchema,
-    transcript: z.string().max(400),
+    transcript: z.string().max(1000),
     audio_key: z.string().min(1).max(200).optional()
   })
   .strict();

@@ -179,7 +179,7 @@ const ReadAloudBodySchema = z
     world_id: z.string().min(1),
     level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).default('L1'),
     kind: z.string().min(1).max(20),
-    transcript: z.string().max(400),
+    transcript: z.string().max(1000),
     stt_source: z.enum(['device', 'workers_ai', 'browser', 'keyboard', 'board']).default('browser'),
     confidence: z.number().finite().min(0).max(1).default(0.9),
     dur_ms: z.number().int().min(0).max(60_000).default(3000)
@@ -202,7 +202,7 @@ const ReviewAttemptBodySchema = z
     world_id: z.string().min(1),
     level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).default('L1'),
     card_id: z.string().min(1).max(120),
-    transcript: z.string().max(400),
+    transcript: z.string().max(1000),
     stt_source: z.enum(['device', 'workers_ai', 'browser', 'keyboard', 'board']).default('browser'),
     confidence: z.number().finite().min(0).max(1).default(0.9),
     dur_ms: z.number().int().min(0).max(60_000).default(3000),

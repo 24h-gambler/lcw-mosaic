@@ -1172,6 +1172,7 @@ export const UI_STRINGS_KO = {
     micStop: '다 말했어요',
     micListening: '듣고 있어요…',
     micHangover: '다 말했으면 한 번 더 눌러요',
+    timeLeft: '{n}초 남았어요 — 문장을 마무리해 봐요',
     processing: '확인하는 중',
     processingSlow: '거의 다 됐어요',
     mySpeech: '내 말',

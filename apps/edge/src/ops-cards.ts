@@ -1,5 +1,6 @@
 import type { Hono } from 'hono';
 import { z } from 'zod';
+import { isTestPlayerId } from './nickname.js';
 import type { SqliteExecutor } from './storage.js';
 
 /**
@@ -140,6 +141,10 @@ export function enqueueCard(sql: SqliteExecutor, card: OpsCard, nowMs: number): 
 /** A lesson ended: its summary and the student's record for that day. */
 export function enqueueLessonEnd(sql: SqliteExecutor, lessonId: string, nowMs: number, origin: string): string[] {
   const out: string[] = [];
+  // Smoke-check and demo students (every deploy's production smoke lesson) never reach Dan's hub, like the other
+  // operator reports leave them out (lesson-mode.ts live list and students, export-csv.ts).
+  const who = sql.get<{ player_id: string }>('select player_id from lessons where id = ?', [lessonId]);
+  if (who && isTestPlayerId(who.player_id)) return out;
   const summary = lessonSummaryCard(sql, lessonId, nowMs, origin);
   if (!summary) return out;
   if (enqueueCard(sql, summary, nowMs)) out.push(summary.ref);

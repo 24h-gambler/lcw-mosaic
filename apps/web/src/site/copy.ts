@@ -5,6 +5,25 @@
  */
 
 import { npcPersona } from '@lcw/content';
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
+
+/** Free play limits the server enforces (docs/01 §3): the copy reads them, never types the numbers. */
+const TRY_MIN = FREE_PLAY_LIMITS.tryMinutes;
+const PASS_MIN = FREE_PLAY_LIMITS.guestPassMinutes;
+const PASS_PER_MONTH = FREE_PLAY_LIMITS.guestPassesPerSeatPerMonth;
+/**
+ * Refund rule (Dan 2026-11-16 09:20, coordinator 11-16 to match the guardian lane's server rule): within 7 days of
+ * payment AND before the seat is first used; once used, no refund; unused past 7 days goes to the operator inbox.
+ */
+export const REFUND_RULE = {
+  short: '쓰기 전·결제 후 7일 안 환불',
+  line: '결제 다음 날부터 7일 안에, 좌석을 쓰기 시작하기 전이면 전액 환불돼요. 한 번이라도 쓰기 시작한 뒤에는 환불되지 않아요.',
+  firstUse: '아이 기기에서 월드를 열거나 과외 수업에 들어가면 쓰기 시작한 거예요.',
+  legal: '결제 다음 날부터 7일 안에, 좌석을 쓰기 시작하기 전이면 전액 환불됩니다. 아이 기기에서 월드를 열거나 과외 수업에 들어가면 쓰기 시작한 것이고, 그 뒤에는 환불되지 않습니다(디지털콘텐츠 제공이 시작된 경우, 전자상거래법 제17조 제2항 제5호). 쓰지 않은 채 7일이 지난 경우는 보호자 화면에서 요청하면 선생님이 직접 확인합니다.',
+  beforeUse: '결제 다음 날부터 7일 안이면 이유를 묻지 않고 전액 환불해요.',
+  unusedLate: '쓰지 않은 채 7일이 지났다면 보호자 화면의 좌석 메뉴에서 요청을 보내 주세요. 선생님이 직접 확인해요.',
+  tryFirst: `결제 전에 ${TRY_MIN}분 체험과 친구 초대(${PASS_MIN}분)로 먼저 써 보세요.`
+} as const;
 export const BRAND = 'LCW';
 export const BRAND_LONG = '말하면 생기는 세계';
 
@@ -13,7 +32,7 @@ export const NAV = {
   play: '학생',
   tutoring: '과외',
   pricing: '요금',
-  try: '5분 체험',
+  try: `${TRY_MIN}분 체험`,
   menu: '메뉴',
   close: '닫기',
   skip: '본문으로 건너뛰기'
@@ -27,7 +46,7 @@ export const HERO = {
   parentsSub: '성장이 어떻게 보이는지',
   players: '플레이어세요?',
   playersSub: '무엇을 할 수 있는지',
-  tryCta: '지금 5분 체험',
+  tryCta: `지금 ${TRY_MIN}분 체험`,
   tryCtaLong: '설치도 가입도 없이 음료 한 잔 주문해 보기',
   trySub: '브라우저에서 바로 시작해요. 목소리는 저장되지 않아요.'
 } as const;
@@ -167,7 +186,7 @@ export const PARENTS = {
   timeTitle: '플레이 시간이 걱정되신다면',
   timeBody: '플레이 시간 안내를 정해 두면 시간이 되었을 때 월드 안에서 부드럽게 알려 줍니다. 연속 접속을 압박하는 알림은 없고, 매주 요약을 보내 드려요.',
   priceTitle: '요금은 단순합니다',
-  priceBody: '모든 좌석은 전 기능이고, 이용을 시작하기 전이면 결제 후 7일 이내에 전액 환불됩니다.',
+  priceBody: `모든 좌석은 전 기능이에요. ${REFUND_RULE.line} ${REFUND_RULE.tryFirst}`,
   priceCta: '요금 자세히 보기',
   faqTitle: '자주 묻는 질문'
 } as const;
@@ -222,14 +241,14 @@ export const PLAY = {
   buildTitle: '한 칸씩, 네 손으로',
   buildBody: '빈 땅에서 3층 집까지. 방에 문과 불빛과 쉴 곳이 있으면 주민이 들어와.',
   friendTitle: '친구를 초대해',
-  friendBody: '내 월드에 친구를 60분 동안 초대할 수 있어. 같이 짓고, 같이 싸워.',
+  friendBody: `내 월드에 친구를 ${PASS_MIN}분 동안 초대할 수 있어. 같이 짓고, 같이 싸워.`,
   upTitle: '땅속에서 우주까지',
   upBody: '광산 아래로 내려가고, 하늘섬 위로 올라가고, 정거장에서 블랙홀을 봐.',
   upBands: ['우주 정거장', '하늘섬', '지상', '지하 광산'],
   endTitle: '하고 싶으면',
   endBody: '부모님께 링크를 보내 줘. 부모님이 소개를 보고 정해 주실 거야.',
   send: '부모님께 소개 보내기',
-  tryIt: '먼저 5분 해 보기'
+  tryIt: `먼저 ${TRY_MIN}분 해 보기`
 } as const;
 
 export const SHARE = {
@@ -292,7 +311,7 @@ export const SAMPLE_REPORT = {
 
 export const PRICING = {
   title: '요금',
-  lead: '모든 좌석은 전 기능입니다. 이용을 시작하기 전이면 결제 후 7일 이내에 전액 환불됩니다.',
+  lead: `모든 좌석은 전 기능입니다. ${REFUND_RULE.line}`,
   plans: [
     {
       id: 'solo',
@@ -325,16 +344,14 @@ export const PRICING = {
   monthly: '월',
   yearly: '연',
   tutoringPlan: '과외 패키지는 과외비에 좌석과 수업 창문, 수업 리포트가 포함돼요. 과외비는 선생님이 정합니다.',
-  promises: ['모든 좌석은 전 기능', '사용 전 7일 이내 전액 환불', 'Duo는 가족이 아니어도 됩니다'],
+  promises: ['모든 좌석은 전 기능', REFUND_RULE.short, 'Duo는 가족이 아니어도 됩니다'],
   refundTitle: '환불과 해지',
   refundRows: [
-    { k: '사용 전, 7일 이내', v: '아이가 이용을 시작하기 전이면 이유를 묻지 않고 전액 환불해요.' },
-    {
-      k: '이용을 시작하면',
-      v: '아이 기기에서 월드를 열거나 과외 수업에 들어가면 이용을 시작한 것이라 환불되지 않아요. 그래서 결제 전에 5분 체험과 60분 초대권으로 먼저 해 보실 수 있게 했어요.'
-    },
+    { k: '쓰기 시작하기 전', v: REFUND_RULE.beforeUse },
+    { k: '쓰기 시작한 뒤', v: `${REFUND_RULE.firstUse} 그 뒤에는 환불되지 않아요. ${REFUND_RULE.tryFirst}` },
+    { k: '쓰지 않고 7일이 지나면', v: REFUND_RULE.unusedLate },
     { k: '해지', v: '보호자 화면의 좌석 메뉴에서 바로 해지할 수 있어요. 남은 기간까지 쓰고 끝납니다.' },
-    { k: 'Duo 한 좌석만 환불', v: '좌석마다 따로 봐요. 아직 이용을 시작하지 않은 한 좌석만 7일 안에 환불하면 남은 좌석은 Solo로 바뀌어요. 차액(월 5,000원, 연 40,000원)을 돌려드리거나, 남은 몫만큼 Solo 기간을 늘려 드립니다.' },
+    { k: 'Duo 한 좌석만 환불', v: '좌석마다 따로 봐요. 결제 다음 날부터 7일 안에 아직 쓰기 시작하지 않은 좌석 하나만 환불하면 남은 좌석은 Solo로 바뀌어요. 차액(월 5,000원, 연 40,000원)을 돌려드리거나, 남은 몫만큼 Solo 기간을 늘려 드립니다.' },
     { k: '해지 뒤 월드', v: '30일 동안 읽기 전용으로 남고, 그 뒤에는 보관됩니다.' }
   ],
   startTitle: '시작하기',
@@ -347,7 +364,7 @@ export const PRICING = {
 export const FAQ = [
   {
     q: '무료로 해 볼 수 있나요?',
-    a: '가입 없이 5분 체험이 있어요. 이용 중인 친구가 있으면 60분 초대권으로 함께 해 볼 수도 있습니다. 결제한 뒤에는 아이가 이용을 시작하기 전, 7일 안에만 전액 환불돼요.'
+    a: `가입 없이 ${TRY_MIN}분 체험이 있어요. 이용 중인 친구가 있으면 ${PASS_MIN}분 초대권으로 함께 해 볼 수도 있습니다. ${REFUND_RULE.line} 그래서 결제 전에 먼저 써 보시길 권해요.`
   },
   {
     q: '몇 살부터 할 수 있나요?',
@@ -409,7 +426,7 @@ export const SAFETY = {
     { k: '공개 서버', v: '다른 사람이 연 공개 월드에 들어갈 수 있어요.' }
   ],
   consentFoot: '한 화면에서 전부 켜는 버튼은 두지 않았어요. 언제든 따로 끌 수 있습니다.',
-  tryTitle: '5분 체험에서는',
+  tryTitle: `${TRY_MIN}분 체험에서는`,
   tryBody: '체험은 브라우저의 음성 인식을 쓰고, 목소리를 서버로 보내거나 저장하지 않아요. 계정도 만들지 않습니다.'
 } as const;
 
@@ -420,7 +437,7 @@ export const LEGAL = {
   terms: [
     { k: '서비스', v: '영어 말하기 3D 월드와 보호자 화면, 선택형 과외 수업 도구를 제공합니다.' },
     { k: '좌석', v: '좌석 하나에 플레이어 한 명. 미성년 좌석은 보호자 계정 아래에서만 만들어집니다.' },
-    { k: '결제와 환불', v: '이용을 시작하기 전, 결제 후 7일 이내 전액 환불. 이용을 시작한 좌석은 환불되지 않습니다(디지털콘텐츠 제공이 시작된 경우, 전자상거래법 제17조 제2항 제5호). Duo는 좌석마다 따로 보며, 한 좌석 환불 시 남은 좌석은 Solo로 바뀝니다.' },
+    { k: '결제와 환불', v: `${REFUND_RULE.legal} Duo는 좌석마다 따로 보며, 한 좌석 환불 시 남은 좌석은 Solo로 바뀝니다.` },
     { k: '해지', v: '보호자 화면에서 언제든 해지. 월드는 30일 읽기 전용 뒤 보관됩니다.' },
     { k: '이용 규칙', v: '다른 사람을 괴롭히거나 개인정보를 올리는 행위는 말풍선 정지·입장 제한 대상이에요.' }
   ],
@@ -436,12 +453,20 @@ export const LEGAL = {
 
 export const PASS = {
   title: '친구가 초대했어요',
-  lead: '친구 월드에 60분 동안 들어가서 같이 놀 수 있어요. 목소리는 저장되지 않아요.',
+  lead: `친구 월드에 ${PASS_MIN}분 동안 들어가서 같이 놀 수 있어요. 목소리는 저장되지 않아요.`,
   codeLabel: '초대 코드',
   go: '친구 월드로 가기',
-  invalid: '코드를 다시 확인해 줘.',
+  invalid: '코드를 다시 확인해 주세요. 초대 코드는 영어와 숫자 8자리예요.',
+  state: {
+    ended: '이 초대 코드는 시간이 다 됐어요. 친구에게 새 코드를 부탁해 봐요.',
+    expired: '이 초대 코드는 받은 지 오래돼서 더는 쓸 수 없어요. 친구에게 새 코드를 부탁해 봐요.',
+    revoked: '친구가 이 초대 코드를 거둬들였어요. 친구에게 물어봐요.',
+    busy: '코드를 너무 여러 번 넣었어요. 조금 뒤에 다시 해 봐요.',
+    error: '연결이 잠깐 끊겼어요. 다시 눌러 봐요.'
+  },
   rules: [
-    '60분 동안 친구 월드의 모든 기능을 쓸 수 있어요.',
+    `처음 들어간 때부터 ${PASS_MIN}분 동안 친구 월드의 모든 기능을 쓸 수 있어요.`,
+    `친구는 한 달에 초대 코드를 ${PASS_PER_MONTH}개까지 받을 수 있어요. 코드 하나는 한 기기에서만 쓸 수 있어요.`,
     '내 물건은 저장되지 않지만, 처음 만든 물건 하나와 첫 영어 한마디는 이 기기에 7일 동안 남아요.',
     '어린이 게스트는 친구의 보호자가 허용한 경우에만 들어갈 수 있어요.'
   ]
@@ -589,16 +614,16 @@ export const FOOTER = {
 } as const;
 
 export const META: Readonly<Record<string, { title: string; description: string }>> = {
-  '/': { title: 'LCW — 말하면 생기는 세계', description: '영어로 말해야 물건이 생기는 3D 블록 월드. 설치·가입 없이 5분 체험.' },
+  '/': { title: 'LCW — 말하면 생기는 세계', description: `영어로 말해야 물건이 생기는 3D 블록 월드. 설치·가입 없이 ${TRY_MIN}분 체험.` },
   '/parents': { title: '학부모님께 — LCW', description: '아이가 대본 없이 영어로 말한 양과 길이를 매주 숫자와 육성으로 확인하세요.' },
   '/play': { title: '플레이어에게 — LCW', description: '네 월드는 네가 만든다. 짓고, 터뜨리고, 하늘섬까지. 필요한 건 영어 한 문장.' },
   '/tutoring': { title: '과외 수업 — LCW', description: '선생님이 아이의 월드에 NPC로 들어가는 120분 영어 회화 수업과 수업 리포트.' },
-  '/pricing': { title: '요금 — LCW', description: 'Solo·Duo·좌석 추가. 모든 좌석은 전 기능, 사용 전 7일 이내 전액 환불.' },
-  '/try': { title: '5분 체험 — LCW', description: '설치도 가입도 없이 카페에서 영어로 음료 한 잔 주문해 보기.' },
+  '/pricing': { title: '요금 — LCW', description: `Solo·Duo·좌석 추가. 모든 좌석은 전 기능, ${REFUND_RULE.short}.` },
+  '/try': { title: `${TRY_MIN}분 체험 — LCW`, description: '설치도 가입도 없이 카페에서 영어로 음료 한 잔 주문해 보기.' },
   '/safety': { title: '안전 설계 — LCW', description: '낯선 사람 대화 없음, 동의 4종 분리, 아이 화면에 가격 없음.' },
   '/terms': { title: '이용약관 — LCW', description: 'LCW 이용약관 요약.' },
   '/privacy': { title: '개인정보 처리방침 — LCW', description: 'LCW 개인정보 처리방침 요약.' },
   '/learn': { title: '상황별 영어 표현 — LCW', description: '카페 주문, 장비 주문, 흥정, 변명. 별 1개부터 3개까지 자라는 영어 문장.' },
   '/worlds': { title: '월드 구경 — LCW', description: '친구가 지은 월드를 돌려 보는 쇼룸.' },
-  '/pass': { title: '친구 초대 — LCW', description: '친구 월드에 60분 동안 함께 들어가기.' }
+  '/pass': { title: '친구 초대 — LCW', description: `친구 월드에 ${PASS_MIN}분 동안 함께 들어가기.` }
 };

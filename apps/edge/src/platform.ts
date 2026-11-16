@@ -16,10 +16,12 @@ import {
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { buildPushAdminApp, deliverPush, enqueueGuardianNotices, enqueueReportNotices, vapidKeys, webPushSender, type PushSender } from './push.js';
 import { buildGuardianViewAdminApp } from './guardian-view.js';
-import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, oauthConfigFrom } from './oauth.js';
+import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, linkIdentity, oauthConfigFrom } from './oauth.js';
+import { buildOperatorLoginApp, ensureOperatorLoginSchema, exchangeOperatorSession, teacherRoleHandler } from './operator-login.js';
 import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandler } from './guardian-oauth.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
+import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp } from './free-play.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp } from './my-world.js';
 import { injectReportShareMeta } from './report-page.js';
@@ -71,6 +73,8 @@ export interface LcwEnv {
   AI?: AiBinding;
   /** Operator (teacher) token — `wrangler secret put LCW_OPERATOR_TOKEN`. Unset → gated routes fail closed. */
   LCW_OPERATOR_TOKEN?: string;
+  /** Secret: teacher/operator Google emails, comma separated (operator-login.ts). Never in the repository. */
+  LCW_OPERATOR_GOOGLE_EMAILS?: string;
   BUILD_SHA?: string;
   /** R2 bucket for children's voice clips (voice.ts). Unbound → uploads answer 503 and nothing is stored. */
   VOICE?: R2BucketLike;
@@ -129,6 +133,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (VOICE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // My world (G07, my-world.ts): checks the child's device or lesson token itself.
   if (MY_WORLD_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Free play (free-play.ts): /try sessions and guest pass entry check their own input and tokens.
+  if (FREE_PLAY_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   return false;
 }
 
@@ -254,6 +260,7 @@ export class PlatformDO {
     this.sql = createDurableSqliteExecutor(state.storage);
     this.db = new EdgePlatformDb(this.sql);
     this.sql.exec(OPS_SCHEMA);
+    ensureOperatorLoginSchema(this.sql);
     ensureQuotaSchema(this.sql);
     const blobs = new SqliteBlobStore(this.sql);
     this.ensureDemo();
@@ -538,7 +545,13 @@ export class PlatformDO {
     };
   }
 
-  async fetch(request: Request): Promise<Response> {
+  async fetch(original: Request): Promise<Response> {
+    // A teacher device's operator session (operator-login.ts) acts as the operator key from here on.
+    const request = await exchangeOperatorSession(
+      { sql: this.sql, nowMs: () => Date.now(), sha256Hex, allowedEmails: this.env.LCW_OPERATOR_GOOGLE_EMAILS },
+      original,
+      this.env.LCW_OPERATOR_TOKEN
+    );
     const day = utcDay(Date.now());
     if (day !== this.appDay) {
       this.appDay = day;
@@ -839,6 +852,8 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     realtime: () => realtime
   };
   app.route('/', buildFamilyApp(familyDeps));
+  const operatorLogin = { ...familyDeps, allowedEmails: env.LCW_OPERATOR_GOOGLE_EMAILS };
+  app.route('/', buildOperatorLoginApp(operatorLogin));
   app.route('/', buildPushAdminApp(familyDeps));
   app.route('/', buildGuardianViewAdminApp(familyDeps));
   const oauthConfig = oauthConfigFrom(env as unknown as Record<string, unknown>);
@@ -850,7 +865,13 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     buildOAuthApp({
       ...familyDeps,
       config: oauthConfig,
-      roles: { guardian: guardianOAuthHandler(guardianOAuth) },
+      roles: {
+        guardian: guardianOAuthHandler(guardianOAuth),
+        // Teacher accounts: Google, verified email on the LCW_OPERATOR_GOOGLE_EMAILS secret → an operator session.
+        teacher: teacherRoleHandler(operatorLogin, (identity, operatorId) => {
+          linkIdentity(platform.sql, { role: 'teacher', identity, subjectId: operatorId }, Date.now());
+        })
+      },
       specs: env.LCW_OAUTH_DEV_PROVIDER ? devProviderSpecs(env.LCW_OAUTH_DEV_PROVIDER) : undefined,
       publicOrigin: env.LCW_PUBLIC_ORIGIN
     })
@@ -858,6 +879,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
+  app.route('/', buildFreePlayApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
   app.route(
     '/',

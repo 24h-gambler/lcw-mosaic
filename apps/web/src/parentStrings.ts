@@ -2,6 +2,8 @@
  * Guardian-screen copy (docs/08 §10: 합쇼체, numbers first, one line of interpretation, no praise without evidence,
  * no comparison with other children, no "덕분에"). The child's name never appears on the public report page.
  */
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
+
 export const PARENT_STRINGS_KO = {
   report: {
     brand: 'LCW 수업 리포트',
@@ -328,7 +330,7 @@ export const PARENT_STRINGS_KO = {
     refundClosed: '환불 기간(결제 다음 날부터 7일)이 지났습니다. 환불이 필요하면 요청을 보내 주세요. 선생님이 직접 확인합니다.',
     refundUsed: (date: string) => `사용 시작됨 · ${date}. 이용을 시작한 이용권은 환불되지 않습니다.`,
     paymentUsed: '사용 시작됨',
-    refundRuleNote: '환불은 사용을 시작하기 전, 결제 다음 날부터 7일 안에만 됩니다. 아이 기기에서 월드를 열거나 과외 수업에 들어가면 사용을 시작한 것입니다. 사기 전에는 5분 체험과 60분 초대권으로 먼저 해 볼 수 있습니다.',
+    refundRuleNote: `환불은 사용을 시작하기 전, 결제 다음 날부터 7일 안에만 됩니다. 아이 기기에서 월드를 열거나 과외 수업에 들어가면 사용을 시작한 것입니다. 사기 전에는 ${FREE_PLAY_LIMITS.tryMinutes}분 체험과 ${FREE_PLAY_LIMITS.guestPassMinutes}분 초대권으로 먼저 해 볼 수 있습니다.`,
     refundAsk: '환불 요청하기',
     refundPending: (date: string) => `${date}에 환불을 요청했습니다. 선생님이 확인한 뒤 결제하신 계좌로 돌려드립니다.`,
     refundReview: (date: string) => `${date}에 환불을 요청했습니다. 규칙 밖의 요청이라 선생님이 직접 확인하고 연락드립니다.`,

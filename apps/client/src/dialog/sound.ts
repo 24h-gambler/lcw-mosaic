@@ -172,7 +172,7 @@ function speakDevice(text: string, level: LangLevel): Promise<void> {
     // The NPC voice ducks music/ambience/effects (docs/12 3장 "NPC가 말하는 중") until it ends.
     const rt = getAudioRuntime();
     const gen = ++speechGen;
-    // Player settings (G14): voice speed (slower for young children) and natural (neural) voice on/off.
+    // Player settings (G14): voice speed (slower for young children) and natural voice preference.
     const pref = frameSettings();
     const estMs = (400 + text.length * 90) / pref.voiceRate;
     rt.npcVoiceStarted(estMs);

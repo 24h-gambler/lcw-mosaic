@@ -1,6 +1,7 @@
 import { normalizeTtsText, ttsVoiceId, type NpcVoice } from '@lcw/content';
 import { BUS_LUFS_TARGETS } from '@lcw/audio';
 import { readStudentToken } from './submit.js';
+import { frameSettings } from '../frame/settings.js';
 
 /**
  * The neural NPC voice on the client (edge tts.ts, docs/04 4.8): asks `/v1/tts/status` once; while the server says
@@ -51,7 +52,8 @@ export function neuralVoiceStatus(base = '', fetchImpl: typeof fetch = (i, init)
 
 /** Sync view: true only once the server said on (the first line of a session may still be the device voice). */
 export function neuralVoiceOn(): boolean {
-  return statusKnown === true;
+  // the player's "자연스러운 목소리" switch (G14 설정) turns it off too (no line is fetched or prefetched then)
+  return statusKnown === true && frameSettings().neuralVoice;
 }
 
 /** Test seam. */

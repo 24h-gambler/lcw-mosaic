@@ -124,7 +124,8 @@ export interface FrameSettings {
   micMode: MicMode;
   /** 0..1 of the docs/12 default level (1 = the bus default, 0 = silent) */
   volume: Record<VolumeGroup, number>;
-  /** NPC voice: speed multiplier and "prefer natural (online) voices" */
+  /** NPC voice: speed multiplier and the natural voice (server neural voice in dialog/neural-voice.ts; the device
+   *  fallback then prefers the browser's natural voices) */
   voiceRate: number;
   neuralVoice: boolean;
   textScale: number;

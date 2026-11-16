@@ -209,6 +209,7 @@ describe('NPC voice', () => {
     expect(pickEnglishVoice(voices, false)?.name).toBe('Microsoft David');
     expect(pickEnglishVoice([voices[3]!], true)).toBeUndefined();
     expect(pickEnglishVoice([voices[2]!], false)?.name).toContain('Google'); // only one English voice: still speaks
+    expect(DEFAULT_SETTINGS.neuralVoice).toBe(true);
   });
 });
 
@@ -284,5 +285,18 @@ describe('graphics contract (WorldHandle.setGraphics, performance lane)', () => 
     expect(Object.keys(flat).length).toBeLessThanOrEqual(40);
     expect(fromServerSettings(flat, null)).toEqual(s);
     expect(fromServerSettings(toServerSettings(DEFAULT_SETTINGS as never), null).viewChunks).toBeNull();
+  });
+});
+
+describe('natural voice switch reaches the server neural voice (dialog/neural-voice.ts)', () => {
+  it('off in settings: neuralVoiceOn() is false even when the server says on', async () => {
+    const nv = await import('../dialog/neural-voice.js');
+    nv.resetNeuralVoice();
+    await nv.neuralVoiceStatus('', (async () => new Response(JSON.stringify({ enabled: true }), { status: 200 })) as typeof fetch);
+    updateFrameSettings({ neuralVoice: true }, { store: null, audio: null, doc: null });
+    expect(nv.neuralVoiceOn()).toBe(true);
+    updateFrameSettings({ neuralVoice: false }, { store: null, audio: null, doc: null });
+    expect(nv.neuralVoiceOn()).toBe(false);
+    nv.resetNeuralVoice();
   });
 });

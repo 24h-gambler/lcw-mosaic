@@ -45,7 +45,7 @@ const toasts = () => page.$$eval('[data-play="toast"]', (ts) => ts.map((t) => t.
 
 await page.goto(`${base}/world/`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 120000 });
-await page.waitForFunction(() => !document.body.innerText.includes('마을을 짓는 중'), null, { timeout: 120000 }).catch(() => {});
+await page.waitForFunction(() => !/마을을 짓는 중|Building your town/.test(document.body.innerText), null, { timeout: 120000 }).catch(() => {});
 // the title screen (start/StartFlow): a new child makes a world (name + picks) and goes in; a returning one continues.
 // The play card must not show over the title.
 for (let i = 0; i < 8; i++) {

@@ -60,7 +60,10 @@ describe('items, repair, collection, settings (docs/09 P4, docs/19)', () => {
     const p = platform();
     const a = await child(p, 'kid-a', 'fam-a');
     const b = await child(p, 'kid-b', 'fam-b');
-    for (let i = 0; i < 7; i++) await buy(p, a.dev, i);
+    const landed: string[] = [];
+    for (let i = 0; i < 7; i++) landed.push((await buy(p, a.dev, i)).granted.location);
+    // the score reply says where the thing went, so the dialog can say "집 상자에 넣었어요"
+    expect(landed).toEqual(['bag', 'bag', 'bag', 'bag', 'bag', 'chest', 'chest']);
     const list = await call(p, 'GET', '/v1/items', undefined, a.dev);
     expect(list.status).toBe(200);
     expect(list.body.bag_slots).toBe(5);

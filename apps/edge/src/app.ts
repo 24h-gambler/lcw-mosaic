@@ -304,6 +304,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     // Sentences with price 0 (barter, asking the way) sell nothing: the swap is the /trades settlement.
     let coinsDelta = 0;
     let grantedItem: string | null = null;
+    let grantedLocation: 'bag' | 'chest' | undefined;
     let askedKey: string | undefined;
     let shortOfCoins = false;
     let readAloudPct = 0;
@@ -356,11 +357,13 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         if (grantedItem) {
           // A new thing lands in the bag while it has a free slot, else in the home chest (docs/03 D13); saying the
           // same purchase again keeps it where the child put it.
+          const place = landingPlace(worldDo, req.player_id, `buy-${ref}`);
+          grantedLocation = place === 'chest' ? 'chest' : 'bag';
           worldDo.grantOrSetItem(
             req.player_id,
             `buy-${ref}`,
             JSON.stringify({ kind: 'converse_purchase', item: itemKey, ctx: req.npc_ctx, stars: decision.stars }),
-            landingPlace(worldDo, req.player_id, `buy-${ref}`)
+            place
           );
         }
       }
@@ -451,7 +454,8 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         ? {
             item_id: grantedItem,
             slot_or_socket: decision.bank?.entry.socket ?? 'slot_0',
-            coins_delta: coinsDelta
+            coins_delta: coinsDelta,
+            location: grantedLocation
           }
         : null,
       stars: decision.stars,

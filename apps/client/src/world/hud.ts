@@ -151,7 +151,7 @@ function css(): string {
 /* the lesson tag wraps under the status box on a phone (the chip leaves room for the stars): the goal card starts below it */
 /* phones: the goal card starts under the status chip's real height (gauges, a wrapped lesson tag, the Korean help line) */
 
-@media (max-width:600px){.lw-hud .lw-goal{top:calc(var(--lw-chip-b,74px) + 10px)}}
+@media (max-width:600px){.lw-hud .lw-goal{top:calc(var(--lw-chip-b,74px) + 10px)}.lw-hud:has(.lw-touch.on) .lw-cap{left:12px;transform:none;max-width:calc(100% - 12px - var(--lw-jump,140px))}}
 /* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
 @media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}}
 /* short landscape: the goal card sits between the status chip and the stars, with a smaller line so it stays short */
@@ -280,6 +280,7 @@ export class WorldHud {
   };
   private touchOn = false;
   private measureSides: (() => void) | null = null;
+  private jumpBtn: HTMLElement | null = null;
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -346,6 +347,9 @@ export class WorldHud {
         const talk = this.touchOn ? 96 + Math.max(this.talkBtn?.offsetWidth ?? 0, S.micButtonPx * 1.6) : 0;
         const side = Math.max(chip.offsetLeft + chip.offsetWidth, this.root.clientWidth - stars.offsetLeft, talk);
         if (stars.offsetWidth > 0) this.root.style.setProperty('--lw-side', `${Math.ceil(side + 8)}px`);
+        // on a phone the hotbar line (two lines with the Korean help, or wrapped) reaches the jump button's height: it
+        // sits left and keeps the jump column free (right 24px + its measured width)
+        if (this.jumpBtn && this.jumpBtn.offsetWidth > 0) this.root.style.setProperty('--lw-jump', `${Math.ceil(24 + this.jumpBtn.offsetWidth + 8)}px`);
       };
       this.measureSides = measure;
       this.chipObs = new ResizeObserver(measure);
@@ -402,6 +406,8 @@ export class WorldHud {
     this.stick = el('div', 'lw-stick', this.touch);
     this.stickKnob = el('i', '', this.stick);
     const jump = el('div', 'lw-btn', this.touch);
+    this.jumpBtn = jump;
+    this.chipObs?.observe(jump);
     jump.textContent = W.jump;
     jump.style.right = '24px';
     jump.style.bottom = '96px';

@@ -144,7 +144,10 @@ for (const vp of VIEWPORTS) {
   for (let n = 0; n < 3 && !a?.cap; n++) {
     a = await page.evaluate(async (tap) => {
       const c = document.querySelector('.lw-cap');
-      const shown = () => !!c && c.classList.contains('on') && Number(getComputedStyle(c).opacity) > 0.9;
+      // shown and settled: the help line fades out (600 ms) under a two-line caption, so wait for both fades to end
+      const help = document.querySelector('.lw-help');
+      const settled = (e) => !e || e.getAnimations().length === 0;
+      const shown = () => !!c && c.classList.contains('on') && Number(getComputedStyle(c).opacity) > 0.9 && settled(c) && settled(help);
       const until = async (ms) => {
         const t0 = performance.now();
         while (!shown() && performance.now() - t0 < ms) await new Promise((res) => setTimeout(res, 30));
@@ -185,6 +188,7 @@ for (const vp of VIEWPORTS) {
   check(vp.name, !overlap(a.cap, a.bar), 'caption covers the hotbar');
   check(vp.name, !overlap(a.clock, a.stars), 'clock chip runs into the star/coin chip');
   for (const b of a.buttons) check(vp.name, !overlap(b, a.stars) && !overlap(b, a.clock), `touch button "${b.text}" covers a status chip`);
+  for (const b of a.buttons) check(vp.name, !overlap(b, a.cap), `touch button "${b.text}" covers the hotbar line`);
 
   // 2. things in the bag: icons, caption names the selected slot
   await page.evaluate(() => {

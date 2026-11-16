@@ -107,7 +107,7 @@ describe('browser recognition keeps the turn open (Android cut)', () => {
     expect(FakeRec.made).toHaveLength(3);
     last().cut('not-allowed');
     gap();
-    expect(cb.onError).toHaveBeenCalledWith('denied');
+    expect(cb.onError).toHaveBeenCalledWith('denied', 'not-allowed');
     expect(FakeRec.made).toHaveLength(3);
   });
 

@@ -1,3 +1,4 @@
+import { MIC_STATUS_KEY as LIVE_MIC_STATUS_KEY } from './mic-status.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { UI_STRINGS_KO } from '@lcw/content';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
@@ -191,7 +192,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
 /** How the "Hello!" check ended: heard words, too quiet, no usable microphone (blocked / unsupported), or not tried. */
 export type MicCheckStatus = 'ok' | 'quiet' | 'none' | 'skipped';
 /** sessionStorage key the lesson client reads to tell the teacher console the student's mic (docs/19 4장). */
-export const MIC_STATUS_KEY = 'lcw.micStatus';
+export const MIC_STATUS_KEY = LIVE_MIC_STATUS_KEY;
 const LESSON_CHECK_KEY = 'lcw.lessonMicChecked';
 
 function sessionGet(k: string): string | null {

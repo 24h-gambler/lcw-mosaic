@@ -12,7 +12,8 @@ import {
   type VoiceBlobStore
 } from './voice.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
-import { buildPushAdminApp, deliverPush, enqueueGuardianNotices, vapidKeys, webPushSender, type PushSender } from './push.js';
+import { buildPushAdminApp, deliverPush, enqueueGuardianNotices, enqueueReportNotices, vapidKeys, webPushSender, type PushSender } from './push.js';
+import { buildGuardianViewAdminApp } from './guardian-view.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
@@ -188,6 +189,15 @@ const AdminPlayerSchema = z
     level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).optional()
   })
   .strict();
+/** Teacher's fix of a registered student: nickname, level, birth year (null = unknown). Only the fields sent change. */
+const AdminPlayerPatchSchema = z
+  .object({
+    nickname: z.string().min(1).max(32).optional(),
+    birth_year: z.number().int().min(2005).max(2025).nullable().optional(),
+    level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).optional()
+  })
+  .strict()
+  .refine((o) => Object.keys(o).length > 0, { message: 'nothing_to_change' });
 const AdminWorldSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9-]{3,40}$/),
@@ -396,7 +406,16 @@ export class PlatformDO {
     return webPushSender(await vapidKeys(this.sql), (i, init) => fetch(i, init), () => Date.now());
   }
 
-  /** Hourly guardian push notices (push.ts): queue fresh seat/refund notices, send them if sending is on. */
+  /** Right after a lesson report is made: queue its notice and send it if sending is on (otherwise it is held). */
+  async pushReportNotices(now: number): Promise<unknown> {
+    const queued = enqueueReportNotices(this.sql, (n) => crypto.getRandomValues(new Uint8Array(n)), now);
+    if (!queued) return { queued };
+    const r = await deliverPush(this.sql, await this.pushSender(), now, 10);
+    this.recordRun('report_push', r.failed === 0, { queued, ...r });
+    return { queued, ...r };
+  }
+
+  /** Hourly guardian push notices (push.ts): queue fresh seat/refund/report notices, send them if sending is on. */
   async runPushCron(cron: string, now: number): Promise<unknown> {
     if (cron !== '0 * * * *') return null;
     try {
@@ -706,6 +725,15 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     });
     return c.json({ ok: true }, 201);
   });
+  app.patch('/v1/admin/players/:id', async (c) => {
+    const p = AdminPlayerPatchSchema.safeParse(await c.req.json().catch(() => null));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const id = c.req.param('id');
+    if (!platform.sql.get('select id from players where id = ?', [id])) return c.json({ error: 'player_not_found' }, 404);
+    const cols = Object.entries(p.data).filter(([, v]) => v !== undefined);
+    platform.sql.run(`update players set ${cols.map(([k]) => `${k} = ?`).join(', ')} where id = ?`, [...cols.map(([, v]) => v), id]);
+    return c.json(platform.sql.get('select id, nickname, level, birth_year from players where id = ?', [id]));
+  });
   app.post('/v1/admin/worlds', async (c) => {
     const p = AdminWorldSchema.safeParse(await c.req.json());
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
@@ -751,6 +779,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   };
   app.route('/', buildFamilyApp(familyDeps));
   app.route('/', buildPushAdminApp(familyDeps));
+  app.route('/', buildGuardianViewAdminApp(familyDeps));
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
@@ -774,16 +803,19 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
         credit: (playerId, delta, ref, nowMs) => platform.creditCoins(playerId, delta, 'lesson_stars', ref, nowMs),
         balance: (playerId) => platform.coinBalance(playerId)
       },
-      completeLesson: (lessonId, body) =>
-        Promise.resolve(
-          inner.fetch(
-            new Request(`https://lcw.internal/v1/lessons/${encodeURIComponent(lessonId)}/complete-and-send-report`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(body)
-            })
-          )
-        )
+      completeLesson: async (lessonId, body) => {
+        const res = await inner.fetch(
+          new Request(`https://lcw.internal/v1/lessons/${encodeURIComponent(lessonId)}/complete-and-send-report`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body)
+          })
+        );
+        // docs/09 P5 "공유 링크 → 푸시": the report notice is queued at once (held while sending is off) instead of
+        // waiting for the hourly push cron. A push failure never fails the lesson's end.
+        if (res.ok) await platform.pushReportNotices(Date.now()).catch(() => undefined);
+        return res;
+      }
     })
   );
   app.route('/', inner);

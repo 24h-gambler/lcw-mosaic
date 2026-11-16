@@ -17,7 +17,17 @@ export interface DialogOffer {
   stars: 1 | 2 | 3;
   text: string;
   hintTags: string[];
+  /**
+   * The bank's list price in coins for this sentence (better sentence, lower price: "말이 곧 화폐", docs/04 4.2).
+   * Shown only; the server decides what is charged (stars actually granted, weekly index, discounts). Absent or 0:
+   * the sentence sells nothing (asking the way, barter, errands, lessons).
+   */
+  price?: number;
 }
+
+/** What the world can draw for the dialog window (world api renderPreview; transparent PNG data URL or null). */
+export type PreviewRequest = { kind: 'item'; itemKey: string; modifier?: string } | { kind: 'npc'; npcId: string };
+export type RenderPreview = (req: PreviewRequest, sizePx: number) => Promise<string | null>;
 
 export interface DialogResult {
   pass: boolean;
@@ -89,4 +99,6 @@ export interface DialogPanelProps {
   speech?: import('./speech.js').SpeechEngine;
   /** The guardian turned voice_store on (device /v1/device/me or lesson /v1/join): record spoken turns for replay. */
   recordClip?: boolean;
+  /** The world's 3D thumbnails (item the sentence buys, the NPC's face); without it the window shows pictures. */
+  renderPreview?: RenderPreview;
 }

@@ -30,10 +30,18 @@ export const DIALOG_CSS = `
 .lcw-dlg__name{font-size:${px(t.small.sizePx)};font-weight:700;color:var(--c-ink-700)}
 .lcw-dlg__bubble{position:relative;background:var(--c-paper-0);border:2px solid var(--c-ink-900);border-radius:${SHAPE_TOKENS.radiusCardPx}px;
   padding:10px 12px;font-family:${TYPOGRAPHY_TOKENS.fonts.target};font-size:${px(t['body-l'].sizePx)};line-height:1.35}
-.lcw-dlg__preview{flex:1;min-height:${px(96)};display:flex;align-items:center;justify-content:center;gap:8px;border-radius:${SHAPE_TOKENS.radiusCardPx}px;
+.lcw-dlg__preview{flex:1;min-height:${px(96)};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px;text-align:center;border-radius:${SHAPE_TOKENS.radiusCardPx}px;
   background:linear-gradient(160deg,var(--c-paper-100),var(--c-paper-0));border:2px dashed var(--c-line-200);font-size:${px(52)}}
-.lcw-dlg__preview span{animation:lcwBob 2.4s ease-in-out infinite}
-.lcw-dlg__preview span:nth-child(2){animation-delay:.3s}
+.lcw-dlg__pics{display:flex;align-items:center;justify-content:center;gap:8px;line-height:1}
+.lcw-dlg__pics span,.lcw-dlg__item3d{animation:lcwBob 2.4s ease-in-out infinite}
+.lcw-dlg__pics span:nth-child(2){animation-delay:.3s}
+.lcw-dlg__item3d{width:${px(120)};height:${px(120)};object-fit:contain}
+.lcw-dlg__pv{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;font-size:${px(t.body.sizePx)}}
+.lcw-dlg__coin{font-weight:800;background:var(--c-sun);border:2px solid var(--c-ink-900);border-radius:999px;padding:1px 10px;white-space:nowrap}
+.lcw-dlg__cheaper{font-size:${px(t.small.sizePx)};font-weight:700;color:var(--c-leaf-d)}
+.lcw-dlg__cheaper.best{color:var(--c-ink-700)}
+.lcw-offer__price{display:block;margin-top:3px;font-size:${px(t.micro.sizePx)};font-weight:800;letter-spacing:0;color:var(--c-ink-700)}
+.lcw-dlg__avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover}
 @keyframes lcwBob{50%{transform:translateY(-6px) rotate(-4deg)}}
 .lcw-dlg__tags{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .lcw-dlg__tagl{font-size:${px(t.small.sizePx)};color:var(--c-ink-500);margin-right:2px}
@@ -126,6 +134,45 @@ export const DIALOG_CSS = `
   .lcw-offer__text{font-size:${px(t['body-l'].sizePx)}}
   .lcw-dlg__x{min-width:40px;min-height:40px}
 }
+/* Phones: the world shows the NPC around the panel (setViewInset), so no dim layer over it. */
+@media (max-width:760px),(orientation:landscape) and (max-height:520px){.lcw-dlg{background:transparent}}
+/* Landscape phone (844x390, outsider capture 11-16): a bottom sheet covered the whole screen. The window becomes a
+   side panel on the right, full height; the NPC stands in the strip on the left (App.tsx sends its width as rightPx). */
+@media (orientation:landscape) and (max-height:520px){
+  .lcw-dlg{padding:0;align-items:stretch;justify-content:flex-end}
+  .lcw-dlg__win{width:min(60vw,600px);height:100%;max-height:100%;grid-template-columns:1fr;align-content:start;
+    border-radius:${SHAPE_TOKENS.radiusCardPx * 2}px 0 0 ${SHAPE_TOKENS.radiusCardPx * 2}px;border-right:0;padding:8px max(10px,env(safe-area-inset-right)) 8px 10px;gap:6px;animation-name:lcwSide}
+  .lcw-dlg__side{gap:6px}
+  .lcw-dlg__preview{display:none}
+  .lcw-dlg__avatar{width:34px;height:34px;font-size:19px}
+  .lcw-dlg__npc{gap:8px}
+  .lcw-dlg__bubble{font-size:${px(t.body.sizePx)};padding:4px 9px;line-height:1.3}
+  .lcw-dlg__tagl{display:none}
+  .lcw-dlg__main{gap:6px}
+  .lcw-offer{gap:6px;padding:3px 6px 3px 8px;min-height:44px}
+  .lcw-offer__stars{min-width:26px;font-size:${px(13)}}
+  .lcw-offer__text{font-size:${px(t.body.sizePx + 1)};line-height:1.25}
+  .lcw-dlg__x{min-width:40px;min-height:40px}
+  .lcw-dlg__bar{gap:8px;padding-top:0}
+  .lcw-mic{width:52px;height:52px;font-size:22px}
+  .lcw-alt{min-height:40px;padding:0 10px}
+  .lcw-res{gap:6px;padding:0}
+  .lcw-res__stars{font-size:${px(32)}}
+  .lcw-listen{min-width:40px;min-height:40px}
+  /* the mic stays on screen however long the sentences get (the window scrolls under it) */
+  .lcw-dlg__bar{position:sticky;bottom:-8px;background:var(--c-paper-50);padding:4px 0 8px;margin-bottom:-8px}
+}
+@media (orientation:landscape) and (max-height:400px){
+  .lcw-dlg__win{gap:4px;padding-top:6px}
+  .lcw-dlg__main{gap:4px}
+  .lcw-dlg__title{font-size:${px(t.small.sizePx)}}
+  .lcw-dlg__x{min-width:36px;min-height:36px}
+  .lcw-offer{min-height:40px;padding:2px 6px 2px 8px}
+  .lcw-listen{min-width:36px;min-height:36px;font-size:17px}
+  .lcw-mic{width:46px;height:46px;font-size:20px}
+  .lcw-alt{min-height:36px}
+}
+@keyframes lcwSide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
 @media (pointer:coarse){.lcw-mic-label small.kbd{display:none}}
 @media (prefers-reduced-motion:reduce){.lcw-dlg *{animation:none!important;transition:none!important}}
 `;

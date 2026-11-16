@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { VoxelWorld } from '@lcw/sim-core';
-import { BLOCK_PALETTE } from '@lcw/content';
+import { BLOCK_PALETTE, LANG_PACK_MANIFEST, npcCast, npcPersona } from '@lcw/content';
 import { NpcContextSchema } from '@lcw/schemas';
 import { SCENE_IDS, type WorldHandle } from '../api.js';
 import { BK, BLOCK_LOOKS, TILE_LAYER, TILE_NAMES, blockLook, collideHeight, isOpaqueCube } from '../blocks.js';
 import { TILE_PX, buildAtlasPixels } from '../atlas.js';
 import { AO_CURVE, PAD, meshChunk, padIndex } from '../mesher.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type BlockAt } from '../physics.js';
-import { NPCS, SCENES, WANDERERS, buildTown, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
+import { NPCS, SCENES, castNpcs, WANDERERS, buildTown, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
 import { PAGE_KEYS_ON_BUTTONS, TALK_RANGE, keyIsPressable, keyIsTyping } from '../engine.js';
 import { extractPadded } from '../chunks.js';
 import { skyAt } from '../sky.js';
@@ -231,7 +231,7 @@ describe('town build (all through setBlock)', () => {
       const face = Math.atan2(s.npc.spot.x - s.player.x, s.npc.spot.z - s.player.z);
       expect(Math.abs(Math.atan2(Math.sin(face - s.player.yaw), Math.cos(face - s.player.yaw))), id).toBeLessThan(Math.PI / 3);
     }
-    // the errand: walkToNpc stands in front of 미나, and she is the one E reaches
+    // the errand: walkToNpc stands in front of 미아 (the neighbour), and she is the one E reaches
     const mina = NPCS.find((n) => n.id === 'errand_neighbor')!;
     const ms = mina.spot!;
     const spot = talkSpotFor(world, { ...ms, y: standHeight(world, ms.x, ms.z, Math.ceil(ms.y) + 1) })!;
@@ -262,7 +262,7 @@ describe('town build (all through setBlock)', () => {
         prevY = yy;
       }
     }
-    // 미나: in front of her (facing the road, +z), not behind the cafe wall
+    // 미아 (the neighbour): in front of her (facing the road, +z), not behind the cafe wall
     const mina = NPCS.find((n) => n.id === 'errand_neighbor')!.spot!;
     const spot = talkSpotFor(world, { ...mina, y: standHeight(world, mina.x, mina.z, 2) })!;
     expect(spot.z).toBeGreaterThan(mina.z);
@@ -284,7 +284,7 @@ describe('town build (all through setBlock)', () => {
       }
   });
 
-  it('already in the scene, walks only the rest of its own path: 미나 to the cafe counter, not out to the plaza (talk lane 11-16)', () => {
+  it('already in the scene, walks only the rest of its own path: the neighbour to the cafe counter, not out to the plaza (talk lane 11-16)', () => {
     const ms = NPCS.find((n) => n.id === 'errand_neighbor')!.spot!;
     const start = talkSpotFor(world, { ...ms, y: standHeight(world, ms.x, ms.z, Math.ceil(ms.y) + 1) })!;
     const route = sceneRoute('honey_cafe', 'honey_cafe', start.x, start.z);
@@ -416,5 +416,28 @@ describe('player-facing strings', () => {
     expect(objectParticle('헬멧')).toBe('을');
     expect(WORLD_STRINGS.itemGot('따뜻한 꿀차')).toBe('따뜻한 꿀차를 받았어요');
     expect(objectParticle('ABC')).toBe('을(를)');
+  });
+});
+
+describe('NPC names follow the cast pack (talk lane npc-cast, Dan 11-16)', () => {
+  it('every world NPC the pack knows wears the pack name on its plate and dialog header', () => {
+    const lang = LANG_PACK_MANIFEST.target_lang;
+    let named = 0;
+    for (const n of NPCS) {
+      const p = npcPersona(n.id, lang);
+      if (!p) continue;
+      named++;
+      expect(n.nameKo).toBe(p.nameKo);
+      expect(n.nameEn).toBe(p.nameEn);
+    }
+    expect(named).toBe(Object.keys(npcCast(lang).npcs).length);
+    expect(NPCS.find((n) => n.id === 'cafe_owner')?.nameKo).toBe('카페 주인 해나');
+    expect(NPCS.find((n) => n.id === 'errand_neighbor')?.nameEn).toBe('Mia');
+  });
+
+  it('an NPC the pack does not know keeps its own label; a language without a pack falls back to English', () => {
+    const pack = castNpcs('zz');
+    expect(pack.find((n) => n.id === 'guide')?.nameEn).toBe('Luna');
+    for (const n of castNpcs('en')) expect(n.nameKo.length).toBeGreaterThan(0);
   });
 });

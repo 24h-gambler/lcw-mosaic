@@ -28,8 +28,11 @@ describe('room tickets (room.ts, docs/02 §11)', () => {
   it('is a public route that checks its own tokens: nobody without a token gets a seat', async () => {
     expect(isPublicRoute('POST', '/v1/room/ticket')).toBe(true);
     const p = platform();
-    expect((await call(p, 'POST', '/v1/room/ticket', {}, anon)).status).toBe(401);
-    expect((await call(p, 'POST', '/v1/room/ticket', {}, { ...anon, authorization: `Bearer ${'x'.repeat(40)}` })).status).toBe(401);
+    for (const h of [anon, { ...anon, authorization: `Bearer ${'x'.repeat(40)}` }]) {
+      const r = await call(p, 'POST', '/v1/room/ticket', {}, h);
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ room: null, reason: 'no_room' });
+    }
   });
 
   it('a lesson student sits in their lesson room under their nickname; the body cannot move them', async () => {
@@ -50,7 +53,7 @@ describe('room tickets (room.ts, docs/02 §11)', () => {
 
   it('the operator names a room; smoke- rooms seat load bots under their own keys', async () => {
     const p = platform();
-    expect((await call(p, 'POST', '/v1/room/ticket', { room: 'anything' })).status).toBe(401);
+    expect((await call(p, 'POST', '/v1/room/ticket', { room: 'anything' })).body).toMatchObject({ room: null });
     const a = await call(p, 'POST', '/v1/room/ticket', { room: 'smoke-cap', name: 'bot-1', key: 'b1' });
     expect(await (await redeem(p, a.body.ticket)).json()).toEqual({ room: 'smoke-cap', key: 'op:b1', name: 'bot-1', role: 'bot' });
     const b = await call(p, 'POST', '/v1/room/ticket', { room: 'lesson-abc' });

@@ -32,6 +32,8 @@ export interface WorldStats {
   chunksVisible: number;
   scene: SceneId;
   player: { x: number; y: number; z: number };
+  /** While a dialog pauses the world: the NPC and where its face lands on screen (CSS px). */
+  dialogShot?: { npc: string; face: [number, number] } | null;
   /** current dynamic-resolution scale (1 = tier scale x devicePixelRatio) */
   renderScale?: number;
   /** tier the world runs at */
@@ -92,6 +94,13 @@ export interface WorldHandle {
   walkToNpc?(npcId: string): Promise<void>;
   /** Coin balance from the server ledger (dialog `coinsTotal`, lesson sync); null hides it. */
   setCoins?(total: number | null): void;
+  /** Server reachable? false shows the HUD band "혼자 모드로 계속 중" (docs/08 G01); the world keeps running. */
+  setOnline?(on: boolean): void;
+  /**
+   * Map read-out for the map screen (docs/08 G06): sectors (one town sector until world generation lands, then the
+   * 3 x 3 sectors), the walkable places, and where the player stands. World coordinates in metres.
+   */
+  getMap?(): WorldMapInfo;
   /**
    * Star chip from an outside count (a lesson's stars, server-summed): the chip shows this number and celebrate()
    * no longer adds to it, so a star is never counted twice. null hands the chip back to celebrate().
@@ -103,7 +112,13 @@ export interface WorldHandle {
    * Pixels at the bottom of the canvas covered by a panel (the dialog window, ~70% of a phone screen). While a
    * dialog frames the NPC the shot is centred in the strip above it; 0 = nothing covers the world.
    */
-  setViewInset?(bottomPx: number): void;
+  setViewInset?(bottomPx: number, rightPx?: number): void;
+  /**
+   * Talk lane G02: a transparent square PNG (data URL) of a thing the sentence gets (the mesh `giveItem` puts in hand)
+   * or of an NPC's head and shoulders, drawn with the world's own meshes and cached per (req, size); null when the
+   * key is unknown or drawing fails (the dialog keeps its emoji).
+   */
+  renderPreview?(req: { kind: 'item'; itemKey: string; modifier?: string } | { kind: 'npc'; npcId: string }, sizePx: number): Promise<string | null>;
   /**
    * Who may build on my plot and where it is saved (docs/03 D13, WP-207). Default `local`: a guest builds on this
    * device only. `saved`: the linked child's device token; the server re-judges and keeps every edit. `paused`: the
@@ -118,6 +133,23 @@ export interface WorldHandle {
   onRoomCheck?(cb: (r: RoomCheckInfo) => void): () => void;
   /** Performance and position read-out (headless checks, tier auto-detect). */
   getStats?(): WorldStats;
+}
+
+export interface WorldMapInfo {
+  /** side of the square world in metres */
+  size_m: number;
+  sectors: Array<{
+    id: string;
+    nameKo: string;
+    /** zone kind for the legend (docs/08 2.3 구역): town, biome, ruin, plot, or a later kind */
+    kind: 'town' | 'biome' | 'ruin' | 'plot' | (string & {});
+    /** not yet visited: the map draws a silhouette (docs/08 G06) */
+    explored: boolean;
+    /** [x0, z0, x1, z1] */
+    rect: [number, number, number, number];
+  }>;
+  scenes: Array<{ id: SceneId; nameKo: string; x: number; z: number }>;
+  player: { x: number; z: number; yaw: number };
 }
 
 export type BuildAccess =

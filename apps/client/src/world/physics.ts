@@ -13,8 +13,8 @@ export const PLAYER_H = TUNING.character.collisionBoxMeters[1];
 export const GRAVITY = 26;
 export const JUMP_SPEED = 8.2;
 export const STEP_UP_MAX = 1.05;
-/** Without auto jump: stairs, slabs and paths only (collide heights up to half a block). */
-export const STEP_UP_SMALL = 0.55;
+/** Without auto jump: stairs, slabs and paths only (a slab on a path is 0.6 up; a whole block never). */
+export const STEP_UP_SMALL = 0.65;
 
 export interface Body {
   x: number;
@@ -183,8 +183,7 @@ export function stepBody(
 }
 
 function tryStep(blockAt: BlockAt, body: Body, nx: number, nz: number, stepMax: number): boolean {
-  for (const up of [0.5, 1.0, STEP_UP_MAX]) {
-    if (up > stepMax + 1e-6) break;
+  for (const up of stepMax >= STEP_UP_MAX ? [0.5, 1.0, STEP_UP_MAX] : [Math.min(0.5, stepMax), stepMax]) {
     if (boxHits(blockAt, body.x, body.y + up, body.z)) return false;
     if (!boxHits(blockAt, nx, body.y + up, nz)) {
       const floor = floorUnder(blockAt, nx, body.y + up, nz);

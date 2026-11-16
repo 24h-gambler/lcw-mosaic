@@ -250,9 +250,14 @@ async function tryKey(id) {
   await face(id);
   counts.keyTry++;
   const s = await stats();
+  let button = null;
   if (touch) {
     const b = await page.$('.lw-btn.talk.on');
-    if (b) await b.tap().catch(() => {});
+    if (b) {
+      const box = await b.boundingBox().catch(() => null);
+      button = box ? await page.evaluate(([x, y]) => (document.elementFromPoint(x, y)?.className ?? '').toString().slice(0, 40), [box.x + box.width / 2, box.y + box.height / 2]) : 'no box';
+      await b.tap().catch(() => {});
+    } else button = 'hidden';
   } else await page.keyboard.press('KeyE');
   await page.waitForSelector('.lcw-dlg', { timeout: 1500 }).catch(() => {});
   const ok = (await dlgOpen()) && (await rightNpc(id));
@@ -261,7 +266,7 @@ async function tryKey(id) {
     counts.wrongNpc++;
     await closeDlg();
   }
-  return { ok, near: s?.interact?.near ?? null, prompt: s?.interact?.prompt ?? null };
+  return { ok, near: s?.interact?.near ?? null, prompt: s?.interact?.prompt ?? null, ...(touch ? { button } : {}) };
 }
 
 async function answer(stars) {
@@ -437,8 +442,10 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
       lesson.reopenByClick = counts.clickOk > c0;
       await shot('81-lesson-click');
       if (await fold()) {
+        await approach(lesson.npc, 2.4);
         const k = await tryKey(lesson.npc);
         lesson.reopenByKey = k.ok;
+        lesson.key = k;
       }
     }
     await call('POST', `/v1/admin/lessons/${lesson.id}/end`, {}, process.env.LCW_OPERATOR_TOKEN);

@@ -1593,7 +1593,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     // R2625 ⑤: the talk prompt stays for the NPC to talk to next and for NPCs not met yet in this visit; one already
     // talked to keeps quiet (E and a tap still open the talk), so the same button does not pop up at every corner.
     promptOn = false;
-    if (nearNpc && !paused && autopilot.length === 0 && !hud.hasBubble(nearNpc.def.id, nowMs) && (nearNpc.def.id === goalNpcId || !talkedTo.has(nearNpc.def.id))) {
+    // (the floating "E" tag gives way to a speech bubble over the head; the touch talk button sits in the corner and stays)
+    if (nearNpc && !paused && autopilot.length === 0 && (touch || !hud.hasBubble(nearNpc.def.id, nowMs)) && (nearNpc.def.id === goalNpcId || !talkedTo.has(nearNpc.def.id))) {
       const p = project(nearNpc.pos.x, nearNpc.pos.y + CHAR_HEIGHT + 0.35, nearNpc.pos.z);
       promptOn = p.vis;
       hud.showPrompt(p.vis, p.sx, p.sy, touch);

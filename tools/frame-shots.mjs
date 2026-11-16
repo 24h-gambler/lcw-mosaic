@@ -10,7 +10,7 @@
 // (G14: HUD text follows the text size, help lines name the remapped keys).
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { COPY, COPY_KO, FRAME_LANG, KO_HELP_SHOWN, inScreenLang, langInitScript } from './frame-lang-expect.mjs';
+import { COPY, COPY_KO, FRAME_LANG, KO_HELP_SHOWN, cacheWebFonts, inScreenLang, langInitScript } from './frame-lang-expect.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8981/game/';
 const out = process.argv[3] ?? 'shots/frame';
@@ -116,6 +116,7 @@ for (const vp of VIEWPORTS) {
     if (r.status() >= 400) errs.push(`${r.status()} ${new URL(r.url()).pathname}`);
   });
   // no edge server behind the dev page: the neural-voice switch answers "off" (the device voice reads)
+  await cacheWebFonts(ctx);
   await ctx.route('**/v1/tts/status', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"enabled":false}' }));
   // screen language and Korean help (world/lang.ts lcw.helpKo, one switch with the start screen)
   await langInitScript(ctx);

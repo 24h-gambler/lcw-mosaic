@@ -8,7 +8,7 @@
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/frame-menu-shots.mjs http://127.0.0.1:8982/game/ shots/frame-menu
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { COPY, COPY_KO, FRAME_LANG, KO_HELP, KO_HELP_SHOWN, inScreenLang, langInitScript } from './frame-lang-expect.mjs';
+import { COPY, COPY_KO, FRAME_LANG, KO_HELP, KO_HELP_SHOWN, cacheWebFonts, inScreenLang, langInitScript } from './frame-lang-expect.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8982/game/';
 const out = process.argv[3] ?? 'shots/frame-menu';
@@ -98,6 +98,7 @@ for (const vp of VIEWPORTS) {
     }
   });
   await langInitScript(ctx);
+  await cacheWebFonts(ctx);
   await ctx.route('**/v1/**', async (route) => {
     const req = route.request();
     const p = new URL(req.url()).pathname;

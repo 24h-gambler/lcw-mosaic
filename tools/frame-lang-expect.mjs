@@ -49,3 +49,22 @@ export function langInitScript(ctx) {
     { lang: FRAME_LANG, koHelp: KO_HELP }
   );
 }
+
+/**
+ * The page's web font (Google Fonts) fetched once per run and served from memory to every later page: a font request
+ * that hung on a busy machine held each screenshot ("waiting for fonts") past 90 s. Same font, same layout.
+ */
+const fontCache = new Map();
+export function cacheWebFonts(ctx) {
+  return ctx.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, async (route) => {
+    const url = route.request().url();
+    let hit = fontCache.get(url);
+    if (!hit) {
+      const r = await route.fetch({ timeout: 20000 }).catch(() => null);
+      if (!r) return route.abort();
+      hit = { status: r.status(), headers: r.headers(), body: await r.body() };
+      if (r.ok()) fontCache.set(url, hit);
+    }
+    return route.fulfill(hit);
+  });
+}

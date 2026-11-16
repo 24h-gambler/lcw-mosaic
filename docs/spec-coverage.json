@@ -282,7 +282,7 @@
         "apps/web/src/DirectorLive.tsx:35",
         "docs/18-lesson-mode.md:1"
       ],
-      "note": "디렉터 콘솔(빙의·사건 6종·진행표·핀). 근거 문서 06 이 없어 18 로 대신 읽음(끊긴 참조). 감사: 있음"
+      "note": "디렉터 콘솔(빙의·사건 6종·진행표·핀). 근거 문서는 18(08 이 가리키는 06 은 끊긴 참조 목록에 있음). 감사: 있음"
     },
     "T02": {
       "kind": "screen",
@@ -449,7 +449,7 @@
         "apps/web/src/LessonWindowPage.tsx:32",
         "apps/edge/src/lesson-window.ts:1"
       ],
-      "note": "수업 창문: 상태바·밀도 띠·자막·듣기 전용. 근거 문서 06 5장이 없어 08 행으로 읽음(끊긴 참조). 감사: 있음"
+      "note": "수업 창문: 상태바·밀도 띠·자막·듣기 전용. 근거는 08 행(08 이 가리키는 06 5장은 끊긴 참조 목록에 있음). 감사: 있음"
     },
     "P05": {
       "kind": "screen",
@@ -476,16 +476,9 @@
     "P06": {
       "kind": "screen",
       "title": "동의·설정",
-      "status": "done",
+      "status": "partial",
       "owner": "parent",
       "route": "/family",
-      "e2e": {
-        "route": "/family",
-        "expect": [
-          "text:우리 가족"
-        ],
-        "auth": "guardian"
-      },
       "tests": [
         "apps/edge/src/__tests__/parent.test.ts::invite → session (one-time) → service consent gate → separate consent toggles"
       ],
@@ -493,7 +486,7 @@
         "apps/web/src/FamilyPage.tsx:49",
         "apps/edge/src/family.ts:357"
       ],
-      "note": "동의 4종+, 기기 연결·삭제 요청. 친구 승인은 친구 기능이 없어 해당 없음. 감사: 있음"
+      "note": "동의 4종·기기 연결·삭제 요청은 있음. 친구 승인(08 P06)은 친구 기능이 없어 화면에 없음"
     },
     "P07": {
       "kind": "screen",
@@ -865,7 +858,7 @@
         "apps/web/src/LessonWindowPage.tsx:292",
         "apps/web/src/strings.ts:77"
       ],
-      "note": "다음 수업 시각·30초 신호 없음 안내"
+      "note": "다음 수업 시각과 30초 무신호 안내가 보임"
     },
     "P05.state": {
       "kind": "state",
@@ -1152,11 +1145,19 @@
     "F10.1.F-W": {
       "kind": "flow",
       "title": "F→W: 30분 초대",
-      "status": "missing",
+      "status": "partial",
       "owner": "outsider",
-      "tests": [],
-      "evidence": [],
-      "note": "패스 발급·서버 시계는 있으나(free-play.ts) 3D 월드가 패스를 받아 들여보내는 경로 없음"
+      "tests": [
+        "apps/client/src/__tests__/guest-pass.test.ts::counts down on the server clock and shows m:ss",
+        "apps/client/src/__tests__/guest-pass.test.ts::reads ?pass= as the 8-character code and skips the title for it",
+        "apps/client/src/__tests__/guest-pass.test.ts::redeem: a session on the server clock; ended codes go to the end screen, a second device is refused"
+      ],
+      "evidence": [
+        "apps/client/src/start/guestPass.ts:1",
+        "apps/edge/src/free-play.ts:422",
+        "apps/web/src/GuestPasses.tsx:1"
+      ],
+      "note": "월드 클라이언트가 /world/?pass= 로 코드를 쓰고(기기 하나에 묶임) 서버 시계 30분 카운트다운 뒤 /guest-end 로 보냄(main #98·#103). 운영에서 실제 패스로 친구 월드에 들어가 보는 실화면 확인은 없음(코드를 쓰는 요청이라 야간 감사가 하지 않음)"
     },
     "F10.1.F-O": {
       "kind": "flow",
@@ -1839,16 +1840,9 @@
     "F10.3.A3": {
       "kind": "flow",
       "title": "첫 문장 통과 (3분 안)",
-      "status": "done",
+      "status": "partial",
       "owner": "talk",
       "route": "/world/?scene=honey_cafe",
-      "e2e": {
-        "route": "/world/?scene=honey_cafe",
-        "expect": [
-          "canvas",
-          "text:지금 할 일"
-        ]
-      },
       "tests": [
         "packages/bots/src/__tests__/bots.test.ts::completes full golden path end-to-end with spawn-to-order < 3 minutes (3600 ticks)",
         "apps/edge/src/__tests__/converse-score.test.ts::a full 3-star order is charged the 50% price from the bank"
@@ -1857,7 +1851,7 @@
         "apps/client/src/dialog/DialogPanel.tsx:42",
         "apps/edge/src/app.ts:239"
       ],
-      "note": "첫 문장 통과 가능; '3분 안' 실측 지표 수집은 없음"
+      "note": "첫 문장 통과는 됨. '3분 안'을 재는 지표 수집이 없음"
     },
     "F10.3.B": {
       "kind": "flow",
@@ -2738,12 +2732,20 @@
     "F10.6.O1": {
       "kind": "flow",
       "title": "친구 월드에서 30분: 전 기능",
-      "status": "missing",
+      "status": "partial",
       "owner": "outsider",
       "route": "/world/?pass=",
-      "tests": [],
-      "evidence": [],
-      "note": "패스 발급·30분 서버 시계는 있으나 친구 월드에 들어가는 경로(월드의 패스 입장·멀티 룸) 없음"
+      "tests": [
+        "apps/client/src/__tests__/guest-pass.test.ts::counts down on the server clock and shows m:ss",
+        "apps/client/src/__tests__/guest-pass.test.ts::reads ?pass= as the 8-character code and skips the title for it",
+        "apps/client/src/__tests__/guest-pass.test.ts::redeem: a session on the server clock; ended codes go to the end screen, a second device is refused"
+      ],
+      "evidence": [
+        "apps/client/src/start/guestPass.ts:1",
+        "apps/edge/src/free-play.ts:422",
+        "apps/web/src/GuestPasses.tsx:1"
+      ],
+      "note": "월드 클라이언트가 /world/?pass= 로 코드를 쓰고(기기 하나에 묶임) 서버 시계 30분 카운트다운 뒤 /guest-end 로 보냄(main #98·#103). 친구 월드에서 \"전 기능\"이 되는지(멀티 룸에서 친구와 같이)는 확인 못 함. 운영에서 실제 패스로 친구 월드에 들어가 보는 실화면 확인은 없음(코드를 쓰는 요청이라 야간 감사가 하지 않음)"
     },
     "F10.6.O0-O1": {
       "kind": "flow",
@@ -3042,11 +3044,19 @@
     "F10.7.B": {
       "kind": "flow",
       "title": "민준이 30분 플레이",
-      "status": "missing",
+      "status": "partial",
       "owner": "outsider",
-      "tests": [],
-      "evidence": [],
-      "note": "패스로 친구 월드에 들어가 30분 노는 경로 없음(발급·시계는 서버에 있음)"
+      "tests": [
+        "apps/client/src/__tests__/guest-pass.test.ts::counts down on the server clock and shows m:ss",
+        "apps/client/src/__tests__/guest-pass.test.ts::reads ?pass= as the 8-character code and skips the title for it",
+        "apps/client/src/__tests__/guest-pass.test.ts::redeem: a session on the server clock; ended codes go to the end screen, a second device is refused"
+      ],
+      "evidence": [
+        "apps/client/src/start/guestPass.ts:1",
+        "apps/edge/src/free-play.ts:422",
+        "apps/web/src/GuestPasses.tsx:1"
+      ],
+      "note": "월드 클라이언트가 /world/?pass= 로 코드를 쓰고(기기 하나에 묶임) 서버 시계 30분 카운트다운 뒤 /guest-end 로 보냄(main #98·#103). 운영에서 실제 패스로 친구 월드에 들어가 보는 실화면 확인은 없음(코드를 쓰는 요청이라 야간 감사가 하지 않음)"
     },
     "F10.7.C": {
       "kind": "flow",
@@ -3271,23 +3281,16 @@
     "F10.8.+3분.player": {
       "kind": "flow",
       "title": "+3분 · 플레이어: 첫 문장 통과",
-      "status": "done",
+      "status": "partial",
       "owner": "talk",
       "route": "/world/?scene=honey_cafe",
-      "e2e": {
-        "route": "/world/?scene=honey_cafe",
-        "expect": [
-          "canvas",
-          "text:지금 할 일"
-        ]
-      },
       "tests": [
         "apps/client/src/__tests__/errand.test.tsx::Mia asks -> accept -> the cafe sells only the cold water -> hand it over -> done with +50"
       ],
       "evidence": [
         "apps/client/src/dialog/FirstVisitGuide.tsx:1"
       ],
-      "note": "첫 문장 통과 흐름(3분 측정은 없음)"
+      "note": "첫 문장 통과 흐름은 있음. 3분을 재는 측정이 없음"
     },
     "F10.8.+3분.outsider": {
       "kind": "flow",
@@ -3486,7 +3489,7 @@
       "evidence": [
         "apps/web/src/ParentReportPage.tsx:291"
       ],
-      "note": "수업 리포트 열람(도착 알림은 없음)"
+      "note": "수업이 끝나면 보호자가 수업 리포트를 열어 봄"
     },
     "F10.8.매주_월요일.player": {
       "kind": "flow",
@@ -3980,7 +3983,7 @@
     },
     "C01.3.체험_씬": {
       "kind": "promise",
-      "title": "체험 씬 · 계정 없는 방문자 · 광장과 카페 한 곳. 3분 동안 음성 주문 1회 후 슬롯 수령·마시기. 기기당 하루 1회(주소당 하루 20회). 시간과 주문 수는 서버가 셉니다(`POST /v1/try/start`·`/v1/try/order`) · ",
+      "title": "체험 씬 · 계정 없는 방문자 · 광장과 카페 한 곳. 3분 동안 음성 주문 1회 후 슬롯 수령·마시기. 기기당 하루 1회(주소당 하루 20회). 시간과 주문 수는 서버가 셉니다(`POST /v1/try/start`·`/v1/try/order`) · 0 (브라우저 인식 + 문장 뱅크, ",
       "status": "done",
       "owner": "outsider",
       "route": "/try",
@@ -4006,7 +4009,7 @@
     },
     "C01.3.게스트_패스": {
       "kind": "promise",
-      "title": "게스트 패스 · 유료 플레이어의 친구 · 친구 월드에 30분 입장, 전 기능. 좌석당 한 달(KST) 2장, 보호자가 발급. 시계는 처음 입장한 때 서버가 찍고, 코드 하나는 기기 하나에 묶입니다. 안 쓴 코드는 7일 뒤 만료 · 낮음 (기기 내 인식",
+      "title": "게스트 패스 · 유료 플레이어의 친구 · 친구 월드에 30분 입장, 전 기능. 좌석당 한 달(KST, 친구가 처음 들어온 달 기준) 2장, 그 아이의 가족 보호자가 발급(Duo 결제자라도 다른 가족 아이 좌석은 불가). 시계는 처음 입장한 때 서버가 찍고, 코드 하나는 기기 하나에 묶입",
       "status": "partial",
       "owner": "outsider",
       "route": "/pass",
@@ -4014,14 +4017,17 @@
         "apps/edge/src/__tests__/free-play.test.ts::a guardian issues two a month; a third waits for next month; a pass nobody used can be taken back",
         "apps/edge/src/__tests__/free-play.test.ts::check does not start the clock; the first entry does; the server clock ends it after 30 minutes",
         "apps/edge/src/__tests__/free-play.test.ts::an unused code stops working 7 days after issue; a revoked running pass ends at once",
-        "apps/web/src/__tests__/guest-passes.test.ts::none yet: what it is, how many are left, the issue button"
+        "apps/web/src/__tests__/guest-passes.test.ts::none yet: what it is, how many are left, the issue button",
+        "apps/client/src/__tests__/guest-pass.test.ts::reads ?pass= as the 8-character code and skips the title for it",
+        "apps/client/src/__tests__/guest-pass.test.ts::redeem: a session on the server clock; ended codes go to the end screen, a second device is refused",
+        "apps/client/src/__tests__/guest-pass.test.ts::counts down on the server clock and shows m:ss"
       ],
       "evidence": [
         "apps/edge/src/free-play.ts:232",
         "apps/edge/src/free-play.ts:422",
         "apps/web/src/GuestPasses.tsx:1"
       ],
-      "note": "보호자 발급(좌석당 한 달 2장)·서버 시계 30분·7일 만료·회수는 서버와 보호자 화면에 있음(main #94). 3D 월드가 패스로 친구 월드에 들어가는 경로가 없음(클라이언트가 /v1/guest-pass 를 부르지 않음, 멀티 룸 없음)"
+      "note": "월드 클라이언트가 /world/?pass= 로 코드를 쓰고(기기 하나에 묶임) 서버 시계 30분 카운트다운 뒤 /guest-end 로 보냄(main #98·#103). 보호자 발급(친구가 처음 들어온 달 기준 2장, 그 아이 가족 보호자만)·7일 만료·회수는 서버와 보호자 화면에 있음. 운영에서 실제 패스로 친구 월드에 들어가 보는 실화면 확인은 없음(코드를 쓰는 요청이라 야간 감사가 하지 않음)"
     },
     "C01.3.쇼룸": {
       "kind": "promise",
@@ -4154,7 +4160,7 @@
         "apps/web/src/site/copy.ts:304",
         "apps/edge/src/family.ts:414"
       ],
-      "note": "좌석별 기능 차등이 없고 보호자 대시보드는 결제와 무관하게 열림"
+      "note": "좌석마다 기능이 같고, 보호자 대시보드는 결제와 상관없이 열림"
     },
     "C01.4.b2": {
       "kind": "promise",
@@ -4187,7 +4193,7 @@
     },
     "C01.4.b3": {
       "kind": "promise",
-      "title": "환불: **이용을 시작하기 전**, 결제 후 7일 이내 전액(Dan 11-16 09:20 \"환불은 한 번 체험하면 불가합니다\"). 아이 기기에서 월드를 열거나 혼자 놀기를 하거나, 과외 좌석이면 수업에 들어간 순간이 첫 사용이고, 서버가 그 시각을 남",
+      "title": "환불: **이용을 시작하기 전**, 결제 후 7일 이내 전액(Dan 11-16 09:20 \"환불은 한 번 체험하면 불가합니다\"). 아이 기기에서 월드를 열거나 혼자 놀기를 하거나, 과외 좌석이면 수업에 들어간 순간이 첫 사용이고, 서버가 그 시각을 남깁니다(`seat_usage.firs",
       "status": "done",
       "owner": "parent",
       "route": "/seats",
@@ -4216,7 +4222,7 @@
     },
     "C01.4.b4": {
       "kind": "promise",
-      "title": "**Duo 부분 환불**: 첫 사용은 좌석마다 따로 봅니다. 아직 이용을 시작하지 않은 Duo의 한 좌석만 7일 이내에 환불하면, 남은 한 좌석은 Solo 요금제로 전환합니다. 둘 중 하나로 처리합니다. (a) 결제자에게 `Duo 결제액 − Solo ",
+      "title": "**Duo 부분 환불**: 첫 사용은 좌석마다 따로 봅니다. 아직 이용을 시작하지 않은 Duo의 한 좌석만 7일 이내에 환불하면, 남은 한 좌석은 Solo 요금제로 전환합니다. 둘 중 하나로 처리합니다. (a) 결제자에게 `Duo 결제액 − Solo 가격`을 환불하고 남은 좌석은 약정 ",
       "status": "done",
       "owner": "parent",
       "route": "/seats",
@@ -4245,7 +4251,7 @@
     },
     "C01.4.b5": {
       "kind": "promise",
-      "title": "**결제자는 1명**: Duo에는 `payer_id`가 정확히 하나이며 두 좌석이 같은 값을 가집니다. 환불·동의 철회·계정 삭제 요청은 결제자 또는 해당 좌석의 보호자만 낼 수 있고, 한쪽의 요청이 다른 쪽 좌석의 데이터를 지우지 않습니다. 구현은 ",
+      "title": "**결제자는 1명**: Duo에는 `payer_id`가 정확히 하나이며 두 좌석이 같은 값을 가집니다. 환불·동의 철회·계정 삭제 요청은 결제자 또는 해당 좌석의 보호자만 낼 수 있고, 한쪽의 요청이 다른 쪽 좌석의 데이터를 지우지 않습니다. 구현은 `packages/quota`의 `s",
       "status": "partial",
       "owner": "parent",
       "route": "/seats",
@@ -4471,7 +4477,7 @@
         "packages/metrics/src/dashboard.ts:118",
         "apps/web/src/DashboardPage.tsx:73"
       ],
-      "note": "주간 자유 발화 단어 수와 4주 비교가 보호자 대시보드에 표시됨(운영자용 전체 집계는 없음)"
+      "note": "주간 자유 발화 단어 수와 4주 비교가 보호자 대시보드에 표시됨"
     },
     "C01.7.활성화": {
       "kind": "promise",
@@ -4725,7 +4731,7 @@
         "apps/edge/src/stt.ts:80",
         "apps/client/src/dialog/speech.ts:3"
       ],
-      "note": "기기 인식이 기본, 서버는 Workers AI Whisper 만 쓰고 음성은 남기지 않으며 외부 LLM 호출 없음"
+      "note": "기기 인식이 기본. 서버는 Workers AI Whisper 만 쓰고 음성은 저장하지 않으며 외부 LLM 호출은 0"
     },
     "C02.2.클라이언트": {
       "kind": "promise",
@@ -4963,7 +4969,7 @@
     },
     "C02.2.로그인": {
       "kind": "promise",
-      "title": "로그인 · 카카오·구글 OAuth(보호자·성인, `apps/edge/src/oauth.ts` 공용: 제공자·PKCE·state 쿠키·nonce·ID 토큰 검증·계정 연결, 역할별 핸들러 = 보호자 `guardian-oauth.ts`·교사 `operat",
+      "title": "로그인 · 카카오·구글 OAuth(보호자·성인, `apps/edge/src/oauth.ts` 공용: 제공자·PKCE·state 쿠키·nonce·ID 토큰 검증·계정 연결, 역할별 핸들러 = 보호자 `guardian-oauth.ts`·교사 `operator-login.ts`), 가족 초대",
       "status": "partial",
       "owner": "ops",
       "route": "/family",
@@ -5106,17 +5112,9 @@
     "WP-102": {
       "kind": "wp",
       "title": "중앙 광장과 런던 섹터 1개를 손으로 만든 프리팹으로 배치 — 수용 기준: 스폰에서 카페까지 도로로 이동",
-      "status": "done",
+      "status": "partial",
       "owner": "world",
       "route": "/world/",
-      "e2e": {
-        "route": "/world/",
-        "expect": [
-          "canvas",
-          "text:지금 할 일"
-        ],
-        "auth": "lesson"
-      },
       "tests": [
         "apps/client/src/world/__tests__/world.test.ts::keeps the auto-walk paths from the plaza walkable (no wall taller than a step)",
         "apps/client/src/world/__tests__/world.test.ts::walks scene to scene the same way as before when starting on a scene spot"
@@ -5253,16 +5251,9 @@
     "WP-109": {
       "kind": "wp",
       "title": "대화창 UI(`08`의 8.2), 조합판, 힌트 꼬리표 — 수용 기준: 150% 글자에서도 한 화면",
-      "status": "done",
+      "status": "partial",
       "owner": "talk",
       "route": "/world/?scene=honey_cafe",
-      "e2e": {
-        "route": "/world/?scene=honey_cafe",
-        "expect": [
-          "canvas",
-          "text:지금 할 일"
-        ]
-      },
       "tests": [
         "apps/client/src/__tests__/client.test.ts::fits dialog layout within 720px at 150% font scale and excludes pricing/payment copy on child HUD (WP-109)",
         "apps/client/src/__tests__/dialog.test.tsx::keeps sizes in the font-scale variable so 150% scales everything (docs/08: one screen at 150%)"
@@ -5348,16 +5339,9 @@
     "WP-201": {
       "kind": "wp",
       "title": "블록 놓기·부수기(`03`의 D13 조작 표), 윤곽선, 회수 — 수용 기준: 한 입력에 한 칸, 초당 4칸 상한",
-      "status": "done",
+      "status": "partial",
       "owner": "world",
       "route": "/world/?scene=build_plot",
-      "e2e": {
-        "route": "/world/?scene=build_plot",
-        "expect": [
-          "canvas",
-          "text:방 검사"
-        ]
-      },
       "tests": [
         "apps/client/src/world/__tests__/build.test.ts::places and breaks one block per input through setBlock, remeshes it, and undoes the last 20",
         "apps/client/src/world/__tests__/build.test.ts::paces a flood of taps like the server (D13 4 a second) instead of letting the server refuse them"
@@ -5371,16 +5355,9 @@
     "WP-202": {
       "kind": "wp",
       "title": "구역 판정과 `setBlock` 단일 입구, 직접 쓰기 금지 린트 — 수용 기준: 청크 배열을 직접 쓰는 코드가 있으면 CI 실패",
-      "status": "done",
+      "status": "partial",
       "owner": "world",
       "route": "/world/?scene=build_plot",
-      "e2e": {
-        "route": "/world/?scene=build_plot",
-        "expect": [
-          "canvas",
-          "text:방 검사"
-        ]
-      },
       "tests": [
         "packages/sim-core/src/__tests__/sim-core.test.ts::WP-201 & WP-202: enforces 4 blocks/sec, Z undo, and lint fails on direct chunk writes",
         "apps/client/src/world/__tests__/world.test.ts::places blocks only through the setter and is deterministic"
@@ -5423,16 +5400,9 @@
     "WP-205": {
       "kind": "wp",
       "title": "`WorldDO`: 월드 저장(델타), 불변식 점검, 안전 모드 — 수용 기준: 저장 도중 강제 중단해도 이전 상태 유지",
-      "status": "done",
+      "status": "partial",
       "owner": "world",
       "route": "/world/?scene=build_plot",
-      "e2e": {
-        "route": "/world/?scene=build_plot",
-        "expect": [
-          "canvas",
-          "text:방 검사"
-        ]
-      },
       "tests": [
         "apps/edge/src/__tests__/plot.test.ts::a write that fails mid-transaction leaves neither disk nor memory changed",
         "apps/edge/src/__tests__/edge.test.ts::rolls back atomic WorldDO chunk save cleanly on simulated mid-tx failure (WP-205)"
@@ -5461,16 +5431,9 @@
     "WP-207": {
       "kind": "wp",
       "title": "내 부지, 보관 상자, 블록 팔레트 1차(40종) — 수용 기준: 새로고침 뒤 건축물 유지",
-      "status": "done",
+      "status": "partial",
       "owner": "world",
       "route": "/world/?scene=build_plot",
-      "e2e": {
-        "route": "/world/?scene=build_plot",
-        "expect": [
-          "canvas",
-          "text:방 검사"
-        ]
-      },
       "tests": [
         "apps/client/src/world/__tests__/build.test.ts::a server snapshot puts the plot back exactly (town + saved delta), furniture and bag included",
         "apps/edge/src/__tests__/plot.test.ts::starts from the town plot with the starter bag, saves only what changed, and survives a restart"
@@ -5499,16 +5462,9 @@
     "WP-301": {
       "kind": "wp",
       "title": "가족 계정, 아이 프로필, 동의 4종, 기기 연결 코드 — 수용 기준: 동의 없이는 음성이 저장되지 않음",
-      "status": "done",
+      "status": "partial",
       "owner": "parent",
       "route": "/family",
-      "e2e": {
-        "route": "/family",
-        "expect": [
-          "text:우리 가족"
-        ],
-        "auth": "guardian"
-      },
       "tests": [
         "apps/edge/src/__tests__/parent.test.ts::voice is stored only while voice_store is on, and revoking strips it (AGENTS 4.5)",
         "apps/edge/src/__tests__/parent.test.ts::guardian creates a child profile and links a device with a one-time 6-digit code"
@@ -5537,7 +5493,7 @@
     },
     "WP-303": {
       "kind": "wp",
-      "title": "`packages/metrics`: 지표 전부(`07`의 2장) — 수용 기준: 고정 입력에 대한 기대값 시험, 표본 부족 처리, 레벨이 올라 문장이 길어져도 단어당 준비 시간이 같으면 생각말하기 지수의 반응 시간 항목이 내려가지 않음, 양만 늘어난 ",
+      "title": "`packages/metrics`: 지표 전부(`07`의 2장) — 수용 기준: 고정 입력에 대한 기대값 시험, 표본 부족 처리, 레벨이 올라 문장이 길어져도 단어당 준비 시간이 같으면 생각말하기 지수의 반응 시간 항목이 내려가지 않음, 양만 늘어난 아이의 지수가 100 근처(12주 합성 시험, `07`의 7장)",
       "status": "done",
       "owner": "parent",
       "route": "/dashboard",
@@ -5560,7 +5516,7 @@
     },
     "WP-304": {
       "kind": "wp",
-      "title": "`LessonDO`: 수업 시작·종료, 분 단위 집계, 핀 3종 — 수용 기준: 120분 모의 수업의 집계가 입력과 일치. 교사 단축키 F1(코칭)·F2(새 표현)는 시각만 저장하고 `extractBookmarkWindows`가 앞뒤 30초 전사문과 ",
+      "title": "`LessonDO`: 수업 시작·종료, 분 단위 집계, 핀 3종 — 수용 기준: 120분 모의 수업의 집계가 입력과 일치. 교사 단축키 F1(코칭)·F2(새 표현)는 시각만 저장하고 `extractBookmarkWindows`가 앞뒤 30초 전사문과 표현 후보를 뽑음(`packages/metrics/src/bookmarks.ts`)",
       "status": "partial",
       "owner": "lesson",
       "route": "/director",
@@ -5608,17 +5564,10 @@
     },
     "WP-307": {
       "kind": "wp",
-      "title": "수업 창문(`06`의 5장): 청취 전용 연결, 밀도 띠, 자막 — 수용 기준: 보호자 마이크가 연결되지 않음. 맨 위 한 줄 상태바(위치·상황·목표 문장)와 장면 아이콘이 10초마다 글 신호만으로 갱신됨(`LessonWindowStatus`). 실시",
-      "status": "done",
+      "title": "수업 창문(`06`의 5장): 청취 전용 연결, 밀도 띠, 자막 — 수용 기준: 보호자 마이크가 연결되지 않음. 맨 위 한 줄 상태바(위치·상황·목표 문장)와 장면 아이콘이 10초마다 글 신호만으로 갱신됨(`LessonWindowStatus`). 실시간 소리: 교사 콘솔이 오디오 한 트랙을 Realtime SFU로 내보내고 보호자는 `recvonly`로만 ",
+      "status": "partial",
       "owner": "parent",
       "route": "/window",
-      "e2e": {
-        "route": "/window",
-        "expect": [
-          "testid:lesson-window-page"
-        ],
-        "auth": "guardian"
-      },
       "tests": [
         "apps/web/src/__tests__/lesson-window-page.test.ts::live: status bar with place · situation, goal sentence, density band, captions, listen-only note — no media elements",
         "apps/edge/src/__tests__/lesson-audio.test.ts::listener: anything that would send (or no direction = sendrecv) is refused"
@@ -5648,16 +5597,9 @@
     "WP-309": {
       "kind": "wp",
       "title": "학부모 대시보드 홈·성장·수업(`07`의 4장, `08`의 9장) — 수용 기준: 그래프마다 표 보기 제공. 12주 합성 아이(계산·실제 경로·화면 세 층)의 곡선이 보낸 발화의 단순 합산과 같음(`07`의 7장)",
-      "status": "done",
+      "status": "partial",
       "owner": "parent",
       "route": "/dashboard",
-      "e2e": {
-        "route": "/dashboard",
-        "expect": [
-          "testid:dashboard-page"
-        ],
-        "auth": "guardian"
-      },
       "tests": [
         "apps/web/src/__tests__/dashboard.test.ts::every graph has a table view (7 graphs → 7 tables when tables are on)",
         "apps/edge/src/__tests__/growth-12w-e2e.test.ts::every curve is the plain sum over what was sent: weekly amounts, cumulative lines, calendar, lesson ticks"
@@ -5671,17 +5613,9 @@
     "WP-310": {
       "kind": "wp",
       "title": "복습 20분·1일과 수업 유래 표현 추적 — 수용 기준: 전이율 계산 단위 시험",
-      "status": "done",
+      "status": "partial",
       "owner": "talk",
       "route": "/world/",
-      "e2e": {
-        "route": "/world/",
-        "expect": [
-          "canvas",
-          "text:지금 할 일"
-        ],
-        "auth": "lesson"
-      },
       "tests": [
         "apps/edge/src/__tests__/review.test.ts::the sign appears at 20 minutes with the full sentence and voice, then at 1 day without voice",
         "packages/metrics/src/__tests__/metrics.test.ts::calculates teacher contribution rates: 14-day solo transfer and 35-day retention"
@@ -5766,7 +5700,7 @@
     },
     "WP-405": {
       "kind": "wp",
-      "title": "경제: 가격식, 별 할인, 힌트 보너스, 밸런서 — 수용 기준: 봇 1시간 플레이의 수입·지출이 목표 범위. 시세 지수는 월드별 수입·지출로만 계산(다른 월드의 수입 변화가 영향 0). 소리 내어 읽기 할인은 가구 종류당 하루 1회. 드릴·다이너마이트",
+      "title": "경제: 가격식, 별 할인, 힌트 보너스, 밸런서 — 수용 기준: 봇 1시간 플레이의 수입·지출이 목표 범위. 시세 지수는 월드별 수입·지출로만 계산(다른 월드의 수입 변화가 영향 0). 소리 내어 읽기 할인은 가구 종류당 하루 1회. 드릴·다이너마이트·드릴 묶음은 별도 ID와 가격",
       "status": "partial",
       "owner": "world",
       "route": "/world/?scene=honey_cafe",
@@ -5891,7 +5825,7 @@
     },
     "WP-504": {
       "kind": "wp",
-      "title": "게스트 패스(30분·좌석당 월 2장, 서버가 시계를 셈, 음성 미저장) — 수용 기준: 종료 시 \"부모님께 소개 보내기\"만 표시. 첫 아이템 ID·첫 발화는 기기 `localStorage`에 7일 암호화 보관(어깨너머 방지용), 보호자가 기기 코드로 ",
+      "title": "게스트 패스(30분·좌석당 월 2장, 서버가 시계를 셈, 음성 미저장) — 수용 기준: 종료 시 \"부모님께 소개 보내기\"만 표시. 첫 아이템 ID·첫 발화는 기기 `localStorage`에 7일 암호화 보관(어깨너머 방지용), 보호자가 기기 코드로 7일 안에 이어받음",
       "status": "partial",
       "owner": "outsider",
       "route": "/pass",
@@ -5899,14 +5833,17 @@
         "apps/edge/src/__tests__/free-play.test.ts::a guardian issues two a month; a third waits for next month; a pass nobody used can be taken back",
         "apps/edge/src/__tests__/free-play.test.ts::check does not start the clock; the first entry does; the server clock ends it after 30 minutes",
         "apps/edge/src/__tests__/free-play.test.ts::an unused code stops working 7 days after issue; a revoked running pass ends at once",
-        "apps/web/src/__tests__/guest-passes.test.ts::none yet: what it is, how many are left, the issue button"
+        "apps/web/src/__tests__/guest-passes.test.ts::none yet: what it is, how many are left, the issue button",
+        "apps/client/src/__tests__/guest-pass.test.ts::reads ?pass= as the 8-character code and skips the title for it",
+        "apps/client/src/__tests__/guest-pass.test.ts::redeem: a session on the server clock; ended codes go to the end screen, a second device is refused",
+        "apps/client/src/__tests__/guest-pass.test.ts::counts down on the server clock and shows m:ss"
       ],
       "evidence": [
         "apps/edge/src/free-play.ts:232",
         "apps/edge/src/free-play.ts:422",
         "apps/web/src/GuestPasses.tsx:1"
       ],
-      "note": "30분·좌석당 월 2장·서버 시계는 있음(free-play.ts). 월드 입장, 종료 시 \"부모님께 소개 보내기\", 7일 암호화 보관함을 보호자가 이어받는 경로는 연결 안 됨"
+      "note": "월드 클라이언트가 /world/?pass= 로 코드를 쓰고(기기 하나에 묶임) 서버 시계 30분 카운트다운 뒤 /guest-end 로 보냄(main #98·#103). \"부모님께 소개 보내기\"와 7일 보관함을 보호자가 이어받는 경로는 확인 못 함. 운영에서 실제 패스로 친구 월드에 들어가 보는 실화면 확인은 없음(코드를 쓰는 요청이라 야간 감사가 하지 않음)"
     },
     "WP-505": {
       "kind": "wp",
@@ -5924,7 +5861,7 @@
     },
     "WP-506": {
       "kind": "wp",
-      "title": "공개 서버 목록, 방문자 권한, 추방·차단, 신고 — 수용 기준: 미성년 계정에 성인 대상 서버가 보이지 않음. 기본 월드(`visitorBuild` 꺼짐)에서 허가 없는 방문자의 부지·자유·도시 편집(폭발·로켓·물 포함)이 0건, 누구도 도시에 금고",
+      "title": "공개 서버 목록, 방문자 권한, 추방·차단, 신고 — 수용 기준: 미성년 계정에 성인 대상 서버가 보이지 않음. 기본 월드(`visitorBuild` 꺼짐)에서 허가 없는 방문자의 부지·자유·도시 편집(폭발·로켓·물 포함)이 0건, 누구도 도시에 금고 블록을 못 놓고 상점 출입구 앞 2칸은 편집 불가. 해당 검사를 끄면 시험이 실패(결함 주입 3종)",
       "status": "partial",
       "owner": "world",
       "tests": [
@@ -6061,16 +5998,9 @@
     "WP-607": {
       "kind": "wp",
       "title": "방 판정과 주민 12명(`03`의 D13), 가구 80종 — 수용 기준: 판정 400칸 상한, 부족 조건 문장 표시",
-      "status": "done",
+      "status": "partial",
       "owner": "world",
       "route": "/world/?scene=build_plot",
-      "e2e": {
-        "route": "/world/?scene=build_plot",
-        "expect": [
-          "canvas",
-          "text:방 검사"
-        ]
-      },
       "tests": [
         "packages/sim-core/src/__tests__/plot.test.ts::a hole lets the walk leak outside: capped at 400 cells and reported",
         "apps/client/src/world/__tests__/build.test.ts::runs the room check when a nameplate goes up, then 1 s after the room changes"
@@ -6171,22 +6101,9 @@
     "WP-704": {
       "kind": "wp",
       "title": "좌석 관리, 요금제, 수동 발급, 만료 처리 — 수용 기준: 만료 후 30일 읽기 전용. Duo 한 좌석 7일 내 환불 시 남은 좌석 Solo 전환, `payer_id` 1명",
-      "status": "done",
+      "status": "partial",
       "owner": "parent",
       "route": "/seats",
-      "e2e": {
-        "route": "/seats",
-        "expect": [
-          "testid:seats-admin"
-        ],
-        "auth": "operator",
-        "authExpect": [
-          "text:확인함",
-          "notext:운영자 키를 먼저 넣어 주세요",
-          "notext:운영자 키가 맞지 않습니다",
-          "notext:불러오지 못했습니다"
-        ]
-      },
       "tests": [
         "apps/edge/src/__tests__/seats.test.ts::expiry: read-only 30 days then archived; extend reopens; hourly cron records notices once",
         "apps/edge/src/__tests__/seats.test.ts::Duo: one payer; one seat refunded → payer gets the difference, the other seat becomes Solo, other family sees no name or money"

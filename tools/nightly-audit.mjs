@@ -77,11 +77,17 @@ function readMarks(markers) {
     }
     return true;
   };
+  // The visible text of the page: text nodes whose element is shown, in order (a phrase split over <b>…</b> still
+  // reads whole; innerText is not used because it keeps opacity-0 text).
+  let visible = null;
   const textShown = (t) => {
-    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    for (let n = w.nextNode(); n; n = w.nextNode()) if ((n.textContent || '').includes(t) && shown(n.parentElement)) return true;
-    // a phrase split over inline elements: fall back to the visible text of the page
-    return document.body.innerText.includes(t) && [...document.querySelectorAll('body *')].some((e) => (e.innerText || '').includes(t) && e.childElementCount > 0 && shown(e));
+    if (visible === null) {
+      const parts = [];
+      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) if ((n.textContent || '').trim() && shown(n.parentElement)) parts.push(n.textContent);
+      visible = parts.join('').replace(/\s+/g, ' ');
+    }
+    return visible.includes(t.replace(/\s+/g, ' ')) || visible.replace(/ /g, '').includes(t.replace(/\s+/g, ''));
   };
   const one = (m) => {
     if (m === 'canvas') return [...document.querySelectorAll('canvas')].some(shown);
@@ -97,7 +103,7 @@ function readMarks(markers) {
 }
 
 /** Runs inside the page: everything the audit reads from a loaded screen. */
-function readPage(markers) {
+function readPage() {
   const text = document.body ? document.body.innerText : '';
   const meta = [...document.querySelectorAll('meta[content]')].map((m) => m.getAttribute('content') || '').join(' \n ');
   const body = document.body ? getComputedStyle(document.body) : null;
@@ -135,9 +141,11 @@ function readPage(markers) {
     frame: body
       ? { font: body.fontFamily.split(',')[0].replace(/["']/g, '').trim(), bg: body.backgroundColor, maxWidth: main ? getComputedStyle(main).maxWidth : '' }
       : null,
-    marks: readMarks(markers)
   };
 }
+
+/** Functions sent to the page with page.evaluate: each is serialized alone, so it must not call module code. */
+export const PAGE_FUNCTIONS = { readMarks, readPage };
 
 /** Polls until every marker is on screen or the wait runs out; returns the last reading. */
 async function waitMarks(page, markers, ms) {
@@ -168,7 +176,9 @@ async function openOnce(browser, base, out, p, vp, { token = null, markers = p.e
     await page.waitForTimeout(p.route.startsWith('/world') ? 4000 : 1500);
     await waitMarks(page, markers, MARK_WAIT_MS);
     r.landed = page.url().slice(base.length);
-    Object.assign(r, await page.evaluate(readPage, markers));
+    // two evaluations: each function is sent to the page on its own, so readPage cannot call readMarks there
+    Object.assign(r, await page.evaluate(readPage));
+    r.marks = await page.evaluate(readMarks, markers);
     const shot = `${p.route.replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'root'}-${tag}.png`;
     await page.screenshot({ path: path.join(out, shot) });
     r.shot = shot;

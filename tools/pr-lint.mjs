@@ -28,9 +28,12 @@ export const DEFER_PATTERNS = [
         '이번\\s*PR\\s*(?:에|에서)?\\s*(?:는\\s*)?(?:넣지|포함하지|하지|만들지)\\s*않',
         // "later" as a promise to do it then, not as a time ("30 days later", "a later run")
         '\\b(?:will|to be|be|do|add|fix|handle|wire|ship|merge|deploy|address|revisit|come back to)\\b[^.]{0,30}\\blater\\b',
-        '\\blater (?:PR|today|tonight|this week)\\b', '\\bfor later\\b',
+        '\\blater (?:PR|today|tonight|this week)\\b',
         'follow[- ]?up\\s+(?:PR|work|task|change)', '\\bin a follow[- ]?up\\b', 'postpon', '\\bdefer(?:red|ring)? (?:to|until|it|this|that|the)\\b',
-        '\\b(?:next|subsequent|separate|another|future) PR\\b', '\\bnot (?:included|in this PR|done yet)\\b'
+        '\\b(?:next|subsequent|separate|another|future) PR\\b', '\\bnot (?:included|in this PR|done yet)\\b',
+        // review 11-16 round 2: words that put work off without saying "later"
+        '향후', '차후', '보류', '후순위', '당분간', '추가\\s*예정', '다음\\s*(?:버전|릴리스|스프린트)', `\\bv\\d+\\s*(?:에서|로)\\s*.{0,8}(?:${ACT}|지원|추가)`, '\\bphase\\s*\\d', '\\bTBD\\b',
+        '일단\\s*(?:빼|뺐|숨기|숨김|두고)', '빼\\s*둠|빼\\s*두', '\\bnext (?:sprint|release|version)\\b', '\\bfor later\\b(?!\\s+use)'
       ].join('|'),
       'i'
     )
@@ -40,8 +43,9 @@ export const DEFER_PATTERNS = [
     re: new RegExp(
       [
         `수업\\s*(?:이\\s*)?(?:뒤|후|이후|끝나고|끝난\\s*(?:다음|뒤|후))\\s*(?:에\\s*)?.{0,12}${ACT}`,
-        '(?:\\d{1,2}:\\d{2}|(?:오전|오후)?\\s*\\d{1,2}\\s*시(?!간))\\s*(?:뒤|후|이후|넘어|부터)',
-        `(?:내일|모레|다음\\s*주|주말)\\s*(?:에|부터)?\\s*.{0,8}${ACT}`,
+        `(?:\\d{1,2}:\\d{2}|(?:오전|오후)?\\s*\\d{1,2}\\s*시(?!간)|\\d{1,2}\\s*/\\s*\\d{1,2}|\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일)\\s*(?:뒤|후|이후|넘어|부터)\\s*(?:에\\s*)?.{0,12}${ACT}`,
+        `수업\\s*(?:을\\s*)?마치고\\s*.{0,12}(?:${ACT}|넣음|붙임)`,
+        `(?:내일|모레|다음\\s*주|다음\\s*달|주말)\\s*(?:에|부터)?\\s*.{0,8}${ACT}`,
         '\\bafter (?:the )?lesson', '\\bafter \\d{1,2}(?::\\d{2}|\\s*(?:am|pm))\\b', '\\btomorrow\\b'
       ].join('|'),
       'i'
@@ -50,31 +54,41 @@ export const DEFER_PATTERNS = [
   { id: 'instead', re: /오늘은\s.*대신|대신\s.*먼저|\binstead of\b.*\b(?:for now|first|today)\b|축소판|최소\s*(?:판|버전)|MVP\s*만/i },
   {
     id: 'only-first',
-    re: /우선\s.*만(?=\s|$|[.,)])|먼저\s.*만(?=\s|$|[.,)])|만\s*먼저(?!\s*\S*(?:되면|하면))|이번(?:엔|에는|은)\s.*만(?=\s|$|[.,)])|\bfor now\b|\bonly .* for now\b|\bfirst .* only\b/i
+    re: /우선\s[^.]{0,30}만(?=\s|$|[.,)])|먼저\s(?![^.]*(?:되면|하면))[^.]{0,30}만(?=\s|$|[.,)])|만\s*먼저(?!\s*\S*(?:되면|하면))|이번(?:엔|에는|은)\s.*만(?=\s|$|[.,)])|\bfor now\b|\bonly\b[^.]{0,30}\bfor now\b|\b(?:ship|merge|add|build|do)\w*\s+only\b[^.]{0,30}\bfirst\b/i
   },
   {
     id: 'scope-cut',
-    re: /범위를?\s*(?:줄|좁|축소)|범위\s*밖|빼고\s*(?:머지|배포|진행)|제외(?:했|하고|합니다|함)|생략(?:하고|했)|\bout of scope\b|\bscope(?:d)? down\b/i
+    re: /범위를?\s*(?:줄|좁|축소)|범위\s*밖(?:이라|이어서|이므로|이니|으로\s*(?:두|뺐|빼|미))|빼고\s*(?:머지|배포|진행)|제외(?:했|하고|합니다|함)|생략(?:하고|했)|\bout of scope\b|\bscope(?:d)? down\b/i
   }
 ];
 
 /** Uncited postponing/narrowing phrases in a PR text: [{ line, id, phrase, text }]. */
 export function lintPrText(text) {
+  return lintPrTextFull(text).hits;
+}
+
+/**
+ * { hits, cited }: `cited` = the decision ids that excuse a postponing phrase in their paragraph. Their existence is
+ * not checkable here (the spine and the ledger are in the automation repo): the lane merge gate looks each one up.
+ */
+export function lintPrTextFull(text) {
   const out = [];
+  const cited = new Set();
   const lines = String(text ?? '').split(/\r?\n/);
   // paragraphs: runs of non-blank lines; a decision id anywhere in the paragraph cites it
   let para = [];
   let inCode = false;
   const flush = () => {
-    const cited = para.some((p) => DECISION_REF.test(p.text));
-    if (!cited) {
-      for (const p of para) {
-        for (const d of DEFER_PATTERNS) {
-          const m = p.text.match(d.re);
-          if (m) out.push({ line: p.n, id: d.id, phrase: m[0], text: p.text.trim().slice(0, 160) });
-        }
+    const ids = para.flatMap((p) => p.text.match(new RegExp(DECISION_REF.source, 'g')) ?? []);
+    const hits = [];
+    for (const p of para) {
+      for (const d of DEFER_PATTERNS) {
+        const m = p.text.match(d.re);
+        if (m) hits.push({ line: p.n, id: d.id, phrase: m[0], text: p.text.trim().slice(0, 160) });
       }
     }
+    if (!ids.length) out.push(...hits);
+    else if (hits.length) for (const id of ids) cited.add(id);
     para = [];
   };
   lines.forEach((raw, i) => {
@@ -85,12 +99,15 @@ export function lintPrText(text) {
     if (inCode) return;
     if (!raw.trim()) return flush();
     // A quote is skipped only when it says whose words it is (the operator's); an unattributed quote is the author's text.
-    if (/^\s*>/.test(raw) && /Dan|운영자|원문|operator/i.test(raw)) return;
+    // ... and names a date or an id, so a made-up "> 원문: 다음 PR 에서" does not hide the author's own text
+    if (/^\s*>\s*(?:\*\*)?(?:Dan|운영자|원문|operator)\b/i.test(raw) && /\d{1,2}[-/.]\d{1,2}|\bR\d{3,}\b|\bd_[0-9a-f]{6,}/.test(raw)) return;
     // A short code span names a phrase (`수업 뒤`); a long one could hide a sentence, so it is checked.
-    para.push({ n: i + 1, text: raw.replace(/`([^`]{1,15})`/g, ' ') });
+    // ... and only on a line that talks about phrases or this rule ("표현", "검사", "e.g."): elsewhere the span is text.
+    const naming = /표현|낱말|문구|패턴|검사|규칙|잡(?:았|습|는)|막(?:습|는|았)|예:|e\.g\.|phrase|pattern|rule/i.test(raw);
+    para.push({ n: i + 1, text: naming ? raw.replace(/`([^`]{1,15})`/g, ' ') : raw.replace(/`/g, ' ') });
   });
   flush();
-  return out;
+  return { hits: out, cited: [...cited] };
 }
 
 function readPr(number) {
@@ -113,7 +130,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error('usage: node tools/pr-lint.mjs <PR number> | --file <path>');
     process.exit(2);
   }
-  const found = lintPrText(text);
+  const { hits: found, cited } = lintPrTextFull(text);
+  // the lane merge gate reads this line and looks every id up on the spine and in the ledger
+  if (cited.length) console.log(`근거 결정: ${cited.join(' ')}`);
   for (const f of found) console.log(`${label}:${f.line} [${f.id}] "${f.phrase}" — ${f.text}`);
   if (found.length) {
     console.log(

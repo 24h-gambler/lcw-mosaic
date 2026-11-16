@@ -131,7 +131,7 @@ describe('room client (docs/03 D11, docs/02 §11 request budget)', () => {
     client.stop();
   });
 
-  it('no room for this token (401) stops quietly without retrying', async () => {
+  it('no room for this token (401) waits five minutes before asking again', async () => {
     const { client, sockets, fetchImpl } = setup(401);
     client.start();
     await flush();
@@ -140,6 +140,39 @@ describe('room client (docs/03 D11, docs/02 §11 request budget)', () => {
     expect(sockets).toHaveLength(0);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(client.status).toBe('none');
+    vi.advanceTimersByTime(181_000);
+    await flush();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    client.stop();
+  });
+
+  it('a lesson token that arrives after the world opened is picked up without a request before it', async () => {
+    let token: string | null = null;
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ticket: 't'.repeat(48), room: 'lesson-1', connect: '/v1/room/connect' }), { status: 200 }));
+    const sockets: FakeSocket[] = [];
+    const client = new RoomClient({
+      token: () => token,
+      source: { pose: () => null },
+      sink: sinkLog().sink,
+      base: 'https://lcw.test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      socket: (url) => {
+        const s = new FakeSocket(url);
+        sockets.push(s);
+        return s;
+      }
+    });
+    client.start();
+    await flush();
+    vi.advanceTimersByTime(30_000);
+    await flush();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    token = 's'.repeat(40);
+    vi.advanceTimersByTime(10_000);
+    await flush();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sockets).toHaveLength(1);
+    client.stop();
   });
 
   it('relays peers to the world and clears them when the socket drops', async () => {

@@ -52,6 +52,10 @@ const MIN_MOVE = 0.03;
 const MIN_TURN = 0.03;
 /** after "full": try again in 60 s (someone may have left) */
 const FULL_RETRY_MS = 60_000;
+/** no token yet (a lesson joined after the world opened): look again locally, no request */
+const NO_TOKEN_RETRY_MS = 10_000;
+/** this token has no room (401): ask again rarely (a new lesson token may arrive) */
+const NO_ROOM_RETRY_MS = 300_000;
 
 export type RoomStatus = 'off' | 'connecting' | 'in' | 'full' | 'none';
 
@@ -126,7 +130,7 @@ export class RoomClient {
     const token = this.o.token();
     if (!token) {
       this.status = 'none';
-      return;
+      return this.schedule(NO_TOKEN_RETRY_MS);
     }
     this.status = 'connecting';
     const base = this.o.base ?? '';
@@ -138,10 +142,10 @@ export class RoomClient {
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         body: '{}'
       });
-      // 401: this token has no room (guest, expired lesson) — stop quietly, do not hammer the server
+      // 401: this token has no room (expired lesson) — wait long, do not hammer the server
       if (res.status === 401) {
         this.status = 'none';
-        return;
+        return this.schedule(NO_ROOM_RETRY_MS);
       }
       if (res.ok) ticket = (await res.json()) as Ticket;
     } catch {

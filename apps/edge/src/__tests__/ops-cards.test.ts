@@ -128,15 +128,40 @@ describe('hub cards from the server (ops-cards.ts outbox)', () => {
     expect(r.status).toBe(200);
     expect(r.body.detail.student_cards).toBe(1);
     const box = (await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards as Array<{ ref: string; updated_at: number; card: any }>;
-    expect(box.map((c) => c.ref)).toEqual([`${OPS_CARD_SOURCE}:lcw:student:kid-o:2026-11-16`]);
-    const first = box[0]!;
+    // the same cron closed the idle lesson (lesson-mode LESSON_IDLE_CLOSE_MS), so its summary is in the box too
+    const days = box.filter((c) => c.ref.includes(':student:'));
+    expect(days.map((c) => c.ref)).toEqual([`${OPS_CARD_SOURCE}:lcw:student:kid-o:2026-11-16`]);
+    const first = days[0]!;
     expect(first.card.importance).toBe(STUDENT_DAILY_IMPORTANCE);
     expect(first.card.actions[0].url).toBe('https://lcw.worldwidesomething.com/director'); // no request: the real site
-    await call(p, 'POST', '/v1/admin/outbox/cards/ack', { items: [{ ref: first.ref, updated_at: first.updated_at }] });
+    await call(p, 'POST', '/v1/admin/outbox/cards/ack', { items: box.map((c) => ({ ref: c.ref, updated_at: c.updated_at })) });
     now += 60 * 60_000;
     expect((await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, cron)).body.detail.student_cards).toBe(0); // same numbers
     expect((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards).toEqual([]);
-    now += 3 * 3_600_000; // more than two hours quiet: nothing to look at
+    now += 3 * 3_600_000; // hours of quiet: the day is looked at again, same numbers, nothing resent
+    expect((await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, cron)).body.detail.student_cards).toBe(0);
+  });
+
+  it('a lesson hours before the first hourly run still gets its day card (11-16 Oreo: lesson 17:30, job from 22:00)', async () => {
+    let now = Date.parse('2026-11-16T15:00:00+09:00');
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const p = platform();
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-o', guardian_id: 'g-o', player_id: 'kid-o', nickname: 'Oreo', level: 'L1' });
+    await lessonWithSpeech(p, 2);
+    const cron = { 'x-lcw-internal': 'cron', 'content-type': 'application/json' };
+    now = Date.parse('2026-11-16T22:00:00+09:00'); // seven hours later (a deploy, or a Worker outage)
+    expect((await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, cron)).body.detail.student_cards).toBe(1);
+    const box = (await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards as Array<{ ref: string; updated_at: number; card: any }>;
+    const days = box.filter((c) => c.ref.includes(':student:'));
+    expect(days.map((c) => c.ref)).toEqual([`${OPS_CARD_SOURCE}:lcw:student:kid-o:2026-11-16`]);
+    expect(days[0]!.card.title).toContain('Oreo');
+    expect(box.some((c) => c.ref.endsWith(':summary'))).toBe(true); // the idle lesson closed by the same cron
+    await call(p, 'POST', '/v1/admin/outbox/cards/ack', { items: box.map((c) => ({ ref: c.ref, updated_at: c.updated_at })) });
+    // the next morning yesterday is still looked at (unchanged: nothing resent); the day after, it is out of the look back
+    now = Date.parse('2026-11-17T09:00:00+09:00');
+    expect((await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, cron)).body.detail.student_cards).toBe(0);
+    expect((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards).toEqual([]);
+    now = Date.parse('2026-11-18T09:00:00+09:00');
     expect((await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, cron)).body.detail.student_cards).toBe(0);
   });
 
@@ -153,7 +178,7 @@ describe('hub cards from the server (ops-cards.ts outbox)', () => {
     expect((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards).toEqual([]);
   });
 
-  it('speech at 23:59 KST goes on that day\'s card when the 00:00 cron runs (the two-hour look back)', async () => {
+  it('speech at 23:59 KST goes on that day\'s card when the 00:00 cron runs (yesterday is in the look back)', async () => {
     let now = Date.parse('2026-11-16T23:59:00+09:00');
     vi.spyOn(Date, 'now').mockImplementation(() => now);
     const p = platform();

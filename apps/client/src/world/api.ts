@@ -89,6 +89,13 @@ export interface WorldHandle {
   walkToNpc?(npcId: string): Promise<void>;
   /** Coin balance from the server ledger (dialog `coinsTotal`, lesson sync); null hides it. */
   setCoins?(total: number | null): void;
+  /** Server reachable? false shows the HUD band "혼자 모드로 계속 중" (docs/08 G01); the world keeps running. */
+  setOnline?(on: boolean): void;
+  /**
+   * Map read-out for the map screen (docs/08 G06): sectors (one town sector until world generation lands, then the
+   * 3 x 3 sectors), the walkable places, and where the player stands. World coordinates in metres.
+   */
+  getMap?(): WorldMapInfo;
   /**
    * Star chip from an outside count (a lesson's stars, server-summed): the chip shows this number and celebrate()
    * no longer adds to it, so a star is never counted twice. null hands the chip back to celebrate().
@@ -121,6 +128,23 @@ export interface WorldHandle {
   onRoomCheck?(cb: (r: RoomCheckInfo) => void): () => void;
   /** Performance and position read-out (headless checks, tier auto-detect). */
   getStats?(): WorldStats;
+}
+
+export interface WorldMapInfo {
+  /** side of the square world in metres */
+  size_m: number;
+  sectors: Array<{
+    id: string;
+    nameKo: string;
+    /** zone kind for the legend (docs/08 2.3 구역): town, biome, ruin, plot, or a later kind */
+    kind: 'town' | 'biome' | 'ruin' | 'plot' | (string & {});
+    /** not yet visited: the map draws a silhouette (docs/08 G06) */
+    explored: boolean;
+    /** [x0, z0, x1, z1] */
+    rect: [number, number, number, number];
+  }>;
+  scenes: Array<{ id: SceneId; nameKo: string; x: number; z: number }>;
+  player: { x: number; z: number; yaw: number };
 }
 
 export type BuildAccess =

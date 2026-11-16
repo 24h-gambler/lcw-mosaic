@@ -129,6 +129,7 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   hotbarEmpty: 'Empty',
   hotbarAllEmpty: 'Your bag is empty · Order in English to fill it',
   offlineBand: 'Connection lost for a moment · Playing on your own',
+  goingToPeer: 'Going to the student',
   weatherClear: 'Sunny',
   weatherSnow: 'Snow',
   weatherNight: 'Night',

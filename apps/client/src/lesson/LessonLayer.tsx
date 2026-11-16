@@ -180,7 +180,6 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
       window.removeEventListener('keydown', unlock);
     };
   }, [active]);
-  const [teacherIn, setTeacherIn] = useState(false);
   useEffect(() => {
     if (!active) return;
     if (lowTier) {
@@ -200,13 +199,6 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     setActive(false);
     setView(initialLessonView());
   } : undefined;
-  // "선생님이 들어왔어요" for a few seconds when the lesson goes live in the child's own world (no code in the address).
-  useEffect(() => {
-    if (code || !live) return undefined;
-    setTeacherIn(true);
-    const t = setTimeout(() => setTeacherIn(false), TEACHER_IN_MS);
-    return () => clearTimeout(t);
-  }, [code, live]);
   // The lesson ended: the end card stays a moment, then the child is back in their own world.
   useEffect(() => {
     if (view.phase !== 'ended' || code) return undefined;
@@ -214,9 +206,11 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.phase, code]);
-  // A saved session that expired or a lesson that is gone: no code entry in the world, the child plays on.
+  // A saved session that expired or a lesson that is gone: no code entry in the world, the child plays on. The
+  // controller's own phase decides, not the rendered one: on mount the view still shows the initial 'needs_code' while
+  // `start` has already resumed the saved session (live), and that session must not be dropped.
   useEffect(() => {
-    if (code || view.phase !== 'needs_code' || !active) return;
+    if (!lessonGoneInWorld({ code, active, viewPhase: view.phase, controllerPhase: ctl.state.phase })) return;
     backToSolo?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.phase, active, code]);
@@ -288,7 +282,6 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     return (
       <Shell>
         <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
-        {teacherIn ? <TeacherInToast /> : null}
         {/* Second child in both live layouts, so opening the dialog does not remount (and lock) the 1PC panel. */}
         <TeacherPanel lessonId={view.lessonId} planId={view.planId} stageId={view.stageId} />
         {folded ? (
@@ -337,7 +330,6 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   return (
     <Shell>
       <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
-      {teacherIn ? <TeacherInToast /> : null}
       <TeacherPanel lessonId={view.lessonId} planId={view.planId} stageId={view.stageId} />
       {/* One column that shares the height (the panel scrolls when short), so nothing covers anything on a phone.
           With the world: its HUD owns the top (scene chip, goal, bubbles over NPCs), so the banner sits just above our
@@ -611,22 +603,16 @@ export function pinOpeningLine(
 
 /** After the lesson ends the HUD star chip keeps the lesson's stars this long, then shows the world's own count. */
 export const LESSON_STARS_HOLD_MS = 8_000;
-/** How long "선생님이 들어왔어요" stays. */
-export const TEACHER_IN_MS = 4_000;
 /** How long the end card stays before the child is back in their own world. */
 export const LESSON_ENDED_BACK_MS = 8_000;
 
-/** The teacher came into the child's world: a short line at the top, never catching taps. */
-function TeacherInToast(): React.ReactElement {
-  return (
-    <div
-      data-testid="lesson-teacher-in"
-      role="status"
-      style={{ position: 'absolute', top: SP[3], left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none', background: C['leaf-d'], color: C['paper-0'], borderRadius: 999, padding: `${SP[2]}px ${SP[4]}px`, fontFamily: T.fonts.ui, fontWeight: 800, fontSize: T.scale['body-l'].sizePx, whiteSpace: 'nowrap', boxShadow: '0 4px 14px rgba(0,0,0,.18)' }}
-    >
-      {S.attach.teacherIn}
-    </div>
-  );
+/**
+ * In the child's own world (no ?code=), a lesson that asks for a code is gone (expired session, ended lesson): back to
+ * solo play. Both phases must say so: right after mount the rendered view is still the initial 'needs_code' while the
+ * controller already resumed the saved session — dropping it there would undo every lesson that comes to the world.
+ */
+export function lessonGoneInWorld(s: { code: string | null; active: boolean; viewPhase: LessonView['phase']; controllerPhase: LessonView['phase'] }): boolean {
+  return !s.code && s.active && s.viewPhase === 'needs_code' && s.controllerPhase === 'needs_code';
 }
 
 /** How long the teacher's newest line shows over the dialog window. */

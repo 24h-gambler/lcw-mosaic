@@ -7,7 +7,7 @@ import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
 import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LessonController, goalTargetEn, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
-import { LessonLayer, goToSceneChecked, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
+import { LessonLayer, goToSceneChecked, lessonGoneInWorld, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
 import { SubmitError } from '../dialog/submit.js';
 
@@ -437,6 +437,13 @@ describe('client lesson module (docs/19 §4)', () => {
     const solo = renderToStaticMarkup(React.createElement(LessonLayer, { world: null, search: '' }));
     expect(solo).toBe('');
     expect(solo).not.toContain('lesson-code-open');
+    // A saved session resumed in the world (the lesson came to the child): the first render still says 'needs_code'
+    // but the controller is live — the session stays. Only when both say 'needs_code' is the lesson gone.
+    const base = { code: null, active: true } as const;
+    expect(lessonGoneInWorld({ ...base, viewPhase: 'needs_code', controllerPhase: 'live' })).toBe(false);
+    expect(lessonGoneInWorld({ ...base, viewPhase: 'needs_code', controllerPhase: 'needs_code' })).toBe(true);
+    expect(lessonGoneInWorld({ ...base, code: '123456', viewPhase: 'needs_code', controllerPhase: 'needs_code' })).toBe(false);
+    expect(lessonGoneInWorld({ ...base, active: false, viewPhase: 'needs_code', controllerPhase: 'needs_code' })).toBe(false);
     const html = renderToStaticMarkup(React.createElement(LessonLayer, { world: null, search: '?code=123456' }));
     expect(html).toContain(LESSON_STRINGS_KO.code.title);
     const all = JSON.stringify(LESSON_STRINGS_KO);

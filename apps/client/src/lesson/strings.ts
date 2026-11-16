@@ -1,9 +1,5 @@
 /** Korean copy for the lesson layer of the 3D client (AGENTS 6). No prices, payments or deadlines (AGENTS 4.9). */
 export const LESSON_STRINGS_KO = {
-  /** A lesson is the teacher coming into the child's own world: nothing to type (Dan 11-16). */
-  attach: {
-    teacherIn: '👋 선생님이 들어왔어요'
-  },
   code: {
     title: '선생님이 알려 준 숫자 6개를 넣어요',
     sub: '수업 화면으로 바로 들어가요',

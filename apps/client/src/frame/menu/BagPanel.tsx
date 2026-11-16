@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { FRAME_STRINGS as F } from '../strings.js';
 import { SOCKET_NAMES, fetchItems, moveThing, type ItemsView, type ThingView } from '../api.js';
 import type { MenuPanelProps } from './types.js';
+import { KoHelp } from './ko-help.js';
 
 /** Bag slots in order: the server's bag things, padded with empty slots up to the bag size. */
 export function bagSlots(v: ItemsView): Array<ThingView | null> {
@@ -104,8 +105,8 @@ export function BagPanel(props: MenuPanelProps): React.ReactElement {
     return (
       <section>
         <style>{THING_CSS}</style>
-        <h2>{F.bagTitle}</h2>
-        <p className="note">{F.guestNote}</p>
+        <h2>{F.bagTitle}<KoHelp of={F.bagTitle} /></h2>
+        <p className="note">{F.guestNote}<KoHelp of={F.guestNote} /></p>
         <div className="lcw-bagrow">
           {Array.from({ length: 5 }, (_, i) => (
             <Thing key={i} t={null} slot={i} />
@@ -117,8 +118,8 @@ export function BagPanel(props: MenuPanelProps): React.ReactElement {
     return (
       <section>
         <style>{THING_CSS}</style>
-        <h2>{F.bagTitle}</h2>
-        <p className="muted">{state === 'offline' ? F.offline : F.loading}</p>
+        <h2>{F.bagTitle}<KoHelp of={F.bagTitle} /></h2>
+        <p className="muted">{state === 'offline' ? F.offline : F.loading}<KoHelp of={state === 'offline' ? F.offline : F.loading} /></p>
       </section>
     );
 
@@ -129,8 +130,8 @@ export function BagPanel(props: MenuPanelProps): React.ReactElement {
   return (
     <section>
       <style>{THING_CSS}</style>
-      <h2>{F.bagTitle}</h2>
-      <p className="muted">{F.bagHint}</p>
+      <h2>{F.bagTitle}<KoHelp of={F.bagTitle} /></h2>
+      <p className="muted">{F.bagHint}<KoHelp of={F.bagHint} /></p>
       {msg ? (
         <p className="lcw-msg" role="status">
           {msg}
@@ -152,9 +153,9 @@ export function BagPanel(props: MenuPanelProps): React.ReactElement {
           />
         ))}
       </div>
-      {slots.every((s) => s === null) ? <p className="muted">{F.bagEmpty}</p> : null}
+      {slots.every((s) => s === null) ? <p className="muted">{F.bagEmpty}<KoHelp of={F.bagEmpty} /></p> : null}
 
-      <h3>{F.socketsTitle}</h3>
+      <h3>{F.socketsTitle}<KoHelp of={F.socketsTitle} /></h3>
       <div className="lcw-sockets">
         {SOCKET_NAMES.map((s) => (
           <div key={s}>
@@ -166,10 +167,10 @@ export function BagPanel(props: MenuPanelProps): React.ReactElement {
         ))}
       </div>
 
-      <h3>{F.chestTitle}</h3>
-      <p className="muted">{F.chestHint}</p>
+      <h3>{F.chestTitle}<KoHelp of={F.chestTitle} /></h3>
+      <p className="muted">{F.chestHint}<KoHelp of={F.chestHint} /></p>
       {chest.length === 0 ? (
-        <p className="muted">{F.chestEmpty}</p>
+        <p className="muted">{F.chestEmpty}<KoHelp of={F.chestEmpty} /></p>
       ) : (
         <div className="lcw-chest">
           {chest.map((t) => (

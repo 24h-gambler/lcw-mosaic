@@ -6,8 +6,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { LangLevel } from '@lcw/content';
 import { SHAPE_TOKENS, TYPOGRAPHY_TOKENS } from '@lcw/ui';
-import { FRAME_STRINGS as F } from '../strings.js';
+import { FRAME_STRINGS as F, FRAME_STRINGS_KO, frameLang } from '../strings.js';
 import type { MenuPanelProps } from './types.js';
+import { KoHelp } from './ko-help.js';
 import {
   KEY_ACTIONS,
   DEFAULT_KEYS,
@@ -28,7 +29,8 @@ import { playSfx, speakEnglish, unlockDialogAudio } from '../../dialog/sound.js'
 
 type Section = 'controls' | 'sound' | 'screen' | 'access' | 'mic';
 const SECTIONS: readonly Section[] = ['controls', 'sound', 'screen', 'access', 'mic'];
-const SECTION_LABEL: Record<Section, string> = { controls: F.sControls, sound: F.sSound, screen: F.sScreen, access: F.sAccess, mic: F.sMic };
+/** Read at render time: the strings follow the screen language. */
+const sectionLabel = (sec: Section): string => ({ controls: F.sControls, sound: F.sSound, screen: F.sScreen, access: F.sAccess, mic: F.sMic })[sec];
 const SECTION_ICON: Record<Section, string> = { controls: '🎮', sound: '🔊', screen: '🖥️', access: '♿', mic: '🎤' };
 
 const KEY_GROUPS: ReadonlyArray<readonly [string, readonly KeyAction[]]> = [
@@ -124,12 +126,24 @@ function useSettings(): Readonly<FrameSettings> {
   return s;
 }
 
-function Row(props: { title: string; hint?: string; wide?: boolean; children: React.ReactNode; id?: string }): React.ReactElement {
+function Row(props: { title: string; hint?: string; wide?: boolean; children: React.ReactNode; id?: string; koAlways?: string }): React.ReactElement {
   return (
     <div className="lcw-set__row">
       <div className="lcw-set__lbl">
         <strong id={props.id}>{props.title}</strong>
-        {props.hint ? <span className="muted">{props.hint}</span> : null}
+        {props.koAlways && frameLang() !== 'ko' ? (
+          <span className="ko" lang="ko">
+            {props.koAlways}
+          </span>
+        ) : (
+          <KoHelp of={props.title} />
+        )}
+        {props.hint ? (
+          <span className="muted">
+            {props.hint}
+            <KoHelp of={props.hint} />
+          </span>
+        ) : null}
       </div>
       <div className={`lcw-set__ctl${props.wide ? ' wide' : ''}`}>{props.children}</div>
     </div>
@@ -218,7 +232,11 @@ function KeysEditor({ s }: { s: Readonly<FrameSettings> }): React.ReactElement {
     <div className="lcw-set__row col">
       <div className="lcw-set__lbl">
         <strong>{F.keysTitle}</strong>
-        <span className="muted">{F.keysHint}</span>
+        <KoHelp of={F.keysTitle} />
+        <span className="muted">
+          {F.keysHint}
+          <KoHelp of={F.keysHint} />
+        </span>
       </div>
       <div className="lcw-set__keys">
         {KEY_GROUPS.map(([g, actions]) => (
@@ -355,7 +373,7 @@ function SoundSection({ s, level }: { s: Readonly<FrameSettings>; level: LangLev
           ) : null}
         </Row>
       ))}
-      <h3>{F.npcVoiceTitle}</h3>
+      <h3>{F.npcVoiceTitle}<KoHelp of={F.npcVoiceTitle} /></h3>
       <Row title={F.voiceRateTitle} wide>
         <Slider
           value={s.voiceRate}
@@ -464,6 +482,10 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
 function AccessSection({ s }: { s: Readonly<FrameSettings> }): React.ReactElement {
   return (
     <>
+      {/* first, and always with its Korean name, so a child who reads only Korean can find it */}
+      <Row title={F.helpKoTitle} hint={F.helpKoHint} koAlways={FRAME_STRINGS_KO.helpKoTitle}>
+        <Switch on={s.helpKo} label={F.helpKoTitle} onChange={(on) => updateFrameSettings({ helpKo: on })} />
+      </Row>
       <Row title={F.readableTitle} hint={F.readableHint}>
         <Switch on={s.readableFont} label={F.readableTitle} onChange={(on) => updateFrameSettings({ readableFont: on })} />
         <span className="lcw-set__sample" lang="en" style={{ fontFamily: s.readableFont ? TYPOGRAPHY_TOKENS.fonts.dyslexic : TYPOGRAPHY_TOKENS.fonts.target }}>
@@ -576,13 +598,16 @@ export function SettingsPanel(props: MenuPanelProps): React.ReactElement {
             onClick={() => setSec(x)}
           >
             <span aria-hidden="true">{SECTION_ICON[x]}</span>
-            {SECTION_LABEL[x]}
+            <span>
+              {sectionLabel(x)}
+              <KoHelp of={sectionLabel(x)} />
+            </span>
           </button>
         ))}
       </div>
       <div className="lcw-set__main" id="lcw-set-sec" role="tabpanel" aria-labelledby={`lcw-set-tab-${sec}`}>
-        <h2>{SECTION_LABEL[sec]}</h2>
-        <p className="muted lcw-set__saved">{saved ? F.settingsSavedHere : F.settingsNotSaved}</p>
+        <h2>{sectionLabel(sec)}<KoHelp of={sectionLabel(sec)} /></h2>
+        <p className="muted lcw-set__saved">{saved ? F.settingsSavedHere : F.settingsNotSaved}<KoHelp of={saved ? F.settingsSavedHere : F.settingsNotSaved} /></p>
         {sec === 'controls' ? <ControlsSection s={s} /> : null}
         {sec === 'sound' ? <SoundSection s={s} level={level} /> : null}
         {sec === 'screen' ? <ScreenSection s={s} props={props} /> : null}

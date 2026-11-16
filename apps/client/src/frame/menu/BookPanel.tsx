@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { FRAME_STRINGS as F } from '../strings.js';
 import { fetchCollection, type CollectionBook, type CollectionView } from '../api.js';
 import type { MenuPanelProps } from './types.js';
+import { KoHelp } from './ko-help.js';
 
 export const BOOK_IDS = ['blocks', 'minerals', 'enemies', 'food', 'outfits', 'expressions'] as const;
 const BOOK_ICONS: Record<string, string> = { blocks: '🧱', minerals: '💎', enemies: '👾', food: '🍪', outfits: '👕', expressions: '💬' };
@@ -75,10 +76,10 @@ export function BookPanel(props: MenuPanelProps): React.ReactElement {
   return (
     <section>
       <style>{BOOK_CSS}</style>
-      <h2>{F.bookTitle}</h2>
-      {state === 'guest' ? <p className="note">{F.guestNote}</p> : null}
-      {state === 'loading' ? <p className="muted">{F.loading}</p> : null}
-      {state === 'offline' ? <p className="note">{F.offline}</p> : null}
+      <h2>{F.bookTitle}<KoHelp of={F.bookTitle} /></h2>
+      {state === 'guest' ? <p className="note">{F.guestNote}<KoHelp of={F.guestNote} /></p> : null}
+      {state === 'loading' ? <p className="muted">{F.loading}<KoHelp of={F.loading} /></p> : null}
+      {state === 'offline' ? <p className="note">{F.offline}<KoHelp of={F.offline} /></p> : null}
       <div className="lcw-books" role="tablist" aria-label={F.bookTitle}>
         {books.map((b) => (
           <button key={b.id} type="button" role="tab" aria-selected={b.id === book.id} onClick={() => setSel(b.id)}>
@@ -93,7 +94,7 @@ export function BookPanel(props: MenuPanelProps): React.ReactElement {
       </div>
       <div role="tabpanel" aria-label={F.books[book.id] ?? book.id}>
         {book.entries.length === 0 ? (
-          <p className="note">{F.bookEmptyBook}</p>
+          <p className="note">{F.bookEmptyBook}<KoHelp of={F.bookEmptyBook} /></p>
         ) : (
           <ul className="lcw-entries">
             {book.entries.map((e) => (
@@ -109,7 +110,7 @@ export function BookPanel(props: MenuPanelProps): React.ReactElement {
       </div>
       {view?.achievements && view.achievements.length > 0 ? (
         <>
-          <h3>{F.achievementsTitle}</h3>
+          <h3>{F.achievementsTitle}<KoHelp of={F.achievementsTitle} /></h3>
           <ul className="lcw-ach">
             {view.achievements.map((a) => {
               const pct = a.done ? 100 : a.goal ? Math.round(((a.progress ?? 0) / a.goal) * 100) : 0;

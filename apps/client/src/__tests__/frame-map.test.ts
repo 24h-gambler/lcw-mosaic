@@ -2,13 +2,14 @@
 // sectors, zone colour + pattern, the band elevator, the screen-reader summary, and the rendered panel.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TUNING, VoxelWorld } from '@lcw/sim-core';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import type { SceneId, WorldHandle, WorldMapInfo } from '../world/api.js';
 import { buildMapInfo } from '../world/map-info.js';
 import { SCENES } from '../world/town.js';
-import { FRAME_STRINGS as F, withCopula, withDirection } from '../frame/strings.js';
+import { FRAME_STRINGS as F, withCopula, withDirection, setFrameLang } from '../frame/strings.js';
+import { setWorldFrameLang } from '../world/strings.js';
 import {
   areasIn,
   arrowDeg,
@@ -29,6 +30,16 @@ import {
 } from '../frame/menu/map-model.js';
 import { MapPanel, readMapSnapshot, startTrip } from '../frame/menu/MapPanel.js';
 import type { FrameAuth, MenuPanelProps } from '../frame/menu/types.js';
+
+// This file checks the Korean copy: pin the screen language to Korean (by default it follows the learn language).
+beforeAll(() => {
+  setFrameLang('ko');
+  setWorldFrameLang('ko');
+});
+afterAll(() => {
+  setFrameLang('en');
+  setWorldFrameLang('en');
+});
 
 const plot = new VoxelWorld().plot;
 const townInfo = (player = { x: 144.5, z: 152.3, yaw: Math.PI }): WorldMapInfo => buildMapInfo({ player, plot });

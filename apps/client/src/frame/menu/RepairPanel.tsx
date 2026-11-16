@@ -9,6 +9,7 @@ import { UI_STRINGS_KO } from '@lcw/content';
 import { FRAME_STRINGS as F } from '../strings.js';
 import { fetchRepairGear, pickRepair, type RepairGearView } from '../api.js';
 import type { MenuPanelProps } from './types.js';
+import { KoHelp } from './ko-help.js';
 import { DialogPanel } from '../../dialog/DialogPanel.js';
 import { createReviewSubmit, type ReviewSignView } from '../../dialog/review.js';
 import { npcForReview } from '../../dialog/ReviewDock.js';
@@ -103,17 +104,17 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
   return (
     <section>
       <style>{REPAIR_CSS}</style>
-      <h2>{F.repairTitle}</h2>
-      <p className="muted">{F.repairIntro}</p>
+      <h2>{F.repairTitle}<KoHelp of={F.repairTitle} /></h2>
+      <p className="muted">{F.repairIntro}<KoHelp of={F.repairIntro} /></p>
       {result ? (
         <p className={`lcw-res${result.pass ? '' : ' again'}`} role="status">
           {result.text}
         </p>
       ) : null}
-      {state === 'guest' ? <p className="note">{F.guestNote}</p> : null}
-      {state === 'loading' ? <p className="muted">{F.loading}</p> : null}
-      {state === 'offline' ? <p className="note">{F.offline}</p> : null}
-      {state === 'ready' && items && items.length === 0 ? <p className="note">{F.repairEmpty}</p> : null}
+      {state === 'guest' ? <p className="note">{F.guestNote}<KoHelp of={F.guestNote} /></p> : null}
+      {state === 'loading' ? <p className="muted">{F.loading}<KoHelp of={F.loading} /></p> : null}
+      {state === 'offline' ? <p className="note">{F.offline}<KoHelp of={F.offline} /></p> : null}
+      {state === 'ready' && items && items.length === 0 ? <p className="note">{F.repairEmpty}<KoHelp of={F.repairEmpty} /></p> : null}
       {state === 'ready' && items && items.length > 0 ? (
         <ul className="lcw-repair">
           {items.map((it) => (

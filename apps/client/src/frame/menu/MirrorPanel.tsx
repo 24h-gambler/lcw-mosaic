@@ -9,6 +9,7 @@ import { FRAME_STRINGS as F } from '../strings.js';
 import { SOCKET_NAMES, fetchItems, type ItemsView } from '../api.js';
 import { socketThings } from './BagPanel.js';
 import type { MenuPanelProps } from './types.js';
+import { KoHelp } from './ko-help.js';
 import type { NpcLook } from '../../world/town.js';
 
 /** Next yaw after a turn step (radians, kept in -PI..PI). */
@@ -165,6 +166,7 @@ function MirrorView({ look, reduceMotion }: { look: NpcLook; reduceMotion: boole
         </button>
         <span className="muted" style={{ alignSelf: 'center' }}>
           {F.mirrorHint}
+          <KoHelp of={F.mirrorHint} />
         </span>
         <button type="button" className="btn" onClick={() => turn(Math.PI / 4)} aria-label={F.turnRight}>
           ⟳
@@ -195,11 +197,11 @@ export function MirrorPanel(props: MenuPanelProps): React.ReactElement {
   return (
     <section>
       <style>{MIRROR_CSS}</style>
-      <h2>{F.mirrorTitle}</h2>
+      <h2>{F.mirrorTitle}<KoHelp of={F.mirrorTitle} /></h2>
       <div className="lcw-mirror">
         {look ? <MirrorView look={look} reduceMotion={reduceMotion} /> : <div />}
         <div>
-          <h3 style={{ marginTop: 0 }}>{F.wearing}</h3>
+          <h3 style={{ marginTop: 0 }}>{F.wearing}<KoHelp of={F.wearing} /></h3>
           <ul className="lcw-mirror__list">
             {SOCKET_NAMES.map((s) => {
               const t = worn?.[s] ?? null;
@@ -214,7 +216,7 @@ export function MirrorPanel(props: MenuPanelProps): React.ReactElement {
               );
             })}
           </ul>
-          {!auth.token ? <p className="note" style={{ marginTop: 8 }}>{F.guestNote}</p> : null}
+          {!auth.token ? <p className="note" style={{ marginTop: 8 }}>{F.guestNote}<KoHelp of={F.guestNote} /></p> : null}
         </div>
       </div>
     </section>

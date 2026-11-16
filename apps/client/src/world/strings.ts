@@ -1,6 +1,63 @@
 /** Player-facing Korean strings of the world domain (AGENTS 6 "문자열"). English target sentences come from content. */
+import { uiLang } from '../frame/lang.js';
+
+/**
+ * The HUD strings the frame owns (status chip, connection band, weather, caption, gauges, help lines), one table per
+ * screen language. `setWorldFrameLang()` copies the chosen table into the live `WORLD_STRINGS` (and `BAND_NAMES`), so
+ * every `W.x` read follows the screen language. The rest of `WORLD_STRINGS` is the world lane's and stays as it is.
+ */
+export const WORLD_FRAME_STRINGS_KO = {
+  hotbarEmpty: '빈 칸',
+  hotbarAllEmpty: '가방이 비어 있어요 · 영어로 주문하면 여기에 들어와요',
+  offlineBand: '연결이 잠깐 끊겼어요 · 혼자 모드로 계속 중',
+  weatherClear: '맑음',
+  weatherSnow: '눈',
+  weatherNight: '밤',
+  hunger: '배고픔',
+  thirst: '목마름',
+  slowed: '느려짐',
+  useAgainFood: '한 번 더 누르면 먹어요',
+  useAgainDrink: '한 번 더 누르면 마셔요',
+  ate: '냠냠! 배고픔이 채워졌어요',
+  drank: '꿀꺽! 목마름이 채워졌어요',
+  restLater: '조금 있다가 다시 먹을 수 있어요',
+  lowHunger: '배가 고파서 느려졌어요 · 카페에서 영어로 주문해 봐요',
+  lowThirst: '목이 말라서 느려졌어요 · 카페에서 음료를 주문해 봐요',
+  controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
+  controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기',
+  // Building on my plot (docs/03 D13).
+  buildHelpDesktop: '내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · Z 되돌리기 · R 돌리기',
+  buildHelpTouch: '내 부지예요! 톡 누르면 놓기 · 부수기를 고르고 길게 누르기'
+};
+
+export type WorldFrameStrings = typeof WORLD_FRAME_STRINGS_KO;
+
+/** English HUD (the learn language is English): short, warm, about as long as the Korean so one-line spots hold. */
+export const WORLD_FRAME_STRINGS_EN: WorldFrameStrings = {
+  hotbarEmpty: 'Empty',
+  hotbarAllEmpty: 'Your bag is empty · Order in English to fill it',
+  offlineBand: 'Offline for a moment · Keep playing on your own',
+  weatherClear: 'Sunny',
+  weatherSnow: 'Snow',
+  weatherNight: 'Night',
+  hunger: 'Hunger',
+  thirst: 'Thirst',
+  slowed: 'Slower',
+  useAgainFood: 'Press again to eat',
+  useAgainDrink: 'Press again to drink',
+  ate: 'Yum! Hunger filled up',
+  drank: 'Gulp! Thirst filled up',
+  restLater: 'You can eat again in a little while',
+  lowHunger: "Hungry, so you're slower · Try ordering food at the cafe",
+  lowThirst: "Thirsty, so you're slower · Try ordering a drink at the cafe",
+  controlsDesktop: 'WASD move · Drag mouse to look · Space jump · E talk', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
+  controlsTouch: 'Drag left to move · Drag right to look around',
+  buildHelpDesktop: 'My plot! Right-click place · Hold left-click break · 1~5 pick · Z undo · R turn',
+  buildHelpTouch: 'My plot! Tap to place · Pick break, then press and hold'
+};
 
 export const WORLD_STRINGS = {
+  ...WORLD_FRAME_STRINGS_KO,
   loading: '마을을 짓는 중…',
   loadingHint: '잠깐만요, 블록을 하나씩 쌓고 있어요',
   talk: '말 걸기',
@@ -17,12 +74,6 @@ export const WORLD_STRINGS = {
   starsAgain: '한 번 더 해 볼까요?',
   starsGot: (n: number): string => `별 ${n}개!`,
   itemGot: (name: string): string => `${name}${objectParticle(name)} 받았어요`,
-  hotbarEmpty: '빈 칸',
-  hotbarAllEmpty: '가방이 비어 있어요 · 영어로 주문하면 여기에 들어와요',
-  offlineBand: '연결이 잠깐 끊겼어요 · 혼자 모드로 계속 중',
-  weatherClear: '맑음',
-  weatherSnow: '눈',
-  weatherNight: '밤',
   lessonBadge: '수업 중',
   teacherDefault: '선생님',
   teacherWith: (name: string): string => `👩‍🏫 ${name} 함께`,
@@ -33,21 +84,7 @@ export const WORLD_STRINGS = {
   seatPausedBody: '마을은 둘러볼 수 있어요. 다시 같이 놀고 싶으면 보호자에게 말해 주세요.',
   seatPausedOk: '알겠어요',
   seatPausedChip: '둘러보기만',
-  hunger: '배고픔',
-  thirst: '목마름',
-  slowed: '느려짐',
-  useAgainFood: '한 번 더 누르면 먹어요',
-  useAgainDrink: '한 번 더 누르면 마셔요',
-  ate: '냠냠! 배고픔이 채워졌어요',
-  drank: '꿀꺽! 목마름이 채워졌어요',
-  restLater: '조금 있다가 다시 먹을 수 있어요',
-  lowHunger: '배가 고파서 느려졌어요 · 카페에서 영어로 주문해 봐요',
-  lowThirst: '목이 말라서 느려졌어요 · 카페에서 음료를 주문해 봐요',
-  controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
-  controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기',
   // Building on my plot (docs/03 D13).
-  buildHelpDesktop: '내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · Z 되돌리기 · R 돌리기',
-  buildHelpTouch: '내 부지예요! 톡 누르면 놓기 · 부수기를 고르고 길게 누르기',
   toolPlace: '놓기',
   toolBreak: '부수기',
   chest: '상자',
@@ -165,6 +202,17 @@ export const BAND_NAMES_KO = {
   deep_core: '네더'
 } as const;
 
+export type BandNames = { [K in keyof typeof BAND_NAMES_KO]: string };
+
+export const BAND_NAMES_EN: Readonly<BandNames> = {
+  deep_space: 'Deep space',
+  space_station: 'Space station',
+  sky_island: 'Sky islands',
+  surface: 'Ground',
+  mine: 'Mines',
+  deep_core: 'Nether'
+};
+
 /** Item names shown when giveItem() puts something in a slot. Unknown keys fall back to a gift box. */
 export const ITEM_NAMES_KO: Record<string, string> = {
   honey_tea: '꿀차',
@@ -240,8 +288,52 @@ export interface KeyHintLabels {
 }
 export const DEFAULT_KEY_HINTS: Readonly<KeyHintLabels> = Object.freeze({ move: 'WASD', jump: 'Space', talk: 'E', undo: 'Z', rotate: 'R' });
 export function controlsDesktopFor(k: Readonly<KeyHintLabels>): string {
-  return `${k.move} 이동 · 마우스 끌기 시점 · ${k.jump} 점프 · ${k.talk} 말 걸기`;
+  return hudLang === 'en'
+    ? `${k.move} move · Drag mouse to look · ${k.jump} jump · ${k.talk} talk`
+    : `${k.move} 이동 · 마우스 끌기 시점 · ${k.jump} 점프 · ${k.talk} 말 걸기`;
 }
 export function buildHelpDesktopFor(k: Readonly<KeyHintLabels>): string {
-  return `내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · ${k.undo} 되돌리기 · ${k.rotate} 돌리기`;
+  return hudLang === 'en'
+    ? `My plot! Right-click place · Hold left-click break · 1~5 pick · ${k.undo} undo · ${k.rotate} turn`
+    : `내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · ${k.undo} 되돌리기 · ${k.rotate} 돌리기`;
 }
+
+// ---- screen language of the frame's HUD strings
+
+export type HudLang = 'en' | 'ko';
+
+export const WORLD_FRAME_STRINGS_BY_LANG: Readonly<Record<HudLang, WorldFrameStrings>> = { en: WORLD_FRAME_STRINGS_EN, ko: WORLD_FRAME_STRINGS_KO };
+export const BAND_NAMES_BY_LANG: Readonly<Record<HudLang, Readonly<BandNames>>> = { en: BAND_NAMES_EN, ko: BAND_NAMES_KO };
+/** Window event after the HUD strings changed language or Korean help (world/hud.ts redraws its built-once text). */
+export const HUD_TEXT_EVENT = 'lcw:hud-text';
+/** HUD notices that carry the Korean in parentheses while Korean help is on and the screen is not Korean. */
+export const HUD_KO_HELP_KEYS = ['offlineBand', 'lowHunger', 'lowThirst'] as const;
+
+let hudLang: HudLang = uiLang();
+
+/** Live band names of the current screen language (the HUD place line and the map). */
+export const BAND_NAMES: BandNames = { ...BAND_NAMES_BY_LANG[hudLang] };
+
+/**
+ * Put the frame's HUD strings in `lang` (WORLD_STRINGS for the frame keys, BAND_NAMES, the help-line templates).
+ * `helpKo`: the notices of HUD_KO_HELP_KEYS add the Korean in parentheses when the screen is not Korean.
+ */
+export function setWorldFrameLang(lang: HudLang, opts: { helpKo?: boolean } = {}): void {
+  hudLang = lang;
+  const table: Record<string, string> = { ...WORLD_FRAME_STRINGS_BY_LANG[lang] };
+  if (opts.helpKo && lang !== 'ko') for (const k of HUD_KO_HELP_KEYS) table[k] = `${table[k]} (${WORLD_FRAME_STRINGS_KO[k]})`;
+  Object.assign(WORLD_STRINGS, table);
+  Object.assign(BAND_NAMES, BAND_NAMES_BY_LANG[lang]);
+  try {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(HUD_TEXT_EVENT));
+  } catch {
+    // no window (tests)
+  }
+}
+
+/** The screen language of the frame's HUD strings now. */
+export function worldFrameLang(): HudLang {
+  return hudLang;
+}
+
+setWorldFrameLang(hudLang);

@@ -13,6 +13,8 @@
  * - keys           -> `installKeyRemap` turns a re-bound key into the world's own key before anyone hears it
  * - mic button     -> `micHoldMode()` for the dialog mic (hold to talk instead of tap on / tap off)
  * - syllables      -> `syllableHints()` for the dialog's target sentence
+ * - Korean help    -> `helpKoOn()`: a small Korean line under the menu words and Korean in parentheses on the HUD
+ *                     notices, while the screen language (frame/lang.ts uiLang) is not Korean
  *
  * A linked child or a lesson student also keeps the record on the server (frame/settings-sync.ts), newest wins.
  *
@@ -141,6 +143,8 @@ export interface FrameSettings {
   colorAssist: boolean;
   syllables: boolean;
   strongFocus: boolean;
+  /** Korean help: Korean under the menu words (and on the HUD notices) while the screens show the learn language */
+  helpKo: boolean;
   /** when the player last changed something (ms since epoch; 0 = never): newest wins against the server copy */
   updatedAt: number;
 }
@@ -166,6 +170,7 @@ export const DEFAULT_SETTINGS: Readonly<FrameSettings> = Object.freeze({
   colorAssist: false,
   syllables: false,
   strongFocus: false,
+  helpKo: false,
   updatedAt: 0
 });
 
@@ -227,6 +232,7 @@ export function normalizeSettings(raw: unknown): FrameSettings {
     colorAssist: bool(raw.colorAssist, d.colorAssist),
     syllables: bool(raw.syllables, d.syllables),
     strongFocus: bool(raw.strongFocus, d.strongFocus),
+    helpKo: bool(raw.helpKo, d.helpKo),
     updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) && raw.updatedAt > 0 ? Math.round(raw.updatedAt) : 0
   };
 }
@@ -549,6 +555,10 @@ export function micHoldMode(): boolean {
 /** dialog: split the target sentence into syllables (docs/08 11장 읽기) */
 export function syllableHints(): boolean {
   return frameSettings().syllables;
+}
+/** menu and world HUD: the player turned Korean help on (the reader decides whether the screen language needs it) */
+export function helpKoOn(): boolean {
+  return frameSettings().helpKo;
 }
 
 // ---- key remap on the page

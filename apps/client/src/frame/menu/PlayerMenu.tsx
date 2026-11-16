@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import { FRAME_STRINGS as F } from '../strings.js';
 import { MENU_TABS, type MenuPanelProps, type MenuTab } from './types.js';
 import { ensureMenuStyle } from './styles.js';
+import { KoHelp } from './ko-help.js';
 import { BagPanel } from './BagPanel.js';
 import { MirrorPanel } from './MirrorPanel.js';
 import { MapPanel } from './MapPanel.js';
@@ -126,7 +127,10 @@ export function PlayerMenu(props: PlayerMenuProps): React.ReactElement {
                 <span className="ic" aria-hidden="true">
                   {TAB_ICONS[t]}
                 </span>
-                <span>{F.tabs[t]}</span>
+                <span>
+                  {F.tabs[t]}
+                  <KoHelp get={(k) => k.tabs[t]} />
+                </span>
                 {F.keys[t] ? <kbd aria-hidden="true">{F.keys[t]}</kbd> : null}
               </button>
             ))}

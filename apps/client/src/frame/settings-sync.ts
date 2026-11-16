@@ -46,6 +46,7 @@ export function toServerSettings(s: Readonly<FrameSettings>): FlatSettings {
   out.colorAssist = s.colorAssist;
   out.syllables = s.syllables;
   out.strongFocus = s.strongFocus;
+  out.helpKo = s.helpKo;
   out.updatedAt = s.updatedAt;
   return out;
 }

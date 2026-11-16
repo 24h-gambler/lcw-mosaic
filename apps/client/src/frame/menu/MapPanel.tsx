@@ -9,7 +9,7 @@ import React, { useCallback, useId, useMemo, useState } from 'react';
 import { TUNING } from '@lcw/sim-core';
 import type { ColorTokenName } from '@lcw/ui';
 import type { SceneId, WorldHandle, WorldMapInfo } from '../../world/api.js';
-import { BAND_NAMES_KO } from '../../world/strings.js';
+import { BAND_NAMES } from '../../world/strings.js';
 import { FRAME_STRINGS as F } from '../strings.js';
 import { bandOf, type BandId } from '../status.js';
 import {
@@ -37,6 +37,7 @@ import {
 } from './map-model.js';
 import { ensureMapStyle } from './map-styles.js';
 import type { MenuPanelProps } from './types.js';
+import { KoHelp } from './ko-help.js';
 
 const cv = (c: ColorTokenName): string => `var(--c-${c})`;
 
@@ -194,8 +195,8 @@ export function MapPanel({ world, lessonOn, close }: MenuPanelProps): React.Reac
   if (!snap) {
     return (
       <div className="lcw-map">
-        <h2>{F.mapTitle}</h2>
-        <p className="note">{world ? F.loading : F.mapNoWorld}</p>
+        <h2>{F.mapTitle}<KoHelp of={F.mapTitle} /></h2>
+        <p className="note">{world ? F.loading : F.mapNoWorld}<KoHelp of={world ? F.loading : F.mapNoWorld} /></p>
       </div>
     );
   }
@@ -252,15 +253,15 @@ export function MapPanel({ world, lessonOn, close }: MenuPanelProps): React.Reac
 
   return (
     <div className="lcw-map">
-      <h2>{F.mapTitle}</h2>
-      <p className="lcw-map__now">{F.mapNow(near?.nameKo ?? cells[playerCell]?.nameKo ?? F.unexplored, BAND_NAMES_KO[band], compassKo(info.player.yaw))}</p>
+      <h2>{F.mapTitle}<KoHelp of={F.mapTitle} /></h2>
+      <p className="lcw-map__now">{F.mapNow(near?.nameKo ?? cells[playerCell]?.nameKo ?? F.unexplored, BAND_NAMES[band], compassKo(info.player.yaw))}</p>
       <p className="lcw-map__sr" id={ids.sum}>
         {summary}
       </p>
       <div className="lcw-map__grid">
         <section className="lcw-map__main" aria-labelledby={ids.title} aria-describedby={ids.sum}>
           <div className="lcw-map__head">
-            <h3 id={ids.title}>{cell.nameKo ?? F.unexplored}</h3>
+            <h3 id={ids.title}>{cell.nameKo ?? F.unexplored}<KoHelp of={cell.nameKo ?? F.unexplored} /></h3>
             {cell.explored ? (
               <span className="lcw-map__chip">
                 <Swatch id={`${uid}h`} fill={cell.zone} />
@@ -310,7 +311,7 @@ export function MapPanel({ world, lessonOn, close }: MenuPanelProps): React.Reac
         </section>
 
         <section className="lcw-map__world" aria-labelledby={`${ids.ov}h`}>
-          <h3 id={`${ids.ov}h`}>{F.mapWorldTitle}</h3>
+          <h3 id={`${ids.ov}h`}>{F.mapWorldTitle}<KoHelp of={F.mapWorldTitle} /></h3>
           <div className="lcw-map__ov">
             <svg viewBox={`0 0 ${MAP_UNITS} ${MAP_UNITS}`} aria-hidden="true" focusable="false">
               <ZoneDefs id={ids.ov} t={4} />
@@ -352,13 +353,13 @@ export function MapPanel({ world, lessonOn, close }: MenuPanelProps): React.Reac
               ))}
             </div>
           </div>
-          <p className="muted lcw-map__hint">{F.mapWorldHint}</p>
+          <p className="muted lcw-map__hint">{F.mapWorldHint}<KoHelp of={F.mapWorldHint} /></p>
         </section>
 
         <section className="lcw-map__places" aria-labelledby={`${uid}ph`}>
-          <h3 id={`${uid}ph`}>{F.mapPlaces}</h3>
-          {lessonOn ? <p className="note">{F.mapLessonNote}</p> : null}
-          {places.length === 0 ? <p className="muted">{F.mapNoPlaces}</p> : null}
+          <h3 id={`${uid}ph`}>{F.mapPlaces}<KoHelp of={F.mapPlaces} /></h3>
+          {lessonOn ? <p className="note">{F.mapLessonNote}<KoHelp of={F.mapLessonNote} /></p> : null}
+          {places.length === 0 ? <p className="muted">{F.mapNoPlaces}<KoHelp of={F.mapNoPlaces} /></p> : null}
           <ul className="lcw-map__list">
             {places.map((s) =>
               lessonOn ? (
@@ -380,7 +381,7 @@ export function MapPanel({ world, lessonOn, close }: MenuPanelProps): React.Reac
         </section>
 
         <section className="lcw-map__bands" aria-labelledby={`${uid}bh`}>
-          <h3 id={`${uid}bh`}>{F.bandsTitle}</h3>
+          <h3 id={`${uid}bh`}>{F.bandsTitle}<KoHelp of={F.bandsTitle} /></h3>
           <ol className="lcw-map__shaft" aria-label={F.bandsAria}>
             {stops.map((b) => (
               <li key={b.id} className={`lcw-map__stop is-${b.state}`} aria-current={b.state === 'here' ? 'location' : undefined}>
@@ -396,11 +397,11 @@ export function MapPanel({ world, lessonOn, close }: MenuPanelProps): React.Reac
               </li>
             ))}
           </ol>
-          <p className="muted">{F.bandsHint}</p>
+          <p className="muted">{F.bandsHint}<KoHelp of={F.bandsHint} /></p>
         </section>
 
         <section className="lcw-map__legend" aria-labelledby={`${uid}lh`}>
-          <h3 id={`${uid}lh`}>{F.legend}</h3>
+          <h3 id={`${uid}lh`}>{F.legend}<KoHelp of={F.legend} /></h3>
           <ul className="lcw-map__keys">
             {ZONE_ORDER.map((z) => (
               <li key={z}>

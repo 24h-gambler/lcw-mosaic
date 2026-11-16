@@ -1,7 +1,7 @@
 // Player menu (docs/08 8.6 G03 G04 G10 G11): server-shaped data, tab keys, who asks the server, error mapping.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { fetchItems, moveThing, parseCollection, parseItems, pickRepair, type ItemsView } from '../frame/api.js';
 import { bagSlots, chestThings, socketThings, BagPanel } from '../frame/menu/BagPanel.js';
@@ -11,8 +11,19 @@ import { turnYaw } from '../frame/menu/MirrorPanel.js';
 import { tabForKey, PlayerMenu } from '../frame/menu/PlayerMenu.js';
 import { MENU_TABS, type MenuPanelProps } from '../frame/menu/types.js';
 import { bagKeys, frameAuthOf } from '../frame/FrameLayer.js';
-import { FRAME_STRINGS as F } from '../frame/strings.js';
+import { FRAME_STRINGS as F, setFrameLang } from '../frame/strings.js';
+import { setWorldFrameLang } from '../world/strings.js';
 import { SERVER_UNREACHABLE_EVENT } from '../frame/connection.js';
+
+// This file checks the Korean copy: pin the screen language to Korean (by default it follows the learn language).
+beforeAll(() => {
+  setFrameLang('ko');
+  setWorldFrameLang('ko');
+});
+afterAll(() => {
+  setFrameLang('en');
+  setWorldFrameLang('en');
+});
 
 const child = { kind: 'child' as const, token: 'd'.repeat(40) };
 const raw = {

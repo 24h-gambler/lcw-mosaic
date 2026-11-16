@@ -6,9 +6,9 @@
 import { TUNING } from '@lcw/sim-core';
 import { COLOR_TOKENS, SEMANTIC_TOKENS, type ColorTokenName } from '@lcw/ui';
 import type { WorldMapInfo } from '../../world/api.js';
-import { BAND_NAMES_KO } from '../../world/strings.js';
+import { BAND_NAMES } from '../../world/strings.js';
 import { bandOf, type BandId } from '../status.js';
-import { FRAME_STRINGS as F, withDirection } from '../strings.js';
+import { FRAME_STRINGS as F } from '../strings.js';
 
 /** Map drawings use a 0..MAP_UNITS square viewBox; HTML labels over it use the same numbers as percentages. */
 export const MAP_UNITS = 100;
@@ -183,7 +183,7 @@ export function arrowDeg(yaw: number): number {
   return ((d % 360) + 360) % 360;
 }
 
-/** Eight-way compass word for the facing ("북", "남동", ...). */
+/** Eight-way compass word for the facing ("북", "남동" / "north", "southeast", ...). */
 export function compassKo(yaw: number): string {
   return F.compass[Math.round(arrowDeg(yaw) / 45) % 8]!;
 }
@@ -215,7 +215,7 @@ export function bandStops(y: number, reached: readonly BandId[] = ['surface']): 
     const top = i > 0 && b.maxY >= 0 ? b.maxY + 1 : b.maxY;
     return {
       id: b.id,
-      nameKo: BAND_NAMES_KO[b.id],
+      nameKo: BAND_NAMES[b.id],
       range: `${signed(b.minY)} ~ ${signed(top)}m`,
       state: b.id === here ? 'here' : reached.includes(b.id) ? 'open' : 'locked'
     };
@@ -239,13 +239,13 @@ export function mapSummary(p: MapSummaryInput): string {
   const where = cell?.nameKo ?? F.unexplored;
   const parts = [F.mapSummaryIntro(p.cells.length, explored)];
   const near = p.near ? F.mapSummaryNear(p.near.nameKo) : '';
-  parts.push(F.mapSummaryHere(where, near, BAND_NAMES_KO[p.band], compassKo(p.yaw)));
+  parts.push(F.mapSummaryHere(where, near, BAND_NAMES[p.band], compassKo(p.yaw)));
   if (p.lessonOn) parts.push(F.mapLessonNote);
   else if (p.places.length > 0) parts.push(F.mapSummaryPlaces(p.places.map((s) => s.nameKo)));
   return parts.join(' ');
 }
 
-/** "중앙 광장으로 가기" — the accessible name of a place button. */
+/** "중앙 광장으로 가기" / "Go to Plaza" — the accessible name of a place button. */
 export function goLabel(nameKo: string): string {
-  return `${withDirection(nameKo)} ${F.goVerb}`;
+  return F.goTo(nameKo);
 }

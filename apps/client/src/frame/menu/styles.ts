@@ -40,6 +40,7 @@ export const MENU_CSS = `
 .lcw-menu h3{margin:16px 0 8px;font-size:${px(t['body-l'].sizePx)};line-height:1.3}
 .lcw-menu p{margin:0 0 8px}
 .lcw-menu .muted{color:var(--c-ink-700);font-size:${px(t.small.sizePx)}}
+.lcw-menu .ko{display:block;margin-top:1px;font-size:max(10px,.78em);font-weight:500;line-height:1.25;color:var(--c-ink-700);letter-spacing:0;white-space:normal}
 .lcw-menu .note{background:var(--c-paper-100);border:${S.borderWidthPx}px dashed var(--c-line-200);border-radius:${S.radiusCardPx}px;padding:10px 12px;color:var(--c-ink-700);font-size:${px(t.small.sizePx)}}
 .lcw-menu .btn{min-height:${S.touchTargetMinPx}px;padding:6px 14px;border:${S.borderWidthPx}px solid var(--c-ink-900);border-radius:${S.radiusButtonPx}px;background:var(--c-paper-0);
   box-shadow:var(--shadow);font-weight:800;font-size:${px(t.small.sizePx)};cursor:pointer}

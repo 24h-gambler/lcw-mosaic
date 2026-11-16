@@ -1,8 +1,19 @@
 // G01 HUD read-outs and the connection band (docs/08 8.1, 8.6): place · band, weather · clock, hotbar caption, offline.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setFrameLang } from '../frame/strings.js';
 import { bandOf, clockLabel, hotbarCaption, placeLabel } from '../frame/status.js';
 import { SERVER_UNREACHABLE_EVENT, watchConnection } from '../frame/connection.js';
-import { WORLD_STRINGS as W } from '../world/strings.js';
+import { WORLD_STRINGS as W, setWorldFrameLang } from '../world/strings.js';
+
+// This file checks the Korean copy: pin the screen language to Korean (by default it follows the learn language).
+beforeAll(() => {
+  setFrameLang('ko');
+  setWorldFrameLang('ko');
+});
+afterAll(() => {
+  setFrameLang('en');
+  setWorldFrameLang('en');
+});
 
 describe('status line', () => {
   it('names the vertical band of docs/03 3.2 by height', () => {

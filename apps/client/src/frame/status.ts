@@ -3,7 +3,7 @@
  * them; keeping the wording here lets the rules be tested without a DOM.
  */
 import { TUNING } from '@lcw/sim-core';
-import { BAND_NAMES_KO, WORLD_STRINGS as W } from '../world/strings.js';
+import { BAND_NAMES, WORLD_STRINGS as W } from '../world/strings.js';
 
 export type BandId = (typeof TUNING.verticalBands)[number]['id'];
 export type Weather = 'clear' | 'snow';
@@ -17,7 +17,7 @@ export function bandOf(y: number): BandId {
 
 /** "중앙 광장 · 지상": the place first, then the band. */
 export function placeLabel(sceneTitleKo: string, band: BandId): string {
-  const b = BAND_NAMES_KO[band];
+  const b = BAND_NAMES[band];
   return sceneTitleKo ? `${sceneTitleKo} · ${b}` : b;
 }
 

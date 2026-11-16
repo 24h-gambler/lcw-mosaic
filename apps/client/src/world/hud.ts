@@ -4,7 +4,7 @@
  * Colors, type and motion come from @lcw/ui tokens only (AGENTS 6). No prices or payment on this screen (AGENTS 4.9).
  */
 import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
-import { WORLD_STRINGS as W, itemNameKo, controlsDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
+import { WORLD_STRINGS as W, itemNameKo, controlsDesktopFor, DEFAULT_KEY_HINTS, HUD_TEXT_EVENT, type KeyHintLabels } from './strings.js';
 import { bandOf, clockLabel, hotbarCaption, isNight, placeLabel, type BandId } from '../frame/status.js';
 import { refillOf } from '../frame/gauges.js';
 
@@ -255,6 +255,9 @@ export class WorldHud {
   private help: HTMLDivElement;
   private talkKbd: HTMLElement | null = null;
   private keys: Readonly<KeyHintLabels> = DEFAULT_KEY_HINTS;
+  private netText!: HTMLSpanElement;
+  /** the frame switched the screen language or Korean help (world/strings setWorldFrameLang) */
+  private readonly onHudText = (): void => this.redrawFrameText();
   private touchOn = false;
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
@@ -305,7 +308,8 @@ export class WorldHud {
     const net = el('div', 'lw-net', this.root);
     net.setAttribute('role', 'status');
     el('i', '', net);
-    el('span', '', net).textContent = W.offlineBand;
+    this.netText = el('span', '', net);
+    this.netText.textContent = W.offlineBand;
     el('div', 'lw-aim', this.root);
 
     this.starsEl = el('div', 'lw-stars', this.root);
@@ -350,6 +354,7 @@ export class WorldHud {
     this.toast = el('div', 'lw-toast lw-card', this.root);
     this.cele = el('div', 'lw-cele', this.root);
     this.help = el('div', 'lw-help', this.root);
+    window.addEventListener(HUD_TEXT_EVENT, this.onHudText);
 
     // Touch layer (docs/08 7.2): left half stick, right half look, buttons on the right.
     this.touch = el('div', 'lw-touch', this.root);
@@ -913,7 +918,24 @@ export class WorldHud {
     if (text) this.fpsEl.textContent = text;
   }
 
+  /** Redraw the frame's HUD text that is built once (band, help line, gauge names, place line, clock, caption). */
+  private redrawFrameText(): void {
+    this.netText.textContent = W.offlineBand;
+    if (this.help.textContent) this.help.textContent = this.touchOn ? W.controlsTouch : controlsDesktopFor(this.keys);
+    if (this.bandId) this.drawScene();
+    this.clockKey = '';
+    const gz = this.gz;
+    if (gz?.firstChild) {
+      gz.children[0]?.setAttribute('aria-label', W.hunger);
+      gz.children[1]?.setAttribute('aria-label', W.thirst);
+      const em = gz.querySelector('em');
+      if (em) em.textContent = W.slowed;
+    }
+    if (this.cap.classList.contains('on')) this.showCaption();
+  }
+
   dispose(): void {
+    window.removeEventListener(HUD_TEXT_EVENT, this.onHudText);
     this.root.remove();
   }
 }

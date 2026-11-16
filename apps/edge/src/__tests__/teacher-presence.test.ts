@@ -36,7 +36,7 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     const p = platform();
     const { lessonId, st } = await start(p, true);
     let s = await call(p, 'GET', '/v1/lesson/state', undefined, st);
-    expect(s.body.teacher).toMatchObject({ present: true, name: '선생님' });
+    expect(s.body.teacher).toMatchObject({ present: true, name: null });
     const since = s.body.teacher.since;
     await say(p, st);
     expect(lastInterlocutor(p)).toBe('teacher');
@@ -74,7 +74,7 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     const { lessonId, st } = await start(p);
     vi.advanceTimersByTime(2 * 3_600_000);
     const s = await call(p, 'GET', '/v1/lesson/state', undefined, st);
-    expect(s.body.teacher).toMatchObject({ present: true, name: '선생님' });
+    expect(s.body.teacher).toMatchObject({ present: true, name: null });
     await say(p, st);
     expect(lastInterlocutor(p)).toBe('teacher');
     expect((await call(p, 'GET', `/v1/admin/lessons/${lessonId}/feed`)).body.teacher).toMatchObject({ present: true, tracked: false });
@@ -122,8 +122,10 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     expect(consoleBeat.body).toMatchObject({ left: true, teacher: { present: false } });
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {})).body.left).toBe(true);
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(false);
-    // Unlocking the panel again (its beat) brings the teacher back, and the console counts again.
-    const back = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel' });
+    // An unlocked panel still beating does not undo it either (review #70, second pass).
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel' })).body.left).toBe(true);
+    // Unlocking the panel again (its first beat says resume) brings the teacher back, and the console counts again.
+    const back = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'closed', source: 'panel', resume: true });
     expect(back.body).toMatchObject({ left: false, teacher: { present: true, panel: 'closed' } });
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {})).body.left).toBe(false);
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(true);
@@ -135,7 +137,8 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {});
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open' })).body.teacher.present).toBe(false);
     const resumed = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { panel: 'open', resume: true });
-    expect(resumed.body).toMatchObject({ left: false, teacher: { present: true } });
+    // The leave folded the panel away; coming back from the console opens it again in the record.
+    expect(resumed.body).toMatchObject({ left: false, teacher: { present: true, panel: 'open' } });
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(true);
   });
 
@@ -160,27 +163,79 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     expect(await mic()).toBe('ok');
   });
 
-  it('a Google-signed-in console (operator session) names the teacher with the account name, not the device label', async () => {
-    const p = new PlatformDO(
+  // The real sign-in (#87, operator-login.ts): the account's name lives in operators, the session label is the device.
+  // Only the platform's exchange sets x-lcw-op-session, from a Google session token; a header the client sends is dropped.
+  const googleSignIn = async (p: PlatformDO, id: string, name: string): Promise<Record<string, string>> => {
+    const session = 'lcwop_' + id.padEnd(64, id.slice(-1));
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(session));
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    p.sql.run('insert into operators (id, google_sub, email, name, created_at, last_login_at) values (?, ?, ?, ?, 1, 1)', [
+      `op-${id}`,
+      `g-${id}`,
+      'teacher@example.com',
+      name
+    ]);
+    p.sql.run(
+      'insert into operator_sessions (id, token_hash, operator_id, label, created_at, expires_at, last_seen_at, revoked_at) values (?, ?, ?, ?, ?, ?, ?, null)',
+      [`ops-${id}`, hash, `op-${id}`, 'Chrome on Windows', 1, Date.now() + 86_400_000, 1]
+    );
+    return { authorization: `Bearer ${session}`, 'content-type': 'application/json' };
+  };
+  const googlePlatform = () =>
+    new PlatformDO(
       { storage: fakeDurableStorage() },
       { PLATFORM: undefined as never, LCW_OPERATOR_TOKEN: TOKEN, LCW_OPERATOR_GOOGLE_EMAILS: 'teacher@example.com' } as LcwEnv
     );
-    const session = 'lcwop_' + 'a'.repeat(64);
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(session));
-    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-    // The real schema (operator-login.ts): the name is the Google account's, the session label is only the device.
-    p.sql.run("insert into operators (id, google_sub, email, name, created_at, last_login_at) values ('op-1', 'g-1', 'teacher@example.com', 'Dan', 1, 1)");
-    p.sql.run(
-      'insert into operator_sessions (id, token_hash, operator_id, label, created_at, expires_at, last_seen_at, revoked_at) values (?, ?, ?, ?, ?, ?, ?, null)',
-      ['ops-1', hash, 'op-1', 'Chrome on Windows', 1, Date.now() + 86_400_000, 1]
-    );
+
+  it('a Google-signed-in console (operator session) names the teacher with the account name, not the device label', async () => {
+    const p = googlePlatform();
+    const google = await googleSignIn(p, 'a', 'Dan');
     const { lessonId, st } = await start(p, true);
-    // A header the client sends itself is dropped (only the exchange sets it): still the default name.
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { ...op, 'x-lcw-op-session': 'ops-1' });
-    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name).toBe('선생님');
+    // A header the client sends itself is dropped (only the exchange sets it): no name, the child sees "선생님".
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { ...op, 'x-lcw-op-session': 'ops-a' });
+    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name).toBeNull();
     // The console signed in with Google beats with its session token: the exchange names the session.
-    const b = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { authorization: `Bearer ${session}`, 'content-type': 'application/json' });
+    const b = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, google);
     expect(b.status).toBe(200);
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name).toBe('Dan');
+  });
+
+  it('teacher name: the name alone; typed > account > none (the screen shows 선생님); blank clears; nameless beats keep', async () => {
+    const p = googlePlatform();
+    const { lessonId, st } = await start(p, true);
+    const nameNow = async () => (await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name;
+    const beat = (body: unknown, headers: Record<string, string> = op) => call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, body, headers);
+    // No name anywhere: null, the child's screen says "선생님" (teacherLabel).
+    expect(await nameNow()).toBeNull();
+    // The title typed anyway is dropped: never "김민지 선생님 선생님" on the child's screen.
+    await beat({ name: '  김민지 선생님 ' });
+    expect(await nameNow()).toBe('김민지');
+    // The 1PC panel's beats say nothing about the name: it stays.
+    await beat({ panel: 'closed', source: 'panel' });
+    expect(await nameNow()).toBe('김민지');
+    for (const bad of ['x'.repeat(17), 'a<b>', `tab${String.fromCharCode(9)}here`]) expect((await beat({ name: bad })).status).toBe(400);
+    // Signed in with Google: the typed name still wins over the account name (review #80: typed > account > default).
+    const google = await googleSignIn(p, 'b', 'Dan');
+    await beat({ name: '김민지' }, google);
+    expect(await nameNow()).toBe('김민지');
+    // Emptying the field clears the typed name: back to the account name...
+    await beat({ name: '' }, google);
+    expect(await nameNow()).toBe('Dan');
+    // ...and "선생님" alone counts as blank too.
+    await beat({ name: '선생님' }, google);
+    expect(await nameNow()).toBe('Dan');
+  });
+
+  it('no operator tables (a platform without Google sign-in): a beat still works and no name is reported', async () => {
+    const p = platform();
+    const { lessonId, st } = await start(p, true);
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { ...op, 'x-lcw-op-session': 'ops-x' })).status).toBe(200);
+    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name).toBeNull();
+  });
+
+  it('an untracked lesson (old console) reports no name: the child sees the plain "선생님"', async () => {
+    const p = platform();
+    const { st } = await start(p);
+    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher).toMatchObject({ present: true, name: null });
   });
 });

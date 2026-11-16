@@ -18,6 +18,25 @@ export interface AdminStudent {
   family_id: string;
   last_lesson_at: number | null;
   utterances_7d: number;
+  /** Signed-in devices of this student (student sign-up): 0 = the child still comes in with the code. */
+  linked_devices?: number;
+  /** Last time the child's world asked for a lesson (server clock); null = never on a signed-in device. */
+  world_seen_at?: number | null;
+}
+
+/** The child's world polls about every 5 s; a gap longer than this means the world is closed. */
+export const WORLD_SEEN_FRESH_MS = 20_000;
+
+/**
+ * Where the child is for a lesson (Dan 11-16 12:10: the teacher comes into the child's own world):
+ * 'in_world' — the world is open on a signed-in device (the lesson is attached, nothing to type);
+ * 'waiting' — a signed-in device exists but the world is not open now;
+ * 'no_device' — no signed-in device yet: the child comes in with the 6-digit code.
+ */
+export function worldPresence(worldSeenAt: number | null | undefined, linkedDevices: number | null | undefined, serverNow: number): 'in_world' | 'waiting' | 'no_device' {
+  if (typeof worldSeenAt === 'number' && serverNow - worldSeenAt < WORLD_SEEN_FRESH_MS) return 'in_world';
+  if ((linkedDevices ?? 0) > 0 || typeof worldSeenAt === 'number') return 'waiting';
+  return 'no_device';
 }
 
 export type ConsoleSeatState = 'active' | 'expiring' | 'read_only' | 'archived' | 'refunded';
@@ -50,6 +69,8 @@ export interface LiveLessonRow {
   stage_id: string | null;
   stage_started_at: number | null;
   stage_ms: Record<string, number>;
+  /** The student's world poll (student sign-up): '접속 중' when fresh. */
+  world_seen_at?: number | null;
 }
 
 /**
@@ -345,12 +366,13 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       request<StartLessonResult>('POST', '/v1/admin/lessons/start', op, input),
     /** Teacher heartbeat (every TEACHER_BEAT_MS while the console shows the lesson). */
     /** The console's heartbeat. After "선생님 나가기" it counts again only with resume (left: true until then). */
-    presence: (op: string, lessonId: string, panel: 'open' | 'closed' = 'open', resume = false) =>
+    /** name: the name alone ('' clears it), null = say nothing about the name. */
+    presence: (op: string, lessonId: string, panel: 'open' | 'closed' = 'open', resume = false, name: string | null = null) =>
       request<{ teacher: TeacherPresence; left?: boolean; beat_ms: number; present_ms: number }>(
         'POST',
         `/v1/admin/lessons/${enc(lessonId)}/presence`,
         op,
-        { panel, source: 'console', ...(resume ? { resume: true } : {}) }
+        { panel, source: 'console', ...(resume ? { resume: true } : {}), ...(name !== null ? { name } : {}) }
       ),
     /** The teacher steps away on purpose: the child is alone at once. */
     leave: (op: string, lessonId: string) =>

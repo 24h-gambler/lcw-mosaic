@@ -27,7 +27,8 @@ import {
   type LiveLessonRow,
   type OperatorSessions,
   type PinInput,
-  type PinKind
+  type PinKind,
+  worldPresence
 } from './lessonApi.js';
 import {
   EMPTY_FEED_VIEW,
@@ -62,6 +63,7 @@ import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView } from '.
 import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentScreenBox } from './DirectorLive.js';
 import { LessonAudioBox } from './LessonAudioBox.js';
 import { ConsoleSeatBadge, SeatManager, useConsoleSeats } from './DirectorSeats.js';
+import { SignupQueue, type SignupQueueProps } from './DirectorSignups.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 import { TeacherModeHelp, TeacherPresenceBox } from './teacherPresence.js';
@@ -110,6 +112,8 @@ export interface LessonDirectorConsoleProps {
   initialLive?: { lessons: LiveLessonRow[]; server_now: number };
   initialFeed?: LessonFeed;
   now?: () => number;
+  /** The sign-up approval queue: false hides it; an object passes its test doubles. */
+  signupQueue?: false | Omit<SignupQueueProps, 'token'>;
 }
 
 export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.ReactElement {
@@ -186,26 +190,34 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
         }}
       />
       {!token ? null : lesson ? (
-        <LiveLesson
-          api={api}
-          token={token}
-          lesson={lesson}
-          setLesson={setLesson}
-          now={now}
-          onAuthError={onAuthError}
-          {...(props.initialFeed ? { initialFeed: props.initialFeed } : {})}
-        />
+        <>
+          <LiveLesson
+            api={api}
+            token={token}
+            lesson={lesson}
+            setLesson={setLesson}
+            now={now}
+            onAuthError={onAuthError}
+            {...(props.initialFeed ? { initialFeed: props.initialFeed } : {})}
+          />
+          {/* A sign-up arriving during the lesson shows here too (only when one is waiting). */}
+          {props.signupQueue !== false ? <SignupQueue token={token} hideWhenEmpty {...(props.signupQueue ?? {})} /> : null}
+        </>
       ) : (
-        <StudentPicker
-          api={api}
-          token={token}
-          now={now}
-          onAuthError={onAuthError}
-          initialStudents={props.initialStudents}
-          initialSeats={props.initialSeats}
-          initialLive={props.initialLive}
-          onStarted={setLesson}
-        />
+        <>
+          <StudentPicker
+            api={api}
+            token={token}
+            now={now}
+            onAuthError={onAuthError}
+            initialStudents={props.initialStudents}
+            initialSeats={props.initialSeats}
+            initialLive={props.initialLive}
+            onStarted={setLesson}
+          />
+          {/* Student sign-ups waiting for the teacher (DirectorSignups.tsx); signupQueue={false} turns it off. */}
+          {props.signupQueue !== false ? <SignupQueue token={token} {...(props.signupQueue ?? {})} /> : null}
+        </>
       )}
     </div>
   );
@@ -939,7 +951,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
 
   return (
     <div style={{ display: 'grid', gap: sp(4) }} data-testid="director-live">
-      <JoinCodeBar lesson={lesson} elapsedMs={elapsed} totalMinutes={plan.totalMinutes} />
+      <JoinCodeBar api={api} token={token} lesson={lesson} elapsedMs={elapsed} totalMinutes={plan.totalMinutes} />
       <TeacherPresenceBox api={api} token={token} lessonId={lesson.lesson_id} ended={ended} />
       <HelpsStrip utterances={live.utterances} pins={feed.pins.length} minutes={liveX.minutes.length} />
       {feedError ? (
@@ -1112,11 +1124,55 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
   );
 }
 
+/** How often the live bar asks whether the child's world is open ('접속 중' / '접속 대기'). */
+export const WORLD_PRESENCE_POLL_MS = 5_000;
+const LINKED_REFRESH_TICKS = 6;
+
+/** The child's world for this lesson: open now, signed in but closed, or no signed-in device (code). */
+function useWorldPresence(
+  api: Pick<LessonApi, 'liveLessons' | 'listStudents'>,
+  token: string,
+  lessonId: string,
+  playerId: string
+): ReturnType<typeof worldPresence> | null {
+  const [state, setState] = useState<ReturnType<typeof worldPresence> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let linked: number | null = null;
+    let ticks = 0;
+    const tick = async () => {
+      try {
+        // The device count is read again every 30 s: a device linked or unlinked during the lesson shows.
+        if (linked === null || ticks++ % LINKED_REFRESH_TICKS === 0) {
+          const rows = await api.listStudents(token);
+          linked = rows.find((s) => s.player_id === playerId)?.linked_devices ?? 0;
+        }
+        const r = await api.liveLessons(token, true);
+        const row = r.lessons.find((l) => l.lesson_id === lessonId);
+        if (alive) setState(worldPresence(row?.world_seen_at ?? null, linked, r.server_now));
+      } catch {
+        /* the bar keeps its last answer; the feed shows connection trouble */
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), WORLD_PRESENCE_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [api, token, lessonId, playerId]);
+  return state;
+}
+
 function JoinCodeBar({
+  api,
+  token,
   lesson,
   elapsedMs,
   totalMinutes
 }: {
+  api: Pick<LessonApi, 'liveLessons' | 'listStudents'>;
+  token: string;
   lesson: DirectorLessonRecord;
   elapsedMs: number;
   totalMinutes: number;
@@ -1125,33 +1181,18 @@ function JoinCodeBar({
   const links = studentJoinLinks(currentOrigin(), lesson.join_code);
   const primary = links[0]!;
   const code = lesson.join_code;
-  return (
-    <section
-      data-testid="director-joincode"
-      style={{
-        border,
-        borderRadius: `${TOKENS.shape.radiusCardPx}px`,
-        boxShadow: TOKENS.shape.shadowDefault,
-        backgroundColor: C['night-900'],
-        color: C['paper-0'],
-        padding: sp(4),
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: sp(4),
-        alignItems: 'center',
-        justifyContent: 'space-between'
-      }}
-    >
-      <div style={{ display: 'grid', gap: sp(1) }}>
-        <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>
-          {S.joinTitle} · {lesson.nickname}
-        </span>
+  // A lesson is the teacher coming into the child's world (Dan 11-16 12:10): with a signed-in device the bar says
+  // whether the child is there and the code folds away; without one the code stays (the only way in today).
+  const presence = useWorldPresence(api, token, lesson.lesson_id, lesson.player_id);
+  const signedIn = presence === 'in_world' || presence === 'waiting';
+  const codeBlock = (
+    <>
         <strong
           data-testid="join-code"
           aria-label={code.split('').join(' ')}
           style={{
             fontFamily: T.fonts.target,
-            fontSize: 'clamp(56px, 11vw, 112px)',
+            fontSize: presence === 'in_world' || presence === 'waiting' ? `${T.scale.display.sizePx}px` : 'clamp(56px, 11vw, 112px)',
             lineHeight: 1,
             letterSpacing: '0.12em',
             color: C.sun,
@@ -1186,6 +1227,61 @@ function JoinCodeBar({
             </span>
           ) : null}
         </div>
+    </>
+  );
+  return (
+    <section
+      data-testid="director-joincode"
+      style={{
+        border,
+        borderRadius: `${TOKENS.shape.radiusCardPx}px`,
+        boxShadow: TOKENS.shape.shadowDefault,
+        backgroundColor: C['night-900'],
+        color: C['paper-0'],
+        padding: sp(4),
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: sp(4),
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}
+    >
+      <div style={{ display: 'grid', gap: sp(1) }}>
+        {signedIn ? (
+          <>
+            <strong
+              data-testid="world-presence"
+              data-state={presence ?? ''}
+              role="status"
+              style={{ fontSize: `${T.scale.h2.sizePx}px`, lineHeight: 1.2, color: presence === 'in_world' ? C.leaf : C.sun }}
+            >
+              {presence === 'in_world' ? S.worldIn(lesson.nickname) : S.worldWaiting(lesson.nickname)}
+            </strong>
+            <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>
+              {presence === 'in_world' ? S.worldInHelp : S.worldWaitingHelp}
+            </span>
+            {presence === 'in_world' ? (
+              <details data-testid="join-code-fallback">
+                <summary style={{ cursor: 'pointer', fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>{S.codeFallback}</summary>
+                <div style={{ display: 'grid', gap: sp(1), marginTop: sp(2) }}>{codeBlock}</div>
+              </details>
+            ) : (
+              // Not in the world yet: the child may come from another (not signed-in) device, so the code stays out.
+              <div data-testid="join-code-waiting" style={{ display: 'grid', gap: sp(1), marginTop: sp(2) }}>
+                <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>{S.codeOtherDevice}</span>
+                {codeBlock}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>
+              {S.joinTitle} · {lesson.nickname}
+              {presence === 'no_device' ? ` · ${S.noDevice}` : ''}
+            </span>
+            {codeBlock}
+          </>
+        )}
       </div>
       <div style={{ display: 'grid', gap: sp(0), textAlign: 'right' }}>
         <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>{S.lessonTimer}</span>

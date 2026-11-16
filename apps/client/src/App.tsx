@@ -65,7 +65,7 @@ interface FirstVisitModule {
   }>;
   errandDialogFor?: (npc: NpcRef, errand: ErrandLike | null, level: Level) => ErrandDialogLike | null;
   /** The "Hello!" mic check for lesson students (once per lesson) and guests (once per device), audit G15. */
-  MicCheckGate?: React.ComponentType<{ audience: 'lesson' | 'guest'; lessonCode?: string; hidden?: boolean }>;
+  MicCheckGate?: React.ComponentType<{ identityKind: string; lessonCode?: string; hidden?: boolean }>;
 }
 
 /** Props the shell passes to the lesson layer (docs/19 5장). */
@@ -566,8 +566,9 @@ export function App(): React.ReactElement {
               />
             </div>
           ) : null}
-          {MicGate && world && identity?.kind === 'lesson' ? <MicGate audience="lesson" lessonCode={identity.code} /> : null}
-          {MicGate && world && identity?.kind === 'guest' ? <MicGate audience="guest" hidden={soloNpc !== null} /> : null}
+          {MicGate && world && identity ? (
+            <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null} />
+          ) : null}
           {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (
             <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null} />
           ) : null}

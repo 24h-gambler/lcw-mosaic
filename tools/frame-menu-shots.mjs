@@ -1,11 +1,14 @@
 // Headless real-screen check of the player menu (docs/08 8.6 G03 G04 G06 G10 G11 G14) at 1440 / 1024 / 390 / 844x390,
 // as a linked child whose server answers are fixtures (page.route): the server bag on the hotbar, the menu button by
 // the hotbar, every tab without sideways overflow, a bag → chest move request, the repair review window.
+// The menu words are in the learn language (English); KO_HELP=1 turns Korean help on and checks the Korean lines under
+// the tab labels and titles (expected words: tools/frame-lang-expect.mjs).
 // Fails (exit 1) on a broken rule. Headless only, audio muted, no window.
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/frame-menu-shots.mjs http://127.0.0.1:8982/game/ shots/frame-menu
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { COPY, COPY_KO, HANGUL, KO_HELP } from './frame-lang-expect.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8982/game/';
 const out = process.argv[3] ?? 'shots/frame-menu';
@@ -85,14 +88,15 @@ for (const vp of VIEWPORTS) {
   const fx = fixtures();
   const posts = [];
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, hasTouch: vp.touch, isMobile: vp.touch && vp.width < 500 });
-  await ctx.addInitScript(() => {
+  await ctx.addInitScript((koHelp) => {
     try {
       localStorage.setItem('lcw.deviceToken', 'd'.repeat(40));
       localStorage.setItem('lcw.deviceNickname', '지우');
+      if (koHelp && !localStorage.getItem('lcw.settings')) localStorage.setItem('lcw.settings', JSON.stringify({ helpKo: true }));
     } catch {
       /* storage blocked */
     }
-  });
+  }, KO_HELP);
   await ctx.route('**/v1/**', async (route) => {
     const req = route.request();
     const p = new URL(req.url()).pathname;
@@ -122,7 +126,7 @@ for (const vp of VIEWPORTS) {
   await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
   await page.waitForTimeout(1500);
   // first-visit / mic cards belong to the dialog domain: step past them like a child would
-  for (const label of ['건너뛰기', '좋아요, 출발!']) {
+  for (const label of ['건너뛰기', '좋아요, 출발!', 'Skip']) {
     const b = page.getByRole('button', { name: label });
     if (await b.count()) await b.first().click({ timeout: 2000 }).catch(() => {});
   }
@@ -157,6 +161,27 @@ for (const vp of VIEWPORTS) {
   check(vp.name, bag.sel === 'lcw-menu-tab-bag', `menu should open on the bag (${bag.sel})`);
   check(vp.name, bag.bag === 2 && bag.sockets === 1 && bag.chest === 3, `bag 2 / socket 1 / chest 3 expected (${bag.bag}/${bag.sockets}/${bag.chest})`);
   check(vp.name, await noSideways(page), 'bag tab scrolls sideways');
+  // menu words in the learn language; with Korean help a Korean line under each tab label and title
+  const words = await page.evaluate(() => {
+    const plain = (el) => {
+      const c = el.cloneNode(true);
+      c.querySelectorAll('.ko, kbd, .ic').forEach((x) => x.remove());
+      return (c.textContent ?? '').trim();
+    };
+    return {
+      lang: document.documentElement.lang,
+      tabs: [...document.querySelectorAll('.lcw-menu__tab')].map(plain),
+      titles: [...document.querySelectorAll('.lcw-menu__body h2, .lcw-menu__body h3')].map(plain),
+      koTabs: [...document.querySelectorAll('.lcw-menu__tab .ko')].map((x) => x.textContent),
+      koAll: document.querySelectorAll('.lcw-menu .ko').length
+    };
+  });
+  report.push({ vp: vp.name, words });
+  check(vp.name, words.lang === 'en', `<html lang> should be the screen language (${words.lang})`);
+  check(vp.name, words.tabs.length === 6 && words.tabs.every((t) => t && !HANGUL.test(t)), `tab labels not in English (${words.tabs.join(',')})`);
+  check(vp.name, words.titles.length >= 3 && words.titles.every((t) => !HANGUL.test(t)), `bag titles not in English (${words.titles.join(',')})`);
+  if (KO_HELP) check(vp.name, words.koTabs.length === 6 && words.koTabs[0] === COPY_KO.bagTab && words.koAll >= 10, `Korean help lines missing (${words.koTabs.join(',')} / ${words.koAll})`);
+  else check(vp.name, words.koAll === 0, `Korean lines shown while Korean help is off (${words.koAll})`);
   // move the first bag thing to the chest: a server request, then the HUD follows
   await page.locator('.lcw-bagrow .lcw-thing:not(.empty) .btn').first().click();
   await page.waitForTimeout(1500);
@@ -225,11 +250,20 @@ for (const vp of VIEWPORTS) {
       await page.click('#lcw-set-tab-sound');
       await page.waitForTimeout(400);
       const sound = await page.evaluate(() => ({ text: document.querySelector('.lcw-set__main')?.textContent ?? '', ranges: document.querySelectorAll('.lcw-set input[type="range"]').length, switches: document.querySelectorAll('.lcw-set [role="switch"]').length }));
-      check(vp.name, /자연스러운 목소리/.test(sound.text) && sound.ranges >= 4 && sound.switches >= 1, `sound: volumes, voice speed, natural voice (${sound.ranges} sliders)`);
+      check(vp.name, COPY.naturalVoice.test(sound.text) && sound.ranges >= 4 && sound.switches >= 1, `sound: volumes, voice speed, natural voice (${sound.ranges} sliders)`);
       await page.click('#lcw-set-tab-screen');
       await page.waitForTimeout(400);
       const scr = await page.evaluate(() => document.querySelector('.lcw-set__main')?.textContent ?? '');
-      check(vp.name, ['시야 거리', '그림자', '해상도 배율', '자동'].every((w) => scr.includes(w)), 'screen: 시야 거리 / 그림자 / 해상도 배율 / 자동');
+      check(vp.name, COPY.screenWords.every((w) => scr.includes(w)), `screen: ${COPY.screenWords.join(' / ')}`);
+      // the Korean help switch: first in the access section, named in Korean too, matching the setting
+      await page.click('#lcw-set-tab-access');
+      await page.waitForTimeout(400);
+      const kh = await page.evaluate(() => {
+        const row = document.querySelector('.lcw-set__main .lcw-set__row');
+        return { text: row?.textContent ?? '', on: row?.querySelector('[role="switch"]')?.getAttribute('aria-checked') ?? null };
+      });
+      check(vp.name, kh.text.includes(COPY.helpKoTitle) && kh.text.includes(COPY_KO.helpKoTitle) && kh.on === String(KO_HELP), `Korean help switch (${kh.text.slice(0, 60)} / ${kh.on})`);
+      await page.screenshot({ path: `${out}/${vp.name}-4settings-access-top.png` });
     }
   }
   // Esc closes the menu

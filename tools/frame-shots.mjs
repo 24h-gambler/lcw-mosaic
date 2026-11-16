@@ -1,6 +1,8 @@
 // Headless real-screen check of the child's screen frame (docs/08 8.6, frame domain) at 1440 / 1024 / 390 / 844x390.
 // G01 HUD: place · band, weather · clock and coins always on; empty hotbar explained, never bare boxes; slot caption;
-// connection band "혼자 모드로 계속 중" without covering the chips or buttons; first-person crosshair.
+// connection band "Offline for a moment · Keep playing on your own" without covering the chips or buttons;
+// first-person crosshair. The HUD frame words are in the learn language (English); KO_HELP=1 turns Korean help on
+// and checks the Korean in parentheses (expected words: tools/frame-lang-expect.mjs).
 // Fails (exit 1) on a broken rule. Headless only, audio muted, no window.
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/frame-shots.mjs http://127.0.0.1:8981/world/ shots/frame
@@ -8,6 +10,7 @@
 // (G14: HUD text follows the text size, help lines name the remapped keys).
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { COPY, COPY_KO, HANGUL, KO_HELP } from './frame-lang-expect.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8981/game/';
 const out = process.argv[3] ?? 'shots/frame';
@@ -27,7 +30,8 @@ const VIEWPORTS = [
   { name: 'l844', width: 844, height: 390, touch: true }
 ];
 
-const SETTINGS = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;
+const SETTINGS_ENV = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;
+const SETTINGS = KO_HELP ? { ...(SETTINGS_ENV ?? {}), helpKo: true } : SETTINGS_ENV;
 const fails = [];
 const report = [];
 const check = (vp, ok, what) => {
@@ -113,9 +117,12 @@ for (const vp of VIEWPORTS) {
   if (SETTINGS?.keys?.talk && !vp.touch) {
     const want = SETTINGS.keys.talk.replace(/^Key/, '');
     const t = await page.evaluate(() => ({ help: document.querySelector('.lw-help')?.textContent ?? '', kbd: document.querySelector('.lw-prompt kbd')?.textContent ?? '' }));
-    check(vp.name, t.help.includes(`${want} 말 걸기`) && t.kbd === want, `remapped talk key not shown (${t.help} / ${t.kbd})`);
+    check(vp.name, t.help.includes(COPY.talkHelp(want)) && t.kbd === want, `remapped talk key not shown (${t.help} / ${t.kbd})`);
   }
-  check(vp.name, !!a.cap && /가방/.test(a.cap.text), `empty bar is not explained (${a.cap?.text})`);
+  check(vp.name, !!a.cap && COPY.emptyBar.test(a.cap.text), `empty bar is not explained (${a.cap?.text})`);
+  // the frame's HUD words are in the learn language (the scene title and the lesson tag are the world lane's)
+  check(vp.name, !HANGUL.test(a.clock?.text ?? '') && !HANGUL.test(a.cap?.text ?? '') && !HANGUL.test(a.help?.text ?? ''), `HUD frame words not in English (${a.clock?.text} / ${a.cap?.text} / ${a.help?.text})`);
+  check(vp.name, (await page.evaluate(() => document.documentElement.lang)) === 'en', '<html lang> should be the screen language');
   check(vp.name, !overlap(a.cap, a.help), 'caption covers the controls help');
   check(vp.name, !overlap(a.cap, a.bar), 'caption covers the hotbar');
   check(vp.name, !overlap(a.clock, a.stars), 'clock chip runs into the star/coin chip');
@@ -134,6 +141,7 @@ for (const vp of VIEWPORTS) {
   const b = await boxes(page);
   await page.screenshot({ path: `${out}/${vp.name}-2items.png` });
   check(vp.name, b.empties === 3, `expected 3 empty slots after two items, got ${b.empties}`);
+  // item names are the world lane's (ITEM_NAMES_KO), still Korean
   check(vp.name, b.cap?.text === '쿠키', `caption should name the selected slot (${b.cap?.text})`);
   check(vp.name, b.coins?.text === '120', `coins should read 120 (${b.coins?.text})`);
   // drink: the honey tea in slot 1, picked twice (the second pick uses the slot in hand)
@@ -144,7 +152,7 @@ for (const vp of VIEWPORTS) {
   await page.waitForTimeout(700);
   const dr = await page.evaluate(() => ({ cap: document.querySelector('.lw-cap')?.textContent ?? '', thirst: Number(document.querySelectorAll('.lw-chip .gz [role="meter"]')[1]?.getAttribute('aria-valuenow')) }));
   await page.screenshot({ path: `${out}/${vp.name}-2drink.png` });
-  check(vp.name, /꿀꺽/.test(dr.cap) && dr.thirst >= 70, `drinking the honey tea should fill thirst (${dr.cap} / ${dr.thirst})`);
+  check(vp.name, COPY.drank.test(dr.cap) && dr.thirst >= 70, `drinking the honey tea should fill thirst (${dr.cap} / ${dr.thirst})`);
 
   // 3. a lesson screen (tag, goal card, four-digit coins), then the connection band and snow: nothing covers anything
   await page.evaluate(() => {
@@ -169,10 +177,17 @@ for (const vp of VIEWPORTS) {
   check(vp.name, inView(c.goal), 'goal card leaves the screen while offline');
   check(vp.name, !overlap(c.goal, c.net) && !overlap(c.badge, c.stars) && !overlap(c.scene, c.goal), 'offline: band, chips and goal card overlap');
   await page.screenshot({ path: `${out}/${vp.name}-3offline.png` });
-  check(vp.name, !!c.net && /혼자 모드로 계속 중/.test(c.net.text), 'connection band missing');
+  check(vp.name, !!c.net && COPY.offlineBand.test(c.net.text), `connection band missing (${c.net?.text})`);
+  check(vp.name, !!c.net && COPY_KO.offlineBand.test(c.net.text) === KO_HELP, `connection band Korean help ${KO_HELP ? 'missing' : 'shown while off'} (${c.net?.text})`);
+  const netOneLine = await page.evaluate(() => {
+    const s = document.querySelector('.lw-net span');
+    if (!s) return null;
+    return { lines: Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight || '16')), clipped: s.scrollWidth > s.clientWidth + 1 };
+  });
+  report.push({ vp: vp.name, netOneLine });
   check(vp.name, !overlap(c.net, c.scene) && !overlap(c.net, c.stars), 'connection band covers the status chips');
   for (const btn of c.buttons) check(vp.name, !overlap(btn, c.stars) && !overlap(btn, c.net), `touch button "${btn.text}" covered while offline`);
-  check(vp.name, /^눈 /.test(c.clock?.text ?? ''), `snow not shown in words (${c.clock?.text})`);
+  check(vp.name, COPY.snow.test(c.clock?.text ?? ''), `snow not shown in words (${c.clock?.text})`);
 
   // 4. back online + first person: band gone, crosshair centred
   await page.evaluate(() => {
@@ -192,7 +207,8 @@ for (const vp of VIEWPORTS) {
     await page.waitForTimeout(1500);
     const lo = await page.evaluate(() => ({ slow: !!document.querySelector('.lw-chip .gz.slow'), low: !!document.querySelector('.lw-chip .gz .t.low'), cap: document.querySelector('.lw-cap')?.textContent ?? '' }));
     await page.screenshot({ path: `${out}/${vp.name}-5low.png` });
-    check(vp.name, lo.slow && lo.low && /목이 말라서/.test(lo.cap), `low thirst: slow ${lo.slow}, low ${lo.low}, said "${lo.cap}"`);
+    check(vp.name, lo.slow && lo.low && COPY.lowThirst.test(lo.cap), `low thirst: slow ${lo.slow}, low ${lo.low}, said "${lo.cap}"`);
+    check(vp.name, COPY_KO.lowThirst.test(lo.cap) === KO_HELP, `low thirst Korean help ${KO_HELP ? 'missing' : 'shown while off'} ("${lo.cap}")`);
   }
   check(vp.name, errs.length === 0, `console errors: ${errs.join(' | ')}`);
   report.push({ vp: vp.name, start: a, items: { cap: b.cap?.text, empties: b.empties, coins: b.coins?.text }, offline: { net: c.net?.text, clock: c.clock?.text }, errs });

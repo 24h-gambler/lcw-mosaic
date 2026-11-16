@@ -123,7 +123,8 @@ describe('menu keys and words', () => {
   });
   it('renders every panel for a guest without asking the server', () => {
     const props: MenuPanelProps = { world: null, identity: { kind: 'guest' }, auth: { kind: 'guest', token: null }, lessonOn: false, go: () => undefined, close: () => undefined };
-    for (const P of [BagPanel, BookPanel, RepairPanel]) expect(renderToStaticMarkup(<P {...props} />)).toContain(F.guestNote);
+    // the markup escapes the apostrophe of "You're"
+    for (const P of [BagPanel, BookPanel, RepairPanel]) expect(renderToStaticMarkup(<P {...props} />)).toContain(F.guestNote.replace(/'/g, '&#x27;'));
     const html = renderToStaticMarkup(<PlayerMenu {...props} tab="bag" onTab={() => undefined} onClose={() => undefined} />);
     expect(html).toContain('role="tablist"');
     expect((html.match(/role="tab"/g) ?? []).length).toBe(6);

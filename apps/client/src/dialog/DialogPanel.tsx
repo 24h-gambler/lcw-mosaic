@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ECHO_TRANSITION_LINE, NPC_OPENING_LINES, UI_STRINGS_KO, glossKo } from '@lcw/content';
+import { ECHO_TRANSITION_LINE, NPC_OPENING_LINES, UI_STRINGS_KO, glossKo, npcCast, voiceForCtx } from '@lcw/content';
 import { scoreUtterance, understandUtterance } from '@lcw/converse';
 import {
   bankOffersFor,
@@ -22,6 +22,10 @@ import { isKakaoInApp, kakaoOpenExternalUrl, type MicIssue, type SpeechEngine } 
 import { createDialogSpeechEngine } from './server-stt.js';
 import { cancelMicCue, micClosed, micCue, playAgain, playPass, playSfx, speakEnglish, stopSpeaking, unlockDialogAudio } from './sound.js';
 import { DIALOG_CSS } from './styles.js';
+import { loadLine, neuralVoiceOn, neuralVoiceStatus, prefetchLines } from './neural-voice.js';
+
+// Ask once per page whether the neural NPC voice is on, before the first dialog speaks (neural-voice.ts).
+if (typeof window !== 'undefined') void neuralVoiceStatus();
 import { newDialogId, SubmitError } from './submit.js';
 import type { DialogOffer, DialogPanelProps, DialogResult, SttSource, UtteranceSubmit } from './types.js';
 import { micHoldMode } from '../frame/settings.js';
@@ -174,11 +178,22 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
 
   const npcLine = props.npcLine ?? NPC_OPENING_LINES[npc.ctx] ?? NPC_OPENING_LINES.guide!;
 
+  // Voices from the cast pack: the NPC speaks in its own, the child's sentences are read in the model voice.
+  const npcVoice = voiceForCtx(npc.ctx);
+  const modelVoice = npcCast().modelVoice;
   // NPC asks on open (docs/12: the mic only opens after the NPC line ends — a tap on the mic cuts the voice first).
   useEffect(() => {
-    void speakEnglish(npcLine, level);
+    void speakEnglish(npcLine, level, npcVoice);
     return () => stopSpeaking();
-  }, [npcLine, level]);
+    // npcVoice follows npc.ctx
+  }, [npcLine, level, npc.ctx]);
+  // The offers' model sentences are fetched once the NPC line is in (it goes first: four parallel new lines took
+  // 1.2-1.7 s each against ~0.6 s alone, measured 11-16), so a 🔊 tap plays at once.
+  useEffect(() => {
+    const after = neuralVoiceOn() ? loadLine(npcVoice, npcLine) : Promise.resolve(null);
+    void after.then(() => prefetchLines(offers.map((o) => ({ voice: modelVoice, text: o.text }))));
+    // modelVoice is the pack's constant
+  }, [offers]);
 
   const doSubmit = useCallback(
     async (u: UtteranceSubmit) => {
@@ -219,7 +234,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
           if (n >= MISSES_BEFORE_ECHO && u.target_text && !u.echo && voiced) {
             setEcho({ chunks: chunkPhrases(u.target_text), i: 0, said: [], tries: 0 });
             setPhase('echo');
-            void speakEnglish(ECHO_TRANSITION_LINE.text, level);
+            void speakEnglish(ECHO_TRANSITION_LINE.text, level, npcVoice);
             return;
           }
         }
@@ -498,7 +513,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               {phase === 'echo' ? <div className="lcw-dlg__name" style={{ marginTop: 4 }}>{ECHO_TRANSITION_LINE.ko}</div> : null}
             </div>
             {listenOk ? (
-              <button type="button" className="lcw-listen" aria-label={S.listenAgain} title={S.listenAgain} onClick={() => { unlockDialogAudio(); void speakEnglish(phase === 'echo' ? ECHO_TRANSITION_LINE.text : npcLine, level); }}>
+              <button type="button" className="lcw-listen" aria-label={S.listenAgain} title={S.listenAgain} onClick={() => { unlockDialogAudio(); void speakEnglish(phase === 'echo' ? ECHO_TRANSITION_LINE.text : npcLine, level, npcVoice); }}>
                 🔊
               </button>
             ) : null}
@@ -606,7 +621,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               </div>
               <div className="lcw-dlg__name">{S.echoStep.replace('{i}', String(echo.i + 1)).replace('{n}', String(echo.chunks.length))}</div>
               <div className="lcw-row">
-                <button type="button" className="lcw-listen" aria-label={S.listen} onClick={() => void speakEnglish(echo.chunks[echo.i]!, level)}>🔊</button>
+                <button type="button" className="lcw-listen" aria-label={S.listen} onClick={() => void speakEnglish(echo.chunks[echo.i]!, level, modelVoice)}>🔊</button>
               </div>
             </>
           ) : phase === 'board' && offer ? (
@@ -696,7 +711,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                       onClick={(e) => {
                         e.stopPropagation();
                         unlockDialogAudio();
-                        void speakEnglish(o.text, level);
+                        void speakEnglish(o.text, level, modelVoice);
                       }}
                     >
                       🔊

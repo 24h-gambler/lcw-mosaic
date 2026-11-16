@@ -41,7 +41,9 @@ export function watchConnection(opts: ConnectionWatchOptions): () => void {
     timer = null;
     if (stopped || online) return;
     try {
-      const res = await f('/v1/health', { cache: 'no-store' });
+      // a half-open connection may never answer: give up after a few seconds and try again on the next round
+      const signal = typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(Math.max(1000, retryMs - 500)) : undefined;
+      const res = await f('/v1/health', { cache: 'no-store', ...(signal ? { signal } : {}) });
       if (stopped) return;
       if (res.ok) {
         set(true);

@@ -1532,6 +1532,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       lessonMode = on;
       if (on && nearNpc && !npcTalkable(nearNpc.def, true)) nearNpc = null;
     },
+    setTeacher: (t) => hud.setTeacher(t),
     setCoins: (total) => hud.setCoins(total),
     setOnline: (on) => hud.setOnline(on),
     setLookSettings: (o) => {

@@ -254,6 +254,9 @@ export function createAudioRuntime(opts: AudioRuntimeOptions = {}): AudioRuntime
 
 let shared: AudioRuntime | null = null;
 
+/** Fired when the mic cuts a speaking NPC; the neural voice (dialog/sound.ts) stops on it like speechSynthesis. */
+export const NPC_VOICE_CUT_EVENT = 'lcw:npc-voice-cut';
+
 /** The page's one runtime. The NPC voice cut uses the device voice (speechSynthesis). */
 export function getAudioRuntime(): AudioRuntime {
   if (shared) return shared;
@@ -261,6 +264,11 @@ export function getAudioRuntime(): AudioRuntime {
     cutNpcVoice: () => {
       try {
         globalThis.speechSynthesis?.cancel();
+      } catch {
+        /* ignore */
+      }
+      try {
+        globalThis.dispatchEvent?.(new Event(NPC_VOICE_CUT_EVENT));
       } catch {
         /* ignore */
       }

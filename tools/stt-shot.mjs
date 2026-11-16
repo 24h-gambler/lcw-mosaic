@@ -40,7 +40,7 @@ page.on('response', async (r) => {
     stt.push({ status: r.status(), type: req.headers()['content-type'], audio_ms: req.headers()['x-lcw-audio-ms'], bytes: (req.postDataBuffer() ?? Buffer.alloc(0)).length, body: await r.json().catch(() => null) });
   }
 });
-await page.goto(`${base}/game/?scene=honey_cafe`, { waitUntil: 'domcontentloaded' });
+await page.goto(`${base}/world/?scene=honey_cafe`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 180000 });
 await page.waitForFunction(() => !document.body.innerText.includes('마을을 짓는 중'), null, { timeout: 180000 }).catch(() => {});
 await page.waitForTimeout(2000);

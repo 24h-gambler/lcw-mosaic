@@ -8,10 +8,14 @@ import {
   TEST_CARD_IMPORTANCE,
   WATCH_LIMITS,
   checkLesson,
+  adjustFromFeedback,
   emptyCardState,
   maskUrl,
   planTick,
   planWindowEnd,
+  recordPosted,
+  readAdjust,
+  planSettle,
   scopeRef,
   settleImportance,
   tailVerdict
@@ -134,22 +138,28 @@ describe('live-lesson watch (tools/lesson-watch.mjs)', () => {
     expect(maskUrl('/v1/lesson/state?cursor=3')).toBe('/v1/lesson/state?cursor=3');
   });
 
-  // A fake spine that adds the source correction the way danos proposals.add does: muted -> 0, else clamp(asked + delta, 0, 3).
-  const fakeSpine = (delta: number | 'mute', o: { failPost?: number; deltaAfterFirst?: number } = {}) => {
+  // A fake spine that adds the source correction the way danos proposals.add does: muted -> 0, else clamp(asked + delta, 0, 3),
+  // then (a newer spine) min(that, ceiling) when the post carries one.
+  const fakeSpine = (delta: number | 'mute', o: { failPost?: number; deltaAfterFirst?: number; ceiling?: boolean } = {}) => {
     const landed: number[] = [];
     let posts = 0;
     let state = 'open';
     let imp = 0;
+    let ceiling: number | undefined;
     return {
       landed,
       get posts() {
         return posts;
+      },
+      setCeiling(c: number | undefined) {
+        ceiling = o.ceiling ? c : undefined;
       },
       post: async (importance: number) => {
         posts++;
         if (o.failPost === posts) return { status: 503, body: null };
         const d = posts > 1 && o.deltaAfterFirst !== undefined ? o.deltaAfterFirst : delta;
         imp = d === 'mute' ? 0 : Math.max(0, Math.min(3, importance + d));
+        if (ceiling !== undefined) imp = Math.min(imp, ceiling);
         state = 'open';
         landed.push(imp);
         return { status: 201, body: { id: 'p_1' } };
@@ -161,56 +171,124 @@ describe('live-lesson watch (tools/lesson-watch.mjs)', () => {
       }
     };
   };
+  type Adj = { hi: number; delta: number | null; muted: boolean; known: string; ceiling: boolean };
+  const exact = (delta: number | 'mute', ceiling = false): Adj =>
+    delta === 'mute' ? { hi: 0, delta: 0, muted: true, known: 'exact', ceiling } : { hi: delta, delta, muted: false, known: 'exact', ceiling };
+  // What postChecked does, against the fake spine.
+  const run = async (target: number, adj: Adj, how: typeof LESSON_SETTLE, sp: ReturnType<typeof fakeSpine>, log?: (r: Record<string, unknown>) => void) => {
+    const plan = planSettle(target, adj, how);
+    if (plan.skip) return { skipped: true as const, plan };
+    sp.setCeiling(plan.ceiling);
+    const out = await settleImportance({ ...how, start: plan.start, tries: plan.tries, target, post: sp.post, read: sp.read, close: how.closeTooHigh ? sp.close : undefined, log });
+    return { skipped: false as const, plan, ...out };
+  };
+  const DELTAS: Array<number | 'mute'> = [-2, -1, 0, 1, 2, 'mute'];
 
-  it('lesson cards walk up from 0: never land at the ring line (2) on the way, end at 1 for corrections -2..+1', async () => {
-    for (const delta of [-2, -1, 0, 1]) {
-      const sp = fakeSpine(delta);
-      const out = await settleImportance({ ...LESSON_SETTLE, target: LESSON_CARD_IMPORTANCE, ...sp });
-      expect(Math.max(...sp.landed), `delta ${delta}`).toBeLessThanOrEqual(1);
-      expect(out.rb).toEqual({ state: 'open', importance: 1 });
-      expect(out.tooHigh).toBe(false);
+  it('the adjustment bound from Dan\'s correction rows (as danos source_adjust reads them)', () => {
+    const now = Date.parse('2026-11-16T08:00:00Z');
+    const row = (id: number, rating: string, daysAgo = 1, pkg = 'source:outsourcing') => ({ id, rating, pkg, created: new Date(now - daysAgo * 86_400_000).toISOString() });
+    const other = [row(1, 'up', 1, 'source:sori'), row(2, 'up', 1, 'com.kakao.talk')];
+    expect(adjustFromFeedback(other, now, 500)).toMatchObject({ hi: 0, known: 'bound', muted: false });
+    expect(adjustFromFeedback([row(4, 'up'), row(3, 'up'), ...other], now, 500)).toMatchObject({ hi: 2, delta: 2, known: 'exact' });
+    expect(adjustFromFeedback([row(5, 'up'), row(4, 'down'), row(3, 'up')], now, 500)).toMatchObject({ hi: 1, known: 'exact' });
+    expect(adjustFromFeedback([row(5, 'mute'), row(4, 'up')], now, 500)).toMatchObject({ muted: true, hi: 0 });
+    expect(adjustFromFeedback([row(5, 'up'), row(4, 'mute')], now, 500)).toMatchObject({ muted: false, hi: 1 });
+    expect(adjustFromFeedback([row(5, 'up', 91), row(4, 'up', 95)], now, 500)).toMatchObject({ hi: 0, known: 'bound' }); // 90-day window
+    const eleven = Array.from({ length: 11 }, (_, i) => row(100 - i, i === 10 ? 'up' : i < 5 ? 'up' : 'down'));
+    expect(adjustFromFeedback(eleven, now, 500)).toMatchObject({ hi: 0, known: 'exact' }); // the latest 10 only: 5 up, 5 down
+    const full = Array.from({ length: 500 }, (_, i) => row(1000 - i, 'up', 1, 'source:sori'));
+    expect(adjustFromFeedback(full, now, 500)).toMatchObject({ hi: 2, known: 'unknown' });
+    expect(adjustFromFeedback([row(2000, 'down'), ...full.slice(1)], now, 500)).toMatchObject({ hi: 2, known: 'bound' }); // older rows may add
+  });
+
+  it('readAdjust: the newer spine answers exactly (with ceiling), an older one through the rows, neither: unknown', async () => {
+    const now = Date.now();
+    const newer = await readAdjust(async (p) => (p.startsWith('/proposals/source-adjust') ? { status: 200, body: { delta: 1, muted: false, ceiling: true } } : { status: 500, body: null }), now);
+    expect(newer).toMatchObject({ hi: 1, known: 'exact', ceiling: true });
+    const older = await readAdjust(async (p) => (p.startsWith('/feedback/importance') ? { status: 200, body: { items: [] } } : { status: 404, body: { detail: 'Not Found' } }), now);
+    expect(older).toMatchObject({ hi: 0, known: 'bound', ceiling: false });
+    expect(await readAdjust(async () => ({ status: 0, body: null }), now)).toMatchObject({ hi: 2, known: 'unknown', ceiling: false });
+  });
+
+  it('lesson cards: no post lands above 1 for any correction -2..+2 or mute, with or without the spine ceiling', async () => {
+    for (const ceiling of [false, true]) {
+      for (const delta of DELTAS) {
+        const sp = fakeSpine(delta, { ceiling });
+        const out = await run(LESSON_CARD_IMPORTANCE, exact(delta, ceiling), LESSON_SETTLE, sp);
+        const tag = `delta ${delta} ceiling ${ceiling}`;
+        expect(sp.landed.every((x) => x <= 1), tag).toBe(true);
+        if (delta === 2 && !ceiling) {
+          expect(out.skipped, tag).toBe(true); // an older spine would land it at 2: not posted at all
+          expect(sp.posts, tag).toBe(0);
+        } else if (delta === 'mute') {
+          expect(sp.posts, tag).toBe(1);
+          expect(out.skipped ? null : out.rb?.importance, tag).toBe(0);
+        } else {
+          expect(out.skipped ? null : out.rb, tag).toEqual({ state: 'open', importance: 1 });
+          expect(sp.posts, tag).toBe(1); // known exactly: one post lands at 1
+        }
+      }
+    }
+  });
+
+  it('the summary never passes 2 for any correction, and lands at 2 for -1..+2', async () => {
+    for (const ceiling of [false, true]) {
+      for (const delta of DELTAS) {
+        const sp = fakeSpine(delta, { ceiling });
+        const out = await run(SUMMARY_IMPORTANCE, exact(delta, ceiling), SUMMARY_SETTLE, sp);
+        const tag = `delta ${delta} ceiling ${ceiling}`;
+        expect(out.skipped, tag).toBe(false);
+        expect(sp.landed.every((x) => x <= 2), tag).toBe(true);
+        const want = delta === 'mute' ? 0 : delta === -2 ? 1 : 2; // -2: even 3 lands 1 (seen in the hub, no chime)
+        expect(out.skipped ? null : out.rb?.importance, tag).toBe(want);
+      }
+    }
+  });
+
+  it('only a bound known (no correction rows: 0 or -1): walks up from the target, never above it', async () => {
+    for (const actual of [-1, 0]) {
+      const sp = fakeSpine(actual);
+      const out = await run(1, { hi: 0, delta: null, muted: false, known: 'bound', ceiling: false }, LESSON_SETTLE, sp);
+      expect(Math.max(...sp.landed)).toBeLessThanOrEqual(1);
+      expect(out.skipped ? null : out.rb?.importance).toBe(1);
+    }
+  });
+
+  it('nothing known: lesson cards are not posted on an older spine; the summary walks up from 0 and stays at most 2', async () => {
+    const unknown = { hi: 2, delta: null, muted: false, known: 'unknown', ceiling: false };
+    expect(planSettle(1, unknown, LESSON_SETTLE).skip).toBe(true);
+    for (const actual of [-2, -1, 0, 1, 2]) {
+      const sp = fakeSpine(actual);
+      await run(2, unknown, SUMMARY_SETTLE, sp);
+      expect(Math.max(...sp.landed), `actual ${actual}`).toBeLessThanOrEqual(2);
     }
   });
 
   it('a failed raise leaves a lesson card lower (hidden), never higher', async () => {
-    for (const delta of [-2, -1, 0]) {
-      const sp = fakeSpine(delta, { failPost: 2 });
-      const out = await settleImportance({ ...LESSON_SETTLE, target: 1, ...sp });
+    for (const actual of [-2, -1]) {
+      const sp = fakeSpine(actual, { failPost: 2 });
+      const out = await run(1, { hi: 0, delta: null, muted: false, known: 'bound', ceiling: false }, LESSON_SETTLE, sp);
       expect(Math.max(...sp.landed)).toBeLessThanOrEqual(1);
-      expect(out.rb?.importance).toBe(0);
+      expect(out.skipped ? null : out.rb?.importance).toBe(0);
     }
   });
 
-  it('a correction of +2 lifts even the lowest ask to 2: the card is closed at once, not left to ring', async () => {
-    const sp = fakeSpine(2);
+  it('a correction that rose after the read: brought down, and a lesson card still above 1 is closed at once', async () => {
+    const down = fakeSpine(0, { deltaAfterFirst: 1 });
+    const a = await run(1, exact(0), LESSON_SETTLE, down);
+    expect(a.skipped ? null : a.rb?.importance).toBe(1);
     const rows: Array<Record<string, unknown>> = [];
-    const out = await settleImportance({ ...LESSON_SETTLE, target: 1, ...sp, log: (r) => rows.push(r) });
-    expect(sp.posts).toBe(1);
-    expect(out.tooHigh).toBe(true);
-    expect(out.rb?.state).toBe('closed');
-    expect(rows.map((r) => r.key)).toEqual(['card_too_high']);
+    const sp = fakeSpine(2);
+    const b = await run(1, exact(0), LESSON_SETTLE, sp, (r) => rows.push(r)); // read 0, really +2
+    expect(b.skipped ? null : b.tooHigh).toBe(true);
+    expect(b.skipped ? null : b.rb?.state).toBe('closed');
+    expect(rows.map((r) => r.key)).toContain('card_too_high');
   });
 
-  it('a muted source stays 0: stops at the edge without looping', async () => {
-    const sp = fakeSpine('mute');
-    const out = await settleImportance({ ...LESSON_SETTLE, target: 1, ...sp });
-    expect(sp.posts).toBeLessThanOrEqual(LESSON_SETTLE.tries + 1);
-    expect(Math.max(...sp.landed)).toBe(0);
-    expect(out.rb?.importance).toBe(0);
-  });
-
-  it('the correction rising between posts is brought back down', async () => {
-    const sp = fakeSpine(0, { deltaAfterFirst: 1 });
-    const out = await settleImportance({ ...LESSON_SETTLE, target: 1, ...sp });
-    expect(out.rb?.importance).toBe(1);
-  });
-
-  it('the summary is asked at its own importance and lands at 2 for corrections -1..+1', async () => {
-    for (const delta of [-1, 0, 1]) {
-      const sp = fakeSpine(delta);
-      const out = await settleImportance({ ...SUMMARY_SETTLE, target: SUMMARY_IMPORTANCE, ...sp });
-      expect(sp.landed[0], `delta ${delta}`).toBe(Math.max(0, Math.min(3, SUMMARY_IMPORTANCE + delta)));
-      expect(out.rb?.importance).toBe(2);
-    }
+  it('a new card id drops the old closed mark; the same id keeps it', () => {
+    const prev = { id: 'p_old', sig: 'a', at: 't0', closed: 't1' };
+    expect(recordPosted(prev, 'p_new', { sig: 'b', at: 't2' })).toEqual({ id: 'p_new', sig: 'b', at: 't2' });
+    expect(recordPosted(prev, 'p_old', { sig: 'b', at: 't2' })).toEqual({ id: 'p_old', sig: 'b', at: 't2', closed: 't1' });
+    expect(recordPosted(undefined, 'p_1', { sig: 'c', at: 't3' })).toEqual({ id: 'p_1', sig: 'c', at: 't3' });
   });
 });

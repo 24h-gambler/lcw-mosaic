@@ -15,7 +15,7 @@ export const SHOWROOM_SHARE_META_KO = {
   demoTitle: '예시 월드'
 } as const;
 
-/** Preview picture (1200×630, a real /game capture, no player names). Stable name so previewers can cache it. */
+/** Preview picture (1200×630, a real /world capture, no player names). Stable name so previewers can cache it. */
 export const SHOWROOM_OG_IMAGE_PATH = '/og/showroom.jpg';
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

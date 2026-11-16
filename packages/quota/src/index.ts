@@ -34,6 +34,27 @@ export function serverSttNeurons(sec: number): number {
   return Math.max(1, Math.ceil((Math.max(0, sec) * SERVER_STT.neuronsPerMinute) / 60));
 }
 
+/**
+ * Neural NPC voice (docs/04 4.8, Dan 11-16 "목소리 자연스러움"): Workers AI text-to-speech, cached in R2 so one
+ * sentence in one voice is made once. Neurons are counted from the characters before the call. Aura-1 is priced
+ * $0.015 per 1,000 characters = about 1.37 neurons per character ($0.011 per 1,000 neurons); MeloTTS $0.0002 per
+ * audio minute, about 0.02 neurons per character at 15 characters a second (counted at 0.05 to stay on the safe side).
+ */
+export const NEURAL_TTS = {
+  models: { aura: '@cf/deepgram/aura-1', melo: '@cf/myshell-ai/melotts' },
+  neuronsPerChar: { aura: 1.37, melo: 0.05 },
+  /** One NPC line (a teacher's possession line included); longer text is refused, not cut. */
+  maxChars: 300,
+  /** Operator prebuild: neurons one call may spend on fixed lines (the rest continues on the next call). */
+  prebuildBudgetNeurons: 2_000
+} as const;
+
+export type TtsEngine = keyof typeof NEURAL_TTS.models;
+
+export function ttsNeurons(engine: TtsEngine, chars: number): number {
+  return Math.max(1, Math.ceil(Math.max(0, chars) * NEURAL_TTS.neuronsPerChar[engine]));
+}
+
 export type DegradeStage = 0 | 1 | 2 | 3 | 4;
 
 export interface QuotaStatus {
@@ -219,7 +240,23 @@ export class QuotaMeter {
     return true;
   }
 
-  consumeNeurons(seatId: string, neurons: number, kind: 'llm' | 'stt' | 'craft', sttSec = 0): boolean {
+  /**
+   * A new neural voice line (a cached one costs nothing and needs no ask). Lessons keep it to stage 2; solo play
+   * gives it up from stage 2 (the device voice reads instead); nothing from stage 3. The lesson reserve holds it back
+   * outside lessons like the creative calls.
+   */
+  canUseTts(params: { isLesson: boolean; nowMs: number }): boolean {
+    const status = this.getStatus(params.nowMs);
+    if (status.stage >= 3) return false;
+    if (status.stage >= 2 && !params.isLesson) return false;
+    if (!params.isLesson) {
+      const remaining = this.neuronsLimit - this.neuronsUsed;
+      if (status.lessonReservedActive && remaining <= FREE_TIER_LIMITS.lessonReserveNeurons) return false;
+    }
+    return true;
+  }
+
+  consumeNeurons(seatId: string, neurons: number, kind: 'llm' | 'stt' | 'craft' | 'tts', sttSec = 0): boolean {
     if (neurons < 0 || !Number.isFinite(neurons)) return false;
     if (this.neuronsUsed + neurons > this.neuronsLimit) {
       return false; // Never allow overage billing (AGENTS.md 4.8)

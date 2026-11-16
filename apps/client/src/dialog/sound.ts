@@ -1,6 +1,7 @@
-import { LEVEL_DEFINITIONS, type LangLevel } from '@lcw/content';
+import { LEVEL_DEFINITIONS, type LangLevel, type NpcVoice } from '@lcw/content';
 import { PROCEDURAL_SFX_PRESETS, synthesizeProceduralPcm, type AudioBusName } from '@lcw/audio';
-import { getAudioRuntime } from '../audio/runtime.js';
+import { getAudioRuntime, NPC_VOICE_CUT_EVENT } from '../audio/runtime.js';
+import { loadLine, loudnessGain, NEURAL_VOICE, neuralVoiceOn, within } from './neural-voice.js';
 import { frameSettings, pickEnglishVoice } from '../frame/settings.js';
 
 /**
@@ -70,12 +71,97 @@ export function playAgain(): void {
 }
 
 /**
- * Speaks an English line. Bank lines should come from pre-synthesized files (4.8); until those exist the
- * device voice (speechSynthesis, on-device, no upload) reads them at the level's speech rate.
+ * Speaks an English line (docs/04 4.8). With the neural voice on (neural-voice.ts) and a `voice` given, the line comes
+ * from the server in that NPC's voice (R2-cached) on the NPC voice bus; when it is off, slower than
+ * NEURAL_VOICE.waitMs or failing, the device voice (speechSynthesis, on-device, no upload) reads it at the level's
+ * speech rate.
  */
 let speechGen = 0;
+let neuralPlaying: HTMLAudioElement | null = null;
 
-export function speakEnglish(text: string, level: LangLevel): Promise<void> {
+function stopNeural(): void {
+  const a = neuralPlaying;
+  neuralPlaying = null;
+  if (!a) return;
+  try {
+    a.pause();
+    URL.revokeObjectURL(a.src);
+  } catch {
+    /* ignore */
+  }
+}
+
+if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener(NPC_VOICE_CUT_EVENT, stopNeural);
+
+export function speakEnglish(text: string, level: LangLevel, voice?: NpcVoice): Promise<void> {
+  if (voice && neuralVoiceOn() && typeof Audio !== 'undefined') {
+    const gen = ++speechGen;
+    return within(loadLine(voice, text), NEURAL_VOICE.waitMs).then((bytes) => {
+      if (gen !== speechGen) return; // a newer line (or stop) took over while this one loaded
+      if (!bytes) return speakDevice(text, level);
+      return playNeural(bytes, level, gen).then((ok) => (ok || gen !== speechGen ? undefined : speakDevice(text, level)));
+    });
+  }
+  return speakDevice(text, level);
+}
+
+/** Plays one neural line; false when it could not start (autoplay blocked, decode error) so the caller falls back. */
+async function playNeural(bytes: ArrayBuffer, level: LangLevel, gen: number): Promise<boolean> {
+  const rt = getAudioRuntime();
+  const c = rt.unlock();
+  stopNeural();
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {
+    /* ignore */
+  }
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
+  const a = new Audio(url);
+  const rate = LEVEL_DEFINITIONS[level].speechRate;
+  a.preservesPitch = true;
+  // Player setting (G14): NPC voice speed, slower for young children.
+  a.playbackRate = rate * frameSettings().voiceRate;
+  if (c) {
+    try {
+      const decoded = await c.decodeAudioData(bytes.slice(0));
+      const g = c.createGain();
+      g.gain.value = loudnessGain(decoded.getChannelData(0));
+      c.createMediaElementSource(a).connect(g).connect(rt.bus('voice_npc') ?? c.destination);
+    } catch {
+      /* plays straight out at its own level */
+    }
+  }
+  if (gen !== speechGen) {
+    URL.revokeObjectURL(url);
+    return true;
+  }
+  neuralPlaying = a;
+  return new Promise<boolean>((resolve) => {
+    let started = false;
+    let finished = false;
+    const end = (ok: boolean) => {
+      if (finished) return;
+      finished = true;
+      if (neuralPlaying === a) neuralPlaying = null;
+      URL.revokeObjectURL(url);
+      if (started && gen === speechGen) rt.npcVoiceEnded();
+      resolve(ok || started);
+    };
+    a.onplaying = () => {
+      if (started) return;
+      started = true;
+      rt.npcVoiceStarted(((Number.isFinite(a.duration) ? a.duration : 3) * 1000) / rate);
+    };
+    a.onended = () => end(true);
+    a.onerror = () => end(false);
+    a.onpause = () => {
+      if (started && neuralPlaying !== a) end(true);
+    };
+    a.play().catch(() => end(false));
+  });
+}
+
+function speakDevice(text: string, level: LangLevel): Promise<void> {
   return new Promise<void>((done) => {
     const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
     if (!synth || typeof SpeechSynthesisUtterance === 'undefined') {
@@ -85,7 +171,7 @@ export function speakEnglish(text: string, level: LangLevel): Promise<void> {
     // The NPC voice ducks music/ambience/effects (docs/12 3장 "NPC가 말하는 중") until it ends.
     const rt = getAudioRuntime();
     const gen = ++speechGen;
-    // Player settings (G14): voice speed (slower for young children) and natural (neural) voice on/off.
+    // Player settings (G14): voice speed (slower for young children) and natural voice preference.
     const pref = frameSettings();
     const estMs = (400 + text.length * 90) / pref.voiceRate;
     rt.npcVoiceStarted(estMs);
@@ -118,6 +204,7 @@ export function speakEnglish(text: string, level: LangLevel): Promise<void> {
 }
 
 export function stopSpeaking(): void {
+  stopNeural();
   try {
     window.speechSynthesis?.cancel();
   } catch {

@@ -221,7 +221,7 @@ export function readMicStatus(): MicCheckStatus | null {
  * lesson state poll), a guest once on this device. Children with a device see it inside the first-visit intro.
  */
 export function MicCheckGate(props: { identityKind: string; lessonCode?: string; hidden?: boolean; speech?: SpeechEngine }): React.ReactElement | null {
-  // The student session can appear while the page is open ("🎓 수업 코드 넣기" on a bare /game/): look again now and then.
+  // The student session can appear while the page is open ("🎓 수업 코드 넣기" on a bare /world/): look again now and then.
   const [, setTick] = useState(0);
   const [closed, setClosed] = useState(false);
   useEffect(() => {
@@ -255,7 +255,7 @@ const STUDENT_LESSON = 'lcw.studentLessonId';
 
 /**
  * Who gets which check: a lesson student — a `?code=` link, or a student session in this tab (/join and "수업 코드
- * 넣기" both land on a bare /game/ with it) — once per lesson (keyed by lesson id, and by the code before the join
+ * 넣기" both land on a bare /world/ with it) — once per lesson (keyed by lesson id, and by the code before the join
  * answers); a guest once per device; a child with a device sees it inside the first-visit intro instead (null).
  */
 export function micCheckAudience(identityKind: string, lessonCode?: string): { audience: 'lesson' | 'guest'; keys: string[] } | null {

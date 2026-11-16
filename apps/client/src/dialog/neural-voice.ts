@@ -1,0 +1,146 @@
+import { normalizeTtsText, ttsVoiceId, type NpcVoice } from '@lcw/content';
+import { BUS_LUFS_TARGETS } from '@lcw/audio';
+import { readStudentToken } from './submit.js';
+import { frameSettings } from '../frame/settings.js';
+
+/**
+ * The neural NPC voice on the client (edge tts.ts, docs/04 4.8): asks `/v1/tts/status` once; while the server says
+ * it is on, NPC lines and model sentences come as mp3 from `/v1/tts` (R2-cached, the same sentence is made once) and
+ * play on the NPC voice bus, loudness-matched to the bus target. Anything that is off, slow or failing falls back to
+ * the device voice (sound.ts), so a dialog never waits on it.
+ */
+
+export const NEURAL_VOICE = {
+  /** A line not here by then is read by the device voice instead (measured: new line ~0.4-1.1 s, cached ~0.1 s). */
+  waitMs: 1500,
+  /** Lines kept in memory (the dialog prefetches its NPC line and offers). */
+  cacheLines: 24,
+  /**
+   * Loudness match to the voice bus (docs/12 voice_npc -16 LUFS). The voice bus (-1 dB) and master (70%, -3.1 dB)
+   * follow before the -1 dBFS limiter (audio/runtime.ts), so a peak of +3 dBFS here reaches it at -1.1 dBFS: loud
+   * enough for peaky voices (hera, athena peak at -0.1..-0.4 dBFS raw) without ever touching the limiter.
+   */
+  targetDb: BUS_LUFS_TARGETS.voice_npc,
+  peakCeilingDb: 3,
+  maxGainDb: 12
+} as const;
+
+/** `?voice=device` / `?voice=neural` (checks, demos) or the server's switch. */
+function override(): 'device' | 'neural' | null {
+  try {
+    const v = new URLSearchParams(location.search).get('voice');
+    return v === 'device' || v === 'neural' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+let statusP: Promise<boolean> | null = null;
+let statusKnown: boolean | null = null;
+
+export function neuralVoiceStatus(base = '', fetchImpl: typeof fetch = (i, init) => fetch(i, init)): Promise<boolean> {
+  const o = override();
+  if (o === 'device') return Promise.resolve((statusKnown = false));
+  if (!statusP) {
+    statusP = fetchImpl(`${base}/v1/tts/status`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { enabled?: boolean } | null) => (statusKnown = Boolean(j?.enabled)))
+      .catch(() => (statusKnown = false));
+  }
+  return statusP;
+}
+
+/** Sync view: true only once the server said on (the first line of a session may still be the device voice). */
+export function neuralVoiceOn(): boolean {
+  // the player's "자연스러운 목소리" switch (G14 설정) turns it off too (no line is fetched or prefetched then)
+  return statusKnown === true && frameSettings().neuralVoice;
+}
+
+/** Test seam. */
+export function resetNeuralVoice(): void {
+  statusP = null;
+  statusKnown = null;
+  cache.clear();
+}
+
+function token(): string {
+  try {
+    return readStudentToken() || localStorage.getItem('lcw.deviceToken') || '';
+  } catch {
+    return '';
+  }
+}
+
+export function ttsUrl(base: string, voice: NpcVoice, text: string): string {
+  return `${base}/v1/tts?v=${encodeURIComponent(ttsVoiceId(voice))}&t=${encodeURIComponent(normalizeTtsText(text))}`;
+}
+
+const cache = new Map<string, Promise<ArrayBuffer | null>>();
+
+/** Starts (or reuses) the download of one line; null when the server will not or cannot make it. */
+export function loadLine(voice: NpcVoice, text: string, base = '', fetchImpl: typeof fetch = (i, init) => fetch(i, init)): Promise<ArrayBuffer | null> {
+  const url = ttsUrl(base, voice, text);
+  const hit = cache.get(url);
+  if (hit) return hit;
+  const t = token();
+  const p = fetchImpl(url, t ? { headers: { authorization: `Bearer ${t}` } } : undefined)
+    .then((r) => (r.ok && (r.headers.get('content-type') ?? '').startsWith('audio/') ? r.arrayBuffer() : null))
+    .catch(() => null);
+  cache.set(url, p);
+  void p.then((b) => {
+    if (!b) cache.delete(url); // a refusal or failure is tried again next time
+  });
+  while (cache.size > NEURAL_VOICE.cacheLines) cache.delete(cache.keys().next().value!);
+  return p;
+}
+
+/** Warm the lines a dialog is about to speak (its NPC line, the offers' model sentences). */
+export function prefetchLines(lines: Array<{ voice: NpcVoice; text: string }>): void {
+  if (!neuralVoiceOn()) return;
+  for (const l of lines) if (l.text.trim()) void loadLine(l.voice, l.text);
+}
+
+/** Resolves the bytes if they arrive within `ms`, else null (the caller reads with the device voice). */
+export function within<T>(p: Promise<T | null>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const id = setTimeout(() => resolve(null), ms);
+    void p.then((v) => {
+      clearTimeout(id);
+      resolve(v);
+    });
+  });
+}
+
+/**
+ * Gain (linear) that brings a decoded line to the bus target: RMS of the loud part (frames above -50 dBFS) stands in
+ * for its loudness, and the gain never lets the peak pass the ceiling (the limiter stays untouched).
+ */
+export function loudnessGain(samples: Float32Array): number {
+  const frame = 1024;
+  let sum = 0;
+  let n = 0;
+  let peak = 0;
+  for (let s = 0; s < samples.length; s += frame) {
+    let e = 0;
+    const end = Math.min(samples.length, s + frame);
+    for (let i = s; i < end; i++) {
+      const v = samples[i]!;
+      e += v * v;
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+    }
+    const ms = e / Math.max(1, end - s);
+    if (ms > 1e-5) {
+      sum += ms;
+      n += 1;
+    }
+  }
+  if (n === 0 || peak === 0) return 1;
+  const rmsDb = 10 * Math.log10(sum / n);
+  // Measured on 35 aura/melo lines (11-16): this gated RMS sits 0.4 dB above ffmpeg's EBU R128 integrated loudness
+  // (range -1.2..+1.3 dB), so it stands in for LUFS within about a decibel.
+  const wantDb = NEURAL_VOICE.targetDb - (rmsDb - 0.4);
+  const peakRoomDb = NEURAL_VOICE.peakCeilingDb - 20 * Math.log10(peak);
+  const db = Math.min(wantDb, peakRoomDb, NEURAL_VOICE.maxGainDb);
+  return Math.pow(10, db / 20);
+}

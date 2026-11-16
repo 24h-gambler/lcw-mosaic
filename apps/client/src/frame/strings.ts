@@ -183,7 +183,7 @@ export const FRAME_STRINGS = {
   voiceRateTitle: '말하는 빠르기',
   voiceRateNames: { '0.6': '아주 느리게', '0.7': '느리게', '0.8': '조금 느리게', '0.9': '조금 느리게', '1': '보통', '1.1': '조금 빠르게', '1.2': '빠르게' } as Record<string, string>,
   neuralTitle: '자연스러운 목소리',
-  neuralHint: '켜면 더 사람 같은 목소리를 골라요. 이 목소리는 인터넷으로 만들어져서, 연결이 느리면 늦게 나올 수 있어요.',
+  neuralHint: '켜면 주민마다 사람 같은 목소리로 말해요. 끄면 이 기기의 목소리로 말해요.',
   volTryLine: 'Hello! Nice to meet you.',
   volMuted: '꺼짐',
   // G14 화면

@@ -265,9 +265,13 @@ describe('lessonApi client (docs/18 §2)', () => {
     saveStudentSession({ token: 'stok', lessonId: 'les-1', nickname: '지우', voiceStore: true }, session);
     expect(session.data.get('lcw.studentVoice')).toBe('1');
     expect(loadStudentSession(session)?.voiceStore).toBe(true);
+    // the level from /v1/join goes under the 3D client's key, so the /join -> /world/ hand-off keeps L3 as L3
+    saveStudentSession({ token: 'stok', lessonId: 'les-1', nickname: '지우', level: 'L3' }, session);
+    expect(session.data.get('lcw.studentLevel')).toBe('L3');
     saveStudentSession(null, session);
     expect(loadStudentSession(session)).toBeNull();
     expect(session.data.has('lcw.studentVoice')).toBe(false);
+    expect(session.data.has('lcw.studentLevel')).toBe(false);
     saveDirectorLesson(LESSON_REC, local);
     expect(loadDirectorLesson(local)).toEqual(LESSON_REC);
     // private mode / blocked storage: no throw, just "nothing stored"
@@ -472,6 +476,16 @@ describe('recall hint and target cards', () => {
     expect(html).not.toContain('warm honey tea');
     expect(html).not.toContain('blue stone');
     expect(html).toContain(LESSON_STRINGS_KO.join.recallNote);
+  });
+
+  it('/join: 6 digits lead into the 3D lesson; the word cards are the fallback (11-16 audit)', () => {
+    const on3d = renderToStaticMarkup(React.createElement(StudentJoin, { can3d: true, recognition: null, userAgent: 'Chrome' }));
+    expect(on3d).toContain(LESSON_STRINGS_KO.join.goes3dNote);
+    expect(on3d).toContain('data-testid="join-lite"');
+    expect(on3d).not.toContain(LESSON_STRINGS_KO.join.fallbackNote);
+    const no3d = renderToStaticMarkup(React.createElement(StudentJoin, { can3d: false, recognition: null, userAgent: 'Chrome' }));
+    expect(no3d).toContain(LESSON_STRINGS_KO.join.fallbackNote);
+    expect(no3d).not.toContain('data-testid="join-lite"');
   });
 
   it('picks the recognizer hypothesis closest to the chosen sentence (free talk: top guess)', () => {
@@ -750,12 +764,12 @@ describe('/director live console', () => {
 /* ---------- 10. docs/19: 3D default, /join fallback ---------- */
 
 describe('join links (docs/19 §4)', () => {
-  it('lists /game/?code= and /join?code=, fallback first until the 3D lesson join is ready', () => {
+  it('lists /world/?code= and /join?code=, fallback first until the 3D lesson join is ready', () => {
     expect(studentJoinLinks('https://x', '482913', false).map((l) => l.url)).toEqual([
-      'https://x/join?code=482913',
-      'https://x/game/?code=482913'
+      'https://x/join?code=482913&lite=1',
+      'https://x/world/?code=482913'
     ]);
-    expect(studentJoinLinks('https://x', '482913', true)[0]).toEqual({ kind: '3d', url: 'https://x/game/?code=482913' });
+    expect(studentJoinLinks('https://x', '482913', true)[0]).toEqual({ kind: '3d', url: 'https://x/world/?code=482913' });
   });
 
   it('reads ?code= on /join and the screen says it is the fallback', () => {
@@ -768,8 +782,9 @@ describe('join links (docs/19 §4)', () => {
     const dir = renderToStaticMarkup(
       React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: FEED })
     );
-    expect(dir).toContain('/join?code=482913');
-    expect(dir).toContain('/game/?code=482913');
+    // the teacher's fallback link keeps the word cards (lite=1), /join would send a 3D device into /world/
+    expect(dir).toContain('/join?code=482913&amp;lite=1');
+    expect(dir).toContain('/world/?code=482913');
   });
 
   it('the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines', () => {

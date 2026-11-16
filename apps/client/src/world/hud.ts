@@ -27,8 +27,11 @@ function css(): string {
 .lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.small.sizePx}px}
 .lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.micro.sizePx}px;border:2px solid ${C['ink-900']};display:none}
 .lw-chip .l.on{display:inline-block}
-.lw-chip .w{background:${night};color:${C['paper-0']};padding:6px 10px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.small.sizePx}px;display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.lw-chip .w i{width:12px;height:12px;border-radius:50%;background:${C.sun};box-shadow:0 0 0 2px ${C['sun-d']};flex:none}
+.lw-chip .l.solo{background:${C['paper-0']};color:${C['ink-700']};border-style:dashed}
+.lw-chip .s{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px}
+.lw-chip .w{display:inline-flex;align-items:center;gap:6px;font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px;font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9}
+.lw-chip .w:empty,.lw-chip .w.none{display:none}
+.lw-chip .w i{width:10px;height:10px;border-radius:50%;background:${C.sun};box-shadow:0 0 0 2px ${C['sun-d']};flex:none}
 .lw-chip .w.night i{background:transparent;box-shadow:inset -4px -2px 0 0 ${C.silver}}
 .lw-chip .w.snow i{background:${C['paper-0']};box-shadow:0 0 0 2px ${C.silver}}
 .lw-chip .s{white-space:nowrap}
@@ -125,8 +128,8 @@ function css(): string {
 @keyframes lwsnow{from{background-position:0 0,0 0}to{background-position:-48px 96px,32px 128px}}
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
-@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px}.lw-help{bottom:96px}.lw-chip .w{padding:4px 8px;font-size:${T.scale.micro.sizePx}px}.lw-chip{gap:4px}.lw-goal .t{font-size:${T.scale.h3.sizePx}px}.lw-chip .s{font-size:${T.scale.micro.sizePx}px}
-.lw-goal{top:60px;left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}}
+@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px}.lw-help{bottom:96px}.lw-goal .t{font-size:${T.scale.h3.sizePx}px}.lw-chip .s{font-size:${T.scale.micro.sizePx}px}
+.lw-goal{top:68px;left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,32px)}}
 @media (prefers-reduced-motion:reduce){.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
 }
@@ -268,8 +271,10 @@ export class WorldHud {
     this.goalT.lang = 'en';
 
     const chip = el('div', 'lw-chip', this.root);
-    this.sceneChip = el('span', 's', chip);
-    this.clockChip = el('span', 'w', chip);
+    // one compact chip, two lines: "중앙 광장 · 지상" over "맑음 10:30" (the lesson tag keeps its place next to it)
+    const sc = el('span', 's', chip);
+    this.sceneChip = el('span', 'p', sc);
+    this.clockChip = el('span', 'w none', sc);
     el('i', '', this.clockChip);
     this.clockText = el('span', '', this.clockChip);
     this.lessonChip = el('span', 'l', chip);
@@ -461,11 +466,14 @@ export class WorldHud {
       this.bandId = band;
       this.drawScene();
     }
-    const key = clockLabel(hour, this.weather);
-    if (key === this.clockKey) return;
-    this.clockKey = key;
+    // compare whole minutes first: the label string is built only when the minute or the weather changes
+    const minute = Math.floor((((hour % 24) + 24) % 24) * 60 + 1e-6);
+    const mk = `${minute}${this.weather}`;
+    if (mk === this.clockKey) return;
+    this.clockKey = mk;
     const night = isNight(hour);
-    this.clockText.textContent = key;
+    this.clockText.textContent = clockLabel(hour, this.weather);
+    this.clockChip.classList.remove('none');
     this.clockChip.classList.toggle('night', night && this.weather === 'clear');
     this.clockChip.classList.toggle('snow', this.weather === 'snow');
   }
@@ -558,6 +566,13 @@ export class WorldHud {
 
   setLessonBadge(on: boolean): void {
     this.lessonChip.classList.toggle('on', on);
+  }
+
+  /** Teacher name tag on the lesson chip: "<name> 함께" or "혼자 놀기"; null = the plain "수업 중" tag. */
+  setTeacher(t: { present: boolean; name: string | null } | null): void {
+    this.lessonChip.classList.toggle('solo', Boolean(t && !t.present));
+    this.lessonChip.dataset.teacher = t === null ? '' : t.present ? 'present' : 'absent';
+    this.lessonChip.textContent = t === null ? W.lessonBadge : t.present ? W.teacherWith(t.name || W.teacherDefault) : W.solo;
   }
 
   selectSlot(i: number, caption = true): void {

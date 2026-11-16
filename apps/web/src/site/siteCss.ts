@@ -83,9 +83,11 @@ export function siteCss(): string {
 .s-tag-sample{background:${C.sun};color:${C['ink-900']}}
 .s-tag-leaf{background:${C.leaf}}
 .s-tag-sky{background:${C.sky}}
+.s-tag-soon{background:${C['paper-100']};color:${C['ink-700']};border-style:dashed;white-space:nowrap}
 .s-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
 .s-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
 .s-grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.s-grid-modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px}
 .s-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:48px;align-items:center}
 
 /* hero */

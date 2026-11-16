@@ -50,6 +50,8 @@ async function boxes(page) {
       cap: q('.lw-cap'),
       bar: q('.lw-hotbar'),
       net: q('.lw-net'),
+      badge: q('.lw-chip .l'),
+      goal: q('.lw-goal.on'),
       aim: q('.lw-aim'),
       help: q('.lw-help'),
       buttons: [...document.querySelectorAll('.lw-touch.on .lw-btn')].map(r).filter(Boolean),
@@ -101,14 +103,28 @@ for (const vp of VIEWPORTS) {
   check(vp.name, b.cap?.text === '쿠키', `caption should name the selected slot (${b.cap?.text})`);
   check(vp.name, b.coins?.text === '120', `coins should read 120 (${b.coins?.text})`);
 
-  // 3. connection band, snow, lesson tag: nothing covers anything
+  // 3. a lesson screen (tag, goal card, four-digit coins), then the connection band and snow: nothing covers anything
+  await page.evaluate(() => {
+    window.__lcwWorld.setLessonBadge?.(true);
+    window.__lcwWorld.setCoins?.(1450);
+    window.__lcwWorld.setGoal('꿀 카페에서 꿀차를 주문해요', 'Can I have a honey tea, please?');
+  });
+  await page.waitForTimeout(800);
+  const l = await boxes(page);
+  await page.screenshot({ path: `${out}/${vp.name}-3lesson.png` });
+  const inView = (r) => r && r.x >= 0 && r.y >= 0 && r.x + r.w <= l.vw + 0.5 && r.y + r.h <= l.vh + 0.5;
+  check(vp.name, !!l.badge, 'lesson tag not shown');
+  check(vp.name, !overlap(l.badge, l.stars) && !overlap(l.badge, l.goal), 'lesson tag covered (stars or goal card)');
+  check(vp.name, !overlap(l.scene, l.stars) && !overlap(l.scene, l.goal), 'status chip covered (stars or goal card)');
+  check(vp.name, inView(l.goal), 'goal card leaves the screen');
   await page.evaluate(() => {
     window.__lcwWorld.setOnline?.(false);
     window.__lcwWorld.playDirectorEvent?.('weather_shift', 'snow');
-    window.__lcwWorld.setLessonBadge?.(true);
   });
   await page.waitForTimeout(1000);
   const c = await boxes(page);
+  check(vp.name, inView(c.goal), 'goal card leaves the screen while offline');
+  check(vp.name, !overlap(c.goal, c.net) && !overlap(c.badge, c.stars) && !overlap(c.scene, c.goal), 'offline: band, chips and goal card overlap');
   await page.screenshot({ path: `${out}/${vp.name}-3offline.png` });
   check(vp.name, !!c.net && /혼자 모드로 계속 중/.test(c.net.text), 'connection band missing');
   check(vp.name, !overlap(c.net, c.scene) && !overlap(c.net, c.stars), 'connection band covers the status chips');

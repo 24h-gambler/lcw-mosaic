@@ -19,6 +19,7 @@ import {
   type SeatRefundMode,
   type SeatState
 } from './familyApi.js';
+import { GuestPasses, passBoxFor } from './GuestPasses.js';
 import { errorCodeOf, loadOperatorToken } from './lessonApi.js';
 import { kstLabel } from './lessonFlow.js';
 import { Box, LessonStyle, Notice, border, inputStyle, labelStyle, sp } from './lessonUi.js';
@@ -89,13 +90,16 @@ export function FamilySeatsView({
   now,
   busy = false,
   sent,
-  onRequest
+  onRequest,
+  extra
 }: {
   seats: readonly FamilySeat[];
   now: number;
   busy?: boolean;
   sent?: { seatId: string; status: SeatSent } | null;
   onRequest: (seatId: string, input: SeatRequestInput) => void;
+  /** More for one seat at the end of its card (the friend pass box). */
+  extra?: (s: FamilySeat) => React.ReactNode;
 }): React.ReactElement | null {
   if (seats.length === 0) return null;
   return (
@@ -103,7 +107,7 @@ export function FamilySeatsView({
       <p style={{ ...small, marginTop: 0 }}>{S.lead}</p>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: sp(3) }}>
         {seats.map((s) => (
-          <SeatItem key={s.id} seat={s} now={now} busy={busy} sent={sent?.seatId === s.id ? sent.status : null} onRequest={onRequest} />
+          <SeatItem key={s.id} seat={s} now={now} busy={busy} sent={sent?.seatId === s.id ? sent.status : null} onRequest={onRequest} extra={extra?.(s)} />
         ))}
       </ul>
     </Box>
@@ -168,13 +172,15 @@ function SeatItem({
   now,
   busy,
   sent,
-  onRequest
+  onRequest,
+  extra
 }: {
   seat: FamilySeat;
   now: number;
   busy: boolean;
   sent: SeatSent | null;
   onRequest: (seatId: string, input: SeatRequestInput) => void;
+  extra?: React.ReactNode;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<SeatRefundMode>('refund_difference');
@@ -293,6 +299,7 @@ function SeatItem({
           </div>
         </form>
       ) : null}
+      {extra}
     </li>
   );
 }
@@ -327,6 +334,8 @@ export function FamilySeats({ api, token }: { api: FamilyApi; token: string }): 
       now={data.server_now}
       busy={busy}
       sent={sent}
+      // A friend pass belongs to a live seat of this family's own child (another family's Duo seat is theirs to give).
+      extra={(s) => (passBoxFor(s) ? <GuestPasses api={api} token={token} seatId={s.id} /> : null)}
       onRequest={(seatId, input) => {
         setBusy(true);
         void api

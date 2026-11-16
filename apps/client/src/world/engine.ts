@@ -173,6 +173,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     onSlot: (i) => {
       hud.selectSlot(i);
       sfx.play('ui.click');
+      slotPicked(i);
     }
   });
   hud.setTouch(touch);
@@ -338,6 +339,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let lastAutoPos = new THREE.Vector3();
   const interactCbs = new Set<(npc: NpcRef) => void>();
   const hotbar: Array<string | null> = [null, null, null, null, null];
+  // the child picked a slot holding a thing: a use of that thing (frame domain records it on the server, docs/09 P4)
+  const holdListeners = new Set<(itemKey: string) => void>();
+  const slotPicked = (i: number): void => {
+    const k = hotbar[i];
+    if (k) for (const cb of holdListeners) cb(k);
+  };
   let possessedId: string | null = null;
   /** a lesson is live (setLessonBadge): solo-only NPCs (the errand giver) step out of it */
   let lessonMode = false;
@@ -517,6 +524,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       if (n >= 0 && n < 5) {
         hud.selectSlot(n);
         refreshBuildSlots();
+        slotPicked(n);
       }
     }
     // Space jumps; keep the page from scrolling only when nothing on the page has focus (or the canvas has).
@@ -1399,6 +1407,20 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       effects.sparkle(hp.x, hp.y, hp.z);
       sfx.play('item.get');
     },
+    setBag(keys) {
+      for (let i = 0; i < hotbar.length; i++) {
+        const k = keys[i] ?? null;
+        if (hotbar[i] === k) continue;
+        hotbar[i] = k;
+        hud.setItem(i, k);
+      }
+      if (heldItem && heldKey && !hotbar.includes(heldKey)) {
+        player.hand.remove(heldItem);
+        heldItem = null;
+        heldKey = null;
+        hands.setItem(null);
+      }
+    },
     takeItem(itemKey) {
       const slot = hotbar.lastIndexOf(itemKey);
       if (slot < 0) return false;
@@ -1515,6 +1537,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       }
     },
     setBuildAccess: (a) => startBuildAccess(a),
+    getPlayerLook: () => ({ ...PLAYER_LOOK }),
+    onHold(cb) {
+      holdListeners.add(cb);
+      return () => holdListeners.delete(cb);
+    },
     onRoomCheck(cb) {
       roomCbs.add(cb);
       return () => {

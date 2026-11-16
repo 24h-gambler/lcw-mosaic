@@ -1,31 +1,185 @@
 /**
  * The child's screen frame around the world (docs/08 8.6, frame domain): the HUD's always-on status (connection band,
- * coin chip) and the player menus. The world draws the HUD itself (`world/hud.ts`); this layer feeds it what only the
- * shell knows (who is playing, whether the server answers).
+ * coin chip), the HUD "메뉴" button and the player menu (G03 G04 G06 G10 G11 G14). The world draws the HUD itself
+ * (`world/hud.ts`); this layer feeds it what only the shell knows (who is playing, whether the server answers).
  */
-import { useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WorldHandle } from '../world/api.js';
-import type { PlayerIdentity } from '../world/identity.js';
+import { storedStudentToken, type PlayerIdentity } from '../world/identity.js';
 import { watchConnection } from './connection.js';
+import { FRAME_STRINGS as F } from './strings.js';
+import { PlayerMenu, tabForKey } from './menu/PlayerMenu.js';
+import { ensureMenuStyle } from './menu/styles.js';
+import type { FrameAuth, MenuTab } from './menu/types.js';
+import { fetchItems, holdThing, type ItemsView } from './api.js';
 
 export interface FrameLayerProps {
   world: WorldHandle | null;
   identity: PlayerIdentity | null;
+  /** a lesson is live */
+  lessonOn?: boolean;
+  /** a dialog window is open (solo); the HUD's own `.dlg` mark covers lesson dialogs too */
+  dialogOpen?: boolean;
 }
 
-export function FrameLayer({ world, identity }: FrameLayerProps): null {
+/** Who the frame asks the server as (same tokens the review and build paths use). */
+export function frameAuthOf(id: PlayerIdentity | null, studentToken: string | null): FrameAuth {
+  if (id?.kind === 'child') return { kind: 'child', token: id.token };
+  if (id?.kind === 'lesson' && studentToken && studentToken.length >= 32) return { kind: 'lesson', token: studentToken };
+  return { kind: 'guest', token: null };
+}
+
+/** True while the world HUD carries its dialog mark (any dialog: solo, lesson, review). */
+function useHudDialog(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    let obs: MutationObserver | null = null;
+    let raf = 0;
+    const attach = (): void => {
+      const hud = document.querySelector('.lw-hud');
+      if (!hud) {
+        raf = requestAnimationFrame(attach);
+        return;
+      }
+      setOn(hud.classList.contains('dlg'));
+      obs = new MutationObserver(() => setOn(hud.classList.contains('dlg')));
+      obs.observe(hud, { attributes: true, attributeFilter: ['class'] });
+    };
+    attach();
+    return () => {
+      cancelAnimationFrame(raf);
+      obs?.disconnect();
+    };
+  }, []);
+  return on;
+}
+
+const HOLD_EVERY_MS = 10 * 60_000;
+
+/** Hotbar keys from the server's bag: the first five carried things. */
+export function bagKeys(v: ItemsView): Array<string | null> {
+  const bag = v.items.filter((t) => t.location === 'bag').map((t) => t.item_key);
+  return Array.from({ length: 5 }, (_, i) => bag[i] ?? null);
+}
+
+export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = false }: FrameLayerProps): React.ReactElement | null {
+  const [online, setOnline] = useState(true);
+  const [menu, setMenu] = useState<MenuTab | null>(null);
+  const [lastTab, setLastTab] = useState<MenuTab>('bag');
+  const hudDialog = useHudDialog();
+  const blocked = dialogOpen || hudDialog;
+  // the lesson token appears once the join answered (lessonOn flips then)
+  const auth = useMemo(() => frameAuthOf(identity, identity?.kind === 'lesson' ? storedStudentToken() : null), [identity, lessonOn]);
+
   // Connection band: the world keeps running on the device while the server is away.
   useEffect(() => {
-    if (!world?.setOnline) return;
+    if (!world) return;
     const startOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
-    return watchConnection({ setOnline: (on) => world.setOnline?.(on), startOnline });
+    return watchConnection({
+      setOnline: (on) => {
+        setOnline(on);
+        world.setOnline?.(on);
+      },
+      startOnline
+    });
   }, [world]);
 
-  // Coins are always on the HUD (docs/08 8.1). A guest has no ledger: nothing is ever granted on a guest device, so its
-  // balance is 0. A lesson's poll and a linked child's answers bring the server ledger total.
-  useEffect(() => {
-    if (world && identity?.kind === 'guest') world.setCoins?.(0);
-  }, [world, identity]);
+  // The HUD hotbar shows the server's bag (G03): the first five carried things, in the server's order.
+  const applyBag = useCallback(
+    (v: ItemsView) => {
+      if (typeof v.coins_total === 'number') world?.setCoins?.(v.coins_total);
+      world?.setBag?.(bagKeys(v));
+    },
+    [world]
+  );
+  const syncBag = useCallback(() => {
+    if (auth.kind === 'guest') return;
+    void fetchItems(auth).then((r) => {
+      if (r.ok) applyBag(r.data);
+    });
+  }, [auth, applyBag]);
 
-  return null;
+  // Picking a hotbar slot with a thing in it is a use of that thing (docs/09 P4); the server decides. Once per thing
+  // per ten minutes is enough for the "used in the last days" window, so slot flicking never floods the server.
+  useEffect(() => {
+    if (!world?.onHold || auth.kind === 'guest') return;
+    const last = new Map<string, number>();
+    return world.onHold((key) => {
+      const now = Date.now();
+      if ((last.get(key) ?? -Infinity) > now - HOLD_EVERY_MS) return;
+      last.set(key, now);
+      void holdThing(auth, key);
+    });
+  }, [world, auth]);
+
+  // Coins are always on the HUD (docs/08 8.1). A guest has no ledger: nothing is ever granted on a guest device, so its
+  // balance is 0. A linked child or a lesson student reads the server ledger once at the start; later answers and the
+  // lesson poll keep it current.
+  useEffect(() => {
+    if (!world) return;
+    if (identity?.kind === 'guest') {
+      world.setCoins?.(0);
+      return;
+    }
+    // a lesson before its join answered, or no identity yet: wait for the token
+    if (auth.kind === 'guest') return;
+    let live = true;
+    void fetchItems(auth).then((r) => {
+      if (live && r.ok) applyBag(r.data);
+    });
+    return () => {
+      live = false;
+    };
+  }, [world, auth, identity, applyBag]);
+
+  const open = useCallback((t: MenuTab) => {
+    setLastTab(t);
+    setMenu(t);
+  }, []);
+  const close = useCallback(() => setMenu(null), []);
+
+  // Desktop keys open a tab while nothing else holds the screen (the menu handles keys itself once open).
+  useEffect(() => {
+    if (menu !== null) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (blocked || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tgt = e.target as HTMLElement | null;
+      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) return;
+      const t = tabForKey(e.code);
+      if (!t) return;
+      e.preventDefault();
+      open(t);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menu, blocked, open]);
+
+  // A dialog opening (an NPC, the teacher) takes the screen: the menu steps aside.
+  useEffect(() => {
+    if (blocked) setMenu(null);
+  }, [blocked]);
+
+  ensureMenuStyle();
+  if (!world) return null;
+  return (
+    <>
+      {!blocked && menu === null ? (
+        <button
+          type="button"
+          className="lcw-hudbtn lcw-hudbtn--bag"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => open(lastTab)}
+          aria-label={F.menu}
+        >
+          <span className="ic" aria-hidden="true">
+            🎒
+          </span>
+          <span>{F.menu}</span>
+        </button>
+      ) : null}
+      {menu !== null ? (
+        <PlayerMenu world={world} identity={identity} auth={auth} lessonOn={lessonOn} tab={menu} onTab={open} onClose={close} syncBag={syncBag} />
+      ) : null}
+    </>
+  );
 }

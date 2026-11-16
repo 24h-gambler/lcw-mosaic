@@ -22,5 +22,7 @@ export interface MenuPanelProps {
   /** switch tab (e.g. the bag's "고쳐 줘야 해요" opens the repair tab) */
   go(tab: MenuTab): void;
   close(): void;
+  /** the bag changed on the server (a move): the HUD hotbar and coins follow */
+  syncBag?(): void;
   fetchImpl?: Fetch;
 }

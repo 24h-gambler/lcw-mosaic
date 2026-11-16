@@ -67,6 +67,8 @@ export function PlayerMenu(props: PlayerMenuProps): React.ReactElement {
     const onKey = (e: KeyboardEvent): void => {
       const tgt = e.target as HTMLElement | null;
       if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA')) return;
+      // a dialog window opened from a tab (the repair review) owns the keys until it closes
+      if (document.querySelector('.lcw-dlg')) return;
       if (e.code === 'Escape') {
         e.preventDefault();
         e.stopPropagation();

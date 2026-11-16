@@ -3,6 +3,7 @@
  * The required members match docs/19 exactly; the optional ones are additions recorded there in the same PR.
  */
 import type { NpcContext } from '@lcw/schemas';
+import type { NpcLook } from './town.js';
 
 export type SceneId = 'plaza' | 'honey_cafe' | 'trade_shop' | 'build_plot' | 'open_hill';
 
@@ -62,6 +63,15 @@ export interface WorldHandle {
    * hand too. False when no slot held it. Shells call it after the server already moved the item.
    */
   takeItem?(itemKey: string): boolean;
+  /**
+   * The bag as the server keeps it (frame domain reads GET /v1/items): slot i shows keys[i], quietly (no toast, no
+   * sparkle). A thing in hand that left the bag leaves the hand too.
+   */
+  setBag?(keys: ReadonlyArray<string | null>): void;
+  /** The player's look (skin, hair, clothes) for the mirror screen (G04), which draws its own small copy. */
+  getPlayerLook?(): NpcLook;
+  /** The child picked a hotbar slot that holds a thing (key, 1~5, tap). Returns an unsubscribe. */
+  onHold?(cb: (itemKey: string) => void): () => void;
   /** 별 연출·효과음. `add` = how many stars the HUD chip gains (default `stars`; a retry that beats 1 star with 2 adds 1). */
   celebrate(stars: 0 | 1 | 2 | 3, opts?: { add?: number }): void;
   setGoal(goalKo: string, targetEn?: string): void; // 화면 맨 위 목표 한 줄

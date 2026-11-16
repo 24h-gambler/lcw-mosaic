@@ -73,6 +73,9 @@ export const MENU_CSS = `
   border-radius:${S.radiusButtonPx}px;box-shadow:${S.shadowDefault};background:${COLOR_TOKENS['paper-50']};color:${COLOR_TOKENS['ink-900']};font-family:${TYPOGRAPHY_TOKENS.fonts.ui};
   font-weight:800;font-size:${t.small.sizePx}px;padding:0 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;cursor:pointer;touch-action:none;line-height:1.1}
 .lcw-hudbtn .ic{font-size:20px;line-height:1}
+/* left of the hotbar (5 x 56 + 4 x 4 = 296 wide, centred, 12 from the bottom): the bag and the menu belong together */
+.lcw-hudbtn--bag{left:calc(50% - 148px - 8px - ${S.gameButtonMinPx}px);bottom:12px}
+@media (max-width:600px){.lcw-hudbtn--bag{left:calc(50% - 118px - 6px - 48px);min-width:48px;height:48px;bottom:10px;font-size:${t.micro.sizePx}px;padding:0 4px}.lcw-hudbtn--bag .ic{font-size:18px}}
 .lcw-hudbtn:active{box-shadow:${S.shadowPressed};transform:translate(3px,3px)}
 `;
 

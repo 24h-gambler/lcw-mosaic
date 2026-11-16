@@ -1,4 +1,4 @@
-import { ECHO_TRANSITION_LINE, FIRST_ERRAND, NPC_GENERIC_REACTIONS, NPC_OPENING_LINES, OPEN_ENDED_PROMPTS, PHRASE_BANK } from './lang-en-ko.js';
+import { ECHO_TRANSITION_LINE, FIRST_ERRAND, NPC_GENERIC_REACTIONS, NPC_OPENING_LINES, NPC_REVISIT_LINES, OPEN_ENDED_PROMPTS, PHRASE_BANK } from './lang-en-ko.js';
 import { npcCast, voiceForCtx, type NpcVoice } from './npc-cast.js';
 import { TRY_CAFE_OFFERS } from './try-order.js';
 import { LESSON_PLANS, getLessonNpc } from './lesson-plans.js';
@@ -71,6 +71,7 @@ export function fixedTtsLines(lang: string = 'en', opts: { priorityOnly?: boolea
     out.push({ text: t, voice });
   };
   for (const [ctx, line] of Object.entries(NPC_OPENING_LINES)) add(line, voiceForCtx(ctx, lang));
+  for (const [ctx, lines] of Object.entries(NPC_REVISIT_LINES)) for (const line of lines) add(line, voiceForCtx(ctx, lang));
   const giver = voiceForCtx('errand', lang);
   for (const line of Object.values(FIRST_ERRAND.lines)) add(line, giver);
   for (const ctx of Object.keys(npcCast(lang).ctxNpc)) {

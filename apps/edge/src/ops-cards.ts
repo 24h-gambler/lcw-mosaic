@@ -17,8 +17,11 @@ import type { SqliteExecutor } from './storage.js';
 
 export const OPS_CARD_SCHEMA = `
 create table if not exists ops_card_outbox (ref text primary key, card text not null, created_at integer not null, updated_at integer not null, acked_at integer, spine_id text);
-create index if not exists ops_card_outbox_pending on ops_card_outbox (acked_at, updated_at)
+create index if not exists ops_card_outbox_pending on ops_card_outbox (acked_at, updated_at);
+create index if not exists utterances_by_time on utterances (created_at)
 `;
+// utterances_by_time: the hourly enqueueRecentStudentDays reads the last two hours of every student; without it each
+// hour scans the whole table. utterances exists by then (storage.ts schema, lesson-mode.ts indexes it before mounting).
 
 /** The spine source the watch has always used for LCW cards (tools/lesson-watch.mjs CARD_SOURCE). */
 export const OPS_CARD_SOURCE = 'outsourcing';
@@ -182,6 +185,31 @@ export function enqueueLessonEnd(sql: SqliteExecutor, lessonId: string, nowMs: n
   const l = sql.get<{ player_id: string; started_at: number }>('select player_id, started_at from lessons where id = ?', [lessonId]);
   const daily = l ? studentDailyCard(sql, l.player_id, kstDay(l.started_at), origin) : null;
   if (daily && enqueueCard(sql, daily, nowMs)) out.push(daily.ref);
+  return out;
+}
+
+/** Production origin for cards made without a request (the hourly cron): the console button must open the real site. */
+export const OPS_CARD_ORIGIN = 'https://lcw.worldwidesomething.com';
+
+/**
+ * Hourly (docs/09-ops.md 15): the daily record of every student who spoke in the last two hours - in a lesson or in
+ * solo play. A lesson that closed itself (no teacher pressed end) or play outside a lesson still reaches the hub that
+ * day; two hours so the last minutes before midnight (KST) are still written to that day's card. An unchanged card
+ * stays as it is (enqueueCard), so an acked card goes again only when its numbers moved. Test students never.
+ */
+export function enqueueRecentStudentDays(sql: SqliteExecutor, nowMs: number, origin: string): string[] {
+  const rows = sql.all<{ player_id: string; d: number }>(
+    `select player_id, (created_at + 32400000) / 86400000 as d from utterances
+     where created_at >= ? and player_id is not null group by player_id, d`,
+    [nowMs - 2 * 3_600_000]
+  );
+  const out: string[] = [];
+  for (const r of rows) {
+    if (isTestPlayerId(r.player_id)) continue;
+    const day = new Date(Number(r.d) * 86_400_000).toISOString().slice(0, 10);
+    const card = studentDailyCard(sql, r.player_id, day, origin);
+    if (card && enqueueCard(sql, card, nowMs)) out.push(card.ref);
+  }
   return out;
 }
 

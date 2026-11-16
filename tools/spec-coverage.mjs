@@ -8,6 +8,8 @@
 //   2. `done` (or a site feature `live`) without a test that exists, or without a real-screen check (`e2e`)
 //   3. narrowing the scope without an operator decision: an id or feature dropped from the list, or set to
 //      `deferred`/`retired` (or a feature lowered to `planned`), with no `decision` (d_… decision card or R… ledger line)
+//   3b. postponing is narrowing too (operator 2026-11-16: "왜 수업뒤에 넣어요?"): any timing field on an id or feature
+//      (deferred_until, later, after, after_lesson, not_before, eta, target_date, phase, …) needs the same decision id
 //   4. a reference to a doc that does not exist (`06` while docs/ has no 06-*.md) that is not on the known list
 // `missing` and `partial` are honest states, not failures: they show up as the gap list per owner.
 import { execFileSync } from 'node:child_process';
@@ -23,6 +25,9 @@ export const FEATURE_STATUSES = ['live', 'building', 'planned'];
 export const OWNERS = ['world', 'talk', 'lesson', 'parent', 'outsider', 'ops'];
 export const DECISION = /^(d_[0-9a-f]{6,}|R\d{3,})$/;
 const NARROWED = new Set(['deferred', 'retired']);
+/** Fields that move work to a later time. Any of them, on an id or a feature, needs `decision` (postponing = narrowing). */
+export const TIMING_FIELDS = ['deferred_until', 'defer_until', 'later', 'after', 'after_lesson', 'not_before', 'eta', 'target_date', 'phase', 'milestone', 'until', 'when'];
+const timingOf = (e) => TIMING_FIELDS.filter((k) => e[k] !== undefined && e[k] !== null && e[k] !== '');
 
 /** "path/to/file.test.ts::exact it() name" → { file, name } */
 export function parseTestRef(ref) {
@@ -65,6 +70,7 @@ export function checkCoverage({ docs, coverage, base, broken, readFile = default
     if (!OWNERS.includes(e.owner)) errors.push(`[소유] ${id}: owner "${e.owner}" 는 ${OWNERS.join('|')} 중 하나여야 합니다`);
     if (!docIds.has(id) && e.status !== 'retired') errors.push(`[설계서에 없음] ${id}: 설계서에서 사라진 id 는 status "retired" 와 decision 으로만 남깁니다`);
     if (NARROWED.has(e.status) && !DECISION.test(e.decision ?? '')) errors.push(`[범위 축소] ${id}: "${e.status}" 는 운영자 결정 id(d_… 또는 R…)가 decision 에 있어야 합니다`);
+    for (const k of timingOf(e)) if (!DECISION.test(e.decision ?? '')) errors.push(`[시점 미루기] ${id}: ${k}="${e[k]}" — 시점 미루기도 범위 축소입니다. 운영자 결정 id(d_… 또는 R…)가 decision 에 있어야 합니다`);
     if (e.status === 'done') {
       const tests = e.tests ?? [];
       if (!tests.length) errors.push(`[거짓 done] ${id}: done 인데 tests 가 비었습니다`);
@@ -83,6 +89,7 @@ export function checkCoverage({ docs, coverage, base, broken, readFile = default
     if (!FEATURE_STATUSES.includes(f.status)) errors.push(`[기능 상태] ${f.id}: "${f.status}" 는 ${FEATURE_STATUSES.join('|')} 중 하나`);
     if (!OWNERS.includes(f.owner)) errors.push(`[기능 소유] ${f.id}: owner "${f.owner}"`);
     if (!f.evidence) errors.push(`[기능 근거] ${f.id}: evidence 가 없습니다`);
+    for (const k of timingOf(f)) if (!DECISION.test(f.decision ?? '')) errors.push(`[시점 미루기] 기능 ${f.id}: ${k}="${f[k]}" — 운영자 결정 id 가 decision 에 있어야 합니다`);
     if (f.status === 'live') {
       if (!(f.tests ?? []).length) errors.push(`[거짓 live] ${f.id}: live 인데 tests 가 비었습니다`);
       for (const t of f.tests ?? []) if (!testExists(t, readFile)) errors.push(`[거짓 live] ${f.id}: 시험 "${t}" 를 찾을 수 없습니다`);

@@ -178,6 +178,7 @@ Cloudflare 수치는 공식 요금 문서에서, AWS는 공식 안내 문서에�
 1. 설계서에 있는데 목록에 없는 id.
 2. `done`(또는 `live`)인데 시험이 없거나, 시험 파일·이름을 찾을 수 없거나, `e2e`가 없는 것.
 3. 범위 축소: 목록에서 id·기능을 지움, `deferred`/`retired`로 바꿈, 기능을 `planned`로 내림 — 운영자 결정 id(`d_…` 결정 카드 또는 `R…` 원장)가 `decision`에 없으면 실패. 비교 기준은 main 과 갈라진 지점의 목록(`git merge-base HEAD origin/main`, 바꾸려면 `LCW_COVERAGE_BASE=<ref>`).
+3b. 시점 미루기: id·기능에 시점 필드(`deferred_until`, `after_lesson`, `later`, `not_before`, `phase` 등, 목록은 `tools/spec-coverage.mjs`의 `TIMING_FIELDS`)가 있는데 `decision`이 없는 것.
 4. 새로 끊긴 문서 참조. 이미 아는 끊긴 참조는 `broken_refs`에 소유자·할 일과 함께 두고, 고쳐지면 목록에서 빼야 통과합니다.
 
 `missing`·`partial`은 실패가 아닙니다. `node tools/spec-coverage.mjs`가 소유자별 빈틈 목록으로 보여 줍니다.
@@ -198,3 +199,4 @@ PLAYWRIGHT_CORE=<playwright-core/index.mjs> node tools/nightly-audit.mjs --base 
 - '완료'라고 보고하려면 그 id 가 `done`이고 시험과 실화면 확인이 통과해야 합니다(AGENTS.md 0.5).
 - 화면을 만들면 같은 PR 에서 그 id 의 `status`·`tests`·`e2e`·`evidence`를 고칩니다.
 - 범위를 줄이려면 먼저 운영자 결정(결정 카드)을 받고 그 id 를 `decision`에 적습니다(AGENTS.md 0.6).
+- 시점 미루기도 범위 축소입니다(AGENTS.md 0.7). PR 은 머지 직전에 `node tools/pr-lint.mjs <PR 번호>`를 통과해야 합니다: 본문(`gh pr view`)에 '나중에·다음 PR·수업 뒤·17:00 뒤·오늘은 ○○ 대신·우선 ○○만·follow-up PR' 같은 표현이 있으면 같은 문단에 결정 id(`d_…`/`R…`)가 있어야 합니다. 인용(`> …`)·코드는 검사하지 않습니다. 시험: `tools/__tests__/pr-lint.test.ts`.

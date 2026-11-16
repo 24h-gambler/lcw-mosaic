@@ -77,6 +77,17 @@ describe('rules (fault injection: each one must fail)', () => {
     expect(words.errors.join()).toContain('[범위 축소]');
   });
 
+  it('③b postponing is narrowing: a timing field (deferred_until, after_lesson, later…) needs a decision id too', () => {
+    for (const field of ['deferred_until', 'after_lesson', 'later', 'not_before', 'phase']) {
+      const r = run({ docs: [doc('G06'), doc('G07')], coverage: { ids: { G06: done, G07: { status: 'missing', owner: 'world', note: 'x', [field]: '17:00' } } } });
+      expect(r.errors.join(), field).toContain('[시점 미루기] G07');
+    }
+    const decided = run({ docs: [doc('G06'), doc('G07')], coverage: { ids: { G06: done, G07: { status: 'missing', owner: 'world', note: 'x', deferred_until: '2026-12-01', decision: 'd_17656aefc718' } } } });
+    expect(decided.errors).toEqual([]);
+    const feat = run({ coverage: { ids: { G06: done }, features: [{ id: 'jetpack', status: 'building', owner: 'world', evidence: 'x', after_lesson: true }] } });
+    expect(feat.errors.join()).toContain('[시점 미루기] 기능 jetpack');
+  });
+
   it('a site feature: live needs tests and a screen check; lowering it to planned or dropping it needs a decision', () => {
     const live = { id: 'jetpack', status: 'live', owner: 'world', evidence: 'x', tests: [] };
     expect(run({ coverage: { ids: { G06: done }, features: [live] } }).errors.join()).toContain('[거짓 live] jetpack');

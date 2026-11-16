@@ -227,6 +227,41 @@ function kstDayStartMs(day: string): number {
   return Date.parse(`${day}T00:00:00+09:00`);
 }
 
+/**
+ * Every minute from the start to now (or the end), silent minutes included, so the chart shows gaps. `complete`
+ * says whether the last minute is over (a running lesson's current minute is not yet a silent minute).
+ * Shared by the director feed and the operator CSV export (export-csv.ts).
+ */
+export function lessonMinutes(
+  d: Pick<LessonModeDeps, 'sql' | 'db' | 'nowMs'>,
+  id: string,
+  endingAt?: number
+): { minutes: LessonMinuteInput[]; complete: number } {
+  const l = d.sql.get<{ started_at: number; ended_at: number | null }>('select started_at, ended_at from lessons where id = ?', [id]);
+  if (!l) return { minutes: [], complete: 0 };
+  const stored = new Map(d.db.listLessonMinutes(id).map((m) => [m.minute, m]));
+  const stages = d.sql.all<{ at: number; stage_id: string }>(
+    'select at, stage_id from lesson_stage_log where lesson_id = ? order by at, id',
+    [id]
+  );
+  const endAt = l.ended_at ?? endingAt ?? d.nowMs();
+  const elapsed = Math.max(0, endAt - l.started_at);
+  const last = Math.min(LESSON_MINUTES_MAX - 1, Math.floor(elapsed / 60_000));
+  const out: LessonMinuteInput[] = [];
+  let si = 0;
+  let stage =
+    stages[0]?.stage_id ??
+    d.sql.get<{ stage_id: string }>('select stage_id from lesson_state where lesson_id = ?', [id])?.stage_id ??
+    'lesson';
+  for (let m = 0; m <= last; m++) {
+    const minuteEnd = l.started_at + (m + 1) * 60_000 - 1;
+    while (si < stages.length && stages[si]!.at <= minuteEnd) stage = stages[si++]!.stage_id;
+    out.push(stored.get(m) ?? { lesson_id: id, minute: m, student_ms: 0, teacher_ms: 0, exchanges: 0, activity: stage });
+  }
+  const complete = l.ended_at || endingAt ? out.length : Math.min(out.length, Math.floor(elapsed / 60_000));
+  return { minutes: out, complete };
+}
+
 export function buildLessonModeApp(d: LessonModeDeps): Hono {
   d.sql.exec(LESSON_MODE_SCHEMA);
   // lesson_presence predates the mic column: add it once on an existing database.
@@ -357,32 +392,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     });
   };
 
-  /**
-   * Every minute from the start to now (or the end), silent minutes included, so the chart shows gaps. `complete`
-   * says whether the last minute is over (a running lesson's current minute is not yet a silent minute).
-   */
-  const minutesOf = (id: string, endingAt?: number): { minutes: LessonMinuteInput[]; complete: number } => {
-    const l = lessonRow(id);
-    if (!l) return { minutes: [], complete: 0 };
-    const stored = new Map(d.db.listLessonMinutes(id).map((m) => [m.minute, m]));
-    const stages = d.sql.all<{ at: number; stage_id: string }>(
-      'select at, stage_id from lesson_stage_log where lesson_id = ? order by at, id',
-      [id]
-    );
-    const endAt = l.ended_at ?? endingAt ?? d.nowMs();
-    const elapsed = Math.max(0, endAt - l.started_at);
-    const last = Math.min(LESSON_MINUTES_MAX - 1, Math.floor(elapsed / 60_000));
-    const out: LessonMinuteInput[] = [];
-    let si = 0;
-    let stage = stages[0]?.stage_id ?? stateOf(id)?.stage_id ?? 'lesson';
-    for (let m = 0; m <= last; m++) {
-      const minuteEnd = l.started_at + (m + 1) * 60_000 - 1;
-      while (si < stages.length && stages[si]!.at <= minuteEnd) stage = stages[si++]!.stage_id;
-      out.push(stored.get(m) ?? { lesson_id: id, minute: m, student_ms: 0, teacher_ms: 0, exchanges: 0, activity: stage });
-    }
-    const complete = l.ended_at || endingAt ? out.length : Math.min(out.length, Math.floor(elapsed / 60_000));
-    return { minutes: out, complete };
-  };
+  /** Every minute of the lesson (see lessonMinutes; the CSV export reads the same table). */
+  const minutesOf = (id: string, endingAt?: number) => lessonMinutes(d, id, endingAt);
 
   const lessonUtterances = (id: string): UtteranceMetricInput[] =>
     d.sql

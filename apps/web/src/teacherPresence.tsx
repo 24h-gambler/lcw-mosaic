@@ -19,6 +19,10 @@ export const TEACHER_BEAT_MS = 15_000;
 export const TEACHER_RETRY_MS = 5_000;
 /** The name alone ("김민지"; the child sees "김민지 선생님"), kept per console browser. */
 export const TEACHER_NAME_KEY = 'lcw.teacherName';
+/** Where 「🧭 월드에서 1인칭으로」 goes: the 3D world as the teacher, in this lesson's room (apps/client TeacherBar.tsx). */
+export function teachWorldPath(lessonId: string): string {
+  return `/world/?teach=${encodeURIComponent(lessonId)}`;
+}
 /** The name alone the server accepts (title dropped, 1-TEACHER_NAME_MAX chars, no control characters or <>), else null. */
 export const cleanTeacherName = normalizeTeacherName;
 function readTeacherName(): string | null {
@@ -240,9 +244,13 @@ export function TeacherPresenceBox({
             </Button>
           </div>
         ) : (
-          <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
             <Button type="button" variant="paper" data-testid="teacher-leave" onClick={() => void leave()}>
               {P.consoleLeave}
+            </Button>
+            {/* The teacher walks into the child's world in first person (apps/client world/TeacherBar.tsx). */}
+            <Button type="button" variant="brand" data-testid="teacher-world" onClick={() => location.assign(teachWorldPath(lessonId))}>
+              {P.consoleWorld}
             </Button>
           </div>
         )}

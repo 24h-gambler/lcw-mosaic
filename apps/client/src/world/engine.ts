@@ -305,7 +305,18 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   scene.add(player.root);
   // Other people in the same multi room (room-client.ts feeds them through handle.multi).
   const peerShirts = NPCS.map((n) => n.look.shirt);
-  const peers = new PeerAvatars(scene, hud.root, (id) => peerLook(id, PLAYER_LOOK, peerShirts));
+  // A teacher who walks in from the console (role 'teacher', docs/02 §11) looks and is named like the visiting teacher.
+  const peers = new PeerAvatars(
+    scene,
+    hud.root,
+    (p) => (p.role === 'teacher' ? teacherDef(p.name).look : peerLook(p.id, PLAYER_LOOK, peerShirts)),
+    (p) => (p.role === 'teacher' ? plateText(p.name) : p.name)
+  );
+  /** The lesson's last teacher presence; the visiting figure stays away while the real teacher is in the room. */
+  let teacherWanted: { present: boolean; name: string | null } | null = null;
+  const syncTeacherFigure = (): void => {
+    showTeacher(teacherWanted?.present && peers.countRole('teacher') === 0 ? (teacherWanted.name ?? '') : null);
+  };
   const hands = new FirstPersonHands(PLAYER_LOOK);
   // one character per task (each is a few dozen boxes; all of them at once was a 150 ms task on a throttled tablet)
   await yieldToMain();
@@ -1650,7 +1661,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       // The tag next to the lesson tag (hud, the lesson layer's teacher presence) and, while the teacher is with the
       // child, the teacher's avatar in the child's world (visitor.ts, Dan 11-16 12:10).
       hud.setTeacher(t);
-      showTeacher(t?.present ? (t.name ?? '') : null);
+      teacherWanted = t;
+      syncTeacherFigure();
     },
     setWorldLook(look: WorldSetupChoice | null) {
       if (weather) {
@@ -1847,12 +1859,15 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       hello(_you, list) {
         peers.clear();
         for (const p of list) peers.add({ id: p.id, name: p.name, role: p.role }, p.pose);
+        syncTeacherFigure();
       },
       join(id, name, role) {
         peers.add({ id, name, role });
+        syncTeacherFigure();
       },
       leave(id) {
         peers.remove(id);
+        syncTeacherFigure();
       },
       pose(id, x, y, z, yaw) {
         peers.pose(id, x, y, z, yaw);
@@ -1865,7 +1880,31 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       },
       reset() {
         peers.clear();
+        syncTeacherFigure();
       }
+    },
+    async goNearPeer(role) {
+      const p = peers.nearest(player.root.position, role);
+      if (!p || disposed) return false;
+      // two metres in front of them, facing them (the plaza is open; a wall spot still stands on the ground)
+      const x = p.x + Math.sin(p.yaw) * 2;
+      const z = p.z + Math.cos(p.yaw) * 2;
+      await hud.fadeTo(W.goingToPeer, async () => {
+        hud.clearBubbles();
+        body.x = x;
+        body.z = z;
+        body.y = standHeight(world, x, z, Math.ceil(p.y) + 2);
+        body.vx = body.vy = body.vz = 0;
+        playerYaw = Math.atan2(p.x - x, p.z - z);
+        camYaw = playerYaw;
+        chunks.update(body.x, body.z, FIRST_RING, 24);
+        const t0 = performance.now();
+        while (!disposed && chunks.outstanding(body.x, body.z, FIRST_RING) > 0 && performance.now() - t0 < GROUND_CAP_MS) {
+          chunks.update(body.x, body.z, FIRST_RING, 24);
+          await wait(30);
+        }
+      });
+      return true;
     },
     getStats(): WorldStats {
       return {

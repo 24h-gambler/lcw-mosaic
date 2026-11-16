@@ -6,7 +6,6 @@
 import {
   LESSON_DIRECTOR_EVENTS,
   flushOutbox,
-  getLessonNpc,
   isRetryableStatus,
   newUtteranceClientId,
   outboxSessionStore,
@@ -32,6 +31,7 @@ import {
   type StudentSession,
   type UtteranceSubmit
 } from './api.js';
+import { childNpcName, lessonGoal } from './strings.js';
 
 export const LESSON_POLL_MS = 3_000;
 export const LESSON_RETRY_MAX_MS = 15_000;
@@ -61,6 +61,8 @@ export interface LessonBubble {
   id: string;
   npcId: string;
   npcNameKo: string;
+  /** The NPC's name in the language the child learns (shown first; the Korean only as the help line). */
+  npcNameEn?: string;
   text: string;
   possessed: boolean;
   at: number;
@@ -84,6 +86,8 @@ export interface LessonView {
   stageId: string | null;
   sceneId: LessonSceneId | null;
   goalKo: string;
+  /** The goal in the language the child learns ('' from an older server: the Korean shows). */
+  goalEn: string;
   mode: StudentLessonState['mode'];
   hint: StudentLessonState['hint'];
   npcId: string;
@@ -145,6 +149,7 @@ export function initialLessonView(): LessonView {
     stageId: null,
     sceneId: null,
     goalKo: '',
+    goalEn: '',
     mode: 'guided',
     hint: 'full',
     npcId: 'guide',
@@ -413,11 +418,13 @@ export class LessonController {
       patch.lastResult = null;
       if (w && st.scene_id !== this.view.sceneId) void w.goToScene(st.scene_id).catch(() => undefined);
     }
-    if (stageChanged || targetsChanged || st.stage_goal_ko !== this.view.goalKo) {
-      w?.setGoal(st.stage_goal_ko, goalTargetEn(st.hint, st.offers));
+    const goalEn = st.stage_goal_en ?? '';
+    if (stageChanged || targetsChanged || st.stage_goal_ko !== this.view.goalKo || goalEn !== this.view.goalEn) {
+      w?.setGoal(lessonGoal(goalEn, st.stage_goal_ko), goalTargetEn(st.hint, st.offers));
     }
     Object.assign(patch, {
       goalKo: st.stage_goal_ko,
+      goalEn,
       mode: st.mode,
       hint: st.hint,
       npcId: st.npc_id,
@@ -438,7 +445,8 @@ export class LessonController {
       fresh.push({
         id: line.id,
         npcId: line.npc_id,
-        npcNameKo: getLessonNpc(line.npc_id)?.nameKo ?? line.npc_id,
+        npcNameKo: childNpcName(line.npc_id).nameKo,
+        npcNameEn: childNpcName(line.npc_id).nameEn,
         text: line.text,
         possessed,
         at: line.at

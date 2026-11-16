@@ -1,5 +1,6 @@
-/** Korean copy for the lesson layer of the 3D client (AGENTS 6). No prices, payments or deadlines (AGENTS 4.9). */
-import { teacherLabel } from '@lcw/content';
+/** Korean copy for the lesson layer (the help line under the English, LESSON_STRINGS below) of the 3D client (AGENTS 6). No prices, payments or deadlines (AGENTS 4.9). */
+import { getLessonNpc, npcPersona, teacherLabel } from '@lcw/content';
+import { helpKoOn } from '../world/lang.js';
 export const LESSON_STRINGS_KO = {
   code: {
     title: '선생님이 알려 준 숫자 6개를 넣어요',
@@ -31,7 +32,7 @@ export const LESSON_STRINGS_KO = {
     label: '오늘의 목표'
   },
   speak: {
-    title: (npc: string) => `${npc}에게 말하기`,
+    title: (npc: { nameEn: string; nameKo: string }) => `${npc.nameKo}에게 말하기`,
     pickStars: '도전할 문장을 골라요',
     mic: '말하기',
     micStop: '다 말했어요',
@@ -59,3 +60,129 @@ export const LESSON_STRINGS_KO = {
   },
   lowTier: '이 기기에서는 단어 카드 화면으로 수업해요…'
 } as const;
+
+type Widen<T> = T extends string
+  ? string
+  : T extends (...a: infer A) => infer R
+    ? (...a: A) => Widen<R>
+    : T extends Record<string, string>
+      ? Record<string, string>
+      : T extends object
+        ? { readonly [K in keyof T]: Widen<T[K]> }
+        : T;
+/** The lesson layer's copy, one shape for every language. */
+export type LessonStrings = Widen<typeof LESSON_STRINGS_KO>;
+
+/**
+ * English copy for the lesson layer (the world is in the language the child learns; Korean only as the optional help
+ * line). Very short words and an icon on every button, so a first-time child is never stuck; the teacher is there.
+ */
+export const LESSON_STRINGS_EN: LessonStrings = {
+  code: {
+    title: '🔢 Type the 6 numbers from your teacher',
+    sub: 'You go right into the lesson',
+    enter: '✅ Go',
+    joining: 'Going in…',
+    cancel: '🏠 Back to my town',
+    errors: {
+      invalid_code: '❌ Not the right numbers. Ask your teacher again.',
+      too_many_attempts: '⏸ Lots of tries! Take a short break, then try again.',
+      expired: '⌛ This lesson link ended. Ask for new numbers.',
+      network: '📶 Check the internet.',
+      default: "🔁 Couldn't get in. Try again?"
+    }
+  },
+  status: {
+    ok: (nickname: string, teacher?: string | null) => `${nickname ? `${nickname} · ` : ''}👩‍🏫 With ${teacher?.trim() || 'Teacher'}`,
+    alone: (nickname: string) => `${nickname ? `${nickname} · ` : ''}Playing alone — your teacher stepped away`,
+    retrying: 'Connecting again…',
+    queued: (n: number) => `${n} to send · sends when online`,
+    leave: '🚪 Leave',
+    leaveAsk: 'Leave the lesson?',
+    leaveYes: '🚪 Leave',
+    leaveNo: '▶️ Stay'
+  },
+  goal: {
+    label: "🎯 Today's goal"
+  },
+  speak: {
+    title: (npc: { nameEn: string; nameKo: string }) => `Talk to ${npc.nameEn || npc.nameKo}`,
+    pickStars: 'Pick a sentence to try',
+    mic: '🎤 Speak',
+    micStop: '✅ Done',
+    listening: '👂 Listening…',
+    typeInstead: '⌨️ Type',
+    typePlaceholder: 'Type in English',
+    send: '📨 Send',
+    sending: 'Sending…',
+    heard: 'I heard',
+    free: 'No wrong answers. Say anything in English — say a lot!',
+    notHeard: "🙉 I couldn't hear you. Say it again, louder!",
+    micBlocked: "🎤 No mic here — let's type.",
+    failed: "🔁 Didn't send. Tap again!",
+    queued: "📶 The internet dropped. I kept what you said and will send it when you're back."
+  },
+  result: {
+    coins: (n: number) => `🪙 ${n} coins`
+  },
+  possessed: 'Teacher',
+  ended: {
+    title: '🎉 Lesson done! Great job!',
+    body: 'See you next time.',
+    today: (n: number) => `You said ${n} English sentences today`,
+    stars: (n: number) => `⭐ ${n} stars this lesson`
+  },
+  lowTier: '🃏 This device does the lesson with word cards…'
+};
+
+/** "en · ko" when the Korean help is on and the two differ (world/lang.ts), else the English. */
+function joinHelp(en: string, ko: unknown): string {
+  if (!helpKoOn() || typeof ko !== 'string' || !ko || ko === en) return en;
+  // A shared lead ("Oreo · …") is said once: the Korean keeps only what differs.
+  const e = en.split(' · ');
+  const k = ko.split(' · ');
+  let i = 0;
+  while (i < e.length - 1 && i < k.length - 1 && e[i] === k[i]) i += 1;
+  return `${en} · ${k.slice(i).join(' · ')}`;
+}
+/** A nested table read through the language at the moment of use (like world/strings.ts biTable, all levels). */
+function biDeep<T extends object>(en: T, ko: object | undefined): T {
+  return new Proxy(en, {
+    get(target, key) {
+      const e = (target as Record<PropertyKey, unknown>)[key];
+      const k = ko ? (ko as Record<PropertyKey, unknown>)[key] : undefined;
+      if (typeof e === 'function') {
+        return (...a: unknown[]) => joinHelp(String((e as (...x: unknown[]) => unknown)(...a)), typeof k === 'function' ? (k as (...x: unknown[]) => unknown)(...a) : undefined);
+      }
+      if (typeof e === 'string') return joinHelp(e, k);
+      if (e && typeof e === 'object') return biDeep(e, k && typeof k === 'object' ? k : undefined);
+      return e;
+    }
+  });
+}
+
+/**
+ * What the lesson layer shows: the language the child learns (English is the only one open, so always English now),
+ * with the Korean after a dot when the child turned the Korean help on (Dan 11-16 14:3x, world/lang.ts).
+ */
+export const LESSON_STRINGS: LessonStrings = biDeep(LESSON_STRINGS_EN, LESSON_STRINGS_KO);
+
+/** The stage goal the child sees: the English goal (with the Korean help when on); the Korean alone from an older server. */
+export function lessonGoal(en: string | undefined, ko: string): string {
+  return en ? joinHelp(en, ko) : ko;
+}
+
+/** One line in the language the child learns, the Korean after a dot when the help is on (for tables outside this file). */
+export function helpLine(en: string, ko: string): string {
+  return joinHelp(en, ko);
+}
+
+/**
+ * The name the child knows an NPC by: the cast name the world's name plate shows ("Hannah" · "카페 주인 해나"), the lesson
+ * role name ("Cafe owner") only when the cast has no entry. One name for one character on every surface.
+ */
+export function childNpcName(id: string): { nameEn: string; nameKo: string } {
+  const cast = npcPersona(id);
+  const npc = getLessonNpc(id);
+  return { nameEn: cast?.nameEn ?? npc?.nameEn ?? id, nameKo: cast?.nameKo ?? npc?.nameKo ?? id };
+}

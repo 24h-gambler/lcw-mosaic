@@ -109,6 +109,20 @@ describe('audio runtime graph (docs/12 2장)', () => {
     }
   });
 
+  it('no context before the first tap (no "AudioContext was not allowed to start" warning); built on the unlock after it', () => {
+    const f = fakeContext();
+    let made = 0;
+    let tapped = false;
+    const rt = createAudioRuntime({ clock: fakeClock().clock, createContext: () => (made++, f.ctx), activated: () => tapped });
+    expect(rt.unlock()).toBeNull();
+    expect(rt.bus('ui')).toBeNull();
+    expect(made).toBe(0);
+    tapped = true;
+    expect(rt.unlock()).toBe(f.ctx);
+    expect(rt.unlock()).toBe(f.ctx);
+    expect(made).toBe(1);
+  });
+
   it('no WebAudio: nothing throws, buses are null and the mic still opens on time', async () => {
     const c = fakeClock();
     const rt = createAudioRuntime({ clock: c.clock, createContext: () => null });

@@ -49,7 +49,7 @@ await page.waitForFunction(() => !/마을을 짓는 중|Building your town/.test
 // the title screen (start/StartFlow): a new child makes a world (name + picks) and goes in; a returning one continues.
 // The play card must not show over the title.
 for (let i = 0; i < 8; i++) {
-  const b = page.getByRole('button', { name: /^(Make my world|Make it!|Go in|Start|Go to .+|내 월드 만들기|만들기|들어가기|시작하기|.+ 가기|.+ 열기)( · .+)?$/ }).first();
+  const b = page.getByRole('button', { name: /^(Make my world|Make it!|Go in|Start|Go to .+|내 월드 만들기|만들기|들어가기|시작하기|.+ 가기|.+ 열기)( · .+)?$|English/ }).first();
   // making a world takes a few seconds on a busy machine: wait for the next step's button before deciding it is over
   if (!(await b.waitFor({ state: 'visible', timeout: 12000 }).then(() => true).catch(() => false))) break;
   if (i === 0) mark('title', { play_card_over_title: (await page.$('[data-play="card"]')) !== null });

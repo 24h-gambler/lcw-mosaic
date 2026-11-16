@@ -279,8 +279,8 @@ describe('dialog microphone (docs/08 7.1, docs/12 9)', () => {
 
   it('sends in-app browsers, insecure pages and missing APIs to the word cards', () => {
     expect(isInAppBrowser(KAKAO_UA)).toBe(true);
-    expect(kakaoOpenExternalUrl('https://lcw.worldwidesomething.com/game/?code=1')).toBe(
-      'kakaotalk://web/openExternal?url=https%3A%2F%2Flcw.worldwidesomething.com%2Fgame%2F%3Fcode%3D1'
+    expect(kakaoOpenExternalUrl('https://lcw.worldwidesomething.com/world/?code=1')).toBe(
+      'kakaotalk://web/openExternal?url=https%3A%2F%2Flcw.worldwidesomething.com%2Fworld%2F%3Fcode%3D1'
     );
     expect(createBrowserSpeechEngine({ userAgent: KAKAO_UA, isSecureContext: true }).availability()).toEqual({ ok: false, issue: 'in_app' });
     expect(createBrowserSpeechEngine({ userAgent: 'Chrome', isSecureContext: true, SpeechRecognition: undefined }).availability()).toEqual({

@@ -27,7 +27,7 @@ const T0 = Date.now();
 const mark = (name, extra = {}) => { const s = { name, t: Date.now() - T0, ...extra }; steps.push(s); console.log(JSON.stringify(s)); };
 const shot = async (name) => page.screenshot({ path: `${out}/${name}-${view}.png` });
 
-await page.goto(`${base}/game/`, { waitUntil: 'domcontentloaded' });
+await page.goto(`${base}/world/`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 120000 });
 await page.waitForFunction(() => !document.body.innerText.includes('마을을 짓는 중'), null, { timeout: 120000 }).catch(() => {});
 mark('spawn', { scene: await page.evaluate(() => window.__lcwWorld.getScene?.()) });

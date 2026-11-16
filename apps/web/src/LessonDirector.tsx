@@ -57,6 +57,7 @@ import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentS
 import { LessonAudioBox } from './LessonAudioBox.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
+import { TeacherModeHelp, TeacherPresenceBox } from './teacherPresence.js';
 
 const S = LESSON_STRINGS_KO.director;
 
@@ -99,8 +100,6 @@ export interface LessonDirectorConsoleProps {
   /** Running lessons for the resume card; undefined → fetched. */
   initialLive?: { lessons: LiveLessonRow[]; server_now: number };
   initialFeed?: LessonFeed;
-  /** Shown under the key box while there is no key (the old demo console). */
-  demo?: React.ReactNode;
   now?: () => number;
 }
 
@@ -140,14 +139,7 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
           setToken(null);
         }}
       />
-      {!token ? (
-        props.demo ? (
-          <details data-testid="director-demo">
-            <summary style={{ cursor: 'pointer', fontWeight: 700, padding: `${sp(1)} 0` }}>{S.demoSummary}</summary>
-            <div style={{ marginTop: sp(3) }}>{props.demo}</div>
-          </details>
-        ) : null
-      ) : lesson ? (
+      {!token ? null : lesson ? (
         <LiveLesson
           api={api}
           token={token}
@@ -331,7 +323,8 @@ function StudentPicker({
     setStartingId(s.player_id);
     setStartError(null);
     try {
-      const res = await api.startLesson(token, { player_id: s.player_id, plan_id: planId });
+      // presence: this console beats (teacherPresence.tsx), so the start is the first beat.
+      const res = await api.startLesson(token, { player_id: s.player_id, plan_id: planId, presence: true });
       const t = now();
       onStarted({
         lesson_id: res.lesson_id,
@@ -466,6 +459,7 @@ function StudentPicker({
           </div>
         ) : null}
       </Box>
+      <Box title="1PC · 2PC" testId="director-teacher-mode"><TeacherModeHelp /></Box>
       <NewStudentBox api={api} token={token} onAuthError={onAuthError} onCreated={() => void load()} />
     </div>
   );
@@ -720,6 +714,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
   return (
     <div style={{ display: 'grid', gap: sp(4) }} data-testid="director-live">
       <JoinCodeBar lesson={lesson} elapsedMs={elapsed} totalMinutes={plan.totalMinutes} />
+      <TeacherPresenceBox api={api} token={token} lessonId={lesson.lesson_id} ended={ended} />
       <HelpsStrip utterances={live.utterances} pins={feed.pins.length} minutes={liveX.minutes.length} />
       {feedError ? (
         <Notice onRetry={() => void poll()} retryLabel={S.retry} testId="feed-error">

@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { FAQ, LEARN_PAGES, MEDIA, PARENTS, PRICING, SITUATIONS } from '../copy.js';
 import { GameShot } from '../GameMedia.js';
 import { SLink } from '../SiteShell.js';
-import { FaqList, ListenButton, OfferList, SampleDashboard } from '../widgets.js';
+import { SITUATION_FEATURE, STATE_TAG } from '../copyNow.js';
+import { featureLive } from '../featureStatus.js';
+import { FaqList, ListenButton, OfferList, SampleDashboard, StateTag, pendingState } from '../widgets.js';
 import { VoxelSvg, character, merge, placeAt, box } from '../voxel.js';
 
 const SITUATION_PAGE: Readonly<Record<string, string>> = {
@@ -29,11 +31,17 @@ function Situations(): React.ReactElement {
             onClick={() => setSel(s.id)}
           >
             {s.label}
+            {SITUATION_FEATURE[s.id] && !featureLive(SITUATION_FEATURE[s.id]!) ? (
+              <small style={{ marginLeft: 6, opacity: 0.7, fontWeight: 600 }}>{STATE_TAG[pendingState([SITUATION_FEATURE[s.id]!])!.state]}</small>
+            ) : null}
           </button>
         ))}
       </div>
       <div id="s-situation" role="tabpanel" className="s-stack" style={{ gap: 12 }}>
-        <p className="s-muted">{page.scene}</p>
+        <p className="s-muted s-row" style={{ gap: 8 }}>
+          <span>{page.scene}</span>
+          {SITUATION_FEATURE[sel] ? <StateTag ids={[SITUATION_FEATURE[sel]!]} /> : null}
+        </p>
         <OfferList offers={page.offers} />
         <SLink to={`/learn/${page.slug}`} className="s-small">
           이 장면의 표현 더 보기 →

@@ -21,7 +21,7 @@ export const WEB_UX_STRINGS_KO = {
       { title: '③ 세계가 넓어진다', body: '하늘섬, 우주 정거장' }
     ],
     tryCta: '지금 5분 체험: 설치도 가입도 없이 음료 한 잔 주문해 보기',
-    openGame: '게임 열기',
+    openGame: '월드 열기',
     sendToParent: '부모님께 소개 보내기',
     linkCopied: '소개 링크를 복사했어요. 부모님께 보내 주세요.'
   },
@@ -119,7 +119,6 @@ export const LESSON_STRINGS_KO = {
     keyForget: '열쇠 지우기',
     keySaved: '열쇠가 저장되어 있어요.',
     keyNotStored: '이 브라우저는 저장을 막고 있어요. 새로 고치면 열쇠를 다시 넣어야 해요.',
-    demoSummary: '데모 콘솔 둘러보기 (열쇠 없이, 저장되지 않음)',
     studentsTitle: '학생 고르기',
     resumeTitle: '진행 중인 수업 이어 하기',
     resumeHelp: '다른 기기에서 시작한 수업도 여기서 이어 받아요.',
@@ -230,7 +229,10 @@ export const LESSON_STRINGS_KO = {
   },
   join: {
     title: '수업 들어가기',
-    fallbackNote: '가벼운 대체 화면이에요. 3D 화면을 못 여는 기기에서도 수업할 수 있어요.',
+    fallbackNote: '이 기기는 3D 화면을 못 열어서, 이 화면에서 단어 카드로 수업해요.',
+    goes3dNote: '숫자를 넣으면 3D 수업으로 들어가요.',
+    liteChosenNote: '이 화면에서 단어 카드로 수업해요.',
+    chooseLite: '3D 가 안 열리면 단어 카드로 하기',
     codePrompt: '선생님이 알려 준 숫자 6개를 넣어요',
     codeLabel: '참가 숫자 6개',
     enter: '들어가기',

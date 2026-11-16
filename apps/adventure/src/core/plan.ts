@@ -251,7 +251,7 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
   const befriend = chapter.befriend[level];
   // an islander with its own reply to its question uses it; otherwise the island's greeting / feeling / bank line
   const answerFor = (c: AdventureCreature) =>
-    c.answer ? { en: c.answer[level].en, ko: c.answer[level].ko } : c.askKind === 'greet' ? { en: greet.en, ko: greet.ko } : c.askKind === 'feel' ? { en: feel.en, ko: feel.ko } : { en: bankLine, ko: bankKo[chapter.ctx] };
+    c.answer ? { en: c.answer[level].en, ko: c.answer[level].ko } : c.askKind === 'greet' ? { en: greet.en, ko: greet.ko } : c.askKind === 'feel' ? { en: feel.en, ko: feel.ko } : { en: bankLine, ko: bankKo[chapter.ctx] ?? null };
   const wordKo = (wc: WordCard) => (wc.ko ? `${wc.w} = ${wc.ko}` : null);
 
   const [c1, c2] = chapter.critters;
@@ -274,7 +274,7 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
     item('c2-word', 'word', 'say', w1.sentence, wordKo(w1), rng, { word: w1.w, emoji: w1.emoji })
   ];
   const guardianTalks: TalkItem[] = [
-    item('g-bank', 'bank', 'say', bankLine, bankKo[chapter.ctx], rng),
+    item('g-bank', 'bank', 'say', bankLine, bankKo[chapter.ctx] ?? null, rng),
     ...words.map((wc, i) => item(`g-word-${i}`, 'word', i % 2 ? 'build' : 'say', wc.sentence, wordKo(wc), rng, { word: wc.w, emoji: wc.emoji })),
     ...words.map((wc, i) => item(`g-spell-${i}`, 'word', 'spell', wc.w, wordKo(wc), rng, { word: wc.w, emoji: wc.emoji })),
     item('g-feel', 'feel', 'build', feel.en, feel.ko, rng),

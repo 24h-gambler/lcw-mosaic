@@ -4,8 +4,23 @@
 // answered inside the browser: no real student, no real document, nothing leaves the machine. Headless, audio muted.
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/adventure-play.mjs http://127.0.0.1:8994/adventure/ shots/adventure [viewport]
-import { mkdirSync, writeFileSync } from 'node:fs';
+//
+// Live smoke (after the document site is deployed): ADV_LIVE_SECRET=<english-day.secret file> runs the 1440 viewport
+// against the real https://engday.pages.dev as the smoke student `smoke-adv` (reports and teacher screens skip smoke-
+// students). The write key is HMAC-SHA256(secret, "w:smoke-adv")[:24], made here and never printed. The day file is
+// read from the document's own student page named by ADV_LIVE_DAY_FROM (read only; smoke-adv has no page), and only
+// the result POST goes out, as smoke-adv. Real Oreo data is never written.
+import { createHmac } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+
+const LIVE = process.env.ADV_LIVE_SECRET
+  ? {
+      key: createHmac('sha256', readFileSync(process.env.ADV_LIVE_SECRET, 'utf8').trim()).update('w:smoke-adv').digest('hex').slice(0, 24),
+      origin: 'https://engday.pages.dev',
+      dayFrom: (process.env.ADV_LIVE_DAY_FROM ?? 'oreo').replace(/[^a-z0-9_-]/g, '')
+    }
+  : null;
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8994/adventure/';
 const out = process.argv[3] ?? 'shots/adventure';
@@ -60,8 +75,25 @@ async function run(vp) {
   page.on('console', (m) => {
     if (m.type() === 'error' && !/Failed to load resource|tts|net::ERR/.test(m.text())) errors.push(`console: ${m.text()}`);
   });
-  // never touch the real english-day site: the day file and the result endpoint are answered here
-  await page.route('https://english-day.pages.dev/**', async (route) => {
+  const results = [];
+  if (LIVE) {
+    // the real site: the smoke student's day file is read from the named student page (GET only), the POST goes out
+    await page.route(`${LIVE.origin}/smoke-adv/**`, async (route) => {
+      const req = route.request();
+      if (req.method() !== 'GET') return route.continue();
+      dayFetches.push(req.url());
+      const res = await route.fetch({ url: req.url().replace('/smoke-adv/', `/${LIVE.dayFrom}/`) });
+      return route.fulfill({ response: res });
+    });
+    page.on('response', (r) => {
+      if (r.url().startsWith(`${LIVE.origin}/api/result`) && r.request().method() === 'POST') {
+        results.push({ status: r.status(), acao: r.headers()['access-control-allow-origin'] ?? null });
+        beacons.push({ url: `${LIVE.origin}/api/result`, body: r.request().postData() });
+      }
+    });
+  }
+  // otherwise never touch the real english-day site: the day file and the result endpoint are answered here
+  if (!LIVE) await page.route('https://english-day.pages.dev/**', async (route) => {
     const req = route.request();
     if (req.method() === 'POST') {
       beacons.push({ url: req.url(), body: req.postData() });
@@ -78,8 +110,9 @@ async function run(vp) {
   if (vp.ed) {
     q.set('ed', 'smoke-adv');
     q.set('edd', '2026-11-16');
-    q.set('edk', 'smoke-key');
-    q.set('edr', 'https://english-day.pages.dev/smoke-adv/');
+    q.set('edk', LIVE ? LIVE.key : 'smoke-key');
+    q.set('edr', LIVE ? `${LIVE.origin}/smoke-adv/` : 'https://english-day.pages.dev/smoke-adv/');
+    if (LIVE) q.delete('edd'); // the document's newest day (today.json of the page read)
   }
   await page.addInitScript(() => {
     window.__advFps = [];
@@ -90,6 +123,9 @@ async function run(vp) {
   });
   await page.goto(`${base}?${q}`, { waitUntil: 'load' });
   await page.waitForSelector('[data-testid=adv-root]');
+  // start waits for the day file and the server progress (docs/22 1.2)
+  await page.waitForFunction(() => window.__adv?.getSnapshot().booted, null, { timeout: 15000 });
+  const lastDayNote = await page.evaluate(() => ({ note: window.__adv.getSnapshot().dayNote, words: window.__adv.day?.words ?? null }));
   await sleep(800);
   await page.screenshot({ path: `${dir}/00-title.png` });
 
@@ -403,7 +439,8 @@ async function run(vp) {
     envelope = last ? JSON.parse(last.body) : null;
     if (!envelope) fails.push(`${vp.name}: no result sent`);
     else if (envelope.activities.length !== 4) fails.push(`${vp.name}: envelope has ${envelope.activities.length} activities`);
-    if (!dayFetches.some((u) => /days\/2026-11-16/.test(u))) fails.push(`${vp.name}: day file not fetched`);
+    if (!LIVE && !dayFetches.some((u) => /days\/2026-11-16/.test(u))) fails.push(`${vp.name}: day file not fetched`);
+    if (LIVE && !results.some((r) => r.status === 200)) fails.push(`${vp.name}: live result POST not answered 200 (${results.map((r) => r.status).join(',')})`);
   }
   report.push({
     vp: vp.name,
@@ -415,6 +452,7 @@ async function run(vp) {
     koWithHelpOff: hasKo,
     talkModes: [...allModes],
     beacons: beacons.length,
+    ...(LIVE ? { live: { origin: LIVE.origin, results, dayNote: lastDayNote } } : {}),
     envelope: envelope && { bytes: JSON.stringify(envelope).length, acts: envelope.activities.map((a) => `${a.id}:${a.stars}★ ${a.correct}/${a.total} w${a.words.length}`), summaryKo: envelope.summaryKo },
     dayFetches
   });

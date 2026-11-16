@@ -17,6 +17,7 @@ import { buildGuardianViewAdminApp } from './guardian-view.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
+import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp } from './my-world.js';
 import { injectReportShareMeta } from './report-page.js';
 import { htmlForClient } from './html-cache.js';
 import { injectShowroomShareMeta, showroomTokenFromPath } from './showroom-page.js';
@@ -105,6 +106,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (SHOWROOM_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Voice clips (voice.ts): upload checks its one-use token, playback its signature.
   if (VOICE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // My world (G07, my-world.ts): checks the child's device or lesson token itself.
+  if (MY_WORLD_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   return false;
 }
 
@@ -784,6 +787,16 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
+  app.route(
+    '/',
+    buildMyWorldApp({
+      sql: platform.sql,
+      nowMs: familyDeps.nowMs,
+      randomBytes: familyDeps.randomBytes,
+      soloPlayer,
+      ensureHomeWorld: (playerId) => platform.ensureHomeWorld(playerId)
+    })
+  );
   app.get('/v1/admin/ops-runs', (c) =>
     c.json(platform.sql.all('select task, at, ok, detail from ops_runs order by at desc limit 50'))
   );

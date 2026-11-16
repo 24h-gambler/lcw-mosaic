@@ -108,6 +108,15 @@ export interface WorldHandle {
    * dialog frames the NPC the shot is centred in the strip above it; 0 = nothing covers the world.
    */
   setViewInset?(bottomPx: number, rightPx?: number): void;
+  /** Start flow title screen: the camera circles the town, the HUD hides, the world takes no input (false = play). */
+  setAttract?(on: boolean): void;
+  /**
+   * Lesson in my world (Dan 11-16 12:10): the teacher's avatar with a name plate stays near the child; it is NPC
+   * id 'teacher' (world/visitor.ts TEACHER_NPC_ID) for npcSay, setPossessed and dialogs. null = the teacher left.
+   */
+  setTeacher?(t: { name: string } | null): void;
+  /** The child's world details (G07, packages/content world-setup.ts): season weather, sky time, animal friend; null = none. */
+  setWorldLook?(look: import('@lcw/content').WorldSetupChoice | null): void;
   /**
    * Talk lane G02: a transparent square PNG (data URL) of a thing the sentence gets (the mesh `giveItem` puts in hand)
    * or of an NPC's head and shoulders, drawn with the world's own meshes and cached per (req, size); null when the

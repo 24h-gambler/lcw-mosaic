@@ -7,6 +7,7 @@ import { buildLessonWindow } from './lesson-window.js';
 import { answerListening, closeListeners, lessonAudioState, listenerOf, startListening, touchListener, type RealtimeClient } from './lesson-audio.js';
 import { buildDashboard } from './dashboard.js';
 import { mountSeatRoutes, playAllowed } from './seats.js';
+import { GUEST_PASS_GUARDIAN_ROUTES, mountGuestPassGuardianRoutes } from './free-play.js';
 import { drainVoicePurge, reportClips, type VoiceBlobStore } from './voice.js';
 import { SubscribeSchema, deliverPush, enqueueTest, familyPushState, subscribe, unsubscribe, vapidKeys, type PushSender } from './push.js';
 
@@ -49,7 +50,9 @@ export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', /^\/v1\/family\/push\/(subscribe|unsubscribe|test)$/],
   ['POST', /^\/v1\/family\/seats\/[^/]+\/refund-request$/],
   ['POST', /^\/v1\/device\/link$/],
-  ['GET', /^\/v1\/device\/me$/]
+  ['GET', /^\/v1\/device\/me$/],
+  // Guest passes a seat issues (free-play.ts), behind the same guardian session.
+  ...GUEST_PASS_GUARDIAN_ROUTES
 ];
 
 /**
@@ -603,6 +606,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
   });
 
   mountSeatRoutes(app, d, withGuardian);
+  mountGuestPassGuardianRoutes(app, d, withGuardian);
 
   return app;
 }

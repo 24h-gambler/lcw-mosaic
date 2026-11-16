@@ -7,6 +7,7 @@ import {
   TRY_ANALYSER_INTERVAL_MS,
   TRY_SPEECH_RMS_THRESHOLD,
   bestOfferMatch,
+  cardOrderStars,
   evaluateSpeechEnergy,
   isSentenceAssembled,
   rmsOfTimeDomain,
@@ -31,10 +32,7 @@ export const TRY_LOUDNESS_TRIES = 3;
 /** Audio but no answer by then: count a miss so the cards offer appears instead of an endless wait. */
 export const TRY_RECOGNITION_ANSWER_MS = 12_000;
 
-/** Stars for an order finished on word cards: a confirmed voice keeps the chosen level, cards alone stop at two (docs/04 4.1). */
-export function cardOrderStars(aim: 1 | 2 | 3, spoke: boolean): 1 | 2 | 3 {
-  return spoke ? aim : aim >= 2 ? 2 : 1;
-}
+export { cardOrderStars };
 
 function closeAudio(ctx: AudioContext | undefined): void {
   if (!ctx || ctx.state === 'closed') return;

@@ -132,7 +132,7 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
   const familyConsented = (familyId: string) =>
     Boolean(d.sql.get("select v from family_flags where family_id = ? and k = 'service' and v = 1", [familyId]));
   const familyHasGuardian = (familyId: string) => sharedFamilyHasGuardian(d.sql, familyId);
-  const nameOwner = (nickname: string, exceptSignup = '') => sharedNameOwner(d.sql, nickname, { exceptSignup });
+  const nameOwner = (nickname: string, exceptSignup = '', familyId?: string) => sharedNameOwner(d.sql, nickname, { exceptSignup, familyId });
   const nameIdeas = (nickname: string) => sharedNameIdeas(d.sql, nickname);
   const guardianOf = async (req: Request) => {
     const t = bearer(req);
@@ -227,7 +227,7 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     const now = d.nowMs();
     sweep(now);
     // One name, one student. A teacher-made row with this name is not 'taken': the sign-up waits to join it.
-    const owner = nameOwner(p.data.nickname);
+    const owner = nameOwner(p.data.nickname, '', g.family_id);
     if (owner.kind === 'taken' && owner.by.kind === 'student') {
       // The signing family's own child: not someone else's name. The device joins that child (the 'who' step).
       const own = d.sql.get<{ id: string; nickname: string }>('select id, nickname from players where id = ? and family_id = ?', [owner.by.player_id, g.family_id]);
@@ -293,7 +293,7 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
      */
     const names = nameIndex(d.sql);
     const matchOf = (signupId: string, nickname: string, familyId: string) => {
-      const o = names.owner(nickname, signupId);
+      const o = names.owner(nickname, signupId, familyId);
       if (o.kind === 'taken') {
         const by =
           o.by.kind === 'student'

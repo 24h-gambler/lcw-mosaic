@@ -56,7 +56,7 @@ export const SIGNUP_STRINGS_KO = {
             : '로그인하지 못했어요. 다시 눌러 주세요.',
     errNickname: '이름에는 글자와 숫자만 써 주세요. (16글자까지)',
     errNickTaken: '이 이름은 이미 다른 친구가 써요. 다른 이름을 골라 주세요.',
-    errOwnChild: (nick: string) => `'${nick}' 은(는) 이미 우리 가족에 있는 아이예요. 위의 '${nick}(으)로 연결'을 눌러 주세요.`,
+    errOwnChild: (nick: string) => `'${nick}' 은(는) 이미 우리 가족에 있는 아이예요. 위의 '${nick}(으)로 이 기기 연결'을 눌러 주세요.`,
     ideasLead: '이 이름은 비어 있어요:',
     teacherMatch: (nick: string) => `선생님 학생 목록에 '${nick}' 이름표가 있어요. 선생님이 숫자를 확인하면 그 이름표로 이어져요.`,
     errSignedOut: '로그인이 끝났어요. 다시 로그인해 주세요.',

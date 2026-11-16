@@ -38,6 +38,20 @@ export const SIGNUP_POLL_MS = 4000;
 
 type Step = 'start' | 'checking' | 'consent' | 'who' | 'waiting' | 'done';
 
+/** What the screen says for a failed call (exported for the tests; the page has no DOM test harness). */
+export function signupErrorText(e: unknown): string {
+  if (e instanceof StudentApiError) {
+    if (e.code === 'too_many_attempts' || e.code === 'too_many_pending') return S.errBusy;
+    if (e.code === 'invalid') return S.errNickname;
+    if (e.code === 'nickname_taken') return S.errNickTaken;
+    if (e.code === 'nickname_own_child') return S.errOwnChild(typeof e.body.nickname === 'string' ? e.body.nickname : '');
+    if (e.code === 'guardian_only' || e.status === 401) return S.errSignedOut;
+    if (e.code === 'service_consent_required') return S.errConsent;
+    if (e.code === 'age_attest_required') return S.errAttest;
+  }
+  return S.errNetwork;
+}
+
 export interface StudentSignupProps {
   api?: StudentAccountApi;
   pollMs?: number;
@@ -91,18 +105,7 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
     if (g) await api.logout(g).catch(() => undefined);
   }, [api]);
 
-  const errorText = (e: unknown) => {
-    if (e instanceof StudentApiError) {
-      if (e.code === 'too_many_attempts' || e.code === 'too_many_pending') return S.errBusy;
-      if (e.code === 'invalid') return S.errNickname;
-      if (e.code === 'nickname_taken') return S.errNickTaken;
-      if (e.code === 'nickname_own_child') return S.errOwnChild(typeof e.body.nickname === 'string' ? e.body.nickname : '');
-      if (e.code === 'guardian_only' || e.status === 401) return S.errSignedOut;
-      if (e.code === 'service_consent_required') return S.errConsent;
-      if (e.code === 'age_attest_required') return S.errAttest;
-    }
-    return S.errNetwork;
-  };
+  const errorText = signupErrorText;
   const signedOut = useCallback(() => {
     guardian.current = null;
     setMsg(S.errSignedOut);
@@ -230,6 +233,14 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
       // One name, one student: the server offers free names close to this one.
       const s = e instanceof StudentApiError && e.code === 'nickname_taken' ? e.body.suggestions : null;
       if (Array.isArray(s)) setIdeas(s.filter((x): x is string => typeof x === 'string'));
+      // Our own child, maybe added on another device after this screen loaded the family: reload it so the
+      // '…(으)로 이 기기 연결' button the message points at is there.
+      if (e instanceof StudentApiError && e.code === 'nickname_own_child') {
+        await api
+          .familyMe(g)
+          .then((me) => setChildren(me.children))
+          .catch(() => undefined);
+      }
     } finally {
       setBusy(false);
     }

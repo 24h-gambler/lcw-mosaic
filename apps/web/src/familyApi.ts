@@ -106,6 +106,28 @@ export interface DashboardPayload {
 }
 export type SeatState = 'active' | 'expiring' | 'read_only' | 'archived' | 'refunded';
 export type SeatRefundMode = 'refund_difference' | 'convert_to_solo_days';
+export type GuestPassState = 'ready' | 'active' | 'ended' | 'expired' | 'revoked';
+export interface GuestPass {
+  id: string;
+  /** Formatted for reading aloud / typing (e.g. 'ABCD-EFGH'). */
+  code: string;
+  /** Site path the friend opens (`/pass?code=…`). */
+  link: string;
+  state: GuestPassState;
+  issued_at: number;
+  /** Unused codes stop working after this. */
+  redeem_until: number;
+  started_at: number | null;
+  ends_at: number | null;
+}
+export interface GuestPassSummary {
+  per_month: number;
+  minutes: number;
+  left_this_month: number;
+  /** Start of the next KST month, when the count comes back. */
+  resets_at: number;
+  server_now: number;
+}
 export interface FamilySeat {
   id: string;
   /** null for the other family's Duo seat: no name, no id. */
@@ -121,6 +143,12 @@ export interface FamilySeat {
   payments: SeatPayment[] | null;
   /** Exclusive end of the refund window (KST 24:00 of the 7th day after payment); show `refund_until - 1`'s date. */
   refund_until: number | null;
+  /** First use of the seat (server record: world opened, solo play, or a tutoring lesson). From then on no refund. */
+  first_used_at: number | null;
+  /** In the refund window and not used yet. */
+  refundable: boolean;
+  /** Why a live seat cannot be refunded by the rule: used, or past the 7 days (null when refundable or not live). */
+  refund_block: 'seat_used' | 'outside_refund_window' | 'nothing_paid' | null;
   can_request_refund: boolean;
   pending_request: { id: string; requested_at: number; status: 'pending' | 'review'; awaiting_payer_choice: boolean } | null;
   /** The payer must choose how the Duo partial refund is settled (the other family asked). */
@@ -139,6 +167,8 @@ export interface SeatPayment {
   refund_until: number;
   refunded_krw: number;
   refunded: boolean;
+  /** This payment's days have been used (the seat's first use; for an extension, use from its first day). */
+  used: boolean;
 }
 export interface AdminSeat {
   id: string;
@@ -151,7 +181,10 @@ export interface AdminSeat {
   state: SeatState;
   payer_id: string;
   payments: SeatPayment[];
-  /** The rule refund button applies now (a payment is inside its window, not tutoring). */
+  /** First use of the seat (server record) and how ('world' | 'play' | 'lesson'); null before use. */
+  first_used_at: number | null;
+  first_used_via: string | null;
+  /** The rule refund button applies now (a payment is inside its window, not used, not tutoring). */
   rule_refund_open: boolean;
   /** Duo partial refund cannot run until the payer chooses the settlement. */
   awaiting_payer_choice: boolean;
@@ -172,6 +205,8 @@ export interface SeatInboxItem {
   term: string;
   usage: { lessons: number; utterances: number };
   refund_until: number;
+  /** First use of the seat; a request made after it never reaches the inbox, one made before is judged as of then. */
+  first_used_at: number | null;
   awaiting_payer_choice: boolean;
 }
 export interface SeatInbox {
@@ -287,6 +322,11 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
         d
       ),
     seats: (g: string) => request<{ seats: FamilySeat[]; server_now: number }>('GET', '/v1/family/seats', g),
+    /** Friend passes of one seat (edge free-play.ts): the list and what is left this KST month. */
+    guestPasses: (g: string, seatId: string) => request<{ passes: GuestPass[] } & GuestPassSummary>('GET', `/v1/family/seats/${enc(seatId)}/guest-passes`, g),
+    /** 409 monthly_limit when the month's passes are gone; 409 seat_inactive when the seat is not live. */
+    issueGuestPass: (g: string, seatId: string) => request<{ pass: GuestPass } & GuestPassSummary>('POST', `/v1/family/seats/${enc(seatId)}/guest-passes`, g, {}),
+    revokeGuestPass: (g: string, passId: string) => request<{ pass: GuestPass } & GuestPassSummary>('POST', `/v1/family/guest-passes/${enc(passId)}/revoke`, g, {}),
     requestRefund: (g: string, seatId: string, input: { mode?: SeatRefundMode; note?: string }) =>
       request<{ id: string; status: 'pending' | 'review'; mode?: SeatRefundMode; awaiting_payer_choice?: boolean }>(
         'POST',

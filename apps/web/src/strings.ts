@@ -1,10 +1,11 @@
 /** Korean UI copy for the web UX additions (AGENTS.md 6: no inline screen strings). Child screens carry no price, payment or deadline. */
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
 
 export const WEB_UX_STRINGS_KO = {
   site: {
     nav: {
       home: '소개',
-      try: '5분 체험',
+      try: `${FREE_PLAY_LIMITS.tryMinutes}분 체험`,
       parents: '학부모',
       teachers: '과외',
       safety: '안전·개인정보',
@@ -20,7 +21,7 @@ export const WEB_UX_STRINGS_KO = {
       { title: '② 문장이 자란다', body: '★★★ so that I can fly' },
       { title: '③ 세계가 넓어진다', body: '하늘섬, 우주 정거장' }
     ],
-    tryCta: '지금 5분 체험: 설치도 가입도 없이 음료 한 잔 주문해 보기',
+    tryCta: `지금 ${FREE_PLAY_LIMITS.tryMinutes}분 체험: 설치도 가입도 없이 음료 한 잔 주문해 보기`,
     openGame: '월드 열기',
     sendToParent: '부모님께 소개 보내기',
     linkCopied: '소개 링크를 복사했어요. 부모님께 보내 주세요.'
@@ -118,6 +119,25 @@ export const LESSON_STRINGS_KO = {
     keyChange: '열쇠 바꾸기',
     keyForget: '열쇠 지우기',
     keySaved: '열쇠가 저장되어 있어요.',
+    googleSignIn: 'Google 계정으로 로그인',
+    googleHelp: '등록된 선생님 Google 계정만 들어올 수 있어요. 로그인은 이 브라우저에 30일 동안 남아요.',
+    keyOr: '운영 열쇠로 들어가기',
+    signedInAs: (name: string) => `${name || '선생님'} 계정으로 로그인됨`,
+    logout: '로그아웃',
+    logoutAll: '모든 기기에서 로그아웃',
+    devicesTitle: (n: number) => `로그인한 브라우저 ${n}곳`,
+    thisDevice: '이 브라우저',
+    deviceEnd: '끊기',
+    deviceSeen: (when: string) => `마지막 사용 ${when}`,
+    sessionEnded: '로그인이 끝났어요(로그아웃했거나 30일이 지났어요). 다시 로그인해 주세요.',
+    signInError: (code: string) =>
+      code === 'not_an_operator'
+        ? '이 Google 계정은 선생님으로 등록돼 있지 않아요. 등록된 계정으로 다시 로그인해 주세요.'
+        : code === 'not_configured'
+          ? 'Google 로그인이 아직 준비되지 않았어요. 아래 운영 열쇠로 들어가 주세요.'
+          : code === 'handoff_invalid'
+            ? '로그인 확인 시간이 지났거나 다른 브라우저에서 열렸어요. 이 브라우저에서 다시 로그인해 주세요.'
+            : 'Google 로그인이 끝나지 않았어요. 다시 해 주세요.',
     keyNotStored: '이 브라우저는 저장을 막고 있어요. 새로 고치면 열쇠를 다시 넣어야 해요.',
     studentsTitle: '학생 고르기',
     resumeTitle: '진행 중인 수업 이어 하기',
@@ -130,6 +150,11 @@ export const LESSON_STRINGS_KO = {
     studentsEmpty: '아직 등록한 학생이 없어요. 아래에서 새 학생을 등록해 주세요.',
     refresh: '새로 고침',
     loading: '불러오는 중…',
+    csvToday: '오늘 기록 CSV 받기',
+    csvMinutes: '오늘 진행표 CSV',
+    csvBusy: '받는 중…',
+    csvHelp: '오늘(한국 시간) 발화 기록과 분 단위 진행표를 엑셀에서 여는 CSV 로 받아요. 아이는 별명·id 로만 적혀요.',
+    csvFailed: (code: string) => `CSV 를 받지 못했어요 (${code}). 다시 눌러 주세요.`,
     retry: '다시 시도',
     colNickname: '별명',
     colLevel: '수준',
@@ -157,6 +182,13 @@ export const LESSON_STRINGS_KO = {
     errInvalid: '보낸 값이 서버 형식과 맞지 않아요.',
     errUnknown: '서버가 요청을 받지 않았어요',
     joinTitle: '학생 기기 참가 코드',
+    worldIn: (nick: string) => `🟢 접속 중 — ${nick} 월드에 들어갔어요`,
+    worldInHelp: '아이 화면에 수업이 바로 붙었어요. 아이는 아무것도 누르지 않아요.',
+    worldWaiting: (nick: string) => `⏳ 접속 대기 — ${nick} 월드가 아직 안 열렸어요`,
+    worldWaitingHelp: '아이가 기기에서 월드를 열면 수업이 저절로 붙어요.',
+    codeFallback: '로그인 안 된 기기로 들어올 때: 참가 코드 보기',
+    codeOtherDevice: '다른 기기로 들어온다면 이 코드를 넣어요',
+    noDevice: '로그인된 기기 없음 — 코드로 들어와요',
     joinHow: (url: string) => `학생 기기에서 ${url} 을 열고 이 숫자 6개를 넣어요.`,
     joinOpen: (url: string) => `학생 기기에서 ${url} 을 열면 바로 들어가요.`,
     join3d: '3D 화면',
@@ -225,7 +257,49 @@ export const LESSON_STRINGS_KO = {
     endedElsewhereHelp: '다른 기기에서 끝낸 수업이에요. 이미 만든 부모님 리포트 링크를 그대로 가져와요(새로 만들지 않아요).',
     fetchReport: '리포트 링크 가져오기',
     resumeRefresh: '다시 보기',
-    resumeNote: '진행 중이던 수업을 이어서 보여 드려요.'
+    resumeNote: '진행 중이던 수업을 이어서 보여 드려요.',
+    /** Subscription controls on each student row (DirectorSeats.tsx). Money is never collected here. */
+    seat: {
+      col: '구독',
+      plan: { solo: '혼자', duo: '둘이', tutoring: '과외' } as Record<string, string>,
+      none: '구독 없음',
+      active: (plan: string, until: string) => `${plan} 구독 중 · ${until}까지`,
+      expiring: (plan: string, until: string, left: string) => `${plan} 구독 중 · ${until}까지 · ${left}`,
+      ended: (plan: string, state: string, until: string) => `${plan} · ${state} · ${until} 끝남`,
+      refunded: (plan: string, state: string) => `${plan} · ${state}`,
+      manage: '구독 관리',
+      close: '닫기',
+      title: (name: string) => `${name} 구독`,
+      period: (from: string, to: string) => `기간 ${from} ~ ${to}`,
+      start: '시작일',
+      end: '종료일',
+      endHint: '종료일을 뒤로 고르고 저장하면 그날까지 연장돼요. 앞으로 당기면 그날 끝나요.',
+      saveDates: '날짜 저장',
+      extendMonth: '1개월 연장',
+      stop: '중지',
+      stopConfirm: '지금 바로 중지할까요? 혼자 하기가 멈추고 30일 동안 보기만 돼요. 환불은 따로 처리돼요.',
+      issue: '과외 좌석 발급 (0원)',
+      issueHint: '과외에 포함된 좌석이라 결제는 없어요. 한 달 동안 열려요.',
+      refundedNote: '환불된 좌석이에요. 새로 시작하려면 과외 좌석을 발급해 주세요.',
+      busy: '저장하는 중…',
+      saved: (until: string) => `저장했어요 · ${until}까지`,
+      extended: (until: string) => `연장했어요 · ${until}까지`,
+      stopped: '중지했어요. 부모님 화면에도 바로 보여요.',
+      issued: (until: string) => `과외 좌석을 발급했어요 · ${until}까지`,
+      loadError: '구독 정보를 못 불러왔어요.',
+      err: {
+        already_refunded: '환불된 좌석이라 바꿀 수 없어요.',
+        ends_before_starts: '종료일은 시작일보다 뒤여야 해요.',
+        date_too_far: '너무 먼 날짜예요. 3년 안으로 골라 주세요.',
+        date_too_old: '너무 지난 날짜예요. 종료일은 30일 전보다 뒤로 골라 주세요.',
+        start_in_future: '시작일은 오늘까지만 고를 수 있어요.',
+        already_ended: '이미 끝난 좌석이에요.',
+        seat_exists: '이미 이용 중인 좌석이 있어요.',
+        payer_not_found: '보호자 계정이 없어 발급할 수 없어요. 먼저 부모님 연결을 해 주세요.',
+        invalid: '날짜를 다시 골라 주세요.'
+      } as Record<string, string>,
+      errGeneric: (code: string) => `저장하지 못했어요 (${code}).`
+    }
   },
   join: {
     title: '수업 들어가기',

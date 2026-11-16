@@ -1,4 +1,18 @@
-/** Pure helpers for the /try speech fallback (docs/14 section 8). No server calls, no recording is sent anywhere. */
+/** Pure helpers for the /try speech fallback (docs/14 section 8). No recording is sent anywhere. */
+// The sentences and the matcher are shared with the server, which repeats the grade before it counts the order.
+export {
+  TRY_RECOGNITION_PASS_RATIO,
+  bestOfferMatch,
+  cardOrderStars,
+  gradeTryOrder,
+  isSentenceAssembled,
+  sentenceWords,
+  transcriptMatchRatio,
+  wordHits,
+  type OfferMatch,
+  type TryOffer,
+  type TryOrderPath
+} from '@lcw/content';
 
 /** Speech-like energy must last at least this long to pass the loudness check. */
 export const TRY_SPEECH_MIN_MS = 800;
@@ -8,8 +22,6 @@ export const TRY_SPEECH_RMS_THRESHOLD = 0.04;
 export const TRY_SPEECH_MAX_GAP_MS = 400;
 /** Target 3-star sentence for the /try cafe order. */
 export const TRY_TARGET_SENTENCE = 'Can I have a warm honey tea so I stay warm?';
-/** Share of target words the browser recognizer must hear for the recognition path to pass. */
-export const TRY_RECOGNITION_PASS_RATIO = 0.6;
 /** Analyser poll interval. */
 export const TRY_ANALYSER_INTERVAL_MS = 50;
 
@@ -88,87 +100,4 @@ export function shuffleWords(words: readonly string[], seed: number): string[] {
     [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
-}
-
-export function sentenceWords(sentence: string): string[] {
-  return sentence.trim().split(/\s+/).filter(Boolean);
-}
-
-/** Compares assembled cards to the target, ignoring case and trailing punctuation. */
-export function isSentenceAssembled(picked: readonly string[], target: string): boolean {
-  const norm = (w: string) => w.toLowerCase().replace(/[.,!?]+$/g, '');
-  const t = sentenceWords(target).map(norm);
-  return picked.length === t.length && picked.every((w, i) => norm(w) === t[i]);
-}
-
-const normWords = (t: string): string[] =>
-  t
-    .toLowerCase()
-    .replace(/[^a-z' ]+/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean);
-
-/** Share of the target's words heard in the transcript (order-free, each target word counted once). */
-export function transcriptMatchRatio(transcript: string, target: string): number {
-  const want = normWords(target);
-  if (want.length === 0) return 0;
-  const heard = normWords(transcript);
-  let hit = 0;
-  for (const w of want) {
-    const i = heard.indexOf(w);
-    if (i >= 0) {
-      hit++;
-      heard.splice(i, 1);
-    }
-  }
-  return hit / want.length;
-}
-
-/** Per target word: was it heard in the transcript (order-free, each heard word used once)? Drives the green/underline paint. */
-export function wordHits(transcript: string, target: string): boolean[] {
-  const heard = normWords(transcript);
-  return sentenceWords(target).map((raw) => {
-    const w = normWords(raw)[0];
-    if (!w) return true;
-    const i = heard.indexOf(w);
-    if (i < 0) return false;
-    heard.splice(i, 1);
-    return true;
-  });
-}
-
-export interface TryOffer {
-  stars: 1 | 2 | 3;
-  text: string;
-  /** Words that must be heard for this star level (the connector that makes it a 3-star sentence). */
-  required?: readonly string[];
-}
-
-export interface OfferMatch {
-  stars: 0 | 1 | 2 | 3;
-  /** The offer the transcript matched (or the closest one when nothing passed). */
-  offer: TryOffer;
-  ratio: number;
-}
-
-/**
- * Scores a transcript against every offer and keeps the highest star level that passes, so a child who aimed at
- * ★★★ but said the ★ sentence still gets their drink (forgiving, 08 §10). A level only passes when its required
- * connector words were heard.
- */
-export function bestOfferMatch(
-  transcript: string,
-  offers: readonly TryOffer[],
-  passRatio = TRY_RECOGNITION_PASS_RATIO
-): OfferMatch {
-  let best: OfferMatch | null = null;
-  let closest: OfferMatch | null = null;
-  const heard = normWords(transcript);
-  for (const o of offers) {
-    const ratio = transcriptMatchRatio(transcript, o.text);
-    const reqOk = (o.required ?? []).every((w) => heard.includes(w.toLowerCase()));
-    if (!closest || ratio > closest.ratio) closest = { stars: 0, offer: o, ratio };
-    if (ratio >= passRatio && reqOk && (!best || o.stars > best.stars)) best = { stars: o.stars, offer: o, ratio };
-  }
-  return best ?? closest ?? { stars: 0, offer: offers[0]!, ratio: 0 };
 }

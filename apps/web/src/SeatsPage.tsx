@@ -19,6 +19,7 @@ import {
   type SeatRefundMode,
   type SeatState
 } from './familyApi.js';
+import { GuestPasses, passBoxFor } from './GuestPasses.js';
 import { errorCodeOf, loadOperatorToken } from './lessonApi.js';
 import { kstLabel } from './lessonFlow.js';
 import { Box, LessonStyle, Notice, border, inputStyle, labelStyle, sp } from './lessonUi.js';
@@ -33,6 +34,9 @@ const DAY = 86_400_000;
 const small: React.CSSProperties = { fontSize: px(T.scale.small.sizePx), lineHeight: px(T.scale.small.lineHeightPx), color: C['ink-700'] };
 const won = (n: number) => n.toLocaleString('ko-KR');
 const day = (ms: number | null) => kstLabel(ms, false).replace(/^\d{4}년 /, '');
+const dayTime = (ms: number | null) => kstLabel(ms, true);
+/** Why the rule refund button was refused (first use since the screen loaded, most often). */
+const refundErr = (code: string): string | undefined => (code === 'seat_used' ? A.usedRefuse : undefined);
 /** What the operator must do next after a rule refund (money is sent by hand). */
 export function doneText(r: { refund_krw: number; removed_days?: number; remaining_seat: { solo_days: number } | null }): string {
   if (r.removed_days) return A.refundDoneExtend(won(r.refund_krw), r.removed_days);
@@ -86,13 +90,16 @@ export function FamilySeatsView({
   now,
   busy = false,
   sent,
-  onRequest
+  onRequest,
+  extra
 }: {
   seats: readonly FamilySeat[];
   now: number;
   busy?: boolean;
   sent?: { seatId: string; status: SeatSent } | null;
   onRequest: (seatId: string, input: SeatRequestInput) => void;
+  /** More for one seat at the end of its card (the friend pass box). */
+  extra?: (s: FamilySeat) => React.ReactNode;
 }): React.ReactElement | null {
   if (seats.length === 0) return null;
   return (
@@ -100,7 +107,7 @@ export function FamilySeatsView({
       <p style={{ ...small, marginTop: 0 }}>{S.lead}</p>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: sp(3) }}>
         {seats.map((s) => (
-          <SeatItem key={s.id} seat={s} now={now} busy={busy} sent={sent?.seatId === s.id ? sent.status : null} onRequest={onRequest} />
+          <SeatItem key={s.id} seat={s} now={now} busy={busy} sent={sent?.seatId === s.id ? sent.status : null} onRequest={onRequest} extra={extra?.(s)} />
         ))}
       </ul>
     </Box>
@@ -144,6 +151,7 @@ function PaymentLines({ payments }: { payments: readonly SeatPayment[] }): React
             ? S.paymentLineExtend(p.days ?? 0, won(p.amount_krw), day(p.paid_at))
             : (p.plan === 'duo' ? S.paymentLineDuo : S.paymentLine)(won(p.amount_krw), day(p.paid_at))}
           {p.refunded_krw > 0 ? ` · ${S.refundedLine(won(p.refunded_krw))}` : ''}
+          {p.used && !p.refunded ? ` · ${S.paymentUsed}` : ''}
         </span>
       ))}
     </div>
@@ -164,20 +172,30 @@ function SeatItem({
   now,
   busy,
   sent,
-  onRequest
+  onRequest,
+  extra
 }: {
   seat: FamilySeat;
   now: number;
   busy: boolean;
   sent: SeatSent | null;
   onRequest: (seatId: string, input: SeatRequestInput) => void;
+  extra?: React.ReactNode;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<SeatRefundMode>('refund_difference');
   const [note, setNote] = useState('');
-  const inWindow = s.refund_until !== null && now < s.refund_until;
+  const inWindow = s.refundable && s.refund_until !== null && now < s.refund_until;
   const canAsk = s.can_request_refund;
-  const planText = `${S.plan[s.plan] ?? s.plan} · ${S.term[s.term] ?? s.term}`;
+  // A tutoring seat is part of the tutoring fee (a monthly subscription with the teacher): no plan price, no 0원 line.
+  const tutoring = s.plan === 'tutoring';
+  const included = tutoring && (s.payments ?? []).every((p) => p.amount_krw === 0);
+  const planText = tutoring
+    ? // '과외 구독 중' only while the seat runs; a stopped or ended one reads '과외' next to its state badge.
+      [s.state === 'active' || s.state === 'expiring' ? S.tutoringPlan : (S.plan.tutoring ?? s.plan), included ? S.tutoringIncluded : null, S.until(day(s.ends_at))]
+        .filter(Boolean)
+        .join(' · ')
+    : `${S.plan[s.plan] ?? s.plan} · ${S.term[s.term] ?? s.term}`;
   const pr = s.pending_request;
   return (
     <li
@@ -191,13 +209,13 @@ function SeatItem({
         </div>
         <SeatBadge state={s.state} endsAt={s.ends_at} now={now} />
       </div>
-      <span style={small}>{S.period(day(s.starts_at), day(s.ends_at))}</span>
+      {tutoring ? null : <span style={small}>{S.period(day(s.starts_at), day(s.ends_at))}</span>}
       {!s.child ? <span style={small}>{S.otherSeatNote}</span> : null}
       {s.state === 'expiring' ? <p style={{ margin: 0 }}>{S.expiringBody(day(s.ends_at))}</p> : null}
       {s.state === 'read_only' ? <p style={{ margin: 0 }}>{S.readOnlyBody(day(s.read_only_until))}</p> : null}
       {s.state === 'archived' ? <p style={{ margin: 0 }}>{S.archivedBody}</p> : null}
       {s.state === 'refunded' ? <p style={{ margin: 0 }}>{S.refundedBody}</p> : null}
-      {s.payments && s.payments.length > 0 ? <PaymentLines payments={s.payments} /> : null}
+      {s.payments && s.payments.some((p) => p.amount_krw > 0) ? <PaymentLines payments={s.payments.filter((p) => p.amount_krw > 0)} /> : null}
       {pr ? (
         <Notice kind="info" testId="seat-pending">
           {(pr.status === 'review' ? S.refundReview : pr.awaiting_payer_choice ? S.refundAwaiting : S.refundPending)(day(pr.requested_at))}
@@ -227,10 +245,15 @@ function SeatItem({
           {sent === 'pending' ? S.sentPending : sent === 'awaiting' ? S.sentAwaiting : sent === 'chosen' ? S.sentChosen : S.sentReview}
         </Notice>
       ) : null}
+      {s.refund_block === 'seat_used' && s.first_used_at !== null && !pr ? (
+        <span style={small} data-testid="seat-refund-used">
+          {S.refundUsed(day(s.first_used_at))}
+        </span>
+      ) : null}
       {canAsk && !open ? (
         <div style={{ display: 'grid', gap: sp(1) }}>
           <span style={small} data-testid="seat-refund-until">
-            {inWindow && s.refund_until ? S.refundUntil(day(s.refund_until - 1)) : S.refundClosed}
+            {s.refundable && s.refund_until ? S.refundUntil(day(s.refund_until - 1)) : S.refundClosed}
           </span>
           <div>
             <Button type="button" variant="paper" disabled={busy} onClick={() => setOpen(true)} data-testid={`seat-ask-${s.id}`}>
@@ -276,6 +299,7 @@ function SeatItem({
           </div>
         </form>
       ) : null}
+      {extra}
     </li>
   );
 }
@@ -310,6 +334,8 @@ export function FamilySeats({ api, token }: { api: FamilyApi; token: string }): 
       now={data.server_now}
       busy={busy}
       sent={sent}
+      // A friend pass belongs to a live seat of this family's own child (another family's Duo seat is theirs to give).
+      extra={(s) => (passBoxFor(s) ? <GuestPasses api={api} token={token} seatId={s.id} /> : null)}
       onRequest={(seatId, input) => {
         setBusy(true);
         void api
@@ -405,7 +431,7 @@ export function SeatsAdminPage({ api, initialToken, now = Date.now }: { api?: Fa
               run(async (op) => {
                 const r = await apiRef.current.adminRefundSeat(op, it.seat_id);
                 return doneText(r);
-              }, undefined, A.confirmRefund)
+              }, refundErr, A.confirmRefund)
             }
             onDecline={(it) =>
               run(async (op) => {
@@ -447,7 +473,7 @@ export function SeatsAdminPage({ api, initialToken, now = Date.now }: { api?: Fa
               run(async (op) => {
                 const r = await apiRef.current.adminRefundSeat(op, s.id);
                 return doneText(r);
-              }, undefined, A.confirmRefund)
+              }, refundErr, A.confirmRefund)
             }
             onExtend={(seatId, input) =>
               run(
@@ -533,6 +559,7 @@ function InboxItem({
       </div>
       <span style={small}>{A.reqMeta(day(it.paid_at), won(it.amount_krw), it.usage.lessons, it.usage.utterances)}</span>
       <span style={small}>{A.reqDeadline(day(it.refund_until - 1))}</span>
+      {it.first_used_at !== null ? <span style={small}>{A.firstUsed(dayTime(it.first_used_at))}</span> : null}
       {it.note ? <span style={small}>{A.reqNote(it.note)}</span> : null}
       <div style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap', alignItems: 'end' }}>
         {!review ? (
@@ -708,6 +735,7 @@ function SeatList({
                     </td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>
                       {s.payments.length === 0 ? '—' : null}
+                      {s.first_used_at !== null ? <div style={small}>{A.firstUsed(dayTime(s.first_used_at))}</div> : null}
                       {s.payments.map((pm) => (
                         <div key={pm.order_id}>
                           {pm.kind === 'extend' ? A.payExtend(pm.days ?? 0, won(pm.amount_krw), day(pm.paid_at)) : A.payIssue(won(pm.amount_krw), day(pm.paid_at))}

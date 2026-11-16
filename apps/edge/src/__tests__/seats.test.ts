@@ -59,7 +59,8 @@ describe('seats (WP-704, docs/01 §4, docs/09 P6)', () => {
     expect(issued.status).toBe(201);
     expect(issued.body.amount_krw).toBe(PLAN_PRICES_KRW.solo.month);
     expect((await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-fam-a', plan: 'solo', term: 'month', player_ids: ['kid-1'] })).status).toBe(409);
-    expect((await call(p, 'GET', '/v1/device/me', undefined, dev)).body).toMatchObject({ play_allowed: true, seat: { state: 'active' } });
+    // (the child's device is not opened here: opening the world is first use, and first use ends the refund —
+    // refund-first-use.test.ts)
 
     const mine = await call(p, 'GET', '/v1/family/seats', undefined, g);
     expect(mine.status).toBe(200);

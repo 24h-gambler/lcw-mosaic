@@ -1556,6 +1556,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       lessonMode = on;
       if (on && nearNpc && !npcTalkable(nearNpc.def, true)) nearNpc = null;
     },
+    setTeacher: (t) => hud.setTeacher(t),
     setCoins: (total) => hud.setCoins(total),
     // Map screen (docs/08 G06): read once when the menu opens (the menu pauses the world). The arrow follows the view;
     // in the mirror view the camera faces the child, so the body's facing is the one that means "where I look".

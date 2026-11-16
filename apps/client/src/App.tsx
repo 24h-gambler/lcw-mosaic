@@ -119,9 +119,11 @@ function sessionStoreOrNull(): Pick<Storage, 'getItem'> | null {
  * token, never seat-gated) once the join gave one, a guest builds on the device only. A lesson never uses the device
  * token: a borrowed or shared tablet is linked to another child, whose plot must not get this student's building.
  */
-export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | null): BuildAccess {
+export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | null, lessonLive = false): BuildAccess {
+  // A lesson joined without a code in the address (/join hand-off, or the code typed in the world) is live with this
+  // tab's student token: building saves to the student, never to a linked child's plot on the same tablet.
+  if ((id?.kind === 'lesson' || lessonLive) && studentToken && studentToken.length >= 32) return { kind: 'saved', token: studentToken, lesson: true };
   if (id?.kind === 'child') return id.playAllowed ? { kind: 'saved', token: id.token } : { kind: 'paused' };
-  if (id?.kind === 'lesson' && studentToken && studentToken.length >= 32) return { kind: 'saved', token: studentToken, lesson: true };
   return { kind: 'local' };
 }
 
@@ -377,7 +379,7 @@ export function App(): React.ReactElement {
   const lastAccess = useRef<{ world: WorldHandle | null; key: string }>({ world: null, key: '' });
   useEffect(() => {
     if (!world?.setBuildAccess || !identity) return;
-    const access = buildAccessOf(identity, identity.kind === 'lesson' ? storedStudentToken() : null);
+    const access = buildAccessOf(identity, identity.kind === 'lesson' || lessonOn ? storedStudentToken() : null, lessonOn);
     const key = JSON.stringify(access);
     if (lastAccess.current.world === world && lastAccess.current.key === key) return;
     lastAccess.current = { world, key };

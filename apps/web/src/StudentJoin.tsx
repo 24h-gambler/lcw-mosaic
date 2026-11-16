@@ -102,6 +102,13 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
   const can3d = props.can3d ?? (typeof WebGL2RenderingContext !== 'undefined');
   const go3d = !lite && can3d;
   const open3d = props.open3d ?? ((url: string) => location.replace(url));
+  // /join opened again in a tab that already has a lesson session: a 3D-capable device goes back into the 3D lesson.
+  const resumedAtStart = useRef(!props.initialState && loadStudentSession() !== null);
+  useEffect(() => {
+    if (resumedAtStart.current && go3d) open3d('/game/');
+    resumedAtStart.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Join request.
   useEffect(() => {
@@ -111,7 +118,7 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
       .join(state.code)
       .then((r) => {
         if (!live) return;
-        saveStudentSession({ token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, voiceStore: r.voice_store === true });
+        saveStudentSession({ token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, voiceStore: r.voice_store === true, level: r.level });
         // Same tab, same session store: the 3D client resumes this session (no second code exchange).
         if (go3d) return open3d('/game/');
         dispatch({ type: 'join_ok', result: r });

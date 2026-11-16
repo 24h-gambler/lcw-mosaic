@@ -186,13 +186,15 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     return () => ctl.stop();
   }, [active, lowTier, ctl, startCode]);
 
-  // Back to solo play from a code typed in the world (wrong code, or the child changed their mind).
-  const backToSolo = typedCode !== null && !code ? () => {
+  // Back to solo play on a bare /game/ (no code in the address): a wrong code, the child changed their mind, or a
+  // session kept in this tab that has expired. The view starts over so the "수업 코드 넣기" button shows again.
+  const backToSolo = !code ? () => {
     ctl.stop();
     setTypedCode(null);
     setActive(false);
+    setView(initialLessonView());
   } : undefined;
-  if (!active && view.phase === 'needs_code' && !code) {
+  if (!active && !code) {
     return (
       <Shell>
         {entryOpen ? (
@@ -239,6 +241,11 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     return (
       <Shell>
         <CenterCard>
+          {backToSolo ? (
+            <button type="button" data-testid="lesson-ended-solo" onClick={backToSolo} className="lcw-btn" style={{ ...bigButton(C['leaf-d']), width: '100%', marginBottom: SP[3] }}>
+              {S.code.cancel}
+            </button>
+          ) : null}
           <div style={{ fontSize: 56, lineHeight: '64px' }} aria-hidden>⭐</div>
           <h1 style={{ ...h2, margin: `${SP[2]}px 0` }}>{S.ended.title}</h1>
           <p style={bodyL}>{S.ended.body}</p>
@@ -394,7 +401,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 function CenterCard({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: `${C['night-900']}8C`, pointerEvents: 'auto', padding: SP[3] }}>
-      <div style={{ ...card, background: C['paper-50'], padding: SP[5], maxWidth: 520, width: '100%', textAlign: 'center' }}>{children}</div>
+      <div style={{ ...card, background: C['paper-50'], padding: SP[5], maxWidth: 520, width: '100%', boxSizing: 'border-box', textAlign: 'center' }}>{children}</div>
     </div>
   );
 }
@@ -455,7 +462,7 @@ function CodeEntry(p: { busy: boolean; errorCode: string | null; initial: string
           {p.busy ? S.code.joining : S.code.enter}
         </button>
         {p.onCancel ? (
-          <button type="button" data-testid="lesson-code-cancel" onClick={p.onCancel} className="lcw-btn" style={{ ...bigButton(C['paper-0']), color: C['ink-900'], marginTop: SP[2], width: '100%' }}>
+          <button type="button" data-testid="lesson-code-cancel" onClick={p.onCancel} disabled={p.busy} className="lcw-btn" style={{ ...bigButton(C['paper-0']), color: C['ink-900'], marginTop: SP[2], width: '100%', opacity: p.busy ? 0.5 : 1 }}>
             {S.code.cancel}
           </button>
         ) : null}

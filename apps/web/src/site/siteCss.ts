@@ -16,7 +16,7 @@ export const SITE_PHONE_PX = 600;
 
 export function siteCss(): string {
   return `
-.s-root{background:${C['paper-50']};color:${C['ink-900']};font-family:${TOKENS.typography.fonts.ui};${type('body')}min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:clip}
+.s-root{background:${C['paper-50']};color:${C['ink-900']};font-family:${TOKENS.typography.fonts.ui};${type('body')}min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:clip;word-break:keep-all;overflow-wrap:anywhere}
 .s-root *,.s-root *::before,.s-root *::after{box-sizing:border-box}
 .s-root h1,.s-root h2,.s-root h3,.s-root p,.s-root ul,.s-root ol,.s-root figure{margin:0}
 .s-root a{color:${C['sky-d']};text-underline-offset:3px}

@@ -264,7 +264,8 @@ export function mountGuestPassGuardianRoutes(
     const s = seatFor(g, c.req.param('id'));
     if (!s) return c.json({ error: 'seat_not_found' }, 404);
     const now = d.nowMs();
-    // Every pass the guardian can still act on (waiting or running) is always in the list; history comes after it, capped.
+    // Every pass the guardian can still act on (waiting or running) is always in the list, together with the newest
+    // history rows (capped); all of them newest issue first.
     // A pass taken back before anyone entered is left out: it counts for nothing, and issuing and taking back has no
     // limit, so those rows would otherwise push an older waiting code out of a capped list (review of #94).
     const live = d.sql.all<GrantRow>(

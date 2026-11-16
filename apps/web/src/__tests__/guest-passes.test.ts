@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GuestPassesView, actionNotice, canTakeBack, confirmText, passBoxFor, passLine, revokeDone, shownPasses, slotAt, takeBack, type PassNotice } from '../GuestPasses.js';
+import { GuestPassesView, actionNotice, canTakeBack, confirmText, passBoxFor, passLine, revokeDone, shownPasses, slotBack, takeBack, type PassNotice } from '../GuestPasses.js';
 import { createFamilyApi, type GuestPass, type GuestPassSummary } from '../familyApi.js';
 import type { FetchLike } from '../lessonApi.js';
 import { PARENT_STRINGS_KO } from '../parentStrings.js';
@@ -143,7 +143,7 @@ describe('/family friend pass box (free-play.ts guest passes)', () => {
 
   it('the third pass of the month (409 monthly_limit) and the other refusals each have their own words', () => {
     const msg = actionNotice('monthly_limit', sum(0));
-    expect(msg).toBe(P.limit(2, '12월 1일'));
+    expect(msg).toBe(P.limit(2, P.noneLeft('12월 1일')));
     expect(msg).toContain('2장');
     expect(actionNotice('seat_inactive', sum(0))).toBe(P.seatInactive);
     expect(actionNotice('service_consent_required', sum(0))).toBe(P.needConsent);
@@ -160,10 +160,14 @@ describe('/family friend pass box (free-play.ts guest passes)', () => {
   it('says when a slot opens as the server sends it (#98 resets_at): the end of a waiting code with its time, a month turn by date', () => {
     // 12-01 00:00 KST
     const monthTurn = Date.UTC(2026, 10, 30, 15, 0, 0);
-    expect(slotAt(monthTurn)).toBe('12월 1일');
+    expect(slotBack(monthTurn)).toBe(P.noneLeft('12월 1일'));
     // a waiting code issued 11-16 14:44 KST ends 11-23 14:44 KST
     const codeEnd = Date.UTC(2026, 10, 23, 5, 44, 0);
-    expect(slotAt(codeEnd)).toBe('11월 23일 14:44');
+    // only if nobody enters the waiting code (a friend entering keeps the slot used)
+    expect(slotBack(codeEnd)).toBe(P.noneLeftCode('11월 23일 14:44'));
+    expect(P.noneLeftCode('x')).toContain('아무도 들어오지 않으면');
+    // never early: 14:44:30 reads 14:45
+    expect(slotBack(codeEnd + 30_000)).toBe(P.noneLeftCode('11월 23일 14:45'));
     const html = renderToStaticMarkup(
       React.createElement(GuestPassesView, {
         passes: [pass()],
@@ -177,8 +181,8 @@ describe('/family friend pass box (free-play.ts guest passes)', () => {
         origin: 'https://lcw.example'
       })
     );
-    expect(html).toContain(P.noneLeft('11월 23일 14:44'));
-    expect(actionNotice('monthly_limit', { per_month: 2, resets_at: codeEnd })).toBe(P.limit(2, '11월 23일 14:44'));
+    expect(html).toContain(P.noneLeftCode('11월 23일 14:44'));
+    expect(actionNotice('monthly_limit', { per_month: 2, resets_at: codeEnd })).toBe(P.limit(2, P.noneLeftCode('11월 23일 14:44')));
   });
 
   it('the box goes on live seats of the own child only (not another family\'s Duo seat, not ended seats)', () => {

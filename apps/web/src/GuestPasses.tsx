@@ -1,10 +1,10 @@
 /**
  * 친구 초대권 (guest pass) on /family (server apps/edge/src/free-play.ts, outsider lane #79): the guardian of a live seat gives a
  * friend one code / link for 30 minutes of the child's world, a few per seat per KST month, and can take back a pass
- * nobody entered yet or stop a running one. Which passes count against the month is the server's rule (#96: a pass
- * nobody entered stops counting when taken back or when its days to enter run out; soon the month a friend first
- * entered). The screen never works it out itself: it shows the server's left_this_month and says a slot came back
- * only when that number went up.
+ * nobody entered yet or stop a running one. Which passes count against the month is the server's rule (#96, #98: the
+ * passes a friend first entered this KST month plus the codes still waiting; a code nobody entered stops counting
+ * when taken back or when its days to enter run out). The screen never works it out itself: it shows the server's
+ * left_this_month and resets_at, and says a slot came back only when that number went up.
  * Only on the guardian screen; the child's screen shows no dates, codes or counts.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -24,12 +24,15 @@ const day = (ms: number | null) => kstLabel(ms, false).replace(/^\d{4}년 /, '')
 const when = (ms: number | null) => kstLabel(ms, true);
 /**
  * When a slot opens again, as the server says (#98 resets_at: a waiting code's 7 days end, or the next KST month when
- * something was played this month, whichever is first): the date alone at a month turn, the date and time otherwise.
+ * something was played this month, whichever is first), as a sentence:
+ * - a month turn: the date, a sure thing;
+ * - a waiting code's end: the time (rounded up to the minute, never early), and only "if nobody enters it", since a
+ *   friend entering keeps the slot used (review of PR 107).
  */
-export function slotAt(ms: number): string {
+export function slotBack(ms: number): string {
   const d = new Date(ms + 9 * 3_600_000);
-  const monthTurn = d.getUTCDate() === 1 && d.getUTCHours() === 0 && d.getUTCMinutes() === 0;
-  return monthTurn ? day(ms) : when(ms);
+  const monthTurn = d.getUTCDate() === 1 && d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0;
+  return monthTurn ? P.noneLeft(day(ms)) : P.noneLeftCode(when(Math.ceil(ms / 60_000) * 60_000));
 }
 
 export type PassNotice = { kind: 'ok' | 'info' | 'error'; text: string };
@@ -97,7 +100,7 @@ export function revokeDone(after: GuestPass, leftBefore: number, leftAfter: numb
 
 /** A refused or failed action, in words. */
 export function actionNotice(code: string | null, s: Pick<GuestPassSummary, 'per_month' | 'resets_at'>): string {
-  if (code === 'monthly_limit') return P.limit(s.per_month, slotAt(s.resets_at));
+  if (code === 'monthly_limit') return P.limit(s.per_month, slotBack(s.resets_at));
   if (code === 'seat_inactive') return P.seatInactive;
   if (code === 'service_consent_required') return P.needConsent;
   if (code === 'pass_not_found') return P.gone;
@@ -138,7 +141,7 @@ export function GuestPassesView({
       <strong>{P.title}</strong>
       <p style={{ margin: 0 }}>{P.body(summary.minutes)}</p>
       <span style={small} data-testid="guest-passes-left">
-        {none ? P.noneLeft(slotAt(summary.resets_at)) : P.left(summary.left_this_month, summary.per_month)}
+        {none ? slotBack(summary.resets_at) : P.left(summary.left_this_month, summary.per_month)}
       </span>
       {none && shown.some((p) => p.state === 'ready') ? (
         <span style={small} data-testid="guest-passes-ready-hint">

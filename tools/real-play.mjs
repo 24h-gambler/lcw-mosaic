@@ -226,6 +226,7 @@ const rightNpc = async (id) => {
   return nameOf[id] ? nameOf[id].test(head) : head.length > 0;
 };
 
+let lastClick = null;
 /** One talk opened by a click/tap on the NPC's body. */
 async function tryClick(id) {
   const n = await face(id);
@@ -233,6 +234,7 @@ async function tryClick(id) {
   counts.clickTry++;
   const s = await stats();
   const v = s?.npcView?.find((x) => x.id === id) ?? n;
+  lastClick = { at: [v.sx, v.sy], dist: v.dist, top: await page.evaluate(([x, y]) => (document.elementFromPoint(x, y)?.className ?? '').toString().slice(0, 50), [v.sx, v.sy]) };
   if (touch) await page.touchscreen.tap(v.sx, v.sy);
   else await page.mouse.click(v.sx, v.sy);
   await page.waitForSelector('.lcw-dlg', { timeout: 1500 }).catch(() => {});
@@ -342,8 +344,13 @@ mark('free_walk', { motion: (await stats())?.motion });
 
 const talks = [];
 const seenGoals = [];
-for (let round = 0; round < 7; round++) {
-  const s = await stats();
+for (let round = 0; round < 9; round++) {
+  let s = await stats();
+  // the next goal can come a few seconds after a step (reward line, the town goal chain fetching its state)
+  for (let k = 0; k < 12 && !s?.interact?.goal; k++) {
+    await wait(1000);
+    s = await stats();
+  }
   const goal = s?.interact?.goal ?? null;
   seenGoals.push(goal);
   if (!goal) break;
@@ -372,6 +379,7 @@ for (let round = 0; round < 7; round++) {
   const near = await approach(goal, 2.6);
   const t = { goal, walked, reached: !!near, dist: near?.dist ?? null, promptOnGoal: (await stats())?.interact?.prompt ?? null };
   t.click = await tryClick(goal);
+  if (!t.click) t.clickMiss = lastClick;
   if (t.click) {
     t.lineClick = await firstLine();
     await closeDlg();

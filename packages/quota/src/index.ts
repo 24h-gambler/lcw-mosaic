@@ -41,8 +41,9 @@ export function serverSttNeurons(sec: number): number {
  * audio minute, about 0.02 neurons per character at 15 characters a second (counted at 0.05 to stay on the safe side).
  */
 export const NEURAL_TTS = {
-  models: { aura: '@cf/deepgram/aura-1', melo: '@cf/myshell-ai/melotts' },
-  neuronsPerChar: { aura: 1.37, melo: 0.05 },
+  models: { aura: '@cf/deepgram/aura-1', aura2: '@cf/deepgram/aura-2-en', melo: '@cf/myshell-ai/melotts' },
+  /** Workers AI price per 1k characters / $0.011 per 1k neurons: aura-1 $0.015, aura-2-en $0.030, MeloTTS ~$0.0002/min. */
+  neuronsPerChar: { aura: 1.37, aura2: 2.73, melo: 0.05 },
   /** One NPC line (a teacher's possession line included); longer text is refused, not cut. */
   maxChars: 300,
   /** Operator prebuild: neurons one call may spend on fixed lines (the rest continues on the next call). */

@@ -11,7 +11,7 @@ export type CastLang = 'en';
 
 /** Workers AI neural voice (edge tts.ts): Deepgram Aura speakers, or MeloTTS as the cheap fallback engine. */
 export interface NpcVoice {
-  engine: 'aura' | 'melo';
+  engine: 'aura' | 'aura2' | 'melo';
   /** Aura speaker id (asteria, luna, stella, athena, hera, orion, arcas, perseus, angus, orpheus, helios, zeus). */
   speaker: string;
 }

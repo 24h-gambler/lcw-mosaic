@@ -444,7 +444,8 @@ function ChildCard({
             return (
               <li key={r.share_path} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: sp(2), flexWrap: 'wrap', borderBottom: `1px solid ${C['line-200']}`, padding: `${sp(1)} 0` }}>
                 <span>
-                  <strong>{lessonDayLabel(r.lesson_day)}</strong> <span style={small}>{state}</span>
+                  <strong>{lessonDayLabel(r.lesson_day)}</strong> <span style={small}>{F.reportTime(kstLabel(r.created_at, true).split(' ').pop() ?? '')}</span>{' '}
+                  <span style={small}>· {state}</span>
                 </span>
                 <span style={{ display: 'flex', gap: sp(1), alignItems: 'center' }}>
                   {live ? (

@@ -173,6 +173,7 @@ const RAD_PER_PX = touch ? 0.008 : 0.006;
 const FOCAL = H / 2 / Math.tan((70 * Math.PI) / 360);
 
 /** Face the NPC: turn until its body is near the middle of the screen. */
+let faceMiss = null;
 async function face(id) {
   for (let i = 0; i < 16; i++) {
     const s = await stats();
@@ -182,6 +183,9 @@ async function face(id) {
     const px = !n || !n.vis || n.sx < 0 || n.sx > W ? 0.9 / RAD_PER_PX : Math.atan((n.sx - W / 2) / FOCAL) / RAD_PER_PX;
     await turn(px);
   }
+  const s = await stats();
+  const n = s?.npcView?.find((v) => v.id === id);
+  faceMiss = { id, view: n ? { vis: n.vis, sx: Math.round(n.sx), dist: n.dist } : null, walking: s?.interact?.walking ?? null, paused: s?.interact?.paused ?? null, dlg: await dlgOpen().catch(() => null) };
   return null;
 }
 
@@ -376,8 +380,9 @@ for (let round = 0; round < 9; round++) {
   }
   // step back so the click and E are measured from a child's distance, not from the walk's end spot
   await back(500);
+  faceMiss = null;
   const near = await approach(goal, 2.6);
-  const t = { goal, walked, reached: !!near, dist: near?.dist ?? null, promptOnGoal: (await stats())?.interact?.prompt ?? null };
+  const t = { goal, walked, reached: !!near, ...(near ? {} : { faceMiss }), dist: near?.dist ?? null, promptOnGoal: (await stats())?.interact?.prompt ?? null };
   t.click = await tryClick(goal);
   if (!t.click) t.clickMiss = lastClick;
   if (t.click) {

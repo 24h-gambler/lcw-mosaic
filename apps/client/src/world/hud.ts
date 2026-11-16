@@ -149,7 +149,8 @@ function css(): string {
 @media (max-width:600px),(max-height:500px){.lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.15)}}
 @media (max-width:600px){.lw-chip .gz{gap:6px}.lw-chip .gz b{width:calc(26px * var(--lcw-hs,1))}}
 /* the lesson tag wraps under the status box on a phone (the chip leaves room for the stars): the goal card starts below it */
-/* phones: the goal card starts under the status chip's real height (gauges, a wrapped lesson tag, the Korean help line) */
+/* phones: the goal card starts under the status chip's real height (gauges, a wrapped lesson tag, the Korean help line) */
+
 @media (max-width:600px){.lw-hud .lw-goal{top:calc(var(--lw-chip-b,74px) + 10px)}}
 /* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
 @media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}}
@@ -269,7 +270,8 @@ export class WorldHud {
   private netText!: HTMLSpanElement;
   private net!: HTMLDivElement;
   /** Korean help switched (world/lang.ts): redraw the text built once */
-  private offLang: (() => void) | null = null;
+  private offLang: (() => void) | null = null;
+
   private chipObs: ResizeObserver | null = null;
   private readonly onResizeNet = (): void => {
     if (this.root.classList.contains('off')) this.measureNet();
@@ -1011,7 +1013,8 @@ export class WorldHud {
   }
 
   dispose(): void {
-    this.offLang?.();
+    this.offLang?.();
+
     this.chipObs?.disconnect();
     window.removeEventListener('resize', this.onResizeNet);
     this.root.remove();

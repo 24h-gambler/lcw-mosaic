@@ -4,7 +4,7 @@
 // particle on an English name ("Town Square으로 가기").
 import { afterEach, describe, expect, it } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
-import { ACHIEVEMENT_REGISTRY, COLLECTION_BOOKS, LANG_PACK_MANIFEST } from '@lcw/content';
+import { ACHIEVEMENT_REGISTRY, CAFE_MENU, COLLECTION_BOOKS, FURNITURE_SHOP_GOODS, GUIDE_PLACES, LANG_PACK_MANIFEST, TRADE_SHOP_GOODS } from '@lcw/content';
 import { FRAME_STRINGS as F, FRAME_STRINGS_EN, FRAME_STRINGS_KO, frameBi } from '../frame/strings.js';
 import { BAND_NAMES_KO, SCENE_TITLES_KO, SECTOR_NAMES_KO, WORLD_STRINGS, nameBi, worldSay } from '../world/strings.js';
 import { helpKoOn, learnLang, onLearnLang, resetLangForTest, setHelpKo } from '../world/lang.js';
@@ -13,7 +13,7 @@ import { toServerSettings } from '../frame/settings-sync.js';
 import { compassKo, goLabel, mapNowLine, mapSummary, type MapScene, type SectorCell } from '../frame/menu/map-model.js';
 import { ko, koHelpActive, koOf } from '../frame/menu/ko-help.js';
 import { ACHIEVEMENT_NAMES_EN, COLLECTION_NAMES_EN, achievementName, entryName, thingName } from '../frame/menu/collection-names.js';
-import { itemTitleBi } from '../world/strings.js';
+import { itemTitleBi, itemTitleEnKnown } from '../world/strings.js';
 import { keyLabel } from '../frame/menu/SettingsPanel.js';
 import { lowNotice } from '../frame/useGauges.js';
 import { clockLabel, hotbarCaption, placeBi, placeLabel } from '../frame/status.js';
@@ -253,5 +253,18 @@ describe('server names and HUD lines on English screens (review #lang-en)', () =
     expect(placeBi(SCENE_TITLES_KO.plaza, 'surface', false).ko).toBeNull();
     expect(itemTitleBi('honey_latte')).toEqual({ en: 'Honey latte', ko: '꿀 라테' });
     expect(HANGUL.test(clockLabel(10.5, 'snow'))).toBe(false);
+  });
+});
+
+describe('every thing the server names has an English title (apps/edge/src/review.ts NAME_KO)', () => {
+  it('cafe menu, furniture, trade goods and guide places: English, no Hangul, the content Korean with the help', () => {
+    const keys = [...CAFE_MENU, ...FURNITURE_SHOP_GOODS, ...TRADE_SHOP_GOODS, ...GUIDE_PLACES].map((d) => d.key);
+    expect(keys.length).toBeGreaterThan(20);
+    const missing = keys.filter((k) => !itemTitleEnKnown(k) || HANGUL.test(itemTitleEnKnown(k)!));
+    expect(missing).toEqual([]);
+    expect(thingName('furn_lamp_table', '노란 탁상 램프')).toBe('Yellow table lamp');
+    expect(itemTitleBi('lantern').en).toBe('Bright lantern');
+    setHelpKo(true);
+    expect(itemTitleBi('water')).toEqual({ en: 'Water', ko: '물' });
   });
 });

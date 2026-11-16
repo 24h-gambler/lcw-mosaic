@@ -278,7 +278,11 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
           </span>
           <span>{FRAME_STRINGS_EN.menu}</span>
           {/* the Korean help as a small second line: the button keeps its size next to the hotbar */}
-          {menuKo ? <span className="ko">{menuKo}</span> : null}
+          {menuKo ? (
+            <span className="ko" lang="ko">
+              {menuKo}
+            </span>
+          ) : null}
         </button>
       ) : null}
       {menu !== null ? (

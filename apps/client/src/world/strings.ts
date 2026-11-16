@@ -5,7 +5,7 @@
  * The export names keep their old `_KO` suffix so the frame and lesson lanes keep compiling; the words are English.
  * English target sentences of the lesson come from content.
  */
-import { teacherLabel } from '@lcw/content';
+import { CAFE_MENU, FURNITURE_SHOP_GOODS, GUIDE_PLACES, TRADE_SHOP_GOODS, teacherLabel } from '@lcw/content';
 import { helpKoOn, say, type Bi } from './lang.js';
 
 /** "en · ko" when the Korean help is on and the two differ, else the English. Shared with the frame (frame/strings.ts). */
@@ -447,15 +447,28 @@ export function itemTitle(key: string): string {
   return joinHelp(t.en, t.ko ?? undefined);
 }
 
-/** The English title of a thing the world table knows ("Honey latte"), or null for a key it does not know. */
+/**
+ * Every other thing the server names (apps/edge/src/review.ts NAME_KO: cafe menu, furniture, trade goods, guide places),
+ * from the content's own English labels, so the bag, mirror and repair lists and the hotbar never fall back to Korean.
+ */
+const CONTENT_TITLES: ReadonlyMap<string, { en: string; ko: string }> = new Map([
+  ...CAFE_MENU.map((d) => [d.key, { en: d.label, ko: d.nameKo }] as const),
+  ...FURNITURE_SHOP_GOODS.map((g) => [g.key, { en: `${g.adj} ${g.label}`, ko: g.nameKo }] as const),
+  ...TRADE_SHOP_GOODS.map((g) => [g.key, { en: `${g.adj} ${g.label}`, ko: g.nameKo }] as const),
+  ...GUIDE_PLACES.map((g) => [g.key, { en: g.label, ko: g.nameKo }] as const)
+]);
+
+/** The English title of a thing the world or the content knows ("Honey latte"), or null for a key nobody knows. */
 export function itemTitleEnKnown(key: string): string | null {
-  return ITEM_NAMES_KO_EN[key] ? itemTitleBi(key, false).en : null;
+  return ITEM_NAMES_KO_EN[key] || CONTENT_TITLES.has(key) ? itemTitleBi(key, false).en : null;
 }
 
 /** The title as English plus the Korean (null while the help is off), for the caption's own two lines. */
 export function itemTitleBi(key: string, help = helpKoOn()): { en: string; ko: string | null } {
-  const en = (ITEM_NAMES_KO_EN[key] ?? ITEM_NAMES_KO_EN.gift!).replace(/^(a|an) /, '');
-  return { en: en.charAt(0).toUpperCase() + en.slice(1), ko: help ? (ITEM_NAMES_KO_SRC[key] ?? ITEM_NAMES_KO_SRC.gift!) : null };
+  const c = ITEM_NAMES_KO_EN[key] ? null : CONTENT_TITLES.get(key);
+  const en = (c?.en ?? ITEM_NAMES_KO_EN[key] ?? ITEM_NAMES_KO_EN.gift!).replace(/^(a|an) /, '');
+  const ko = c?.ko ?? ITEM_NAMES_KO_SRC[key] ?? ITEM_NAMES_KO_SRC.gift!;
+  return { en: en.charAt(0).toUpperCase() + en.slice(1), ko: help ? ko : null };
 }
 
 /** "You got honey tea!" (and "· 꿀차를 받았어요" with the help on): each side gets the item name in its own language. */

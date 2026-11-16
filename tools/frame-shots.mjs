@@ -116,6 +116,12 @@ for (const vp of VIEWPORTS) {
   await passTitle(page);
 
   // 1. start: status line, coins, explained empty bar
+  // the empty-bar line shows for 6 s after loading; a busy machine can get here later, so pick slot 1 to bring it back
+  const capOn = () => page.evaluate(() => document.querySelector('.lw-cap')?.classList.contains('on') ?? false);
+  if (!(await capOn())) {
+    await page.keyboard.press('Digit1');
+    await page.waitForTimeout(400);
+  }
   const a = await boxes(page);
   await page.screenshot({ path: `${out}/${vp.name}-1start.png` });
   check(vp.name, /·/.test(a.scene?.text ?? ''), `place · band missing (${a.scene?.text})`);

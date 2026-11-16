@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
-import { App, CONSENT_SCOPE_LABELS, DEFAULT_PARENT_REPORT_STATE, DIRECTOR_EVENTS, ParentDashboardView, TeacherDirectorView } from '../App.js';
+import { App, CONSENT_SCOPE_LABELS, DEFAULT_PARENT_REPORT_STATE, DIRECTOR_EVENTS, ParentDashboardView, ParentReportView, TeacherDirectorView } from '../App.js';
 
 describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
   it('enforces zero payment/price/deadline copy on child /play and /try routes (AGENTS.md 4.9)', () => {
@@ -54,17 +54,23 @@ describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
     expect(html).toContain('사실 일치');
   });
 
-  it('renders parent report delivery, 4-week anchor comparison, solo reuse, and opened target refresh on /report', () => {
-    const sentHtml = renderToStaticMarkup(React.createElement(App, { initialRoute: '/report' }));
+  it('/report no longer shows the prototype report with made-up lesson data (audit 11-16)', () => {
+    const html = renderToStaticMarkup(React.createElement(App, { initialRoute: '/report' }));
+    expect(html).not.toContain('W09 주간·수업 성장 리포트');
+    expect(html).not.toContain('120분 아크 수업');
+    expect(html).not.toContain('/director');
+  });
+
+  it('ParentReportView (prototype, not routed) renders delivery, anchors, solo reuse, and the opened refresh', () => {
+    const sentHtml = renderToStaticMarkup(React.createElement(ParentReportView, { report: DEFAULT_PARENT_REPORT_STATE }));
     expect(sentHtml).toContain('W09 주간·수업 성장 리포트');
     expect(sentHtml).toContain('발송 완료 (학부모 수신 확인 대기)');
     expect(sentHtml).toContain('4/6');
     expect(sentHtml).toContain('직접 말한 시간: 22분');
 
     const openedHtml = renderToStaticMarkup(
-      React.createElement(App, {
-        initialRoute: '/report',
-        initialReportState: {
+      React.createElement(ParentReportView, {
+        report: {
           ...DEFAULT_PARENT_REPORT_STATE,
           deliveryStatus: 'opened',
           openedAtMs: 1_763_205_000_000,

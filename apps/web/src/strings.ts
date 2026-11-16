@@ -119,7 +119,6 @@ export const LESSON_STRINGS_KO = {
     keyForget: '열쇠 지우기',
     keySaved: '열쇠가 저장되어 있어요.',
     keyNotStored: '이 브라우저는 저장을 막고 있어요. 새로 고치면 열쇠를 다시 넣어야 해요.',
-    demoSummary: '데모 콘솔 둘러보기 (열쇠 없이, 저장되지 않음)',
     studentsTitle: '학생 고르기',
     resumeTitle: '진행 중인 수업 이어 하기',
     resumeHelp: '다른 기기에서 시작한 수업도 여기서 이어 받아요.',

@@ -13,7 +13,8 @@ import {
   type VoiceBlobStore
 } from './voice.js';
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
-import { buildPushAdminApp, deliverPush, enqueueGuardianNotices, vapidKeys, webPushSender, type PushSender } from './push.js';
+import { buildPushAdminApp, deliverPush, enqueueGuardianNotices, enqueueReportNotices, vapidKeys, webPushSender, type PushSender } from './push.js';
+import { buildGuardianViewAdminApp } from './guardian-view.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
@@ -406,7 +407,16 @@ export class PlatformDO {
     return webPushSender(await vapidKeys(this.sql), (i, init) => fetch(i, init), () => Date.now());
   }
 
-  /** Hourly guardian push notices (push.ts): queue fresh seat/refund notices, send them if sending is on. */
+  /** Right after a lesson report is made: queue its notice and send it if sending is on (otherwise it is held). */
+  async pushReportNotices(now: number): Promise<unknown> {
+    const queued = enqueueReportNotices(this.sql, (n) => crypto.getRandomValues(new Uint8Array(n)), now);
+    if (!queued) return { queued };
+    const r = await deliverPush(this.sql, await this.pushSender(), now, 10);
+    this.recordRun('report_push', r.failed === 0, { queued, ...r });
+    return { queued, ...r };
+  }
+
+  /** Hourly guardian push notices (push.ts): queue fresh seat/refund/report notices, send them if sending is on. */
   async runPushCron(cron: string, now: number): Promise<unknown> {
     if (cron !== '0 * * * *') return null;
     try {
@@ -770,6 +780,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   };
   app.route('/', buildFamilyApp(familyDeps));
   app.route('/', buildPushAdminApp(familyDeps));
+  app.route('/', buildGuardianViewAdminApp(familyDeps));
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
@@ -793,16 +804,19 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
         credit: (playerId, delta, ref, nowMs) => platform.creditCoins(playerId, delta, 'lesson_stars', ref, nowMs),
         balance: (playerId) => platform.coinBalance(playerId)
       },
-      completeLesson: (lessonId, body) =>
-        Promise.resolve(
-          inner.fetch(
-            new Request(`https://lcw.internal/v1/lessons/${encodeURIComponent(lessonId)}/complete-and-send-report`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(body)
-            })
-          )
-        )
+      completeLesson: async (lessonId, body) => {
+        const res = await inner.fetch(
+          new Request(`https://lcw.internal/v1/lessons/${encodeURIComponent(lessonId)}/complete-and-send-report`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body)
+          })
+        );
+        // docs/09 P5 "공유 링크 → 푸시": the report notice is queued at once (held while sending is off) instead of
+        // waiting for the hourly push cron. A push failure never fails the lesson's end.
+        if (res.ok) await platform.pushReportNotices(Date.now()).catch(() => undefined);
+        return res;
+      }
     })
   );
   app.route('/', inner);

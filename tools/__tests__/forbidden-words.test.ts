@@ -1,4 +1,4 @@
-// docs/20-terms.md: the product never calls itself a game ('게임', "game", the /game URL) on anything a user sees.
+// docs/21-glossary.md: the product never calls itself a game ('게임', "game", the /game URL) on anything a user sees.
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -8,7 +8,7 @@ import { allPages, fillShell, robotsTxt } from '../../apps/web/src/site/prerende
 
 type Hit = { file: string; line: number; id: string; text: string };
 
-describe('forbidden words on user-visible text (docs/20)', () => {
+describe('forbidden words on user-visible text (docs/21)', () => {
   it('no shipped string, JSX text, HTML title/meta or manifest uses a banned word', () => {
     const hits = scanForbiddenWords() as Hit[];
     expect(hits.map((h) => `${h.file}:${h.line} [${h.id}] ${h.text}`)).toEqual([]);
@@ -40,7 +40,7 @@ describe('forbidden words on user-visible text (docs/20)', () => {
   });
 
   it('every banned word is written down in the glossary, and every allowance has a reason and a real file', () => {
-    const glossary = fs.readFileSync(path.join(ROOT, 'docs/20-terms.md'), 'utf8');
+    const glossary = fs.readFileSync(path.join(ROOT, 'docs/21-glossary.md'), 'utf8');
     for (const b of BANNED as { id: string }[]) expect(glossary, b.id).toContain(b.id);
     for (const a of ALLOW as { file: string; why: string }[]) {
       expect(a.why.length, a.file).toBeGreaterThan(10);

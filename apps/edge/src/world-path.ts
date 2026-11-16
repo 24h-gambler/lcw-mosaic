@@ -1,5 +1,5 @@
 /**
- * The 3D world lives at /world/ (docs/20 제품 용어: the product never calls itself a "game", and the URL is user-visible).
+ * The 3D world lives at /world/ (docs/21-glossary.md: the product never calls itself a "game", and the URL is user-visible).
  * /game/ was its first address; lesson links (`/game/?code=123456`), guest passes (`/game/?pass=`) and bookmarks still
  * point there, so every /game path is sent to the same place under /world/ with the query string untouched.
  * A temporary redirect (302) keeps the move reversible: browsers do not pin it the way they pin a 301.

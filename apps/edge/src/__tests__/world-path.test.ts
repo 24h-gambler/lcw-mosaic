@@ -1,4 +1,4 @@
-// /game/ → /world/ (docs/20 제품 용어). Lesson links from the director console were `/game/?code=123456` until
+// /game/ → /world/ (docs/21-glossary.md). Lesson links from the director console were `/game/?code=123456` until
 // 2026-11-16 and may sit in a chat or a bookmark, so the redirect must keep the whole query string.
 import { describe, expect, it } from 'vitest';
 import worker from '../worker.js';

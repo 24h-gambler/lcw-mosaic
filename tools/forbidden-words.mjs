@@ -1,4 +1,4 @@
-// User-visible words the product never uses (docs/20-terms.md, operator instruction 2026-11-16: "'게임'이라는 낱말을
+// User-visible words the product never uses (docs/21-glossary.md, operator instruction 2026-11-16: "'게임'이라는 낱말을
 // 쓰면 안 됩니다"). Checked by tools/__tests__/forbidden-words.test.ts inside `pnpm test`, and on the live site by
 // tools/nightly-audit.mjs.
 //
@@ -23,8 +23,8 @@ export const SCAN_FILES = ['apps/web/index.html', 'apps/client/index.html', 'app
  * stay legal. `path` catches the old /game URL, which users also see.
  */
 export const BANNED = [
-  { id: 'ko-game', ko: '게임', use: '월드 · 마을 · 놀이 · 플레이 (docs/20-terms.md)' },
-  { id: 'en-game', en: /\bgames?\b/i, use: 'world · town · play (docs/20-terms.md)' },
+  { id: 'ko-game', ko: '게임', use: '월드 · 마을 · 놀이 · 플레이 (docs/21-glossary.md)' },
+  { id: 'en-game', en: /\bgames?\b/i, use: 'world · town · play (docs/21-glossary.md)' },
   { id: 'path-game', path: /(^|[^A-Za-z0-9_-])\/game(?=[/?#'"`]|$)/, use: '/world/ (apps/edge/src/world-path.ts redirects /game/)' }
 ];
 

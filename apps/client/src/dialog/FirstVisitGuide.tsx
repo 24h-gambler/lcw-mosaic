@@ -107,7 +107,8 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
     return (
       <IntroCard
         speech={props.speech}
-        onDone={() => {
+        onDone={(status) => {
+          sessionSet(MIC_STATUS_KEY, status);
           markSeen();
           setIntro(false);
         }}
@@ -187,13 +188,94 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
   );
 }
 
+/** How the "Hello!" check ended: heard words, too quiet, no usable microphone (blocked / unsupported), or not tried. */
+export type MicCheckStatus = 'ok' | 'quiet' | 'none' | 'skipped';
+/** sessionStorage key the lesson client reads to tell the teacher console the student's mic (docs/19 4장). */
+export const MIC_STATUS_KEY = 'lcw.micStatus';
+const LESSON_CHECK_KEY = 'lcw.lessonMicChecked';
+
+function sessionGet(k: string): string | null {
+  try {
+    return sessionStorage.getItem(k);
+  } catch {
+    return null;
+  }
+}
+function sessionSet(k: string, v: string): void {
+  try {
+    sessionStorage.setItem(k, v);
+  } catch {
+    /* private mode: the check shows again next time, harmless */
+  }
+}
+
+/** The mic status of the last check in this tab (null: not checked yet). */
+export function readMicStatus(): MicCheckStatus | null {
+  const v = sessionGet(MIC_STATUS_KEY);
+  return v === 'ok' || v === 'quiet' || v === 'none' || v === 'skipped' ? v : null;
+}
+
+/**
+ * The same "Hello!" check for players who never see the errand intro (audit G15, 11-16): a lesson student gets it once
+ * per lesson when they join (before the teacher's first sentence; the status goes to the teacher console through the
+ * lesson state poll), a guest once on this device. Children with a device see it inside the first-visit intro.
+ */
+export function MicCheckGate(props: { identityKind: string; lessonCode?: string; hidden?: boolean; speech?: SpeechEngine }): React.ReactElement | null {
+  // The student session can appear while the page is open ("🎓 수업 코드 넣기" on a bare /game/): look again now and then.
+  const [, setTick] = useState(0);
+  const [closed, setClosed] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1500);
+    return () => clearInterval(id);
+  }, []);
+  const who = micCheckAudience(props.identityKind, props.lessonCode);
+  if (!who || closed || props.hidden) return null;
+  const pending = who.audience === 'lesson' ? !who.keys.some((k) => sessionGet(k) === '1') : !seen();
+  if (!pending) return null;
+  return (
+    <IntroCard
+      speech={props.speech}
+      title={who.audience === 'lesson' ? F.lessonMicTitle : F.title}
+      tips={who.audience === 'guest'}
+      onDone={(status) => {
+        sessionSet(MIC_STATUS_KEY, status);
+        // a ?code= student joins while the card is open: remember the lesson id too, so both ways in agree
+        const now = micCheckAudience(props.identityKind, props.lessonCode);
+        if (now?.audience === 'lesson') for (const k of now.keys) sessionSet(k, '1');
+        else markSeen();
+        setClosed(true);
+      }}
+    />
+  );
+}
+
+/** Student session keys the lesson client writes (lesson/api.ts STUDENT_TOKEN_KEY / STUDENT_LESSON_KEY). */
+const STUDENT_TOKEN = 'lcw.studentToken';
+const STUDENT_LESSON = 'lcw.studentLessonId';
+
+/**
+ * Who gets which check: a lesson student — a `?code=` link, or a student session in this tab (/join and "수업 코드
+ * 넣기" both land on a bare /game/ with it) — once per lesson (keyed by lesson id, and by the code before the join
+ * answers); a guest once per device; a child with a device sees it inside the first-visit intro instead (null).
+ */
+export function micCheckAudience(identityKind: string, lessonCode?: string): { audience: 'lesson' | 'guest'; keys: string[] } | null {
+  const lessonId = sessionGet(STUDENT_LESSON);
+  const student = !!sessionGet(STUDENT_TOKEN) && !!lessonId;
+  if (identityKind === 'lesson' || student) {
+    const ids = [student ? lessonId : null, lessonCode ?? null].filter((x): x is string => !!x);
+    return { audience: 'lesson', keys: ids.map((x) => `${LESSON_CHECK_KEY}:${x}`) };
+  }
+  return identityKind === 'guest' ? { audience: 'guest', keys: [SEEN_KEY] } : null;
+}
+
 /** The first screen: headset tip, volume with a guardian, and a short "Hello!" mic check (skippable). */
-function IntroCard(props: { speech?: SpeechEngine; onDone: () => void }): React.ReactElement {
+function IntroCard(props: { speech?: SpeechEngine; title?: string; tips?: boolean; onDone: (status: MicCheckStatus) => void }): React.ReactElement {
   const engine = useMemo(() => props.speech ?? createDialogSpeechEngine(), [props.speech]);
   const ok = useMemo(() => engine.availability().ok, [engine]);
   const [mic, setMic] = useState<MicView>({ recording: false, interim: '', hangover: false, level: 0 });
   const [note, setNote] = useState<string | null>(ok ? null : F.micNone);
   const [heard, setHeard] = useState<string | null>(null);
+  const status = useRef<MicCheckStatus>(ok ? 'skipped' : 'none');
   const ctrl = useRef<MicController | null>(null);
   const pending = useRef(false);
 
@@ -209,9 +291,16 @@ function IntroCard(props: { speech?: SpeechEngine; onDone: () => void }): React.
         if (text) {
           setHeard(text);
           setNote(F.micOk.replace('{heard}', text));
-        } else setNote(F.micQuiet);
+          status.current = 'ok';
+        } else {
+          setNote(F.micQuiet);
+          if (status.current !== 'ok') status.current = 'quiet';
+        }
       },
-      onIssue: (issue) => setNote(issue === 'no_speech' ? F.micQuiet : F.micNone)
+      onIssue: (issue) => {
+        setNote(issue === 'no_speech' ? F.micQuiet : F.micNone);
+        if (status.current !== 'ok') status.current = issue === 'no_speech' ? 'quiet' : 'none';
+      }
     });
     ctrl.current = c;
     return () => {
@@ -251,17 +340,21 @@ function IntroCard(props: { speech?: SpeechEngine; onDone: () => void }): React.
   });
 
   return (
-    <div className="lcw-firstvisit" role="dialog" aria-modal="true" aria-label={F.title} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, background: `${C['ink-900']}40`, pointerEvents: 'auto', fontFamily: T.fonts.ui }}>
+    <div className="lcw-firstvisit" role="dialog" aria-modal="true" aria-label={F.title} style={{ position: 'absolute', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, background: `${C['ink-900']}40`, pointerEvents: 'auto', fontFamily: T.fonts.ui }}>
       <div style={{ width: 'min(460px, 100%)', background: C['paper-50'], color: C['ink-900'], border: `${S.borderWidthPx}px solid ${C['ink-900']}`, borderRadius: S.radiusCardPx, boxShadow: S.shadowDefault, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: T.scale.h3.sizePx, lineHeight: 1.3 }}>{F.title}</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <span aria-hidden>🎧</span>
-          <span>{F.headset}</span>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', color: C['ink-700'], fontSize: T.scale.small.sizePx }}>
-          <span aria-hidden>🔈</span>
-          <span>{F.volume}</span>
-        </div>
+        <h2 style={{ margin: 0, fontSize: T.scale.h3.sizePx, lineHeight: 1.3 }}>{props.title ?? F.title}</h2>
+        {props.tips === false ? null : (
+          <>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span aria-hidden>🎧</span>
+              <span>{F.headset}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', color: C['ink-700'], fontSize: T.scale.small.sizePx }}>
+              <span aria-hidden>🔈</span>
+              <span>{F.volume}</span>
+            </div>
+          </>
+        )}
         <div style={{ borderTop: `1px dashed ${C['ink-700']}`, paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <strong>{F.micTitle}</strong>
           <button type="button" className="lcw-firstvisit-mic" style={btn(false)} disabled={!ok} data-on={mic.recording} onClick={tapMic}>
@@ -272,10 +365,10 @@ function IntroCard(props: { speech?: SpeechEngine; onDone: () => void }): React.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          <button type="button" style={btn(false)} onClick={props.onDone}>
+          <button type="button" style={btn(false)} onClick={() => props.onDone(status.current)}>
             {F.skip}
           </button>
-          <button type="button" className="lcw-firstvisit-go" style={btn(true)} onClick={props.onDone}>
+          <button type="button" className="lcw-firstvisit-go" style={btn(true)} onClick={() => props.onDone(status.current)}>
             {F.next}
           </button>
         </div>

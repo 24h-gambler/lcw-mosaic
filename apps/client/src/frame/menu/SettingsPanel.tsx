@@ -432,7 +432,7 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
           onChange={(v) => updateFrameSettings({ viewChunks: v === 'tier' ? null : Number(v) })}
         />
       </Row>
-      <Row title={F.shadowsTitle}>
+      <Row title={F.shadowsTitle} hint={F.shadowsHint}>
         <Seg
           value={s.shadows === null ? 'tier' : s.shadows ? 'on' : 'off'}
           label={F.shadowsTitle}

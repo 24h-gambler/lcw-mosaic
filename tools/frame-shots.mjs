@@ -3,7 +3,9 @@
 // connection band "혼자 모드로 계속 중" without covering the chips or buttons; first-person crosshair.
 // Fails (exit 1) on a broken rule. Headless only, audio muted, no window.
 //
-//   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/frame-shots.mjs http://127.0.0.1:8981/game/ shots/frame
+//   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/frame-shots.mjs http://127.0.0.1:8981/world/ shots/frame
+// FRAME_SETTINGS='{"textScale":1.5,"keys":{"talk":"KeyF"}}' runs the same rules with the player's settings on the device
+// (G14: HUD text follows the text size, help lines name the remapped keys).
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -25,6 +27,7 @@ const VIEWPORTS = [
   { name: 'l844', width: 844, height: 390, touch: true }
 ];
 
+const SETTINGS = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;
 const fails = [];
 const report = [];
 const check = (vp, ok, what) => {
@@ -70,6 +73,23 @@ for (const vp of VIEWPORTS) {
     if (m.type() === 'error') errs.push(m.text().slice(0, 200));
   });
   page.on('pageerror', (e) => errs.push(`pageerror: ${e.message.slice(0, 200)}`));
+  page.on('response', (r) => {
+    if (r.status() >= 400) errs.push(`${r.status()} ${new URL(r.url()).pathname}`);
+  });
+  // no edge server behind the dev page: the neural-voice switch answers "off" (the device voice reads)
+  await ctx.route('**/v1/tts/status', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"enabled":false}' }));
+  if (SETTINGS) {
+    await ctx.addInitScript((s) => {
+      try {
+        if (!sessionStorage.getItem('frameShotsSet')) {
+          localStorage.setItem('lcw.settings', JSON.stringify({ ...s, updatedAt: Date.now() }));
+          sessionStorage.setItem('frameShotsSet', '1');
+        }
+      } catch {
+        /* storage blocked */
+      }
+    }, SETTINGS);
+  }
   await page.goto(base, { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
   await page.waitForTimeout(1200);
@@ -81,6 +101,17 @@ for (const vp of VIEWPORTS) {
   check(vp.name, /\d\d:\d\d/.test(a.clock?.text ?? ''), `weather · clock missing (${a.clock?.text})`);
   check(vp.name, !!a.coins, 'coin count not shown for a guest');
   check(vp.name, a.empties === 5, `expected 5 empty slots, got ${a.empties}`);
+  if (SETTINGS?.textScale) {
+    const fs = await page.evaluate(() => [parseFloat(getComputedStyle(document.querySelector('.lw-goal .g') ?? document.body).fontSize), parseFloat(getComputedStyle(document.querySelector('.lw-help')).fontSize)]);
+    // the HUD follows the text size up to 125% (115% on phones and short landscape screens); menus and dialogs take all of it
+    const cap = vp.width <= 600 || vp.height <= 500 ? 1.15 : 1.25;
+    check(vp.name, Math.abs(fs[1] - 12 * Math.min(SETTINGS.textScale, cap)) < 0.6, `HUD help text should follow the text size ${SETTINGS.textScale} (${fs[1]}px)`);
+  }
+  if (SETTINGS?.keys?.talk && !vp.touch) {
+    const want = SETTINGS.keys.talk.replace(/^Key/, '');
+    const t = await page.evaluate(() => ({ help: document.querySelector('.lw-help')?.textContent ?? '', kbd: document.querySelector('.lw-prompt kbd')?.textContent ?? '' }));
+    check(vp.name, t.help.includes(`${want} 말 걸기`) && t.kbd === want, `remapped talk key not shown (${t.help} / ${t.kbd})`);
+  }
   check(vp.name, !!a.cap && /가방/.test(a.cap.text), `empty bar is not explained (${a.cap?.text})`);
   check(vp.name, !overlap(a.cap, a.help), 'caption covers the controls help');
   check(vp.name, !overlap(a.cap, a.bar), 'caption covers the hotbar');

@@ -236,6 +236,7 @@ export const FRAME_STRINGS = {
   viewChunksTitle: '시야 거리',
   viewChunksHint: '멀리까지 보이면 더 무거워져요.',
   shadowsTitle: '그림자',
+  shadowsHint: '화질 "높음"으로 시작했을 때만 그려져요.',
   renderScaleTitle: '해상도 배율',
   renderScaleHint: '낮추면 조금 흐려지지만 더 부드러워져요.',
   tierDefault: '등급 기본',

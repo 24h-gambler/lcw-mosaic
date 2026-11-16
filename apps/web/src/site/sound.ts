@@ -99,7 +99,9 @@ async function fetchLine(url: string): Promise<ArrayBuffer | null> {
 async function playNeural(text: string, who: 'npc' | 'model', gen: number, onEnd?: () => void): Promise<boolean> {
   if (typeof fetch === 'undefined') return false;
   const voice = who === 'npc' ? voiceForCtx('cafe') : npcCast().modelVoice;
-  const url = `/v1/tts?v=${encodeURIComponent(ttsVoiceId(voice))}&t=${encodeURIComponent(normalizeTtsText(text))}`;
+  // headless checks (navigator.webdriver) hear cached lines only, never spend the day's neurons (edge tts.ts c=1)
+  const auto = typeof navigator !== 'undefined' && navigator.webdriver === true;
+  const url = `/v1/tts?v=${encodeURIComponent(ttsVoiceId(voice))}&t=${encodeURIComponent(normalizeTtsText(text))}${auto ? '&c=1' : ''}`;
   const c = ensureCtx();
   const bytes = await fetchLine(url);
   if (gen !== voiceGen) return true;

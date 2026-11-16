@@ -83,7 +83,7 @@ describe('POST /v1/converse/stt', () => {
     expect((await stt(audio(1), {}, 'x'.repeat(48))).status).toBe(401);
     expect((await stt(audio(1), { 'content-type': 'application/json' })).status).toBe(415);
     expect((await stt(new Uint8Array(0))).status).toBe(400);
-    expect((await stt(audio(2), { 'x-lcw-audio-ms': '20000' })).status).toBe(413);
+    expect((await stt(audio(2), { 'x-lcw-audio-ms': '62000' })).status).toBe(413);
     expect((await stt(new Uint8Array(SERVER_STT.maxBytes + 1))).status).toBe(413);
     expect(seen).toHaveLength(0);
   });

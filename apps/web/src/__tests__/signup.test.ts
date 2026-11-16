@@ -2,9 +2,9 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SignupQueue } from '../DirectorSignups.js';
-import { StudentSignupPage, signupErrorText } from '../StudentSignup.js';
+import { StudentSignupPage, reloadOwnChildren, signupErrorText } from '../StudentSignup.js';
 import { SIGNUP_STRINGS_KO } from '../signupStrings.js';
-import { createStudentAccountApi, isOAuthReturn, oauthStartPath } from '../studentAccountApi.js';
+import { StudentApiError, createStudentAccountApi, isOAuthReturn, oauthStartPath } from '../studentAccountApi.js';
 
 const S = SIGNUP_STRINGS_KO.student;
 const Q = SIGNUP_STRINGS_KO.queue;
@@ -66,6 +66,18 @@ describe('student sign-up client (/signup)', () => {
     // The message names the button the screen really shows.
     expect(text).toContain(S.connectAs('Lulu'));
     expect(signupErrorText(new Error('offline'))).toBe(S.errNetwork);
+  });
+
+  it('after nickname_own_child the family reloads (new buttons); a lost session signs out; other errors keep the list', async () => {
+    const kids = [{ player_id: 'kid-1', nickname: 'Lulu' }] as never[];
+    const run = async (familyMe: () => Promise<unknown>) => {
+      const got: { children?: unknown; out: number } = { out: 0 };
+      await reloadOwnChildren({ familyMe } as never, G, (k) => (got.children = k), () => got.out++);
+      return got;
+    };
+    expect(await run(async () => ({ service_consented: true, children: kids }))).toEqual({ children: kids, out: 0 });
+    expect(await run(async () => Promise.reject(new StudentApiError(401, 'unauthorized')))).toEqual({ out: 1 });
+    expect(await run(async () => Promise.reject(new Error('offline')))).toEqual({ out: 0 });
   });
 
   it('first screen: who signs in, the lesson code path stays one tap away', () => {

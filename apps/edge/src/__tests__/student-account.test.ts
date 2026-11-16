@@ -261,6 +261,29 @@ describe('student sign-up on the guardian account (student-account.ts)', () => {
     expect(failures()).toBe(before + 1);
   });
 
+  it('two own children named alike: no pick; an own child stays own after every guardian mark is gone', async () => {
+    const p = platform();
+    const g = await adultSignsIn(p, 'fam-momo');
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'momo' }, bearer(g))).status).toBe(201);
+    expect((await call(p, 'POST', '/v1/family/children', { nickname: 'Momo', birth_year: 2015 }, bearer(g))).status).toBe(201);
+    expect((await call(p, 'POST', '/v1/family/children', { nickname: 'Momo', birth_year: 2017 }, bearer(g))).status).toBe(201);
+    const row = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'momo');
+    expect(row).toMatchObject({ match: null, match_ambiguous: true, name_taken: false });
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'MOMO' }, bearer(g))).body).toEqual({ error: 'nickname_own_child', player_id: null, nickname: 'Momo' });
+
+    // A family whose guardian marks all went (consent withdrawn, sessions ended, sign-in unlinked): its sign-up still
+    // matches its own child, not 'nobody' or 'someone else'.
+    const g2 = await adultSignsIn(p, 'fam-pip');
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'pip' }, bearer(g2))).status).toBe(201);
+    expect((await call(p, 'POST', '/v1/family/children', { nickname: 'Pip', birth_year: 2016 }, bearer(g2))).status).toBe(201);
+    const pip = (await call(p, 'GET', '/v1/family/me', undefined, bearer(g2))).body.children.find((k: any) => k.nickname === 'Pip').player_id;
+    p.sql.run("delete from family_flags where family_id = 'fam-pip'", []);
+    p.sql.run("delete from guardian_sessions where family_id = 'fam-pip'", []);
+    p.sql.run("update guardians set oauth_sub = null where family_id = 'fam-pip'", []);
+    const prow = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'pip');
+    expect(prow).toMatchObject({ match: { player_id: pip, nickname: 'Pip' }, match_own_family: true });
+  });
+
   it('a pending nickname is not kept: cleared on reject or after 3 hours; bad nicknames refused', async () => {
     const p = platform();
     const g = await adultSignsIn(p, 'fam-n');

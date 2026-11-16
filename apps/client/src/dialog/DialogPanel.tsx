@@ -760,7 +760,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               </button>
               <div className="lcw-mic-label">
                 {mic.recording ? S.micListening : S.micStart}
-                {mic.recording ? <small>{hold ? FRAME_STRINGS.micHoldRelease : mic.hangover ? S.micHangover : S.micStop}</small> : <small className="kbd">Space</small>}
+                {mic.recording ? <small>{hold ? FRAME_STRINGS.micHoldRelease : mic.secondsLeft !== undefined ? S.timeLeft.replace('{n}', String(mic.secondsLeft)) : mic.hangover ? S.micHangover : S.micStop}</small> : <small className="kbd">Space</small>}
               </div>
               {phase !== 'echo' ? (
                 <>

@@ -52,6 +52,8 @@ export function noteMicTurn(heard: boolean, now = Date.now()): void {
 export function noteMicIssue(issue: MicIssue, raw?: string, now = Date.now()): void {
   set(MIC_ISSUE_KEY, `${issue}:${raw ?? issue}|${now}`);
   if (issue === 'no_speech') return noteMicTurn(false, now);
+  // a dropped connection right after a turn that heard words is a blip, not "no mic" (review of #122)
+  if (issue === 'network' && now - lastHeardAt < MIC_QUIET_GRACE_MS) return;
   if (NO_MIC.has(issue)) set(MIC_STATUS_KEY, 'none');
 }
 

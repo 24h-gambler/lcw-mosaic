@@ -7,6 +7,7 @@
  * at chunk edges are correct without touching other chunks.
  */
 import { BLOCK_LOOKS, TILE_LAYER, blockLook, type Box16 } from './blocks.js';
+import { LIGHT_PAD, MAX_LIGHT, computeLight } from './voxel-light.js';
 
 export const CS = 16;
 export const PAD = CS + 2;
@@ -22,7 +23,7 @@ export interface GeoBuffers {
   normal: Float32Array;
   /** (u, v) in block units for tiling, texture layer, glow 0..1 */
   tile: Float32Array;
-  /** AO brightness per vertex (rgb, equal) */
+  /** per vertex: r = AO brightness, g = sky light, b = block light (0..1 each; voxel-light.ts) */
   color: Float32Array;
   index: Uint32Array;
   quads: number;
@@ -68,6 +69,18 @@ export const GROUND_FLOOR_Y = -2;
 /** AO level 0..3 to brightness. Level 3 = fully open. */
 export const AO_CURVE = [0.5, 0.67, 0.83, 1.0] as const;
 
+const FULL4: readonly number[] = [1, 1, 1, 1];
+const ZERO4: readonly number[] = [0, 0, 0, 0];
+
+/**
+ * A grid with light (chunks.ts extractLit): side `n` = 16 + 2 * LIGHT_PAD, and which columns are open to the sky above
+ * the grid's top. Without it the mesher reads the classic 18^3 grid and lights everything as open sky.
+ */
+export interface LitGrid {
+  n: number;
+  skyAbove: Uint8Array;
+}
+
 class Builder {
   pos: number[] = [];
   nor: number[] = [];
@@ -85,15 +98,16 @@ class Builder {
     glow: number,
     ao: readonly [number, number, number, number],
     flipWinding: boolean,
-    flipDiagonal: boolean
+    flipDiagonal: boolean,
+    sky: readonly number[] = FULL4,
+    blk: readonly number[] = ZERO4
   ): void {
     const base = this.pos.length / 3;
     for (let i = 0; i < 4; i++) {
       this.pos.push(c[i * 3]!, c[i * 3 + 1]!, c[i * 3 + 2]!);
       this.nor.push(n[0], n[1], n[2]);
       this.tile.push(uv[i * 2]!, uv[i * 2 + 1]!, layer, glow);
-      const b = ao[i]!;
-      this.col.push(b, b, b);
+      this.col.push(ao[i]!, sky[i]!, blk[i]!);
     }
     // Two triangles; diagonal chosen so AO interpolates without the anisotropy seam.
     let tri = flipDiagonal ? [1, 2, 3, 1, 3, 0] : [0, 1, 2, 0, 2, 3];
@@ -173,11 +187,21 @@ function hash3(x: number, y: number, z: number): number {
 /**
  * Mesh one chunk. `vox` is the padded grid; `origin` is the chunk's world min corner, used only to vary plants.
  */
-export function meshChunk(vox: Uint16Array, origin: readonly [number, number, number] = [0, 0, 0]): ChunkMesh {
+export function meshChunk(vox: Uint16Array, origin: readonly [number, number, number] = [0, 0, 0], lit?: LitGrid): ChunkMesh {
   const opaque = new Builder();
   const trans = new Builder();
-  const at = (x: number, y: number, z: number): number => vox[padIndex(x, y, z)]!;
+  const P = lit ? LIGHT_PAD : 1;
+  const N = lit ? lit.n : PAD;
+  const cell = (x: number, y: number, z: number): number => ((y + P) * N + (z + P)) * N + (x + P);
+  const at = (x: number, y: number, z: number): number => vox[cell(x, y, z)]!;
   const solid = (x: number, y: number, z: number): boolean => shapeOf[at(x, y, z)] === SHAPE_CUBE;
+  const light = lit ? computeLight(vox, N, lit.skyAbove) : null;
+  /** sky and block light (0..15) of a cell; open sky and no lamps without a lit grid */
+  const skyAt = (x: number, y: number, z: number): number => (light ? light.sky[cell(x, y, z)]! : MAX_LIGHT);
+  const blkAt = (x: number, y: number, z: number): number => (light ? light.block[cell(x, y, z)]! : 0);
+  const mask2 = new Int32Array(CS * CS);
+  const skyV = [1, 1, 1, 1];
+  const blkV = [0, 0, 0, 0];
 
   const mask = new Int32Array(CS * CS);
   const p = [0, 0, 0];
@@ -214,6 +238,48 @@ export function meshChunk(vox: Uint16Array, origin: readonly [number, number, nu
               if (sh === SHAPE_WATER && axis === 1 && sign > 0 && nb !== id && nbShape === SHAPE_CUBE) visible = true;
               if (visible) {
                 let aoPack = 0xff; // all 3s
+                let lightPack = 0;
+                {
+                  // smooth light: per corner, the mean of the open cells among the face's front cell and its 3 neighbours
+                  // at that corner (the corner cell only counts when the two sides are not both solid, like the AO)
+                  for (let k = 0; k < 4; k++) {
+                    const du = k === 1 || k === 2 ? 1 : -1;
+                    const dv = k >= 2 ? 1 : -1;
+                    const ax = qx + (u === 0 ? du : 0);
+                    const ay = qy + (u === 1 ? du : 0);
+                    const az = qz + (u === 2 ? du : 0);
+                    const bx = qx + (v === 0 ? dv : 0);
+                    const by = qy + (v === 1 ? dv : 0);
+                    const bz = qz + (v === 2 ? dv : 0);
+                    const sa = solid(ax, ay, az);
+                    const sb = solid(bx, by, bz);
+                    let ls = skyAt(qx, qy, qz);
+                    let lb = blkAt(qx, qy, qz);
+                    let cnt = 1;
+                    if (!sa) {
+                      ls += skyAt(ax, ay, az);
+                      lb += blkAt(ax, ay, az);
+                      cnt++;
+                    }
+                    if (!sb) {
+                      ls += skyAt(bx, by, bz);
+                      lb += blkAt(bx, by, bz);
+                      cnt++;
+                    }
+                    if (!(sa && sb)) {
+                      const cx2 = ax + (v === 0 ? dv : 0);
+                      const cy2 = ay + (v === 1 ? dv : 0);
+                      const cz2 = az + (v === 2 ? dv : 0);
+                      if (!solid(cx2, cy2, cz2)) {
+                        ls += skyAt(cx2, cy2, cz2);
+                        lb += blkAt(cx2, cy2, cz2);
+                        cnt++;
+                      }
+                    }
+                    lightPack |= (Math.round(ls / cnt) << (k * 4)) | (Math.round(lb / cnt) << (16 + k * 4));
+                  }
+                }
+                mask2[n] = lightPack;
                 if (pass === 0) {
                   aoPack = 0;
                   for (let k = 0; k < 4; k++) {
@@ -252,10 +318,11 @@ export function meshChunk(vox: Uint16Array, origin: readonly [number, number, nu
               continue;
             }
             let w = 1;
-            while (i + w < CS && mask[n + w] === key) w++;
+            const lp = mask2[n]!;
+            while (i + w < CS && mask[n + w] === key && mask2[n + w] === lp) w++;
             let h = 1;
             grow: for (; j + h < CS; h++) {
-              for (let k = 0; k < w; k++) if (mask[n + k + h * CS] !== key) break grow;
+              for (let k = 0; k < w; k++) if (mask[n + k + h * CS] !== key || mask2[n + k + h * CS] !== lp) break grow;
             }
             const raw = key - 1;
             const layer = raw & 0x3ff;
@@ -276,9 +343,11 @@ export function meshChunk(vox: Uint16Array, origin: readonly [number, number, nu
               uvs[k * 2] = cu[k]! - i;
               uvs[k * 2 + 1] = cv[k]! - j;
               ao[k] = AO_CURVE[(aoPack >> (k * 2)) & 3]!;
+              skyV[k] = ((lp >>> (k * 4)) & 15) / MAX_LIGHT;
+              blkV[k] = ((lp >>> (16 + k * 4)) & 15) / MAX_LIGHT;
             }
             const flipDiag = ao[0] + ao[2] < ao[1] + ao[3];
-            out.quad(corners, f.normal, uvs, layer, glow, ao, f.flip, flipDiag);
+            out.quad(corners, f.normal, uvs, layer, glow, ao, f.flip, flipDiag, skyV, blkV);
             for (let hh = 0; hh < h; hh++) for (let k = 0; k < w; k++) mask[n + k + hh * CS] = 0;
             i += w;
             n += w;
@@ -295,6 +364,12 @@ export function meshChunk(vox: Uint16Array, origin: readonly [number, number, nu
       for (let x = 0; x < CS; x++) {
         const id = at(x, y, z);
         const sh = shapeOf[id]!;
+        if (sh === SHAPE_PLANT || sh === SHAPE_BOXES) {
+          const ls = skyAt(x, y, z) / MAX_LIGHT;
+          const lb = blkAt(x, y, z) / MAX_LIGHT;
+          skyV[0] = skyV[1] = skyV[2] = skyV[3] = ls;
+          blkV[0] = blkV[1] = blkV[2] = blkV[3] = lb;
+        }
         if (sh === SHAPE_PLANT) {
           const r = hash3(x + origin[0], y + origin[1], z + origin[2]);
           const ox = x + 0.5 + (r - 0.5) * 0.3;
@@ -309,8 +384,8 @@ export function meshChunk(vox: Uint16Array, origin: readonly [number, number, nu
           for (const [x0, z0, x1, z1] of diag) {
             const c = [x0, y, z0, x1, y, z1, x1, y + hgt, z1, x0, y + hgt, z0];
             const uv = [0, 0, 1, 0, 1, hgt, 0, hgt];
-            opaque.quad(c, [0, 1, 0], uv, layer, 0, one, false, false);
-            opaque.quad(c, [0, 1, 0], uv, layer, 0, one, true, false);
+            opaque.quad(c, [0, 1, 0], uv, layer, 0, one, false, false, skyV, blkV);
+            opaque.quad(c, [0, 1, 0], uv, layer, 0, one, true, false, skyV, blkV);
           }
         } else if (sh === SHAPE_BOXES) {
           const boxes: Box16[] = [...(boxesOf[id] ?? [])];
@@ -354,7 +429,7 @@ export function meshChunk(vox: Uint16Array, origin: readonly [number, number, nu
                 uvs[k * 2] = cu[k]!;
                 uvs[k * 2 + 1] = cv[k]!;
               }
-              opaque.quad(corners, f.normal, uvs, tileFor(id, f.slot), glow, one, f.flip, false);
+              opaque.quad(corners, f.normal, uvs, tileFor(id, f.slot), glow, one, f.flip, false, skyV, blkV);
             }
           }
         }

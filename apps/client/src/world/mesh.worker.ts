@@ -5,6 +5,9 @@ interface Req {
   id: number;
   key: string;
   vox: Uint16Array;
+  /** lit grid (chunks.ts extractLit): side and the columns open to the sky above it */
+  n?: number;
+  skyAbove?: Uint8Array;
   origin: [number, number, number];
 }
 
@@ -13,7 +16,7 @@ function transfers(g: GeoBuffers): ArrayBuffer[] {
 }
 
 self.onmessage = (ev: MessageEvent<Req>) => {
-  const { id, key, vox, origin } = ev.data;
-  const mesh = meshChunk(vox, origin);
+  const { id, key, vox, origin, n, skyAbove } = ev.data;
+  const mesh = meshChunk(vox, origin, n && skyAbove ? { n, skyAbove } : undefined);
   (self as unknown as Worker).postMessage({ id, key, mesh }, [...transfers(mesh.opaque), ...transfers(mesh.translucent)]);
 };

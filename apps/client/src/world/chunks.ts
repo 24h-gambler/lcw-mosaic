@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, VoxelWorld } from '@lcw/sim-core';
 import { PAD, meshChunk, type ChunkMesh, type GeoBuffers } from './mesher.js';
+import { LIGHT_PAD, blocksLight } from './voxel-light.js';
 
 interface ChunkEntry {
   key: string;
@@ -68,6 +69,84 @@ export function extractPadded(world: VoxelWorld, cx: number, cy: number, cz: num
     }
   }
   return out;
+}
+
+/** Side of the lit grid: the chunk plus LIGHT_PAD blocks on every side. */
+export const LIT_N = CHUNK_SIZE + 2 * LIGHT_PAD;
+
+/**
+ * The block grid the light needs (voxel-light.ts): the chunk with LIGHT_PAD blocks of border, index
+ * ((y * n) + z) * n + x with local coordinate = index - LIGHT_PAD, plus for each column whether anything above the grid's
+ * top blocks the sky (read from the chunks stacked above, so a roof two chunks up still shades the room).
+ */
+export function extractLit(world: VoxelWorld, cx: number, cy: number, cz: number): { vox: Uint16Array; skyAbove: Uint8Array } {
+  const S = CHUNK_SIZE;
+  const n = LIT_N;
+  const P = LIGHT_PAD;
+  const vox = new Uint16Array(n * n * n);
+  const skyAbove = new Uint8Array(n * n).fill(1);
+  const x0 = cx * S - P;
+  const y0 = cy * S - P;
+  const z0 = cz * S - P;
+  type Src = ReturnType<VoxelWorld['chunks']['get']>;
+  // the grid spans at most 2 x 2 x 2 chunks per axis pair around this one (P < S): look each chunk up once
+  const cache = new Map<string, Src>();
+  const chunkAt = (a: number, b: number, c: number): Src => {
+    const k = `${a},${b},${c}`;
+    let ch = cache.get(k);
+    if (ch === undefined && !cache.has(k)) {
+      ch = world.chunks.get(k);
+      cache.set(k, ch);
+    }
+    return ch;
+  };
+  let i = 0;
+  for (let py = 0; py < n; py++) {
+    const wy = y0 + py;
+    const ccy = Math.floor(wy / S);
+    const ly = wy - ccy * S;
+    for (let pz = 0; pz < n; pz++) {
+      const wz = z0 + pz;
+      const ccz = Math.floor(wz / S);
+      const lz = wz - ccz * S;
+      for (let px = 0; px < n; px++) {
+        const wx = x0 + px;
+        const ccx = Math.floor(wx / S);
+        const ch = chunkAt(ccx, ccy, ccz);
+        vox[i++] = ch ? ch.getVoxel(wx - ccx * S, ly, lz) : 0;
+      }
+    }
+  }
+  // columns shaded from above the grid: scan the chunks stacked above (towns are a few chunks tall)
+  const topY = y0 + n; // first world y above the grid
+  let maxCy = cy;
+  for (const k of world.chunks.keys()) {
+    const c = Number(k.split(',')[1]);
+    if (c > maxCy) maxCy = c;
+  }
+  for (let pz = 0; pz < n; pz++) {
+    const wz = z0 + pz;
+    const ccz = Math.floor(wz / S);
+    const lz = wz - ccz * S;
+    for (let px = 0; px < n; px++) {
+      const wx = x0 + px;
+      const ccx = Math.floor(wx / S);
+      const lx = wx - ccx * S;
+      scan: for (let wy = topY; wy < (maxCy + 1) * S; wy++) {
+        const ccy = Math.floor(wy / S);
+        const ch = chunkAt(ccx, ccy, ccz);
+        if (!ch) {
+          wy = (ccy + 1) * S - 1;
+          continue;
+        }
+        if (blocksLight(ch.getVoxel(lx, wy - ccy * S, lz))) {
+          skyAbove[pz * n + px] = 0;
+          break scan;
+        }
+      }
+    }
+  }
+  return { vox, skyAbove };
 }
 
 /** Concatenate chunk buffers (each offset by its chunk origin relative to the region origin) into one geometry. */
@@ -195,12 +274,12 @@ export class ChunkRenderer {
       for (const dy of [-1, 0, 1]) {
         for (const dz of [-1, 0, 1]) {
           if (dx === 0 && dy === 0 && dz === 0) continue;
-          if (dx === -1 && lx !== 0) continue;
-          if (dx === 1 && lx !== S - 1) continue;
-          if (dy === -1 && ly !== 0) continue;
-          if (dy === 1 && ly !== S - 1) continue;
-          if (dz === -1 && lz !== 0) continue;
-          if (dz === 1 && lz !== S - 1) continue;
+          // the light of a chunk sees LIGHT_PAD blocks into its neighbours, and a block shades every chunk below it
+          if (dx === -1 && lx >= LIGHT_PAD) continue;
+          if (dx === 1 && lx < S - LIGHT_PAD) continue;
+          if (dy === 1 && ly < S - LIGHT_PAD) continue;
+          if (dz === -1 && lz >= LIGHT_PAD) continue;
+          if (dz === 1 && lz < S - LIGHT_PAD) continue;
           if (this.world.chunks.has(`${cx + dx},${cy + dy},${cz + dz}`)) touch(cx + dx, cy + dy, cz + dz);
         }
       }
@@ -291,8 +370,8 @@ export class ChunkRenderer {
       }
     } else {
       for (const { e } of want.slice(0, budget)) {
-        const vox = extractPadded(this.world, e.cx, e.cy, e.cz);
-        this.install(e, meshChunk(vox, [e.cx * CHUNK_SIZE, e.cy * CHUNK_SIZE, e.cz * CHUNK_SIZE]), e.version);
+        const { vox, skyAbove } = extractLit(this.world, e.cx, e.cy, e.cz);
+        this.install(e, meshChunk(vox, [e.cx * CHUNK_SIZE, e.cy * CHUNK_SIZE, e.cz * CHUNK_SIZE], { n: LIT_N, skyAbove }), e.version);
       }
     }
     // Merge at most two regions per call so a burst of results never stalls one frame for long.
@@ -340,12 +419,12 @@ export class ChunkRenderer {
   }
 
   private dispatch(e: ChunkEntry): void {
-    const vox = extractPadded(this.world, e.cx, e.cy, e.cz);
+    const { vox, skyAbove } = extractLit(this.world, e.cx, e.cy, e.cz);
     const id = ++this.jobId;
     this.pending.set(id, { key: e.key, version: e.version });
     e.inFlight = true;
     const w = this.workers[this.nextWorker++ % this.workers.length]!;
-    w.postMessage({ id, key: e.key, vox, origin: [e.cx * CHUNK_SIZE, e.cy * CHUNK_SIZE, e.cz * CHUNK_SIZE] }, [vox.buffer]);
+    w.postMessage({ id, key: e.key, vox, skyAbove, n: LIT_N, origin: [e.cx * CHUNK_SIZE, e.cy * CHUNK_SIZE, e.cz * CHUNK_SIZE] }, [vox.buffer, skyAbove.buffer]);
   }
 
   /** In-range chunks still waiting for a mesh, plus in-range regions waiting to be merged. */

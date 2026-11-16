@@ -313,9 +313,15 @@ function DialogHost(props: {
       world.setViewInset?.(0);
     };
   }, [world]);
+  // world api renderPreview (world lane): 3D thumbnails of the item and the NPC for the dialog preview (audit G02)
+  const renderPreview = useMemo(() => {
+    const r = (world as { renderPreview?: (req: unknown, size: number) => Promise<string | null> }).renderPreview;
+    return r ? (req: unknown, size: number) => r.call(world, req, size) : undefined;
+  }, [world]);
   return (
     <Panel
       npc={npc}
+      {...(renderPreview ? { renderPreview } : {})}
       level={cfg.level ?? 'L1'}
       mode={cfg.mode ?? 'guided'}
       offers={cfg.offers ?? []}

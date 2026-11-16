@@ -122,6 +122,7 @@ export const FRAME_STRINGS = {
   repairLater: '아직 멀쩡해요',
   repairPick: '이걸 고칠래요',
   repairDone: '고쳤어요!',
+  repairInLesson: '수업 중이에요. 수리소는 수업이 끝나면 다시 열려요.',
   repairMastered: '이 물건은 이미 완전히 익혔어요. 다른 물건을 골라 봐요.',
   repairAgain: '다음에 다시 해 봐요',
   hintStep: (n: number): string => `힌트 ${n}단계`,

@@ -585,7 +585,7 @@ function LessonPlay({
           <div style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap' }}>
             {lesson?.teacher ? (
               <Chip testId="teacher">
-                {lesson.teacher.present ? `👩‍🏫 ${P.childWithTeacher(lesson.teacher.name ?? '선생님')}` : P.childAlone}
+                {lesson.teacher.present ? `👩‍🏫 ${P.childWithTeacher(lesson.teacher.name)}` : P.childAlone}
               </Chip>
             ) : null}
             {state.coins !== null ? <Chip testId="coins">{`${S.coins} ${state.coins.toLocaleString('ko-KR')}`}</Chip> : null}

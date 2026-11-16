@@ -594,7 +594,8 @@ export function installKeyRemap(win: Window = window): () => void {
     if (synthetic.has(e) || capturing) return;
     if (routes.to.size === 0 && routes.blocked.size === 0) return;
     if (typingTarget(e.target)) return;
-    const r = routeKey(e.code, routes, keyScopeOf(win.document));
+    const held = e.type === 'keyup' ? routes.to.get(e.code) : undefined;
+    const r: KeyRoute = held ? { kind: 'to', code: held.code } : routeKey(e.code, routes, keyScopeOf(win.document));
     if (r.kind === 'pass') return;
     if (r.kind === 'block' && pressableTarget(e.target) && BUTTON_KEYS.has(e.code)) return;
     e.preventDefault();

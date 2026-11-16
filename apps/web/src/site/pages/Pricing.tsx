@@ -1,6 +1,6 @@
 /** W05 pricing (docs/14 §6, 01 §4). Refund and cancellation are visible on the same screen as the prices. */
 import React, { useEffect, useState } from 'react';
-import { FAQ, PRICING } from '../copy.js';
+import { FAQ, PRICING, REFUND_RULE } from '../copy.js';
 import { SLink } from '../SiteShell.js';
 import { track } from '../track.js';
 import { FaqList } from '../widgets.js';
@@ -60,7 +60,9 @@ export function PricingPage(): React.ReactElement {
         <div className="s-wrap s-split" style={{ alignItems: 'start' }}>
           <div className="s-stack">
             <h2 className="s-h2">{PRICING.refundTitle}</h2>
-            <p className="s-lead">이용을 시작하기 전이면 7일 이내 전액 환불. 해지는 보호자 화면에서 바로 할 수 있어요.</p>
+            <p className="s-lead">
+              {REFUND_RULE.line} {REFUND_RULE.tryFirst} 해지는 보호자 화면에서 바로 할 수 있어요.
+            </p>
           </div>
           <div className="s-tablewrap">
             <table className="s-table" style={{ background: 'inherit' }}>

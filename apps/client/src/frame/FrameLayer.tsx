@@ -10,7 +10,7 @@ import { watchConnection } from './connection.js';
 import { FRAME_STRINGS as F } from './strings.js';
 import { PlayerMenu, tabForKey } from './menu/PlayerMenu.js';
 import { ensureMenuStyle } from './menu/styles.js';
-import type { FrameAuth, MenuTab } from './menu/types.js';
+import { otherModalOpen, type FrameAuth, type MenuTab } from './menu/types.js';
 import { fetchItems, holdThing, type ItemsView } from './api.js';
 import { getAudioRuntime } from '../audio/runtime.js';
 import { frameSettings, graphicsOf, lookSettingsOf, motionReduced, onFrameSettings, sameGraphics, startFrameSettings, type GraphicsSettings } from './settings.js';
@@ -149,10 +149,11 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   // The HUD hotbar shows the server's bag (G03): the first five carried things, in the server's order.
   const applyBag = useCallback(
     (v: ItemsView) => {
-      if (typeof v.coins_total === 'number') world?.setCoins?.(v.coins_total);
+      // a linked child in a lesson sees the lesson's coins (the lesson layer sets them), not the home ledger
+      if (typeof v.coins_total === 'number' && !(lessonOn && auth.kind === 'child')) world?.setCoins?.(v.coins_total);
       world?.setBag?.(bagKeys(v));
     },
-    [world]
+    [world, lessonOn, auth.kind]
   );
   const syncBag = useCallback(() => {
     if (auth.kind === 'guest') return;
@@ -195,6 +196,8 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   }, [world, auth, identity, applyBag]);
 
   const open = useCallback((t: MenuTab) => {
+    // never over another window (a review dialog has no HUD mark; the first-visit and seat cards neither)
+    if (otherModalOpen()) return;
     setLastTab(t);
     setMenu(t);
   }, []);

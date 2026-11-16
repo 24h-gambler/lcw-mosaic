@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useRef } from 'react';
 import { FRAME_STRINGS as F } from '../strings.js';
-import { MENU_TABS, type MenuPanelProps, type MenuTab } from './types.js';
+import { MENU_TABS, otherModalOpen, type MenuPanelProps, type MenuTab } from './types.js';
 import { ensureMenuStyle } from './styles.js';
 import { BagPanel } from './BagPanel.js';
 import { MirrorPanel } from './MirrorPanel.js';
@@ -53,14 +53,22 @@ export function PlayerMenu(props: PlayerMenuProps): React.ReactElement {
 
   useEffect(() => {
     world?.setPaused(true);
-    return () => world?.setPaused(false);
+    // the world's pause is one switch: a dialog that opened meanwhile (and closed this menu) keeps it on
+    return () => {
+      if (!otherModalOpen()) world?.setPaused(false);
+    };
   }, [world]);
 
   // focus into the window, back to whatever had it on close
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     winRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
-    return () => before?.focus?.();
+    return () => {
+      // a dialog that closed the menu keeps the focus; otherwise back to what had it, else the menu button
+      if (otherModalOpen()) return;
+      if (before && before !== document.body && before.isConnected) before.focus?.();
+      else requestAnimationFrame(() => document.querySelector<HTMLElement>('.lcw-hudbtn--bag')?.focus());
+    };
   }, []);
 
   useEffect(() => {

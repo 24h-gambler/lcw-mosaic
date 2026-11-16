@@ -136,6 +136,18 @@ describe('guardian seats section (WP-704)', () => {
     expect(html).not.toContain(S.term.month);
   });
 
+  it('a stopped or ended tutoring seat reads 과외, not 과외 구독 중, next to its state', () => {
+    const pay = [{ order_id: 'o-t', kind: 'issue' as const, plan: 'tutoring', days: null, amount_krw: 0, paid_at: NOW - 2 * DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false, used: true }];
+    const ended = render([seat({ plan: 'tutoring', state: 'read_only', ends_at: NOW - DAY, read_only_until: NOW + 29 * DAY, refundable: false, refund_block: null, can_request_refund: false, payments: pay })]);
+    expect(ended).not.toContain(S.tutoringPlan);
+    expect(ended).toContain(`${S.plan.tutoring} · ${S.tutoringIncluded} · `);
+    expect(ended).toContain(S.state.read_only);
+    const live = render([seat({ plan: 'tutoring', refundable: false, refund_block: 'nothing_paid', can_request_refund: false, payments: pay })]);
+    expect(live).toContain(S.tutoringPlan);
+    // a used 0원 seat (refund_block nothing_paid from the server) has no '이용을 시작한 이용권은 환불되지 않습니다'
+    expect(live).not.toContain('data-testid="seat-refund-used"');
+  });
+
   it('Duo: payment lines include extensions; the payer chooses when the other family asked; the friend waits', () => {
     const duo = { refund_difference_krw: 5_000, solo_days: 20 };
     const payer = render([

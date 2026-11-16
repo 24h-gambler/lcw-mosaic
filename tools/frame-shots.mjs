@@ -63,9 +63,8 @@ const check = (vp, ok, what) => {
 };
 const overlap = (a, b) => a && b && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
-async function boxes(page) {
-  await dismissCards(page);
-  return page.evaluate(() => {
+/** Boxes of the HUD parts, read in the page (also set as window.__frameBoxes so a step can tap and read in one go). */
+const SNAP = () => {
     const r = (e) => {
       if (!e) return null;
       const b = e.getBoundingClientRect();
@@ -92,7 +91,10 @@ async function boxes(page) {
       vw: innerWidth,
       vh: innerHeight
     };
-  });
+};
+async function boxes(page) {
+  await dismissCards(page);
+  return page.evaluate(SNAP);
 }
 
 for (const vp of VIEWPORTS) {
@@ -110,6 +112,7 @@ for (const vp of VIEWPORTS) {
   await ctx.route('**/v1/tts/status', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"enabled":false}' }));
   // screen language and Korean help (world/lang.ts lcw.helpKo, one switch with the start screen)
   await langInitScript(ctx);
+  await ctx.addInitScript(`window.__frameBoxes = ${SNAP.toString()};`);
   if (SETTINGS) {
     await ctx.addInitScript((s) => {
       try {
@@ -129,21 +132,27 @@ for (const vp of VIEWPORTS) {
 
   // 1. start: status line, coins, explained empty bar
   // the empty-bar line shows for 6 s after loading; a busy machine can get here later, so pick slot 1 to bring it back
-  // (a key press can land while a late first-visit card holds focus, so tap the slot and wait for the fade-in)
-  const capShown = () =>
-    page
-      .waitForFunction(() => {
-        const c = document.querySelector('.lw-cap');
-        return !!c && c.classList.contains('on') && Number(getComputedStyle(c).opacity) > 0.9;
-      }, null, { timeout: 2500 })
-      .then(() => true)
-      .catch(() => false);
+  // On a busy machine one page round trip can take 1-3 s, longer than the 2.4 s line: tap slot 1 and read the boxes in
+  // one page call as soon as the line has faded in (a key press can also land while a late first-visit card holds focus)
   await dismissCards(page);
-  for (let n = 0; n < 3 && !(await capShown()); n++) {
-    await dismissCards(page);
-    await page.evaluate(() => document.querySelectorAll('.lw-slot')[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+  let a = null;
+  for (let n = 0; n < 3 && !a?.cap; n++) {
+    a = await page.evaluate(async (tap) => {
+      const c = document.querySelector('.lw-cap');
+      const shown = () => !!c && c.classList.contains('on') && Number(getComputedStyle(c).opacity) > 0.9;
+      const until = async (ms) => {
+        const t0 = performance.now();
+        while (!shown() && performance.now() - t0 < ms) await new Promise((res) => setTimeout(res, 30));
+        return shown();
+      };
+      if (!(await until(tap ? 0 : 400))) {
+        document.querySelectorAll('.lw-slot')[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        await until(3000);
+      }
+      return window.__frameBoxes();
+    }, n > 0);
+    if (!a.cap) await dismissCards(page);
   }
-  const a = await boxes(page);
   await page.screenshot({ path: `${out}/${vp.name}-1start.png` });
   check(vp.name, /·/.test(a.scene?.text ?? ''), `place · band missing (${a.scene?.text})`);
   check(vp.name, /\d\d:\d\d/.test(a.clock?.text ?? ''), `weather · clock missing (${a.clock?.text})`);

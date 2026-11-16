@@ -377,4 +377,7 @@ function IntroCard(props: { speech?: SpeechEngine; title?: string; tips?: boolea
   );
 }
 
+/** The same "Hello!" check card, for the settings screen (G14 마이크 점검: check again any time). */
+export { IntroCard as MicCheckCard };
+
 export { errandDialogFor } from './errand.js';

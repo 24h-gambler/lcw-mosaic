@@ -37,12 +37,23 @@ export interface WorldHandle {
   setViewInset?(bottomPx: number): void;            // 화면 아래를 덮은 패널 높이: 대화 구도를 그 위 띠 가운데에(0 = 없음)
   setOnline?(on: boolean): void;                    // false = HUD 맨 위 '혼자 모드로 계속 중' 띠(G01). 월드는 계속 돈다
   getMap?(): WorldMapInfo;                          // 지도 화면(G06): 섹터(지금은 마을 하나, 월드 생성 뒤 3x3)·장면·플레이어 위치(m)
+  setBag?(keys: ReadonlyArray<string | null>): void; // 핫바 5칸 = 서버 가방(GET /v1/items 의 location 'bag' 순서). 손에 든 게 빠지면 내려놓음
+  onHold?(cb: (itemKey: string) => void): () => void; // 물건 든 칸을 고르면(숫자키·탭) 알림 → 프레임이 POST /v1/items/use (물건당 10분 1번)
+  getPlayerLook?(): NpcLook;                        // 거울 화면(G04)이 같은 복셀 캐릭터를 따로 그릴 때 쓰는 생김새
+  setLookSettings?(s: LookSettings): void;          // 설정(G14): 마우스·터치 둘러보기 감도, 상하 반전
+  setGraphics?(g: GraphicsSettings): void;          // 설정(G14) 화질: quality auto|low|mid|high, viewChunks 3~8, shadows, renderScale 0.5~1 (null = 단계 기본)
 }
 // WorldMapInfo = { size_m; sectors: {id,nameKo,kind:'town'|'biome'|'ruin'|'plot'|…,explored,rect:[x0,z0,x1,z1]}[];
 //                  scenes: {id,nameKo,x,z}[]; player: {x,z,yaw} }
 // 연결 끊김 신호: 어느 도메인이든 fetch 가 네트워크 단계에서 실패하면 `reportServerUnreachable()`(apps/client/src/frame/connection.ts)
 // 를 부릅니다. 띠는 /v1/health 가 답할 때 내려갑니다(평소에는 확인 요청 없음).
-// HUD 메서드(월드 내부, world/hud.ts): tickStatus(hour, y) 장소·밴드·날씨·시계, setCamMode('first'|'third'|'mirror') 1인칭 조준점.
+// HUD 메서드(월드 내부, world/hud.ts): tickStatus(hour, y) 장소·밴드·날씨·시계, setCamMode('first'|'third'|'mirror') 1인칭 조준점,
+// setItem(slot, key|null) 서버 가방을 핫바에 조용히(토스트 없이) 놓기.
+// 플레이어 메뉴(프레임, apps/client/src/frame/): HUD '메뉴' 버튼·I(소지품)·M(지도)·K(도감)로 열고 Esc 로 닫는 6탭
+// 소지품 G03 · 거울 G04 · 지도 G06 · 도감 G10 · 수리소 G11 · 설정 G14. 열려 있는 동안 world.setPaused(true).
+// 대화창(.lcw-dlg)이 열리거나 HUD 가 .dlg 표시·숨김(타이틀 화면)이면 메뉴는 비켜 섭니다. 서버 경로는 frame/api.ts 한 곳:
+// GET /v1/items · POST /v1/items/equip · POST /v1/items/use · GET /v1/collection · GET /v1/review/repair ·
+// POST /v1/review/repair/pick · GET/PUT /v1/settings. 손님(연결 안 된 기기)은 서버를 부르지 않습니다.
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
 export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
 ```

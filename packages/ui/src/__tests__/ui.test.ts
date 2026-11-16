@@ -53,3 +53,20 @@ describe('@lcw/ui WP-005 & WP-109 acceptance', () => {
     expect(html).toContain('그래프 보기');
   });
 });
+
+describe('colour-vision assist palette (docs/08 11장, G14)', () => {
+  it('keeps the docs/08 2.2 contrast rules for every token it swaps', async () => {
+    const { COLOR_ASSIST_TOKENS, COLOR_TOKENS, contrastRatio } = await import('../index.js');
+    const swapped = Object.keys(COLOR_ASSIST_TOKENS);
+    expect(swapped.length).toBeGreaterThan(0);
+    for (const base of ['leaf', 'danger'] as const) {
+      const fill = COLOR_ASSIST_TOKENS[base]!;
+      const deep = COLOR_ASSIST_TOKENS[`${base}-d`]!;
+      expect(fill).not.toBe(COLOR_TOKENS[base]);
+      expect(contrastRatio(COLOR_TOKENS['ink-900'], fill)).toBeGreaterThanOrEqual(4.5); // ink text on the light fill
+      expect(contrastRatio(COLOR_TOKENS['paper-0'], deep)).toBeGreaterThanOrEqual(4.5); // white text on the deep shade
+      expect(contrastRatio(deep, COLOR_TOKENS['paper-50'])).toBeGreaterThanOrEqual(4.5); // deep text on cream
+      expect(contrastRatio(fill, COLOR_TOKENS['night-900'])).toBeGreaterThanOrEqual(4.5); // the fill on the night HUD
+    }
+  });
+});

@@ -28,6 +28,8 @@ export interface PendingSignup {
   family_students: Array<{ player_id: string; nickname: string; linked_devices?: number }>;
   /** The teacher-made student with the same name (one name, one student): the console picks it first. */
   match?: { player_id: string; nickname: string } | null;
+  /** No match because two or more teacher-made students have this name: the teacher picks. */
+  match_ambiguous?: boolean;
 }
 /** The consenting adult (docs/16 §3): the child's guardian aged 19+, or the student aged 14+ themselves. */
 export type AgeAttest = 'guardian_19' | 'self_14';

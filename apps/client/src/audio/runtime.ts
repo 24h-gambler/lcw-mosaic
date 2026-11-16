@@ -60,9 +60,14 @@ export interface AudioRuntime {
   /** Recording ended: the mic duck releases over 400 ms. */
   micClosed(): void;
   setHidden(hidden: boolean): void;
+  /** The player's volume for a bus (G14 설정, 0..1 of full scale; ducking still applies on top). Ramps in 60 ms. */
+  setBusVolume(bus: AudioBusName, volume: number): void;
   /** Current bus gains the graph is heading to (for checks). */
   targets(): Record<AudioBusName, number>;
 }
+
+/** A volume slider moves the bus over this long, so dragging it never clicks. */
+const VOLUME_RAMP_MS = 60;
 
 const realClock: RuntimeClock = {
   now: () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
@@ -271,6 +276,10 @@ export function createAudioRuntime(opts: AudioRuntimeOptions = {}): AudioRuntime
     setHidden(hidden) {
       engine.setHidden(hidden);
       apply(hidden ? 0 : DUCK_RELEASE_MS.npc_speaking);
+    },
+    setBusVolume(bus, volume) {
+      engine.setBusVolume(bus, volume);
+      apply(VOLUME_RAMP_MS);
     },
     targets() {
       return Object.fromEntries(AUDIO_BUSES.map((b) => [b, engine.getEffectiveBusGain(b)])) as Record<AudioBusName, number>;

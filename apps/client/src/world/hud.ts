@@ -610,6 +610,15 @@ export class WorldHud {
     this.toastTimer = window.setTimeout(() => this.toast.classList.remove('on'), 2600);
   }
 
+  /** Put the server's bag into a slot quietly (start of play, after a move in the bag screen): no toast, no select. */
+  setItem(slot: number, key: string | null): void {
+    if (!this.slots[slot]) return;
+    this.itemSlots[slot] = key ? { src: itemIconDataUrl(key), title: itemNameKo(key) } : null;
+    if (!this.buildSlotsOn) this.drawSlot(slot, this.itemSlots[slot] ?? null, null);
+    // the "bag is empty" line from the start must not stay over a bag that just filled
+    if (key && this.cap.textContent === W.hotbarAllEmpty) this.cap.classList.remove('on');
+  }
+
   /** Empty an item slot (the item was handed over); the build bar keeps drawing while building is on. */
   clearItem(slot: number): void {
     if (!this.slots[slot]) return;

@@ -135,7 +135,7 @@ export function SignupQueue(props: SignupQueueProps): React.ReactElement | null 
                 {s.family_students.length ? <p style={small}>{Q.family(s.family_students.map((k) => k.nickname).join(', '))}</p> : null}
                 {match ? (
                   <p style={small} data-testid="signup-match">
-                    {Q.match(match.nickname)}
+                    {s.match_own_family ? Q.matchOwn(match.nickname) : Q.match(match.nickname)}
                   </p>
                 ) : s.match_ambiguous ? (
                   <p style={small} data-testid="signup-match-ambiguous">

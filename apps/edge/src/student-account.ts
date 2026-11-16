@@ -228,6 +228,11 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     sweep(now);
     // One name, one student. A teacher-made row with this name is not 'taken': the sign-up waits to join it.
     const owner = nameOwner(p.data.nickname);
+    if (owner.kind === 'taken' && owner.by.kind === 'student') {
+      // The signing family's own child: not someone else's name. The device joins that child (the 'who' step).
+      const own = d.sql.get<{ id: string; nickname: string }>('select id, nickname from players where id = ? and family_id = ?', [owner.by.player_id, g.family_id]);
+      if (own) return c.json({ error: 'nickname_own_child', player_id: own.id, nickname: own.nickname }, 409);
+    }
     if (owner.kind === 'taken') {
       failed(c.req.raw); // counted like a wrong guess, so names cannot be listed by trying them
       return c.json({ error: 'nickname_taken', suggestions: nameIdeas(p.data.nickname) }, 409);
@@ -287,11 +292,19 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
      * Two or more → no pick (`match_ambiguous`); a student with a guardian has the name now → `name_taken`.
      */
     const names = nameIndex(d.sql);
-    const matchOf = (signupId: string, nickname: string) => {
+    const matchOf = (signupId: string, nickname: string, familyId: string) => {
       const o = names.owner(nickname, signupId);
       if (o.kind === 'taken') {
-        // Point at the student who holds the name, so the teacher does not pick them (player_has_guardian).
-        const by = o.by.kind === 'student' ? d.sql.get<{ id: string; nickname: string }>('select id, nickname from players where id = ?', [o.by.player_id]) : null;
+        const by =
+          o.by.kind === 'student'
+            ? d.sql.get<{ id: string; nickname: string; family_id: string }>('select id, nickname, family_id from players where id = ?', [o.by.player_id])
+            : null;
+        // The signing family's own child (added after the sign-up): linking there is allowed, so it is the match.
+        if (by && by.family_id === familyId) {
+          return { match: { player_id: by.id, nickname: by.nickname }, match_own_family: true, match_ambiguous: false, name_taken: false };
+        }
+        // Someone else holds it: point at that student so the teacher does not pick them (player_has_guardian);
+        // taken_by null = another waiting sign-up has the name.
         return { match: null, match_ambiguous: false, name_taken: true, taken_by: by ? { player_id: by.id, nickname: by.nickname } : null };
       }
       if (o.kind !== 'teacher_row') return { match: null, match_ambiguous: false, name_taken: false };
@@ -308,7 +321,7 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
         created_at: r.created_at,
         expires_at: r.expires_at,
         signer: { ...signerOf(r.guardian_id), attest: attestOf(r.family_id) },
-        ...matchOf(r.id, r.nickname),
+        ...matchOf(r.id, r.nickname, r.family_id),
         family_students: d.sql
           .all<{ id: string; nickname: string }>('select id, nickname from players where family_id = ? order by nickname', [r.family_id])
           .map((k) => ({ player_id: k.id, nickname: k.nickname, linked_devices: devicesOf(k.id, now) }))

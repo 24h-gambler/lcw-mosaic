@@ -96,6 +96,7 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
       if (e.code === 'too_many_attempts' || e.code === 'too_many_pending') return S.errBusy;
       if (e.code === 'invalid') return S.errNickname;
       if (e.code === 'nickname_taken') return S.errNickTaken;
+      if (e.code === 'nickname_own_child') return S.errOwnChild(typeof e.body.nickname === 'string' ? e.body.nickname : '');
       if (e.code === 'guardian_only' || e.status === 401) return S.errSignedOut;
       if (e.code === 'service_consent_required') return S.errConsent;
       if (e.code === 'age_attest_required') return S.errAttest;

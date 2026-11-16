@@ -635,7 +635,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const voice = await platform.runVoiceCron(body.cron, Date.now());
     const push = await platform.runPushCron(body.cron, Date.now());
     // the hourly cron: the morning lesson/NPC prebuild and the nightly leftovers (tts.ts runTtsCron)
-    const tts = body.cron === '0 * * * *' ? await runTtsCron(ttsDeps(), Date.now()).catch(() => null) : null;
+    const tts = body.cron === '0 * * * *' ? await runTtsCron(ttsDeps(), Date.now()).catch((e: unknown) => ({ task: 'tts_error', error: String(e).slice(0, 160) })) : null;
     return c.json({ ...r, voice, push, tts });
   });
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,

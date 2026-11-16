@@ -66,17 +66,12 @@ describe('/family friend pass box (free-play.ts guest passes)', () => {
     expect(issueTag(html)).toContain('disabled');
   });
 
-  it('an unused pass that ran out of days this month still holds a slot (server count): listed with take back', () => {
+  it('an unused pass that ran out of days is gone (#96: the server stops counting it), this month or last', () => {
     const expired = pass({ id: 'ex', state: 'expired', issued_at: NOW - 8 * DAY + 3_600_000, redeem_until: NOW - DAY + 3_600_000 });
-    // 11-08: still this KST month
-    expect(canTakeBack(expired, NOW)).toBe(true);
-    const html = render([expired], 0);
-    expect(html).toContain('data-testid="guest-pass-ex"');
-    expect(html).toContain(P.stateExpiredHolds);
-    expect(html).toContain('data-testid="guest-pass-revoke-ex"');
-    expect(html).not.toContain('data-testid="guest-pass-copy-ex"');
-    // last month's expired pass holds nothing this month: not listed
-    expect(shownPasses([pass({ id: 'old', state: 'expired', issued_at: LAST_MONTH, redeem_until: LAST_MONTH + 7 * DAY })], NOW)).toEqual([]);
+    expect(canTakeBack(expired)).toBe(false);
+    expect(render([expired], 2)).not.toContain('guest-pass-ex');
+    expect(shownPasses([expired, pass({ id: 'old', state: 'expired', issued_at: LAST_MONTH, redeem_until: LAST_MONTH + 7 * DAY })])).toEqual([]);
+    expect(P.rules).toContain('장수에서도 저절로 빠집니다');
   });
 
   it('a pass stopped mid-play (server: revoked with started_at) stays as a line; one taken back unused is not listed', () => {
@@ -87,27 +82,25 @@ describe('/family friend pass box (free-play.ts guest passes)', () => {
     expect(html).toContain(P.stateStopped);
     expect(html).not.toContain('data-testid="guest-pass-revoke-st"');
     expect(html).not.toContain('guest-pass-bk');
-    for (const st of ['ready', 'active', 'ended', 'expired', 'revoked'] as const) expect(passLine(pass({ state: st, ends_at: NOW }), NOW)).toBeTruthy();
-    expect(passLine(stopped, NOW)).toBe(P.stateStopped);
-    expect(passLine(back, NOW)).toBe(P.stateRevoked);
+    for (const st of ['ready', 'active', 'ended', 'expired', 'revoked'] as const) expect(passLine(pass({ state: st, ends_at: NOW }))).toBeTruthy();
+    expect(passLine(stopped)).toBe(P.stateStopped);
+    expect(passLine(back)).toBe(P.stateRevoked);
   });
 
-  it('the confirm and done words come from the fresh pass and the server answer, not the screen copy', () => {
-    expect(confirmText(pass(), NOW)).toBe(P.confirmRevoke);
-    expect(confirmText(pass({ state: 'active', started_at: NOW - 1000, ends_at: NOW + 1000 }), NOW)).toBe(P.confirmStop);
-    // a ready pass from last month gives no slot of this month back
-    expect(confirmText(pass({ issued_at: LAST_MONTH, redeem_until: NOW + DAY }), NOW)).toBe(P.confirmRevokePlain);
+  it('the confirm and done words come from the fresh pass and the server count, not a month rule of the screen', () => {
+    expect(confirmText(pass())).toBe(P.confirmRevoke);
+    expect(confirmText(pass({ state: 'active', started_at: NOW - 1000, ends_at: NOW + 1000 }))).toBe(P.confirmStop);
     // the friend entered in between: the server stopped a running pass
-    expect(revokeDone(pass({ state: 'revoked', started_at: NOW - 1000, ends_at: NOW }), NOW)).toBe(P.stopped);
-    expect(revokeDone(pass({ state: 'revoked' }), NOW)).toBe(P.revoked);
-    expect(revokeDone(pass({ state: 'revoked', issued_at: LAST_MONTH }), NOW)).toBe(P.revokedPlain);
+    expect(revokeDone(pass({ state: 'revoked', started_at: NOW - 1000, ends_at: NOW }), 0, 0)).toBe(P.stopped);
+    // a slot came back only when the server's count went up (whatever the server's month rule is)
+    expect(revokeDone(pass({ state: 'revoked' }), 0, 1)).toBe(P.revoked);
+    expect(revokeDone(pass({ state: 'revoked', issued_at: LAST_MONTH }), 1, 1)).toBe(P.revokedPlain);
   });
 
   it('the third pass of the month (409 monthly_limit) and the other refusals each have their own words', () => {
     const msg = actionNotice('monthly_limit', sum(0));
     expect(msg).toBe(P.limit(2, '12월 1일'));
     expect(msg).toContain('2장');
-    expect(msg).toContain('회수');
     expect(actionNotice('seat_inactive', sum(0))).toBe(P.seatInactive);
     expect(actionNotice('service_consent_required', sum(0))).toBe(P.needConsent);
     expect(actionNotice('pass_not_found', sum(0))).toBe(P.gone);

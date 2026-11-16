@@ -1,9 +1,10 @@
 /**
  * 친구 초대권 (guest pass) on /family (server apps/edge/src/free-play.ts, outsider lane #79): the guardian of a live seat gives a
- * friend one code / link for 30 minutes of the child's world, two per seat per KST month, and can take back a pass
- * nobody entered yet (its slot comes back while it was issued this month) or stop a running one (its slot stays used).
- * The server counts every pass of the month except one taken back before anyone entered, so an unused pass that ran
- * out of days still holds a slot: it stays listed with a take-back button.
+ * friend one code / link for 30 minutes of the child's world, a few per seat per KST month, and can take back a pass
+ * nobody entered yet or stop a running one. Which passes count against the month is the server's rule (#96: a pass
+ * nobody entered stops counting when taken back or when its days to enter run out; soon the month a friend first
+ * entered). The screen never works it out itself: it shows the server's left_this_month and says a slot came back
+ * only when that number went up.
  * Only on the guardian screen; the child's screen shows no dates, codes or counts.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -19,10 +20,8 @@ const C = TOKENS.colors;
 const T = TOKENS.typography;
 const px = (n: number) => `${n}px`;
 const small: React.CSSProperties = { fontSize: px(T.scale.small.sizePx), lineHeight: px(T.scale.small.lineHeightPx), color: C['ink-700'] };
-const KST = 9 * 3_600_000;
 const day = (ms: number | null) => kstLabel(ms, false).replace(/^\d{4}년 /, '');
 const when = (ms: number | null) => kstLabel(ms, true);
-const kstMonth = (ms: number) => new Date(ms + KST).toISOString().slice(0, 7);
 
 export type PassNotice = { kind: 'ok' | 'info' | 'error'; text: string };
 
@@ -31,43 +30,41 @@ export function passBoxFor(s: Pick<FamilySeat, 'child' | 'state'>): boolean {
   return Boolean(s.child) && (s.state === 'active' || s.state === 'expiring');
 }
 
-/** Taking this pass back now gives this month's slot back (nobody entered, issued in the server's current KST month). */
-export function slotComesBack(p: GuestPass, now: number): boolean {
-  return p.started_at === null && kstMonth(p.issued_at) === kstMonth(now);
+/** The pass can still be taken back (nobody entered yet) or stopped (a friend is playing). */
+export function canTakeBack(p: GuestPass): boolean {
+  return p.state === 'ready' || p.state === 'active';
 }
 
-/** The pass can still be taken back or stopped. */
-export function canTakeBack(p: GuestPass, now: number): boolean {
-  return p.state === 'ready' || p.state === 'active' || (p.state === 'expired' && slotComesBack(p, now));
-}
-
-/** Passes worth a line: live ones, used ones, an unused expired one still holding this month's slot. */
-export function shownPasses(passes: readonly GuestPass[], now: number): GuestPass[] {
-  return passes
-    .filter((p) => p.state === 'ready' || p.state === 'active' || p.state === 'ended' || (p.state === 'expired' && slotComesBack(p, now)) || (p.state === 'revoked' && p.started_at !== null))
-    .slice(0, 6);
+/**
+ * Passes worth a line: live ones and ones a friend played on (ended, or stopped mid-play: the server marks those revoked
+ * with started_at). Passes nobody entered that were taken back or ran out of days are gone: they count for nothing.
+ */
+export function shownPasses(passes: readonly GuestPass[]): GuestPass[] {
+  return passes.filter((p) => p.state === 'ready' || p.state === 'active' || p.state === 'ended' || (p.state === 'revoked' && p.started_at !== null)).slice(0, 6);
 }
 
 /** One line per pass state, in words. */
-export function passLine(p: GuestPass, now: number): string {
+export function passLine(p: GuestPass): string {
   if (p.state === 'ready') return P.stateReady(when(p.redeem_until));
   if (p.state === 'active') return P.stateActive(when(p.ends_at));
   if (p.state === 'ended') return P.stateEnded;
-  if (p.state === 'expired') return slotComesBack(p, now) ? P.stateExpiredHolds : P.stateExpired;
+  if (p.state === 'expired') return P.stateExpired;
   // The server marks a pass stopped mid-play as revoked too.
   return p.started_at !== null ? P.stateStopped : P.stateRevoked;
 }
 
 /** The confirm question for taking back / stopping, from the pass's fresh state. */
-export function confirmText(p: GuestPass, now: number): string {
-  if (p.state === 'active') return P.confirmStop;
-  return slotComesBack(p, now) ? P.confirmRevoke : P.confirmRevokePlain;
+export function confirmText(p: GuestPass): string {
+  return p.state === 'active' ? P.confirmStop : P.confirmRevoke;
 }
 
-/** What happened, from the server's answer (not from the screen's older copy of the pass). */
-export function revokeDone(after: GuestPass, now: number): string {
+/**
+ * What happened, from the server's answer (not from the screen's older copy of the pass): stopped mid-play, or taken
+ * back; a slot came back only when the server's count of passes left went up.
+ */
+export function revokeDone(after: GuestPass, leftBefore: number, leftAfter: number): string {
   if (after.started_at !== null) return P.stopped;
-  return slotComesBack(after, now) ? P.revoked : P.revokedPlain;
+  return leftAfter > leftBefore ? P.revoked : P.revokedPlain;
 }
 
 /** A refused or failed action, in words. */
@@ -106,8 +103,7 @@ export function GuestPassesView({
   copiedId: string | null;
   origin: string;
 }): React.ReactElement {
-  const now = summary.server_now;
-  const shown = shownPasses(passes, now);
+  const shown = shownPasses(passes);
   const none = summary.left_this_month <= 0;
   return (
     <div data-testid="guest-passes" style={{ display: 'grid', gap: sp(2), borderTop: `1px solid ${C['line-200']}`, paddingTop: sp(2) }}>
@@ -121,8 +117,8 @@ export function GuestPassesView({
           {shown.map((p) => (
             <li key={p.id} data-testid={`guest-pass-${p.id}`} style={{ display: 'grid', gap: '4px', background: C['paper-50'], border: `1px solid ${C['line-200']}`, borderRadius: px(TOKENS.shape.radiusButtonPx), padding: sp(2) }}>
               <span style={{ fontWeight: 800, fontSize: px(T.scale.h3.sizePx), letterSpacing: '0.08em', wordBreak: 'keep-all' }}>{p.code}</span>
-              <span style={{ ...small, wordBreak: 'keep-all' }}>{passLine(p, now)}</span>
-              {canTakeBack(p, now) ? (
+              <span style={{ ...small, wordBreak: 'keep-all' }}>{passLine(p)}</span>
+              {canTakeBack(p) ? (
                 <div style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap' }}>
                   {p.state === 'ready' ? (
                     <Button type="button" variant="paper" disabled={busy} onClick={() => onCopy(p)} data-testid={`guest-pass-copy-${p.id}`}>
@@ -240,10 +236,10 @@ export function GuestPasses({ api, token, seatId }: { api: FamilyApi; token: str
           // The screen's copy may be old (a friend may have entered since): ask about the pass as the server has it now.
           const list = await api.guestPasses(token, seatId);
           const fresh = list.passes.find((x) => x.id === p.id);
-          if (!fresh || !canTakeBack(fresh, list.server_now)) return { kind: 'info', text: P.changed };
-          if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm(confirmText(fresh, list.server_now))) return undefined;
+          if (!fresh || !canTakeBack(fresh)) return { kind: 'info', text: P.changed };
+          if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm(confirmText(fresh))) return undefined;
           const r = await api.revokeGuestPass(token, p.id);
-          return { kind: 'ok', text: revokeDone(r.pass, r.server_now) };
+          return { kind: 'ok', text: revokeDone(r.pass, list.left_this_month, r.left_this_month) };
         })
       }
       onCopy={(p) => {

@@ -149,6 +149,30 @@ describe('operator CSV exports (GET /v1/admin/export/*)', () => {
     expect((await call(p, 'GET', '/v1/admin/export/utterances.csv?day=2026-13-01')).status).toBe(400);
   });
 
+  it('by day, smoke-check and demo students are left out unless include_test=1; asked by id they are returned', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    const p = platform();
+    const real = await startLesson(p, 'kid-1', 'Oreo');
+    const smoke = await startLesson(p, 'smoke-20261116', 'Smoke');
+    const demo = await startLesson(p, 'player-demo', 'Demo');
+    for (const l of [real, smoke, demo]) {
+      await call(p, 'POST', `/v1/admin/lessons/${l.lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+      const r = await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000 }, l.st);
+      expect(r.status).toBe(200);
+    }
+    vi.setSystemTime(T0 + 120_000);
+    const players = async (path: string) => [...new Set(asObjects(parseCsv((await call(p, 'GET', path)).text)).map((o) => o.player_id))].sort();
+
+    expect(await players('/v1/admin/export/utterances.csv')).toEqual(['kid-1']);
+    expect(await players('/v1/admin/export/utterances.csv?include_test=1')).toEqual(['kid-1', 'player-demo', 'smoke-20261116']);
+    expect(await players('/v1/admin/export/utterances.csv?player_id=smoke-20261116')).toEqual(['smoke-20261116']);
+
+    expect(await players('/v1/admin/export/lesson-minutes.csv?day=2026-11-16')).toEqual(['kid-1']);
+    expect(await players('/v1/admin/export/lesson-minutes.csv?day=2026-11-16&include_test=1')).toEqual(['kid-1', 'player-demo', 'smoke-20261116']);
+    expect(await players(`/v1/admin/export/lesson-minutes.csv?lesson_id=${demo.lessonId}`)).toEqual(['player-demo']);
+  });
+
   it('lesson minutes: the same per-minute table the director feed shows, by lesson or by KST day', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(T0);

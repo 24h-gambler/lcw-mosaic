@@ -7,6 +7,7 @@ import { lessonMinutes, type LessonModeDeps } from './lesson-mode.js';
  *
  *   GET /v1/admin/export/utterances.csv?day=YYYY-MM-DD[&player_id=…]   one row per utterance that KST day
  *   GET /v1/admin/export/lesson-minutes.csv?lesson_id=…  |  ?day=YYYY-MM-DD   the per-minute progress table
+ *   By day, smoke-check and demo students are left out unless `include_test=1` (as in the other operator reports).
  *
  * Children appear by nickname and id only (no guardian fields, no birth year). Files are UTF-8 with a BOM and CRLF
  * so Excel opens Korean text as is; text cells that start like a formula are prefixed with ' (CSV injection).
@@ -111,6 +112,12 @@ export function buildExportApp(d: ExportDeps): Hono {
     const range = kstDayRange(day);
     return range ? { day, ...range } : null;
   };
+  /**
+   * Day exports leave out the smoke-check and demo students, like the other operator reports (lesson-mode.ts students,
+   * lessons/live, daily); `include_test=1` keeps them. A player_id or lesson_id asked for by name is returned as is.
+   */
+  const realOnly = (col: string, q: string | undefined) =>
+    q === '1' ? '' : ` and ${col} not like 'smoke-%' and ${col} <> 'player-demo'`;
 
   app.get('/v1/admin/export/utterances.csv', (c) => {
     const day = dayOf(c.req.query('day'));
@@ -120,7 +127,7 @@ export function buildExportApp(d: ExportDeps): Hono {
       `select u.created_at, u.session_id, u.session_kind, u.player_id, p.nickname, u.ctx, u.target_text, u.final_text,
               u.stars, u.hint_level, u.attempts, u.dur_ms
          from utterances u left join players p on p.id = u.player_id
-        where u.created_at >= ? and u.created_at < ? ${player ? 'and u.player_id = ?' : ''}
+        where u.created_at >= ? and u.created_at < ? ${player ? 'and u.player_id = ?' : realOnly('u.player_id', c.req.query('include_test'))}
         order by u.player_id, u.created_at, u.id`,
       player ? [day.from, day.to, player] : [day.from, day.to]
     );
@@ -152,7 +159,8 @@ export function buildExportApp(d: ExportDeps): Hono {
     if (!lessonId && !day) return c.json({ error: 'invalid_day', expected: 'YYYY-MM-DD (KST)' }, 400);
     const lessons = d.sql.all<{ id: string; player_id: string; started_at: number; nickname: string | null }>(
       `select l.id, l.player_id, l.started_at, p.nickname from lessons l left join players p on p.id = l.player_id
-        where ${lessonId ? 'l.id = ?' : 'l.started_at >= ? and l.started_at < ?'} order by l.started_at, l.id`,
+        where ${lessonId ? 'l.id = ?' : `l.started_at >= ? and l.started_at < ?${realOnly('l.player_id', c.req.query('include_test'))}`}
+        order by l.started_at, l.id`,
       lessonId ? [lessonId] : [day!.from, day!.to]
     );
     if (lessonId && !lessons.length) return c.json({ error: 'lesson_not_found' }, 404);

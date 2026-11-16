@@ -38,6 +38,12 @@ export interface TtsCaller {
   operator: boolean;
   player_id: string | null;
   lesson: boolean;
+  /**
+   * Cached lines only, never a new one (11-16 quota ladder: prebuild plus every lane's checks made so many new lines
+   * that the day reached 86%). Set for smoke-check and demo students, and when the page asks with `c=1` (the client
+   * does under automation: headless measurements). A missing line answers 404 and the device voice reads it.
+   */
+  cachedOnly?: boolean;
 }
 
 export const TTS_CACHE_PREFIX = 'tts/v1/';
@@ -133,6 +139,7 @@ export async function makeLine(
   const cached = deps.store && !known?.cachedChecked ? await deps.store.get(key).catch(() => null) : null;
   if (cached) return { bytes: new Uint8Array(await cached.arrayBuffer()), hit: 'hit', ms: deps.nowMs() - t0 };
   if (!deps.ai) return { error: 'tts_unavailable', status: 503 };
+  if (who.cachedOnly && !who.operator) return { error: 'tts_not_cached', status: 404 };
   if (!who.operator && !who.player_id && !isFixedLine(voice, text)) return { error: 'child_token_required', status: 401 };
   const meter = deps.quota();
   if (!who.operator && !meter.canUseTts({ isLesson: who.lesson, nowMs: t0 })) return { error: 'tts_quota', status: 429 };
@@ -157,7 +164,8 @@ export async function handleTts(url: URL, who: TtsCaller, deps: TtsDeps): Promis
   const text = normalizeTtsText(url.searchParams.get('t') ?? '');
   if (!text) return json({ error: 'text_required', fallback: 'device' }, 400);
   if (text.length > NEURAL_TTS.maxChars) return json({ error: 'text_too_long', fallback: 'device' }, 413);
-  const r = await makeLine(voice, text, who, deps);
+  const cachedOnly = who.cachedOnly || url.searchParams.get('c') === '1';
+  const r = await makeLine(voice, text, cachedOnly ? { ...who, cachedOnly } : who, deps);
   if ('error' in r) return json({ error: r.error, fallback: 'device' }, r.status);
   return audio(r.bytes, r.hit, r.ms);
 }
@@ -167,9 +175,9 @@ export async function handleTts(url: URL, who: TtsCaller, deps: TtsDeps): Promis
  * sentences, ~37,000 neurons in all, so they spread over days or come one by one on the first 🔊 tap) until the call's
  * neuron budget is spent; call again to continue. `left` = lines not reached in this call.
  */
-export async function prebuildFixedLines(deps: TtsDeps, opts: { budgetNeurons?: number; voice?: string } = {}) {
+export async function prebuildFixedLines(deps: TtsDeps, opts: { budgetNeurons?: number; voice?: string; priorityOnly?: boolean } = {}) {
   const budget = Math.max(0, opts.budgetNeurons ?? NEURAL_TTS.prebuildBudgetNeurons);
-  const lines = fixedTtsLines().filter((l) => !opts.voice || ttsVoiceId(l.voice) === opts.voice);
+  const lines = fixedTtsLines('en', { priorityOnly: opts.priorityOnly }).filter((l) => !opts.voice || ttsVoiceId(l.voice) === opts.voice);
   let spent = 0;
   let made = 0;
   let cached = 0;
@@ -197,4 +205,31 @@ export async function prebuildFixedLines(deps: TtsDeps, opts: { budgetNeurons?: 
     made += 1;
   }
   return { lines: lines.length, made, cached, failed, left, neurons: spent };
+}
+
+/**
+ * The daily prebuild on the hourly cron (11-16, "기계음"): the Workers AI day starts at 00:00 UTC (09:00 KST).
+ * - 00 UTC: the NPC lines and the lesson plans first, before the day's lessons ask for them (budget
+ *   `morningBudgetNeurons`; what is cached costs nothing, so most days this makes nothing).
+ * - 23 UTC: the bank sentences on what the day left over (neurons expire at 00 UTC), keeping `nightReserveNeurons`
+ *   for the last hour's play.
+ * Other hours do nothing. Off with the neural voice.
+ */
+export const TTS_CRON = { morningHourUtc: 0, nightHourUtc: 23, morningBudgetNeurons: 4_500, nightReserveNeurons: 1_200 } as const;
+
+export async function runTtsCron(deps: TtsDeps, nowMs: number): Promise<{ task: string; made?: number; neurons?: number; left?: number } | null> {
+  if (!deps.enabled || !deps.ai) return null;
+  const hour = new Date(nowMs).getUTCHours();
+  if (hour === TTS_CRON.morningHourUtc) {
+    const r = await prebuildFixedLines(deps, { budgetNeurons: TTS_CRON.morningBudgetNeurons, priorityOnly: true });
+    return { task: 'tts_morning', made: r.made, neurons: r.neurons, left: r.left };
+  }
+  if (hour === TTS_CRON.nightHourUtc) {
+    const st = deps.quota().getStatus(nowMs);
+    const budget = st.neuronsLimit - st.neuronsUsed - TTS_CRON.nightReserveNeurons;
+    if (budget <= 0) return { task: 'tts_night', made: 0, neurons: 0 };
+    const r = await prebuildFixedLines(deps, { budgetNeurons: budget });
+    return { task: 'tts_night', made: r.made, neurons: r.neurons, left: r.left };
+  }
+  return null;
 }

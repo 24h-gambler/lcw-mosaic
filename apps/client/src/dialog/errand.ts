@@ -1,4 +1,6 @@
-import { FIRST_ERRAND, NPC_OPENING_LINES, npcPersona, type LangLevel } from '@lcw/content';
+import { FIRST_ERRAND, npcPersona, type LangLevel } from '@lcw/content';
+import { nextOpeningLine, openingLineFor } from './npc-lines.js';
+import { guideAskPlace } from './goals.js';
 import { learnLang } from '../world/lang.js';
 import { ui } from './strings.js';
 import { bankOffersFor } from './hints.js';
@@ -51,6 +53,8 @@ export interface ErrandDialog {
   npc: NpcRef;
   offers: DialogOffer[];
   npcLine: string;
+  /** Voice (and face) of another ctx than `npc.ctx`: the giver asked the way speaks in her own voice. */
+  voiceCtx?: string;
 }
 
 /**
@@ -58,7 +62,14 @@ export interface ErrandDialog {
  * server scores the errand lines), and the cafe offers the asked drink. Null = a normal dialog.
  */
 export function errandDialogFor(npc: NpcRef, errand: ErrandView | null, level: LangLevel): ErrandDialog | null {
-  if (!errand || errand.state === 'done') return null;
+  if (!errand || errand.state === 'done') {
+    // R2625: with no errand running (done, or a guest who has none) she asked for the water again on every visit.
+    // Now she points the way like the guide (price-0 "where is" sentences; the answer walks the child there).
+    if (!ERRAND_GIVER_CTXS.has(npc.ctx)) return null;
+    const as: NpcRef = { ...npc, ctx: 'guide' };
+    const line = nextOpeningLine(npc.id, 'errand');
+    return { npc: as, offers: bankOffersFor(as, level, guideAskPlace() ?? undefined), npcLine: line === openingLineFor('errand', 0) ? openingLineFor('errand', 1) : line, voiceCtx: 'errand' };
+  }
   if (ERRAND_GIVER_CTXS.has(npc.ctx)) {
     // accepted: the giver reminds ("The honey cafe is right over there") and the child can say yes again (no step moves)
     const step = errand.state === 'carrying' ? 'errand_deliver' : 'errand_accept';
@@ -66,7 +77,8 @@ export function errandDialogFor(npc: NpcRef, errand: ErrandView | null, level: L
     return { npc: as, offers: bankOffersFor(as, level, step), npcLine: errand.npc_line };
   }
   if (npc.ctx === 'cafe' && errand.state === 'accepted') {
-    return { npc, offers: bankOffersFor(npc, level, FIRST_ERRAND.item, FIRST_ERRAND.mod), npcLine: NPC_OPENING_LINES.cafe! };
+    // the order counts as a visit, so the next plain visit greets with a revisit line (R2625)
+    return { npc, offers: bankOffersFor(npc, level, FIRST_ERRAND.item, FIRST_ERRAND.mod), npcLine: nextOpeningLine(npc.id, npc.ctx) };
   }
   return null;
 }

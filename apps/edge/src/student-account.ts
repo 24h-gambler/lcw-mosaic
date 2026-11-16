@@ -132,7 +132,7 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
   const familyConsented = (familyId: string) =>
     Boolean(d.sql.get("select v from family_flags where family_id = ? and k = 'service' and v = 1", [familyId]));
   const familyHasGuardian = (familyId: string) => sharedFamilyHasGuardian(d.sql, familyId);
-  const nameOwner = (nickname: string, exceptSignup = '', familyId?: string) => sharedNameOwner(d.sql, nickname, { exceptSignup, familyId });
+  const nameOwner = (nickname: string, exceptSignup = '') => sharedNameOwner(d.sql, nickname, { exceptSignup });
   const nameIdeas = (nickname: string) => sharedNameIdeas(d.sql, nickname);
   const guardianOf = async (req: Request) => {
     const t = bearer(req);
@@ -227,11 +227,14 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     const now = d.nowMs();
     sweep(now);
     // One name, one student. A teacher-made row with this name is not 'taken': the sign-up waits to join it.
-    const owner = nameOwner(p.data.nickname, '', g.family_id);
+    const names = nameIndex(d.sql);
+    const owner = names.owner(p.data.nickname, '', g.family_id);
     if (owner.kind === 'taken' && owner.by.kind === 'student') {
       // The signing family's own child: not someone else's name. The device joins that child (the 'who' step).
       const own = d.sql.get<{ id: string; nickname: string }>('select id, nickname from players where id = ? and family_id = ?', [owner.by.player_id, g.family_id]);
-      if (own) return c.json({ error: 'nickname_own_child', player_id: own.id, nickname: own.nickname }, 409);
+      // Two own children named alike: no pick (player_id null); the screen shows both connect buttons.
+      const two = names.ownChildren(p.data.nickname, g.family_id).length > 1;
+      if (own) return c.json({ error: 'nickname_own_child', player_id: two ? null : own.id, nickname: own.nickname }, 409);
     }
     if (owner.kind === 'taken') {
       failed(c.req.raw); // counted like a wrong guess, so names cannot be listed by trying them
@@ -301,16 +304,18 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
             : null;
         // The signing family's own child (added after the sign-up): linking there is allowed, so it is the match.
         if (by && by.family_id === familyId) {
+          // Two own children with the name: the teacher picks (never a guess).
+          if (names.ownChildren(nickname, familyId).length > 1) return { match: null, match_own_family: false, match_ambiguous: true, name_taken: false };
           return { match: { player_id: by.id, nickname: by.nickname }, match_own_family: true, match_ambiguous: false, name_taken: false };
         }
         // Someone else holds it: point at that student so the teacher does not pick them (player_has_guardian);
         // taken_by null = another waiting sign-up has the name.
-        return { match: null, match_ambiguous: false, name_taken: true, taken_by: by ? { player_id: by.id, nickname: by.nickname } : null };
+        return { match: null, match_own_family: false, match_ambiguous: false, name_taken: true, taken_by: by ? { player_id: by.id, nickname: by.nickname } : null };
       }
-      if (o.kind !== 'teacher_row') return { match: null, match_ambiguous: false, name_taken: false };
-      if (!o.player_id) return { match: null, match_ambiguous: true, name_taken: false };
+      if (o.kind !== 'teacher_row') return { match: null, match_own_family: false, match_ambiguous: false, name_taken: false };
+      if (!o.player_id) return { match: null, match_own_family: false, match_ambiguous: true, name_taken: false };
       const k = d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [o.player_id]);
-      return { match: k ? { player_id: o.player_id, nickname: k.nickname } : null, match_ambiguous: false, name_taken: false };
+      return { match: k ? { player_id: o.player_id, nickname: k.nickname } : null, match_own_family: false, match_ambiguous: false, name_taken: false };
     };
     // Who signed (provider, masked hint, age statement) so a stranger typing 'Oreo' is not linked by the name alone;
     // students already in the signing family (e.g. a sibling) with their signed-in devices.

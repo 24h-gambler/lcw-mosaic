@@ -2,9 +2,9 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SignupQueue } from '../DirectorSignups.js';
-import { StudentSignupPage, signupErrorText } from '../StudentSignup.js';
+import { StudentSignupPage, connectLabel, reloadOwnChildren, signupErrorText } from '../StudentSignup.js';
 import { SIGNUP_STRINGS_KO } from '../signupStrings.js';
-import { createStudentAccountApi, isOAuthReturn, oauthStartPath } from '../studentAccountApi.js';
+import { StudentApiError, createStudentAccountApi, isOAuthReturn, oauthStartPath } from '../studentAccountApi.js';
 
 const S = SIGNUP_STRINGS_KO.student;
 const Q = SIGNUP_STRINGS_KO.queue;
@@ -66,6 +66,38 @@ describe('student sign-up client (/signup)', () => {
     // The message names the button the screen really shows.
     expect(text).toContain(S.connectAs('Lulu'));
     expect(signupErrorText(new Error('offline'))).toBe(S.errNetwork);
+  });
+
+  it('after nickname_own_child the family reloads (new buttons); a lost session signs out; other errors keep the list', async () => {
+    const kids = [{ player_id: 'kid-1', nickname: 'Lulu' }] as never[];
+    const run = async (familyMe: () => Promise<unknown>) => {
+      const got: { children?: unknown; out: number } = { out: 0 };
+      await reloadOwnChildren({ familyMe } as never, G, (k) => (got.children = k), () => got.out++);
+      return got;
+    };
+    expect(await run(async () => ({ service_consented: true, children: kids }))).toEqual({ children: kids, out: 0 });
+    expect(await run(async () => Promise.reject(new StudentApiError(401, 'unauthorized')))).toEqual({ out: 1 });
+    expect(await run(async () => Promise.reject(new Error('offline')))).toEqual({ out: 0 });
+    expect(await reloadOwnChildren({ familyMe: async () => Promise.reject(new Error('offline')) } as never, G, () => undefined, () => undefined)).toBe('failed');
+  });
+
+  it('two children with one name: the buttons differ by birth year (or a number), and the message says there are two', () => {
+    const kids = [
+      { player_id: 'k1', nickname: 'Momo', level: 'L1', birth_year: 2015 },
+      { player_id: 'k2', nickname: 'momo', level: 'L1', birth_year: 2017 },
+      { player_id: 'k3', nickname: 'Lulu', level: 'L1', birth_year: null }
+    ];
+    expect(kids.map((k) => connectLabel(k, kids))).toEqual([
+      S.connectAs('Momo · 2015년생'),
+      S.connectAs('momo · 2017년생'),
+      S.connectAs('Lulu')
+    ]);
+    const noYear = [
+      { player_id: 'a', nickname: 'Pip', level: 'L1' },
+      { player_id: 'b', nickname: 'Pip', level: 'L1' }
+    ];
+    expect(noYear.map((k) => connectLabel(k, noYear))).toEqual([S.connectAs('Pip · 1'), S.connectAs('Pip · 2')]);
+    expect(signupErrorText(new StudentApiError(409, 'nickname_own_child', { error: 'nickname_own_child', player_id: null, nickname: 'Momo' }))).toBe(S.errOwnChildTwo('Momo'));
   });
 
   it('first screen: who signs in, the lesson code path stays one tap away', () => {

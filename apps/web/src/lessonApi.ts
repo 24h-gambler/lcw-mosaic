@@ -73,6 +73,46 @@ export interface LiveLessonRow {
   world_seen_at?: number | null;
 }
 
+/** GET /v1/admin/lessons/live `auto_closed` row: closed by the server's idle sweep, report not sent yet. */
+export interface AutoClosedLessonRow {
+  lesson_id: string;
+  player_id: string;
+  nickname: string;
+  plan_id: string;
+  started_at: number;
+  /** The last sign of life (the sweep ends the lesson there). */
+  ended_at: number;
+  closed_at: number;
+  stage_id: string | null;
+  utterances: number;
+  passes: number;
+  draft_summary_ko: string | null;
+}
+
+export interface LiveLessonsResult {
+  lessons: LiveLessonRow[];
+  /** Absent on an older server. */
+  auto_closed?: AutoClosedLessonRow[];
+  server_now: number;
+}
+
+/** An auto-closed lesson opened on this console: no code to show, the report form instead (server times as they are). */
+export function recordFromAutoClosed(row: AutoClosedLessonRow): DirectorLessonRecord {
+  return {
+    lesson_id: row.lesson_id,
+    join_code: '',
+    expires_at: 0,
+    plan_id: row.plan_id,
+    player_id: row.player_id,
+    nickname: row.nickname,
+    started_at: row.started_at,
+    stage_id: row.stage_id,
+    stage_started_at: null,
+    stage_ms: {},
+    report_path: null
+  };
+}
+
 /**
  * A running lesson as this console's record. The console counts elapsed time on its own clock, so server times move
  * by (client now − server now): another device's clock being off does not show a wrong stage time.
@@ -108,6 +148,10 @@ export interface StartLessonResult {
   join_code: string;
   expires_at: number;
   plan: LessonPlan;
+  /** Where the lesson starts: a continued lesson starts at the stage the child left off (absent on an older server). */
+  stage_id?: string;
+  /** The auto-closed lesson of today this one continues; its report goes out with this one. */
+  continues_from?: string | null;
 }
 
 export interface StagePushInput {
@@ -169,6 +213,12 @@ export interface LessonFeed {
     ended_at: number | null;
     stage_id: string | null;
     targets: string[];
+    /** 'auto_idle': closed by the server's idle sweep (absent on an older server). */
+    end_reason?: 'auto_idle' | null;
+    /** The auto-closed lesson's report waits for the teacher's send. */
+    report_pending?: boolean;
+    draft_summary_ko?: string | null;
+    continues_from?: string | null;
   };
   utterances: FeedUtterance[];
   pins: FeedPin[];
@@ -178,6 +228,8 @@ export interface LessonFeed {
 export interface EndLessonInput {
   teacher_comment?: string;
   next_lesson_at?: string;
+  /** An auto-closed lesson's report goes to the guardian only with this (the teacher pressed send). */
+  send?: boolean;
 }
 
 export interface EndLessonResult {
@@ -359,7 +411,7 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       request<{ revoked: number }>('POST', '/v1/admin/operator-sessions/revoke', op, input),
     listStudents: (op: string) => request<AdminStudent[]>('GET', '/v1/admin/students', op),
     liveLessons: (op: string, includeTest = false) =>
-      request<{ lessons: LiveLessonRow[]; server_now: number }>('GET', `/v1/admin/lessons/live${includeTest ? '?include_test=1' : ''}`, op),
+      request<LiveLessonsResult>('GET', `/v1/admin/lessons/live${includeTest ? '?include_test=1' : ''}`, op),
     createPlayer: (op: string, input: CreatePlayerInput) =>
       request<{ ok: boolean }>('POST', '/v1/admin/players', op, input),
     startLesson: (op: string, input: { player_id: string; plan_id?: string; presence?: boolean }) =>

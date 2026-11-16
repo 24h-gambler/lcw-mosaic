@@ -43,6 +43,8 @@ export interface FeedStudentView {
   ui: '3d' | 'cards' | null;
   /** The child's one-time mic check (talk lane); absent on an older server. */
   mic?: 'ok' | 'quiet' | 'none' | 'skipped' | null;
+  /** The last mic error on the child's device with the browser's own code (talk lane PR 122); absent on an older server. */
+  mic_issue?: { issue: string; raw: string; at: number } | null;
   expected_scene_id: string | null;
   goal_ko: string;
   targets: string[];

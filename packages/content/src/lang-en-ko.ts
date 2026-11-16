@@ -1092,6 +1092,22 @@ export const NPC_OPENING_LINES: Record<string, string> = {
   exchange: 'What would you like to sell today?'
 };
 
+/**
+ * What the NPC says when the child comes back (R2625, Dan 11-16: the same line every visit made the town feel stuck).
+ * Visit 1 hears NPC_OPENING_LINES, later visits go round these. Each still asks what the window offers, so the
+ * sentences under it fit (an order at the cafe, a trade at the shop, a place for the guide).
+ */
+export const NPC_REVISIT_LINES: Record<string, readonly string[]> = {
+  cafe: ['Welcome back! What can I get you this time?', 'Hi again! Are you thirsty? What would you like?', 'Oh, it is you! Do you want to try something new today?'],
+  trade_shop: ['Welcome back! Do you have something to trade?', 'Hi again! Do you want to see what I have today?', 'Oh, hello! What are you looking for this time?'],
+  guide: ['Hi again! Where do you want to go this time?', 'Hello! Do you need help finding a place?', 'You are back! Where should we go now?'],
+  makers_lab: ['Welcome back! What should I build for you this time?'],
+  boutique: ['Hi again! What do you want to wear this time?'],
+  exchange: ['Welcome back! What do you want to sell this time?'],
+  /** The errand giver once no errand runs (done, or a guest): she points the way like the guide (dialog/errand.ts). */
+  errand: ['Hi again! Where do you want to go next?', 'Hello, friend! Do you want to visit the trade shop or the cafe?', 'Hi! Do you need help finding a place?']
+};
+
 export const OPEN_ENDED_PROMPTS = [
   'Why do you need it?',
   'What will you do next?',
@@ -1172,6 +1188,7 @@ export const UI_STRINGS_KO = {
     micStop: '다 말했어요',
     micListening: '듣고 있어요…',
     micHangover: '다 말했으면 한 번 더 눌러요',
+    timeLeft: '{n}초 남았어요 — 문장을 마무리해 봐요',
     processing: '확인하는 중',
     processingSlow: '거의 다 됐어요',
     mySpeech: '내 말',
@@ -1212,6 +1229,11 @@ export const UI_STRINGS_KO = {
     priceAria: '{coins}코인',
     freePrompt: '하고 싶은 말을 영어로 해 봐요. 한국어를 섞어도 괜찮아요!',
     ideas: '이런 말도 할 수 있어요',
+    /** A follow-up question in the same window (R2625: the NPC asks the next thing, never the same line again). */
+    followUpHint: '내 생각을 영어로 자유롭게 말해 봐요. 짧아도 괜찮아요!',
+    followUpSkip: '다음으로',
+    openAnswerOk: '좋은 대답이에요!',
+    openAnswerShort: '조금만 더 길게 말해 볼까요?',
     coins: '코인',
     stars: '별',
     hintLevel: {
@@ -1256,7 +1278,13 @@ export const UI_STRINGS_KO = {
     goalDone: '심부름 끝! 50코인을 받았어요',
     walkCafe: '카페로 걸어가기',
     walkGiver: '{giver}에게 가기',
-    rewardToast: '+{coins} 코인! 심부름 완료'
+    rewardToast: '+{coins} 코인! 심부름 완료',
+    /** Town goals after the errand (dialog/goals.ts, R2625): {guide}/{shop}/{cafe} are cast pack names. */
+    goalAskWay: '광장의 {guide}에게 교환 상점 가는 길을 물어봐요',
+    goalTrade: '교환 상점 {shop}와 물건을 바꾸거나 사 봐요',
+    goalCafeStars: '꿀벌 카페 {cafe}에게 ★★ 이상 문장으로 주문해 봐요',
+    goalTourDone: '마을을 다 돌아봤어요! 이제 누구와도 이야기해 봐요',
+    goalStepToast: '목표 완료! 다음 목표가 생겼어요'
   },
   /** Memory-card review (docs/03 D8, docs/08 6장 "복습 징후": a small lightning mark, never a scolding). */
   review: {

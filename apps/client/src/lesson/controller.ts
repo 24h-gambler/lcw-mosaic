@@ -20,6 +20,7 @@ import { SubmitError } from '../dialog/submit.js';
 import {
   LessonHttpError,
   loadStudentSession,
+  readLessonMicIssue,
   readLessonMicStatus,
   readUtteranceSubmit,
   saveStudentSession,
@@ -313,7 +314,8 @@ export class LessonController {
         cursor: this.cursor,
         scene: this.view.sceneId ?? undefined,
         ui: this.opts.ui ?? '3d',
-        mic: readLessonMicStatus()
+        mic: readLessonMicStatus(),
+        micIssue: readLessonMicIssue()
       });
       if (run !== this.run) return;
       this.retryMs = LESSON_POLL_MS;

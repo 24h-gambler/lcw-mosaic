@@ -53,5 +53,7 @@ tag = "v2"
 new_sqlite_classes = ["WorldRoomDO"]
 
 [triggers]
-# docs/09 §2: daily 03:00 UTC retention, hourly report reminders/quota, Monday 06:00 weekly reports
-crons = ["0 3 * * *", "0 * * * *", "0 6 * * 1"]
+# docs/09 §2: daily 03:00 UTC retention, Monday 06:00 weekly reports, and every 5 minutes the abandoned-lesson sweep
+# (lesson-mode.ts LESSON_IDLE_CLOSE_MS), which runs the hourly tasks ('0 * * * *': report reminders, quota, push) at
+# minute 0 (platform.ts scheduled) so the account stays at three triggers.
+crons = ["0 3 * * *", "*/5 * * * *", "0 6 * * 1"]

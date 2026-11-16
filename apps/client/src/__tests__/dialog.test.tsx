@@ -16,7 +16,7 @@ import {
   renderHintTokens,
   spokenOffer
 } from '../dialog/hints.js';
-import { FIRST_SPEECH_WAIT_MS, MAX_TURN_MS, MIC_FRAME_MS, MicController, STOP_GRACE_MS, type Clock, type MicView } from '../dialog/mic-controller.js';
+import { FIRST_SPEECH_WAIT_MS, HARD_TURN_MS, MAX_TURN_MS, MIC_FRAME_MS, PAUSE_AT_CAP_MS, MicController, STOP_GRACE_MS, type Clock, type MicView } from '../dialog/mic-controller.js';
 import {
   createBrowserSpeechEngine,
   createScriptedSpeechEngine,
@@ -223,7 +223,7 @@ describe('dialog microphone (docs/08 7.1, docs/12 9)', () => {
     expect(c.recording).toBe(false);
   });
 
-  it('ends the turn after 6 s of nothing and never runs past 12 s', () => {
+  it('ends the turn after 6 s of nothing; a speaking child is never cut at the soft cap, only at a pause or 60 s', () => {
     const clock = fakeClock();
     const m = manualEngine();
     const finals: Array<string | null> = [];
@@ -233,12 +233,32 @@ describe('dialog microphone (docs/08 7.1, docs/12 9)', () => {
     expect(m.stopped).toContain('stop');
     const c2 = new MicController(m.engine, { onView: () => {}, onFinal: (r) => finals.push(r?.transcript ?? null), onIssue: () => {} }, clock);
     c2.tap();
-    for (let i = 0; i < 200; i++) {
+    // Oreo lesson 11-16: three sentences (~20 s) were cut at 12 s. Speaking without a pause for 50 s: still recording
+    // past the 45 s soft cap, the seconds left showed before it.
+    const views: Array<{ recording: boolean; secondsLeft?: number }> = [];
+    const c3 = new MicController(m.engine, { onView: (v) => views.push(v), onFinal: (r) => finals.push(r?.transcript ?? null), onIssue: () => {} }, clock);
+    c2.dispose();
+    c3.tap();
+    for (let i = 0; i < 500; i++) {
       m.cb().onInterim(`word ${i}`);
       clock.advance(MIC_FRAME_MS);
     }
-    expect(finals.length).toBe(2);
-    expect(MAX_TURN_MS).toBe(12_000);
+    expect(MAX_TURN_MS).toBe(45_000);
+    expect(views.at(-1)?.recording).toBe(true);
+    expect(views.some((v) => v.secondsLeft === 10)).toBe(true);
+    expect(views.some((v) => v.secondsLeft === 1)).toBe(true);
+    // the first pause past the soft cap ends it
+    clock.advance(PAUSE_AT_CAP_MS + MIC_FRAME_MS);
+    expect(m.stopped.filter((x) => x === 'stop').length).toBeGreaterThanOrEqual(2);
+    // and nothing runs past the hard stop even without a pause
+    const c4 = new MicController(m.engine, { onView: () => {}, onFinal: (r) => finals.push(r?.transcript ?? null), onIssue: () => {} }, clock);
+    c4.tap();
+    const before = m.stopped.length;
+    for (let i = 0; i < HARD_TURN_MS / MIC_FRAME_MS + 5; i++) {
+      m.cb().onInterim(`talk ${i}`);
+      clock.advance(MIC_FRAME_MS);
+    }
+    expect(m.stopped.length).toBeGreaterThan(before);
   });
 
   it('a tap while the stopped session is still finishing is ignored; a late old result never kills the new session', () => {

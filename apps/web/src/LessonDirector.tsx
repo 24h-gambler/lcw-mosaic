@@ -18,7 +18,10 @@ import {
   saveDirectorLesson,
   saveOperatorToken,
   recordFromLive,
+  recordFromAutoClosed,
   type AdminStudent,
+  type AutoClosedLessonRow,
+  type LiveLessonsResult,
   type ConsoleSeat,
   type DirectorLessonRecord,
   type FeedLive,
@@ -67,6 +70,7 @@ import { SignupQueue, type SignupQueueProps } from './DirectorSignups.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 import { TeacherModeHelp, TeacherPresenceBox } from './teacherPresence.js';
+import { A } from './autoCloseStrings.js';
 
 const S = LESSON_STRINGS_KO.director;
 
@@ -74,6 +78,17 @@ const PLAN_KEY = 'lcw.director.plan';
 /** `/director?include_test=1`: smoke and demo students' lessons show on the resume card too (production checks). */
 export function includeTestLessons(search: string = typeof location === 'undefined' ? '' : location.search): boolean {
   return new URLSearchParams(search).get('include_test') === '1';
+}
+
+/**
+ * `/director?auto=<lesson id>` (the hub card of a lesson the server closed as 'left without ending'): that row of the
+ * '자동 마무리된 수업' box is marked and its button focused; `&next=continue` focuses '이어 하기' instead of the report.
+ */
+export function autoCloseFocus(search: string = typeof location === 'undefined' ? '' : location.search): { lessonId: string; next: 'report' | 'continue' } | null {
+  const q = new URLSearchParams(search);
+  const id = q.get('auto');
+  if (!id || !/^les-[\w-]{1,60}$/.test(id)) return null;
+  return { lessonId: id, next: q.get('next') === 'continue' ? 'continue' : 'report' };
 }
 
 /** How often the first screen re-reads running lessons (another device may start one). */
@@ -108,8 +123,8 @@ export interface LessonDirectorConsoleProps {
   initialStudents?: AdminStudent[];
   /** Seats for the student rows' badges and controls; undefined → fetched (GET /v1/admin/seats). */
   initialSeats?: ConsoleSeat[];
-  /** Running lessons for the resume card; undefined → fetched. */
-  initialLive?: { lessons: LiveLessonRow[]; server_now: number };
+  /** Running lessons for the resume card (and auto-closed ones for their box); undefined → fetched. */
+  initialLive?: LiveLessonsResult;
   initialFeed?: LessonFeed;
   now?: () => number;
   /** The sign-up approval queue: false hides it; an object passes its test doubles. */
@@ -456,10 +471,10 @@ function StudentPicker({
   onAuthError: (code: string) => void;
   initialStudents: AdminStudent[] | undefined;
   initialSeats: ConsoleSeat[] | undefined;
-  initialLive: { lessons: LiveLessonRow[]; server_now: number } | undefined;
+  initialLive: LiveLessonsResult | undefined;
   onStarted: (rec: DirectorLessonRecord) => void;
 }): React.ReactElement {
-  const [live, setLive] = useState<{ lessons: LiveLessonRow[]; server_now: number; at: number } | null>(
+  const [live, setLive] = useState<(LiveLessonsResult & { at: number }) | null>(
     initialLive ? { ...initialLive, at: now() } : null
   );
   const liveGone = useRef(false);
@@ -518,12 +533,13 @@ function StudentPicker({
     if (!initialStudents) void load();
   }, [load, initialStudents]);
 
-  const start = async (s: AdminStudent) => {
+  const start = async (s: Pick<AdminStudent, 'player_id' | 'nickname'>, planOverride?: string) => {
     setStartingId(s.player_id);
     setStartError(null);
     try {
-      // presence: this console beats (teacherPresence.tsx), so the start is the first beat.
-      const res = await api.startLesson(token, { player_id: s.player_id, plan_id: planId, presence: true });
+      // presence: this console beats (teacherPresence.tsx), so the start is the first beat. A start for a student whose
+      // lesson the server auto-closed today continues that lesson (stage_id: where the child left off).
+      const res = await api.startLesson(token, { player_id: s.player_id, plan_id: planOverride ?? planId, presence: true });
       const t = now();
       onStarted({
         lesson_id: res.lesson_id,
@@ -533,8 +549,8 @@ function StudentPicker({
         player_id: s.player_id,
         nickname: s.nickname,
         started_at: t,
-        // The server puts the first stage with all its sentences on the student screen at start.
-        stage_id: res.plan?.stages?.[0]?.id ?? planById(res.plan?.id).stages[0]!.id,
+        // The server puts the first stage (or, continuing, the stage the child left off) on the student screen at start.
+        stage_id: res.stage_id ?? res.plan?.stages?.[0]?.id ?? planById(res.plan?.id).stages[0]!.id,
         stage_started_at: t,
         stage_ms: {},
         report_path: null
@@ -573,6 +589,15 @@ function StudentPicker({
             })}
           </div>
         </Box>
+      ) : null}
+      {live?.auto_closed && live.auto_closed.length > 0 ? (
+        <AutoClosedBox
+          rows={live.auto_closed}
+          startingId={startingId}
+          startError={startError}
+          onOpen={(r) => onStarted(recordFromAutoClosed(r))}
+          onContinue={(r) => void start({ player_id: r.player_id, nickname: r.nickname }, r.plan_id)}
+        />
       ) : null}
       <Box
         title={S.studentsTitle}
@@ -959,7 +984,12 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
           {`${feedError} ${S.feedStale(feedFails)}`}
         </Notice>
       ) : null}
-      {ended && !lesson.report_path ? <Notice kind="info">{S.endedElsewhereHelp}</Notice> : null}
+      {ended && !lesson.report_path && serverLesson?.end_reason !== 'auto_idle' ? <Notice kind="info">{S.endedElsewhereHelp}</Notice> : null}
+      {serverLesson?.continues_from && !ended ? (
+        <Notice kind="info" testId="continued-note">
+          {A.continued(kstLabel(serverLesson.started_at))}
+        </Notice>
+      ) : null}
       <div
         style={{
           display: 'grid',
@@ -1116,6 +1146,8 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
             onEnded={(path) => setLesson({ ...lessonRef.current, report_path: path })}
             onReset={() => setLesson(null)}
             endedElsewhere={ended && !lesson.report_path}
+            autoPending={Boolean(serverLesson?.report_pending)}
+            draftSummary={serverLesson?.draft_summary_ko ?? null}
           />
           <NextLessonBox plan={plan} />
         </div>
@@ -1591,6 +1623,83 @@ function StagePanel({
   );
 }
 
+/** Lessons the server closed as 'left without ending' (edge LESSON_IDLE_CLOSE_MS) whose report is not sent yet. */
+function AutoClosedBox({
+  rows,
+  startingId,
+  startError,
+  onOpen,
+  onContinue
+}: {
+  rows: AutoClosedLessonRow[];
+  startingId: string | null;
+  startError: { id: string; text: string } | null;
+  onOpen: (r: AutoClosedLessonRow) => void;
+  onContinue: (r: AutoClosedLessonRow) => void;
+}): React.ReactElement {
+  const [focus] = useState(() => autoCloseFocus());
+  // The hub card's button lands here: bring that row's button into view once (Button does not forward refs).
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const b = boxRef.current?.querySelector<HTMLButtonElement>('[data-auto-focus="1"]');
+    b?.scrollIntoView?.({ block: 'center' });
+    b?.focus();
+  }, []);
+  return (
+    <Box title={A.boxTitle} tone="tinted" testId="director-auto-closed">
+      <p style={{ margin: `0 0 ${sp(2)}` }}>{A.boxHelp}</p>
+      <div ref={boxRef} style={{ display: 'grid', gap: sp(2) }}>
+        {rows.map((r) => {
+          const plan = planById(r.plan_id);
+          const marked = focus?.lessonId === r.lesson_id;
+          return (
+            <div
+              key={r.lesson_id}
+              data-testid="auto-closed-lesson"
+              data-marked={marked ? '1' : undefined}
+              style={{
+                display: 'grid',
+                gap: sp(1),
+                padding: sp(2),
+                borderRadius: 8,
+                border: marked ? `3px solid ${C['sky-d']}` : border,
+                backgroundColor: C['paper-0']
+              }}
+            >
+              <span style={{ fontWeight: 700 }}>
+                {A.line(r.nickname, plan.titleKo, kstLabel(r.started_at), kstLabel(r.ended_at), r.utterances, r.passes)}
+              </span>
+              {r.draft_summary_ko ? <span style={{ fontSize: `${T.scale.small.sizePx}px` }}>{r.draft_summary_ko}</span> : null}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
+                <Button
+                  type="button"
+                  variant="brand"
+                  data-testid={`auto-report-${r.lesson_id}`}
+                  data-auto-focus={marked && focus?.next === 'report' ? '1' : undefined}
+                  onClick={() => onOpen(r)}
+                >
+                  {A.openReport}
+                </Button>
+                <Button
+                  type="button"
+                  variant="paper"
+                  data-testid={`auto-continue-${r.lesson_id}`}
+                  data-auto-focus={marked && focus?.next === 'continue' ? '1' : undefined}
+                  disabled={startingId === r.player_id}
+                  onClick={() => onContinue(r)}
+                >
+                  {startingId === r.player_id ? A.continuing : A.continueLesson}
+                </Button>
+              </div>
+              {startError?.id === r.player_id ? <Notice>{startError.text}</Notice> : null}
+            </div>
+          );
+        })}
+      </div>
+    </Box>
+  );
+}
+
 function EndLessonBox({
   api,
   token,
@@ -1598,7 +1707,9 @@ function EndLessonBox({
   onAuthError,
   onEnded,
   onReset,
-  endedElsewhere = false
+  endedElsewhere = false,
+  autoPending = false,
+  draftSummary = null
 }: {
   api: LessonApi;
   token: string;
@@ -1608,6 +1719,9 @@ function EndLessonBox({
   onReset: () => void;
   /** Ended on another device: no new report form, only the existing link (the server hands it back) or a new lesson. */
   endedElsewhere?: boolean;
+  /** Closed by the server's idle sweep, report not sent: the comment form and an explicit send (send: true). */
+  autoPending?: boolean;
+  draftSummary?: string | null;
 }): React.ReactElement {
   const [comment, setComment] = useState('');
   const [next, setNext] = useState('');
@@ -1626,7 +1740,9 @@ function EndLessonBox({
     try {
       const res = await api.endLesson(token, lesson.lesson_id, {
         teacher_comment: comment.trim().slice(0, TEACHER_COMMENT_MAX),
-        next_lesson_at: next.trim().slice(0, NEXT_LESSON_MAX)
+        next_lesson_at: next.trim().slice(0, NEXT_LESSON_MAX),
+        // The auto-closed lesson's report goes out only on this explicit send (the teacher pressed it twice).
+        ...(autoPending ? { send: true } : {})
       });
       onEnded(res.report_path || `/r/${res.share_token}`);
     } catch (e) {
@@ -1672,6 +1788,60 @@ function EndLessonBox({
     );
   }
 
+  const commentFields = (
+    <>
+      <label style={labelStyle}>
+        {S.teacherComment}
+        <textarea
+          value={comment}
+          maxLength={TEACHER_COMMENT_MAX}
+          rows={3}
+          onChange={(e) => setComment(e.target.value)}
+          style={{ ...inputStyle, resize: 'vertical' }}
+        />
+      </label>
+      <label style={labelStyle}>
+        {S.nextLesson}
+        <input value={next} maxLength={NEXT_LESSON_MAX} onChange={(e) => setNext(e.target.value)} style={inputStyle} />
+      </label>
+    </>
+  );
+
+  if (endedElsewhere && autoPending) {
+    return (
+      <Box title={A.endedAutoTitle} testId="director-ended-auto" tone="tinted">
+        <div style={{ display: 'grid', gap: sp(2) }}>
+          <p style={{ margin: 0 }}>{A.endedAutoHelp}</p>
+          {draftSummary ? (
+            <div data-testid="auto-draft">
+              <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C['ink-700'] }}>{A.draftLabel}</span>
+              <div style={{ fontWeight: 700 }}>{draftSummary}</div>
+            </div>
+          ) : null}
+          {commentFields}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
+            <Button type="button" variant="brand" disabled={busy} onClick={() => void end()} data-testid="send-auto-report">
+              {busy ? A.sending : armed ? A.sendConfirm : A.send}
+            </Button>
+            {armed && !busy ? (
+              <Button type="button" variant="paper" onClick={() => setArmed(false)}>
+                ✕
+              </Button>
+            ) : null}
+            <Button type="button" variant="paper" onClick={onReset} data-testid="auto-back">
+              {A.backToList}
+            </Button>
+          </div>
+          {error ? (
+            <Notice onRetry={() => void end()} retryLabel={S.retry}>
+              {error}
+            </Notice>
+          ) : null}
+        </div>
+      </Box>
+    );
+  }
+
   if (endedElsewhere) {
     const fetchReport = async () => {
       setBusy(true);
@@ -1712,20 +1882,7 @@ function EndLessonBox({
   return (
     <Box title={S.endTitle} testId="director-end">
       <div style={{ display: 'grid', gap: sp(2) }}>
-        <label style={labelStyle}>
-          {S.teacherComment}
-          <textarea
-            value={comment}
-            maxLength={TEACHER_COMMENT_MAX}
-            rows={3}
-            onChange={(e) => setComment(e.target.value)}
-            style={{ ...inputStyle, resize: 'vertical' }}
-          />
-        </label>
-        <label style={labelStyle}>
-          {S.nextLesson}
-          <input value={next} maxLength={NEXT_LESSON_MAX} onChange={(e) => setNext(e.target.value)} style={inputStyle} />
-        </label>
+        {commentFields}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
           <Button type="button" variant="danger" disabled={busy} onClick={() => void end()} data-testid="end-lesson">
             {busy ? S.ending : armed ? S.endConfirm : S.endButton}

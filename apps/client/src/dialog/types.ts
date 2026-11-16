@@ -77,6 +77,10 @@ export interface UtteranceSubmit {
   clip?: Promise<Blob | null>;
 }
 
+export interface DialogDoneInfo {
+  followUpsDone: boolean;
+}
+
 export interface DialogPanelProps {
   npc: NpcRef;
   level: Level;
@@ -85,8 +89,21 @@ export interface DialogPanelProps {
   offers: DialogOffer[];
   hint: DialogHint;
   submit: (u: UtteranceSubmit) => Promise<DialogResult>;
-  onDone: (r: DialogResult) => void;
+  /**
+   * The window is finished (완료 on a result, or ✕/Esc after a pass) with its best result. With `followUps` given, the
+   * second argument says the NPC asked all of them (or the child moved past the last one) — the lesson moves on from
+   * there (R2625); without `followUps` it is left out.
+   */
+  onDone: (r: DialogResult, info?: DialogDoneInfo) => void;
   onClose: () => void;
+  /**
+   * What the NPC asks next in the same window, one per turn, after the opening line's answer passed (R2625: a window
+   * never asks the same line twice). Each is answered in the child's own words (free talk, `target_text` ''), can be
+   * skipped, and 완료 on the last one ends the window with `{ followUpsDone: true }`. An empty list ends at once.
+   */
+  followUps?: readonly string[];
+  /** Scores the follow-up answers; defaults to `submit` (the lesson route scores free talk). Solo play scores locally. */
+  followUpSubmit?: (u: UtteranceSubmit) => Promise<DialogResult>;
   /**
    * Every scored result the moment it shows (pass or not), before 좋아요: the world plays stars, coins and the item
    * then, not on close (outsider capture 2026-11-16). onDone still reports the window's best at the end.
@@ -97,6 +114,8 @@ export interface DialogPanelProps {
   fontScale?: number;
   /** false hides the sentence voice buttons (memory-card reviews from the 1-day box on, docs/03 D8). */
   listen?: boolean;
+  /** The NPC's voice and face from another ctx than `npc.ctx` (the errand giver pointing the way, dialog/errand.ts). */
+  voiceCtx?: string;
   /** Test/preview seam: replaces the browser speech engine. */
   speech?: import('./speech.js').SpeechEngine;
   /** The guardian turned voice_store on (device /v1/device/me or lesson /v1/join): record spoken turns for replay. */

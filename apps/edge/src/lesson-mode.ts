@@ -20,6 +20,29 @@ import { createMemoryCard } from './review.js';
  * utterance is scored server-side and stored like any other utterance (session_kind 'lesson').
  */
 
+/**
+ * Teacher presence (Dan 11-16: "with one PC nobody knows whether the teacher is there"). The director console beats
+ * POST /v1/admin/lessons/:id/presence every TEACHER_BEAT_MS while the lesson runs; the teacher is present while the
+ * last beat is at most TEACHER_PRESENT_MS old. The child's state carries `teacher` and the world shows a teacher tag
+ * or switches to "혼자 놀기"; each answer is stored with interlocutor 'teacher' (teacher there) or 'self' (alone).
+ * Rollout: a lesson that has never had a beat (started by a console from before this change) counts as taught for its
+ * whole life, as before. A console with this change says `presence: true` at start, which is the first beat.
+ */
+export const TEACHER_BEAT_MS = 15_000;
+export const TEACHER_PRESENT_MS = 45_000;
+export const TEACHER_NAME_DEFAULT = '선생님';
+/** 1PC panel lock: wrong numbers per lesson within PANEL_FAIL_WINDOW_MS before the unlock answers 429. */
+export const PANEL_FAILS_MAX = 5;
+export const PANEL_FAIL_WINDOW_MS = 10 * 60_000;
+export interface TeacherPresence {
+  present: boolean;
+  name: string | null;
+  since: number | null;
+  /** false: no beat ever (an old console) — present by rule, not by heartbeat. */
+  tracked: boolean;
+  panel: 'open' | 'closed' | null;
+}
+
 export const JOIN_CODE_TTL_MS = 12 * 3_600_000;
 export const STUDENT_TOKEN_TTL_MS = 12 * 3_600_000;
 /** Wrong codes one device (client IP) may try per hour; a typo-prone child never locks out other lessons. */
@@ -62,7 +85,9 @@ create table if not exists lesson_stage_log (id integer primary key autoincremen
 create index if not exists lesson_stage_log_by_lesson on lesson_stage_log (lesson_id, at);
 create table if not exists lesson_director (lesson_id text primary key, possessed_npc_id text, updated_at integer not null);
 create table if not exists lesson_presence (lesson_id text primary key, last_seen_at integer not null, scene_id text, ui text);
-create table if not exists lesson_utterance_clients (lesson_id text not null, client_id text not null, response text not null, at integer not null, primary key (lesson_id, client_id))
+create table if not exists lesson_utterance_clients (lesson_id text not null, client_id text not null, response text not null, at integer not null, primary key (lesson_id, client_id));
+create table if not exists lesson_teacher (lesson_id text primary key, first_beat_at integer not null, last_beat_at integer not null, present_since integer not null, panel text not null default 'open', op_session text, name text);
+create table if not exists lesson_panel_lock (lesson_id text primary key, pin_hash text not null, set_at integer not null, fails integer not null default 0, fail_since integer)
 `;
 
 export interface LessonModeDeps {
@@ -142,7 +167,11 @@ export function feedbackKo(r: {
   return r.stars >= r.chosen ? '통과! 다음엔 한 단계 위 문장에 도전해 볼까요?' : '통과했어요!';
 }
 
-const StartSchema = z.object({ player_id: z.string().min(1).max(64), plan_id: z.string().max(64).optional() }).strict();
+const StartSchema = z
+  .object({ player_id: z.string().min(1).max(64), plan_id: z.string().max(64).optional(), presence: z.boolean().optional() })
+  .strict();
+const PresenceSchema = z.object({ panel: z.enum(['open', 'closed']).default('open') }).strict();
+const PanelPinSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/) }).strict();
 const StageSchema = z
   .object({ stage_id: z.string().min(1).max(64), targets: z.array(z.string().min(1).max(200)).max(6) })
   .strict();
@@ -196,6 +225,53 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       'select id, player_id, started_at, ended_at, plan from lessons where id = ?',
       [id]
     );
+  /** The teacher's display name: the operator session's name when the console signed in with one, else '선생님'. */
+  const teacherNameOf = (opSession: string | null): string => {
+    if (!opSession) return TEACHER_NAME_DEFAULT;
+    try {
+      const r = d.sql.get<{ name: string | null }>('select coalesce(display_name, label) as name from operator_sessions where id = ?', [opSession]);
+      if (r?.name) return r.name.slice(0, 24);
+    } catch {
+      try {
+        const r = d.sql.get<{ name: string | null }>('select label as name from operator_sessions where id = ?', [opSession]);
+        if (r?.name) return r.name.slice(0, 24);
+      } catch {
+        /* no operator session table yet */
+      }
+    }
+    return TEACHER_NAME_DEFAULT;
+  };
+  const beat = (lessonId: string, now: number, panel: 'open' | 'closed', opSession: string | null) => {
+    const prev = d.sql.get<{ last_beat_at: number; present_since: number }>(
+      'select last_beat_at, present_since from lesson_teacher where lesson_id = ?',
+      [lessonId]
+    );
+    // A gap longer than the present window starts a new stretch of presence.
+    const since = prev && now - prev.last_beat_at <= TEACHER_PRESENT_MS ? prev.present_since : now;
+    d.sql.run(
+      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel, op_session, name) values (?, ?, ?, ?, ?, ?, ?)
+       on conflict(lesson_id) do update set last_beat_at = excluded.last_beat_at, present_since = excluded.present_since,
+         panel = excluded.panel, op_session = excluded.op_session, name = excluded.name`,
+      [lessonId, now, now, since, panel, opSession, teacherNameOf(opSession)]
+    );
+  };
+  const teacherOf = (lessonId: string, now: number): TeacherPresence => {
+    const l = lessonRow(lessonId);
+    if (!l || l.ended_at) return { present: false, name: null, since: null, tracked: true, panel: null };
+    const t = d.sql.get<{ last_beat_at: number; present_since: number; panel: string; name: string | null }>(
+      'select last_beat_at, present_since, panel, name from lesson_teacher where lesson_id = ?',
+      [lessonId]
+    );
+    if (!t) return { present: true, name: TEACHER_NAME_DEFAULT, since: l.started_at, tracked: false, panel: null };
+    const present = now - t.last_beat_at <= TEACHER_PRESENT_MS;
+    return {
+      present,
+      name: present ? (t.name ?? TEACHER_NAME_DEFAULT) : null,
+      since: present ? t.present_since : null,
+      tracked: true,
+      panel: present ? (t.panel === 'closed' ? 'closed' : 'open') : null
+    };
+  };
   const stateOf = (id: string) => {
     const s = d.sql.get<{ plan_id: string; stage_id: string; targets: string }>(
       'select plan_id, stage_id, targets from lesson_state where lesson_id = ?',
@@ -437,7 +513,81 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     );
     logStage(lessonId, first.id, now);
     setPossessed(lessonId, null);
+    // A console that beats says so at start: the start is the first beat (an old console never does: see above).
+    if (p.data.presence) beat(lessonId, now, 'open', c.req.header('x-lcw-op-session') ?? null);
     return c.json({ lesson_id: lessonId, join_code: code, expires_at: now + JOIN_CODE_TTL_MS, plan }, 201);
+  });
+
+  /*
+   * 1PC teacher panel lock. The panel opens over the child's own screen on the PC the teacher signed in on, so the
+   * operator credentials are in that browser already; the lock number keeps the child from opening it. It is checked
+   * here, never in the page, and a few wrong tries lock it for ten minutes.
+   */
+  app.post('/v1/admin/lessons/:id/panel-pin', async (c) => {
+    const id = c.req.param('id');
+    if (!lessonRow(id)) return c.json({ error: 'lesson_not_found' }, 404);
+    const p = PanelPinSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const hash = await d.sha256Hex(`panel:${id}:${p.data.pin}`);
+    d.sql.run('insert or replace into lesson_panel_lock (lesson_id, pin_hash, set_at, fails, fail_since) values (?, ?, ?, 0, null)', [
+      id,
+      hash,
+      d.nowMs()
+    ]);
+    return c.json({ ok: true });
+  });
+  app.get('/v1/admin/lessons/:id/panel-pin', (c) => {
+    const r = d.sql.get<{ set_at: number }>('select set_at from lesson_panel_lock where lesson_id = ?', [c.req.param('id')]);
+    return c.json({ set: Boolean(r), set_at: r?.set_at ?? null });
+  });
+  app.post('/v1/admin/lessons/:id/panel-unlock', async (c) => {
+    const id = c.req.param('id');
+    const p = PanelPinSchema.safeParse(await c.req.json().catch(() => ({})));
+    const hash = p.success ? await d.sha256Hex(`panel:${id}:${p.data.pin}`) : '';
+    const now = d.nowMs();
+    const lock = d.sql.get<{ pin_hash: string; fails: number; fail_since: number | null }>(
+      'select pin_hash, fails, fail_since from lesson_panel_lock where lesson_id = ?',
+      [id]
+    );
+    if (!lock) return c.json({ error: 'no_pin' }, 409);
+    const windowOpen = lock.fail_since !== null && now - lock.fail_since < PANEL_FAIL_WINDOW_MS;
+    if (windowOpen && lock.fails >= PANEL_FAILS_MAX) return c.json({ error: 'too_many_attempts' }, 429);
+    if (lock.pin_hash !== hash) {
+      d.sql.run('update lesson_panel_lock set fails = ?, fail_since = ? where lesson_id = ?', [
+        windowOpen ? lock.fails + 1 : 1,
+        windowOpen ? lock.fail_since : now,
+        id
+      ]);
+      return c.json({ error: 'wrong_pin' }, 403);
+    }
+    d.sql.run('update lesson_panel_lock set fails = 0, fail_since = null where lesson_id = ?', [id]);
+    return c.json({ ok: true });
+  });
+
+  /** The teacher steps away on purpose (1PC panel "선생님 나가기"): alone at once, not 45 s later. */
+  app.post('/v1/admin/lessons/:id/presence/leave', (c) => {
+    const id = c.req.param('id');
+    if (!lessonRow(id)) return c.json({ error: 'lesson_not_found' }, 404);
+    const now = d.nowMs();
+    const gone = now - TEACHER_PRESENT_MS - 1;
+    d.sql.run(
+      `insert into lesson_teacher (lesson_id, first_beat_at, last_beat_at, present_since, panel) values (?, ?, ?, ?, 'closed')
+       on conflict(lesson_id) do update set last_beat_at = excluded.last_beat_at`,
+      [id, gone, gone, gone]
+    );
+    return c.json({ teacher: teacherOf(id, now) });
+  });
+
+  app.post('/v1/admin/lessons/:id/presence', async (c) => {
+    const id = c.req.param('id');
+    const l = lessonRow(id);
+    if (!l) return c.json({ error: 'lesson_not_found' }, 404);
+    const p = PresenceSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    if (l.ended_at) return c.json({ error: 'lesson_ended' }, 409);
+    const now = d.nowMs();
+    beat(id, now, p.data.panel, c.req.header('x-lcw-op-session') ?? null);
+    return c.json({ teacher: teacherOf(id, now), beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
   });
 
   app.post('/v1/admin/lessons/:id/stage', async (c) => {
@@ -666,6 +816,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         targets: st?.targets ?? [],
         last_utterance: lastUtt ? { ...lastUtt, pass: Number(lastUtt.stars) > 0 } : null
       },
+      // What the child's world says about the teacher right now (the console's own heartbeat, read back).
+      teacher: teacherOf(id, now),
       server_now: now
     });
   });
@@ -881,6 +1033,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       stage_started_at: stageStartedAt,
       // The teacher's newest line as the stage NPC in this stage, however old: after a reload the first poll only
       // carries the last 20 s of lines, and the dialog window must still open with the follow-up, not the script.
+      // Whether a teacher is with the child now (console heartbeat): the world shows a teacher tag, or "혼자 놀기".
+      teacher: (({ present, name, since }) => ({ present, name, since }))(teacherOf(s.lesson_id, now)),
       stage_last_line_en:
         stageStartedAt === null
           ? null
@@ -980,7 +1134,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       session_kind: 'lesson',
       ctx: stage?.id ?? 'lesson',
       mode,
-      interlocutor: 'teacher',
+      // Fixed at arrival: with the teacher present (console heartbeat) 'teacher', the child alone 'self'.
+      interlocutor: teacherOf(s.lesson_id, now).present ? 'teacher' : 'self',
       first_text: u.transcript,
       target_text: u.target_text,
       final_text: u.transcript,

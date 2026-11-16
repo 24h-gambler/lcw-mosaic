@@ -109,7 +109,19 @@ export interface FeedLive {
   student_speaking_ms: number;
 }
 
+/** Whether a teacher is with the child (edge lesson-mode.ts TeacherPresence: the console heartbeat). */
+export interface TeacherPresence {
+  present: boolean;
+  name: string | null;
+  since: number | null;
+  /** Director feed only: false = a lesson from a console without heartbeat, present by rule. */
+  tracked?: boolean;
+  panel?: 'open' | 'closed' | null;
+}
+
 export interface LessonFeed {
+  /** Absent on an older server. */
+  teacher?: TeacherPresence;
   lesson: {
     id: string;
     player_id: string;
@@ -178,6 +190,8 @@ export interface StudentLessonState {
   stage_goal_ko?: string;
   /** The child's one coin balance (home-world ledger), same as the 3D HUD. */
   coins_balance?: number | null;
+  /** With the teacher now, or alone ("혼자 놀기"); absent on an older server = with the teacher. */
+  teacher?: TeacherPresence;
 }
 
 export interface UtteranceInput {
@@ -303,8 +317,16 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       request<{ lessons: LiveLessonRow[]; server_now: number }>('GET', `/v1/admin/lessons/live${includeTest ? '?include_test=1' : ''}`, op),
     createPlayer: (op: string, input: CreatePlayerInput) =>
       request<{ ok: boolean }>('POST', '/v1/admin/players', op, input),
-    startLesson: (op: string, input: { player_id: string; plan_id?: string }) =>
+    startLesson: (op: string, input: { player_id: string; plan_id?: string; presence?: boolean }) =>
       request<StartLessonResult>('POST', '/v1/admin/lessons/start', op, input),
+    /** Teacher heartbeat (every TEACHER_BEAT_MS while the console shows the lesson). */
+    presence: (op: string, lessonId: string, panel: 'open' | 'closed' = 'open') =>
+      request<{ teacher: TeacherPresence; beat_ms: number; present_ms: number }>(
+        'POST',
+        `/v1/admin/lessons/${enc(lessonId)}/presence`,
+        op,
+        { panel }
+      ),
     pushStage: (op: string, lessonId: string, input: StagePushInput) =>
       request<{ ok: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/stage`, op, input),
     addPin: (op: string, lessonId: string, input: PinInput) =>

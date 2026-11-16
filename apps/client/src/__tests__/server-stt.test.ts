@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { MicController, type Clock } from '../dialog/mic-controller.js';
+import { readMicIssue, readMicTurns, resetMicStatusForTest } from '../dialog/mic-status.js';
 import { createDialogSpeechEngine, createServerSpeechEngine, pickRecorderType, SERVER_STT_PATH, type ServerSttEnv } from '../dialog/server-stt.js';
 
 /**
@@ -65,7 +66,16 @@ class FakeRecorder {
   }
 }
 
-async function harness(opts: { level: () => number; ai?: LcwEnv['AI']; token?: string } ) {
+async function harness(opts: { level: () => number; running?: () => boolean; ai?: LcwEnv['AI']; token?: string }) {
+  // the mic status and turn count live in sessionStorage (node has none): a fresh one per harness
+  const mem = new Map<string, string>();
+  (globalThis as { sessionStorage?: unknown }).sessionStorage = {
+    getItem: (k: string) => mem.get(k) ?? null,
+    setItem: (k: string, v: string) => void mem.set(k, v),
+    removeItem: (k: string) => void mem.delete(k),
+    clear: () => mem.clear()
+  };
+  resetMicStatusForTest();
   const aiCalls: unknown[] = [];
   const p = new PlatformDO(
     { storage: fakeDurableStorage() },
@@ -85,7 +95,7 @@ async function harness(opts: { level: () => number; ai?: LcwEnv['AI']; token?: s
     isSecureContext: true,
     getUserMedia: async () => ({ getTracks: () => [{ stop: () => (tracksStopped += 1) }] }) as unknown as MediaStream,
     MediaRecorder: FakeRecorder as unknown as ServerSttEnv['MediaRecorder'],
-    createLevelMeter: () => ({ rms: opts.level, close: () => undefined }),
+    createLevelMeter: () => ({ rms: opts.level, close: () => undefined, ...(opts.running ? { running: opts.running } : {}) }),
     token: () => opts.token ?? tok,
     now: clock.now,
     every: clock.every,
@@ -134,11 +144,50 @@ describe('server Whisper engine through the mic controller and the real route', 
     h.clock.advance(7000); // first-speech wait
     await settle();
     expect(h.requests).toHaveLength(0);
-    expect(h.finals).toEqual([null]);
+    // a no-speech turn with its cause: the mic heard nothing above the voice level (R2627)
+    expect(h.finals).toEqual([]);
+    expect(h.issues).toEqual(['no_speech']);
+    expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'vad_quiet' });
+    expect(readMicTurns()).toMatchObject({ started: 1, sent: 0, lost: 1, lastLost: { cause: 'no_speech' } });
     expect(h.p.quota.getStatus(Date.now()).neuronsUsed).toBe(0);
   });
 
-  it('a bank-only day (429) closes the server rung: the panel gets "unsupported" and goes to the word cards', async () => {
+  it('a meter that cannot hear (suspended AudioContext) does not drop the turn as quiet: it is uploaded (R2627)', async () => {
+    const h = await harness({ level: () => 0, running: () => false });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(2000);
+    h.ctrl.tap(); // the child taps to finish
+    await settle();
+    expect(h.requests).toHaveLength(1);
+    expect(h.finals).toEqual([{ transcript: 'Cold water, please.', confidence: expect.any(Number) }]);
+  });
+
+  it('Whisper hears no words in a voiced turn: no_speech with its own cause, not a silent null', async () => {
+    const h = await harness({ level: () => 0.1, ai: { run: async () => ({ text: '  ', segments: [] }) } as unknown as LcwEnv['AI'] });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(1000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.requests).toHaveLength(1);
+    expect(h.issues).toEqual(['no_speech']);
+    expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'stt_empty' });
+  });
+
+  it('a failed model call says try again (stt_failed, http_502), never "no mic"', async () => {
+    const h = await harness({ level: () => 0.1, ai: { run: async () => { throw new Error('boom'); } } as unknown as LcwEnv['AI'] });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(1000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.issues).toEqual(['stt_failed']);
+    expect(readMicIssue()).toMatchObject({ issue: 'stt_failed', raw: 'http_502' });
+    expect(sessionStorage.getItem('lcw.micStatus')).not.toBe('none');
+  });
+
+  it('a bank-only day (429) closes the server rung: the panel gets "quota" (word cards), the console does not read "no mic"', async () => {
     const h = await harness({ level: () => 0.1 });
     await h.p.fetch(new Request('https://lcw.test/v1/admin/quota', { method: 'POST', headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ daily_neurons: 0 }) }));
     h.ctrl.tap();
@@ -147,8 +196,11 @@ describe('server Whisper engine through the mic controller and the real route', 
     h.ctrl.tap(); // second tap ends the turn
     await settle();
     expect(h.requests).toHaveLength(1);
-    expect(h.issues).toEqual(['unsupported']);
+    expect(h.issues).toEqual(['quota']);
     expect(h.aiCalls).toHaveLength(0);
+    expect(readMicIssue()).toMatchObject({ issue: 'quota', raw: 'http_429' });
+    expect(sessionStorage.getItem('lcw.micStatus')).not.toBe('none');
+    expect(readMicTurns()).toMatchObject({ started: 1, lost: 1, lastLost: { cause: 'quota' } });
   });
 
   it('closing the window mid-turn uploads nothing and releases the mic', async () => {

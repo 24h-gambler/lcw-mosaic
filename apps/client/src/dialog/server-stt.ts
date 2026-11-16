@@ -38,7 +38,7 @@ export interface ServerSttEnv {
   getUserMedia?: (c: MediaStreamConstraints) => Promise<MediaStream>;
   MediaRecorder?: RecorderCtor;
   /** Level meter for the auto-stop; without it every frame counts as speech until the 12 s turn cap. */
-  createLevelMeter?: (stream: MediaStream) => { rms(): number; close(): void } | null;
+  createLevelMeter?: (stream: MediaStream) => LevelMeter | null;
   fetch: typeof fetch;
   token: () => string;
   now: () => number;
@@ -53,12 +53,25 @@ function readDeviceToken(): string {
   }
 }
 
-function browserLevelMeter(stream: MediaStream): { rms(): number; close(): void } | null {
+/**
+ * `running() === false`: the meter cannot hear (its AudioContext is suspended, so it reads 0 whatever the child says).
+ * The turn then goes on as if there were no meter (every frame counts as speech, the child taps to finish), so the
+ * words are sent instead of dropped as "quiet" (R2627 lost turns).
+ */
+export interface LevelMeter {
+  rms(): number;
+  close(): void;
+  running?(): boolean;
+}
+
+function browserLevelMeter(stream: MediaStream): LevelMeter | null {
   const Ctx = (globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ??
     (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!Ctx) return null;
   try {
     const ctx = new Ctx();
+    // Made after getUserMedia resolved, outside the tap: some browsers start it suspended and it then reads 0.
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
     const src = ctx.createMediaStreamSource(stream);
     const an = ctx.createAnalyser();
     an.fftSize = 1024;
@@ -71,6 +84,7 @@ function browserLevelMeter(stream: MediaStream): { rms(): number; close(): void 
         for (let i = 0; i < buf.length; i++) s += buf[i]! * buf[i]!;
         return Math.sqrt(s / buf.length);
       },
+      running: () => ctx.state === 'running',
       close() {
         src.disconnect();
         void ctx.close().catch(() => undefined);
@@ -123,7 +137,7 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
       let stopRequested = false;
       let rec: RecorderLike | null = null;
       let stream: MediaStream | null = null;
-      let meter: { rms(): number; close(): void } | null = null;
+      let meter: LevelMeter | null = null;
       let stopTick: (() => void) | null = null;
       let voiced = false;
       let tick = 0;
@@ -137,9 +151,10 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
         for (const t of stream?.getTracks() ?? []) t.stop();
         stream = null;
       };
-      const fail = (issue: MicIssue) => {
+      // `raw` names what failed (the console and lcw.micIssue keep it): 'http_429', 'fetch', 'vad_quiet', ...
+      const fail = (issue: MicIssue, raw?: string) => {
         release();
-        if (!aborted) cb.onError(issue);
+        if (!aborted) cb.onError(issue, raw);
       };
       const upload = async (blob: Blob, ms: number) => {
         let res: Response;
@@ -155,16 +170,22 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
             body: blob
           });
         } catch {
-          return fail('network');
+          return fail('network', 'fetch');
         }
         if (aborted) return;
-        // Refused by the meter, no model, or not a child's token: the server path is closed for now → word cards.
-        if (res.status === 429 || res.status === 503 || res.status === 401 || res.status === 403 || res.status === 413 || res.status === 415) return fail('unsupported');
-        if (!res.ok) return fail('network');
+        // R2627: each refusal says what it was. The daily meter (429) is a pause, not "no mic": word cards for this
+        // window, and the console reads 'quota' rather than "no mic". No model / not a child's token / a format the
+        // server does not take: the server path is closed here → word cards. Too long or a failed model call: say again.
+        const code = `http_${res.status}`;
+        if (res.status === 429) return fail('quota', code);
+        if (res.status === 503 || res.status === 401 || res.status === 403 || res.status === 415) return fail('unsupported', code);
+        if (res.status === 413 || res.status >= 500 || !res.ok) return fail('stt_failed', code);
         const j = (await res.json().catch(() => null)) as { transcript?: unknown; confidence?: unknown } | null;
         const text = typeof j?.transcript === 'string' ? j.transcript.trim() : '';
         const confidence = typeof j?.confidence === 'number' ? j.confidence : 0.7;
-        cb.onEnd(text ? { transcript: text, confidence } : null);
+        // Whisper heard no words in a voiced recording: a no-speech turn the console can tell from a quiet mic.
+        if (!text) return fail('no_speech', 'stt_empty');
+        cb.onEnd({ transcript: text, confidence });
       };
 
       void (async () => {
@@ -172,7 +193,8 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
           stream = await env.getUserMedia!({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
         } catch (err) {
           const name = (err as { name?: string })?.name ?? '';
-          return fail(name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : 'unsupported');
+          const raw = `gum_${name.replace(/[^A-Za-z]/g, '').toLowerCase().slice(0, 30) || 'error'}`;
+          return fail(name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : 'unsupported', raw);
         }
         if (aborted) return release();
         const R = env.MediaRecorder!;
@@ -180,7 +202,7 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
         try {
           rec = new R(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 16_000 });
         } catch {
-          return fail('unsupported');
+          return fail('unsupported', 'recorder');
         }
         rec.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -190,15 +212,18 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
           const type = rec?.mimeType || mimeType || 'audio/webm';
           release();
           if (aborted) return;
+          // Nothing recorded at all: the recorder gave no data (a broken capture), not a quiet child.
+          if (chunks.length === 0) return fail('no_speech', 'no_audio');
           // Nothing above the voice level: no upload, nothing charged (the panel says it did not hear).
-          if (!voiced || chunks.length === 0) return cb.onEnd(null);
+          if (!voiced) return fail('no_speech', 'vad_quiet');
           void upload(new Blob(chunks, { type }), ms);
         };
         meter = env.createLevelMeter?.(stream) ?? null;
         startedAt = env.now();
         rec.start();
         stopTick = env.every(FRAME_MS, () => {
-          const loud = meter ? meter.rms() >= VOICE_RMS : true;
+          const hears = meter && meter.running?.() !== false;
+          const loud = hears ? meter!.rms() >= VOICE_RMS : true;
           if (!loud) return;
           voiced = true;
           tick += 1;
@@ -238,9 +263,9 @@ export function createDialogSpeechEngine(): SpeechEngine {
     start(cb) {
       return server.start({
         ...cb,
-        onError(issue) {
-          if (issue === 'unsupported') clearRecognitionCuts();
-          cb.onError(issue);
+        onError(issue, raw) {
+          if (issue === 'unsupported' || issue === 'quota') clearRecognitionCuts();
+          cb.onError(issue, raw);
         }
       });
     }

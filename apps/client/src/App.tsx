@@ -57,6 +57,8 @@ export interface DialogResultLike {
   practice?: boolean;
   /** First-visit errand step this answer moved (server state, docs/03 D1). */
   errand?: { state: ErrandState; rewardCoins?: number };
+  /** A lesson goal said again: it already has its stars, so nothing is celebrated (R2627). */
+  repeat?: boolean;
 }
 
 type ErrandState = 'offered' | 'accepted' | 'carrying' | 'done';
@@ -225,6 +227,8 @@ export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveI
   const given = new Set<string>();
   return (r) => {
     if (typeof r.coinsTotal === 'number') world.setCoins?.(r.coinsTotal);
+    // R2627: saying a lesson goal again earns nothing, so no star flies to the chip (Oreo got ★ after ★ for one line)
+    if (r.pass && r.repeat) return;
     if (r.pass) {
       const stars = Math.max(1, Math.min(3, Math.round(r.stars))) as 1 | 2 | 3;
       if (stars > best) {

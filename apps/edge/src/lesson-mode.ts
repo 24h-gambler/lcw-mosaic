@@ -25,6 +25,7 @@ import { buildLessonParentFacts, mergeLessonParentFacts } from './parent-report.
 import { createMemoryCard } from './review.js';
 import { enqueueLessonEnd, mountOpsCardRoutes } from './ops-cards.js';
 import { isTestPlayerId } from './nickname.js';
+import { starsOnce, type PassedBefore } from './lesson-stars.js';
 
 /**
  * Lesson mode (docs/18): a real lesson without the 3D world. The teacher (operator token) starts a lesson and gets a
@@ -117,6 +118,16 @@ export const LCW_SITE_ORIGIN = 'https://lcw.worldwidesomething.com';
 export const LESSON_AUTO_BOX_MAX_AGE_MS = 14 * 86_400_000;
 /** The talk lane's last mic error (sessionStorage 'lcw.micIssue' = "<issue>:<browser code>|<epoch ms>", PR 122). */
 export const MIC_ISSUE_RE = /^([a-z_]{1,20}):([a-z0-9_-]{0,40})\|(\d{10,14})$/;
+/**
+ * Every mic turn's fate on the child's device (talk lane dialog/mic-status.ts 'lcw.micTurns', R2627):
+ * "<started>.<sent>.<lost>|<cause>:<epoch ms>". A lost turn is one the mic opened for that never reached this server.
+ */
+export const MIC_TURNS_RE = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})(?:\|([a-z_]{1,20}):(\d{10,14}))?$/;
+export function parseMicTurns(v: string | null | undefined): { started: number; sent: number; lost: number; last_lost: { cause: string; at: number } | null } | null {
+  const m = v ? MIC_TURNS_RE.exec(v) : null;
+  if (!m) return null;
+  return { started: Number(m[1]), sent: Number(m[2]), lost: Number(m[3]), last_lost: m[4] ? { cause: m[4], at: Number(m[5]) } : null };
+}
 
 export const LESSON_MODE_SCHEMA = `
 create table if not exists lesson_joins (code text primary key, lesson_id text not null, player_id text not null, expires_at integer not null);
@@ -133,6 +144,7 @@ create table if not exists lesson_stage_log (id integer primary key autoincremen
 create index if not exists lesson_stage_log_by_lesson on lesson_stage_log (lesson_id, at);
 create table if not exists lesson_director (lesson_id text primary key, possessed_npc_id text, updated_at integer not null);
 create table if not exists lesson_presence (lesson_id text primary key, last_seen_at integer not null, scene_id text, ui text);
+create table if not exists lesson_repeats (utterance_id text primary key, lesson_id text not null, best integer not null);
 create table if not exists lesson_utterance_clients (lesson_id text not null, client_id text not null, response text not null, at integer not null, primary key (lesson_id, client_id));
 create table if not exists lesson_teacher (lesson_id text primary key, first_beat_at integer not null, last_beat_at integer not null, present_since integer not null, panel text not null default 'open', op_session text, name text, left_at integer, account_name text);
 create table if not exists lesson_panel_lock (lesson_id text primary key, pin_hash text not null, set_at integer not null, fails integer not null default 0, fail_since integer);
@@ -208,11 +220,14 @@ type FeedbackInput = {
   mode: string;
   coreMissed?: boolean;
   typedCapped?: boolean;
+  /** This goal already passed in the stage with these stars: nothing new earned (lesson-stars.ts). */
+  repeat?: boolean;
 };
-type FeedbackKey = 'coreMissed' | 'retry' | 'typedCapped' | 'capped' | 'freeLong' | 'freeMore' | 'perfect' | 'passedTryUp' | 'passed';
+type FeedbackKey = 'repeat' | 'coreMissed' | 'retry' | 'typedCapped' | 'capped' | 'freeLong' | 'freeMore' | 'perfect' | 'passedTryUp' | 'passed';
 function feedbackKey(r: FeedbackInput): FeedbackKey {
   if (!r.pass && r.coreMissed) return 'coreMissed';
   if (!r.pass) return 'retry';
+  if (r.repeat) return 'repeat';
   if (r.typedCapped) return 'typedCapped';
   if (r.capped) return 'capped';
   if (r.mode === 'free') return r.stars >= 3 ? 'freeLong' : 'freeMore';
@@ -221,6 +236,7 @@ function feedbackKey(r: FeedbackInput): FeedbackKey {
 }
 /** The Korean line (the help line; the web join page and older clients show it). */
 export const FEEDBACK_KO: Readonly<Record<FeedbackKey, string>> = {
+  repeat: '그 말은 벌써 별을 받았어요! 이번엔 새로운 말을 해 볼까요?',
   coreMissed: '내용은 좋아요! so that · because 같은 연결어를 넣어서 한 번 더 말해 볼까요?',
   retry: '거의 다 왔어요! 화면의 문장을 보면서 한 번 더 천천히 말해 볼까요?',
   typedCapped: '좋아요! 다음엔 목소리로 말해 보면 별 3개까지 받을 수 있어요.',
@@ -233,6 +249,7 @@ export const FEEDBACK_KO: Readonly<Record<FeedbackKey, string>> = {
 };
 /** The same line in the language the child learns (Dan 11-16: the world speaks it; Korean only as the help line). */
 export const FEEDBACK_EN: Readonly<Record<FeedbackKey, string>> = {
+  repeat: 'You already got stars for that! Now say something new.',
   coreMissed: 'Nice idea! Add "so that" or "because" and say it again.',
   retry: 'Almost! Look at the sentence and say it again slowly.',
   typedCapped: 'Good! Say it with your voice next time for 3 stars.',
@@ -387,6 +404,7 @@ export function buildLessonModeApp(
   if (!teacherCols.includes('account_name')) d.sql.exec('alter table lesson_teacher add column account_name text');
   const presenceCols = d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').map((col) => col.name);
   if (!presenceCols.includes('mic_issue')) d.sql.exec('alter table lesson_presence add column mic_issue text');
+  if (!presenceCols.includes('mic_turns')) d.sql.exec('alter table lesson_presence add column mic_turns text');
   if (!d.sql.all<{ name: string }>('pragma table_info(lesson_auto_close)').some((col) => col.name === 'empty')) {
     d.sql.exec('alter table lesson_auto_close add column empty integer not null default 0');
   }
@@ -1109,13 +1127,15 @@ export function buildLessonModeApp(
     const since = Number(c.req.query('since') ?? 0) || 0;
     const nick = d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [l.player_id]);
     const st = stateOf(id);
+    // A goal said again (R2627) is stored with 0 stars: the console still shows it as said right, marked as a repeat.
+    const repeatIds = new Set(d.sql.all<{ utterance_id: string }>('select utterance_id from lesson_repeats where lesson_id = ?', [id]).map((r) => r.utterance_id));
     const utterances = d.sql
       .all<Record<string, unknown>>(
         `select id, created_at as at, target_text, final_text as transcript, stars, score, hint_level, mode
          from utterances where session_id = ? and created_at > ? order by created_at`,
         [id, since]
       )
-      .map((u) => ({ ...u, pass: Number(u.stars) > 0 }));
+      .map((u) => (repeatIds.has(String(u.id)) ? { ...u, pass: true, repeat: true } : { ...u, pass: Number(u.stars) > 0 }));
     const pins = d.sql.all('select id, kind, at_ms, note from pins where lesson_id = ? order by at_ms', [id]);
     const live = d.sql.get<Record<string, number>>(
       `select count(*) as utterances, coalesce(sum(case when stars > 0 then 1 else 0 end), 0) as passes,
@@ -1125,8 +1145,15 @@ export function buildLessonModeApp(
       [id]
     );
     const now = d.nowMs();
-    const presence = d.sql.get<{ last_seen_at: number; scene_id: string | null; ui: string | null; mic: string | null; mic_issue: string | null }>(
-      'select last_seen_at, scene_id, ui, mic, mic_issue from lesson_presence where lesson_id = ?',
+    const presence = d.sql.get<{
+      last_seen_at: number;
+      scene_id: string | null;
+      ui: string | null;
+      mic: string | null;
+      mic_issue: string | null;
+      mic_turns: string | null;
+    }>(
+      'select last_seen_at, scene_id, ui, mic, mic_issue, mic_turns from lesson_presence where lesson_id = ?',
       [id]
     );
     const micIssue = presence?.mic_issue ? MIC_ISSUE_RE.exec(presence.mic_issue) : null;
@@ -1179,6 +1206,8 @@ export function buildLessonModeApp(
         mic: presence?.mic ?? null,
         // The last mic error on the child's device with the browser's own code (PR 122 'lcw.micIssue'), null = none.
         mic_issue: micIssue ? { issue: micIssue[1]!, raw: micIssue[2]!, at: Number(micIssue[3]) } : null,
+        // Mic turns on the child's device: started / sent / lost and the last lost one's cause (R2627), null = none yet.
+        mic_turns: parseMicTurns(presence?.mic_turns),
         expected_scene_id: stage?.sceneId ?? null,
         goal_ko: stage?.studentGoalKo ?? '',
         targets: st?.targets ?? [],
@@ -1375,18 +1404,21 @@ export function buildLessonModeApp(
     const ui = c.req.query('ui');
     const mic = c.req.query('mic');
     const micIssue = c.req.query('mic_issue');
+    const micTurns = c.req.query('mic_turns');
     d.sql.run(
-      `insert into lesson_presence (lesson_id, last_seen_at, scene_id, ui, mic, mic_issue) values (?, ?, ?, ?, ?, ?)
+      `insert into lesson_presence (lesson_id, last_seen_at, scene_id, ui, mic, mic_issue, mic_turns) values (?, ?, ?, ?, ?, ?, ?)
        on conflict(lesson_id) do update set last_seen_at = excluded.last_seen_at,
          scene_id = coalesce(excluded.scene_id, lesson_presence.scene_id), ui = coalesce(excluded.ui, lesson_presence.ui),
-         mic = coalesce(excluded.mic, lesson_presence.mic), mic_issue = coalesce(excluded.mic_issue, lesson_presence.mic_issue)`,
+         mic = coalesce(excluded.mic, lesson_presence.mic), mic_issue = coalesce(excluded.mic_issue, lesson_presence.mic_issue),
+         mic_turns = coalesce(excluded.mic_turns, lesson_presence.mic_turns)`,
       [
         s.lesson_id,
         now,
         scene && /^[a-z_]{1,32}$/.test(scene) ? scene : null,
         ui === '3d' || ui === 'cards' ? ui : null,
         mic && (LESSON_MIC_STATUSES as readonly string[]).includes(mic) ? mic : null,
-        micIssue && MIC_ISSUE_RE.test(micIssue) ? micIssue : null
+        micIssue && MIC_ISSUE_RE.test(micIssue) ? micIssue : null,
+        micTurns && MIC_TURNS_RE.test(micTurns) ? micTurns : null
       ]
     );
     const live = liveForStudent(s.lesson_id, c.req.query('cursor'), now);
@@ -1514,6 +1546,15 @@ export function buildLessonModeApp(
     // Typed or card-assembled sentences are not speech: two stars at most (docs/04 §4.1, same as /v1/converse/score).
     const typedCapped = TYPED_INPUT_SOURCES.has(u.stt_source) && stars > TYPED_INPUT_MAX_STARS;
     if (typedCapped) stars = TYPED_INPUT_MAX_STARS;
+    // Stars once per goal (R2627): the stage's passes so far decide what this answer adds; the row keeps only that,
+    // so the lesson's star sum, the coins and the stage's pass count never grow from saying the same thing again.
+    const passedBefore = d.sql.all<PassedBefore>(
+      'select target_text, final_text as transcript, stars from utterances where session_id = ? and player_id = ? and ctx = ? and stars > 0',
+      [s.lesson_id, s.player_id, stage?.id ?? 'lesson']
+    );
+    const once = starsOnce(passedBefore, { pass, stars, targetText: u.target_text, transcript: u.transcript });
+    const shownStars = once.repeat ? 0 : stars;
+    stars = once.stars;
     const uttId = `utt-${s.lesson_id}-${now}-${hex(d.randomBytes(3))}`;
     d.db.logUtterance({
       id: uttId,
@@ -1543,6 +1584,9 @@ export function buildLessonModeApp(
       created_at: now
     });
     recordMinuteAt(s.lesson_id, now);
+    if (once.repeat) {
+      d.sql.run('insert or replace into lesson_repeats (utterance_id, lesson_id, best) values (?, ?, ?)', [uttId, s.lesson_id, shownStars || 0]);
+    }
     // One balance everywhere (coordinator 11-16): the ledger, credited once per utterance id.
     const coinsTotal = d.coins
       ? d.coins.credit(s.player_id, stars * COINS_PER_STAR, `lesson:${uttId}`, now)
@@ -1569,10 +1613,12 @@ export function buildLessonModeApp(
     const answer = {
       pass,
       score: Math.round(score * 1000) / 1000,
-      stars,
+      // What this answer earned on screen: a top-up shows its own stars (the row keeps the difference), a repeat 0.
+      stars: shownStars,
+      ...(once.repeat ? { repeat: true } : {}),
       // The child's screen shows feedback_en (the Korean only as the help line); a resend of an answer stored before
       // feedback_en existed finds it from the Korean line (feedbackEnFromKo).
-      ...feedbackOf({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
+      ...feedbackOf({ pass, stars: shownStars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped, repeat: once.repeat }),
       coins_total: coinsTotal,
       // This lesson's star sum right after this answer was stored: the HUD chip takes it as is (adding the answer's
       // stars to its own count could count one twice when a poll lands between the store and this answer).

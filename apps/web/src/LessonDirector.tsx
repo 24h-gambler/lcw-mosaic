@@ -57,7 +57,7 @@ import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentS
 import { LessonAudioBox } from './LessonAudioBox.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
-import { TeacherPresenceBox } from './teacherPresence.js';
+import { TeacherModeHelp, TeacherPresenceBox } from './teacherPresence.js';
 
 const S = LESSON_STRINGS_KO.director;
 
@@ -468,6 +468,7 @@ function StudentPicker({
           </div>
         ) : null}
       </Box>
+      <Box title="1PC · 2PC" testId="director-teacher-mode"><TeacherModeHelp /></Box>
       <NewStudentBox api={api} token={token} onAuthError={onAuthError} onCreated={() => void load()} />
     </div>
   );

@@ -41,6 +41,8 @@ export interface FeedStudentView {
   last_seen_at: number | null;
   scene_id: string | null;
   ui: '3d' | 'cards' | null;
+  /** The child's one-time mic check (talk lane); absent on an older server. */
+  mic?: 'ok' | 'quiet' | 'none' | 'skipped' | null;
   expected_scene_id: string | null;
   goal_ko: string;
   targets: string[];

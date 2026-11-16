@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Button } from '@lcw/ui';
 import type { LessonApi, TeacherPresence } from './lessonApi.js';
+import { Box, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { P } from './presenceStrings.js';
 
 /**
@@ -100,6 +102,83 @@ export function TeacherStatus({ teacher, failing }: { teacher: TeacherPresence |
     >
       {text}
     </p>
+  );
+}
+
+/**
+ * The console's teacher box during a lesson: beats, shows what the child's world says about the teacher, sets the 1PC
+ * lock number, and holds the 1PC/2PC help sheet.
+ */
+export function TeacherPresenceBox({
+  api,
+  token,
+  lessonId,
+  ended
+}: {
+  api: Pick<LessonApi, 'presence' | 'setPanelPin' | 'panelPinState'>;
+  token: string;
+  lessonId: string;
+  ended: boolean;
+}): React.ReactElement {
+  const { teacher, failing } = useTeacherHeartbeat({ api, token, lessonId, active: !ended });
+  const [pinSet, setPinSet] = useState<boolean | null>(null);
+  const [pin, setPin] = useState('');
+  const [pinMsg, setPinMsg] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    api
+      .panelPinState(token, lessonId)
+      .then((r) => live && setPinSet(r.set))
+      .catch(() => live && setPinSet(null));
+    return () => {
+      live = false;
+    };
+  }, [api, token, lessonId]);
+  const savePin = async () => {
+    if (!/^\d{4,6}$/.test(pin)) return setPinMsg(P.pinInvalid);
+    try {
+      await api.setPanelPin(token, lessonId, pin);
+      setPin('');
+      setPinSet(true);
+      setPinMsg(P.pinSaved);
+    } catch {
+      setPinMsg(P.pinFailed);
+    }
+  };
+  return (
+    <Box title={P.boxTitle} testId="teacher-presence-box">
+      <div style={{ display: 'grid', gap: sp(2) }}>
+        {ended ? null : <TeacherStatus teacher={teacher} failing={failing} />}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void savePin();
+          }}
+          style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'end' }}
+        >
+          <label style={{ ...labelStyle, flex: '0 1 200px' }}>
+            {pinSet ? P.pinChange : P.pinLabel}
+            <input
+              data-testid="panel-pin-input"
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={6}
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D+/g, ''))}
+              style={inputStyle}
+            />
+          </label>
+          <Button type="submit" variant="paper">
+            {P.pinSave}
+          </Button>
+          <span data-testid="panel-pin-state" style={{ fontSize: 14 }}>
+            {pinMsg ?? (pinSet ? P.pinIsSet : pinSet === false ? P.pinNotSet : '')}
+          </span>
+        </form>
+        <TeacherModeHelp />
+      </div>
+    </Box>
   );
 }
 

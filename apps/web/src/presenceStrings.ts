@@ -4,6 +4,15 @@ export const P = {
   consolePresent: '학생 화면: 선생님과 함께 (이 콘솔이 켜져 있는 동안)',
   consoleAbsent: '학생 화면: 혼자 놀기 — 콘솔 신호가 끊겼어요',
   consoleBeatFailing: '선생님 신호를 못 보냈어요. 인터넷을 확인하세요 — 45초가 지나면 학생 화면이 혼자 놀기로 바뀌어요',
+  boxTitle: '선생님 표시 · 1PC 잠금',
+  pinLabel: '1PC 잠금 번호 (4~6자리)',
+  pinChange: '1PC 잠금 번호 바꾸기',
+  pinSave: '번호 저장',
+  pinSaved: '저장했어요. 학생 화면의 선생님 패널은 이 번호로 열려요.',
+  pinFailed: '저장하지 못했어요. 다시 눌러 주세요.',
+  pinInvalid: '숫자 4~6자리로 넣어 주세요.',
+  pinIsSet: '번호가 정해져 있어요.',
+  pinNotSet: '1PC 로 한다면 번호를 정해 두세요 (2PC 는 필요 없어요).',
   helpSummary: '1PC 로 할 때 / 2PC 로 할 때',
   help2pcTitle: '2PC 로 할 때 (선생님 기기 하나, 학생 기기 하나)',
   help2pc: [
@@ -21,6 +30,9 @@ export const P = {
     '자리를 비울 때는 패널의 「선생님 나가기」를 누르세요. 학생 화면이 「혼자 놀기」가 됩니다.'
   ],
   helpAlone: '「혼자 놀기」 동안 아이가 한 말도 기록되고, 기록에는 수업(선생님과 함께)과 혼자가 나뉘어 남습니다.',
+  /** Director student row: the child's one-time mic check on the lesson device. */
+  mic: (m: 'ok' | 'quiet' | 'none' | 'skipped' | null): string =>
+    `마이크: ${m === 'ok' ? '잘 들림' : m === 'quiet' ? '작음' : m === 'none' ? '마이크 없음' : m === 'skipped' ? '안 해 봄' : '—'}`,
   // child side
   childWithTeacher: (name: string) => `${name} 함께`,
   childAlone: '혼자 놀기',

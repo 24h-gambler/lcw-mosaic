@@ -19,6 +19,9 @@ export const WORLD_STRINGS = {
   itemGot: (name: string): string => `${name}${objectParticle(name)} 받았어요`,
   hotbarEmpty: '빈 칸',
   lessonBadge: '수업 중',
+  teacherDefault: '선생님',
+  teacherWith: (name: string): string => `👩‍🏫 ${name} 함께`,
+  solo: '혼자 놀기',
   coinsLabel: '코인',
   // Seat paused (docs/19 6장): no price or payment words on a child screen, only "tell your grown-up".
   seatPausedTitle: '지금은 혼자 놀기가 쉬는 중이에요',

@@ -31,6 +31,8 @@ import { createMemoryCard } from './review.js';
 export const TEACHER_BEAT_MS = 15_000;
 export const TEACHER_PRESENT_MS = 45_000;
 export const TEACHER_NAME_DEFAULT = '선생님';
+/** The student device's one-time mic check result (talk lane, sessionStorage 'lcw.micStatus'). */
+export const LESSON_MIC_STATUSES = ['ok', 'quiet', 'none', 'skipped'] as const;
 /** 1PC panel lock: wrong numbers per lesson within PANEL_FAIL_WINDOW_MS before the unlock answers 429. */
 export const PANEL_FAILS_MAX = 5;
 export const PANEL_FAIL_WINDOW_MS = 10 * 60_000;
@@ -218,6 +220,10 @@ function kstDayStartMs(day: string): number {
 
 export function buildLessonModeApp(d: LessonModeDeps): Hono {
   d.sql.exec(LESSON_MODE_SCHEMA);
+  // lesson_presence predates the mic column: add it once on an existing database.
+  if (!d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').some((col) => col.name === 'mic')) {
+    d.sql.exec('alter table lesson_presence add column mic text');
+  }
   const app = new Hono();
 
   const lessonRow = (id: string) =>
@@ -769,8 +775,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       [id]
     );
     const now = d.nowMs();
-    const presence = d.sql.get<{ last_seen_at: number; scene_id: string | null; ui: string | null }>(
-      'select last_seen_at, scene_id, ui from lesson_presence where lesson_id = ?',
+    const presence = d.sql.get<{ last_seen_at: number; scene_id: string | null; ui: string | null; mic: string | null }>(
+      'select last_seen_at, scene_id, ui, mic from lesson_presence where lesson_id = ?',
       [id]
     );
     const lastUtt = d.sql.get<Record<string, unknown>>(
@@ -811,6 +817,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         last_seen_at: presence?.last_seen_at ?? null,
         scene_id: presence?.scene_id ?? null,
         ui: presence?.ui ?? null,
+        // The child's one-time mic check on this device (talk lane): ok | quiet | none | skipped, null = not reported.
+        mic: presence?.mic ?? null,
         expected_scene_id: stage?.sceneId ?? null,
         goal_ko: stage?.studentGoalKo ?? '',
         targets: st?.targets ?? [],
@@ -993,15 +1001,18 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const stage = st ? planStage(plan, st.stage_id) : undefined;
     const scene = c.req.query('scene');
     const ui = c.req.query('ui');
+    const mic = c.req.query('mic');
     d.sql.run(
-      `insert into lesson_presence (lesson_id, last_seen_at, scene_id, ui) values (?, ?, ?, ?)
+      `insert into lesson_presence (lesson_id, last_seen_at, scene_id, ui, mic) values (?, ?, ?, ?, ?)
        on conflict(lesson_id) do update set last_seen_at = excluded.last_seen_at,
-         scene_id = coalesce(excluded.scene_id, lesson_presence.scene_id), ui = coalesce(excluded.ui, lesson_presence.ui)`,
+         scene_id = coalesce(excluded.scene_id, lesson_presence.scene_id), ui = coalesce(excluded.ui, lesson_presence.ui),
+         mic = coalesce(excluded.mic, lesson_presence.mic)`,
       [
         s.lesson_id,
         now,
         scene && /^[a-z_]{1,32}$/.test(scene) ? scene : null,
-        ui === '3d' || ui === 'cards' ? ui : null
+        ui === '3d' || ui === 'cards' ? ui : null,
+        mic && (LESSON_MIC_STATUSES as readonly string[]).includes(mic) ? mic : null
       ]
     );
     const live = liveForStudent(s.lesson_id, c.req.query('cursor'), now);
@@ -1010,6 +1021,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const stageNpc = stage?.npcId ?? 'guide';
     return c.json({
       lesson_id: s.lesson_id,
+      plan_id: plan.id,
       stage_id: st?.stage_id ?? null,
       stage_goal_ko: stage?.studentGoalKo ?? '',
       mode: stage?.mode ?? 'guided',

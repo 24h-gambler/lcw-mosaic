@@ -327,6 +327,16 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
         op,
         { panel }
       ),
+    /** The teacher steps away on purpose: the child is alone at once. */
+    leave: (op: string, lessonId: string) =>
+      request<{ teacher: TeacherPresence }>('POST', `/v1/admin/lessons/${enc(lessonId)}/presence/leave`, op, {}),
+    /** 1PC teacher panel lock number (4-6 digits), checked on the server. */
+    setPanelPin: (op: string, lessonId: string, pin: string) =>
+      request<{ ok: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/panel-pin`, op, { pin }),
+    panelPinState: (op: string, lessonId: string) =>
+      request<{ set: boolean; set_at: number | null }>('GET', `/v1/admin/lessons/${enc(lessonId)}/panel-pin`, op),
+    panelUnlock: (op: string, lessonId: string, pin: string) =>
+      request<{ ok: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/panel-unlock`, op, { pin }),
     pushStage: (op: string, lessonId: string, input: StagePushInput) =>
       request<{ ok: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/stage`, op, input),
     addPin: (op: string, lessonId: string, input: PinInput) =>

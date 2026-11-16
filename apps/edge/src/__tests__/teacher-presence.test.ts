@@ -124,6 +124,20 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.present).toBe(false);
   });
 
+  it('the child device reports its one-time mic check on the poll; the console sees it (only the four values)', async () => {
+    const p = platform();
+    const { lessonId, st } = await start(p, true);
+    const mic = async () => (await call(p, 'GET', `/v1/admin/lessons/${lessonId}/feed`)).body.student_view.mic;
+    await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    expect(await mic()).toBeNull();
+    await call(p, 'GET', '/v1/lesson/state?mic=quiet', undefined, st);
+    expect(await mic()).toBe('quiet');
+    await call(p, 'GET', '/v1/lesson/state?mic=loud', undefined, st); // not one of the four: kept as it was
+    expect(await mic()).toBe('quiet');
+    await call(p, 'GET', '/v1/lesson/state?mic=ok', undefined, st);
+    expect(await mic()).toBe('ok');
+  });
+
   it('an operator session id from the exchange names the teacher when that session has a name', async () => {
     const p = platform();
     p.sql.exec('create table if not exists operator_sessions (id text primary key, label text not null)');

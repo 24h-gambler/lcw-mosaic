@@ -24,6 +24,7 @@ function css(): string {
 .lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.small.sizePx}px}
 .lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.micro.sizePx}px;border:2px solid ${C['ink-900']};display:none}
 .lw-chip .l.on{display:inline-block}
+.lw-chip .l.solo{background:${C['paper-0']};color:${C['ink-700']};border-style:dashed}
 .lw-stars{position:absolute;top:12px;right:12px;background:${night};color:${C.sun};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-family:${T.fonts.pixel};font-size:24px;line-height:24px;display:flex;gap:6px;align-items:center}
 .lw-stars.pop{animation:lwpop ${M.popMs}ms ease-out}
 .lw-stars .cs,.lw-stars .ci,.lw-stars .cn{display:none}
@@ -462,6 +463,13 @@ export class WorldHud {
 
   setLessonBadge(on: boolean): void {
     this.lessonChip.classList.toggle('on', on);
+  }
+
+  /** Teacher name tag on the lesson chip: "<name> 함께" or "혼자 놀기"; null = the plain "수업 중" tag. */
+  setTeacher(t: { present: boolean; name: string | null } | null): void {
+    this.lessonChip.classList.toggle('solo', Boolean(t && !t.present));
+    this.lessonChip.dataset.teacher = t === null ? '' : t.present ? 'present' : 'absent';
+    this.lessonChip.textContent = t === null ? W.lessonBadge : t.present ? W.teacherWith(t.name || W.teacherDefault) : W.solo;
   }
 
   selectSlot(i: number): void {

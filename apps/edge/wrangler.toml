@@ -24,6 +24,12 @@ run_worker_first = ["/*", "!/assets/*", "!/world/assets/*", "!/game/assets/*", "
 [ai]
 binding = "AI"
 
+# Neural NPC voice (src/tts.ts, docs/04 4.8): Workers AI Aura lines cached in the VOICE bucket under tts/v1/, metered by
+# the quota ladder. Any value but "on" sends every client back to the device voice (the client also falls back by itself
+# on any refusal, failure or a line slower than 1.5 s).
+[vars]
+TTS_NEURAL = "on"
+
 # Children's voice clips (src/voice.ts, docs/09 §10). Create once before the first deploy: `npx wrangler r2 bucket create lcw-voice`.
 [[r2_buckets]]
 binding = "VOICE"

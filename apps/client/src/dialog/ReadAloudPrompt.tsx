@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { live } from './strings.js';
+import { feedbackLine, live } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { MicController, type MicView } from './mic-controller.js';
 import { cancelMicCue, micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
@@ -183,7 +183,8 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
           “{sentence}”
         </div>
         <div style={{ fontSize: T.scale.small.sizePx, color: C['ink-700'], marginTop: 4 }} aria-live="polite">
-          {mic.recording ? R.listening : result ? result.feedback_ko : note ?? R.hint.replace('{kind}', kindKo)}
+          {mic.recording ? R.listening : result ? feedbackLine(result.feedback_ko).text : note ?? R.hint.replace('{kind}', kindKo)}
+          {result && !mic.recording && feedbackLine(result.feedback_ko).help ? <div lang="ko">{feedbackLine(result.feedback_ko).help}</div> : null}
           {result && result.discount_pct > 0 ? <div style={{ fontWeight: 700, color: C['leaf-d'] }}>{R.where}</div> : null}
         </div>
       </div>

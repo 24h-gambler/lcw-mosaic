@@ -25,4 +25,22 @@ describe('dialog strings in the learning language', () => {
     setHelpKo(false);
     expect(helpKo('말하고 싶은 문장을 골라요', 'Pick a sentence to say')).toBeNull();
   });
+
+  it('read-aloud and review lines from the server come out in English, values included', () => {
+    const R = UI_STRINGS_KO.readAloud;
+    expect(feedbackLine(R.voiceOnly).text).toBe(UI_STRINGS_EN.readAloud.voiceOnly);
+    expect(feedbackLine(R.again).text).toBe(UI_STRINGS_EN.readAloud.again);
+    expect(feedbackLine(R.got.replace('{kind}', R.kind.light!).replace('{pct}', '10')).text).toBe('Great reading! Today, light furniture is 10% off.');
+    expect(feedbackLine(R.already.replace('{kind}', R.kind.flat!)).text).toBe(UI_STRINGS_EN.readAloud.already.replace('{kind}', 'table'));
+    const V = UI_STRINGS_KO.review;
+    expect(feedbackLine(V.notDue).text).toBe(UI_STRINGS_EN.review.notDue);
+    expect(feedbackLine(V.again).text).toBe(UI_STRINGS_EN.review.again);
+    expect(feedbackLine(V.fixed.replace('{when}', '내일')).text).toBe('Fixed! Next check: tomorrow.');
+    expect(feedbackLine(V.fixed.replace('{when}', '20분 뒤')).text).toBe('Fixed! Next check: in 20 minutes.');
+    expect(feedbackLine(V.mastered.replace('{n}', '30')).text).toBe(UI_STRINGS_EN.review.mastered.replace('{n}', '30'));
+    // every line the server can send has no Hangul once mapped
+    for (const t of [R.voiceOnly, R.again, V.notDue, V.again, ...Object.values(UI_STRINGS_KO.dialog.feedback)]) {
+      expect(feedbackLine(t.replace('{p}', 'so that')).text).not.toMatch(/[가-힣]/);
+    }
+  });
 });

@@ -495,7 +495,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
           <div className="lcw-dlg__npc">
             <div className="lcw-dlg__avatar" aria-hidden="true">{npcImg ? <img src={npcImg} alt="" /> : NPC_EMOJI[npc.ctx] ?? '🙂'}</div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="lcw-dlg__name">{koShown() ? `${npc.nameKo} · ${npc.nameEn}` : npc.nameEn}</div>
+              <div className="lcw-dlg__name">{learnLang() !== 'en' ? `${npc.nameKo} · ${npc.nameEn}` : helpKoOn() ? `${npc.nameEn} · ${npc.nameKo}` : npc.nameEn}</div>
               <div className="lcw-dlg__bubble" lang="en">
                 {phase === 'echo' ? ECHO_TRANSITION_LINE.text : npcLine}
               </div>

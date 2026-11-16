@@ -141,7 +141,9 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
           style={{
             position: 'absolute',
             left: 12,
-            bottom: 96,
+            // above the world's controls line (hud .lw-help: bottom 80px on a desktop, 96px under 600px, ~26px tall),
+            // which it covered at bottom 96 on a 1440 screen (frame lane, 11-16)
+            bottom: 132,
             minHeight: S.touchTargetMinPx,
             padding: '8px 14px',
             background: C['paper-0'],

@@ -102,7 +102,7 @@ export const UI_STRINGS_EN: UiStrings = {
   readAloud: {
     cta: 'Read it aloud',
     listening: 'Listening… tap once more when you finish',
-    got: 'Great reading! {kind} furniture is {pct}% off today.',
+    got: 'Great reading! Today, {kind} furniture is {pct}% off.',
     already: 'Great reading! You already got the {kind} discount today. Come back tomorrow.',
     again: 'Read it a little more clearly?',
     voiceOnly: 'The discount is only for reading out loud.',
@@ -153,23 +153,66 @@ export const UI_STRINGS_EN: UiStrings = {
 };
 
 /**
- * The English line for a Korean feedback line (the server and the grader answer `feedback_ko`): same key, `{p}`
- * carried over. Null when the line is not one of the table's (then the Korean one stays).
+ * Korean values the server fills into feedback templates ({when} of a review, {kind} of a read-aloud discount) in
+ * English. apps/edge review.ts WHEN_KO and the readAloud kind table are the sources.
+ */
+const FEEDBACK_VALUE_EN: Record<string, string> = {
+  '20분 뒤': 'in 20 minutes',
+  '내일': 'tomorrow',
+  '3일 뒤': 'in 3 days',
+  '7일 뒤': 'in 7 days',
+  '16일 뒤': 'in 16 days',
+  '35일 뒤': 'in 35 days',
+  ...Object.fromEntries(
+    Object.entries(UI_STRINGS_KO.readAloud.kind as Record<string, string>).map(([k, ko]) => [ko, (UI_STRINGS_EN.readAloud.kind as Record<string, string>)[k] ?? k])
+  )
+};
+
+/** The feedback lines the server and the grader answer as `feedback_ko`: dialog grading, read-aloud and review. */
+const FEEDBACK_TABLES: Array<[Record<string, unknown>, Record<string, unknown>]> = [
+  [UI_STRINGS_KO.dialog.feedback, UI_STRINGS_EN.dialog.feedback],
+  [UI_STRINGS_KO.readAloud, UI_STRINGS_EN.readAloud],
+  [UI_STRINGS_KO.review, UI_STRINGS_EN.review]
+];
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Placeholder values of `ko` when it is `tpl` filled in, else null. */
+function fillOf(tpl: string, ko: string): Record<string, string> | null {
+  const names: string[] = [];
+  const re = tpl
+    .split(/(\{\w+\})/)
+    .map((part) => {
+      const m = /^\{(\w+)\}$/.exec(part);
+      if (!m) return escapeRe(part);
+      names.push(m[1]!);
+      return '(.+?)';
+    })
+    .join('');
+  const hit = new RegExp(`^${re}$`, 's').exec(ko);
+  if (!hit) return null;
+  return Object.fromEntries(names.map((n, i) => [n, hit[i + 1]!]));
+}
+
+/**
+ * The English line for a Korean feedback line (the server and the grader answer `feedback_ko`): same key in the same
+ * section, placeholders carried over ({p} as said, {when} / {kind} turned into English, numbers as they are). Exact
+ * lines are matched before templates. Null when the line is not one of the tables' (then the Korean one stays).
  */
 export function feedbackEnFromKo(ko: string): string | null {
-  const KO = UI_STRINGS_KO.dialog.feedback as Record<string, string>;
-  const EN = UI_STRINGS_EN.dialog.feedback as Record<string, string>;
-  for (const [k, v] of Object.entries(KO)) {
-    if (v === ko) return EN[k] ?? null;
-    const i = v.indexOf('{p}');
-    if (i >= 0) {
-      const pre = v.slice(0, i);
-      const post = v.slice(i + 3);
-      if (ko.startsWith(pre) && ko.endsWith(post) && ko.length >= pre.length + post.length) {
-        const p = ko.slice(pre.length, ko.length - post.length);
-        return (EN[k] ?? '').replace('{p}', p);
-      }
+  const templated: Array<[string, string]> = [];
+  for (const [KO, EN] of FEEDBACK_TABLES) {
+    for (const [k, v] of Object.entries(KO)) {
+      const en = EN[k];
+      if (typeof v !== 'string' || typeof en !== 'string') continue;
+      if (v === ko) return en;
+      if (/\{\w+\}/.test(v)) templated.push([v, en]);
     }
+  }
+  for (const [v, en] of templated) {
+    const fill = fillOf(v, ko);
+    if (!fill) continue;
+    return en.replace(/\{(\w+)\}/g, (all, n: string) => (n in fill ? (FEEDBACK_VALUE_EN[fill[n]!] ?? fill[n]!) : all));
   }
   return null;
 }

@@ -600,7 +600,10 @@ export function buildOAuthApp(d: OAuthDeps): Hono {
       [codeHash]
     );
     if (!row || row.used_at !== null || row.expires_at <= now || row.browser_hash !== browserHash) return c.json({ error: 'handoff_invalid' }, 400);
-    d.sql.run('update oauth_handoffs set used_at = ? where code_hash = ?', [now, row.code_hash]);
+    // Spent: the result (a teacher's session token, a guardian's ticket) leaves the table with this answer, and
+    // anything expired goes too, so no sign-in result outlives its one use.
+    d.sql.run("update oauth_handoffs set used_at = ?, result = '' where code_hash = ?", [now, row.code_hash]);
+    d.sql.run('delete from oauth_handoffs where expires_at < ?', [now]);
     return c.json({ result: row.result });
   });
 

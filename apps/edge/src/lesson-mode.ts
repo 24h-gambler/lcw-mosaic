@@ -285,15 +285,14 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   const teacherNameOf = (opSession: string | null): string => {
     if (!opSession) return TEACHER_NAME_DEFAULT;
     try {
-      const r = d.sql.get<{ name: string | null }>('select coalesce(display_name, label) as name from operator_sessions where id = ?', [opSession]);
+      // operator-login.ts: the session's label is the device ("Chrome on Windows"); the name is the Google account's.
+      const r = d.sql.get<{ name: string | null }>(
+        'select o.name as name from operator_sessions s join operators o on o.id = s.operator_id where s.id = ?',
+        [opSession]
+      );
       if (r?.name) return r.name.slice(0, 24);
     } catch {
-      try {
-        const r = d.sql.get<{ name: string | null }>('select label as name from operator_sessions where id = ?', [opSession]);
-        if (r?.name) return r.name.slice(0, 24);
-      } catch {
-        /* no operator session table yet */
-      }
+      /* no operator tables (a platform without Google sign-in) */
     }
     return TEACHER_NAME_DEFAULT;
   };

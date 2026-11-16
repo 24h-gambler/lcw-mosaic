@@ -33,9 +33,18 @@ bucket_name = "lcw-voice"
 name = "PLATFORM"
 class_name = "PlatformDO"
 
+# Multi rooms (src/room.ts): one per room name, WebSocket Hibernation relay, nothing stored. docs/02 §11.
+[[durable_objects.bindings]]
+name = "WORLD_ROOM"
+class_name = "WorldRoomDO"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["PlatformDO"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["WorldRoomDO"]
 
 [triggers]
 # docs/09 §2: daily 03:00 UTC retention, hourly report reminders/quota, Monday 06:00 weekly reports

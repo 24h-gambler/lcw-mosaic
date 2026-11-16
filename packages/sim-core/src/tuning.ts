@@ -179,5 +179,32 @@ export const TUNING = {
     windowSize: 20,
     promoteThreeStarPassRatio: 0.7,
     demoteFailRatio: 0.4
+  },
+  /**
+   * Multi room (docs/03 D11 "멀티 월드 정원 8명", docs/02 §4·§11 measured capacity). One WorldRoomDO per room relays
+   * poses; the server refuses the (capacity + 1)th player with `room_full`.
+   */
+  multi: {
+    roomCapacity: 8,
+    /**
+     * Client pose sends per second while moving (docs/02 §11: 5 keeps a 2-hour lesson of two people under the free
+     * 100k DO requests even if every received message counts as one). Checked poseTickHz times a second so a start,
+     * stop or jump goes out at once; nothing is sent while standing still or while alone in the room.
+     */
+    poseHz: 5,
+    poseTickHz: 10,
+    /** plain "ping" keep-alive (answered by the platform without waking the room) */
+    idleKeepaliveMs: 5000,
+    /** the room sends changed poses at once, then at most one batch per broadcastMs per socket */
+    broadcastMs: 50,
+    /** messages a socket may send in one second before it is closed (pose 10 + ping + emote, with slack) */
+    maxMsgPerSec: 30,
+    maxMsgBytes: 512,
+    /** a socket that sent nothing for this long is dropped (the keep-alive is every 5 s) */
+    silentDropMs: 20000,
+    ticketTtlMs: 60000,
+    /** |x|, |y|, |z| bound for a relayed pose (worlds are 288 m; slack for plots and docking gates) */
+    coordLimit: 2048,
+    emotes: ['wave', 'clap', 'cheer', 'jump'] as readonly string[]
   }
 } as const;

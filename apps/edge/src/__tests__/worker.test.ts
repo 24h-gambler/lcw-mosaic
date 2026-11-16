@@ -65,7 +65,8 @@ const auth = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/js
 
 describe('production worker (Durable Object SQLite wiring)', () => {
   it('entry module exports only handlers (workerd rejects other exports)', () => {
-    expect(Object.keys(entry).sort()).toEqual(['PlatformDO', 'default']);
+    // PlatformDO (data) and WorldRoomDO (multi rooms, room.ts) are the Durable Object classes wrangler.toml binds.
+    expect(Object.keys(entry).sort()).toEqual(['PlatformDO', 'WorldRoomDO', 'default']);
     for (const v of Object.values(entry)) expect(typeof v === 'function' || typeof v === 'object').toBe(true);
   });
 

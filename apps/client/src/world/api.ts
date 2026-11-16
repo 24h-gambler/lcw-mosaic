@@ -36,8 +36,14 @@ export interface WorldStats {
   dialogShot?: { npc: string; face: [number, number] } | null;
   /** current dynamic-resolution scale (1 = tier scale x devicePixelRatio) */
   renderScale?: number;
-  /** tier the world runs at */
+  /** tier the world runs at (with quality 'auto', what the frame-time check settled on) */
   tier?: WorldTier;
+  /** quality 'auto' only: the tier the frame-time check picked (null while it is still measuring) */
+  autoTier?: WorldTier | null;
+  /** graphics actually in use (G14 settings applied over the tier) */
+  graphics?: { viewChunks: number; shadows: boolean; renderScale: number };
+  /** other people drawn from the multi room */
+  peers?: number;
   /** start-up phases in ms since createWorld (town, atlas, characters, mesh, firstFrame) */
   startup?: Record<string, number>;
   /**
@@ -128,6 +134,24 @@ export interface WorldHandle {
   onRoomCheck?(cb: (r: RoomCheckInfo) => void): () => void;
   /** Performance and position read-out (headless checks, tier auto-detect). */
   getStats?(): WorldStats;
+  /**
+   * G14 화면 설정 (frame/settings.ts owns the screen and the saved record; the world applies it at once, no restart).
+   * null fields follow the tier. quality 'auto' measures frame time for the first seconds and settles on a tier,
+   * then steps down one tier when frames stay slow at the lowest resolution.
+   */
+  setGraphics?(g: GraphicsSettings): void;
+  /** Multi room (world/room-client.ts): the local player's pose to send (x, y, z, yaw, anim) */
+  multiPose?(): readonly [number, number, number, number, number] | null;
+  /** Multi room: the other people to draw */
+  multi?: import('./room-client.js').RoomSink;
+}
+
+/** G14 graphics (docs/08 6.6 tiers). Ranges: viewChunks 3..8, renderScale 0.5..1 (times devicePixelRatio). */
+export interface GraphicsSettings {
+  quality: 'auto' | WorldTier;
+  viewChunks: number | null;
+  shadows: boolean | null;
+  renderScale: number | null;
 }
 
 export interface WorldMapInfo {
@@ -173,6 +197,8 @@ export interface CreateWorldOptions {
   startScene?: SceneId;
   /** Element that hosts the world HUD; defaults to the canvas parent. */
   hudRoot?: HTMLElement;
+  /** G14 graphics at start (default: fixed at `tier`); 'auto' measures and may step the tier down. */
+  graphics?: GraphicsSettings;
 }
 
 export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle> {

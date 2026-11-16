@@ -113,8 +113,10 @@ export function SignupQueue(props: SignupQueueProps): React.ReactElement | null 
       {signups.length === 0 ? <p style={small}>{Q.empty}</p> : null}
       <div style={{ display: 'grid', gap: sp(3) }}>
         {signups.map((s) => {
-          // A name that matched a teacher-made student starts on that student (the 4 digits still decide).
-          const target = pick[s.id] ?? s.match?.player_id ?? '';
+          // A name that matched a teacher-made student starts on that student (the 4 digits still decide), only when
+          // that student is one the teacher can pick in the list below (never a hidden smoke or demo row).
+          const match = s.match && students.some((st) => st.player_id === s.match!.player_id) ? s.match : null;
+          const target = pick[s.id] ?? match?.player_id ?? '';
           const check = checks[s.id] ?? '';
           const checkOk = /^\d{4}$/.test(check);
           const row = students.find((st) => st.player_id === target);
@@ -131,9 +133,9 @@ export function SignupQueue(props: SignupQueueProps): React.ReactElement | null 
                   </p>
                 ) : null}
                 {s.family_students.length ? <p style={small}>{Q.family(s.family_students.map((k) => k.nickname).join(', '))}</p> : null}
-                {s.match ? (
+                {match ? (
                   <p style={small} data-testid="signup-match">
-                    {Q.match(s.match.nickname)}
+                    {Q.match(match.nickname)}
                   </p>
                 ) : null}
               </div>

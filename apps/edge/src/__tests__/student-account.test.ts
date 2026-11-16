@@ -162,6 +162,29 @@ describe('student sign-up on the guardian account (student-account.ts)', () => {
     expect(b.status).toBe(201);
   });
 
+  it('smoke and demo rows never own or match a name; two teacher rows with one name are not guessed', async () => {
+    const p = platform();
+    // The demo row and a smoke check's row: not students (hidden from the console list too).
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-demo', guardian_id: 'g-demo', player_id: 'player-demo', nickname: 'Demo' });
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-smoke', guardian_id: 'g-smoke', player_id: 'smoke-live-1', nickname: 'Smoke' });
+    const g = await adultSignsIn(p, 'fam-d');
+    const demo = await call(p, 'POST', '/v1/student/signup', { nickname: 'demo' }, bearer(g));
+    expect(demo.status).toBe(201);
+    expect(demo.body.teacher_match).toBe(false);
+    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups[0].match).toBeNull();
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'SMOKE' }, bearer(g))).body.teacher_match).toBe(false);
+    // A match recorded on a smoke row (before this fix) is not shown either.
+    const sid = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'SMOKE').id;
+    p.sql.run("update student_signups set match_player_id = 'smoke-live-1' where id = ?", [sid]);
+    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.id === sid).match).toBeNull();
+    // Two teacher-made rows called Mina: the sign-up waits for the teacher, who picks (no row guessed).
+    await teacherRow(p, 'stu-mina-1', 'Mina');
+    await teacherRow(p, 'stu-mina-2', 'Mina');
+    const mina = await call(p, 'POST', '/v1/student/signup', { nickname: 'mina' }, bearer(g));
+    expect(mina.body.teacher_match).toBe(true);
+    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'mina').match).toBeNull();
+  });
+
   it('a pending nickname is not kept: cleared on reject or after 3 hours; bad nicknames refused', async () => {
     const p = platform();
     const g = await adultSignsIn(p, 'fam-n');

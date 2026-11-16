@@ -14,6 +14,7 @@ import { LessonDO, type DirectorEventKind, type EdgePlatformDb, type SqliteExecu
 import { markSeatUse } from './seats.js';
 import { buildLessonParentFacts } from './parent-report.js';
 import { createMemoryCard } from './review.js';
+import { enqueueLessonEnd, mountOpsCardRoutes } from './ops-cards.js';
 
 /**
  * Lesson mode (docs/18): a real lesson without the 3D world. The teacher (operator token) starts a lesson and gets a
@@ -272,6 +273,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     d.sql.exec('alter table lesson_teacher add column left_at integer');
   }
   const app = new Hono();
+  // Hub cards for the teacher (after-lesson summary, student's daily record): an outbox the spine side pulls.
+  mountOpsCardRoutes(app, d);
 
   const lessonRow = (id: string) =>
     d.sql.get<{ id: string; player_id: string; started_at: number; ended_at: number | null; plan: string }>(
@@ -925,6 +928,13 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     d.sql.run('update lessons set ended_at = coalesce(ended_at, ?) where id = ?', [now, id]);
     d.sql.run('update student_tokens set expires_at = min(expires_at, ?) where lesson_id = ?', [now + 10 * 60_000, id]);
     d.sql.run('delete from lesson_joins where lesson_id = ?', [id]);
+    // The after-lesson summary and the student's daily record go to the card outbox (ops-cards.ts). A card failure
+    // never fails the end: the report is out and the lesson is closed.
+    try {
+      enqueueLessonEnd(d.sql, id, now, new URL(c.req.url).origin);
+    } catch {
+      /* the next end or daily refresh writes the cards again */
+    }
     return c.json({ report_path: `/r/${token}`, share_token: token, facts: body.facts, pin_windows: pinWindows });
   });
 

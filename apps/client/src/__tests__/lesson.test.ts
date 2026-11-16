@@ -122,7 +122,7 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(ctl.state).toMatchObject({ stageId: 'cafe_order', sceneId: 'honey_cafe', npcId: 'cafe_owner', hint: 'full' });
     expect(ctl.state.offers).toEqual([{ stars: 2, text: 'Can I have a warm honey tea?', hintTags: ['can i have'] }]);
     expect(ctl.state.banner?.kind).toBe('blackout');
-    expect(ctl.state.bubbles.at(-1)).toMatchObject({ npcNameKo: '카페 주인', possessed: true });
+    expect(ctl.state.bubbles.at(-1)).toMatchObject({ npcNameKo: '카페 주인', npcNameEn: 'Cafe owner', possessed: true });
 
     // nothing is replayed on the next polls; the banner goes away by itself
     const before = calls.length;

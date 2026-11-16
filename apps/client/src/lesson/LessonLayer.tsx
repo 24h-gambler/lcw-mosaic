@@ -19,7 +19,7 @@ import { TOKENS } from '@lcw/ui';
 import { codeFromSearch, createStudentLessonApi, loadStudentSession, type DialogResult, type LessonOffer, type StudentLessonApi, type UtteranceSubmit } from './api.js';
 import { LessonController, goalTargetEn, initialLessonView, type LessonView, type LessonWorld } from './controller.js';
 import { MIC_BLOCKING_ERRORS, maskTarget, micUnreliable, pickHeard, type HeardAlternative } from './hint.js';
-import { LESSON_STRINGS as S, lessonGoal } from './strings.js';
+import { LESSON_STRINGS as S, helpLine, lessonGoal } from './strings.js';
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
 import { SubmitError } from '../dialog/submit.js';
 import { TeacherPanel } from './TeacherPanel.js';
@@ -636,7 +636,7 @@ function LatestLine({ view }: { view: LessonView }) {
     <div key={b.id} className="lcw-pop" role="status" style={{ ...card, padding: `${SP[2]}px ${SP[3]}px`, borderColor: b.possessed ? C.grape : C['ink-900'], borderWidth: b.possessed ? 3 : 2 }}>
       <div style={{ fontSize: T.scale.small.sizePx, fontWeight: 800, color: b.possessed ? C['grape-d'] : C['ink-700'] }}>
         {b.possessed ? <span className="lcw-sparkle" aria-hidden>✨ </span> : null}
-        {b.npcNameKo}
+        {helpLine(b.npcNameEn || b.npcNameKo, b.npcNameKo)}
         {b.possessed ? ` · ${S.possessed}` : ''}
       </div>
       <div style={{ fontFamily: T.fonts.target, fontSize: T.targetSentenceMinPx, lineHeight: '30px', color: C['ink-900'] }}>{b.text}</div>
@@ -652,7 +652,7 @@ function Bubbles({ view }: { view: LessonView }) {
         <div key={b.id} className={i === view.bubbles.length - 1 ? 'lcw-pop' : 'lcw-older'} style={{ ...card, padding: `${SP[2]}px ${SP[3]}px`, maxWidth: 560, opacity: i === view.bubbles.length - 1 ? 1 : 0.7, borderColor: b.possessed ? C.grape : C['ink-900'], borderWidth: b.possessed ? 3 : 2 }}>
           <div style={{ fontSize: T.scale.small.sizePx, fontWeight: 800, color: b.possessed ? C['grape-d'] : C['ink-700'] }}>
             {b.possessed ? <span className="lcw-sparkle" aria-hidden>✨ </span> : null}
-            {b.npcNameKo}
+            {helpLine(b.npcNameEn || b.npcNameKo, b.npcNameKo)}
             {b.possessed ? ` · ${S.possessed}` : ''}
           </div>
           <div style={{ fontFamily: T.fonts.target, fontSize: T.targetSentenceMinPx, lineHeight: '30px', color: C['ink-900'] }}>{b.text}</div>

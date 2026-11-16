@@ -44,6 +44,8 @@ export const PANEL_STRINGS_EN: Partial<Record<keyof typeof PANEL_STRINGS_KO, str
   pinLabel: '🔒 Teacher number',
   unlock: '🔓 Open',
   cancel: '↩️ Back',
+  noSignIn: '🔑 Sign in at /director on this PC first, then start the lesson.',
+  noPin: '🔢 Set the lock number in the console first.',
   wrongPin: '❌ Not the right number',
   tooMany: '⏳ Too many tries. Try again in 10 minutes',
   failed: '📶 No connection. Tap again'
@@ -240,7 +242,7 @@ export function TeacherPanel({
       <button
         type="button"
         data-testid="teacher-panel-toggle"
-        aria-label={S.title}
+        aria-label={S.open}
         onClick={toggle}
         style={{ position: 'fixed', top: 60, right: 12, zIndex: 70, ...btn, minHeight: 32, padding: '2px 8px', fontSize: 12, opacity: 0.75, pointerEvents: 'auto' }}
       >

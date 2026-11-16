@@ -62,6 +62,8 @@ export interface LessonBubble {
   id: string;
   npcId: string;
   npcNameKo: string;
+  /** The NPC's name in the language the child learns (shown first; the Korean only as the help line). */
+  npcNameEn?: string;
   text: string;
   possessed: boolean;
   at: number;
@@ -445,6 +447,7 @@ export class LessonController {
         id: line.id,
         npcId: line.npc_id,
         npcNameKo: getLessonNpc(line.npc_id)?.nameKo ?? line.npc_id,
+        npcNameEn: getLessonNpc(line.npc_id)?.nameEn ?? line.npc_id,
         text: line.text,
         possessed,
         at: line.at

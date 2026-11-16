@@ -43,7 +43,7 @@ const go = async (id) => {
 };
 const toasts = () => page.$$eval('[data-play="toast"]', (ts) => ts.map((t) => t.innerText));
 
-await page.goto(`${base}/game/`, { waitUntil: 'domcontentloaded' });
+await page.goto(`${base}/world/`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 120000 });
 await page.waitForFunction(() => !document.body.innerText.includes('마을을 짓는 중'), null, { timeout: 120000 }).catch(() => {});
 // the first-visit guide may cover the screen: close it if it is there

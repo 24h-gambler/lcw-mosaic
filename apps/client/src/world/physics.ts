@@ -302,9 +302,11 @@ export const CAM_FLOOR_LAG = 1.0;
 export interface JumpView {
   ground: number;
   floor: number;
+  /** on the ground last frame too: standing or walking, not a landing */
+  grounded: boolean;
 }
 export function makeJumpView(): JumpView {
-  return { ground: Number.NaN, floor: Number.NaN };
+  return { ground: Number.NaN, floor: Number.NaN, grounded: false };
 }
 
 /**
@@ -316,8 +318,10 @@ export function makeJumpView(): JumpView {
 export function stepJumpView(v: JumpView, bodyY: number, onGround: boolean, dt: number): number {
   if (!Number.isFinite(v.ground) || Math.abs(bodyY - v.ground) > 4) v.ground = v.floor = bodyY;
   if (onGround || bodyY < v.floor) v.floor = bodyY;
-  // standing or walking (step-ups are already eased by stepOffset) the view follows close; after a jump it eases
-  v.ground += (v.floor - v.ground) * (1 - Math.exp(-(onGround ? 30 : 10) * dt));
+  // standing or walking (step-ups are already eased by stepOffset) the view follows close; a landing eases
+  const settled = onGround && v.grounded;
+  v.grounded = onGround;
+  v.ground += (v.floor - v.ground) * (1 - Math.exp(-(settled ? 30 : 10) * dt));
   if (v.ground < v.floor - CAM_FLOOR_LAG) v.ground = v.floor - CAM_FLOOR_LAG;
   if (bodyY < v.ground) v.ground = bodyY;
   return v.ground + (bodyY - v.ground) * JUMP_VIEW_FOLLOW;

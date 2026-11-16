@@ -35,7 +35,8 @@ import type { LlmConverseInput } from '@lcw/schemas';
 import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
 import { handleServerStt } from './stt.js';
-import { handleTts, parseTryVoice, prebuildFixedLines, synthesize, ttsStatus, type TtsDeps } from './tts.js';
+import { isTestPlayerId } from './nickname.js';
+import { handleTts, parseTryVoice, prebuildFixedLines, runTtsCron, synthesize, ttsStatus, type TtsDeps } from './tts.js';
 import { normalizeTtsText } from '@lcw/content';
 import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaHealth, readQuotaSettings, rollupQuota } from './quota.js';
 import {
@@ -633,7 +634,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const r = platform.runCron(body.cron);
     const voice = await platform.runVoiceCron(body.cron, Date.now());
     const push = await platform.runPushCron(body.cron, Date.now());
-    return c.json({ ...r, voice, push });
+    // the hourly cron: the morning lesson/NPC prebuild and the nightly leftovers (tts.ts runTtsCron)
+    const tts = body.cron === '0 * * * *' ? await runTtsCron(ttsDeps(), Date.now()).catch(() => null) : null;
+    return c.json({ ...r, voice, push, tts });
   });
   // Children score their own solo orders (docs/19 3: solo submit -> /v1/converse/score) with their lesson token,
   // or outside a lesson with their linked device token. Who, which world and which level come from the token and
@@ -821,7 +824,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const student = operator ? null : await platform.studentFromRequest(c.req.raw);
     const device = operator || student ? null : await platform.deviceFromRequest(c.req.raw);
     const playerId = student?.player_id ?? device?.player_id ?? null;
-    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student) }, ttsDeps());
+    // smoke-check and demo students hear cached lines only (they never spend the day's neurons)
+    const cachedOnly = !!playerId && isTestPlayerId(playerId);
+    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student), cachedOnly }, ttsDeps());
   });
   // Operator measurement: one uncached synthesis with its time (engine/voice choice, docs/04 4.8).
   app.post('/v1/admin/tts/try', async (c) => {

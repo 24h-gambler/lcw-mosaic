@@ -18,8 +18,8 @@ function fakeWorld() {
   };
 }
 
-const cafe: NpcRef = { id: 'cafe_owner', nameKo: '카페 주인 하니', nameEn: 'Honey', ctx: 'cafe' } as NpcRef;
-const guide: NpcRef = { id: 'guide', nameKo: '안내인', nameEn: 'Mina', ctx: 'guide' } as NpcRef;
+const cafe: NpcRef = { id: 'cafe_owner', nameKo: '카페 주인 해나', nameEn: 'Hannah', ctx: 'cafe' } as NpcRef;
+const guide: NpcRef = { id: 'guide', nameKo: '안내인 루나 선생님', nameEn: 'Luna', ctx: 'guide' } as NpcRef;
 
 describe('dialog result player', () => {
   it('gives nothing when the server names no item (no free honey tea, solo or lesson)', () => {

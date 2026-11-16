@@ -2,6 +2,9 @@
 export const SIGNUP_STRINGS_KO = {
   student: {
     title: '처음 왔어요 · 가입하기',
+    titleSignin: '이미 가입했어요 · 로그인',
+    deviceGone: '이 기기의 연결이 끝났어요. 다시 가입하거나 로그인해 주세요.',
+    signinBody: '가입할 때 쓴 보호자 계정(만 14살 이상이면 내 계정)으로 로그인하면, 내 이름표를 골라 이 기기에서 이어 가요.',
     startBody: '보호자와 함께 가입해요. 보호자가 이 기기에서 로그인하고 동의한 뒤 이름표를 만들어요.',
     startWho: '만 14살 이상이면 내 계정으로 해도 돼요. 로그인한 계정은 가입이 끝나면 이 기기에서 바로 나가요.',
     withGoogle: 'Google 로 로그인',
@@ -52,6 +55,9 @@ export const SIGNUP_STRINGS_KO = {
             ? '시간이 지났거나 다른 창에서 열렸어요. 이 화면에서 다시 눌러 주세요.'
             : '로그인하지 못했어요. 다시 눌러 주세요.',
     errNickname: '이름에는 글자와 숫자만 써 주세요. (16글자까지)',
+    errNickTaken: '이 이름은 이미 다른 친구가 써요. 다른 이름을 골라 주세요.',
+    ideasLead: '이 이름은 비어 있어요:',
+    teacherMatch: (nick: string) => `선생님 학생 목록에 '${nick}' 이름표가 있어요. 선생님이 숫자를 확인하면 그 이름표로 이어져요.`,
     errSignedOut: '로그인이 끝났어요. 다시 로그인해 주세요.',
     errConsent: '먼저 동의가 필요해요.',
     errAttest: '동의하는 사람을 먼저 골라 주세요.',
@@ -63,6 +69,8 @@ export const SIGNUP_STRINGS_KO = {
     empty: '기다리는 가입이 없어요. 학생 기기에서 /signup 을 열고 보호자가 로그인하면 여기에 떠요.',
     family: (names: string) => `같은 보호자의 학생: ${names}`,
     linkTo: '연결할 학생',
+    match: (nick: string) => `선생님이 만든 '${nick}' 학생과 이름이 같아요. 학생 화면의 숫자가 맞으면 이 학생에 연결해요.`,
+    nickTaken: '이 이름은 이미 다른 학생이 써요. 기존 학생에 연결하거나 받지 않기를 눌러 주세요.',
     pick: '학생 고르기',
     approve: '연결하고 승인',
     signer: (provider: string, hint: string) =>

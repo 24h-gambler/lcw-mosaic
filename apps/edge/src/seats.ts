@@ -37,6 +37,15 @@ export const SEAT_EXPIRING_MS = 7 * DAY;
 export const PAID_AT_FUTURE_SLACK_MS = 10 * 60_000;
 
 /**
+ * Audit (`seat_changes`): every operator change of a seat's period — issue, extend, edit_dates, stop — is one row with
+ * who (`by`: the ops key is the one operator identity, 'operator'), when, and the seat's {starts_at, ends_at, status}
+ * before and after. Payments stay in `seat_orders`; a date edit or a stop moves no money and never touches them.
+ */
+export type SeatChangeKind = 'issue' | 'extend' | 'edit_dates' | 'stop';
+/** Latest an operator may set an end date to (a typo guard, not a business rule). */
+export const SEAT_MAX_AHEAD_MS = 3 * 366 * DAY;
+
+/**
  * `seat_order_seats` (first version, one order per seat) is kept for old rows and copied into `seat_order_links`,
  * which allows several payments per seat.
  */
@@ -46,6 +55,8 @@ create table if not exists seat_order_seats (seat_id text primary key, order_id 
 create table if not exists seat_order_links (seat_id text not null, order_id text not null, kind text not null, days integer, refunded_at integer, primary key (seat_id, order_id));
 create table if not exists seat_refunds (id text primary key, seat_id text not null, order_id text not null, requested_by text not null, requested_at integer not null, mode text, status text not null, refund_krw integer, remaining_solo_days integer, decided_at integer, reason text, note text not null default '');
 create table if not exists seat_notices (seat_id text not null, kind text not null, at integer not null, primary key (seat_id, kind));
+create table if not exists seat_changes (id text primary key, seat_id text not null, kind text not null, by text not null, at integer not null, before_json text not null, after_json text not null, note text not null default '');
+create index if not exists seat_changes_seat on seat_changes (seat_id, at);
 insert or ignore into seat_order_links (seat_id, order_id, kind, days, refunded_at) select l.seat_id, l.order_id, 'issue', null, case when s.status = 'refunded' then s.ends_at end from seat_order_seats l left join seats s on s.id = l.seat_id
 `;
 
@@ -138,6 +149,15 @@ const ExtendSchema = z
     note: z.string().max(200).optional()
   })
   .strict();
+const DatesSchema = z
+  .object({
+    starts_at: z.number().int().positive().optional(),
+    ends_at: z.number().int().positive().optional(),
+    note: z.string().max(200).optional()
+  })
+  .strict()
+  .refine((v) => v.starts_at !== undefined || v.ends_at !== undefined, { message: 'starts_at or ends_at' });
+const StopSchema = z.object({ note: z.string().max(200).optional() }).strict();
 const DecideSchema = z.discriminatedUnion('decision', [
   z.object({ decision: z.literal('decline') }).strict(),
   z.object({ decision: z.literal('refund'), refund_krw: z.number().int().min(0).max(10_000_000) }).strict()
@@ -177,6 +197,26 @@ export function mountSeatRoutes(
       [sid]
     );
   const issueLink = (sid: string) => linksOf(sid).find((l) => l.kind === 'issue');
+  const periodOf = (s: Pick<SeatRow, 'starts_at' | 'ends_at' | 'status'>) => ({ starts_at: s.starts_at, ends_at: s.ends_at, status: s.status });
+  /** One audit row per change (see `seat_changes`). Call inside the transaction that makes the change. */
+  const recordChange = (
+    sid: string,
+    kind: SeatChangeKind,
+    at: number,
+    before: Record<string, unknown> | null,
+    after: Record<string, unknown>,
+    note = ''
+  ) =>
+    d.sql.run('insert into seat_changes (id, seat_id, kind, by, at, before_json, after_json, note) values (?, ?, ?, ?, ?, ?, ?, ?)', [
+      id('sc'),
+      sid,
+      kind,
+      'operator',
+      at,
+      JSON.stringify(before),
+      JSON.stringify(after),
+      note
+    ]);
   const orderSeats = (oid: string) =>
     d.sql.all<SeatRow>('select s.* from seats s join seat_order_links l on l.seat_id = s.id where l.order_id = ? order by s.id', [oid]);
   const refundedSoFar = (oid: string) =>
@@ -358,6 +398,7 @@ export function mountSeatRoutes(
           'active'
         ]);
         d.sql.run("insert into seat_order_links (seat_id, order_id, kind, days, refunded_at) values (?, ?, 'issue', null, null)", [sid, oid]);
+        recordChange(sid, 'issue', now, null, { starts_at: paidAt, ends_at: ends, status: 'active', plan: q.plan, term: q.term, order_id: oid, amount_krw: amount }, q.note ?? '');
         return sid;
       });
     });
@@ -391,8 +432,72 @@ export function mountSeatRoutes(
       d.sql.run("insert into seat_order_links (seat_id, order_id, kind, days, refunded_at) values (?, ?, 'extend', ?, null)", [s.id, oid, p.data.days]);
       d.sql.run("update seats set ends_at = ?, status = 'active' where id = ?", [ends, s.id]);
       d.sql.run('delete from seat_notices where seat_id = ?', [s.id]);
+      recordChange(s.id, 'extend', now, periodOf(s), { starts_at: s.starts_at, ends_at: ends, status: 'active', days: p.data.days, order_id: oid, amount_krw: amount }, p.data.note ?? '');
     });
     return c.json({ id: s.id, order_id: oid, amount_krw: amount, ends_at: ends, refund_until: refundDeadlineMs(paidAt), state: seatState({ ends_at: ends, status: 'active' }, now) });
+  });
+
+  /**
+   * The teacher sets a seat's start and/or end date directly (teacher console). No payment is made or changed; the
+   * state follows the new end (a past end → read-only, as with any expiry). Notices are cleared so the 7-day/1-day
+   * reminders follow the new end.
+   */
+  app.post('/v1/admin/seats/:id/dates', async (c) => {
+    const p = DatesSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const now = d.nowMs();
+    const out = runInTransaction(d.sql, (): Out => {
+      const s = seatRow(c.req.param('id'));
+      if (!s) return { status: 404, body: { error: 'seat_not_found' } };
+      if (s.status === 'refunded') return { status: 409, body: { error: 'already_refunded' } };
+      const starts = p.data.starts_at ?? s.starts_at;
+      const ends = p.data.ends_at ?? s.ends_at;
+      if (ends <= starts) return { status: 400, body: { error: 'ends_before_starts' } };
+      if (ends > now + SEAT_MAX_AHEAD_MS || starts > now + SEAT_MAX_AHEAD_MS) return { status: 400, body: { error: 'date_too_far' } };
+      if (starts === s.starts_at && ends === s.ends_at) return { status: 200, body: { id: s.id, starts_at: starts, ends_at: ends, state: seatState(s, now), changed: false } };
+      d.sql.run('update seats set starts_at = ?, ends_at = ? where id = ?', [starts, ends, s.id]);
+      if (ends !== s.ends_at) d.sql.run('delete from seat_notices where seat_id = ?', [s.id]);
+      recordChange(s.id, 'edit_dates', now, periodOf(s), { starts_at: starts, ends_at: ends, status: s.status }, p.data.note ?? '');
+      return { status: 200, body: { id: s.id, starts_at: starts, ends_at: ends, state: seatState({ ends_at: ends, status: s.status }, now), changed: true } };
+    });
+    return c.json(out.body, out.status);
+  });
+
+  /**
+   * Stop (중지): the seat ends now — solo play pauses and the usual 30 read-only days start. Not a refund: payments and
+   * the refund flows are untouched (a refund is still POST /refund or a guardian request). Extending later reopens it.
+   */
+  app.post('/v1/admin/seats/:id/stop', async (c) => {
+    const p = StopSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const now = d.nowMs();
+    const out = runInTransaction(d.sql, (): Out => {
+      const s = seatRow(c.req.param('id'));
+      if (!s) return { status: 404, body: { error: 'seat_not_found' } };
+      if (s.status === 'refunded') return { status: 409, body: { error: 'already_refunded' } };
+      if (s.ends_at <= now) return { status: 409, body: { error: 'already_ended' } };
+      // A seat that has not started yet also starts now (ends_at > starts_at must hold).
+      const ends = now;
+      const starts = Math.min(s.starts_at, now - 1);
+      d.sql.run('update seats set starts_at = ?, ends_at = ? where id = ?', [starts, ends, s.id]);
+      d.sql.run('delete from seat_notices where seat_id = ?', [s.id]);
+      recordChange(s.id, 'stop', now, periodOf(s), { starts_at: starts, ends_at: ends, status: s.status }, p.data.note ?? '');
+      return { status: 200, body: { id: s.id, starts_at: starts, ends_at: ends, state: seatState({ ends_at: ends, status: s.status }, now) } };
+    });
+    return c.json(out.body, out.status);
+  });
+
+  /** The audit of one seat, newest first. */
+  app.get('/v1/admin/seats/:id/changes', (c) => {
+    const sid = c.req.param('id');
+    if (!seatRow(sid)) return c.json({ error: 'seat_not_found' }, 404);
+    const rows = d.sql.all<{ id: string; kind: string; by: string; at: number; before_json: string; after_json: string; note: string }>(
+      'select id, kind, by, at, before_json, after_json, note from seat_changes where seat_id = ? order by at desc, rowid desc limit 200',
+      [sid]
+    );
+    return c.json(
+      rows.map((r) => ({ id: r.id, kind: r.kind, by: r.by, at: r.at, before: JSON.parse(r.before_json) as unknown, after: JSON.parse(r.after_json) as unknown, note: r.note }))
+    );
   });
 
   app.post('/v1/admin/seats/:id/refund', async (c) => {

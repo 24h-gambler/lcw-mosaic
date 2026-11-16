@@ -41,7 +41,7 @@ export const ADV = {
   hitFlashMs: 340,
   shakePx: 2,
   shakeMs: 240,
-  /** Result POST at a chapter end: first try, then two retries after these waits (docs/22 5장). */
+  /** Result POST at a chapter end: first try, then two retries after these waits (docs/22 3장). */
   resultRetryMs: [0, 1500, 4000]
 } as const;
 

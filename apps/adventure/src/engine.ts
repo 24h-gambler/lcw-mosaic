@@ -693,8 +693,9 @@ export class Engine {
     const T = ADV.tile;
     const p = this.player;
     const hit = this.entities.find((e) => e.state !== 'gone' && overlaps({ x: wx, y: wy, w: 1, h: 1 }, grow(entityBox(e), 6))) ?? null;
+    // stones, the villager and the bell are walked round; an islander in a gate is walked into (that is the meeting)
     const solidAt = (tx: number, ty: number) =>
-      this.entities.some((e) => e.state === 'idle' && overlaps({ x: tx * T + 1, y: ty * T + 1, w: T - 2, h: T - 2 }, entityBox(e)));
+      this.entities.some((e) => e.state === 'idle' && e.e.kind !== 'critter' && e.e.kind !== 'guardian' && overlaps({ x: tx * T + 1, y: ty * T + 1, w: T - 2, h: T - 2 }, entityBox(e)));
     const from = { tx: Math.floor(p.x / T), ty: Math.floor((p.y - 1) / T) };
     const to = hit ? { tx: Math.floor(hit.x / T), ty: Math.floor((hit.y - 4) / T) } : { tx: Math.floor(wx / T), ty: Math.floor(wy / T) };
     const steps = findPath(isl, from, to, (tx, ty) => !(tx === from.tx && ty === from.ty) && solidAt(tx, ty));

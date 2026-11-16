@@ -82,3 +82,9 @@
 | 깜빡임 | 초당 3번 이하, 화면 흔들림 0.3도·300ms 이하 | `MOTION_TOKENS` |
 | 결과 다시 보내기 | 처음 + 1.5초 뒤 + 4초 뒤 | 문서 쪽이 잠깐 없거나 바빠도 결과를 잃지 않게 |
 | 프레임 | 논리 화면 320×240, 고정 60Hz 갱신, 그리기는 rAF | 1440·390·844 폭 모두 30fps 이상 |
+
+## 5. 확인하는 법
+
+- 자동 시험: `pnpm test` 의 `apps/adventure/src/__tests__/` — 핵심 규칙(`adventure-core.test.ts`: 계획·채점·하루 한 장·봉투·탄막·만남·섬·길찾기), 화면(`adventure-screens.test.tsx`: A01~A06 과 빈·오류 상태), 독창성(`adventure-originality.test.ts`: 빌려 온 이름·장소·용어, 유명한 네 명령어, 하트 표지가 없음).
+- 실화면: `pnpm --filter @lcw/adventure build` 뒤 `npx vite preview --port 8994`(apps/adventure) 를 띄우고 `PLAYWRIGHT_CORE=<playwright-core/index.mjs> node tools/adventure-play.mjs http://127.0.0.1:8994/adventure/ shots/adventure` 를 돌립니다. 헤드리스·소리 끔으로 1440(키보드)·390(터치)·844×390(터치·키보드)에서 네 장을 끝까지 하고, 말하기 네 방식(say·build·spell·pick)을 모두 쓰며, 페이지가 스스로 센 프레임으로 30fps 이상, 페이지 오류 0, 보호자 요약, 그리고 문서 링크를 붙인 1440 실행에서 그날 파일 읽기와 계약 v1 봉투(활동 4개)를 확인합니다. english-day 와 `/v1/*` 는 브라우저 안에서 대신 답하므로 실제 학생·문서에는 아무것도 가지 않습니다. 하나라도 어긋나면 종료 코드 1.
+- 운영 확인은 `smoke-` 로 시작하는 학생 키로만 합니다(학생 문서 쪽이 보고서·누적·선생님 화면에서 뺍니다).

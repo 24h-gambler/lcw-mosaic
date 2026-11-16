@@ -6113,6 +6113,274 @@
         "apps/web/src/FamilyPage.tsx:2"
       ],
       "note": "약관·처리방침 페이지와 동의 화면 문구는 게시됨. 전문가 검토 완료(16) 근거가 저장소에 없음"
+    },
+    "A01": {
+      "kind": "screen",
+      "title": "섬 지도(모험 시작)",
+      "status": "done",
+      "owner": "world",
+      "route": "/adventure/",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "canvas",
+          "testid:adv-isles"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A01 island map: four isles with lock reasons, today words from the document, start and the guardian link",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::chapter 1 is open; the next opens on a later Korea-time day; replay stays open",
+        "tools/adventure-play.mjs"
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Panel.tsx:78",
+        "apps/adventure/src/core/progress.ts:40"
+      ],
+      "note": "네 섬 카드(열림·앞 섬 먼저·다음 수업 날), 오늘의 낱말, 시작, 보호자 요약 링크. 하루 한 장(한국 시간)"
+    },
+    "A01.state": {
+      "kind": "state",
+      "title": "섬 지도(모험 시작): 문서 자료를 못 읽으면 내장 낱말로 시작(안내 한 줄), 저장소가 막히면 이 탭 동안만 기억",
+      "status": "done",
+      "owner": "world",
+      "route": "/adventure/",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "testid:adv-start"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A01 state: a document that did not open says so in one line and still starts",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::falls back to the island words, then to saved words on replay"
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Panel.tsx:101",
+        "apps/adventure/src/engine.ts:107"
+      ],
+      "note": "문서 실패 안내 한 줄 + 섬 낱말로 시작, 저장소 접근은 try 로 감싸 탭 메모리로 계속"
+    },
+    "A02": {
+      "kind": "screen",
+      "title": "섬 탐험",
+      "status": "done",
+      "owner": "world",
+      "route": "/adventure/?unlock=all",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "canvas"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A02 island walk: hint, keys or touch pad, the talk button; a word stone offers listening and typing",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::every island can be walked from start to guardian and every gate holds its islander",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::tap-to-walk goes round a stone and stops next to a tapped islander",
+        "tools/adventure-play.mjs"
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Panel.tsx:144",
+        "apps/adventure/src/core/map.ts:47"
+      ],
+      "note": "방향키·WASD·방향판·톡 눌러 걷기(길찾기), 낱말 돌(듣고 말하기), 마을 사람, 종 기둥, 길 주민 두 명과 수호자"
+    },
+    "A02.state": {
+      "kind": "state",
+      "title": "섬 탐험: 마이크 없이도 끝까지 갈 수 있음",
+      "status": "done",
+      "owner": "world",
+      "route": "/adventure/",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "canvas"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A02 island walk: hint, keys or touch pad, the talk button; a word stone offers listening and typing",
+        "tools/adventure-play.mjs"
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Speak.tsx:25"
+      ],
+      "note": "낱말 돌은 타이핑으로도 빛나고, 돌을 건너뛰어도 길은 열려 있음. 헤드리스 실측은 마이크 없이 타이핑으로 4장 끝까지"
+    },
+    "A03": {
+      "kind": "screen",
+      "title": "만남",
+      "status": "done",
+      "owner": "world",
+      "route": "/adventure/?unlock=all",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "canvas"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A03 meeting: four commands with FRIEND glowing when calm is full, pouch, poke and the dodge turn",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 restarts kindly",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::every pattern spawns inside its page and is deterministic for a seed",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::letter catch: catching the letters in order spells the word",
+        "tools/adventure-play.mjs"
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Panel.tsx:208",
+        "apps/adventure/src/core/battle.ts:94",
+        "apps/adventure/src/core/bullets.ts:1"
+      ],
+      "note": "POKE·TALK·POUCH·FRIEND, 공책 칸 안 말풍선 피하기, 낱말이 탄막 안에(글자 잡기·철자 방울·낱말 쿠키), 마음 막대가 차면 FRIEND"
+    },
+    "A03.state": {
+      "kind": "state",
+      "title": "만남: 기운이 다 떨어지면 \"Let's try again\" 으로 같은 만남을 처음부터(벌 없음)",
+      "status": "done",
+      "owner": "world",
+      "route": "/adventure/",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "canvas"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A03 state: running out of voice restarts the same meeting kindly (no penalty words)",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 restarts kindly"
+      ],
+      "evidence": [
+        "apps/adventure/src/core/battle.ts:213"
+      ],
+      "note": "기운 가득·마음 절반·탄막 20% 느리게 같은 만남 다시"
+    },
+    "A04": {
+      "kind": "screen",
+      "title": "말 걸기 판",
+      "status": "done",
+      "owner": "talk",
+      "route": "/adventure/?unlock=all",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "canvas"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A04 talk panel: say, build, spell and pick each render their own controls; spelling never shows the word",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::spoken lines use the world scorer: exact = 3 stars, close = fewer, off = retry",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::built and spelled answers are exact; picks cap at two stars",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::three choices per turn always include one spoken sentence and rotate past finished ones",
+        "tools/adventure-play.mjs"
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Talk.tsx:9",
+        "apps/adventure/src/core/grade.ts:1"
+      ],
+      "note": "말하기(🎤 브라우저 인식·⌨ 타이핑, 월드 채점기), 문장 조립, 철자, 대답 고르기. 모범 문장은 신경망 목소리"
+    },
+    "A04.state": {
+      "kind": "state",
+      "title": "말 걸기 판: 인식이 없거나 거절되면 타이핑 칸과 조각으로 바로 바뀜",
+      "status": "done",
+      "owner": "talk",
+      "route": "/adventure/",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "canvas"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A04 state: without speech recognition the typing box and the pieces are there at once"
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Speak.tsx:52"
+      ],
+      "note": "브라우저 인식이 꺼졌거나 거절되면 타이핑 칸이 바로 열리고, 소리가 들리지 않으면 다시 말하기 또는 타이핑"
+    },
+    "A05": {
+      "kind": "screen",
+      "title": "장 끝",
+      "status": "done",
+      "owner": "world",
+      "route": "/adventure/?unlock=all",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "canvas"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A05 chapter end: stars, friends, words, used sentences, the way back to the document and the island map",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::builds a contract v1 envelope with lines, words, stars and a Korean summary",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::chapter stars: 3 needs every islander befriended and three spoken lines; fighting gives 1",
+        "tools/adventure-play.mjs"
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Panel.tsx:329",
+        "apps/adventure/src/engine.ts:849"
+      ],
+      "note": "별, 새 친구, 되찾은 낱말, 쓴 문장, 학생 문서로 돌아가기, 섬 지도, /world/ 로 가기. 결과 계약 v1 로 문서에 보냄"
+    },
+    "A05.state": {
+      "kind": "state",
+      "title": "장 끝: 결과를 못 보내도 화면은 같음(다음 장 끝이나 페이지를 떠날 때 다시 보냄)",
+      "status": "done",
+      "owner": "world",
+      "route": "/adventure/",
+      "e2e": {
+        "route": "/adventure/",
+        "expect": [
+          "canvas"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A05 state: a result that could not be sent leaves the same screen"
+      ],
+      "evidence": [
+        "apps/adventure/src/engine.ts:866"
+      ],
+      "note": "처음 + 두 번 다시 보내고, 확인 못 한 봉투는 다음 장 끝과 pagehide 비컨으로 다시"
+    },
+    "A06": {
+      "kind": "screen",
+      "title": "보호자 요약",
+      "status": "done",
+      "owner": "parent",
+      "route": "/adventure/?view=parent",
+      "e2e": {
+        "route": "/adventure/?view=parent",
+        "expect": [
+          "testid:adv-parent"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A06 guardian summary: Korean, per chapter outcome, stars, time, sentences with how they were said",
+        "tools/adventure-play.mjs"
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Parent.tsx:7"
+      ],
+      "note": "장별 결과·한 날·걸린 시간·별·문장 단계·말한 문장(말하기·타이핑·고르기·철자)·잡은 낱말"
+    },
+    "A06.state": {
+      "kind": "state",
+      "title": "보호자 요약: 아직 한 장도 안 했으면 \"아직 모험 기록이 없어요\"",
+      "status": "done",
+      "owner": "parent",
+      "route": "/adventure/?view=parent",
+      "e2e": {
+        "route": "/adventure/?view=parent",
+        "expect": [
+          "testid:adv-parent"
+        ]
+      },
+      "tests": [
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A06 state: with nothing played yet it says \"아직 모험 기록이 없어요\""
+      ],
+      "evidence": [
+        "apps/adventure/src/ui/Parent.tsx:18"
+      ],
+      "note": "기록이 비면 빈 상태 카드(adv-parent-empty)"
     }
   },
   "features": [

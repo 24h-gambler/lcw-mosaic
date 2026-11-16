@@ -7,7 +7,7 @@ import { CSS } from './ui/styles.js';
 
 declare global {
   interface Window {
-    /** Read-only handle for the headless checks (tools and docs/22 6장); the page never reads it. */
+    /** Read-only handle for the headless checks (tools/adventure-play.mjs, docs/22 5장); the page never reads it. */
     __adv?: Engine;
   }
 }

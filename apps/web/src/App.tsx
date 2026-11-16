@@ -31,6 +31,7 @@ import { LessonDirectorConsole } from './LessonDirector.js';
 import { StudentJoin } from './StudentJoin.js';
 import { ParentReportPage } from './ParentReportPage.js';
 import { DeviceLinkPage, FamilyPage } from './FamilyPage.js';
+import { StudentSignupPage } from './StudentSignup.js';
 import { SeatsAdminPage } from './SeatsPage.js';
 import { LessonWindowPage } from './LessonWindowPage.js';
 import { DashboardPage } from './DashboardPage.js';
@@ -82,6 +83,7 @@ export type AppRoute =
   | '/r'
   | '/family'
   | '/link'
+  | '/signup'
   | '/seats'
   // public site (apps/web/src/site, docs/14)
   | '/pricing'
@@ -982,6 +984,7 @@ export function App({
     route === '/join' && React.createElement(StudentJoin, null),
     route === '/family' && React.createElement(FamilyPage, null),
     route === '/link' && React.createElement(DeviceLinkPage, null),
+    route === '/signup' && React.createElement(StudentSignupPage, null),
     route === '/seats' && React.createElement(SeatsAdminPage, null),
     route === '/r' &&
       (reportToken

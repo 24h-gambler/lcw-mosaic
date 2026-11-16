@@ -19,6 +19,7 @@ import { buildGuardianViewAdminApp } from './guardian-view.js';
 import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, linkIdentity, oauthConfigFrom } from './oauth.js';
 import { buildOperatorLoginApp, ensureOperatorLoginSchema, exchangeOperatorSession, teacherRoleHandler } from './operator-login.js';
 import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandler } from './guardian-oauth.js';
+import { STUDENT_PUBLIC_ROUTES, buildStudentAccountApp } from './student-account.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp } from './free-play.js';
@@ -128,6 +129,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   // check the guardian session (guardian-oauth.ts).
   if (OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   if (GUARDIAN_OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Student sign-up (student-account.ts): the adult's guardian session, or the waiting device's claim token.
+  if (STUDENT_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Public site (docs/14): cookie-free counters and the tutoring consult form, see site.ts.
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
@@ -867,6 +870,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildFamilyApp(familyDeps));
   const operatorLogin = { ...familyDeps, allowedEmails: env.LCW_OPERATOR_GOOGLE_EMAILS };
   app.route('/', buildOperatorLoginApp(operatorLogin));
+  app.route('/', buildStudentAccountApp(familyDeps));
   app.route('/', buildPushAdminApp(familyDeps));
   app.route('/', buildGuardianViewAdminApp(familyDeps));
   const oauthConfig = oauthConfigFrom(env as unknown as Record<string, unknown>);

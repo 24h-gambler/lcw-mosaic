@@ -146,6 +146,66 @@ describe('room client (docs/03 D11, docs/02 §11 request budget)', () => {
     client.stop();
   });
 
+  it('an expired lesson token ({room:null}) falls through to the device token in the same attempt', async () => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (_u: unknown, init?: RequestInit) => {
+      const auth = String((init?.headers as Record<string, string>).authorization);
+      calls.push(auth.slice(7, 8));
+      return auth.includes('s'.repeat(40))
+        ? new Response(JSON.stringify({ room: null, reason: 'no_room' }), { status: 200 })
+        : new Response(JSON.stringify({ ticket: 't'.repeat(48), room: 'family-f', connect: '/v1/room/connect' }), { status: 200 });
+    });
+    const sockets: FakeSocket[] = [];
+    const client = new RoomClient({
+      token: () => ['s'.repeat(40), 'd'.repeat(40)],
+      source: { pose: () => null },
+      sink: sinkLog().sink,
+      base: 'https://lcw.test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      socket: (url) => {
+        const s = new FakeSocket(url);
+        sockets.push(s);
+        return s;
+      }
+    });
+    client.start();
+    await flush();
+    await flush();
+    await flush();
+    expect(calls).toEqual(['s', 'd']);
+    expect(sockets).toHaveLength(1);
+    expect(client.room).toBe('family-f');
+    client.stop();
+  });
+
+  it('no token has a room ({room:null}): alone, no socket, asks again after five minutes', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ room: null, reason: 'no_room' }), { status: 200 }));
+    const sockets: FakeSocket[] = [];
+    const client = new RoomClient({
+      token: () => ['s'.repeat(40), null],
+      source: { pose: () => null },
+      sink: sinkLog().sink,
+      base: 'https://lcw.test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      socket: (url) => {
+        const s = new FakeSocket(url);
+        sockets.push(s);
+        return s;
+      }
+    });
+    client.start();
+    await flush();
+    vi.advanceTimersByTime(299_000);
+    await flush();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sockets).toHaveLength(0);
+    expect(client.status).toBe('none');
+    vi.advanceTimersByTime(2_000);
+    await flush();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    client.stop();
+  });
+
   it('a lesson token that arrives after the world opened is picked up without a request before it', async () => {
     let token: string | null = null;
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ticket: 't'.repeat(48), room: 'lesson-1', connect: '/v1/room/connect' }), { status: 200 }));

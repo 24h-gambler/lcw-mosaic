@@ -359,9 +359,12 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
         amount_krw: 0,
         note: 'console'
       }),
-    /** A free extension (no payment collected from the console). */
+    /**
+     * A free extension: through /dates, so no payment row is made and no refund window opens (a paid extension stays
+     * on the /seats screen's POST /extend).
+     */
     extendSeat: (op: string, seatId: string, days: number) =>
-      request<SeatChangeResult>('POST', `/v1/admin/seats/${enc(seatId)}/extend`, op, { days, amount_krw: 0, note: 'console' }),
+      request<SeatChangeResult>('POST', `/v1/admin/seats/${enc(seatId)}/dates`, op, { extend_days: days, note: 'console' }),
     editSeatDates: (op: string, seatId: string, dates: { starts_at?: number; ends_at?: number }) =>
       request<SeatChangeResult>('POST', `/v1/admin/seats/${enc(seatId)}/dates`, op, { ...dates, note: 'console' }),
     stopSeat: (op: string, seatId: string) => request<SeatChangeResult>('POST', `/v1/admin/seats/${enc(seatId)}/stop`, op, { note: 'console' }),

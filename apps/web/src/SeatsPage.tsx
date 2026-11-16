@@ -177,7 +177,10 @@ function SeatItem({
   const [note, setNote] = useState('');
   const inWindow = s.refund_until !== null && now < s.refund_until;
   const canAsk = s.can_request_refund;
-  const planText = `${S.plan[s.plan] ?? s.plan} · ${S.term[s.term] ?? s.term}`;
+  // Tutoring is included in the lessons: no term or price words, just '과외'.
+  const planText = s.plan === 'tutoring' ? (S.plan.tutoring ?? s.plan) : `${S.plan[s.plan] ?? s.plan} · ${S.term[s.term] ?? s.term}`;
+  // A 0원 payment (tutoring seat, free extension) is not money the family sent: no '0원 입금' line.
+  const paidLines = (s.payments ?? []).filter((p) => p.amount_krw > 0);
   const pr = s.pending_request;
   return (
     <li
@@ -197,7 +200,7 @@ function SeatItem({
       {s.state === 'read_only' ? <p style={{ margin: 0 }}>{S.readOnlyBody(day(s.read_only_until))}</p> : null}
       {s.state === 'archived' ? <p style={{ margin: 0 }}>{S.archivedBody}</p> : null}
       {s.state === 'refunded' ? <p style={{ margin: 0 }}>{S.refundedBody}</p> : null}
-      {s.payments && s.payments.length > 0 ? <PaymentLines payments={s.payments} /> : null}
+      {paidLines.length > 0 ? <PaymentLines payments={paidLines} /> : null}
       {pr ? (
         <Notice kind="info" testId="seat-pending">
           {(pr.status === 'review' ? S.refundReview : pr.awaiting_payer_choice ? S.refundAwaiting : S.refundPending)(day(pr.requested_at))}

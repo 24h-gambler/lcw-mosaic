@@ -259,6 +259,8 @@ export const LESSON_STRINGS_KO = {
         already_refunded: '환불된 좌석이라 바꿀 수 없어요.',
         ends_before_starts: '종료일은 시작일보다 뒤여야 해요.',
         date_too_far: '너무 먼 날짜예요. 3년 안으로 골라 주세요.',
+        date_too_old: '너무 지난 날짜예요. 종료일은 30일 전보다 뒤로 골라 주세요.',
+        start_in_future: '시작일은 오늘까지만 고를 수 있어요.',
         already_ended: '이미 끝난 좌석이에요.',
         seat_exists: '이미 이용 중인 좌석이 있어요.',
         payer_not_found: '보호자 계정이 없어 발급할 수 없어요. 먼저 부모님 연결을 해 주세요.',

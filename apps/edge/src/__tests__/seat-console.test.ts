@@ -63,7 +63,8 @@ describe('teacher console seat controls', () => {
     expect(r.body).toMatchObject({ id: sid, starts_at: newStart, ends_at: newEnd, state: 'active', changed: true });
 
     const fam = (await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0];
-    expect(fam).toMatchObject({ id: sid, starts_at: newStart, ends_at: newEnd, state: 'active' });
+    // A 0원 tutoring seat has nothing to refund: no refund button for the guardian.
+    expect(fam).toMatchObject({ id: sid, starts_at: newStart, ends_at: newEnd, state: 'active', can_request_refund: false });
     const admin = (await call(p, 'GET', '/v1/admin/seats')).body[0];
     expect(admin).toMatchObject({ starts_at: newStart, ends_at: newEnd });
     // No payment was made or changed by the edit.
@@ -142,6 +143,56 @@ describe('teacher console seat controls', () => {
     expect(changes.map((c: any) => c.kind)).toEqual(['extend', 'stop', 'issue']);
     expect(changes[1]).toMatchObject({ before: { ends_at: before.ends_at }, after: { ends_at: st.body.ends_at } });
     expect(changes[0]).toMatchObject({ before: { ends_at: st.body.ends_at }, after: { ends_at: ext.body.ends_at, days: 30, amount_krw: 0 }, note: 'console' });
+  });
+
+  it('console extend (extend_days) makes no payment, so a later refund request on an old paid seat still goes to review', async () => {
+    const p = platform();
+    const g = await family(p, 'stu-1', 'fam-a');
+    const paid = Date.now() - 10 * DAY;
+    const issued = await call(p, 'POST', '/v1/admin/seats', { payer_player_id: 'stu-1', plan: 'solo', term: 'month', player_ids: ['stu-1'], paid_at: paid });
+    const sid = issued.body.seat_ids[0];
+    const before = (await call(p, 'GET', '/v1/admin/seats')).body[0];
+    const ext = await call(p, 'POST', `/v1/admin/seats/${sid}/dates`, { extend_days: 30, note: 'console' });
+    expect(ext.status).toBe(200);
+    expect(ext.body.ends_at).toBe(before.ends_at + 30 * DAY);
+    const after = (await call(p, 'GET', '/v1/admin/seats')).body[0];
+    expect(after.payments).toHaveLength(1);
+    expect(after.rule_refund_open).toBe(false);
+    expect((await call(p, 'POST', `/v1/family/seats/${sid}/refund-request`, {}, g)).body.status).toBe('review');
+    const changes = (await call(p, 'GET', `/v1/admin/seats/${sid}/changes`)).body;
+    expect(changes[0]).toMatchObject({ kind: 'extend', after: { days: 30, amount_krw: 0, ends_at: before.ends_at + 30 * DAY } });
+    expect(changes[0].after.order_id).toBeUndefined();
+    expect((await call(p, 'POST', `/v1/admin/seats/${sid}/dates`, { extend_days: 30, ends_at: Date.now() })).status).toBe(400);
+  });
+
+  it('a live seat decides play even when an ended seat starts later; dates are bounded on both sides', async () => {
+    const p = platform();
+    const g = await family(p, 'stu-1', 'fam-a');
+    const dev = await linkDevice(p, g, 'stu-1');
+    const a = await tutoring(p, 'stu-1');
+    await call(p, 'POST', `/v1/admin/seats/${a}/stop`, {});
+    const b = await tutoring(p, 'stu-1');
+    const sb = (await call(p, 'GET', '/v1/admin/seats')).body.find((s: any) => s.id === b);
+    // move the live seat's start before the stopped one's
+    expect((await call(p, 'POST', `/v1/admin/seats/${b}/dates`, { starts_at: sb.starts_at - 20 * DAY })).status).toBe(200);
+    expect((await call(p, 'GET', '/v1/device/me', undefined, dev)).body).toMatchObject({ play_allowed: true, seat: { state: 'active' } });
+    expect((await call(p, 'POST', `/v1/admin/seats/${b}/dates`, { starts_at: Date.now() - 60 * DAY, ends_at: Date.now() - 40 * DAY })).body.error).toBe('date_too_old');
+    expect((await call(p, 'POST', `/v1/admin/seats/${b}/dates`, { starts_at: Date.now() + 3 * DAY })).body.error).toBe('start_in_future');
+  });
+
+  it('stopping a paid seat inside its window keeps the guardian refund request; refunds are audited', async () => {
+    const p = platform();
+    const g = await family(p, 'stu-1', 'fam-a');
+    const issued = await call(p, 'POST', '/v1/admin/seats', { payer_player_id: 'stu-1', plan: 'solo', term: 'month', player_ids: ['stu-1'] });
+    const sid = issued.body.seat_ids[0];
+    await call(p, 'POST', `/v1/admin/seats/${sid}/stop`, {});
+    const fam = (await call(p, 'GET', '/v1/family/seats', undefined, g)).body.seats[0];
+    expect(fam).toMatchObject({ state: 'read_only', can_request_refund: true });
+    expect((await call(p, 'POST', `/v1/family/seats/${sid}/refund-request`, {}, g)).body.status).toBe('pending');
+    expect((await call(p, 'POST', `/v1/admin/seats/${sid}/refund`, {})).status).toBe(200);
+    const changes = (await call(p, 'GET', `/v1/admin/seats/${sid}/changes`)).body;
+    expect(changes.map((c: any) => c.kind)).toEqual(['refund', 'stop', 'issue']);
+    expect(changes[0].after.status).toBe('refunded');
   });
 
   it('a refunded seat cannot be edited or stopped; a new tutoring seat can be issued after a stop', async () => {

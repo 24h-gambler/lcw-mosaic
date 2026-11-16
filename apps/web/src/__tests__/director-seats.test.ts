@@ -41,6 +41,9 @@ describe('teacher console seat badge and controls (DirectorSeats.tsx)', () => {
     expect(m.get('stu-29ddc960')!.id).toBe(oreo.id);
     expect(m.get('stu-2')!.id).toBe('seat-x');
     expect(seatsByPlayer([old, oreo]).get('stu-29ddc960')!.id).toBe(oreo.id);
+    // A live seat wins over a later-starting ended one (start dates can be edited).
+    const endedLater: ConsoleSeat = { ...oreo, id: 'seat-ended', starts_at: NOW + DAY, ends_at: NOW + 2 * DAY, state: 'read_only' };
+    expect(seatsByPlayer([endedLater, oreo]).get('stu-29ddc960')!.id).toBe(oreo.id);
   });
 
   it('student rows show the badge and a 구독 관리 button; no seat → 구독 없음', () => {
@@ -104,12 +107,13 @@ describe('teacher console seat badge and controls (DirectorSeats.tsx)', () => {
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       'GET /v1/admin/seats',
       'POST /v1/admin/seats',
-      'POST /v1/admin/seats/seat-1/extend',
+      'POST /v1/admin/seats/seat-1/dates',
       'POST /v1/admin/seats/seat-1/dates',
       'POST /v1/admin/seats/seat-1/stop'
     ]);
     expect(calls[1]!.body).toEqual({ payer_player_id: 'stu-1', plan: 'tutoring', term: 'month', player_ids: ['stu-1'], amount_krw: 0, note: 'console' });
-    expect(calls[2]!.body).toEqual({ days: 30, amount_krw: 0, note: 'console' });
+    // Free extension through /dates: no payment row, no refund window.
+    expect(calls[2]!.body).toEqual({ extend_days: 30, note: 'console' });
     expect(calls[3]!.body).toEqual({ ends_at: END, note: 'console' });
     expect(calls[4]!.body).toEqual({ note: 'console' });
   });

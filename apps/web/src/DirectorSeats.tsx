@@ -46,12 +46,17 @@ export function dateInputToMs(v: string, keepFrom: number): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** The seat that decides a student's play (as the server's `playAllowed`): newest start, then newest end. */
+const isLive = (s: ConsoleSeat) => s.state === 'active' || s.state === 'expiring';
+/** The seat that decides a student's play (as the server's `playAllowed`): a live seat first, then newest start, newest end. */
 export function seatsByPlayer(seats: readonly ConsoleSeat[]): Map<string, ConsoleSeat> {
   const out = new Map<string, ConsoleSeat>();
   for (const s of seats) {
     const cur = out.get(s.player_id);
-    if (!cur || s.starts_at > cur.starts_at || (s.starts_at === cur.starts_at && s.ends_at > cur.ends_at)) out.set(s.player_id, s);
+    const better =
+      !cur ||
+      (isLive(s) && !isLive(cur)) ||
+      (isLive(s) === isLive(cur) && (s.starts_at > cur.starts_at || (s.starts_at === cur.starts_at && s.ends_at > cur.ends_at)));
+    if (better) out.set(s.player_id, s);
   }
   return out;
 }
@@ -161,8 +166,9 @@ export function SeatManager({
       const code = errorCodeOf(e);
       setMsg({ kind: 'error', text: S.err[code] ?? S.errGeneric(code) });
     } finally {
-      setBusy(false);
+      // Reload first: the buttons stay off until the panel shows the server's new dates.
       await onChanged();
+      setBusy(false);
     }
   };
 

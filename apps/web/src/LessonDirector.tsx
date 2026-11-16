@@ -19,6 +19,7 @@ import {
   saveOperatorToken,
   recordFromLive,
   type AdminStudent,
+  type ConsoleSeat,
   type DirectorLessonRecord,
   type FeedLive,
   type LessonApi,
@@ -60,6 +61,7 @@ import { handleDirectorKeydown } from './director.js';
 import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView } from './directorLiveState.js';
 import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentScreenBox } from './DirectorLive.js';
 import { LessonAudioBox } from './LessonAudioBox.js';
+import { ConsoleSeatBadge, SeatManager, useConsoleSeats } from './DirectorSeats.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 import { TeacherModeHelp, TeacherPresenceBox } from './teacherPresence.js';
@@ -102,6 +104,8 @@ export interface LessonDirectorConsoleProps {
   initialToken?: string | null;
   initialLesson?: DirectorLessonRecord | null;
   initialStudents?: AdminStudent[];
+  /** Seats for the student rows' badges and controls; undefined → fetched (GET /v1/admin/seats). */
+  initialSeats?: ConsoleSeat[];
   /** Running lessons for the resume card; undefined → fetched. */
   initialLive?: { lessons: LiveLessonRow[]; server_now: number };
   initialFeed?: LessonFeed;
@@ -198,6 +202,7 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
           now={now}
           onAuthError={onAuthError}
           initialStudents={props.initialStudents}
+          initialSeats={props.initialSeats}
           initialLive={props.initialLive}
           onStarted={setLesson}
         />
@@ -429,6 +434,7 @@ function StudentPicker({
   now,
   onAuthError,
   initialStudents,
+  initialSeats,
   initialLive,
   onStarted
 }: {
@@ -437,6 +443,7 @@ function StudentPicker({
   now: () => number;
   onAuthError: (code: string) => void;
   initialStudents: AdminStudent[] | undefined;
+  initialSeats: ConsoleSeat[] | undefined;
   initialLive: { lessons: LiveLessonRow[]; server_now: number } | undefined;
   onStarted: (rec: DirectorLessonRecord) => void;
 }): React.ReactElement {
@@ -474,6 +481,8 @@ function StudentPicker({
   const [startingId, setStartingId] = useState<string | null>(null);
   const [startError, setStartError] = useState<{ id: string; text: string } | null>(null);
   const [planId, setPlanId] = useState<string>(loadPlanChoice);
+  const seats = useConsoleSeats(api, token, initialSeats);
+  const [seatOpen, setSeatOpen] = useState<string | null>(null);
   const choosePlan = (id: string) => {
     setPlanId(id);
     savePlanChoice(id);
@@ -563,6 +572,7 @@ function StudentPicker({
             onClick={() => {
               void load();
               void loadLive();
+              void seats.reload();
             }}
             disabled={loading}
           >
@@ -592,6 +602,11 @@ function StudentPicker({
           <p style={{ margin: `${sp(1)} 0 0`, fontSize: `${T.scale.small.sizePx}px` }}>{S.planHint}</p>
         </div>
         {listError ? <Notice onRetry={() => void load()} retryLabel={S.retry}>{listError}</Notice> : null}
+        {seats.error ? (
+          <Notice kind="info" onRetry={() => void seats.reload()} retryLabel={S.retry}>
+            {S.seat.loadError}
+          </Notice>
+        ) : null}
         {students && students.length === 0 ? <p>{S.studentsEmpty}</p> : null}
         {students && students.length > 0 ? (
           <div style={{ overflowX: 'auto' }}>
@@ -603,17 +618,33 @@ function StudentPicker({
                   <th style={th}>{S.colBirth}</th>
                   <th style={th}>{S.colLast}</th>
                   <th style={th}>{S.col7d}</th>
+                  <th style={th}>{S.seat.col}</th>
                   <th style={th} />
                 </tr>
               </thead>
               <tbody>
                 {students.map((s) => (
-                  <tr key={s.player_id} data-testid="student-row">
+                  <React.Fragment key={s.player_id}>
+                  <tr data-testid="student-row">
                     <td style={{ ...td, fontWeight: 700 }}>{s.nickname}</td>
                     <td style={td}>{s.level}</td>
                     <td style={td}>{s.birth_year ?? '—'}</td>
                     <td style={td}>{kstLabel(s.last_lesson_at)}</td>
                     <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{s.utterances_7d ?? 0}</td>
+                    <td style={td} data-testid="student-seat">
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(1), alignItems: 'center' }}>
+                        {seats.loaded ? <ConsoleSeatBadge seat={seats.byPlayer.get(s.player_id)} now={now()} /> : null}
+                        <Button
+                          type="button"
+                          variant="paper"
+                          aria-expanded={seatOpen === s.player_id}
+                          data-testid={`seat-manage-${s.player_id}`}
+                          onClick={() => setSeatOpen(seatOpen === s.player_id ? null : s.player_id)}
+                        >
+                          {seatOpen === s.player_id ? S.seat.close : S.seat.manage}
+                        </Button>
+                      </div>
+                    </td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       <Button
                         type="button"
@@ -632,6 +663,22 @@ function StudentPicker({
                       ) : null}
                     </td>
                   </tr>
+                  {seatOpen === s.player_id ? (
+                    <tr data-testid="student-seat-row">
+                      <td colSpan={7} style={td}>
+                        <SeatManager
+                          api={api}
+                          token={token}
+                          nickname={s.nickname}
+                          playerId={s.player_id}
+                          seat={seats.byPlayer.get(s.player_id)}
+                          now={now}
+                          onChanged={seats.reload}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

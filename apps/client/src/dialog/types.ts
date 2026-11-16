@@ -33,6 +33,8 @@ export interface DialogResult {
   pass: boolean;
   stars: number;
   feedbackKo: string;
+  /** The server's own English line (the lesson route's `feedback_en`); shown instead of the table mapping when set. */
+  feedbackEn?: string;
   coinsTotal?: number;
   /** Words of the target the server did not hear (display only; optional — the lesson route does not send it). */
   missed?: string[];

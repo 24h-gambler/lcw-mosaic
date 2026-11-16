@@ -139,7 +139,9 @@ export const DIALOG_CSS = `
 /* Landscape phone (844x390, outsider capture 11-16): a bottom sheet covered the whole screen. The window becomes a
    side panel on the right, full height; the NPC stands in the strip on the left (App.tsx sends its width as rightPx). */
 @media (orientation:landscape) and (max-height:520px){
-  .lcw-dlg{padding:0;align-items:stretch;justify-content:flex-end}
+  /* starts under the world's star/coin chip (hud .lw-stars: top 12px, 36px tall), which the panel's 🔊 covered on a
+     844x390 lesson screen (lesson lane, 11-16): the child sees stars and coins while ordering */
+  .lcw-dlg{padding:56px 0 0;align-items:stretch;justify-content:flex-end}
   .lcw-dlg__win{width:min(60vw,600px);height:100%;max-height:100%;grid-template-columns:1fr;align-content:start;
     border-radius:${SHAPE_TOKENS.radiusCardPx * 2}px 0 0 ${SHAPE_TOKENS.radiusCardPx * 2}px;border-right:0;padding:8px max(10px,env(safe-area-inset-right)) 8px 10px;gap:6px;animation-name:lcwSide}
   .lcw-dlg__side{gap:6px}
@@ -163,14 +165,19 @@ export const DIALOG_CSS = `
   .lcw-dlg__bar{position:sticky;bottom:-8px;background:var(--c-paper-50);padding:4px 0 8px;margin-bottom:-8px}
 }
 @media (orientation:landscape) and (max-height:400px){
-  .lcw-dlg__win{gap:4px;padding-top:6px}
-  .lcw-dlg__main{gap:4px}
+  /* the 56px under the star/coin chip comes out of here: the free-talk title already says "say what you want", so
+     the "You can also say" label goes, and the rows sit closer, keeping the ★★★ sentence above the mic bar */
+  .lcw-dlg{padding-top:52px}
+  .lcw-dlg__ideas{display:none}
+  .lcw-dlg__bubble{line-height:1.2;padding:3px 8px}
+  .lcw-dlg__win{gap:3px;padding-top:4px}
+  .lcw-dlg__side,.lcw-dlg__main{gap:3px}
   .lcw-dlg__title{font-size:${px(t.small.sizePx)}}
-  .lcw-dlg__x{min-width:36px;min-height:36px}
-  .lcw-offer{min-height:40px;padding:2px 6px 2px 8px}
-  .lcw-listen{min-width:36px;min-height:36px;font-size:17px}
-  .lcw-mic{width:46px;height:46px;font-size:20px}
-  .lcw-alt{min-height:36px}
+  .lcw-dlg__x{min-width:34px;min-height:34px}
+  .lcw-offer{min-height:38px;padding:1px 6px 1px 8px}
+  .lcw-listen{min-width:34px;min-height:34px;font-size:17px}
+  .lcw-mic{width:44px;height:44px;font-size:20px}
+  .lcw-alt{min-height:34px}
 }
 @keyframes lcwSide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
 @media (pointer:coarse){.lcw-mic-label small.kbd{display:none}}

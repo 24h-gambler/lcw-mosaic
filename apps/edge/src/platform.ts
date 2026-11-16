@@ -22,7 +22,7 @@ import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandl
 import { STUDENT_PUBLIC_ROUTES, buildStudentAccountApp } from './student-account.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
-import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp } from './free-play.js';
+import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp, guestPassFromRequest } from './free-play.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp } from './my-world.js';
 import { injectReportShareMeta } from './report-page.js';
@@ -841,16 +841,42 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   // My plot (WP-207): the child's own home world, from the same tokens. Building alone is solo play, so a linked
   // device whose seat has paused play may still look (GET) but not build (docs/01 §4; the client shows the notice).
   // A lesson token always may: the lesson is the teacher's time.
+  // A friend on a guest pass (docs/19 §8, `x-lcw-guest-pass`) opens the host child's plot while the pass runs and builds
+  // there by the guest rules (plot.ts applyOps guestGrant): the host's own build and chest stay theirs. A child's own
+  // token wins over a pass on the same request (a linked tablet visiting a friend is still the friend's guest only when
+  // it sends no token of its own: the world client sends the pass alone).
+  const passVisitor = (req: Request) => guestPassFromRequest({ sql: platform.sql, sha256Hex }, req, Date.now());
   app.get('/v1/plot', async (c, next) => {
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await soloPlayer(c.req.raw);
-    if (!s) return next();
-    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+    if (!s) {
+      const g = await passVisitor(c.req.raw);
+      if (!g) return next();
+      if (!g.active) return c.json({ error: 'pass_ended' }, 410);
+      return forwardSolo(c.req.url, { player_id: g.player_id, session_id: `pass-${g.grant_id}` }, null, (p) => ({
+        player_id: p.player_id,
+        world_id: p.world_id,
+        guest_grant: g.grant_id
+      }));
+    }
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id, guest_grant: '' }));
   });
   app.post('/v1/plot/ops', async (c, next) => {
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
     const s = await soloPlayer(c.req.raw);
-    if (!s) return next();
+    if (!s) {
+      const g = await passVisitor(c.req.raw);
+      if (!g) return next();
+      const body = await readBody(c);
+      // ended, revoked, or the host's seat stopped (guestPassFromRequest folds the seat in): the friend sees /guest-end
+      if (!g.active) return c.json({ error: 'pass_ended' }, 410);
+      if (!body) return c.json({ error: 'invalid_plot_ops' }, 400);
+      return forwardSolo(c.req.url, { player_id: g.player_id, session_id: `pass-${g.grant_id}` }, { ops: body.ops, batch: body.batch }, (p) => ({
+        player_id: p.player_id,
+        world_id: p.world_id,
+        guest_grant: g.grant_id
+      }));
+    }
     // Read the body first: answering a POST before draining it breaks the next request on a kept-alive connection (workerd).
     const body = await readBody(c);
     const blocked = seatBlocked(s);
@@ -988,6 +1014,10 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       nowMs: familyDeps.nowMs,
       randomBytes: familyDeps.randomBytes,
       soloPlayer,
+      passHost: async (req) => {
+        const g = await passVisitor(req);
+        return g?.active ? g.player_id : null;
+      },
       ensureHomeWorld: (playerId) => platform.ensureHomeWorld(playerId)
     })
   );

@@ -17,7 +17,8 @@ export interface SpeechCallbacks {
   onInterim(text: string): void;
   /** Recognition ended: the joined final transcript, or null when nothing was heard. */
   onEnd(result: SpeechFinal | null): void;
-  onError(issue: MicIssue): void;
+  /** `raw`: the browser's own error code when there is one (e.g. 'audio-capture'), for the mic status record. */
+  onError(issue: MicIssue, raw?: string): void;
 }
 
 export interface SpeechSession {
@@ -225,7 +226,7 @@ export function createBrowserSpeechEngine(envOverride?: Partial<SpeechEnv>, lang
           if ((stopRequested || restarts > 0) && heardAny()) return deliver();
           if (restarts > 0 && ev.error === 'audio-capture') return deliver();
           errored = true;
-          cb.onError(mapRecognitionError(ev.error));
+          cb.onError(mapRecognitionError(ev.error), ev.error);
         };
         r.onend = () => {
           if (rec !== r || aborted || errored) return;

@@ -8,6 +8,7 @@ import {
   type MicCaptureState
 } from '@lcw/audio';
 import type { MicIssue, SpeechEngine, SpeechFinal, SpeechSession } from './speech.js';
+import { noteMicIssue, noteMicTurn } from './mic-status.js';
 
 /**
  * Dialog microphone (docs/08 7.1, docs/12 9): tap to start, tap again to finish, or auto-stop after
@@ -121,8 +122,9 @@ export class MicController {
       onEnd: (r) => {
         if (gen === this.gen) this.deliver(r);
       },
-      onError: (issue) => {
+      onError: (issue, raw) => {
         if (gen !== this.gen) return;
+        noteMicIssue(issue, raw);
         this.finishing = false;
         if (this.recorder) {
           this.recorder.abort();
@@ -208,6 +210,7 @@ export class MicController {
     this.state = MIC_CAPTURE_IDLE;
     this.ev.onView({ recording: false, interim: r?.transcript ?? this.interim, hangover: false, level: 0 });
     const heard = r && r.transcript.trim() ? r : null;
+    noteMicTurn(!!heard);
     if (this.recorder && !this.clip) this.clip = this.recorder.stop();
     const clip = this.clip;
     this.clip = null;

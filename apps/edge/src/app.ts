@@ -601,10 +601,13 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const playerId = c.req.query('player_id') ?? '';
     const world = deps.worlds.get(c.req.query('world_id') ?? '');
     if (!playerId || !world) return c.json({ error: 'plot_not_found' }, 404);
-    return c.json(plotStoreFor(world, world.sql, playerId, deps.nowMs()).snapshot());
+    const store = plotStoreFor(world, world.sql, playerId, deps.nowMs());
+    // set only by the platform's guest-pass gate (a child's own request has it cleared there)
+    const guest = c.req.query('guest_grant') ?? '';
+    return c.json(guest ? { ...store.snapshot(), guest_cells: store.guestCells(guest) } : store.snapshot());
   });
   app.post('/v1/plot/ops', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { player_id?: unknown; world_id?: unknown; ops?: unknown; batch?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as { player_id?: unknown; world_id?: unknown; ops?: unknown; batch?: unknown; guest_grant?: unknown } | null;
     const playerId = typeof body?.player_id === 'string' ? body.player_id : '';
     const world = deps.worlds.get(typeof body?.world_id === 'string' ? body.world_id : '');
     if (!playerId || !world) return c.json({ error: 'plot_not_found' }, 404);
@@ -612,7 +615,9 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       return c.json({ error: 'invalid_plot_ops' }, 400);
     }
     const batch = typeof body.batch === 'string' ? body.batch : undefined;
-    return c.json(plotStoreFor(world, world.sql, playerId, deps.nowMs()).applyOps(body.ops, deps.nowMs(), { batch }));
+    // set only by the platform's guest-pass gate (platform.ts), never by a child's body: that is overwritten there
+    const guestGrant = typeof body.guest_grant === 'string' && body.guest_grant ? body.guest_grant : undefined;
+    return c.json(plotStoreFor(world, world.sql, playerId, deps.nowMs()).applyOps(body.ops, deps.nowMs(), { batch, guestGrant }));
   });
 
   app.post('/v1/review/attempt', async (c) => {

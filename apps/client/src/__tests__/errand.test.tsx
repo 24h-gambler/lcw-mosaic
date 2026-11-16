@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { FIRST_ERRAND, NPC_OPENING_LINES, UI_STRINGS_KO } from '@lcw/content';
+import { FIRST_ERRAND, NPC_OPENING_LINES, UI_STRINGS_EN } from '@lcw/content';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { errandDialogFor, errandGoalKo, fetchErrand, type ErrandView } from '../dialog/errand.js';
@@ -54,7 +54,7 @@ describe('first-visit errand: client module against the real platform routes', (
     const { f, devToken } = await platform();
     let e: ErrandView = await fetchErrand({ token: devToken, fetchImpl: f });
     expect(e).toMatchObject({ state: 'offered', item_key: FIRST_ERRAND.item, npc_line: FIRST_ERRAND.lines.ask });
-    expect(errandGoalKo(e)).toBe('카페 앞 이웃 미아에게 가서 말을 걸어요'); // the name comes from the cast pack
+    expect(errandGoalKo(e)).toBe('Go talk to your neighbor Mia in front of the cafe'); // the name comes from the cast pack
 
     // Mia gives the errand: ctx errand, accept lines, her ask line first. Luna is a normal guide talk.
     expect(errandDialogFor(LUNA, e, 'L1')).toBeNull();
@@ -67,7 +67,7 @@ describe('first-visit errand: client module against the real platform routes', (
     expect(acc.errand).toEqual({ state: 'accepted', rewardCoins: undefined });
     e = await fetchErrand({ token: devToken, fetchImpl: f });
     expect(e.state).toBe('accepted');
-    expect(errandGoalKo(e)).toContain(FIRST_ERRAND.itemKo);
+    expect(errandGoalKo(e)).toContain(`${FIRST_ERRAND.mod} ${FIRST_ERRAND.item}`); // English screen: the item in English
 
     // On the way Mia reminds (waiting line, the yes lines again move nothing); Luna and Toby talk as usual.
     const wait = errandDialogFor(MINA, e, 'L1')!;
@@ -129,9 +129,9 @@ describe('FirstVisitGuide', () => {
   it('shows the way button for the step: to Mia at the cafe door to start and to hand over, to the cafe while ordering', () => {
     const at = (s: ErrandView['state'], hidden = false) =>
       renderToStaticMarkup(<FirstVisitGuide world={world} player={{ deviceToken: 'd'.repeat(48) }} errand={view(s)} onErrand={() => undefined} hidden={hidden} fetchImpl={noFetch} />);
-    expect(at('accepted')).toContain(UI_STRINGS_KO.firstVisit.walkCafe);
-    expect(at('carrying')).toContain('미아에게 가기');
-    expect(at('offered')).toContain('미아에게 가기');
+    expect(at('accepted')).toContain(UI_STRINGS_EN.firstVisit.walkCafe);
+    expect(at('carrying')).toContain('Go to Mia');
+    expect(at('offered')).toContain('Go to Mia');
     expect(at('done')).not.toContain('lcw-errand-walk');
     expect(at('accepted', true)).toBe('');
   });

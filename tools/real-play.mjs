@@ -266,7 +266,7 @@ async function tryKey(id) {
     counts.wrongNpc++;
     await closeDlg();
   }
-  return { ok, near: s?.interact?.near ?? null, prompt: s?.interact?.prompt ?? null, ...(touch ? { button } : {}) };
+  return { ok, near: s?.interact?.near ?? null, goal: s?.interact?.goal ?? null, prompt: s?.interact?.prompt ?? null, why: s?.interact?.promptWhy, paused: s?.interact?.paused, walking: s?.interact?.walking, ...(touch ? { button } : {}) };
 }
 
 async function answer(stars) {
@@ -443,6 +443,16 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
       await shot('81-lesson-click');
       if (await fold()) {
         await approach(lesson.npc, 2.4);
+        // the talk prompt must hold steady while the child stands by the lesson NPC (no flicker)
+        const seq = [];
+        for (let i = 0; i < 40; i++) {
+          const x = await stats();
+          const v = x?.npcView?.find((n) => n.id === lesson.npc);
+          seq.push(`${x?.interact?.near === lesson.npc ? 'N' : '-'}${x?.interact?.prompt ? 'P' : '.' + (x?.interact?.promptWhy ?? '')}${v ? v.dist.toFixed(1) : 'x'}`);
+          await wait(50);
+        }
+        lesson.promptOnShare = seq.filter((q) => q[1] === 'P').length / seq.length;
+        lesson.promptSeq = seq.join(' ');
         const k = await tryKey(lesson.npc);
         lesson.reopenByKey = k.ok;
         lesson.key = k;

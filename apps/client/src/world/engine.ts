@@ -447,6 +447,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   /** For the real-play check (getStats().interact / motion): talks opened by E, by a click or tap, jumps and climbs */
   const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0 };
   let promptOn = false;
+  /** why the talk prompt is off ('' = shown): none / paused / walking / bubble / talked / behind */
+  let promptWhy = 'none';
   let autopilot: Array<[number, number]> = [];
   let autoStuck = 0;
   let autoTime = 0;
@@ -1594,9 +1596,21 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     // talked to keeps quiet (E and a tap still open the talk), so the same button does not pop up at every corner.
     promptOn = false;
     // (the floating "E" tag gives way to a speech bubble over the head; the touch talk button sits in the corner and stays)
-    if (nearNpc && !paused && autopilot.length === 0 && (touch || !hud.hasBubble(nearNpc.def.id, nowMs)) && (nearNpc.def.id === goalNpcId || !talkedTo.has(nearNpc.def.id))) {
+    promptWhy = !nearNpc
+      ? 'none'
+      : paused
+        ? 'paused'
+        : autopilot.length > 0
+          ? 'walking'
+          : !touch && hud.hasBubble(nearNpc.def.id, nowMs)
+            ? 'bubble'
+            : nearNpc.def.id !== goalNpcId && talkedTo.has(nearNpc.def.id)
+              ? 'talked'
+              : '';
+    if (nearNpc && promptWhy === '') {
       const p = project(nearNpc.pos.x, nearNpc.pos.y + CHAR_HEIGHT + 0.35, nearNpc.pos.z);
       promptOn = p.vis;
+      if (!p.vis) promptWhy = 'behind';
       hud.showPrompt(p.vis, p.sx, p.sy, touch);
     } else hud.showPrompt(false, 0, 0, touch);
     const goal = goalNpcId && !paused ? npcs.get(goalNpcId) : undefined;
@@ -2024,6 +2038,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
           near: nearNpc?.def.id ?? null,
           goal: goalNpcId,
           prompt: promptOn,
+          promptWhy,
+          paused,
+          walking: autopilot.length > 0,
           talked: [...talkedTo],
           byKey: counts.talkE,
           byTap: counts.talkTap

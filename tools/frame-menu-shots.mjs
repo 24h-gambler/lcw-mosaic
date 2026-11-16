@@ -121,6 +121,8 @@ for (const vp of VIEWPORTS) {
     return json({ error: 'not_in_fixture' }, 404);
   });
   const page = await ctx.newPage();
+  // a busy machine: screenshots wait for fonts, clicks for frames; 30 s was not always enough
+  page.setDefaultTimeout(90000);
   const errs = [];
   page.on('pageerror', (er) => errs.push(`pageerror: ${er.message.slice(0, 200)}`));
   await page.goto(base, { waitUntil: 'load', timeout: 90000 });

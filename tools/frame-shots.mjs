@@ -100,6 +100,8 @@ async function boxes(page) {
 for (const vp of VIEWPORTS) {
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, hasTouch: vp.touch, isMobile: vp.touch && vp.width < 500 });
   const page = await ctx.newPage();
+  // a busy machine: screenshots wait for fonts, clicks for frames; 30 s was not always enough
+  page.setDefaultTimeout(90000);
   const errs = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errs.push(m.text().slice(0, 200));

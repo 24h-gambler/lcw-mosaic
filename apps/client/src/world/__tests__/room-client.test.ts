@@ -74,7 +74,7 @@ describe('room client (docs/03 D11, docs/02 §11 request budget)', () => {
     client.start();
     await flush();
     expect(fetchImpl).toHaveBeenCalledWith('https://lcw.test/v1/room/ticket', expect.objectContaining({ method: 'POST' }));
-    expect(sockets[0]!.url).toBe(`wss://lcw.test/v1/room/connect?t=${'t'.repeat(48)}`);
+    expect(sockets[0]!.url).toBe(`wss://lcw.test/v1/room/connect?t=${'t'.repeat(48)}&v=2`);
     client.stop();
   });
 
@@ -89,29 +89,114 @@ describe('room client (docs/03 D11, docs/02 §11 request budget)', () => {
     client.stop();
   });
 
-  it('with someone else it sends moving poses at most poseHz a second, and greets a newcomer with one pose', async () => {
+  it('with someone else it sends only what the others cannot predict, within the budget, and greets a newcomer', async () => {
     const { client, sockets, move } = setup();
     client.start();
     await flush();
     const s = sockets[0]!;
-    s.frame({ t: 'hello', you: 'me', cap: 8, peers: [['p1', 'Mina', 'player', 0, 0, 0, 0, 0]] });
+    s.frame({ t: 'hello', you: 'me', cap: 8, peers: [['p1', 'Mina', 'player', 0, 0, 0, 0, 0, 2, 0, 0, 0, 0]] });
     expect(s.poses()).toHaveLength(1);
-    // walk for one second, a new position every tick
-    for (let i = 1; i <= TUNING.multi.poseTickHz; i++) {
-      move([1 + i, 2, 3, 0, 1]);
-      vi.advanceTimersByTime(1000 / TUNING.multi.poseTickHz);
+    const tick = 1000 / TUNING.multi.poseTickHz;
+    // walking straight at 4.5 m/s for 6 s: the start, then a refresh every poseRefreshMs (the others carry me along)
+    let x = 0;
+    for (let t = 0; t < 6000; t += tick) {
+      x += 4.5 * (tick / 1000);
+      move([x, 2, 3, Math.PI / 2, 1]);
+      vi.advanceTimersByTime(tick);
     }
-    const n = s.poses().length - 1;
-    expect(n).toBeLessThanOrEqual(TUNING.multi.poseHz + 1);
-    expect(n).toBeGreaterThanOrEqual(TUNING.multi.poseHz - 1);
-    // standing still: nothing more
+    const straight = s.poses().slice(1);
+    expect(straight.length).toBeLessThanOrEqual(2 + Math.ceil(6000 / TUNING.multi.poseRefreshMs));
+    const last = straight.at(-1)!;
+    expect(last[6]).toBeCloseTo(4.5, 0); // vx carried in the pose
+    expect(last[7]).toBeCloseTo(0, 1);
+    // zig-zagging every tick for 10 s: never more than the token bucket allows
     const before = s.poses().length;
-    vi.advanceTimersByTime(1000);
-    expect(s.poses().length).toBe(before);
+    for (let t = 0; t < 10_000; t += tick) {
+      x += 0.2;
+      move([x, 2, 3 + (Math.round(t / tick) % 2) * 0.6, 0, 1]);
+      vi.advanceTimersByTime(tick);
+    }
+    const zig = s.poses().length - before;
+    expect(zig).toBeLessThanOrEqual(Math.ceil(10 * TUNING.multi.poseBudgetHz + TUNING.multi.poseBurst + 1));
+    // stopping goes out at once with no velocity (the others stop drawing me walking)
+    move([x, 2, 3, 0, 0]);
+    vi.advanceTimersByTime(tick * 4);
+    const stop = s.poses().at(-1)!;
+    expect(stop[4]).toBe(0);
+    expect(stop[6]).toBe(0);
+    expect(stop[7]).toBe(0);
+    // standing still: nothing more
+    const still = s.poses().length;
+    vi.advanceTimersByTime(3000);
+    expect(s.poses().length).toBe(still);
     // a newcomer gets my pose at once
-    s.frame({ t: 'join', id: 'p2', name: 'Juno', role: 'player' });
-    vi.advanceTimersByTime(1000 / TUNING.multi.poseTickHz);
-    expect(s.poses().length).toBe(before + 1);
+    s.frame({ t: 'join', id: 'p2', name: 'Juno', role: 'player', v: 2 });
+    vi.advanceTimersByTime(tick);
+    expect(s.poses().length).toBe(still + 1);
+    client.stop();
+  });
+
+  it('asks for the predicting protocol, and keeps the old steady 5 Hz while a page from before is in the room', async () => {
+    const { client, sockets, move } = setup();
+    client.start();
+    await flush();
+    const s = sockets[0]!;
+    expect(s.url).toContain('&v=2');
+    // an older page (no protocol in its hello entry) only eases toward the last pose it got
+    s.frame({ t: 'hello', you: 'me', cap: 8, peers: [['old', 'Mina', 'player', 0, 0, 0, 0, 0]] });
+    const tick = 1000 / TUNING.multi.poseTickHz;
+    const walk = (ms: number, from: number): number => {
+      let x = from;
+      for (let t = 0; t < ms; t += tick) {
+        x += 4.5 * (tick / 1000);
+        move([x, 2, 3, Math.PI / 2, 1]);
+        vi.advanceTimersByTime(tick);
+      }
+      return x;
+    };
+    let n = s.poses().length;
+    let x = walk(4000, 0);
+    const legacyRate = (s.poses().length - n) / 4;
+    expect(legacyRate).toBeGreaterThanOrEqual(4.5);
+    expect(legacyRate).toBeLessThanOrEqual(5.5);
+    // the old page leaves, a new one stays: back to sending only what cannot be predicted
+    s.frame({ t: 'join', id: 'new', name: 'Juno', role: 'player', v: 2 });
+    s.frame({ t: 'leave', id: 'old' });
+    x = walk(500, x);
+    n = s.poses().length;
+    walk(6000, x);
+    expect((s.poses().length - n) / 6).toBeLessThanOrEqual(0.5);
+    client.stop();
+  });
+
+  it('turning on the spot at a steady rate sends no more than walking a steady circle needs', async () => {
+    const { client, sockets, move } = setup();
+    client.start();
+    await flush();
+    const s = sockets[0]!;
+    s.frame({ t: 'hello', you: 'me', cap: 8, peers: [['p1', 'Mina', 'player', 0, 0, 0, 0, 0, 2, 0, 0, 0, 0]] });
+    const tick = 1000 / TUNING.multi.poseTickHz;
+    // a steady circle: 3 m/s, 1 rad/s, facing the walking direction (the receivers turn the figure along)
+    let h = 0;
+    let x = 0;
+    let z = 0;
+    for (let t = 0; t < 2000; t += tick) {
+      h += tick / 1000;
+      x += Math.sin(h) * 3 * (tick / 1000);
+      z += Math.cos(h) * 3 * (tick / 1000);
+      move([x, 2, z, h, 1]);
+      vi.advanceTimersByTime(tick);
+    }
+    const n = s.poses().length;
+    for (let t = 0; t < 10_000; t += tick) {
+      h += tick / 1000;
+      x += Math.sin(h) * 3 * (tick / 1000);
+      z += Math.cos(h) * 3 * (tick / 1000);
+      move([x, 2, z, h, 1]);
+      vi.advanceTimersByTime(tick);
+    }
+    // the facing is predicted with the turn rate too: only the 3 s refresh (and a little drift), not the budget
+    expect((s.poses().length - n) / 10).toBeLessThan(0.8);
     client.stop();
   });
 

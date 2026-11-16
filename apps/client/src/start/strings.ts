@@ -57,6 +57,21 @@ export const START_STRINGS = {
   },
   invite: {
     title: '선생님이 내 월드에 왔어요!'
+  },
+  pass: {
+    entering: '친구 월드로 들어가는 중이에요',
+    // No clock on the child's screen (AGENTS §4.9, docs/10 §7): the 30 minutes run and end out of sight.
+    chip: (host: string) => (host ? `🎟️ ${host}의 초대로 놀러 왔어요` : '🎟️ 친구 초대로 놀러 왔어요'),
+    inUse: '이 코드는 다른 기기에서 쓰고 있어요',
+    inUseHint: '처음 들어간 기기에서만 이어서 놀 수 있어요.',
+    notFound: '코드를 찾을 수 없어요',
+    notFoundHint: '받은 링크나 코드를 다시 확인해 주세요.',
+    busy: '지금은 들어가는 사람이 많아요',
+    busyHint: '조금 있다가 다시 열어 주세요.',
+    retry: '지금은 연결이 안 돼요',
+    retryHint: '잠깐 뒤에 다시 눌러 주세요.',
+    again: '다시 해 보기',
+    home: '처음으로'
   }
 } as const;
 

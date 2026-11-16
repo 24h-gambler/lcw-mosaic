@@ -188,6 +188,25 @@ describe('director console: 승인 대기 (DirectorSignups.tsx)', () => {
     expect(html).toContain('<option value="" selected="">');
   });
 
+  it('a name another waiting sign-up holds says so (no student to point at); an own-family match says it is this family', () => {
+    const now = Date.parse('2026-11-16T06:00:00Z');
+    const html = renderToStaticMarkup(
+      React.createElement(SignupQueue, {
+        token: 'op',
+        now: () => now,
+        pollMs: 1e9,
+        initialSignups: [
+          { id: 'sg-6', nickname: 'nori', created_at: now - 60_000, expires_at: now + 1e7, family_students: [], match: null, name_taken: true, taken_by: null },
+          { id: 'sg-7', nickname: 'lulu', created_at: now - 60_000, expires_at: now + 1e7, family_students: [], match: { player_id: 'kid-1', nickname: 'Lulu' }, match_own_family: true }
+        ],
+        initialStudents: [{ player_id: 'kid-1', nickname: 'Lulu', level: 'L1' } as never]
+      })
+    );
+    expect(html).toContain(Q.nameTakenNow('nori').replace(/'/g, '&#x27;'));
+    expect(html).toContain(Q.matchOwn('Lulu').replace(/'/g, '&#x27;'));
+    expect(html).toMatch(/<option value="kid-1" selected="">/);
+  });
+
   it('empty queue says where sign-ups come from', () => {
     const html = renderToStaticMarkup(React.createElement(SignupQueue, { token: 'op', pollMs: 1e9 }));
     expect(html).toContain(Q.empty);

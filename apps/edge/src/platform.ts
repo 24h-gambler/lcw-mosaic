@@ -20,6 +20,7 @@ import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, oauthConfigFrom }
 import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandler } from './guardian-oauth.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
+import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp } from './free-play.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { injectReportShareMeta } from './report-page.js';
 import { htmlForClient } from './html-cache.js';
@@ -126,6 +127,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (SHOWROOM_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Voice clips (voice.ts): upload checks its one-use token, playback its signature.
   if (VOICE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Free play (free-play.ts): /try sessions and guest pass entry check their own input and tokens.
+  if (FREE_PLAY_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   return false;
 }
 
@@ -855,6 +858,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
+  app.route('/', buildFreePlayApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
   app.route('/', buildExportApp({ sql: platform.sql, db: platform.db, nowMs: () => Date.now() }));
   app.get('/v1/admin/ops-runs', (c) =>

@@ -170,6 +170,20 @@ describe('director console: 승인 대기 (DirectorSignups.tsx)', () => {
     expect(html).toContain('<option value="" selected="">');
   });
 
+  it("a name a guardian's student took after the sign-up: one line saying link or reject", () => {
+    const now = Date.parse('2026-11-16T06:00:00Z');
+    const html = renderToStaticMarkup(
+      React.createElement(SignupQueue, {
+        token: 'op',
+        now: () => now,
+        pollMs: 1e9,
+        initialSignups: [{ id: 'sg-5', nickname: 'kiki', created_at: now - 60_000, expires_at: now + 1e7, family_students: [], match: null, name_taken: true }],
+        initialStudents: [{ player_id: 'stu-kiki', nickname: 'Kiki', level: 'L1' } as never]
+      })
+    );
+    expect(html).toContain(Q.nameTakenNow('kiki').replace(/'/g, '&#x27;'));
+  });
+
   it('empty queue says where sign-ups come from', () => {
     const html = renderToStaticMarkup(React.createElement(SignupQueue, { token: 'op', pollMs: 1e9 }));
     expect(html).toContain(Q.empty);

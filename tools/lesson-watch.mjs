@@ -20,9 +20,11 @@
 //   'outsourcing:lcw:watch:<lesson_id | site-YYYYMMDD>:alerts', rewritten in place when its alerts change, so the same
 //   alert never makes a second card and the spine's per-source caps are not used up. During the lesson the cards are
 //   importance 1: in the hub, but the phone (which polls cards at importance 2 and up) does not ring the teacher; the
-//   spine's /notify push is never called. The spine adds Dan's source correction to every post, so a lesson card is
-//   asked at 0 first and only raised toward 1 (never above the ring line on the way); one it still lifts to 2 is closed
-//   at once and lesson cards stop for the day. When the window ends, the alerts still standing (plus any worker errors) go
+//   spine's /notify push is never called. The spine adds Dan's source correction to every post, so each tick first
+//   reads that correction (readAdjust) and starts a card's ask that far below its importance, then only raises it:
+//   no post lands at the ring line on the way. A newer spine also takes a ceiling; on an older one a lesson card that
+//   could only land at 2 or more is not posted that tick. A lesson card that still lands above 1 (a race) is closed at
+//   once and lesson cards stop for the day. At the end the lesson cards close as carried into the summary. When the window ends, the alerts still standing (plus any worker errors) go
 //   into one summary card at importance 2 (P2) and the lesson cards are closed. The card state is kept in
 //   <out>/lesson-watch-cards-YYYYMMDD.json, so a restarted watch carries on where it stopped.
 //   Spine token: --spine-token-file (default DANOS_TOKEN_FILE, else the automation secrets file), never printed.
@@ -581,16 +583,77 @@ async function readBack(id) {
 }
 
 /**
+ * The spine's source adjustment for the watch's cards, read before posting: an upper bound `hi` on what the spine
+ * adds to the asked importance. Pure, for tests: `items` are GET /feedback/importance rows (newest first), `limit`
+ * the limit asked. The spine (danos source_adjust) uses Dan's explicit corrections of the last 90 days (latest 10:
+ * newest 'mute' -> muted, else the sum of up/down clamped to -2..+2); only without any it may add an implicit -1.
+ * So with no rows the adjustment is 0 or -1 (hi 0). A full page (rows === limit) may hide older rows: those can only
+ * add up to (10 - found), and with none found nothing is known (hi 2).
+ */
+export function adjustFromFeedback(items, nowMs, limit, source = CARD_SOURCE) {
+  const all = Array.isArray(items) ? items : [];
+  const since = nowMs - 90 * 86_400_000;
+  const rows = all
+    .filter((x) => x && x.pkg === `source:${source}` && Date.parse(x.created) >= since)
+    .sort((a, b) => (b.id ?? 0) - (a.id ?? 0))
+    .slice(0, 10);
+  const complete = all.length < limit;
+  if (rows.length && rows[0].rating === 'mute') return { hi: 0, delta: 0, muted: true, known: 'exact', ceiling: false };
+  const sum = rows.reduce((a, x) => a + (x.rating === 'up' ? 1 : x.rating === 'down' ? -1 : 0), 0);
+  const clamp = (v) => Math.max(-2, Math.min(2, v));
+  if (rows.length && (complete || rows.length === 10)) return { hi: clamp(sum), delta: clamp(sum), muted: false, known: 'exact', ceiling: false };
+  if (rows.length) return { hi: clamp(sum + (10 - rows.length)), delta: null, muted: false, known: 'bound', ceiling: false };
+  if (complete) return { hi: 0, delta: null, muted: false, known: 'bound', ceiling: false };
+  return { hi: 2, delta: null, muted: false, known: 'unknown', ceiling: false };
+}
+
+/**
+ * Read the adjustment from the spine (`get` returns { status, body }). A spine with GET /proposals/source-adjust
+ * answers it exactly and takes a `ceiling` on POST /proposals (the card never lands above it); an older one is read
+ * through Dan's correction rows (adjustFromFeedback). Neither answering: unknown (hi 2).
+ */
+export async function readAdjust(get, nowMs, source = CARD_SOURCE) {
+  const a = await get(`/proposals/source-adjust?source=${encodeURIComponent(source)}`);
+  if (a.status === 200 && typeof a.body?.delta === 'number') {
+    const muted = a.body.muted === true;
+    return { hi: muted ? 0 : a.body.delta, delta: a.body.delta, muted, known: 'exact', ceiling: a.body.ceiling === true };
+  }
+  const limit = 500;
+  const f = await get(`/feedback/importance?limit=${limit}`);
+  if (f.status === 200 && Array.isArray(f.body?.items)) return adjustFromFeedback(f.body.items, nowMs, limit, source);
+  return { hi: 2, delta: null, muted: false, known: 'unknown', ceiling: false };
+}
+
+/**
+ * Where to start a card's walk so that no post lands above its importance: ask the target less the most the spine
+ * may add. When even 0 could land above (hi > target): with the spine's ceiling, post with the ceiling from 0; else
+ * do not post (`skip`). Muted: one post at the target (it lands 0 whatever is asked). Pure, for tests.
+ */
+export function planSettle(target, adj, how) {
+  const ceiling = adj.ceiling ? target : undefined;
+  if (adj.muted) return { skip: false, start: target, tries: 0, ceiling };
+  const raw = target - adj.hi;
+  if (raw < 0) return adj.ceiling ? { skip: false, start: 0, tries: how.tries, ceiling } : { skip: true, start: 0, tries: 0, ceiling };
+  return { skip: false, start: Math.min(raw, how.max), tries: how.tries, ceiling };
+}
+
+/** A card's state row after a post: a new id (the old card was closed and the spine made another) drops the old closed mark. */
+export function recordPosted(prev, id, fields) {
+  const base = prev && prev.id === id ? prev : (({ closed, ...rest }) => rest)(prev ?? {});
+  return { ...base, ...fields, id };
+}
+
+/**
  * Walk a card to its importance on the spine, which adds its own source adjustment (Dan's corrections, -2..+2; a
  * muted source always lands 0) to whatever is asked and recomputes it on every post, rewrites included. Pure but for
  * the injected calls, for tests.
  *
- * up: false (the summary) asks the target first; off by the adjustment, it asks again shifted by the difference.
- * up: true (lesson cards, where 2 rings the teacher's phone) asks `start` (0) first and only ever raises the ask, by
- * the gap still left under the target, so with an adjustment up to +1 no post ever lands above the target and a
- * failed or cut-short raise leaves the card lower (hidden in the hub), never higher. If even the lowest ask lands
- * above the target (an adjustment of +2), the card is closed at once (`tooHigh`) instead of being left to ring.
- * At most `tries` re-posts; a muted source (stays 0 whatever is asked) stops at the edge.
+ * It asks `start` first (planSettle: the target less the most the spine may add) and from there only raises the ask
+ * by the gap still left under the target, so no post lands above the target while the adjustment stays within the
+ * bound, and a failed or cut-short raise leaves the card lower, never higher. If a post still lands above (the
+ * adjustment rose between the read and the post), the next ask is brought down by the difference; a lesson card
+ * still above after the walk is closed at once (`close`, lesson cards only: 2 rings the teacher's phone). At most
+ * `tries` re-posts; a muted source (stays 0 whatever is asked) stops at the edge.
  *
  * @param {{ target: number, start?: number, max: number, tries: number, up?: boolean,
  *   post: (importance: number) => Promise<{ status: number, body: any }>,
@@ -599,15 +662,15 @@ async function readBack(id) {
  *   log?: (row: Record<string, unknown>) => void }} o
  */
 export async function settleImportance(o) {
-  const { target, max, tries, up = false, post, read, close, log = () => {} } = o;
-  let asked = up ? Math.max(0, Math.min(target, o.start ?? 0)) : target;
+  const { target, max, tries, post, read, close, log = () => {} } = o;
+  let asked = Math.max(0, Math.min(max, o.start ?? 0));
   const landed = [];
   let r = await post(asked);
   if (r.status !== 201 || !r.body?.id) return { r, rb: null, asked, landed, tooHigh: false };
   let rb = await read(r.body.id);
   landed.push(rb.importance);
   for (let i = 0; i < tries && typeof rb.importance === 'number' && rb.importance !== target; i++) {
-    if (up && rb.importance > target && asked === 0) break; // nothing lower to ask: closed below
+    if (rb.importance > target && asked === 0) break; // nothing lower to ask (closed below for lesson cards)
     const next = Math.max(0, Math.min(max, asked + (target - rb.importance)));
     if (next === asked) break; // already at the edge (e.g. a muted source stays 0 whatever is asked)
     log({ key: 'card_adjusted', asked, got: rb.importance, repost: next });
@@ -619,7 +682,7 @@ export async function settleImportance(o) {
     landed.push(rb.importance);
   }
   let tooHigh = false;
-  if (up && close && typeof rb.importance === 'number' && rb.importance > target) {
+  if (close && typeof rb.importance === 'number' && rb.importance > target) {
     const shut = await close();
     tooHigh = true;
     log({ key: 'card_too_high', asked, got: rb.importance, closed: shut.status === 200 });
@@ -628,20 +691,31 @@ export async function settleImportance(o) {
   return { r, rb, asked, landed, tooHigh };
 }
 
-/** Lesson cards walk up from 0 (see settleImportance); never asked above 3, at most 3 raises (an adjustment of -2). */
-export const LESSON_SETTLE = { start: 0, max: 3, tries: 3, up: true };
-/** The summary is asked at its own importance (the lesson is over; the phone may chime), at most 2 re-posts. */
-export const SUMMARY_SETTLE = { max: 3, tries: 2, up: false };
+/** Lesson cards: never asked above 3, at most 3 raises (an adjustment of -2); one still above 1 is closed at once. */
+export const LESSON_SETTLE = { max: 3, tries: 3, closeTooHigh: true };
+/** The summary (the lesson is over; the phone may chime at 2): the same walk, never closed. */
+export const SUMMARY_SETTLE = { max: 3, tries: 3, closeTooHigh: false };
 
-/** Post a card through settleImportance against the real spine. Still not shown afterwards: logged as card_hidden. */
-async function postChecked(card, how) {
+/**
+ * Post a card through planSettle + settleImportance against the real spine, given the adjustment read this tick.
+ * Skipped (no post) when it could only land above its importance. Still not shown afterwards: logged as card_hidden.
+ */
+async function postChecked(card, how, adj) {
   const log = (row) => write('lesson-watch-alerts.jsonl', { at: stamp(), ref: card.ref, ...row });
+  const plan = planSettle(card.importance, adj, how);
+  if (plan.skip) {
+    log({ key: 'card_skipped_high', hi: adj.hi, known: adj.known, target: card.importance });
+    console.log(`card ${card.ref} not posted: the spine may add up to +${adj.hi} (${adj.known}), above importance ${card.importance}`);
+    return { r: { status: 0, body: null, error: 'skipped_high' }, skipped: true };
+  }
   const { r, rb, tooHigh } = await settleImportance({
     ...how,
+    start: plan.start,
+    tries: plan.tries,
     target: card.importance,
-    post: (importance) => spine('POST', '/proposals', { ...card, importance }),
+    post: (importance) => spine('POST', '/proposals', { ...card, importance, ...(plan.ceiling !== undefined ? { ceiling: plan.ceiling } : {}) }),
     read: readBack,
-    close: () => spine('POST', '/proposals/close', { source: card.source, ref: card.ref }),
+    close: how.closeTooHigh ? () => spine('POST', '/proposals/close', { source: card.source, ref: card.ref }) : undefined,
     log
   });
   if (r.status !== 201 || !r.body?.id) return { r };
@@ -659,14 +733,18 @@ async function postChecked(card, how) {
  */
 async function postTickCards(alerts, at) {
   const st = loadCards();
-  for (const { card, sig } of planTick(st, alerts, at, { base: BASE, out: OUT })) {
+  const planned = planTick(st, alerts, at, { base: BASE, out: OUT });
+  // One read of the source adjustment per tick (see readAdjust), before any card goes up.
+  const adj = planned.length && !st.lessonCardsOff ? await readAdjust((p) => spine('GET', p), Date.now()) : null;
+  for (const { card, sig } of planned) {
     if (st.lessonCardsOff) break;
-    const { r, rb, tooHigh } = await postChecked(card, LESSON_SETTLE);
+    const { r, rb, tooHigh, skipped } = await postChecked(card, LESSON_SETTLE, adj);
+    if (skipped) continue; // its sig is not recorded: the next tick tries again
     if (r.status !== 201 || !r.body?.id) {
       write('lesson-watch-alerts.jsonl', { at: stamp(), key: 'card_error', ref: card.ref, status: r.status, error: spineError(r) });
       continue;
     }
-    st.posted[card.ref] = { ...st.posted[card.ref], id: r.body.id, sig, at, state: rb?.state ?? null, importance: rb?.importance ?? null };
+    st.posted[card.ref] = recordPosted(st.posted[card.ref], r.body.id, { sig, at, state: rb?.state ?? null, importance: rb?.importance ?? null });
     if (tooHigh) {
       if (rb?.state === 'closed') st.posted[card.ref].closed = stamp();
       st.lessonCardsOff = stamp();
@@ -683,7 +761,8 @@ async function closeWindowCards() {
   if (plan.summary && !st.summary) {
     for (const wait of [0, 10_000, 30_000, 60_000]) {
       await sleep(wait);
-      const { r, rb } = await postChecked(plan.summary, SUMMARY_SETTLE);
+      const adj = await readAdjust((p) => spine('GET', p), Date.now());
+      const { r, rb } = await postChecked(plan.summary, SUMMARY_SETTLE, adj);
       if (r.status === 201 && r.body?.id) {
         st.summary = { id: r.body.id, at: stamp(), state: rb?.state ?? null, importance: rb?.importance ?? null };
         break;
@@ -697,7 +776,9 @@ async function closeWindowCards() {
   }
   let closed = 0;
   for (const ref of plan.closeRefs) {
-    const r = await spine('POST', '/proposals/close', { source: CARD_SOURCE, ref });
+    // superseded_by: the lesson card's content went into the summary, where Dan's reaction counts; the spine then
+    // does not count the closed card as one Dan left alone (an older spine ignores the field).
+    const r = await spine('POST', '/proposals/close', { source: CARD_SOURCE, ref, ...(st.summary?.id ? { superseded_by: st.summary.id } : {}) });
     if (r.status === 200) {
       st.posted[ref].closed = stamp();
       closed++;

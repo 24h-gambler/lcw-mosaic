@@ -4,7 +4,14 @@ import { LEARN, LEARN_PAGES, MEDIA } from '../copy.js';
 import { GameShot } from '../GameMedia.js';
 import type { SiteStillKey } from '../media.js';
 import { SLink } from '../SiteShell.js';
-import { OfferList } from '../widgets.js';
+import { LEARN_CTX_FEATURE } from '../copyNow.js';
+import { OfferList, StateTag } from '../widgets.js';
+
+/** The scene's state tag (makers lab, court: not in the world yet); nothing for live scenes and open questions. */
+function SceneTag({ ctx }: { ctx: string }): React.ReactElement | null {
+  const id = LEARN_CTX_FEATURE[ctx];
+  return id ? <StateTag ids={[id]} /> : null;
+}
 import { VoxelSvg, box, cafe, floatingIsland, grass, merge, miniCharacter as character, placeAt, shift, tree, type Vox } from '../voxel.js';
 
 /** Each scene as separate parts, so a test can check no prop sits inside a character (collisions()). */
@@ -43,7 +50,10 @@ export function LearnIndexPage(): React.ReactElement {
               ) : (
                 <VoxelSvg voxels={ART[p.ctx] ?? ART.cafe!} unit={6} style={{ height: 120, width: '100%' }} />
               )}
-              <strong className="s-h3">{p.title}</strong>
+              <span className="s-row" style={{ gap: 8, justifyContent: 'space-between' }}>
+                <strong className="s-h3">{p.title}</strong>
+                <SceneTag ctx={p.ctx} />
+              </span>
               <span className="s-en-sm" lang="en">
                 {p.offers[2]?.text}
               </span>
@@ -67,7 +77,10 @@ export function LearnPage({ slug }: { slug: string }): React.ReactElement {
               {LEARN.back}
             </SLink>
             <h1 className="s-h1">{p.title}</h1>
-            <p className="s-lead">{p.scene}</p>
+            <p className="s-lead s-row" style={{ gap: 10 }}>
+              <span>{p.scene}</span>
+              <SceneTag ctx={p.ctx} />
+            </p>
             <SLink to="/try" className="s-btn s-btn-brand s-btn-lg" style={{ justifySelf: 'start' }}>
               {LEARN.tryCta} ▶
             </SLink>

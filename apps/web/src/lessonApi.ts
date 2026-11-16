@@ -362,6 +362,8 @@ export const STUDENT_LESSON_KEY = 'lcw.studentLessonId';
 export const STUDENT_NICKNAME_KEY = 'lcw.studentNickname';
 /** '1' when /v1/join said voice_store is on (same key as apps/client lesson/api.ts). */
 export const STUDENT_VOICE_KEY = 'lcw.studentVoice';
+/** Same key as apps/client lesson/api.ts: the level the 3D lesson uses after a /join hand-off. */
+export const STUDENT_LEVEL_KEY = 'lcw.studentLevel';
 /** The teacher's running lesson survives a page reload during class. */
 export const DIRECTOR_LESSON_KEY = 'lcw.directorLesson';
 
@@ -417,6 +419,8 @@ export interface StudentSession {
   lessonId: string;
   nickname: string;
   voiceStore?: boolean;
+  /** The student's level from /v1/join; the 3D client reads it from the same key (lcw.studentLevel). */
+  level?: string;
 }
 
 export function loadStudentSession(store: KeyValue | null = sessionStore()): StudentSession | null {
@@ -431,6 +435,7 @@ export function saveStudentSession(s: StudentSession | null, store: KeyValue | n
   writeKey(store, STUDENT_LESSON_KEY, s ? s.lessonId : null);
   writeKey(store, STUDENT_NICKNAME_KEY, s ? s.nickname : null);
   writeKey(store, STUDENT_VOICE_KEY, s?.voiceStore ? '1' : null);
+  if (!s || s.level) writeKey(store, STUDENT_LEVEL_KEY, s?.level ?? null);
 }
 
 export interface DirectorLessonRecord {

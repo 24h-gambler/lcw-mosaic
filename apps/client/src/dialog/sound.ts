@@ -78,16 +78,28 @@ export function playAgain(): void {
 let speechGen = 0;
 let neuralPlaying: HTMLAudioElement | null = null;
 
+/**
+ * Lets go of a line's element and its blob URL. The element is detached from the URL first: revoking a URL the element
+ * is still loading (autoplay blocked before the first tap, a newer line took over) made Chrome log
+ * "Failed to load resource: net::ERR_FILE_NOT_FOUND" for the blob on the child's page.
+ */
+function releaseNeural(a: HTMLAudioElement, url: string): void {
+  try {
+    a.onerror = null;
+    a.pause();
+    a.removeAttribute('src');
+    a.load();
+  } catch {
+    /* ignore */
+  }
+  URL.revokeObjectURL(url);
+}
+
 function stopNeural(): void {
   const a = neuralPlaying;
   neuralPlaying = null;
   if (!a) return;
-  try {
-    a.pause();
-    URL.revokeObjectURL(a.src);
-  } catch {
-    /* ignore */
-  }
+  releaseNeural(a, a.src);
 }
 
 if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener(NPC_VOICE_CUT_EVENT, stopNeural);
@@ -115,7 +127,9 @@ async function playNeural(bytes: ArrayBuffer, level: LangLevel, gen: number): Pr
     /* ignore */
   }
   const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
-  const a = new Audio(url);
+  const a = new Audio();
+  a.preload = 'auto';
+  a.src = url;
   const rate = LEVEL_DEFINITIONS[level].speechRate;
   a.preservesPitch = true;
   a.playbackRate = rate;
@@ -130,7 +144,7 @@ async function playNeural(bytes: ArrayBuffer, level: LangLevel, gen: number): Pr
     }
   }
   if (gen !== speechGen) {
-    URL.revokeObjectURL(url);
+    releaseNeural(a, url);
     return true;
   }
   neuralPlaying = a;
@@ -141,7 +155,7 @@ async function playNeural(bytes: ArrayBuffer, level: LangLevel, gen: number): Pr
       if (finished) return;
       finished = true;
       if (neuralPlaying === a) neuralPlaying = null;
-      URL.revokeObjectURL(url);
+      releaseNeural(a, url);
       if (started && gen === speechGen) rt.npcVoiceEnded();
       resolve(ok || started);
     };

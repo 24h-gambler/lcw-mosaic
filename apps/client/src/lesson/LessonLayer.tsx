@@ -173,10 +173,13 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   useEffect(() => {
     if (!active) return;
     const unlock = () => unlockLessonAudio();
+    // pointerup too: on a touch screen the first pointerdown is not an activation yet (audio would stay shut).
     window.addEventListener('pointerdown', unlock, { passive: true });
+    window.addEventListener('pointerup', unlock, { passive: true });
     window.addEventListener('keydown', unlock);
     return () => {
       window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('pointerup', unlock);
       window.removeEventListener('keydown', unlock);
     };
   }, [active]);

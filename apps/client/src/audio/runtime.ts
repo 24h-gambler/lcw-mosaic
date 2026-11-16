@@ -76,6 +76,31 @@ function pageActivated(): boolean {
   return ua?.hasBeenActive !== false;
 }
 
+/**
+ * Runs `cb` once, right after the page's first real activation. On a touch screen the first pointerdown is not an
+ * activation yet (Chrome activates on pointerup / click / touchend), so a sound started from pointerdown could not
+ * open audio on the first tap; listening here (capture, passive) opens it on that same tap. Returns a stop function.
+ */
+export function onPageActivation(cb: () => void, target: Pick<Window, 'addEventListener' | 'removeEventListener'> | null = typeof window === 'undefined' ? null : window): () => void {
+  if (!target) return () => undefined;
+  const events = ['pointerup', 'click', 'touchend', 'keydown'] as const;
+  let done = false;
+  const off = (): void => {
+    for (const e of events) target.removeEventListener(e, handler, true);
+  };
+  function handler(): void {
+    if (done || !pageActivated()) return;
+    done = true;
+    off();
+    cb();
+  }
+  for (const e of events) target.addEventListener(e, handler, { capture: true, passive: true });
+  return () => {
+    done = true;
+    off();
+  };
+}
+
 function browserContext(): AudioContext | null {
   const g = globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
   const C = g.AudioContext ?? g.webkitAudioContext;

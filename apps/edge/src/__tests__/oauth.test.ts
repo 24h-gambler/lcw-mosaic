@@ -329,6 +329,8 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     const red = await signIn(p, 'google', 'g-teacher', 'role=teacher');
     expect(red.raw).toMatch(/^\/director#oauth=[0-9a-f]{32}$/);
     expect(red.location).toMatch(/^\/director#op=lcwop_/);
+    // the spent handoff no longer holds the session token (only the hashed session row stays)
+    expect(p.sql.all<{ result: string }>('select result from oauth_handoffs').every((x) => x.result === '')).toBe(true);
     expect((await call(p, 'GET', '/v1/admin/operator-sessions', undefined, bearer(r.body.token))).body.sessions).toHaveLength(2);
     // an unverified Google email never gets past the token check; Kakao is never a teacher login
     const unverified = await idToken(claimsFor('google', 'g-teacher-2', 'n', { nonce: undefined, email_verified: false }));

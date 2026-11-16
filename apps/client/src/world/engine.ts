@@ -1278,6 +1278,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (player.root.position.distanceTo(fountain) < viewDistance) effects.spray(fountain.x, fountain.y, fountain.z, dt);
     effects.update(dt);
     sky.update(dt, player.root.position);
+    hud.tickStatus(sky.hour, body.y);
     chunkMats.sync(sky);
     chunks.update(body.x, body.z, tier.viewChunks);
     updateCamera(dt);
@@ -1528,6 +1529,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       if (on && nearNpc && !npcTalkable(nearNpc.def, true)) nearNpc = null;
     },
     setCoins: (total) => hud.setCoins(total),
+    setOnline: (on) => hud.setOnline(on),
     setStars: (total) => hud.setStars(total),
     setPlayerName(name) {
       const clean = name ? name.trim().slice(0, 16) : '';

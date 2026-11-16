@@ -35,7 +35,14 @@ export interface WorldHandle {
   setCoins?(total: number | null): void;           // 별 옆 코인 칩(서버 장부 잔액), null 이면 숨김
   getStats?(): WorldStats;                          // fps·draw call·삼각형·청크 수(검증용)
   setViewInset?(bottomPx: number): void;            // 화면 아래를 덮은 패널 높이: 대화 구도를 그 위 띠 가운데에(0 = 없음)
+  setOnline?(on: boolean): void;                    // false = HUD 맨 위 '혼자 모드로 계속 중' 띠(G01). 월드는 계속 돈다
+  getMap?(): WorldMapInfo;                          // 지도 화면(G06): 섹터(지금은 마을 하나, 월드 생성 뒤 3x3)·장면·플레이어 위치(m)
 }
+// WorldMapInfo = { size_m; sectors: {id,nameKo,kind:'town'|'biome'|'ruin'|'plot'|…,explored,rect:[x0,z0,x1,z1]}[];
+//                  scenes: {id,nameKo,x,z}[]; player: {x,z,yaw} }
+// 연결 끊김 신호: 어느 도메인이든 fetch 가 네트워크 단계에서 실패하면 `reportServerUnreachable()`(apps/client/src/frame/connection.ts)
+// 를 부릅니다. 띠는 /v1/health 가 답할 때 내려갑니다(평소에는 확인 요청 없음).
+// HUD 메서드(월드 내부, world/hud.ts): tickStatus(hour, y) 장소·밴드·날씨·시계, setCamMode('first'|'third'|'mirror') 1인칭 조준점.
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
 export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
 ```

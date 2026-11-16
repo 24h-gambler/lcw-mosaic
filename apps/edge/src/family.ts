@@ -70,6 +70,49 @@ create table if not exists family_flags (family_id text not null, k text not nul
 create table if not exists consent_log (id integer primary key autoincrement, player_id text not null, guardian_id text not null, scope text not null, granted integer not null, at integer not null)
 `;
 
+/**
+ * One child as the guardian's /family home shows it (`GET /v1/family/me`): consents, linked devices, lesson count and
+ * the lesson report links. The operator's guardian view (guardian-view.ts) uses the same function, so what the
+ * operator checks is exactly what the guardian sees.
+ */
+export function familyChildSummary(
+  sql: SqliteExecutor,
+  db: EdgePlatformDb,
+  k: { id: string; nickname: string; level: string; birth_year: number | null },
+  now: number
+) {
+  const consents = db.listConsents(k.id);
+  const devices = sql.all<{ id: string; label: string; created_at: number; last_seen_at: number | null }>(
+    'select id, label, created_at, last_seen_at from devices where player_id = ? and revoked_at is null order by created_at',
+    [k.id]
+  );
+  const reports = sql
+    .all<{ share_token: string; ref_id: string; created_at: number; opened_at: number | null; kind: string }>(
+      "select share_token, ref_id, created_at, opened_at, kind from reports where player_id = ? and kind = 'lesson' order by created_at desc limit 50",
+      [k.id]
+    )
+    .map((r) => ({
+      share_path: `/r/${r.share_token}`,
+      lesson_day: kstDayOf(r.created_at),
+      created_at: r.created_at,
+      opened: r.opened_at !== null,
+      expired: now - r.created_at > REPORT_SHARE_TTL_MS,
+      revoked: Boolean(sql.get('select share_token from report_revocations where share_token = ?', [r.share_token]))
+    }));
+  const lessons = sql.get<{ n: number; last: number | null }>('select count(*) as n, max(started_at) as last from lessons where player_id = ?', [k.id]);
+  return {
+    player_id: k.id,
+    nickname: k.nickname,
+    level: k.level,
+    birth_year: k.birth_year,
+    consents: Object.fromEntries(GUARDIAN_CONSENT_SCOPES.map((s) => [s, consents[s]])),
+    devices,
+    lessons: Number(lessons?.n ?? 0),
+    last_lesson_at: lessons?.last ?? null,
+    reports
+  };
+}
+
 export interface FamilyDeps {
   sql: SqliteExecutor;
   db: EdgePlatformDb;
@@ -292,41 +335,7 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
       'select id, nickname, level, birth_year from players where family_id = ? order by nickname',
       [g.family_id]
     );
-    const children = kids.map((k) => {
-      const consents = d.db.listConsents(k.id);
-      const devices = d.sql.all<{ id: string; label: string; created_at: number; last_seen_at: number | null }>(
-        'select id, label, created_at, last_seen_at from devices where player_id = ? and revoked_at is null order by created_at',
-        [k.id]
-      );
-      const reports = d.sql
-        .all<{ share_token: string; ref_id: string; created_at: number; opened_at: number | null; kind: string }>(
-          "select share_token, ref_id, created_at, opened_at, kind from reports where player_id = ? and kind = 'lesson' order by created_at desc limit 50",
-          [k.id]
-        )
-        .map((r) => ({
-          share_path: `/r/${r.share_token}`,
-          lesson_day: kstDayOf(r.created_at),
-          created_at: r.created_at,
-          opened: r.opened_at !== null,
-          expired: now - r.created_at > REPORT_SHARE_TTL_MS,
-          revoked: Boolean(d.sql.get('select share_token from report_revocations where share_token = ?', [r.share_token]))
-        }));
-      const lessons = d.sql.get<{ n: number; last: number | null }>(
-        'select count(*) as n, max(started_at) as last from lessons where player_id = ?',
-        [k.id]
-      );
-      return {
-        player_id: k.id,
-        nickname: k.nickname,
-        level: k.level,
-        birth_year: k.birth_year,
-        consents: Object.fromEntries(GUARDIAN_CONSENT_SCOPES.map((s) => [s, consents[s]])),
-        devices,
-        lessons: Number(lessons?.n ?? 0),
-        last_lesson_at: lessons?.last ?? null,
-        reports
-      };
-    });
+    const children = kids.map((k) => familyChildSummary(d.sql, d.db, k, now));
     return c.json({ service_consented: familyServiceFlag(g.family_id), children });
   });
 

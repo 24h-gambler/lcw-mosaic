@@ -237,3 +237,79 @@ describe('guardian push notices (seat expiry, refunds) — held until the operat
     expect((await call(p, 'GET', '/v1/family/push', undefined, g)).body.devices).toBe(0);
   });
 });
+
+describe('lesson report notices (docs/09 P5 report -> share link -> push; docs/10 §4 T5 -> T7 reminder)', () => {
+  async function lessonEnd(p: PlatformDO, pid: string, comment = '카페 주문을 끝까지 했어요') {
+    const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: pid });
+    const j = await call(p, 'POST', '/v1/join', { code: s.body.join_code }, anon);
+    const st = bearer(j.body.student_token);
+    await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000 }, st);
+    const end = await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/end`, { teacher_comment: comment });
+    expect(end.status).toBe(200);
+    return { lessonId: s.body.lesson_id as string, token: end.body.share_token as string };
+  }
+
+  it('the lesson end queues one notice at once (held while off); sending on → it arrives encrypted with no name or link', async () => {
+    const got = pushService();
+    const p = platform();
+    const g = await family(p, 'kid-1', 'fam-a');
+    const k = await browserKeys();
+    await call(p, 'POST', '/v1/family/push/subscribe', { endpoint: 'https://fcm.googleapis.com/fcm/send/a', keys: { p256dh: k.p256dh, auth: k.authB64 } }, g);
+
+    const a = await lessonEnd(p, 'kid-1');
+    const admin = await call(p, 'GET', '/v1/admin/push');
+    expect(admin.body.outbox).toEqual({ queued: 1 });
+    expect(admin.body.recent[0]).toMatchObject({ kind: 'lesson_report', status: 'queued', family_id: 'fam-a' });
+    expect(got).toHaveLength(0);
+    // the hourly cron does not queue it twice
+    expect((await run(p)).push).toMatchObject({ queued: 0, sending: false, held: 1 });
+
+    await call(p, 'POST', '/v1/admin/push/sending', { enabled: true, by: 'coordinator' });
+    expect((await run(p)).push).toMatchObject({ sent: 1 });
+    const payload = JSON.parse(await decrypt(got[0]!.body, k.priv, k.pub, k.auth));
+    expect(payload).toMatchObject({ title: PUSH_COPY_KO.lesson_report.title, body: PUSH_COPY_KO.lesson_report.body, url: '/family', tag: 'report' });
+    expect(JSON.stringify(payload)).not.toContain(a.token);
+    expect(JSON.stringify(payload)).not.toMatch(/Juno|kid-1|fam-a|g-fam-a/);
+
+    // with sending on, the next lesson's notice goes out at the lesson end itself, not an hour later
+    await lessonEnd(p, 'kid-1', '두 번째 수업');
+    expect(got).toHaveLength(2);
+    expect(JSON.parse(await decrypt(got[1]!.body, k.priv, k.pub, k.auth)).title).toBe(PUSH_COPY_KO.lesson_report.title);
+  });
+
+  it('an opened report is not announced; an unopened one gets one reminder after 2 days; revoked ones neither', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-16T07:00:00Z'));
+    pushService();
+    const p = platform();
+    await family(p, 'kid-1', 'fam-a');
+    const g2 = await family(p, 'kid-2', 'fam-b');
+    const sql = (p as any).sql;
+
+    // kid-1's guardian opens the link (from the teacher's message) before the notice is sent: it is skipped
+    const a = await lessonEnd(p, 'kid-1');
+    // the teacher's preview (operator token) is not a parent open
+    expect((await call(p, 'GET', `/v1/reports/${a.token}`)).status).toBe(200);
+    expect(sql.get("select status from push_outbox where ref = ?", [`report:rep-${a.lessonId}`]).status).toBe('queued');
+    expect((await call(p, 'GET', `/v1/reports/${a.token}`, undefined, anon)).status).toBe(200);
+    expect((await run(p)).push).toMatchObject({ skipped: 1, held: 0 });
+    expect(sql.get("select status from push_outbox where ref = ?", [`report:rep-${a.lessonId}`]).status).toBe('skipped');
+
+    // kid-2's report stays unopened: after 2 days, one reminder (and the first notice has expired by then)
+    const b = await lessonEnd(p, 'kid-2');
+    vi.setSystemTime(new Date('2026-11-18T07:30:00Z'));
+    const cron = await run(p);
+    expect(cron.detail.reminded).toBe(1);
+    expect(cron.push).toMatchObject({ queued: 1, expired: 1, held: 1 });
+    expect(sql.get('select kind, status from push_outbox where ref = ?', [`report:rep-${b.lessonId}:reminder`])).toMatchObject({ kind: 'report_reminder', status: 'queued' });
+    expect(sql.get('select status from push_outbox where ref = ?', [`report:rep-${b.lessonId}`]).status).toBe('expired');
+    vi.setSystemTime(new Date('2026-11-18T08:30:00Z'));
+    await run(p);
+    expect(sql.get("select count(*) as n from push_outbox where kind = 'report_reminder'").n).toBe(1);
+    // the guardian revokes the link before the reminder goes: it is dropped
+    expect((await call(p, 'POST', `/v1/family/reports/${b.token}/revoke`, {}, g2)).status).toBe(200);
+    expect((await run(p)).push).toMatchObject({ skipped: 1 });
+    // only these two report kinds were ever queued
+    expect(sql.all('select distinct kind from push_outbox').map((r: any) => r.kind).sort()).toEqual(['lesson_report', 'report_reminder']);
+  });
+});

@@ -281,10 +281,16 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     const rows = d.sql.all<{ id: string; nickname: string; created_at: number; expires_at: number; family_id: string; guardian_id: string; match_player_id: string | null }>(
       "select id, nickname, created_at, expires_at, family_id, guardian_id, match_player_id from student_signups where state = 'pending' order by created_at"
     );
-    /** The teacher-made row this name matched, while it is still one (no guardian took it meanwhile). */
-    const matchOf = (pid: string | null) => {
-      const k = pid ? d.sql.get<{ id: string; family_id: string; nickname: string }>('select id, family_id, nickname from players where id = ?', [pid]) : null;
-      return k && !isTestPlayerId(k.id) && !familyHasGuardian(k.family_id) ? { player_id: k.id, nickname: k.nickname } : null;
+    /**
+     * The teacher-made row this name matches now (counted again on every listing: a guardian may have taken the row, or
+     * the teacher made a second row with the name since the sign-up). Two or more → no pick, `ambiguous` says why.
+     */
+    const matchOf = (signupId: string, nickname: string): { match: { player_id: string; nickname: string } | null; ambiguous: boolean } => {
+      const o = sharedNameOwner(d.sql, nickname, { exceptSignup: signupId });
+      if (o.kind !== 'teacher_row') return { match: null, ambiguous: false };
+      if (!o.player_id) return { match: null, ambiguous: true };
+      const k = d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [o.player_id]);
+      return { match: k ? { player_id: o.player_id, nickname: k.nickname } : null, ambiguous: false };
     };
     // Who signed (provider, masked hint, age statement) so a stranger typing 'Oreo' is not linked by the name alone;
     // students already in the signing family (e.g. a sibling) with their signed-in devices.
@@ -295,7 +301,7 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
         created_at: r.created_at,
         expires_at: r.expires_at,
         signer: { ...signerOf(r.guardian_id), attest: attestOf(r.family_id) },
-        match: matchOf(r.match_player_id),
+        ...(({ match, ambiguous }) => ({ match, match_ambiguous: ambiguous }))(matchOf(r.id, r.nickname)),
         family_students: d.sql
           .all<{ id: string; nickname: string }>('select id, nickname from players where family_id = ? order by nickname', [r.family_id])
           .map((k) => ({ player_id: k.id, nickname: k.nickname, linked_devices: devicesOf(k.id, now) }))
@@ -319,7 +325,8 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     let movedFrom: string | null = null;
     if ('player_id' in p.data) {
       const row = d.sql.get<{ id: string; family_id: string }>('select id, family_id from players where id = ?', [p.data.player_id]);
-      if (!row) return c.json({ error: 'player_not_found' }, 404);
+      // Smoke and demo rows are not students: never a sign-up's target, even when asked for by id.
+      if (!row || isTestPlayerId(row.id)) return c.json({ error: 'player_not_found' }, 404);
       if (row.family_id !== s.family_id) {
         // Only a teacher-made row with no guardian of its own joins the signing family; a real family keeps its child.
         if (familyHasGuardian(row.family_id)) return c.json({ error: 'player_has_guardian' }, 409);

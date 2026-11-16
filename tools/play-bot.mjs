@@ -35,7 +35,20 @@ const mark = (name, extra = {}) => {
   console.log(JSON.stringify(s));
 };
 const shot = async (name) => page.screenshot({ path: `${out}/${name}-${view}.png` });
-const api = async (path, init = {}) => (await fetch(`${base}${path}`, { ...init, headers: { authorization: `Bearer ${dev.device_token}`, 'content-type': 'application/json', ...(init.headers ?? {}) } })).json();
+// a busy local dev server drops a request now and then ("Network connection lost"): reads retry; a mine swing that
+// failed on the wire is simply swung again (the server refuses a second take of the same vein)
+const api = async (path, init = {}) => {
+  for (let i = 0; ; i++) {
+    try {
+      const res = await fetch(`${base}${path}`, { ...init, headers: { authorization: `Bearer ${dev.device_token}`, 'content-type': 'application/json', ...(init.headers ?? {}) } });
+      const text = await res.text();
+      return JSON.parse(text);
+    } catch (e) {
+      if (i >= 4) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+};
 const scene = () => page.evaluate(() => window.__lcwWorld.getScene?.());
 const go = async (id) => {
   await page.evaluate((id) => window.__lcwWorld.goToScene(id), id);

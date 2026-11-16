@@ -280,7 +280,7 @@ export function mountSeatRoutes(
    */
   const usedPayment = (l: Pick<LinkRow, 'seat_id' | 'order_id' | 'kind'>, asOf = Number.POSITIVE_INFINITY): boolean => {
     const u = seatUsage(d.sql, l.seat_id);
-    if (!u || u.first_used_at > asOf) return false;
+    if (!u || u.first_used_at >= asOf) return false;
     if (l.kind === 'issue') return true;
     const from = d.sql.get<{ period_from: number }>('select period_from from seat_order_periods where order_id = ?', [l.order_id])?.period_from;
     // An old extension without its start day counts as used once the seat is.
@@ -695,10 +695,11 @@ export function mountSeatRoutes(
       const target = ruleTarget(s.id, now);
       if (!target) return { status: 404, body: { error: 'seat_not_found' } };
       const isPayer = s.payer_id === g.guardian_id;
-      // Used → refused now, with the reason (docs/01 §4). No inbox item: the rule has nothing to decide.
-      if (usedPayment(target)) return { status: 409, body: { error: 'seat_used', first_used_at: seatUsage(d.sql, s.id)?.first_used_at ?? null } };
       const duo = target.kind === 'issue' && Boolean(duoPartner(s.id));
       const open = openRequest(s.id);
+      // A new request on a used seat → refused now, with the reason (docs/01 §4); no inbox item. An open request made
+      // before the first use keeps going (the payer may still answer it with the Duo choice).
+      if (!open && usedPayment(target)) return { status: 409, body: { error: 'seat_used', first_used_at: seatUsage(d.sql, s.id)?.first_used_at ?? null } };
       if (open) {
         // The payer answers a waiting Duo request with the settlement choice; nothing else changes an open request.
         if (isPayer && duo && open.status === 'pending' && p.data.mode && !open.mode) {

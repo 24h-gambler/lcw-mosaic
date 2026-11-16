@@ -25,8 +25,11 @@ const seat = (over: Partial<FamilySeat> = {}): FamilySeat => ({
   state: 'active',
   read_only_until: null,
   is_payer: true,
-  payments: [{ order_id: 'o-issue-14900', kind: 'issue', plan: 'solo', days: null, amount_krw: 14_900, paid_at: NOW - 2 * DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false }],
+  payments: [{ order_id: 'o-issue-14900', kind: 'issue', plan: 'solo', days: null, amount_krw: 14_900, paid_at: NOW - 2 * DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false, used: false }],
   refund_until: NOW + 5 * DAY,
+  first_used_at: null,
+  refundable: true,
+  refund_block: null,
   can_request_refund: true,
   pending_request: null,
   can_choose_mode: false,
@@ -54,7 +57,7 @@ describe('guardian seats section (WP-704)', () => {
 
   it('other family Duo seat: no name, no money; non-payer sees no payment', () => {
     const html = render([
-      seat({ id: 'seat-b', child: null, plan: 'duo', is_payer: true, payments: [{ order_id: 'o-issue-19900', kind: 'issue', plan: 'duo', days: null, amount_krw: 19_900, paid_at: NOW, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false }] }),
+      seat({ id: 'seat-b', child: null, plan: 'duo', is_payer: true, payments: [{ order_id: 'o-issue-19900', kind: 'issue', plan: 'duo', days: null, amount_krw: 19_900, paid_at: NOW, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false, used: false }] }),
       seat({ id: 'seat-c', plan: 'duo', is_payer: false, payments: null })
     ]);
     expect(html).toContain(S.otherSeat);
@@ -67,7 +70,7 @@ describe('guardian seats section (WP-704)', () => {
       seat({ id: 's1', state: 'expiring', ends_at: NOW + 3 * DAY }),
       seat({ id: 's2', state: 'read_only', ends_at: NOW - DAY, read_only_until: NOW + 29 * DAY, refund_until: NOW - 20 * DAY, can_request_refund: false }),
       seat({ id: 's3', state: 'archived', ends_at: NOW - 40 * DAY, can_request_refund: false }),
-      seat({ id: 's4', state: 'refunded', can_request_refund: false, payments: [{ order_id: 'o-issue-14900', kind: 'issue', plan: 'solo', days: null, amount_krw: 14_900, paid_at: NOW, refund_until: NOW + 5 * DAY, refunded_krw: 14_900, refunded: false }] })
+      seat({ id: 's4', state: 'refunded', can_request_refund: false, payments: [{ order_id: 'o-issue-14900', kind: 'issue', plan: 'solo', days: null, amount_krw: 14_900, paid_at: NOW, refund_until: NOW + 5 * DAY, refunded_krw: 14_900, refunded: false, used: false }] })
     ]);
     expect(html).toContain(S.state.expiring(3));
     expect(html).toContain('혼자 놀기는 멈췄습니다');
@@ -97,6 +100,42 @@ describe('guardian seats section (WP-704)', () => {
     expect(html).toContain('11월 8일 24:00까지');
   });
 
+  it('refund ends at first use: unused shows 환불 가능(아직 사용 전); used shows 사용 시작됨 and no request button', () => {
+    const fresh = render([seat()]);
+    expect(fresh).toContain('환불 가능(아직 사용 전)');
+    const used = render([
+      seat({
+        first_used_at: NOW - DAY,
+        refundable: false,
+        refund_block: 'seat_used',
+        can_request_refund: false,
+        payments: [{ order_id: 'o1', kind: 'issue', plan: 'solo', days: null, amount_krw: 14_900, paid_at: NOW - 2 * DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false, used: true }]
+      })
+    ]);
+    expect(used).toContain('data-testid="seat-refund-used"');
+    expect(used).toContain('사용 시작됨');
+    expect(used).toContain(S.paymentUsed);
+    expect(used).not.toContain(S.refundAsk);
+  });
+
+  it('tutoring seat inside the tutoring fee: 과외 구독 중 · 과외비에 포함 · <date>까지, no 0원 line, no refund button', () => {
+    const html = render([
+      seat({
+        plan: 'tutoring',
+        refundable: false,
+        refund_block: 'nothing_paid',
+        can_request_refund: false,
+        payments: [{ order_id: 'o-t', kind: 'issue', plan: 'tutoring', days: null, amount_krw: 0, paid_at: NOW - 2 * DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false, used: false }]
+      })
+    ]);
+    expect(html).toContain(`${S.tutoringPlan} · ${S.tutoringIncluded} · `);
+    expect(html).toContain('까지');
+    expect(html).not.toContain('0원');
+    expect(html).not.toContain('data-testid="seat-payment"');
+    expect(html).not.toContain(S.refundAsk);
+    expect(html).not.toContain(S.term.month);
+  });
+
   it('Duo: payment lines include extensions; the payer chooses when the other family asked; the friend waits', () => {
     const duo = { refund_difference_krw: 5_000, solo_days: 20 };
     const payer = render([
@@ -108,7 +147,7 @@ describe('guardian seats section (WP-704)', () => {
         can_choose_mode: true,
         duo_options: duo,
         pending_request: { id: 'rf-1', requested_at: NOW, status: 'pending', awaiting_payer_choice: true },
-        payments: [{ order_id: 'o-extend-9950', kind: 'extend', plan: 'duo', days: 30, amount_krw: 9_950, paid_at: NOW, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false }, { order_id: 'o-issue-19900', kind: 'issue', plan: 'duo', days: null, amount_krw: 19_900, paid_at: NOW - DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false }]
+        payments: [{ order_id: 'o-extend-9950', kind: 'extend', plan: 'duo', days: 30, amount_krw: 9_950, paid_at: NOW, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false, used: false }, { order_id: 'o-issue-19900', kind: 'issue', plan: 'duo', days: null, amount_krw: 19_900, paid_at: NOW - DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false, used: false }]
       })
     ]);
     expect(payer).toContain('data-testid="seat-choose-seat-b"');

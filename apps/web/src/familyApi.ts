@@ -126,7 +126,7 @@ export interface FamilySeat {
   /** In the refund window and not used yet. */
   refundable: boolean;
   /** Why a live seat cannot be refunded by the rule: used, or past the 7 days (null when refundable or not live). */
-  refund_block: 'seat_used' | 'outside_refund_window' | null;
+  refund_block: 'seat_used' | 'outside_refund_window' | 'nothing_paid' | null;
   can_request_refund: boolean;
   pending_request: { id: string; requested_at: number; status: 'pending' | 'review'; awaiting_payer_choice: boolean } | null;
   /** The payer must choose how the Duo partial refund is settled (the other family asked). */

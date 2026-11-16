@@ -44,11 +44,11 @@ describe('dialog preview: what the sentence buys and what it costs (G02)', () =>
     const html = renderToStaticMarkup(<DialogPanel {...base} />);
     const text = textOf(html);
     const offers = bankOffersFor(cafe, 'L1');
-    expect(html).toContain('<b>물</b>'); // the 1-star line "Water, please." is selected first
-    expect(text).toContain(`이 문장이면 🪙 ${offers[0]!.price}`);
+    expect(html).toContain('<b>water</b>'); // the 1-star line "Water, please." is selected first
+    expect(text).toContain(`This sentence: 🪙 ${offers[0]!.price}`);
     expect(html.match(/class="lcw-offer__price"/g)?.length).toBe(3);
-    for (const o of offers) expect(html).toContain(`aria-label="${o.price}코인"`);
-    expect(text).toContain(`★★★ 문장이면 🪙 ${offers[2]!.price}!`);
+    for (const o of offers) expect(html).toContain(`aria-label="${o.price} coins"`);
+    expect(text).toContain(`With ★★★: 🪙 ${offers[2]!.price}!`);
     expect(html).not.toContain('💬');
     expect(starPrice(20, 3)).toBeLessThan(starPrice(20, 1));
   });

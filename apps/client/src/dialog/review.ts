@@ -1,4 +1,5 @@
 import { UI_STRINGS_KO } from '@lcw/content';
+// notDue stays Korean here: the panel turns every feedback line into the screen language (strings.ts feedbackLine).
 import type { DialogHint, DialogResult, UtteranceSubmit } from './types.js';
 import { SubmitError } from './submit.js';
 import { noteSeatResponse } from '../world/seat.js';

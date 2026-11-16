@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { UI_STRINGS_KO } from '@lcw/content';
+import { live } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
 import { errandGiverNameKo, errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
@@ -16,7 +16,7 @@ import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
  * guardian" note are shown once (docs/12 3·4장). The server owns the errand; this screen shows the step and the way.
  */
 
-const F = UI_STRINGS_KO.firstVisit;
+const F = live('firstVisit');
 /** The world's errand giver at the honey cafe door (town.ts `errand_neighbor`). */
 export const ERRAND_GIVER_NPC_ID = 'errand_neighbor';
 const SEEN_KEY = 'lcw.firstVisitSeen';

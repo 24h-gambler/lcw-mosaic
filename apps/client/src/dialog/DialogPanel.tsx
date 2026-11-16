@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ECHO_TRANSITION_LINE, NPC_OPENING_LINES, UI_STRINGS_KO, glossKo, npcCast, voiceForCtx } from '@lcw/content';
+import { ECHO_TRANSITION_LINE, NPC_OPENING_LINES, glossKo, npcCast, voiceForCtx } from '@lcw/content';
+import { feedbackLine, helpKo, ko, live } from './strings.js';
+import { helpKoOn, learnLang } from '../world/lang.js';
 import { scoreUtterance, understandUtterance } from '@lcw/converse';
 import {
   bankOffersFor,
@@ -32,7 +34,10 @@ import type { DialogOffer, DialogPanelProps, DialogResult, SttSource, UtteranceS
 export type { DialogOffer, DialogPanelProps, DialogResult, NpcRef, UtteranceSubmit } from './types.js';
 export { createLessonSubmit, createSoloSubmit, createSoloSubmitWith } from './submit.js';
 
-const S = UI_STRINGS_KO.dialog;
+const S = live('dialog');
+const SK = ko('dialog');
+/** Korean help (tag meanings, the Korean names, the echo line's meaning) shows unless the child learns English with the help off. */
+const koShown = (): boolean => learnLang() !== 'en' || helpKoOn();
 
 /** docs/04 4.1: after 2 misses on the same sentence the missed words are underlined; the 3rd miss goes to ECHO. */
 export const MISSES_BEFORE_HIGHLIGHT = 2;
@@ -88,7 +93,7 @@ function OfferText(props: { offer: DialogOffer; hint: DialogPanelProps['hint']; 
 function HintTag(props: { tag: string }) {
   const [show, setShow] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const gloss = glossKo(props.tag);
+  const gloss = koShown() ? glossKo(props.tag) : null;
   const down = () => {
     if (timer.current) clearTimeout(timer.current);
     setShow(true);
@@ -481,19 +486,20 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   // Recall ('initial') hides the chips: a tag like "can i have" would give the masked sentence away.
   const showTags = offer && (hint === 'full' || hint === 'keyword');
 
+  const titleKey = phase === 'echo' ? 'echoTitle' : phase === 'board' ? 'boardTitle' : freeTalk || needsUnderstand ? 'freePrompt' : 'chooseTitle';
   return (
-    <div className="lcw-dlg" style={style} role="dialog" aria-modal="true" aria-label={`${npc.nameKo} ${S.chooseTitle}`}>
+    <div className="lcw-dlg" style={style} role="dialog" aria-modal="true" aria-label={`${learnLang() === 'en' ? npc.nameEn : npc.nameKo} ${S.chooseTitle}`}>
       <style>{DIALOG_CSS}</style>
       <div className="lcw-dlg__win">
         <section className="lcw-dlg__side">
           <div className="lcw-dlg__npc">
             <div className="lcw-dlg__avatar" aria-hidden="true">{npcImg ? <img src={npcImg} alt="" /> : NPC_EMOJI[npc.ctx] ?? '🙂'}</div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="lcw-dlg__name">{npc.nameKo} · {npc.nameEn}</div>
+              <div className="lcw-dlg__name">{koShown() ? `${npc.nameKo} · ${npc.nameEn}` : npc.nameEn}</div>
               <div className="lcw-dlg__bubble" lang="en">
                 {phase === 'echo' ? ECHO_TRANSITION_LINE.text : npcLine}
               </div>
-              {phase === 'echo' ? <div className="lcw-dlg__name" style={{ marginTop: 4 }}>{ECHO_TRANSITION_LINE.ko}</div> : null}
+              {phase === 'echo' && koShown() ? <div className="lcw-dlg__name" style={{ marginTop: 4 }}>{ECHO_TRANSITION_LINE.ko}</div> : null}
             </div>
             {listenOk ? (
               <button type="button" className="lcw-listen" aria-label={S.listenAgain} title={S.listenAgain} onClick={() => { unlockDialogAudio(); void speakEnglish(phase === 'echo' ? ECHO_TRANSITION_LINE.text : npcLine, level, npcVoice); }}>
@@ -508,7 +514,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                   {itemImg ? <img className="lcw-dlg__item3d" src={itemImg} alt="" /> : pictures.map((p, i) => <span key={i}>{p}</span>)}
                 </div>
                 <div className="lcw-dlg__pv">
-                  <b>{item.nameKo}</b>
+                  <b>{koShown() ? item.nameKo : [item.modifier, item.itemKey.replace(/_/g, " ")].filter(Boolean).join(" ")}</b>
                   {offer?.price ? <span className="lcw-dlg__coin">{S.previewBuy.replace('{coins}', String(offer.price))}</span> : null}
                 </div>
                 {cheaper ? (
@@ -525,7 +531,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
           </div>
           {showTags && offer.hintTags.length > 0 ? (
             <div className="lcw-dlg__tags">
-              <span className="lcw-dlg__tagl">{S.tagHelp}</span>
+              {koShown() ? <span className="lcw-dlg__tagl">{S.tagHelp}</span> : null}
               {offer.hintTags.map((t) => <HintTag key={t} tag={t} />)}
             </div>
           ) : null}
@@ -544,7 +550,10 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
 
         <section className="lcw-dlg__main">
           <div className="lcw-dlg__title">
-            <span>{phase === 'echo' ? S.echoTitle : phase === 'board' ? S.boardTitle : freeTalk || needsUnderstand ? S.freePrompt : S.chooseTitle}</span>
+            <span>
+              {S[titleKey]}
+              {helpKo(SK[titleKey], S[titleKey]) ? <small className="lcw-dlg__help" style={{ display: 'block', fontWeight: 400, opacity: 0.75 }}>{SK[titleKey]}</small> : null}
+            </span>
             <button type="button" className="lcw-dlg__x" aria-label={S.close} onClick={closeWindow}>✕</button>
           </div>
 
@@ -568,7 +577,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                   ))}
                 </div>
               ) : null}
-              <div className="lcw-res__fb">{result.feedbackKo}</div>
+              <div className="lcw-res__fb">{feedbackLine(result.feedbackKo).text}</div>
+              {feedbackLine(result.feedbackKo).help ? <div className="lcw-dlg__name">{feedbackLine(result.feedbackKo).help}</div> : null}
               {!result.pass && missedWords.size > 0 ? <div className="lcw-dlg__name">{S.missedHint}</div> : null}
               {result.practice ? <div className="lcw-dlg__name">{S.practiceNote}</div> : null}
               {typeof result.coinsTotal === 'number' ? <div className="lcw-res__coins">🪙 {result.coinsTotal} {S.coins}</div> : null}

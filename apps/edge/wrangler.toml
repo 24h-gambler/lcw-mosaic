@@ -40,8 +40,3 @@ new_sqlite_classes = ["PlatformDO"]
 [triggers]
 # docs/09 §2: daily 03:00 UTC retention, hourly report reminders/quota, Monday 06:00 weekly reports
 crons = ["0 3 * * *", "0 * * * *", "0 6 * * 1"]
-
-# Sign-in callbacks registered with Google / Kakao use this origin (src/oauth.ts, docs/09 §14). Public, not a secret.
-# LCW_GOOGLE_CLIENT_ID / LCW_KAKAO_REST_KEY go here or as secrets once the provider apps exist; without them no button shows.
-[vars]
-LCW_PUBLIC_ORIGIN = "https://lcw.worldwidesomething.com"

@@ -1,7 +1,9 @@
 /**
  * /r/<token> — the parent's lesson report (docs/18 §1, docs/08 §9.3, docs/07 §5). Opened from a KakaoTalk link on a
- * phone, so it is one narrow column. Order: what the child actually said (quotes), then the three numbers with one
- * line each, the lesson flow, today's expressions, the teacher's note, the next lesson, and the full fact table last.
+ * phone, so it is one narrow column. Order: '한눈에 보기' (what the child did, the change since the lesson before, one
+ * thing for home: Dan R2625), what the child actually said (quotes), the three numbers with one line each and the
+ * lesson before, the lesson flow, today's expressions, the teacher's note, '집에서 해 볼 것', the next lesson, and the
+ * full fact table last.
  * Every number comes from the server's fact sheet (facts.lesson); nothing is computed or rounded differently here.
  * The child's name is never shown: the link can be forwarded.
  */
@@ -216,6 +218,9 @@ export interface LessonFactsView {
   expressions: string[];
   stages: Array<{ id: string; title_ko: string; utterances: number; passes: number }>;
   summary_ko: string;
+  /** The child's lesson before this one (server parent-report.ts); null on the first lesson or an older report. */
+  previous: { utterances: number; passes: number; speaking_sec: number; free_words: number } | null;
+  home_practice: string[];
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -244,8 +249,38 @@ export function lessonFactsOf(facts: Record<string, unknown> | undefined): Lesso
       const x = (s ?? {}) as Record<string, unknown>;
       return { id: str(x.id), title_ko: str(x.title_ko), utterances: num(x.utterances), passes: num(x.passes) };
     }),
-    summary_ko: str(o.summary_ko)
+    summary_ko: str(o.summary_ko),
+    previous:
+      o.previous && typeof o.previous === 'object'
+        ? (() => {
+            const p = o.previous as Record<string, unknown>;
+            return { utterances: num(p.utterances), passes: num(p.passes), speaking_sec: num(p.speaking_sec), free_words: num(p.free_words) };
+          })()
+        : null,
+    home_practice: arr(o.home_practice).map(str).filter(Boolean)
   };
+}
+
+type CompareKey = 'utterances' | 'passes' | 'speaking_sec' | 'free_words';
+/** One number in the report's own words: '5번', '13초', '4개'. */
+export function compareValue(k: CompareKey, v: number): string {
+  if (k === 'speaking_sec') return speakingTimeLabel(v);
+  return k === 'free_words' ? P.freeWordsValue(v) : P.attemptsValue(v);
+}
+/** '1번 늘었습니다' / '3초 줄었습니다' / '같습니다' (numbers only, no praise: docs/08 §10). */
+export function changeText(k: CompareKey, now: number, prev: number): string {
+  const d = now - prev;
+  if (d === 0) return P.same;
+  return d > 0 ? P.more(compareValue(k, d)) : P.less(compareValue(k, -d));
+}
+/** The top '지난 수업보다' line: every number that has a lesson before to compare with. */
+export function growthLine(lesson: LessonFactsView): string | null {
+  if (lesson.lesson_number === 1) return P.growthFirst;
+  const prev = lesson.previous;
+  if (!prev) return null;
+  const keys: CompareKey[] = ['utterances', 'passes', 'speaking_sec'];
+  if (lesson.free_words > 0 || prev.free_words > 0) keys.push('free_words');
+  return keys.map((k) => P.growthItem(P.growthLabels[k] ?? k, changeText(k, lesson[k], prev[k]))).join(' · ');
 }
 
 /** "21초", "2분 5초", "28분" — the same split the server's summary sentence uses. */
@@ -313,6 +348,8 @@ function LessonReport({ report, lesson, voice }: { report: SharedReport; lesson:
         <span style={small}>{P.lessonMeta(lesson.duration_min)}</span>
       </header>
 
+      <Glance lesson={lesson} />
+
       <Card accent={C.brand} testId="report-quotes">
         <h2 style={{ ...h2, marginBottom: sp(1) }}>{P.quotesTitle}</h2>
         <p style={{ ...small, margin: `0 0 ${sp(3)}` }}>{P.quotesNote}</p>
@@ -363,9 +400,9 @@ function LessonReport({ report, lesson, voice }: { report: SharedReport; lesson:
       <Card testId="report-numbers">
         <h2 style={h2}>{P.numbersTitle}</h2>
         <div style={{ display: 'grid', gap: sp(3) }}>
-          <Stat icon={ICON.clock} label={P.speakingTime} value={speakingTimeLabel(lesson.speaking_sec)} note={P.speakingTimeNote} />
-          <Stat icon={ICON.chat} label={P.attempts} value={P.attemptsValue(lesson.utterances)} note={P.attemptsNote(lesson.passes)} />
-          <Stat icon={ICON.pencil} label={P.freeWords} value={P.freeWordsValue(lesson.free_words)} note={P.freeWordsNote} />
+          <Stat icon={ICON.clock} label={P.speakingTime} value={speakingTimeLabel(lesson.speaking_sec)} note={P.speakingTimeNote} vs={vsLast(lesson, 'speaking_sec')} />
+          <Stat icon={ICON.chat} label={P.attempts} value={P.attemptsValue(lesson.utterances)} note={P.attemptsNote(lesson.passes)} vs={vsLast(lesson, 'utterances')} />
+          <Stat icon={ICON.pencil} label={P.freeWords} value={P.freeWordsValue(lesson.free_words)} note={P.freeWordsNote} vs={vsLast(lesson, 'free_words')} />
         </div>
         {lesson.lesson_number === 1 ? <p style={{ ...small, margin: `${sp(3)} 0 0` }}>{P.firstLessonNote}</p> : null}
       </Card>
@@ -421,6 +458,8 @@ function LessonReport({ report, lesson, voice }: { report: SharedReport; lesson:
         </Card>
       ) : null}
 
+      <HomePractice lesson={lesson} />
+
       {report.next_lesson_at ? (
         <Card tone="tinted" testId="report-next">
           <div style={{ display: 'flex', alignItems: 'center', gap: sp(2) }}>
@@ -451,7 +490,69 @@ function LessonReport({ report, lesson, voice }: { report: SharedReport; lesson:
   );
 }
 
-function Stat({ icon, label, value, note }: { icon: string; label: string; value: string; note: string }): React.ReactElement {
+function vsLast(lesson: LessonFactsView, k: CompareKey): string | undefined {
+  const prev = lesson.previous;
+  if (!prev || lesson.lesson_number === 1) return undefined;
+  return P.vsLast(compareValue(k, prev[k]), compareValue(k, lesson[k]), changeText(k, lesson[k], prev[k]));
+}
+
+/**
+ * Top of the report (Dan R2625: what the child did today, how much it grew, what to do at home, in Korean, at once).
+ * Every number is from facts.lesson; this only puts them in sentences.
+ */
+function Glance({ lesson }: { lesson: LessonFactsView }): React.ReactElement {
+  const stages = lesson.stages.map((s) => s.title_ko).filter(Boolean);
+  const growth = growthLine(lesson);
+  const home = lesson.home_practice[0];
+  const rows: Array<[string, string, string]> = [[P.glanceDid, P.didLine(stages, lesson.utterances, lesson.passes, speakingTimeLabel(lesson.speaking_sec)), 'glance-did']];
+  if (growth) rows.push([P.glanceGrowth, growth, 'glance-growth']);
+  rows.push([P.glanceHome, home ? P.homeGlance(home) : stages[0] ? P.homeScene(stages[0]) : P.homeNone, 'glance-home']);
+  return (
+    <Card tone="tinted" testId="report-glance">
+      <h2 style={h2}>{P.glanceTitle}</h2>
+      <dl style={{ margin: 0, display: 'grid', gap: sp(2) }}>
+        {rows.map(([k, v, id]) => (
+          <div key={id} data-testid={id} style={{ display: 'grid', gap: sp(0) }}>
+            <dt style={{ ...small, fontWeight: 700 }}>{k}</dt>
+            <dd style={{ margin: 0 }}>{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </Card>
+  );
+}
+
+function HomePractice({ lesson }: { lesson: LessonFactsView }): React.ReactElement {
+  const stage = lesson.stages.map((s) => s.title_ko).find(Boolean);
+  return (
+    <Card accent={C.leaf} testId="report-home">
+      <h2 style={h2}>{P.homeTitle}</h2>
+      <ol style={{ margin: 0, paddingLeft: sp(4), display: 'grid', gap: sp(2) }}>
+        {lesson.home_practice.length > 0 ? (
+          <li>
+            {P.homeLead}
+            <ul style={{ listStyle: 'none', margin: `${sp(1)} 0 0`, padding: 0, display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
+              {lesson.home_practice.map((s) => (
+                <li
+                  key={s}
+                  lang="en"
+                  style={{ fontFamily: T.fonts.target, fontWeight: 700, border, borderRadius: px(TOKENS.shape.radiusButtonPx), padding: `${sp(1)} ${sp(2)}`, backgroundColor: C['paper-100'] }}
+                >
+                  {s}
+                </li>
+              ))}
+            </ul>
+          </li>
+        ) : null}
+        {stage ? <li>{P.homeScene(stage)}</li> : null}
+        {lesson.home_practice.length === 0 && !stage ? <li>{P.homeNone}</li> : null}
+        <li>{P.homeListen}</li>
+      </ol>
+    </Card>
+  );
+}
+
+function Stat({ icon, label, value, note, vs }: { icon: string; label: string; value: string; note: string; vs?: string }): React.ReactElement {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: `${sp(0)} ${sp(2)}`, alignItems: 'start' }}>
       <Icon d={icon} />
@@ -463,6 +564,11 @@ function Stat({ icon, label, value, note }: { icon: string; label: string; value
           </strong>
         </div>
         <span style={small}>{note}</span>
+        {vs ? (
+          <span style={{ ...small, fontWeight: 700 }} data-testid="report-vs-last">
+            {vs}
+          </span>
+        ) : null}
       </div>
     </div>
   );

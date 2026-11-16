@@ -118,7 +118,7 @@ describe('guardian seats section (WP-704)', () => {
     expect(used).not.toContain(S.refundAsk);
   });
 
-  it('tutoring seat inside the tutoring fee: 과외 구독 중 · 과외비에 포함 · <date>까지, no 0원 line, no refund button', () => {
+  it('tutoring seat inside the tutoring fee: 과외 이용 중 · 과외비에 포함 · <date>까지, no 0원 line, no refund button', () => {
     const html = render([
       seat({
         plan: 'tutoring',
@@ -136,7 +136,7 @@ describe('guardian seats section (WP-704)', () => {
     expect(html).not.toContain(S.term.month);
   });
 
-  it('a stopped or ended tutoring seat reads 과외, not 과외 구독 중, next to its state', () => {
+  it('a stopped or ended tutoring seat reads 과외, not 과외 이용 중, next to its state', () => {
     const pay = [{ order_id: 'o-t', kind: 'issue' as const, plan: 'tutoring', days: null, amount_krw: 0, paid_at: NOW - 2 * DAY, refund_until: NOW + 5 * DAY, refunded_krw: 0, refunded: false, used: true }];
     const ended = render([seat({ plan: 'tutoring', state: 'read_only', ends_at: NOW - DAY, read_only_until: NOW + 29 * DAY, refundable: false, refund_block: null, can_request_refund: false, payments: pay })]);
     expect(ended).not.toContain(S.tutoringPlan);
@@ -166,7 +166,7 @@ describe('guardian seats section (WP-704)', () => {
     expect(payer).toContain(S.duoDiff('5,000'));
     expect(payer).toContain(S.duoDays(20));
     expect(payer).toContain('연장 30일');
-    expect(payer).toContain('두 좌석 합계 19,900원');
+    expect(payer).toContain('두 사람 합계 19,900원');
     const friend = render([
       seat({
         plan: 'duo',

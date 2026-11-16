@@ -4,6 +4,9 @@
  */
 import { FREE_PLAY_LIMITS } from '@lcw/schemas';
 
+/** 'L2' → '레벨 2' (the teacher's console keeps the L codes; a parent reads the number). */
+export const levelName = (lv: string): string => (/^L\d+$/.test(lv) ? `레벨 ${lv.slice(1)}` : lv);
+
 export const PARENT_STRINGS_KO = {
   report: {
     brand: 'LCW 수업 리포트',
@@ -13,7 +16,28 @@ export const PARENT_STRINGS_KO = {
     quotesTitle: '오늘 아이가 직접 말한 영어',
     quotesNote: '수업 중 통과한 문장에서 골랐습니다. 들린 그대로 옮겼습니다.',
     quotesEmpty: '이번 수업에서는 인용할 만큼 또렷하게 인식된 문장이 없었습니다.',
-    starsLabel: (n: number) => `별 ${n}개`,
+    starsLabel: (n: number) => `별 ${n}개 (3개 만점)`,
+    glanceTitle: '한눈에 보기',
+    glanceDid: '오늘 한 것',
+    glanceGrowth: '지난 수업보다',
+    glanceHome: '집에서 해 볼 것',
+    didLine: (stages: readonly string[], utterances: number, passes: number, time: string) =>
+      utterances === 0
+        ? '이번 수업에서는 기록된 영어 말이 없습니다.'
+        : `${stages.length ? `'${stages.join("', '")}' 상황에서 ` : ''}영어로 ${utterances}번 말하고 ${passes}번 통과했습니다. 직접 말한 시간은 ${time}입니다.`,
+    growthFirst: '첫 수업입니다. 오늘 숫자가 다음 수업의 비교 기준이 됩니다.',
+    more: (v: string) => `${v} 늘었습니다`,
+    less: (v: string) => `${v} 줄었습니다`,
+    same: '같습니다',
+    growthItem: (label: string, change: string) => `${label} ${change}`,
+    growthLabels: { utterances: '말한 횟수', passes: '통과', speaking_sec: '말한 시간', free_words: '대본 없이 말한 단어' } as Record<string, string>,
+    vsLast: (prev: string, now: string, change: string) => `지난 수업 ${prev} → 오늘 ${now} (${change})`,
+    homeTitle: '집에서 해 볼 것',
+    homeLead: '아래 문장을 아이가 하루에 한 번 소리 내어 말해 보게 해 주세요.',
+    homeGlance: (s: string) => `'${s}' 문장을 하루에 한 번 소리 내어 말해 보게 해 주세요.`,
+    homeScene: (stage: string) => `오늘 연습한 '${stage}' 같은 순간이 집에서 생기면, 아이가 먼저 영어로 말하도록 잠깐 기다려 주세요.`,
+    homeListen: '틀린 곳을 바로 고쳐 주기보다 끝까지 말하게 두고 그대로 들어 주세요.',
+    homeNone: '오늘 리포트의 문장을 아이와 함께 한 번 읽어 보세요.',
     hintless: '힌트 없이',
     numbersTitle: '오늘의 숫자',
     speakingTime: '직접 말한 시간',
@@ -37,7 +61,7 @@ export const PARENT_STRINGS_KO = {
     voiceTitle: '아이 목소리로 다시 듣기',
     voiceNote: '이 기기에 로그인한 보호자에게만 보입니다. 링크를 전달받은 사람에게는 보이지 않습니다.',
     voiceOff: '음성 저장이 꺼져 있어 들을 목소리가 없습니다. 우리 가족 화면의 선택 동의에서 켤 수 있습니다.',
-    voiceEmpty: '이 기간에 저장된 목소리가 없습니다.',
+    voiceEmpty: '저장된 목소리가 없습니다. 음성 저장을 켠 뒤에 말한 문장부터 들을 수 있습니다.',
     voiceError: '목소리를 불러오지 못했습니다.',
     voiceRetry: '다시 불러오기',
     voiceAt: (time: string) => `${time}에 말함`,
@@ -80,7 +104,7 @@ export const PARENT_STRINGS_KO = {
     logout: '이 기기에서 나가기',
     serviceTitle: '먼저 서비스 이용에 동의해 주세요 (필수)',
     serviceBody:
-      '아이의 계정과 플레이 기록, 영어 발화의 글자 기록(전사문)과 성장 지표를 처리합니다. 아이의 음성 원본은 아래 "음성 저장"을 켰을 때만 저장합니다.',
+      '아이의 계정과 놀이 기록, 아이가 영어로 말한 문장을 글자로 옮긴 기록, 성장 숫자를 처리합니다. 아이 목소리는 아래 "음성 저장"을 켰을 때만 저장합니다.',
     serviceRefuse: '동의하지 않으면 서비스를 이용할 수 없습니다.',
     serviceAccept: '동의하고 시작하기',
     consentsTitle: '선택 동의',
@@ -92,7 +116,7 @@ export const PARENT_STRINGS_KO = {
       voice_store: {
         title: '음성 저장',
         body: '아이가 말한 영어 문장을 짧은 음성으로 저장해 보호자가 수업 리포트에서 다시 들을 수 있게 합니다. 보호자만 들을 수 있고, 이용 기간이 끝나고 12개월이 지나면 지웁니다. 끄면 저장된 음성도 바로 지웁니다.',
-        refuse: '글자 기록과 지표만 남고 아이 목소리 클립은 없습니다.'
+        refuse: '말한 문장의 글자와 숫자만 남고, 아이 목소리는 남지 않습니다.'
       },
       lesson_window: {
         title: '수업 창문',
@@ -100,14 +124,14 @@ export const PARENT_STRINGS_KO = {
         refuse: '수업 창문이 열리지 않습니다.'
       },
       showroom_public: {
-        title: '쇼룸 공개',
-        body: '아이가 지은 월드의 정지 화면을 링크로 공유할 수 있습니다. 실시간 위치·음성·실명은 담기지 않습니다.',
-        refuse: '쇼룸을 공유할 수 없습니다.'
+        title: '월드 사진 공유',
+        body: '아이가 지은 월드를 사진 한 장으로 찍어 링크로 보여 줄 수 있습니다. 실시간 위치·목소리·실명은 담기지 않습니다.',
+        refuse: '월드 사진을 공유할 수 없습니다.'
       },
       public_server: {
-        title: '공개 서버',
-        body: '다른 사람이 연 "모두" 대상 공개 월드에 들어갈 수 있습니다. 말풍선은 필터를 거친 문장만 보입니다.',
-        refuse: '비공개·초대 월드에만 들어갑니다.'
+        title: '모두에게 열린 월드',
+        body: '다른 사람이 "모두"에게 연 월드에 들어가 함께 놀 수 있습니다. 말풍선에는 거친 말을 걸러 낸 문장만 보입니다.',
+        refuse: '가족·초대받은 월드에만 들어갑니다.'
       },
       friend_voice: {
         title: '친구 음성',
@@ -116,9 +140,9 @@ export const PARENT_STRINGS_KO = {
       }
     },
     childMeta: (level: string, birthYear: number | null, lessons: number) =>
-      `${level}${birthYear ? ` · ${birthYear}년생` : ''} · 수업 ${lessons}회`,
+      `${levelName(level)}${birthYear ? ` · ${birthYear}년생` : ''} · 수업 ${lessons}회`,
     devicesTitle: '아이 기기',
-    devicesEmpty: '연결된 기기가 없습니다.',
+    devicesEmpty: '연결된 기기가 없습니다. 아이가 쓸 태블릿이나 휴대폰을 연결하려면 아래 "기기 연결 코드 만들기"를 눌러 주세요.',
     deviceSeen: (when: string) => `마지막 사용 ${when}`,
     deviceRemove: '연결 해제',
     deviceRemoveConfirm: (label: string) => `${label} 연결을 해제할까요? 그 기기에서는 다시 코드를 넣어야 합니다.`,
@@ -128,7 +152,8 @@ export const PARENT_STRINGS_KO = {
     codeLeft: (mm: string) => `${mm} 안에 입력해 주세요 (한 번만 쓸 수 있습니다)`,
     codeExpired: '코드 시간이 지났습니다. 새 코드를 만들어 주세요.',
     reportsTitle: '수업 리포트',
-    reportsEmpty: '아직 받은 수업 리포트가 없습니다.',
+    reportsEmpty: '아직 받은 수업 리포트가 없습니다. 수업이 끝나면 선생님이 보낸 리포트가 여기에 쌓입니다.',
+    reportTime: (hhmm: string) => `${hhmm} 수업`,
     reportOpen: '열기',
     reportClose: '링크 닫기',
     reportCloseConfirm: '이 리포트 링크를 닫을까요? 링크를 받은 누구도 더 이상 열 수 없습니다.',
@@ -142,8 +167,8 @@ export const PARENT_STRINGS_KO = {
   },
   dashboard: {
     title: (nick: string) => `${nick}의 성장`,
-    titlePlain: '성장 대시보드',
-    levelBadge: (lv: string) => `레벨 ${lv}`,
+    titlePlain: '성장 기록',
+    levelBadge: (lv: string) => levelName(lv),
     waiting: '첫 플레이를 기다리는 중입니다. 아이가 영어로 말하기 시작하면 이곳에 숫자와 그래프가 쌓입니다.',
     noSession: '보호자 화면(우리 가족)에서 들어와 주세요.',
     goFamily: '우리 가족으로',
@@ -158,9 +183,9 @@ export const PARENT_STRINGS_KO = {
     nextLesson: (t: string) => `다음 수업 ${t}`,
     cards: {
       think: '생각말하기 지수',
-      free: '자유 발화 단어',
+      free: '대본 없이 말한 단어',
       time: '말한 시간',
-      mastered: '마스터 문장'
+      mastered: '완전히 익힌 문장'
     },
     units: { words: '단어', min: '분', sentences: '문장', wpm: '단어/분', sec: '초', per100: '회/100단어', times: '번', secPerWord: '초/단어', pct: '%' },
     change4w: (s: string) => `4주 전 대비 ${s}`,
@@ -169,18 +194,19 @@ export const PARENT_STRINGS_KO = {
     lineDown: (from: string, to: string) => `4주 전 ${from}보다 줄어 이번 주는 ${to}입니다.`,
     lineFlat: (from: string) => `이번 주는 4주 전과 비슷합니다(4주 전 ${from}).`,
     lineNew: '이번 주부터 기록됩니다. 4주 뒤부터 변화를 함께 보여 드립니다.',
+    lineNone: '이번 주에도 4주 전에도 아직 기록이 없습니다.',
     lineFewDays: (days: number) => `이번 주는 플레이가 ${days}일뿐이어서 발화량이 적습니다.`,
-    thinkShort: '이번 주는 자유 발화가 적어 지수를 계산하지 않았습니다(30문장 이상 필요).',
+    thinkShort: '이번 주는 대본 없이 말한 문장이 적어 지수를 계산하지 않았습니다(30문장 이상 필요).',
     thinkNote: '아이 자신의 첫 2주를 100으로 둔 값입니다. 다른 아이와 비교하는 점수가 아닙니다.',
-    thinkBaseline: '아직 출발점을 만드는 중입니다. 자유 발화가 30문장 넘는 주가 두 번 쌓이면 그 2주를 100으로 둡니다.',
+    thinkBaseline: '아직 출발점을 만드는 중입니다. 대본 없이 말한 문장이 30개 넘는 주가 두 번 쌓이면 그 2주를 100으로 둡니다.',
     baselinePending: '준비 중',
     parts: {
       summary: '어떻게 계산하나요 · 구성 지표 6개',
-      how: '지수 = 100 × (발화 길이 30% + 말 속도 20% + 단어당 준비 시간 15% + 접속 표현 15% + 영어로 말한 비율 10% + 힌트 없이 통과한 비율 10%). 각 항목은 이번 값을 출발점(표본이 충분한 첫 2주)으로 나눈 배수이고 0.5배~2배로 자릅니다. 준비 시간은 짧을수록 좋아서 거꾸로 나눕니다. 문장이 길어져도 단어당 준비 시간이 같으면 깎이지 않고, 말을 많이 했다는 것만으로는 오르지 않습니다.',
+      how: '지수 = 100 × (한 번에 말한 길이 30% + 말 속도 20% + 단어당 준비 시간 15% + 접속 표현 15% + 영어로 말한 비율 10% + 힌트 없이 통과한 비율 10%). 각 항목은 이번 값을 출발점(표본이 충분한 첫 2주)으로 나눈 배수이고 0.5배~2배로 자릅니다. 준비 시간은 짧을수록 좋아서 거꾸로 나눕니다. 문장이 길어져도 단어당 준비 시간이 같으면 깎이지 않고, 말을 많이 했다는 것만으로는 오르지 않습니다.',
       noBase: '출발점이 정해지면 점선으로 함께 보여 드립니다.',
-      legendValue: '주간값',
+      legendValue: '그 주의 값',
       legendBase: '출발점(첫 2주)',
-      words: '발화 길이',
+      words: '한 번에 말한 길이',
       speed: '말 속도',
       prep: '단어당 준비 시간',
       connectors: '접속 표현',
@@ -188,36 +214,37 @@ export const PARENT_STRINGS_KO = {
       hintFree: '힌트 없이 통과한 비율',
       weight: (pct: number) => `비중 ${pct}%`
     },
-    masteredNote: '35일 뒤 회상까지 통과한 문장 수의 누적입니다.',
+    masteredNote: '배우고 35일 뒤에 다시 물어봤을 때도 말한 문장을 모두 더한 수입니다.',
     weekLineTitle: '이번 주의 한 마디',
     weekLineMeta: (words: number) => `가장 길게 대본 없이 말한 문장 · ${words}단어`,
     weekLineNone: '이번 주에는 아직 대본 없이 말한 문장이 없습니다.',
-    reviewTitle: '돌아올 문장',
-    reviewNone: '복습 예정 문장이 아직 없습니다.',
+    reviewTitle: '다시 연습할 문장',
+    reviewNone: '다시 연습할 문장이 아직 없습니다.',
     growthTitle: '성장',
     showTable: '표로 보기',
     showChart: '그래프로 보기',
     weekCol: '주',
-    shortSample: '표본 부족',
-    estimate: '추정',
+    shortSample: '기록 적음',
+    estimate: '예상',
+    measured: '실제 기록',
     lessonTick: '수업한 주',
     charts: {
-      think: { title: '생각말하기 지수 (12주)', legendDot: '주간값', legendLine: '4주 평균', note: '점선 100은 출발점입니다. 빈 원은 표본이 부족한 주입니다.' },
-      cumulative: { title: '누적 곡선', note: '누적 곡선은 내려가지 않습니다. 그래서 바로 아래 주간 변화 그래프와 함께 봅니다. 점선은 최근 8주 추세를 12주 앞까지 이은 추정입니다.' },
-      cumFree: '누적 자유 발화 단어',
-      cumVocab: '누적 사용 어휘',
-      cumMastered: '누적 마스터 문장',
-      weekly: { title: '주간 발화량', note: '모드별로 쌓은 막대입니다. 무늬로도 구분됩니다.', lesson: '수업', solo: '혼자', both: '모두' },
-      modes: { free: '자유', guided: '유도', read: '낭독', recall: '회상' },
-      fluency: { title: '유창성', wpm: '말 속도', words: '발화 길이', response: '반응 시간', note: '자유 발화만 셉니다. 반응 시간은 짧을수록 빨리 말을 시작한 것입니다.' },
-      connectors: { title: '접속 표현', note: '최근 12주 자유 발화에서 쓴 횟수입니다.', none: '아직 쓴 접속 표현이 없습니다.' },
-      ladder: { title: '레벨 사다리', note: '지금 레벨이 표시됩니다.' },
+      think: { title: '생각말하기 지수 (12주)', legendDot: '그 주의 값', legendLine: '4주 평균', note: '점선 100은 출발점입니다. 빈 원은 기록이 적어 그대로 믿기 어려운 주입니다.' },
+      cumulative: { title: '지금까지 쌓인 양', note: '모두 더한 값이라 내려가지 않습니다. 그래서 바로 아래 주마다 말한 양 그래프와 함께 봅니다. 점선은 최근 8주 흐름을 12주 앞까지 이어 본 예상입니다.' },
+      cumFree: '지금까지 대본 없이 말한 단어',
+      cumVocab: '지금까지 써 본 단어 수',
+      cumMastered: '지금까지 완전히 익힌 문장',
+      weekly: { title: '주마다 말한 양', note: '어떻게 말했는지(스스로·도움 받아·읽기·다시 떠올리기)에 따라 나눠 쌓은 막대입니다. 무늬로도 구분됩니다.', lesson: '수업', solo: '혼자', both: '모두' },
+      modes: { free: '스스로', guided: '도움 받아', read: '읽기', recall: '다시 떠올리기' },
+      fluency: { title: '얼마나 술술 말하나', wpm: '말 속도', words: '한 번에 말한 길이', response: '말을 시작하기까지 걸린 시간', note: '대본 없이 말한 것만 셉니다. 걸린 시간은 짧을수록 빨리 말을 시작한 것입니다.' },
+      connectors: { title: '문장을 잇는 말 (because, and …)', note: '최근 12주 동안 대본 없이 말할 때 쓴 횟수입니다.', none: '아직 쓴 이음말이 없습니다.' },
+      ladder: { title: '레벨 (1~6)', note: '노란 칸이 지금 레벨입니다. 1부터 6까지 올라갑니다.' },
       calendar: { title: '말한 날 달력 (12주)', note: '하루 동안 대본 없이 말한 단어 수입니다. 진할수록 많이 말했습니다.', less: '적게', more: '많이', dayCol: '날짜' }
     },
     lessonsTitle: '수업',
     lessonsNone: '아직 수업 기록이 없습니다.',
-    lessonRow: (min: number, utt: number, pass: number) => `${min}분 · 영어로 ${utt}번 말하고 ${pass}번 통과`,
-    lessonShare: (pct: number) => `아이 말 비율 ${pct}%`,
+    lessonRow: (min: number, utt: number, pass: number) => `${min < 1 ? '1분 미만' : `${min}분`} · 영어로 ${utt}번 말하고 ${pass}번 통과`,
+    lessonShare: (pct: number) => `수업 중 아이가 말한 비율 ${pct}%`,
     lessonReport: '리포트',
     lessonLive: '수업 중'
   },
@@ -307,8 +334,8 @@ export const PARENT_STRINGS_KO = {
     /** The next slot is a waiting code running out: true only if nobody enters it (a friend usually will). */
     noneLeftCode: (when: string) => `지금은 초대권을 더 만들 수 없습니다. 기다리는 초대권에 아무도 들어오지 않으면 ${when}에 한 장이 다시 생깁니다.`,
     noneLeftReady: '아직 아무도 들어오지 않은 초대권은 회수할 수 있습니다.',
-    limit: (per: number, back: string) => `좌석마다 한 달에 ${per}장까지 쓸 수 있습니다. ${back}`,
-    seatInactive: '이용 중인 좌석에서만 초대권을 만들 수 있습니다.',
+    limit: (per: number, back: string) => `이용권마다 한 달에 ${per}장까지 쓸 수 있습니다. ${back}`,
+    seatInactive: '이용 중인 이용권이 있어야 초대권을 만들 수 있습니다.',
     needConsent: '서비스 이용에 동의하면 친구 초대권을 쓸 수 있습니다.',
     gone: '이 초대권을 찾지 못했습니다. 목록을 다시 불러왔습니다.',
     changed: '그사이 초대권 상태가 바뀌었습니다. 목록을 다시 불러왔습니다.',
@@ -340,16 +367,16 @@ export const PARENT_STRINGS_KO = {
   /** Guardian seat section on /family (WP-704, docs/01 §4, docs/09 P6). Amounts appear only to the payer. */
   seats: {
     title: '이용권',
-    lead: '선생님이 입금을 확인하면 좌석이 열립니다.',
-    plan: { solo: '혼자 (Solo)', duo: '친구와 둘이 (Duo)', tutoring: '과외' } as Record<string, string>,
-    term: { month: '월 이용권', year: '연 이용권' } as Record<string, string>,
-    tutoringPlan: '과외 구독 중',
+    lead: '선생님이 입금을 확인하면 이용권이 열립니다.',
+    plan: { solo: '혼자 하기', duo: '친구와 둘이 하기', tutoring: '과외' } as Record<string, string>,
+    term: { month: '한 달 이용권', year: '1년 이용권' } as Record<string, string>,
+    tutoringPlan: '과외 이용 중',
     tutoringIncluded: '과외비에 포함',
     until: (date: string) => `${date}까지`,
-    otherSeat: '함께하는 친구의 좌석',
-    otherSeatNote: '다른 가족의 좌석이라 이름은 보이지 않습니다.',
+    otherSeat: '함께하는 친구의 이용권',
+    otherSeatNote: '다른 가족의 이용권이라 이름은 보이지 않습니다.',
     state: {
-      active: '구독 중',
+      active: '이용 중',
       expiring: (days: number) => (days <= 1 ? '내일 끝남' : `${days}일 남음`),
       read_only: '기간 끝남 · 보기만',
       archived: '보관함',
@@ -360,9 +387,9 @@ export const PARENT_STRINGS_KO = {
     readOnlyBody: (until: string) =>
       `이용 기간이 끝나 혼자 놀기는 멈췄습니다. ${until}까지는 월드와 기록을 그대로 볼 수 있습니다. 이어서 하려면 선생님께 말씀해 주세요.`,
     archivedBody: '보기만 하는 30일이 지나 월드를 보관함으로 옮겼습니다. 다시 시작하려면 선생님께 말씀해 주세요.',
-    refundedBody: '환불 처리된 좌석입니다.',
+    refundedBody: '환불 처리된 이용권입니다.',
     paymentLine: (amount: string, date: string) => `${amount}원 · ${date} 입금 확인`,
-    paymentLineDuo: (amount: string, date: string) => `두 좌석 합계 ${amount}원 · ${date} 입금 확인`,
+    paymentLineDuo: (amount: string, date: string) => `두 사람 합계 ${amount}원 · ${date} 입금 확인`,
     paymentLineExtend: (days: number, amount: string, date: string) => `연장 ${days}일 · ${amount}원 · ${date} 입금 확인`,
     refundedLine: (amount: string) => `돌려드린 금액 ${amount}원`,
     refundUntil: (date: string) => `환불 가능(아직 사용 전) · ${date} 24:00까지 요청할 수 있습니다. 아이가 이용을 시작하면 환불되지 않습니다.`,
@@ -375,7 +402,7 @@ export const PARENT_STRINGS_KO = {
     refundReview: (date: string) => `${date}에 환불을 요청했습니다. 규칙 밖의 요청이라 선생님이 직접 확인하고 연락드립니다.`,
     refundAwaiting: (date: string) => `${date}에 환불을 요청했습니다. 결제하신 분이 정산 방식을 고르면 선생님이 처리합니다.`,
     chooseTitle: '정산 방식을 골라 주세요',
-    chooseBody: '함께하는 가족이 Duo 좌석을 그만두겠다고 요청했습니다. 남은 좌석은 Solo로 바뀝니다. 결제하신 분만 고를 수 있습니다.',
+    chooseBody: '함께하는 가족이 ‘친구와 둘이 하기’를 그만두겠다고 요청했습니다. 남은 아이는 ‘혼자 하기’로 바뀝니다. 결제하신 분만 고를 수 있습니다.',
     chooseSubmit: '이 방식으로 정하기',
     sentChosen: '정산 방식을 정했습니다. 선생님이 확인하면 처리됩니다.',
     formTitle: '환불 요청',
@@ -384,11 +411,11 @@ export const PARENT_STRINGS_KO = {
     formSubmit: '요청 보내기',
     formCancel: '닫기',
     soloBody: '사용을 시작하기 전, 7일 안의 요청은 결제하신 금액을 모두 돌려드립니다.',
-    duoPayerBody: 'Duo의 한 좌석만 그만두면 남은 좌석은 Solo로 바뀝니다. 둘 중 하나를 골라 주세요.',
-    duoDiff: (amount: string) => `차액 ${amount}원 돌려받기 (남은 좌석은 기간 그대로)`,
-    duoDays: (days: number) => `돌려받지 않고 남은 좌석을 Solo ${days}일로 바꾸기`,
+    duoPayerBody: '‘친구와 둘이 하기’에서 한 아이만 그만두면 남은 아이는 ‘혼자 하기’로 바뀝니다. 둘 중 하나를 골라 주세요.',
+    duoDiff: (amount: string) => `차액 ${amount}원 돌려받기 (남은 아이는 기간 그대로)`,
+    duoDays: (days: number) => `돌려받지 않고 남은 아이를 ‘혼자 하기’ ${days}일로 바꾸기`,
     duoOtherBody:
-      'Duo의 한 좌석만 그만두면 정산 방식(차액 환불 또는 남은 좌석의 Solo 일수 전환)은 결제하신 분이 고르고, 남은 친구 좌석은 Solo로 바뀝니다. 친구 가족의 기록은 바뀌지 않습니다.',
+      '‘친구와 둘이 하기’에서 한 아이만 그만두면, 정산 방식(차액 환불 또는 남은 아이의 ‘혼자 하기’ 일수로 바꾸기)은 결제하신 분이 고르고 남은 친구는 ‘혼자 하기’로 바뀝니다. 친구 가족의 기록은 바뀌지 않습니다.',
     sentPending: '환불 요청을 보냈습니다. 선생님이 확인하면 결제하신 계좌로 돌려드립니다.',
     sentReview: '규칙 밖의 요청이라 선생님이 직접 확인합니다. 확인한 뒤 연락드립니다.',
     sentAwaiting: '요청을 보냈습니다. 결제하신 분이 정산 방식을 고르면 선생님이 처리합니다.',

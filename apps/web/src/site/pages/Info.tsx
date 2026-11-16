@@ -136,7 +136,7 @@ export function PassPage(): React.ReactElement {
     <section className="s-hero">
       <div className="s-wrap s-split" style={{ alignItems: 'start' }}>
         <div className="s-hero-copy">
-          <span className="s-eyebrow">게스트 패스</span>
+          <span className="s-eyebrow">친구 초대권</span>
           <h1 className="s-h1">{PASS.title}</h1>
           <p className="s-lead">{PASS.lead}</p>
           <ul style={{ paddingLeft: 20, display: 'grid', gap: 6 }} className="s-muted">

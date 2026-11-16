@@ -15,6 +15,8 @@ export const REPORT_SHARE_TTL_MS = 30 * 86_400_000;
 export const MIN_QUOTE_CONFIDENCE = 0.5;
 export const MAX_QUOTES = 3;
 export const MAX_EXPRESSIONS = 8;
+/** 'At home' on the report: a parent can carry one or two sentences into the week, not a list. */
+export const MAX_HOME_PRACTICE = 2;
 
 export interface LessonParentQuote {
   text: string;
@@ -52,10 +54,29 @@ export interface LessonParentFacts {
   coaching_moments: number;
   stages: LessonParentStage[];
   summary_ko: string;
+  /**
+   * The child's lesson before this one that has any English in it (an abandoned lesson with nothing said is skipped),
+   * counted by the same rules, so the page can say what changed ('얼마나 늘었는지'); null for the first such lesson.
+   */
+  previous: LessonParentCompare | null;
+  /**
+   * Up to two sentences to say again at home: the lesson's target sentences the child passed (the teacher's own,
+   * well-formed wording; most stars first), then the expressions, then the quotes. A sentence inside another is one.
+   */
+  home_practice: string[];
+}
+
+export interface LessonParentCompare {
+  utterances: number;
+  passes: number;
+  speaking_sec: number;
+  free_words: number;
 }
 
 interface UttRow extends Record<string, unknown> {
   final_text: string;
+  /** The sentence on screen ('' in free talk); older callers of pickQuotes leave it out. */
+  target_text?: string;
   stars: number;
   mode: string;
   ctx: string;
@@ -195,17 +216,34 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
   // Parent wording: drop the step number and the teacher's note in brackets ("② 카페 주문 (1성 → 3성)" → "카페 주문").
   const titleOf = (id: string) =>
     plan.stages.find((s) => s.id === id)?.titleKo.replace(/^[①-⑩]\s*/, '').replace(/\s*\([^)]*\)\s*$/, '') ?? '';
-  const rows = sql.all<UttRow>(
-    `select final_text, stars, mode, ctx, words, dur_ms, confidence, hint_level, created_at
-     from utterances where session_id = ? and player_id = ? order by created_at`,
-    [lessonId, lesson.player_id]
-  );
+  const rowsOf = (id: string) =>
+    sql.all<UttRow>(
+      `select final_text, target_text, stars, mode, ctx, words, dur_ms, confidence, hint_level, created_at
+       from utterances where session_id = ? and player_id = ? order by created_at`,
+      [id, lesson.player_id]
+    );
+  const rows = rowsOf(lessonId);
   const pins = sql.all<{ kind: string; note: string; at_ms: number }>(
     'select kind, note, at_ms from pins where lesson_id = ? order by at_ms',
     [lessonId]
   );
   const passes = rows.filter((u) => u.stars > 0);
   const sum = (xs: UttRow[], f: (u: UttRow) => number) => xs.reduce((a, u) => a + f(u), 0);
+  const compare = (xs: UttRow[]): LessonParentCompare => ({
+    utterances: xs.length,
+    passes: xs.filter((u) => u.stars > 0).length,
+    speaking_sec: Math.round(sum(xs, (u) => u.dur_ms) / 1000),
+    free_words: sum(
+      xs.filter((u) => u.mode === 'free'),
+      (u) => u.words
+    )
+  });
+  const prevLesson = sql.get<{ id: string }>(
+    `select l.id from lessons l where l.player_id = ? and l.started_at < ? and l.id <> ?
+       and exists (select 1 from utterances u where u.session_id = l.id and u.player_id = l.player_id)
+     order by l.started_at desc limit 1`,
+    [lesson.player_id, lesson.started_at, lessonId]
+  );
   const ended = lesson.ended_at ?? nowMs;
 
   const names = childNames(sql, lesson.player_id).map(norm).filter(Boolean);
@@ -239,6 +277,20 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
     })
     .filter((s) => s.utterances > 0);
 
+  const quotes = pickQuotes(rows, titleOf, names);
+  const passedTargets = passes
+    .filter((u) => u.mode !== 'free' && (u.target_text ?? '').trim().split(/\s+/).length >= 2 && publicSafeText(u.target_text ?? '', names))
+    .sort((a, b) => b.stars - a.stars || (b.target_text ?? '').length - (a.target_text ?? '').length || b.created_at - a.created_at)
+    .map((u) => (u.target_text ?? '').trim());
+  const home_practice: string[] = [];
+  for (const s of [...passedTargets, ...expressions, ...quotes.map((q) => q.text)]) {
+    if (home_practice.length >= MAX_HOME_PRACTICE) break;
+    const k = norm(s);
+    // 'Can I have a warm honey tea?' is inside 'Can I have a warm honey tea, please?': one sentence for home.
+    if (!k || home_practice.some((h) => norm(h).includes(k) || k.includes(norm(h)))) continue;
+    home_practice.push(s);
+  }
+
   const base = {
     lesson_day: kstDayOf(lesson.started_at),
     lesson_number: Number(
@@ -263,12 +315,12 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
     ),
     speaking_sec: Math.round(sum(rows, (u) => u.dur_ms) / 1000),
     longest_words: rows.reduce((m, u) => Math.max(m, u.stars > 0 ? u.words : 0), 0),
-    quotes: pickQuotes(rows, titleOf, names),
+    quotes,
     expressions,
     coaching_moments: pins.filter((p) => p.kind === 'coaching').length,
     stages
   };
-  return { ...base, summary_ko: lessonSummaryKo(base) };
+  return { ...base, summary_ko: lessonSummaryKo(base), previous: prevLesson ? compare(rowsOf(prevLesson.id)) : null, home_practice };
 }
 
 /**
@@ -400,6 +452,9 @@ export function publicFacts(facts: unknown, names: string[]): Record<string, unk
         hintless: q.hintless === true
       }));
     lesson.expressions = arr(l.expressions).filter((e): e is string => typeof e === 'string' && publicSafeText(e, keyNames));
+    lesson.home_practice = arr(l.home_practice).filter((e): e is string => typeof e === 'string' && publicSafeText(e, keyNames));
+    // Numbers only (the lesson before), like facts.progress.
+    lesson.previous = l.previous && typeof l.previous === 'object' && !Array.isArray(l.previous) ? numbersOnly(l.previous) : null;
     lesson.stages = arr(l.stages)
       .map((x) => (x ?? {}) as Record<string, unknown>)
       .map((x) => ({

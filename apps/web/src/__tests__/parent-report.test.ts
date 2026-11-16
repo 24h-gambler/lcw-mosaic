@@ -123,6 +123,42 @@ describe('parent lesson report page (docs/08 §9.3)', () => {
     for (const n of summary.match(/\d+/g) ?? []) expect(['8', '7', '2', '5', '28']).toContain(n);
   });
 
+  it('top of the page, in Korean at once: what the child did, how it changed since the last lesson, what to do at home', () => {
+    const esc = (s: string) => s.replace(/'/g, '&#x27;');
+    // first lesson: did + 'first lesson is the baseline' + the first home sentence
+    const first = renderToStaticMarkup(
+      React.createElement(ParentReportPage, { token: 't', initial: { status: 'ok', report: lessonReport({ home_practice: ['so that I can fly', 'Can I have a warm honey tea?'] }) } })
+    );
+    expect(first.indexOf(P.glanceTitle)).toBeLessThan(first.indexOf(P.quotesTitle));
+    expect(first).toContain(esc(P.didLine(['카페 주문'], 8, 7, '2분 5초')));
+    expect(first).toContain(P.growthFirst);
+    expect(first).toContain(esc(P.homeGlance('so that I can fly')));
+    // the home card lists the sentences in the target-language font, with the scene and the listening line
+    expect(first).toContain(P.homeTitle);
+    expect(first).toContain('<li lang="en"');
+    expect(first).toContain(esc(P.homeScene('카페 주문')));
+    expect(first).toContain(P.homeListen);
+    expect(first).not.toContain('data-testid="report-vs-last"');
+
+    // a later lesson with the one before: one line per number, and the top line says what changed
+    const later = renderToStaticMarkup(
+      React.createElement(ParentReportPage, {
+        token: 't',
+        initial: { status: 'ok', report: lessonReport({ lesson_number: 2, previous: { utterances: 6, passes: 7, speaking_sec: 140, free_words: 20 }, home_practice: [] }) }
+      })
+    );
+    expect(later).toContain('말한 횟수 2번 늘었습니다 · 통과 같습니다 · 말한 시간 15초 줄었습니다 · 대본 없이 말한 단어 8개 늘었습니다');
+    expect(later).toContain(P.vsLast('6번', '8번', '2번 늘었습니다'));
+    expect(later).toContain(P.vsLast('2분 20초', '2분 5초', '15초 줄었습니다'));
+    // no sentence to carry home: the top line points at the scene instead
+    expect(later).toContain(esc(P.homeScene('카페 주문')));
+
+    // an older report (no 'previous' field) after the first lesson: no comparison is made up
+    const old = renderToStaticMarkup(React.createElement(ParentReportPage, { token: 't', initial: { status: 'ok', report: lessonReport({ lesson_number: 2 }) } }));
+    expect(old).not.toContain(P.glanceGrowth);
+    expect(old).not.toContain('data-testid="report-vs-last"');
+  });
+
   it('no first-lesson note after the first lesson; no quotes → explicit line, not an empty box', () => {
     const html = renderToStaticMarkup(
       React.createElement(ParentReportPage, { token: 't', initial: { status: 'ok', report: lessonReport({ lesson_number: 2, quotes: [] }) } })

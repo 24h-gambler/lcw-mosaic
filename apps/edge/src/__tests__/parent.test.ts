@@ -100,6 +100,32 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
     expect(r.body.expires_at - r.body.created_at).toBe(REPORT_SHARE_TTL_MS);
   });
 
+  it("the next lesson carries the one before (an empty lesson in between is skipped) and up to two sentences for home", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-16T08:00:00Z'));
+    const p = platform();
+    const first = await runLesson(p);
+    const L1 = (await call(p, 'GET', `/v1/reports/${first.token}`, undefined, {})).body.facts.lesson;
+    expect(L1.previous).toBeNull();
+    // the teacher's target the child passed first (well-formed), then a different expression; the same sentence once
+    expect(L1.home_practice).toEqual(['Can I have a warm honey tea?', 'so that I can fly to school']);
+    // an abandoned lesson with nothing said
+    vi.setSystemTime(new Date('2026-11-18T08:00:00Z'));
+    const empty = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1' });
+    await call(p, 'POST', `/v1/admin/lessons/${empty.body.lesson_id}/end`, { teacher_comment: '' });
+    vi.setSystemTime(new Date('2026-11-20T08:00:00Z'));
+    const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1' });
+    const st = bearer((await call(p, 'POST', '/v1/join', { code: s.body.join_code }, anon)).body.student_token);
+    await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a cold tea, please?'] });
+    await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a cold tea, please?', transcript: 'can I have a cold tea please', chosen_stars: 3, dur_ms: 2600 }, st);
+    const end = await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/end`, { teacher_comment: '' });
+    const L3 = (await call(p, 'GET', `/v1/reports/${end.body.share_token}`, undefined, {})).body.facts.lesson;
+    expect(L3.lesson_number).toBe(3);
+    // compared with the first lesson (the one with English in it), by the same counting
+    expect(L3.previous).toEqual({ utterances: L1.utterances, passes: L1.passes, speaking_sec: L1.speaking_sec, free_words: L1.free_words });
+    expect(L3.home_practice).toEqual(['Can I have a cold tea, please?']);
+  });
+
   it('public report never carries ids or the child name, and is private/no-referrer/noindex', async () => {
     const p = platform();
     const { token } = await runLesson(p);

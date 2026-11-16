@@ -10,7 +10,7 @@ import { watchConnection } from './connection.js';
 import { FRAME_STRINGS as F } from './strings.js';
 import { PlayerMenu, tabForKey } from './menu/PlayerMenu.js';
 import { ensureMenuStyle } from './menu/styles.js';
-import type { FrameAuth, MenuTab } from './menu/types.js';
+import { otherModalOpen, type FrameAuth, type MenuTab } from './menu/types.js';
 import { fetchItems, holdThing, type ItemsView } from './api.js';
 import { getAudioRuntime } from '../audio/runtime.js';
 import { frameSettings, graphicsOf, lookSettingsOf, motionReduced, onFrameSettings, sameGraphics, startFrameSettings, type GraphicsSettings } from './settings.js';
@@ -180,6 +180,8 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   }, [world, auth, identity, applyBag]);
 
   const open = useCallback((t: MenuTab) => {
+    // never over another window (a review dialog has no HUD mark; the first-visit and seat cards neither)
+    if (otherModalOpen()) return;
     setLastTab(t);
     setMenu(t);
   }, []);

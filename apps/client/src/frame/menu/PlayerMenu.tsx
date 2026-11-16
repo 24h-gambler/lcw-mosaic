@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useRef } from 'react';
 import { FRAME_STRINGS as F } from '../strings.js';
-import { MENU_TABS, type MenuPanelProps, type MenuTab } from './types.js';
+import { MENU_TABS, otherModalOpen, type MenuPanelProps, type MenuTab } from './types.js';
 import { ensureMenuStyle } from './styles.js';
 import { BagPanel } from './BagPanel.js';
 import { MirrorPanel } from './MirrorPanel.js';
@@ -53,7 +53,10 @@ export function PlayerMenu(props: PlayerMenuProps): React.ReactElement {
 
   useEffect(() => {
     world?.setPaused(true);
-    return () => world?.setPaused(false);
+    // the world's pause is one switch: a dialog that opened meanwhile (and closed this menu) keeps it on
+    return () => {
+      if (!otherModalOpen()) world?.setPaused(false);
+    };
   }, [world]);
 
   // focus into the window, back to whatever had it on close

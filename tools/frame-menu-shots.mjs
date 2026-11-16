@@ -237,6 +237,20 @@ for (const vp of VIEWPORTS) {
   await page.waitForTimeout(500);
   check(vp.name, !(await page.locator('.lcw-menu').count()), 'Esc should close the menu');
   if (!vp.touch) {
+    // another window up (a review dialog has no HUD mark): K must not open the menu over it
+    await page.evaluate(() => {
+      const d = document.createElement('div');
+      d.id = 'fake-modal';
+      d.setAttribute('role', 'dialog');
+      d.setAttribute('aria-modal', 'true');
+      document.body.appendChild(d);
+    });
+    await page.keyboard.press('KeyK');
+    await page.waitForTimeout(400);
+    check(vp.name, !(await page.locator('.lcw-menu').count()), 'K opened the menu over another window');
+    await page.evaluate(() => document.getElementById('fake-modal')?.remove());
+  }
+  if (!vp.touch) {
     await page.keyboard.press('KeyK');
     await page.waitForTimeout(500);
     const sel = await page.evaluate(() => document.querySelector('.lcw-menu__tab[aria-selected="true"]')?.id);

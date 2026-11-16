@@ -289,7 +289,7 @@ export function ParentsPage(): React.ReactElement {
               </div>
             ))}
           </div>
-          <p style={{ marginTop: 16, fontWeight: 800 }}>사용 전 7일 이내 전액 환불 · Duo는 가족이 아니어도 돼요</p>
+          <p style={{ marginTop: 16, fontWeight: 800 }}>결제 후 7일 이내 전액 환불 · Duo는 가족이 아니어도 돼요</p>
           <SLink to="/pricing" className="s-btn s-btn-brand" style={{ marginTop: 16 }}>
             {PARENTS.priceCta} →
           </SLink>

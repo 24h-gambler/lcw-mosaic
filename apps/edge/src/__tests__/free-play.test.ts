@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FREE_PLAY_LIMITS, GUEST_PASS_HEADER, normalizeGuestPassCode } from '@lcw/schemas';
 import { TRY_CAFE_OFFERS, gradeTryOrder } from '@lcw/content';
 import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
-import { kstDay, kstMonth, newGuestPassCode, nextKstDayStart, nextKstMonthStart, passesPlayedThisMonth } from '../free-play.js';
+import { kstDay, kstMonth, newGuestPassCode, nextKstDayStart, nextKstMonthStart, passesPlayedThisMonth, sweepEndedGuestCells } from '../free-play.js';
 import { fakeDurableStorage } from './fake-do.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
@@ -452,6 +452,67 @@ describe("a friend on a guest pass plays in the host's world (docs/19 §8)", () 
     const burst = await call(p, 'POST', '/v1/plot/ops', many, hb);
     expect(burst.body.processed).toBeLessThan(40);
     expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 2, y: 1, z: Z + 2, slot: 0 }] }, devB)).body.results).toEqual([{ ok: true }]);
+  });
+
+  it("the daily cleanup drops the friend-cell marks of passes that are over; the blocks stay as the host's", async () => {
+    const p = platform();
+    const { g, sid } = await guardianWithSeat(p);
+    const enter = async (device: string) => {
+      const code = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass.code;
+      return { ...anon, [GUEST_PASS_HEADER]: (await call(p, 'POST', '/v1/guest-pass/redeem', { code, device })).body.token };
+    };
+    const daily = async () => (await call(p, 'POST', '/internal/cron', { cron: '0 3 * * *' }, { ...anon, 'x-lcw-internal': 'cron' })).body;
+    // nothing to do yet: no pass, no plot (the home world never had a guest table)
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 0, cells: 0, failed: 0 });
+    const first = await enter(DEV_A);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 1, y: 1, z: Z, slot: 0 }, { op: 'place', x: X + 2, y: 1, z: Z, slot: 0 }] }, first)).body.results).toEqual([{ ok: true }, { ok: true }]);
+    // still running: kept
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 0, cells: 0, failed: 0 });
+    expect((await call(p, 'GET', '/v1/plot', undefined, first)).body.guest_cells).toHaveLength(2);
+    // over on the server clock: a second friend comes the same day; the first's marks go, the second's stay
+    at(T0 + 31 * MIN);
+    const second = await enter(DEV_B);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 3, y: 1, z: Z, slot: 0 }] }, second)).body.results).toEqual([{ ok: true }]);
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 1, cells: 2, failed: 0 });
+    expect((await call(p, 'GET', '/v1/plot', undefined, second)).body.guest_cells).toEqual([[X + 3, 1, Z]]);
+    // the blocks themselves stay in the host's plot
+    const cells = (await call(p, 'GET', '/v1/plot', undefined, second)).body.cells.map((c: number[]) => c[0]);
+    expect(cells).toEqual(expect.arrayContaining([X + 1, X + 2, X + 3]));
+    // each grant once: the next run has nothing new; a revoked running pass is swept next time
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 0, cells: 0, failed: 0 });
+    const list = (await call(p, 'GET', `/v1/family/seats/${sid}/guest-passes`, undefined, g)).body.passes as Array<{ id: string; state: string }>;
+    await call(p, 'POST', `/v1/family/guest-passes/${list.find((x) => x.state === 'active')!.id}/revoke`, {}, g);
+    expect((await daily()).detail.guest_cells).toEqual({ grants: 1, cells: 1, failed: 0 });
+  });
+
+  it('the guest-cell sweep goes oldest first within its limit, skips passes nobody entered, and retries a failed world', async () => {
+    const p = platform();
+    const one = await guardianWithSeat(p, 'kid-one', 'fam-one');
+    const two = await guardianWithSeat(p, 'kid-two', 'fam-two');
+    const issue = async (h: { g: Record<string, string>; sid: string }) => (await call(p, 'POST', `/v1/family/seats/${h.sid}/guest-passes`, {}, h.g)).body.pass as { id: string; code: string };
+    const a = await issue(one);
+    const b = await issue(two);
+    const c = await issue(one);
+    // a entered at T0, b 5 minutes later; c was revoked before anyone entered
+    await call(p, 'POST', '/v1/guest-pass/redeem', { code: a.code, device: DEV_A });
+    at(T0 + 5 * MIN);
+    await call(p, 'POST', '/v1/guest-pass/redeem', { code: b.code, device: DEV_B });
+    expect((await call(p, 'POST', `/v1/family/guest-passes/${c.id}/revoke`, {}, one.g)).status).toBe(200);
+    const now = T0 + 40 * MIN;
+    at(now);
+    const seen: string[] = [];
+    expect(sweepEndedGuestCells(p.sql, now, (_pid, grant) => (seen.push(grant), 0), 1)).toEqual({ grants: 1, cells: 0, failed: 0 });
+    expect(seen).toEqual([a.id]);
+    // a failing world: counted, not marked, tried again next time
+    expect(
+      sweepEndedGuestCells(p.sql, now, () => {
+        throw new Error('boom');
+      })
+    ).toEqual({ grants: 0, cells: 0, failed: 1 });
+    expect(sweepEndedGuestCells(p.sql, now, (_pid, grant) => (seen.push(grant), 3))).toEqual({ grants: 1, cells: 3, failed: 0 });
+    // c never placed anything: never a target
+    expect(seen).toEqual([a.id, b.id]);
+    expect(sweepEndedGuestCells(p.sql, now + MIN, () => 1)).toEqual({ grants: 0, cells: 0, failed: 0 });
   });
 });
 

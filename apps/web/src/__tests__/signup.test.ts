@@ -177,11 +177,15 @@ describe('director console: 승인 대기 (DirectorSignups.tsx)', () => {
         token: 'op',
         now: () => now,
         pollMs: 1e9,
-        initialSignups: [{ id: 'sg-5', nickname: 'kiki', created_at: now - 60_000, expires_at: now + 1e7, family_students: [], match: null, name_taken: true }],
+        initialSignups: [
+          { id: 'sg-5', nickname: 'kiki', created_at: now - 60_000, expires_at: now + 1e7, family_students: [], match: null, name_taken: true, taken_by: { player_id: 'stu-kiki', nickname: 'Kiki' } }
+        ],
         initialStudents: [{ player_id: 'stu-kiki', nickname: 'Kiki', level: 'L1' } as never]
       })
     );
-    expect(html).toContain(Q.nameTakenNow('kiki').replace(/'/g, '&#x27;'));
+    expect(html).toContain(Q.nameTakenNow('kiki', 'Kiki (stu-kiki)').replace(/'/g, '&#x27;'));
+    // Nothing picked in advance.
+    expect(html).toContain('<option value="" selected="">');
   });
 
   it('empty queue says where sign-ups come from', () => {

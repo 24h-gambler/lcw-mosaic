@@ -289,7 +289,11 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     const names = nameIndex(d.sql);
     const matchOf = (signupId: string, nickname: string) => {
       const o = names.owner(nickname, signupId);
-      if (o.kind === 'taken') return { match: null, match_ambiguous: false, name_taken: true };
+      if (o.kind === 'taken') {
+        // Point at the student who holds the name, so the teacher does not pick them (player_has_guardian).
+        const by = o.by.kind === 'student' ? d.sql.get<{ id: string; nickname: string }>('select id, nickname from players where id = ?', [o.by.player_id]) : null;
+        return { match: null, match_ambiguous: false, name_taken: true, taken_by: by ? { player_id: by.id, nickname: by.nickname } : null };
+      }
       if (o.kind !== 'teacher_row') return { match: null, match_ambiguous: false, name_taken: false };
       if (!o.player_id) return { match: null, match_ambiguous: true, name_taken: false };
       const k = d.sql.get<{ nickname: string }>('select nickname from players where id = ?', [o.player_id]);

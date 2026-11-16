@@ -65,6 +65,22 @@ describe('hub cards from the server (ops-cards.ts outbox)', () => {
     expect(text).not.toContain(end.body.share_token);
   });
 
+  it("a smoke-check or demo student's lesson end queues no card (production smoke lessons stay off the hub)", async () => {
+    const p = platform();
+    for (const id of ['smoke-lesson', 'SMOKE-x1', 'player-demo']) {
+      await call(p, 'POST', '/v1/admin/players', { family_id: `fam-${id}`, guardian_id: `g-${id}`, player_id: id, nickname: 'Smoke', level: 'L1' });
+      const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: id });
+      expect(s.status).toBe(201);
+      expect((await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/end`, {})).status).toBe(200);
+    }
+    expect((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards).toEqual([]);
+    // a real student right after still gets both cards
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-o', guardian_id: 'g-o', player_id: 'kid-o', nickname: 'Ollie', level: 'L1' });
+    const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-o' });
+    await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/end`, {});
+    expect((await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards).toHaveLength(2);
+  });
+
   it('ack takes the version it posted; a rewrite after the pull goes again; an unchanged card is not resent', async () => {
     let now = Date.parse('2026-11-16T15:00:00+09:00');
     vi.spyOn(Date, 'now').mockImplementation(() => now);

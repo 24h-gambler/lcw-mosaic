@@ -5,7 +5,7 @@
  *
  * A signed-in student whose teacher has started the lesson sees "선생님이 수업을 시작했어요 · 수업 들어가기" first,
  * on the title and later in the world (`LessonInvite`). A lesson code is only the fallback for a device without an
- * account, folded under "다른 기기로 들어오기". `/game/?code=` never reaches this screen (App skips it).
+ * account, folded under "친구 월드 가기". `/world/?code=` (and the old /game/ address) never reaches this screen (App skips it).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WORLD_BUDDIES, WORLD_NAME_MAX, WORLD_SEASONS, WORLD_TIMES, cleanWorldName, randomWorldChoice, type WorldSetup, type WorldSetupChoice, type WorldSetupOption } from '@lcw/content';
@@ -252,7 +252,7 @@ export function StartFlow(props: StartFlowProps): React.ReactElement | null {
 /**
  * '친구 월드 가기': a 6-digit code is a world invitation (a friend's world, a guest pass; Dan 11-16 12:10), folded
  * under one link. Lessons never need it (the teacher comes into the child's world). Until world invitations have
- * their own address the code goes to /game/?code=, which the server answers today.
+ * their own address the code goes to /world/?code=, which the server answers today.
  */
 function FriendWorld(): React.ReactElement {
   const [open, setOpen] = useState(false);
@@ -271,7 +271,7 @@ function FriendWorld(): React.ReactElement {
       data-testid="start-code-form"
       onSubmit={(e) => {
         e.preventDefault();
-        if (ok) location.assign(`/game/?code=${ok}`);
+        if (ok) location.assign(`/world/?code=${ok}`);
       }}
     >
       <label className="lcw-make__label" htmlFor="lcw-start-code">

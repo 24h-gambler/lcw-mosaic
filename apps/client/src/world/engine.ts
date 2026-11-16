@@ -341,6 +341,32 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let teacherPlate: THREE.Sprite | null = null;
   /** Where the child looks (first and third person: the camera; mirror: the body), for who stands in view. */
   const viewYaw = (): number => (camMode === 'mirror' ? playerYaw : camYaw);
+  /** The teacher's avatar near the child (NPC 'teacher' with a name plate); null removes it. The same name: kept. */
+  const showTeacher = (name: string | null): void => {
+    const old = npcs.get(TEACHER_NPC_ID);
+    if (old && name !== null && old.def.nameKo === teacherDef(name).nameKo) return;
+    if (old) {
+      scene.remove(old.char.root);
+      npcs.delete(TEACHER_NPC_ID);
+      if (nearNpc === old) nearNpc = null;
+    }
+    if (teacherPlate) {
+      disposePlate(teacherPlate);
+      teacherPlate = null;
+    }
+    if (name === null) return;
+    const def = teacherDef(name);
+    const char = new VoxelCharacter(def.look);
+    scene.add(char.root);
+    const [x, z] = teacherTarget(body.x, body.z, viewYaw(), body.x, body.z) ?? [body.x + 2, body.z + 2];
+    const pos = new THREE.Vector3(x, standHeight(world, x, z, Math.ceil(body.y) + 2), z);
+    const yaw = Math.atan2(body.x - x, body.z - z);
+    npcs.set(TEACHER_NPC_ID, { def, ref: { id: def.id, ctx: def.ctx, nameKo: def.nameKo, nameEn: def.nameEn }, char, pos, yaw, homeYaw: yaw, path: [], speed: 0, greeted: false });
+    teacherPlate = makePlate(plateText(name));
+    teacherPlate.position.set(0, CHAR_HEIGHT + 0.3, 0);
+    char.root.add(teacherPlate);
+    char.wave();
+  };
   let weather: SeasonWeather | null = null;
   let disposed = false;
   let focusNpc: NpcRt | null = null;
@@ -1502,28 +1528,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       }
     },
     setTeacher(t) {
-      const old = npcs.get(TEACHER_NPC_ID);
-      if (old) {
-        scene.remove(old.char.root);
-        npcs.delete(TEACHER_NPC_ID);
-        if (nearNpc === old) nearNpc = null;
-      }
-      if (teacherPlate) {
-        disposePlate(teacherPlate);
-        teacherPlate = null;
-      }
-      if (!t) return;
-      const def = teacherDef(t.name);
-      const char = new VoxelCharacter(def.look);
-      scene.add(char.root);
-      const [x, z] = teacherTarget(body.x, body.z, viewYaw(), body.x, body.z) ?? [body.x + 2, body.z + 2];
-      const pos = new THREE.Vector3(x, standHeight(world, x, z, Math.ceil(body.y) + 2), z);
-      const yaw = Math.atan2(body.x - x, body.z - z);
-      npcs.set(TEACHER_NPC_ID, { def, ref: { id: def.id, ctx: def.ctx, nameKo: def.nameKo, nameEn: def.nameEn }, char, pos, yaw, homeYaw: yaw, path: [], speed: 0, greeted: false });
-      teacherPlate = makePlate(plateText(t.name));
-      teacherPlate.position.set(0, CHAR_HEIGHT + 0.3, 0);
-      char.root.add(teacherPlate);
-      char.wave();
+      // The tag next to the lesson tag (hud, the lesson layer's teacher presence) and, while the teacher is with the
+      // child, the teacher's avatar in the child's world (visitor.ts, Dan 11-16 12:10).
+      hud.setTeacher(t);
+      showTeacher(t?.present ? (t.name ?? '') : null);
     },
     setWorldLook(look: WorldSetupChoice | null) {
       if (weather) {
@@ -1643,7 +1651,6 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       lessonMode = on;
       if (on && nearNpc && !npcTalkable(nearNpc.def, true)) nearNpc = null;
     },
-    setTeacher: (t) => hud.setTeacher(t),
     setCoins: (total) => hud.setCoins(total),
     setOnline: (on) => hud.setOnline(on),
     setStars: (total) => hud.setStars(total),

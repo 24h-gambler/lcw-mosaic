@@ -409,12 +409,6 @@ export function App(): React.ReactElement {
     world.setWorldLook?.(look);
   }, [world, startOpen, lessonOn, myLook]);
 
-  // In a lesson the teacher stands in the child's world with a name plate (world/visitor.ts, NPC id 'teacher'); the
-  // lesson layer may call setTeacher again with the teacher's name.
-  useEffect(() => {
-    world?.setTeacher?.(lessonOn ? { name: '' } : null);
-  }, [world, lessonOn]);
-
   const onLessonSession = useCallback((s: DeviceLessonSession) => {
     // already in this lesson (a poll answered twice): keep the running layer
     if (loadStudentSession()?.lessonId === s.lessonId) return;

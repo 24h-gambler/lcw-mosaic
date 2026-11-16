@@ -902,7 +902,7 @@ function SpeakPanel({
       {result ? (
         <div className="lcw-pop" role="status" style={{ ...card, boxShadow: 'none', background: result.pass ? C['paper-0'] : C['paper-100'], padding: `${SP[2]}px ${SP[3]}px`, marginBottom: SP[2], display: 'flex', gap: SP[2], alignItems: 'center' }}>
           {result.pass ? <span style={{ color: C['sun-d'], fontSize: 28, letterSpacing: 2 }}>{'★'.repeat(result.stars)}</span> : <span style={{ fontSize: 28 }}>💬</span>}
-          <span style={{ ...bodyL, flex: 1 }}>{result.feedbackKo}</span>
+          <span style={{ ...bodyL, flex: 1 }}>{helpLine(result.feedbackEn || result.feedbackKo, result.feedbackKo)}</span>
           {result.coinsTotal !== undefined ? <span style={{ fontWeight: 800, color: C['sun-d'] }}>{S.result.coins(result.coinsTotal)}</span> : null}
         </div>
       ) : null}

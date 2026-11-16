@@ -4,6 +4,8 @@ import {
   JOIN_FAILS_PER_HOUR,
   STUDENT_PRESENCE_TTL_MS,
   TEACHER_MS_PER_WORD,
+  FEEDBACK_EN,
+  FEEDBACK_KO,
   makeJoinCode,
   scoreFreeTalk
 } from '../lesson-mode.js';
@@ -199,6 +201,8 @@ describe('lesson mode (docs/18)', () => {
     expect(pass.body.coins_total).toBe(200 + 20); // starting purse + 2 stars × 10 (one ledger, see below)
     expect(pass.body.utterances_today).toBe(1);
     expect(pass.body.feedback_ko).toMatch(/통과|완벽/);
+    // the same line in the language the child learns, picked by the same rule
+    expect(pass.body.feedback_en).toBe(FEEDBACK_EN[(Object.keys(FEEDBACK_KO) as Array<keyof typeof FEEDBACK_KO>).find((k) => FEEDBACK_KO[k] === pass.body.feedback_ko)!]);
 
     // 3-star sentence without the connector is capped (docs/04 §4.6)
     const capped = await call(
@@ -210,6 +214,13 @@ describe('lesson mode (docs/18)', () => {
     );
     expect(capped.body.pass).toBe(false);
     expect(capped.body.feedback_ko).toContain('연결어');
+    expect(capped.body.feedback_en).toContain('"so that" or "because"');
+    // every Korean line has its English one, short and with no Korean in it
+    expect(Object.keys(FEEDBACK_EN).sort()).toEqual(Object.keys(FEEDBACK_KO).sort());
+    for (const line of Object.values(FEEDBACK_EN)) {
+      expect(line).not.toMatch(/[가-힣]/);
+      expect(line.length).toBeLessThanOrEqual(60);
+    }
 
     const fail = await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'banana', chosen_stars: 1 }, st);
     expect(fail.body.pass).toBe(false);

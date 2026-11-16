@@ -379,6 +379,28 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(goals.at(-1)).toBe('카페에서 주문해요');
   });
 
+  it("the answer's English feedback reaches the dialog result (the Korean stays for the help line; older servers send none)", async () => {
+    const state = {
+      lesson_id: 'l', stage_id: 'cafe_order', stage_goal_ko: 'g', mode: 'guided', scene_id: 'honey_cafe', npc_id: 'cafe_owner', hint: 'full',
+      targets: ['Can I have a warm honey tea?'], offers: [{ stars: 1, text: 'Can I have a warm honey tea?', hintTags: [] }],
+      possessed_npc_id: null, npc_lines: [], events: [], cursor: 1, ended: false, lesson_stars: 0, server_now: 1
+    };
+    let en: string | undefined = 'You passed!';
+    const api = {
+      join: async () => ({ student_token: 't'.repeat(48), lesson_id: 'l', player_id: 'p', nickname: 'n', level: 'L1' }),
+      state: async () => state,
+      utterance: async () => ({ pass: true, score: 1, stars: 1, feedback_ko: '통과했어요!', ...(en ? { feedback_en: en } : {}), coins_total: 210, lesson_stars: 1, utterances_today: 1 })
+    } as unknown as ConstructorParameters<typeof LessonController>[0]['api'];
+    const ctl = new LessonController({ api, world: fakeWorld().world, store: memStore(), timers: fakeTimers({ now: 0 }) });
+    await ctl.start('123456');
+    const u = { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 1, hint_level: 'full', latency_ms: 1, dur_ms: 1, stt_source: 'keyboard', confidence: 1 } as const;
+    expect(await ctl.submit(u)).toMatchObject({ feedbackKo: '통과했어요!', feedbackEn: 'You passed!' });
+    en = undefined;
+    const old = await ctl.submit(u);
+    expect(old.feedbackKo).toBe('통과했어요!');
+    expect('feedbackEn' in old).toBe(false);
+  });
+
   it('after a reload the window opens with the stage line the server names (older than the bubbles)', () => {
     const base = { npcId: 'cafe_owner', npcLineEn: 'Welcome to the honey cafe!', stageStartedAt: 1000, bubbles: [] };
     expect(openingLine({ ...base, stageLastLineEn: 'Anything else?' })).toBe('Anything else?');

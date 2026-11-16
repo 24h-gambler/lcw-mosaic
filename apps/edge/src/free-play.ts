@@ -150,13 +150,17 @@ export function grantState(g: Pick<GrantRow, 'revoked_at' | 'started_at' | 'ends
   return now < g.redeem_until ? 'ready' : 'expired';
 }
 
-/** Passes that count against the seat's month: everything except a pass revoked before anyone entered. */
+/**
+ * Passes that count against the seat's month: one somebody entered, and one still waiting to be used. A pass nobody
+ * entered gives its slot back when it is revoked or when its 7 days to enter run out (no friend played on it, so it
+ * cost nothing; counting it would leave the seat a month without passes for a code that was lost or forgotten).
+ */
 export function passesUsedThisMonth(sql: SqliteExecutor, seatId: string, now: number): number {
   return Number(
-    sql.get<{ n: number }>('select count(*) as n from guest_pass_grants where seat_id = ? and month = ? and not (revoked_at is not null and started_at is null)', [
-      seatId,
-      kstMonth(now)
-    ])?.n ?? 0
+    sql.get<{ n: number }>(
+      'select count(*) as n from guest_pass_grants where seat_id = ? and month = ? and (started_at is not null or (revoked_at is null and redeem_until > ?))',
+      [seatId, kstMonth(now), now]
+    )?.n ?? 0
   );
 }
 
@@ -192,10 +196,12 @@ export function mountGuestPassGuardianRoutes(
   withGuardian: (c: Context, needService: boolean) => Promise<GuardianRefLike | Response>
 ): void {
   d.sql.exec(FREE_PLAY_SCHEMA);
+  // Only the guardians of the seat's own child: a Duo payer may pay for a friend's child in another family, and paying
+  // does not let them hand out (or see, or take back) passes into that child's world.
   const seatFor = (g: GuardianRefLike, sid: string) =>
     d.sql.get<{ id: string; payer_id: string; player_id: string; ends_at: number; status: string; family_id: string | null }>(
-      'select s.id, s.payer_id, s.player_id, s.ends_at, s.status, p.family_id from seats s left join players p on p.id = s.player_id where s.id = ? and (p.family_id = ? or s.payer_id = ?)',
-      [sid, g.family_id, g.guardian_id]
+      'select s.id, s.payer_id, s.player_id, s.ends_at, s.status, p.family_id from seats s join players p on p.id = s.player_id where s.id = ? and p.family_id = ?',
+      [sid, g.family_id]
     );
   const view = (row: GrantRow, now: number) => ({
     id: row.id,

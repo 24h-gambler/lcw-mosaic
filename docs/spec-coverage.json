@@ -1,0 +1,4515 @@
+{
+  "$comment": "설계서 대조 목록. tools/spec-ids.mjs 가 docs 에서 뽑은 id 마다 한 줄. 규칙과 고치는 법: docs/README.md 「설계서 대조」. pnpm test 의 tools/__tests__/spec-coverage.test.ts 가 검사, tools/nightly-audit.mjs 가 매일 밤 운영 화면과 맞춰 봄.",
+  "version": 1,
+  "updated": "2026-11-16",
+  "statuses": {
+    "done": "사용자 화면에서 동작 + 시험(tests) + 실화면 확인(e2e) 통과",
+    "partial": "일부만(note 에 빠진 것)",
+    "missing": "없음",
+    "deferred": "운영자 결정(decision)으로 미룸",
+    "retired": "운영자 결정(decision)으로 설계서에서 뺌"
+  },
+  "owners": [
+    "world",
+    "talk",
+    "lesson",
+    "parent",
+    "outsider",
+    "ops"
+  ],
+  "ids": {
+    "G01": {
+      "kind": "screen",
+      "title": "HUD",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/shell.test.ts::shows the ledger total the server sent"
+      ],
+      "evidence": [
+        "apps/client/src/HudOverlay.tsx:121",
+        "apps/client/src/world/hud.ts:1"
+      ],
+      "note": "위치·코인·슬롯·별은 있음. 체력·배고픔·목마름 게이지, 날씨·시각, \"혼자 모드로 계속 중\" 연결 끊김 띠 없음(감사: 일부)"
+    },
+    "G02": {
+      "kind": "screen",
+      "title": "대화창",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/dialog.test.tsx::renders the bank offers, the NPC question, a 72px mic and the fallbacks, with no forbidden words or prices",
+        "apps/client/src/__tests__/dialog.test.tsx::tap starts, tap finishes and delivers",
+        "tools/errand-bot.mjs"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/DialogPanel.tsx:113"
+      ],
+      "note": "8.2 대화창: 별 1~3 문장, 한 번 눌러 말하기, 힌트 단계, 단어 카드. 감사: 있음"
+    },
+    "G03": {
+      "kind": "screen",
+      "title": "소지품·보관함",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/build.test.ts::a server snapshot puts the plot back exactly (town + saved delta), furniture and bag included"
+      ],
+      "evidence": [
+        "apps/client/src/world/build-hud.ts:3",
+        "apps/edge/src/plot.ts:215"
+      ],
+      "note": "건축 재료 가방·상자 저장은 있음. 슬롯 5·소켓 6·상자 격자 화면 없음"
+    },
+    "G04": {
+      "kind": "screen",
+      "title": "거울 뷰",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [],
+      "evidence": [
+        "apps/client/src/GameCanvas.tsx:87"
+      ],
+      "note": "캐릭터 보기 단서만. 캐릭터 회전·장비 목록 거울 뷰 화면 없음"
+    },
+    "G05": {
+      "kind": "screen",
+      "title": "건축",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/build.test.ts::aims within 5 m and names the reason when it cannot (red outline + reason)",
+        "apps/client/src/world/__tests__/build.test.ts::runs the room check when a nameplate goes up, then 1 s after the room changes"
+      ],
+      "evidence": [
+        "apps/client/src/world/build.ts:310",
+        "apps/client/src/world/build-hud.ts:4"
+      ],
+      "note": "블록 놓기·부수기·사유 한 줄·방 판정은 있음. 8.3 의 설치 수·코인 줄, R 회전·Z 회수, 주민 입주 없음(감사: 일부)"
+    },
+    "G06": {
+      "kind": "screen",
+      "title": "지도",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "9칸 섹터 지도·구역 범례·수직 밴드 없음(월드가 마을 하나뿐)"
+    },
+    "G07": {
+      "kind": "screen",
+      "title": "월드 고르기·만들기",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "월드 고르기·만들기(8.4) 없음. 월드 하나로 바로 들어감, 새 월드·모드 5종·9칸 공개 없음"
+    },
+    "G08": {
+      "kind": "screen",
+      "title": "공개 서버 목록",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "공개 서버 목록(8.5) 없음"
+    },
+    "G09": {
+      "kind": "screen",
+      "title": "제작 미리보기",
+      "status": "missing",
+      "owner": "talk",
+      "tests": [],
+      "evidence": [],
+      "note": "AI 제작 미리보기·검문 거절 시 기성품 3개 제안 화면 없음"
+    },
+    "G10": {
+      "kind": "screen",
+      "title": "도감·업적",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "도감·업적 6권 탭 없음"
+    },
+    "G11": {
+      "kind": "screen",
+      "title": "수리소(복습)",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/review.test.tsx::nothing is due right after the order; at 20 minutes the sign comes and saying it fixes it"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/ReviewDock.tsx:32",
+        "apps/edge/src/review.ts:81"
+      ],
+      "note": "복습 징후 칩·다시 말하기는 있음. 수리소 건물·아이템 수리 화면 없음"
+    },
+    "G12": {
+      "kind": "screen",
+      "title": "법정",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "법정(판사·벌금·변론·방청석) 없음"
+    },
+    "G13": {
+      "kind": "screen",
+      "title": "아레나 대기실",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "아레나 대기실 없음(전투 자체 없음)"
+    },
+    "G14": {
+      "kind": "screen",
+      "title": "설정",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "설정 화면(조작·소리·화면·접근성·마이크 점검) 없음. 사양 강제는 주소 ?tier= 뿐"
+    },
+    "G15": {
+      "kind": "screen",
+      "title": "첫 접속 안내",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/errand.test.tsx::Mia asks -> accept -> the cafe sells only the cold water -> hand it over -> done with +50",
+        "apps/client/src/__tests__/mic-check.test.tsx::a guest sees it once on this device, with the headset and volume tips"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/FirstVisitGuide.tsx:52",
+        "apps/client/src/dialog/FirstVisitGuide.tsx:223"
+      ],
+      "note": "main 에 마이크 점검·첫 심부름이 들어옴(감사 당시 운영엔 없음). 기기 연결 아이만 첫 주문 안내, 손님·수업 학생은 마이크 점검만; 3분 측정 없음"
+    },
+    "T01": {
+      "kind": "screen",
+      "title": "디렉터 콘솔",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does",
+        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:65",
+        "apps/web/src/DirectorLive.tsx:35",
+        "docs/18-lesson-mode.md:1"
+      ],
+      "note": "디렉터 콘솔(빙의·사건 6종·진행표·핀). 근거 문서 06 이 없어 18 로 대신 읽음(끊긴 참조). 감사: 있음"
+    },
+    "T02": {
+      "kind": "screen",
+      "title": "오늘의 계획",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::plan choice: both lessons offered, the remembered one is picked, unknown or blocked storage falls back to the first"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:402",
+        "packages/content/src/lesson-plans.ts:72"
+      ],
+      "note": "고정 수업안 2개 고르기만. 학생별 타깃·사건 후보·캠페인 노트 자동 준비 없음"
+    },
+    "T03": {
+      "kind": "screen",
+      "title": "리포트 확인·발송",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::after the lesson ends the report link and preview are shown"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:1295",
+        "apps/edge/src/lesson-mode.ts:715"
+      ],
+      "note": "종료 때 리포트 생성·미리보기. 초안의 클립 교체·생성 후 한마디 편집·발송 버튼 없음(링크 복사)"
+    },
+    "T04": {
+      "kind": "screen",
+      "title": "운영 확인함",
+      "status": "partial",
+      "owner": "ops",
+      "route": "/seats",
+      "e2e": {
+        "route": "/seats",
+        "expect": [
+          "testid:seats-admin"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/seats-page.test.ts::route is known and renders the seats page; without a key it points to the director console"
+      ],
+      "evidence": [
+        "apps/web/src/SeatsPage.tsx:37",
+        "apps/edge/src/platform.ts:452"
+      ],
+      "note": "좌석·결제 확인함(/seats)만. 신고·한도·격리 개체 확인함과 빈 상태 \"처리할 일이 없어요\" 없음"
+    },
+    "P01": {
+      "kind": "screen",
+      "title": "대시보드 홈",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/dashboard.test.ts::home: headline with the 4-week ratio, four cards whose numbers equal this week, interpretation lines"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:27",
+        "apps/edge/src/dashboard.ts:81"
+      ],
+      "note": "대시보드 홈(07 4.1). 감사: 있음"
+    },
+    "P02": {
+      "kind": "screen",
+      "title": "성장",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/dashboard.test.ts::think-and-speak index: needs 30 free sentences in the week and a start made of two such weeks"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:722",
+        "packages/metrics/src/index.ts:1"
+      ],
+      "note": "성장(07 4.2) 12주 그래프·표본 부족 안내. 감사: 있음"
+    },
+    "P03": {
+      "kind": "screen",
+      "title": "수업 목록·상세",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/dashboard.test.ts::lessons list: duration, student share meter, report link; window button only with consent"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:876",
+        "apps/web/src/ParentReportPage.tsx:24"
+      ],
+      "note": "수업 목록·리포트 링크는 있음. 07 4.3 수업 상세(표현의 여정·고정 과제 전후) 없음"
+    },
+    "P04": {
+      "kind": "screen",
+      "title": "수업 창문",
+      "status": "done",
+      "owner": "parent",
+      "route": "/window",
+      "e2e": {
+        "route": "/window",
+        "expect": [
+          "testid:lesson-window-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson-window-page.test.ts::/window route renders the real page; /family links to the window only when the consent is on",
+        "apps/edge/src/__tests__/lesson-window.test.ts::closed without the lesson_window consent: 403 and nothing about the lesson"
+      ],
+      "evidence": [
+        "apps/web/src/LessonWindowPage.tsx:32",
+        "apps/edge/src/lesson-window.ts:1"
+      ],
+      "note": "수업 창문: 상태바·밀도 띠·자막·듣기 전용. 근거 문서 06 5장이 없어 08 행으로 읽음(끊긴 참조). 감사: 있음"
+    },
+    "P05": {
+      "kind": "screen",
+      "title": "음성 박물관",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/voice-clips.test.ts::lists the child’s turns with a player each, quoted in English, time in KST"
+      ],
+      "evidence": [
+        "apps/web/src/VoiceClips.tsx:32",
+        "apps/edge/src/voice.ts:272"
+      ],
+      "note": "수업별 음성 목록·재생은 있음. 쇼룸과 묶인 음성 박물관 화면·미동의 시 동의 안내 화면 없음"
+    },
+    "P06": {
+      "kind": "screen",
+      "title": "동의·설정",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::invite → session (one-time) → service consent gate → separate consent toggles"
+      ],
+      "evidence": [
+        "apps/web/src/FamilyPage.tsx:49",
+        "apps/edge/src/family.ts:357"
+      ],
+      "note": "동의 4종+, 기기 연결·삭제 요청. 친구 승인은 친구 기능이 없어 해당 없음. 감사: 있음"
+    },
+    "P07": {
+      "kind": "screen",
+      "title": "좌석·결제",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/seats",
+      "e2e": {
+        "route": "/seats",
+        "expect": [
+          "testid:seats-admin"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/seats.test.ts::Solo: manual issue at list price, one seat per child, 7-day full refund, then play stops"
+      ],
+      "evidence": [
+        "apps/web/src/SeatsPage.tsx:37",
+        "apps/edge/src/seats.ts:310"
+      ],
+      "note": "운영자가 좌석을 수동 발급·연장·환불. 보호자 쪽 요금제 선택·결제 내역·해지 화면 없음"
+    },
+    "W01": {
+      "kind": "screen",
+      "title": "무엇인지 10초 안에 이해, 두 입구로 분기 (`/`)",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/",
+      "e2e": {
+        "route": "/",
+        "expect": [
+          "text:말하면 생기는 세계"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::shows the one-line title, the captioned real-game clip, both entrances and the try CTA",
+        "tools/smoke-live.mjs"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Landing.tsx:20"
+      ],
+      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+    },
+    "W02": {
+      "kind": "screen",
+      "title": "성장이 어떻게 보이는지, 안전, 가격 (`/parents`)",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/parents",
+      "e2e": {
+        "route": "/parents",
+        "expect": [
+          "text:학부모님께"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::has the eleven parent sections in order",
+        "tools/smoke-live.mjs"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Parents.tsx:93"
+      ],
+      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+    },
+    "W03": {
+      "kind": "screen",
+      "title": "무엇을 할 수 있는지, 부모님께 보내기 (`/play`)",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/play",
+      "e2e": {
+        "route": "/play",
+        "expect": [
+          "text:플레이어에게"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::/play and /pass",
+        "tools/smoke-live.mjs"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Play.tsx:1"
+      ],
+      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+    },
+    "W04": {
+      "kind": "screen",
+      "title": "수업 방식, 수업 리포트 견본, 상담 신청 (`/tutoring`)",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/tutoring",
+      "e2e": {
+        "route": "/tutoring",
+        "expect": [
+          "text:과외 수업"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::renders every public page with its own title, description, canonical and content",
+        "tools/smoke-live.mjs"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Tutoring.tsx:133"
+      ],
+      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+    },
+    "W05": {
+      "kind": "screen",
+      "title": "요금제, 환불, 자주 묻는 질문 (`/pricing`)",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/pricing",
+      "e2e": {
+        "route": "/pricing",
+        "expect": [
+          "text:Solo"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::shows plans, refund and cancellation on one screen, plus the ten FAQ answers",
+        "tools/smoke-live.mjs"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Pricing.tsx:28"
+      ],
+      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+    },
+    "W06": {
+      "kind": "screen",
+      "title": "체험 씬(계정 없이 5분) (`/try`)",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/try",
+      "e2e": {
+        "route": "/try",
+        "expect": [
+          "canvas",
+          "text:카페에서 영어로 주문해 볼까요?"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::golden path: start → walk → greet → choose → speak → receive → drink → save → end",
+        "tools/smoke-live.mjs"
+      ],
+      "evidence": [
+        "apps/web/src/site/TryScene.tsx:224"
+      ],
+      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+    },
+    "W07": {
+      "kind": "screen",
+      "title": "표현 페이지 → 체험 씬 (`/learn/<표현>`)",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/learn/build-a-place",
+      "e2e": {
+        "route": "/learn/build-a-place",
+        "expect": [
+          "text:내가 짓고 싶은 곳 말하기"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::each page has three growing sentences, explanations, mistakes and a try button",
+        "tools/smoke-live.mjs"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Learn.tsx:58"
+      ],
+      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+    },
+    "W08": {
+      "kind": "screen",
+      "title": "쇼룸 (`/s/<토큰>`)",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/s/demo",
+      "e2e": {
+        "route": "/s/demo",
+        "expect": [
+          "text:하늘 카페 마을"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::accepts the sample and rejects live position, voice or real-name fields",
+        "tools/smoke-live.mjs"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Showroom.tsx:60"
+      ],
+      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+    },
+    "W09": {
+      "kind": "screen",
+      "title": "안전 설계, 약관, 처리방침 (`/safety`, `/terms`, `/privacy`)",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/safety",
+      "e2e": {
+        "route": "/safety",
+        "expect": [
+          "text:안전 설계"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::renders every public page with its own title, description, canonical and content",
+        "tools/smoke-live.mjs"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Info.tsx:1"
+      ],
+      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+    },
+    "F10.1.S": {
+      "kind": "flow",
+      "title": "플레이어 (유료 좌석)",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/identity.test.ts::enters as the linked child after GET /v1/device/me with the bearer token",
+        "apps/edge/src/__tests__/seats.test.ts::Solo: manual issue at list price, one seat per child, 7-day full refund, then play stops"
+      ],
+      "evidence": [
+        "apps/client/src/world/identity.ts:1",
+        "apps/edge/src/seats.ts:310"
+      ],
+      "note": "좌석·기기 연결·월드 플레이는 이어짐(좌석 발급은 운영자 수동)"
+    },
+    "F10.1.T": {
+      "kind": "flow",
+      "title": "교사 (운영자 1인)",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report",
+        "apps/web/src/__tests__/lesson.test.ts::live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:722",
+        "apps/edge/src/lesson-mode.ts:413"
+      ],
+      "note": "교사 콘솔로 수업 전체 진행 가능; 일정·계획 자동 준비는 없음"
+    },
+    "F10.1.P": {
+      "kind": "flow",
+      "title": "학부모",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::invite → session (one-time) → service consent gate → separate consent toggles",
+        "apps/web/src/__tests__/family.test.ts::sends the guardian token as bearer, one consent per request, and revokes by token not path"
+      ],
+      "evidence": [
+        "apps/web/src/FamilyPage.tsx:49",
+        "apps/edge/src/family.ts:287"
+      ],
+      "note": "가족 화면·동의·리포트·대시보드·창문 연결됨; 계정은 교사 초대로만 생성"
+    },
+    "F10.1.O": {
+      "kind": "flow",
+      "title": "외부인",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/",
+      "e2e": {
+        "route": "/",
+        "expect": [
+          "text:말하면 생기는 세계"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::resolves all nine W pages, aliases and parameter routes"
+      ],
+      "evidence": [
+        "apps/web/src/site/routes.ts:28",
+        "apps/web/src/site/pages/Pricing.tsx:28"
+      ],
+      "note": "소개·체험·쇼룸은 있으나 좌석 구매 경로가 없음(가격만 표시)"
+    },
+    "F10.1.F": {
+      "kind": "flow",
+      "title": "친구",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/pass",
+      "e2e": {
+        "route": "/pass",
+        "expect": [
+          "text:게스트 패스"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::/play and /pass"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Info.tsx:104",
+        "apps/edge/src/storage.ts:90"
+      ],
+      "note": "/pass 입력 화면만 있고 패스 발급·3D 월드의 ?pass 처리 없음"
+    },
+    "F10.2.01": {
+      "kind": "flow",
+      "title": "D→T: 오늘의 계획 (복습 대상, 신규 표현, 사건 후보)",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::plan choice: both lessons offered, the remembered one is picked, unknown or blocked storage falls back to the first"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:402",
+        "apps/edge/src/lesson-mode.ts:419"
+      ],
+      "note": "고정 계획 2개 선택만; 학생별 복습 대상·사건 후보 계산 없음"
+    },
+    "F10.2.02": {
+      "kind": "flow",
+      "title": "T→G: 수업 시작",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::with a key: student list with a start button and the registration form",
+        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:413",
+        "apps/web/src/LessonDirector.tsx:334"
+      ],
+      "note": "수업 시작·참여 코드 발급 이어짐"
+    },
+    "F10.2.03": {
+      "kind": "flow",
+      "title": "G→S: \"가족이 수업을 들을 수 있어요\" 안내",
+      "status": "missing",
+      "owner": "lesson",
+      "route": "/world/?code=",
+      "tests": [],
+      "evidence": [
+        "apps/client/src/lesson/strings.ts:2"
+      ],
+      "note": "학생 화면에 '가족이 들을 수 있어요' 안내 문구·청취 표시 없음"
+    },
+    "F10.2.04": {
+      "kind": "flow",
+      "title": "T→S: 고정 과제 \"지난번 이후 무슨 일이 있었니\"",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "packages/content/src/__tests__/lesson-plans.test.ts::every stage carries timed steps for the teacher and follow-up lines in English"
+      ],
+      "evidence": [
+        "packages/content/src/lesson-plans.ts:77"
+      ],
+      "note": "첫 수업 ① 단계에 고정 과제 질문과 대본이 있음"
+    },
+    "F10.2.05": {
+      "kind": "flow",
+      "title": "S→T: 2분 이야기 (자유 발화)",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?code=",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/lesson-mode.test.ts::join codes are 6 digits and free talk scores by length",
+        "apps/client/src/__tests__/dialog.test.tsx::solo submit sends the panel dialog id, allows free talk (empty target) and maps asked_key / matched sentence"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:895",
+        "apps/client/src/lesson/LessonLayer.tsx:1"
+      ],
+      "note": "자유 발화 단계에서 말하고 기록됨"
+    },
+    "F10.2.06": {
+      "kind": "flow",
+      "title": "G→D: 고정 과제 지표 기록",
+      "status": "partial",
+      "owner": "lesson",
+      "tests": [
+        "packages/metrics/src/__tests__/metrics.test.ts::computes lesson talk ratio, long silence minutes, and anchor task delta"
+      ],
+      "evidence": [
+        "apps/edge/src/storage.ts:102",
+        "packages/metrics/src/index.ts:494"
+      ],
+      "note": "anchor_tasks 표·계산 함수만 있고 어디서도 기록·호출 안 함"
+    },
+    "F10.2.07": {
+      "kind": "flow",
+      "title": "S→C: 복습 대상 수리 3건 (힌트 없는 회상)",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/?code=",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::the recall screen never prints the whole sentence"
+      ],
+      "evidence": [
+        "packages/content/src/lesson-plans.ts:244"
+      ],
+      "note": "2회차 회상 단계는 고정 문장; 학생 복습 카드 3건(수리) 연결 없음"
+    },
+    "F10.2.08": {
+      "kind": "flow",
+      "title": "T→G: 카페 주인에 빙의",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API",
+        "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:478",
+        "apps/web/src/DirectorLive.tsx:120"
+      ],
+      "note": "카페 주인 빙의와 대사 전달 이어짐"
+    },
+    "F10.2.09": {
+      "kind": "flow",
+      "title": "T→S: 열린 질문",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines"
+      ],
+      "evidence": [
+        "packages/content/src/lesson-plans.ts:159",
+        "apps/edge/src/lesson-mode.ts:463"
+      ],
+      "note": "열린 질문 단계와 후속 질문 한 번 누르기 있음"
+    },
+    "F10.2.10": {
+      "kind": "flow",
+      "title": "S→C: 주문 발화, 3성 문장 말하기",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?code=",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/converse-score.test.ts::a 3-star target said without its connector does not pass and costs nothing, whatever the client sends",
+        "apps/edge/src/__tests__/lesson-mode.test.ts::typed or card-built sentences earn two stars at most (docs/04 §4.1)"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:895",
+        "packages/converse/src/index.ts:1"
+      ],
+      "note": "주문 발화·1~3성 채점 이어짐"
+    },
+    "F10.2.11": {
+      "kind": "flow",
+      "title": "T→G: 표현 핀",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::maps F1 → coaching, F2 → expression, nothing else",
+        "apps/web/src/__tests__/lesson.test.ts::stamps ms since lesson start and fills the note from context"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:676",
+        "apps/edge/src/lesson-mode.ts:583"
+      ],
+      "note": "F2 표현 핀 저장·종료 시 표현 등록"
+    },
+    "F10.2.12": {
+      "kind": "flow",
+      "title": "P→G: 수업 창문 입장",
+      "status": "done",
+      "owner": "parent",
+      "route": "/window?child=<id>",
+      "e2e": {
+        "route": "/window",
+        "expect": [
+          "testid:lesson-window-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson-window-page.test.ts::/window route renders the real page; /family links to the window only when the consent is on",
+        "apps/edge/src/__tests__/lesson-window.test.ts::closed without the lesson_window consent: 403 and nothing about the lesson"
+      ],
+      "evidence": [
+        "apps/web/src/LessonWindowPage.tsx:1",
+        "apps/edge/src/family.ts:462"
+      ],
+      "note": "동의 시 가족 화면에서 수업 창문 입장"
+    },
+    "F10.2.13": {
+      "kind": "flow",
+      "title": "G→P: 실시간 음성, 대화 밀도, 자막",
+      "status": "done",
+      "owner": "parent",
+      "route": "/window?child=<id>",
+      "e2e": {
+        "route": "/window",
+        "expect": [
+          "testid:lesson-window-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/lesson-audio.test.ts::teacher publishes → window shows the stream → guardian pulls, answers recvonly → teacher sees 1 listener",
+        "apps/web/src/__tests__/lesson-window-page.test.ts::density band: one 4px cell per minute in two rows, shade by share of the minute; legend + note"
+      ],
+      "evidence": [
+        "apps/web/src/LessonWindowPage.tsx:58",
+        "apps/edge/src/lesson-audio.ts:419"
+      ],
+      "note": "듣기 전용 음성·밀도 띠·자막 있음(SFU 비밀 없으면 텍스트만)"
+    },
+    "F10.2.14": {
+      "kind": "flow",
+      "title": "T→G: 사건 \"정전\"과 멘토 던전",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/?code=",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API"
+      ],
+      "evidence": [
+        "apps/client/src/world/engine.ts:1489",
+        "apps/client/src/world/engine.ts:1499"
+      ],
+      "note": "정전은 연출됨; 멘토 던전은 반짝임 효과뿐 실제 던전 없음"
+    },
+    "F10.2.15": {
+      "kind": "flow",
+      "title": "S→T: 정보 격차 대화 (지도를 보는 사람과 움직이는 사람)",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [],
+      "evidence": [
+        "packages/content/src/lesson-events.ts:64"
+      ],
+      "note": "교사 팁 문구만; 지도 보는 사람/움직이는 사람 역할 나눔 기능 없음"
+    },
+    "F10.2.16": {
+      "kind": "flow",
+      "title": "T→G: 코칭 순간 핀",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::maps F1 → coaching, F2 → expression, nothing else",
+        "packages/metrics/src/__tests__/bookmarks.test.ts::cuts a 30 second window each side and returns lines in order"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:676",
+        "packages/metrics/src/bookmarks.ts:1"
+      ],
+      "note": "F1 코칭 핀과 앞뒤 30초 창 이어짐"
+    },
+    "F10.2.17": {
+      "kind": "flow",
+      "title": "S→T: 쇼앤텔 (오늘 지은 것 설명)",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [],
+      "evidence": [
+        "packages/content/src/lesson-plans.ts:322"
+      ],
+      "note": "2회차 '가게 문 열기'만 비슷; 쇼앤텔 단계·지은 것 보여주기 기능 없음"
+    },
+    "F10.2.18": {
+      "kind": "flow",
+      "title": "G→D: 대표 클립 후보",
+      "status": "partial",
+      "owner": "parent",
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::quote picking: per-stage best first, dedupe, tidy casing only"
+      ],
+      "evidence": [
+        "apps/edge/src/voice.ts:272",
+        "apps/edge/src/parent-report.ts:1"
+      ],
+      "note": "문장 인용 고르기·음성 저장은 있으나 대표 클립 후보 선정 없음"
+    },
+    "F10.2.19": {
+      "kind": "flow",
+      "title": "S→C: 오늘의 표현 5개 회상",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/?code=",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "apps/client/src/__tests__/lesson.test.ts::the HUD goal shows the English sentence only with the full hint (recall must not give it away)",
+        "apps/web/src/__tests__/lesson.test.ts::recall shows the first letter of each word (same as the dialog window)"
+      ],
+      "evidence": [
+        "packages/content/src/lesson-plans.ts:185"
+      ],
+      "note": "힌트 없는 회상 단계는 있으나 고정 문장 2개뿐(오늘 표현 5개 아님)"
+    },
+    "F10.2.20": {
+      "kind": "flow",
+      "title": "T→G: 봉인 상자 심기, 수업 종료",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::after the lesson ends the report link and preview are shown"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:673",
+        "apps/web/src/App.tsx:525"
+      ],
+      "note": "수업 종료는 실제; 봉인 상자는 가짜 데모 콘솔에만"
+    },
+    "F10.2.21": {
+      "kind": "flow",
+      "title": "D→T: 리포트 초안",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a 3-minute lesson with npc lines, events and pins and puts lesson-only facts in the report",
+        "apps/web/src/__tests__/parent-report.test.ts::getReport with the operator token asks for ?preview=1 and sends the token; without it, neither"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:715",
+        "apps/web/src/LessonDirector.tsx:1324"
+      ],
+      "note": "종료 시 숫자 검증 리포트 생성·미리보기"
+    },
+    "F10.2.22": {
+      "kind": "flow",
+      "title": "T→D: 한마디 고쳐서 발송",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/lesson-mode.test.ts::ending twice (two consoles, a double tap) keeps the first report link and comment"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:1295",
+        "apps/edge/src/lesson-mode.ts:723"
+      ],
+      "note": "한마디는 종료 전에만 입력, 생성 후 수정 불가; 발송은 링크 직접 복사"
+    },
+    "F10.2.23": {
+      "kind": "flow",
+      "title": "D→P: 리포트 링크",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::guardian sees lesson reports in the family space and can revoke only their own"
+      ],
+      "evidence": [
+        "apps/web/src/FamilyPage.tsx:315",
+        "apps/edge/src/push-copy.ts:5"
+      ],
+      "note": "가족 화면 목록에는 뜨지만 리포트 도착 알림(푸시·문자) 없음"
+    },
+    "F10.2.24": {
+      "kind": "flow",
+      "title": "P→D: 열람, 전후 음성 재생",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/r/<토큰>",
+      "e2e": {
+        "route": "/r/x",
+        "expect": [
+          "testid:parent-report-page"
+        ],
+        "auth": "report-link"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/voice.test.ts::only the guardian of that child hears it, through short signed URLs; the report link carries no audio",
+        "apps/web/src/__tests__/voice-clips.test.ts::lists the child’s turns with a player each, quoted in English, time in KST"
+      ],
+      "evidence": [
+        "apps/web/src/ParentReportPage.tsx:267",
+        "apps/web/src/VoiceClips.tsx:32"
+      ],
+      "note": "열람·이번 수업 음성 재생은 있으나 고정 과제 전후 비교 음성 없음"
+    },
+    "F10.3.A0": {
+      "kind": "flow",
+      "title": "좌석 발급: 보호자가 아이 프로필 생성",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::guardian creates a child profile and links a device with a one-time 6-digit code"
+      ],
+      "evidence": [
+        "apps/edge/src/family.ts:333",
+        "apps/web/src/FamilyPage.tsx:395"
+      ],
+      "note": "보호자가 아이 프로필 생성"
+    },
+    "F10.3.A1": {
+      "kind": "flow",
+      "title": "기기 연결 코드로 입장",
+      "status": "done",
+      "owner": "parent",
+      "route": "/link",
+      "e2e": {
+        "route": "/link",
+        "expect": [
+          "text:이 기기를 아이 기기로 연결"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/family.test.ts::device link page renders a 6-digit code field",
+        "apps/client/src/world/__tests__/identity.test.ts::enters as the linked child after GET /v1/device/me with the bearer token"
+      ],
+      "evidence": [
+        "apps/edge/src/family.ts:548",
+        "apps/web/src/FamilyPage.tsx:436"
+      ],
+      "note": "6자리 코드로 기기 연결 후 월드 입장"
+    },
+    "F10.3.A2": {
+      "kind": "flow",
+      "title": "첫 접속 안내: 마이크 점검, 이동, 첫 주문",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/errand.test.tsx::Mia asks -> accept -> the cafe sells only the cold water -> hand it over -> done with +50",
+        "apps/client/src/__tests__/errand.test.tsx::shows the way button for the step: to Mia at the cafe door to start and to hand over, to the cafe while ordering"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/FirstVisitGuide.tsx:1",
+        "apps/client/src/App.tsx:573"
+      ],
+      "note": "첫 접속 심부름으로 마이크·이동·첫 주문 안내"
+    },
+    "F10.3.A3": {
+      "kind": "flow",
+      "title": "첫 문장 통과 (3분 안)",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "packages/bots/src/__tests__/bots.test.ts::completes full golden path end-to-end with spawn-to-order < 3 minutes (3600 ticks)",
+        "apps/edge/src/__tests__/converse-score.test.ts::a full 3-star order is charged the 50% price from the bank"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/DialogPanel.tsx:42",
+        "apps/edge/src/app.ts:239"
+      ],
+      "note": "첫 문장 통과 가능; '3분 안' 실측 지표 수집은 없음"
+    },
+    "F10.3.B": {
+      "kind": "flow",
+      "title": "오늘 뭐 하지",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/world.test.ts::lists the five handcrafted scenes"
+      ],
+      "evidence": [
+        "apps/client/src/world/town.ts:1"
+      ],
+      "note": "광장 5장면·건축·심부름만; 전투·경영·탐험 선택지 없음"
+    },
+    "F10.3.B1": {
+      "kind": "flow",
+      "title": "건축: 블록을 하나씩, 재료 주문, 방 판정, 주민 입주",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/build.test.ts::places and breaks one block per input through setBlock, remeshes it, and undoes the last 20",
+        "apps/client/src/world/__tests__/build.test.ts::runs the room check when a nameplate goes up, then 1 s after the room changes",
+        "apps/edge/src/__tests__/plot.test.ts::a shop grant lands in the chest and is saved"
+      ],
+      "evidence": [
+        "apps/client/src/world/build.ts:310",
+        "apps/client/src/world/build-hud.ts:407"
+      ],
+      "note": "블록·재료·방 판정은 이어짐; 주민 입주는 문구뿐 실제 NPC 이사 없음"
+    },
+    "F10.3.B2": {
+      "kind": "flow",
+      "title": "전투: 사냥, 던전, 음성 스킬, 아레나",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [
+        "packages/sim-core/src/domains.ts:1"
+      ],
+      "note": "사냥·던전·음성 스킬·아레나가 3D 월드에 없음(sim-core 표만)"
+    },
+    "F10.3.B3": {
+      "kind": "flow",
+      "title": "경영: 채굴, 환전, 취업, 가게",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world"
+      ],
+      "evidence": [
+        "apps/edge/src/economy.ts:1",
+        "packages/sim-core/src/domains.ts:1"
+      ],
+      "note": "가게 구매·물가만; 채굴·환전·취업은 sim-core 함수뿐 화면 없음"
+    },
+    "F10.3.B4": {
+      "kind": "flow",
+      "title": "탐험: 9개 섹터, 지하에서 우주까지",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [
+        "apps/client/src/world/town.ts:2"
+      ],
+      "note": "중앙 섹터 마을 하나뿐; 9개 섹터·지하~우주 탐험 없음"
+    },
+    "F10.3.C": {
+      "kind": "flow",
+      "title": "말해야 싸지고 강해짐: 1~3성",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/converse-score.test.ts::a full 3-star order is charged the 50% price from the bank",
+        "apps/edge/src/__tests__/furniture.test.ts::first lamp is 10% off, the second lamp that day is full price; the ledger matches"
+      ],
+      "evidence": [
+        "apps/edge/src/app.ts:239",
+        "apps/edge/src/furniture.ts:1"
+      ],
+      "note": "말할수록 싸짐은 이어짐; '강해짐'(전투 능력) 없음"
+    },
+    "F10.3.D": {
+      "kind": "flow",
+      "title": "복습 징후: 20분, 1일, 3일, 7일, 16일, 35일",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/review.test.tsx::nothing is due right after the order; at 20 minutes the sign comes and saying it fixes it",
+        "apps/edge/src/__tests__/review.test.ts::the sign appears at 20 minutes with the full sentence and voice, then at 1 day without voice"
+      ],
+      "evidence": [
+        "apps/edge/src/review.ts:81",
+        "apps/client/src/dialog/ReviewDock.tsx:78"
+      ],
+      "note": "복습 상자 단계별 징후 이어짐"
+    },
+    "F10.3.E": {
+      "kind": "flow",
+      "title": "마스터 도안",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/review.test.ts::time-accelerated: passing every due review reaches the master blueprint after 35 days; the bonus is paid once into the ledger"
+      ],
+      "evidence": [
+        "apps/edge/src/review.ts:31"
+      ],
+      "note": "35일 숙달 시 코인 보너스만; 마스터 도안 아이템·화면 없음"
+    },
+    "F10.3.F": {
+      "kind": "flow",
+      "title": "친구 초대: 게스트 패스",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/pass",
+      "e2e": {
+        "route": "/pass",
+        "expect": [
+          "text:게스트 패스"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::/play and /pass"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Info.tsx:104",
+        "apps/edge/src/storage.ts:90"
+      ],
+      "note": "패스 발급·아이 화면 초대 버튼 없음, 월드가 ?pass 무시"
+    },
+    "F10.3.G": {
+      "kind": "flow",
+      "title": "수업: 선생님이 오는 날",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/world/?code=",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ],
+        "auth": "lesson"
+      },
+      "tests": [
+        "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API"
+      ],
+      "evidence": [
+        "apps/client/src/lesson/controller.ts:1",
+        "apps/edge/src/lesson-mode.ts:781"
+      ],
+      "note": "수업 날 참여 코드로 3D 수업 진행"
+    },
+    "F10.3.H": {
+      "kind": "flow",
+      "title": "봉인 상자, 캠페인 다음 회",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/web.test.ts::renders teacher director console with 7-stage arc, teacher scripts, bilateral barter, events/pins, and report tracker"
+      ],
+      "evidence": [
+        "apps/web/src/App.tsx:525",
+        "apps/edge/src/storage.ts:99"
+      ],
+      "note": "봉인 상자·캠페인 메모는 가짜 데모 콘솔에만, 실제 수업·월드에 없음"
+    },
+    "F10.3.I": {
+      "kind": "flow",
+      "title": "새 월드 만들기 또는 공개 서버",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "apps/edge/src/__tests__/edge.test.ts::auto-suspends public server_list entry upon 3 distinct abuse reporters (docs/16)"
+      ],
+      "evidence": [
+        "apps/edge/src/platform.ts:738",
+        "apps/edge/src/storage.ts:94"
+      ],
+      "note": "운영자 API로만 월드 생성; 아이가 새 월드·공개 서버 고르는 화면 없음"
+    },
+    "F10.4.T0": {
+      "kind": "flow",
+      "title": "월요일: 주간 요약과 확인함 (40분)",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/seats-page.test.ts::route is known and renders the seats page; without a key it points to the director console"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:443",
+        "apps/edge/src/platform.ts:452"
+      ],
+      "note": "학생 7일 발화 수·좌석 확인함은 있으나 주간 요약 생성 없음(크론은 집계만)"
+    },
+    "F10.4.T1": {
+      "kind": "flow",
+      "title": "수업 24시간 전: 계획 자동 준비",
+      "status": "missing",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:419"
+      ],
+      "note": "수업 일정이 없어 24시간 전 계획 자동 준비 없음"
+    },
+    "F10.4.T2": {
+      "kind": "flow",
+      "title": "수업 1분 전: 오늘의 계획 읽기",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:750"
+      ],
+      "note": "계획·단계 안내를 콘솔에서 읽음(내용은 고정 계획)"
+    },
+    "F10.4.T3": {
+      "kind": "flow",
+      "title": "수업 120분: 모닥불, 미션, 쉬는 구간, 큰 사건, 쇼앤텔, 되짚기, 예고",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "packages/content/src/__tests__/lesson-plans.test.ts::stages add up, are ordered and unique"
+      ],
+      "evidence": [
+        "packages/content/src/lesson-plans.ts:72"
+      ],
+      "note": "120분 6단계는 있으나 모닥불·쉬는 구간·쇼앤텔 단계 없음"
+    },
+    "F10.4.T4": {
+      "kind": "flow",
+      "title": "리포트 확인과 발송 (5분)",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::after the lesson ends the report link and preview are shown"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:1324"
+      ],
+      "note": "확인은 됨; 발송은 교사가 링크 직접 복사, 생성 후 수정 불가"
+    },
+    "F10.4.T5": {
+      "kind": "flow",
+      "title": "학부모 열람",
+      "status": "done",
+      "owner": "parent",
+      "route": "/r/<토큰>",
+      "e2e": {
+        "route": "/r/x",
+        "expect": [
+          "testid:parent-report-page"
+        ],
+        "auth": "report-link"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::teacher preview (operator token) does not count as the parent opening the report",
+        "apps/edge/src/__tests__/parent-privacy.test.ts::opening a revoked or expired link does not count as the parent opening it"
+      ],
+      "evidence": [
+        "apps/edge/src/storage.ts:547",
+        "apps/web/src/FamilyPage.tsx:319"
+      ],
+      "note": "열람 기록·가족 화면 열람 상태 표시"
+    },
+    "F10.4.T6": {
+      "kind": "flow",
+      "title": "다음 수업 타깃 자동 갱신",
+      "status": "partial",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/storage.ts:565"
+      ],
+      "note": "nextTargetsUpdated 를 늘 true 로 돌려줄 뿐 다음 수업 타깃 갱신 없음"
+    },
+    "F10.4.T7": {
+      "kind": "flow",
+      "title": "다시 알림 1회",
+      "status": "partial",
+      "owner": "parent",
+      "tests": [
+        "apps/edge/src/__tests__/edge.test.ts::executes bilateral trade atomically, tracks solo expression reuse, sends parent report, triggers 48h reminder, and updates on open"
+      ],
+      "evidence": [
+        "apps/edge/src/storage.ts:572",
+        "apps/edge/src/platform.ts:466"
+      ],
+      "note": "48시간 크론이 상태만 바꾸고 보호자에게 실제 알림 안 보냄"
+    },
+    "F10.4.T8": {
+      "kind": "flow",
+      "title": "월말: 월간 성장 리포트로 상담",
+      "status": "missing",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:606"
+      ],
+      "note": "월간 성장 리포트 없음(보호자 대시보드 12주 그래프는 교사가 못 봄)"
+    },
+    "F10.4.T9": {
+      "kind": "flow",
+      "title": "과외 지속과 수업료 논의의 근거",
+      "status": "missing",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [],
+      "note": "월간 근거 자료·상담 화면 없음"
+    },
+    "F10.5.P0": {
+      "kind": "flow",
+      "title": "어떻게 알게 됐나",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/",
+      "e2e": {
+        "route": "/",
+        "expect": [
+          "text:말하면 생기는 세계"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/site.test.ts::counts an event per day and page without cookies or visitor data, and folds showroom tokens"
+      ],
+      "evidence": [
+        "apps/web/src/site/track.ts:28",
+        "apps/edge/src/site.ts:92"
+      ],
+      "note": "페이지 이벤트만 셈; 유입 경로(상담·아이 소개·검색) 구분 없음"
+    },
+    "F10.5.P1": {
+      "kind": "flow",
+      "title": "소개 페이지와 수업 리포트 견본",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/tutoring",
+      "e2e": {
+        "route": "/tutoring",
+        "expect": [
+          "text:과외 수업"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::has the eleven parent sections in order",
+        "apps/web/src/__tests__/site.test.tsx::renders every public page with its own title, description, canonical and content"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Tutoring.tsx:133"
+      ],
+      "note": "소개·과외 페이지와 리포트 예시 화면"
+    },
+    "F10.5.P2": {
+      "kind": "flow",
+      "title": "친구 월드 쇼룸과 소개 페이지",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/s/<토큰>",
+      "e2e": {
+        "route": "/s/demo",
+        "expect": [
+          "text:하늘 카페 마을"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/showroom.test.ts::needs the showroom consent, then serves only the allow-listed snapshot the site can draw",
+        "apps/web/src/__tests__/site.test.tsx::accepts the sample and rejects live position, voice or real-name fields"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Showroom.tsx:60",
+        "apps/edge/src/showroom.ts:143"
+      ],
+      "note": "쇼룸 구경 후 소개 페이지로 이어짐"
+    },
+    "F10.5.P3": {
+      "kind": "flow",
+      "title": "소개 페이지와 체험 씬",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/try",
+      "e2e": {
+        "route": "/try",
+        "expect": [
+          "canvas",
+          "text:카페에서 영어로 주문해 볼까요?"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::/try at every phase",
+        "apps/web/src/__tests__/site.test.tsx::golden path: start → walk → greet → choose → speak → receive → drink → save → end"
+      ],
+      "evidence": [
+        "apps/web/src/site/TryScene.tsx:224"
+      ],
+      "note": "체험 씬 동작"
+    },
+    "F10.5.P4": {
+      "kind": "flow",
+      "title": "가족 계정 생성, 동의 선택",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::invite → session (one-time) → service consent gate → separate consent toggles",
+        "apps/web/src/__tests__/family.test.ts::after service consent: five optional consents, each its own switch, all off by default, no "
+      ],
+      "evidence": [
+        "apps/edge/src/family.ts:217",
+        "apps/web/src/FamilyPage.tsx:72"
+      ],
+      "note": "동의는 이어짐; 계정은 운영자 API 초대로만, 초대 발급 화면·자가 가입 없음"
+    },
+    "F10.5.P5": {
+      "kind": "flow",
+      "title": "좌석 결제 또는 과외 패키지",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/seats",
+      "e2e": {
+        "route": "/seats",
+        "expect": [
+          "testid:seats-admin"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/seats.test.ts::Solo: manual issue at list price, one seat per child, 7-day full refund, then play stops"
+      ],
+      "evidence": [
+        "apps/edge/src/seats.ts:310",
+        "apps/web/src/site/pages/Pricing.tsx:28"
+      ],
+      "note": "결제 없음; 운영자가 /seats 에서 좌석 수동 등록"
+    },
+    "F10.5.P6": {
+      "kind": "flow",
+      "title": "아이 프로필 생성, 기기 연결",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::guardian creates a child profile and links a device with a one-time 6-digit code"
+      ],
+      "evidence": [
+        "apps/edge/src/family.ts:382",
+        "apps/web/src/FamilyPage.tsx:282"
+      ],
+      "note": "프로필 생성·기기 코드 발급"
+    },
+    "F10.5.P7": {
+      "kind": "flow",
+      "title": "첫 주: 접속 알림과 첫 육성 클립",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/r/<토큰>",
+      "e2e": {
+        "route": "/r/x",
+        "expect": [
+          "testid:parent-report-page"
+        ],
+        "auth": "report-link"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/voice.test.ts::a speech turn with consent uploads once; non-audio, oversize and replays are refused"
+      ],
+      "evidence": [
+        "apps/edge/src/push-copy.ts:5",
+        "apps/web/src/VoiceClips.tsx:32"
+      ],
+      "note": "접속 알림 없음; 육성 클립은 리포트 안 목록으로만"
+    },
+    "F10.5.P8": {
+      "kind": "flow",
+      "title": "2주: 기준선 확정, 지수 100에서 시작",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/dashboard?child=<id>",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/metrics.test.ts::the week that sets the baseline scores 100; a component at zero in both stays neutral",
+        "packages/metrics/src/__tests__/dashboard.test.ts::think-and-speak index: needs 30 free sentences in the week and a start made of two such weeks"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:722",
+        "packages/metrics/src/index.ts:1"
+      ],
+      "note": "대시보드에 기준선·지수 100은 보이나 확정 안내 알림 없음"
+    },
+    "F10.5.P9": {
+      "kind": "flow",
+      "title": "매주: 주간 요약",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/dashboard?child=<id>",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/dashboard.test.ts::home: headline with the 4-week ratio, four cards whose numbers equal this week, interpretation lines"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:652",
+        "apps/edge/src/platform.ts:452"
+      ],
+      "note": "대시보드 이번 주 숫자만; 주간 요약 생성·발송 없음"
+    },
+    "F10.5.P10": {
+      "kind": "flow",
+      "title": "4주: 고정 과제 전후 음성",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/report",
+      "tests": [
+        "apps/web/src/__tests__/web.test.ts::renders parent report delivery, 4-week anchor comparison, solo reuse, and opened target refresh on /report"
+      ],
+      "evidence": [
+        "apps/web/src/App.tsx:252"
+      ],
+      "note": "고정 과제 전후 비교는 가짜 데모 /report 에만"
+    },
+    "F10.5.P11": {
+      "kind": "flow",
+      "title": "35일: 마스터 문장 클립",
+      "status": "missing",
+      "owner": "parent",
+      "tests": [],
+      "evidence": [],
+      "note": "35일 마스터 문장 클립 없음"
+    },
+    "F10.5.P12": {
+      "kind": "flow",
+      "title": "쇼룸 공유",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/showroom.test.ts::keeps one link per child, and withdrawing consent hides it at once",
+        "apps/client/src/world/__tests__/build.test.ts::the plot snapshot is exactly what the site parser accepts: token colours, no extra fields, ≤ 20,000 blocks"
+      ],
+      "evidence": [
+        "apps/client/src/world/engine.ts:464",
+        "apps/edge/src/showroom.ts:91"
+      ],
+      "note": "동의 시 월드에서 쇼룸 게시·링크 공유"
+    },
+    "F10.5.P13": {
+      "kind": "flow",
+      "title": "과외 학생인가",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard?child=<id>",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/dashboard.test.ts::lessons list: duration, student share meter, report link; window button only with consent"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:876"
+      ],
+      "note": "수업이 있으면 수업 목록·창문 버튼이 보임"
+    },
+    "F10.5.P14": {
+      "kind": "flow",
+      "title": "수업 창문, 수업 리포트, 표현의 여정",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson-window-page.test.ts::/window route renders the real page; /family links to the window only when the consent is on"
+      ],
+      "evidence": [
+        "apps/web/src/FamilyPage.tsx:232",
+        "apps/web/src/ParentReportPage.tsx:391"
+      ],
+      "note": "창문·리포트는 있으나 '표현의 여정' 화면 없음"
+    },
+    "F10.5.P15": {
+      "kind": "flow",
+      "title": "월간 상담",
+      "status": "missing",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [],
+      "note": "월간 상담 자료·예약 없음"
+    },
+    "F10.5.P16": {
+      "kind": "flow",
+      "title": "과외 안내 (원할 때만 보이는 링크)",
+      "status": "missing",
+      "owner": "parent",
+      "route": "/family",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/FamilyPage.tsx:224"
+      ],
+      "note": "가족·대시보드 화면에 과외 안내 링크 없음"
+    },
+    "F10.5.P17": {
+      "kind": "flow",
+      "title": "지인 유입",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/s/<토큰>",
+      "e2e": {
+        "route": "/s/demo",
+        "expect": [
+          "text:하늘 카페 마을"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/site.test.ts::counts an event per day and page without cookies or visitor data, and folds showroom tokens"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Showroom.tsx:85"
+      ],
+      "note": "쇼룸→체험 링크만; 지인 유입 추적·추천 없음"
+    },
+    "F10.6.O0": {
+      "kind": "flow",
+      "title": "들어온 길",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/",
+      "e2e": {
+        "route": "/",
+        "expect": [
+          "text:말하면 생기는 세계"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::resolves all nine W pages, aliases and parameter routes"
+      ],
+      "evidence": [
+        "apps/web/src/site/routes.ts:28"
+      ],
+      "note": "쇼룸·검색 입구는 있음; 게스트 패스 입구 미연결"
+    },
+    "F10.6.O1": {
+      "kind": "flow",
+      "title": "친구 월드에서 60분: 전 기능",
+      "status": "missing",
+      "owner": "outsider",
+      "route": "/world/?pass=",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Info.tsx:104"
+      ],
+      "note": "월드가 ?pass 를 안 읽고 서버 발급도 없어 친구 월드 60분 없음"
+    },
+    "F10.6.O2": {
+      "kind": "flow",
+      "title": "월드 구경",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/s/<토큰>",
+      "e2e": {
+        "route": "/s/demo",
+        "expect": [
+          "text:하늘 카페 마을"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/showroom.test.ts::serves nothing for guessed or malformed tokens and opens only its own routes",
+        "apps/edge/src/__tests__/site.test.ts::serves the sample world without a lookup, and only matches /s/<one segment>"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Showroom.tsx:60"
+      ],
+      "note": "쇼룸 월드 돌려 보기"
+    },
+    "F10.6.O3": {
+      "kind": "flow",
+      "title": "표현 페이지",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/learn/<slug>",
+      "e2e": {
+        "route": "/learn/build-a-place",
+        "expect": [
+          "text:내가 짓고 싶은 곳 말하기"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::each page has three growing sentences, explanations, mistakes and a try button"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Learn.tsx:58"
+      ],
+      "note": "표현 페이지 있음"
+    },
+    "F10.6.O4": {
+      "kind": "flow",
+      "title": "끝날 때: 부모님께 소개 보내기 버튼",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/guest-end",
+      "e2e": {
+        "route": "/guest-end",
+        "expect": [
+          "testid:guest-pass-end"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/webux.test.ts::child end screen: names the item, one CTA, no price or deadline"
+      ],
+      "evidence": [
+        "apps/web/src/WebUx.tsx:413",
+        "apps/web/src/App.tsx:1008"
+      ],
+      "note": "버튼은 그려지나 onSendToParent 미연결, 패스 종료 시 이 화면으로 오는 길 없음"
+    },
+    "F10.6.O5": {
+      "kind": "flow",
+      "title": "보호자에게 소개 페이지와 친구 월드 쇼룸 전달",
+      "status": "partial",
+      "owner": "outsider",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/WebUx.tsx:381"
+      ],
+      "note": "공유 링크 기본값이 데모 /report; 소개+친구 쇼룸 전달 없음"
+    },
+    "F10.6.O6": {
+      "kind": "flow",
+      "title": "소개 페이지",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/parents",
+      "e2e": {
+        "route": "/parents",
+        "expect": [
+          "text:학부모님께"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::has the eleven parent sections in order",
+        "apps/web/src/__tests__/site.test.tsx::shows the one-line title, the captioned real-game clip, both entrances and the try CTA"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Parents.tsx:93",
+        "apps/web/src/site/pages/Landing.tsx:20"
+      ],
+      "note": "소개 페이지 있음"
+    },
+    "F10.6.O7": {
+      "kind": "flow",
+      "title": "체험 씬: 음성 주문 1회",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/try",
+      "e2e": {
+        "route": "/try",
+        "expect": [
+          "canvas",
+          "text:카페에서 영어로 주문해 볼까요?"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::golden path: start → walk → greet → choose → speak → receive → drink → save → end",
+        "apps/web/src/__tests__/webux.test.ts::runs the spoken order in normal Chrome with recognition (cards stay as a hint)"
+      ],
+      "evidence": [
+        "apps/web/src/site/TryScene.tsx:224"
+      ],
+      "note": "체험 씬 음성 주문 1회"
+    },
+    "F10.6.O8": {
+      "kind": "flow",
+      "title": "누구인가",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/",
+      "e2e": {
+        "route": "/",
+        "expect": [
+          "text:말하면 생기는 세계"
+        ]
+      },
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/routes.ts:28"
+      ],
+      "note": "보호자·과외 페이지는 있으나 성인 학습자 갈래 없음"
+    },
+    "F10.6.O9": {
+      "kind": "flow",
+      "title": "가족 계정, Solo 또는 친구와 Duo",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/pricing",
+      "e2e": {
+        "route": "/pricing",
+        "expect": [
+          "text:Solo"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::shows plans, refund and cancellation on one screen, plus the ten FAQ answers",
+        "apps/edge/src/__tests__/seats.test.ts::Duo: one payer; one seat refunded → payer gets the difference, the other seat becomes Solo, other family sees no name or money"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Pricing.tsx:28",
+        "apps/edge/src/seats.ts:310"
+      ],
+      "note": "Solo/Duo 안내·운영자 발급만; 사이트에서 가입·구매 경로 없음"
+    },
+    "F10.6.O10": {
+      "kind": "flow",
+      "title": "성인 계정, Solo",
+      "status": "missing",
+      "owner": "outsider",
+      "tests": [],
+      "evidence": [],
+      "note": "성인 계정 없음"
+    },
+    "F10.6.O11": {
+      "kind": "flow",
+      "title": "상담 신청",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/tutoring",
+      "e2e": {
+        "route": "/tutoring",
+        "expect": [
+          "text:과외 수업"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/site.test.ts::stores a valid request and lists it to the operator only",
+        "apps/web/src/__tests__/site.test.tsx::validates the consult form like the edge does"
+      ],
+      "evidence": [
+        "apps/edge/src/site.ts:111",
+        "apps/web/src/site/pages/Tutoring.tsx:184"
+      ],
+      "note": "신청 저장은 됨; 운영자가 보는 화면 없음(API만)"
+    },
+    "F10.6.O12": {
+      "kind": "flow",
+      "title": "플레이어 여정과 학부모 여정으로",
+      "status": "partial",
+      "owner": "outsider",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/family.ts:217"
+      ],
+      "note": "외부인→계정으로 넘어가는 자가 경로 없음(교사 초대 필요)"
+    },
+    "F10.7.A": {
+      "kind": "flow",
+      "title": "지우의 월드",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/plot.test.ts::starts from the town plot with the starter bag, saves only what changed, and survives a restart"
+      ],
+      "evidence": [
+        "apps/edge/src/plot.ts:215",
+        "apps/client/src/world/build.ts:310"
+      ],
+      "note": "내 땅 건축·저장"
+    },
+    "F10.7.B": {
+      "kind": "flow",
+      "title": "민준이 60분 플레이",
+      "status": "missing",
+      "owner": "outsider",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/storage.ts:90"
+      ],
+      "note": "게스트 패스로 친구 월드 입장 없음"
+    },
+    "F10.7.C": {
+      "kind": "flow",
+      "title": "같이 짓고 싸우고 말풍선으로 대화",
+      "status": "missing",
+      "owner": "world",
+      "tests": [
+        "packages/converse/src/__tests__/converse.test.ts::WP-502: blocks speech bubbles under 70% target language or with PII"
+      ],
+      "evidence": [],
+      "note": "멀티플레이·말풍선 대화가 월드에 없음(필터 함수만)"
+    },
+    "F10.7.D": {
+      "kind": "flow",
+      "title": "패스 종료: 월드와 소지품은 남지 않고, 첫 아이템·첫 발화만 임시 보관함에 7일",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/guest-end",
+      "e2e": {
+        "route": "/guest-end",
+        "expect": [
+          "testid:guest-pass-end"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/webux.test.ts::expires exactly at 7 days",
+        "apps/web/src/__tests__/webux.test.ts::claims with the device code once, and rejects a wrong code without consuming"
+      ],
+      "evidence": [
+        "apps/web/src/guestClaim.ts:68",
+        "apps/web/src/WebUx.tsx:378"
+      ],
+      "note": "보관함 함수·화면은 있으나 saveGuestKeepsake 를 아무도 안 부름"
+    },
+    "F10.7.E": {
+      "kind": "flow",
+      "title": "부모님께 소개 보내기",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/guest-end",
+      "e2e": {
+        "route": "/guest-end",
+        "expect": [
+          "testid:guest-pass-end"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/webux.test.ts::child end screen: names the item, one CTA, no price or deadline"
+      ],
+      "evidence": [
+        "apps/web/src/WebUx.tsx:413"
+      ],
+      "note": "버튼만 있고 보내기 동작 미연결"
+    },
+    "F10.7.F": {
+      "kind": "flow",
+      "title": "민준의 보호자: 소개 페이지, 지우 월드 쇼룸",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/s/<토큰>",
+      "e2e": {
+        "route": "/s/demo",
+        "expect": [
+          "text:하늘 카페 마을"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/showroom.test.ts::needs the showroom consent, then serves only the allow-listed snapshot the site can draw"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Showroom.tsx:60"
+      ],
+      "note": "쇼룸·소개는 있으나 친구 소개 링크로 받는 길 없음"
+    },
+    "F10.7.G": {
+      "kind": "flow",
+      "title": "구매",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/pricing",
+      "e2e": {
+        "route": "/pricing",
+        "expect": [
+          "text:Solo"
+        ]
+      },
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/pages/Pricing.tsx:28"
+      ],
+      "note": "구매 버튼·결제 없음"
+    },
+    "F10.7.H": {
+      "kind": "flow",
+      "title": "두 집 모두 좌석당 할인",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/seats.test.ts::Duo: one payer; one seat refunded → payer gets the difference, the other seat becomes Solo, other family sees no name or money",
+        "apps/web/src/__tests__/seats-page.test.ts::Duo: payment lines include extensions; the payer chooses when the other family asked; the friend waits"
+      ],
+      "evidence": [
+        "apps/edge/src/seats.ts:310",
+        "packages/quota/src/duo.ts:1"
+      ],
+      "note": "Duo 좌석·할인 계산은 운영자 발급으로만"
+    },
+    "F10.7.I": {
+      "kind": "flow",
+      "title": "민준의 월드",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/plot.test.ts::starts from the town plot with the starter bag, saves only what changed, and survives a restart"
+      ],
+      "evidence": [
+        "apps/edge/src/plot.ts:215"
+      ],
+      "note": "새 아이도 자기 땅에서 시작(게스트 보관함 이어받기는 미연결)"
+    },
+    "F10.7.J": {
+      "kind": "flow",
+      "title": "지우와 민준이 서로의 월드를 오감",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "서로의 월드 방문·멀티플레이 없음"
+    },
+    "F10.8.좌석_발급.player": {
+      "kind": "flow",
+      "title": "좌석 발급 · 플레이어: 아이 프로필, 기기 연결 코드",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::guardian creates a child profile and links a device with a one-time 6-digit code"
+      ],
+      "evidence": [
+        "apps/edge/src/family.ts:382"
+      ],
+      "note": "프로필·기기 연결 코드"
+    },
+    "F10.8.좌석_발급.teacher": {
+      "kind": "flow",
+      "title": "좌석 발급 · 교사: 과외 학생이면 수업 일정 등록",
+      "status": "missing",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [],
+      "note": "수업 일정 등록 기능 없음"
+    },
+    "F10.8.좌석_발급.parent": {
+      "kind": "flow",
+      "title": "좌석 발급 · 학부모: 동의 선택",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/family.test.ts::without the required service consent: the service box first, every child switch disabled, no add-child"
+      ],
+      "evidence": [
+        "apps/edge/src/family.ts:357"
+      ],
+      "note": "동의 선택 이어짐"
+    },
+    "F10.8.+3분.player": {
+      "kind": "flow",
+      "title": "+3분 · 플레이어: 첫 문장 통과",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/errand.test.tsx::Mia asks -> accept -> the cafe sells only the cold water -> hand it over -> done with +50"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/FirstVisitGuide.tsx:1"
+      ],
+      "note": "첫 문장 통과 흐름(3분 측정은 없음)"
+    },
+    "F10.8.+3분.outsider": {
+      "kind": "flow",
+      "title": "+3분 · 외부인: 체험 씬 주문 1회",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/try",
+      "e2e": {
+        "route": "/try",
+        "expect": [
+          "canvas",
+          "text:카페에서 영어로 주문해 볼까요?"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::/try at every phase"
+      ],
+      "evidence": [
+        "apps/web/src/site/TryScene.tsx:224"
+      ],
+      "note": "체험 씬 주문 1회"
+    },
+    "F10.8.+20분.player": {
+      "kind": "flow",
+      "title": "+20분 · 플레이어: 같은 세션 복습",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/review.test.tsx::nothing is due right after the order; at 20 minutes the sign comes and saying it fixes it",
+        "apps/edge/src/__tests__/review.test.ts::a 2+ star order makes one card due in 20 minutes; a 1-star order makes none"
+      ],
+      "evidence": [
+        "apps/edge/src/review.ts:95"
+      ],
+      "note": "20분 복습 징후"
+    },
+    "F10.8.첫_세션_종료.player": {
+      "kind": "flow",
+      "title": "첫 세션 종료 · 플레이어: 월드 저장",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/build.test.ts::a server snapshot puts the plot back exactly (town + saved delta), furniture and bag included",
+        "apps/edge/src/__tests__/worker.test.ts::keeps built blocks after the DO restarts (worlds rehydrate from SQLite)"
+      ],
+      "evidence": [
+        "apps/edge/src/plot.ts:215"
+      ],
+      "note": "월드 서버 저장"
+    },
+    "F10.8.첫_세션_종료.parent": {
+      "kind": "flow",
+      "title": "첫 세션 종료 · 학부모: 접속 알림과 첫 육성 클립",
+      "status": "missing",
+      "owner": "parent",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/push-copy.ts:5"
+      ],
+      "note": "첫 세션 접속 알림·첫 육성 클립 알림 없음"
+    },
+    "F10.8.+1일_+3일_+7일.player": {
+      "kind": "flow",
+      "title": "+1일, +3일, +7일 · 플레이어: 복습 징후(힌트가 줄어듦)",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/growth-12w-e2e.test.ts::memory cards climb the boxes through review signs (20 min → 1 day → 3 days → 7 days)",
+        "apps/client/src/__tests__/dialog.test.tsx::shrinks the sentence keyword → initial → picture, and hides listening above full"
+      ],
+      "evidence": [
+        "apps/edge/src/review.ts:81",
+        "apps/client/src/dialog/hints.ts:15"
+      ],
+      "note": "힌트가 줄어드는 복습"
+    },
+    "F10.8.+1일_+3일_+7일.teacher": {
+      "kind": "flow",
+      "title": "+1일, +3일, +7일 · 교사: 복습 현황이 타깃에 반영",
+      "status": "missing",
+      "owner": "lesson",
+      "route": "/director",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:419"
+      ],
+      "note": "복습 현황이 수업 타깃·콘솔에 반영 안 됨"
+    },
+    "F10.8.매_수업_24시간_전.teacher": {
+      "kind": "flow",
+      "title": "매 수업 24시간 전 · 교사: 오늘의 계획 준비",
+      "status": "missing",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [],
+      "note": "일정·자동 계획 준비 없음"
+    },
+    "F10.8.매_수업_24시간_전.parent": {
+      "kind": "flow",
+      "title": "매 수업 24시간 전 · 학부모: 수업 예정 알림",
+      "status": "missing",
+      "owner": "parent",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/push-copy.ts:5"
+      ],
+      "note": "수업 예정 알림 종류 없음"
+    },
+    "F10.8.매_수업_종료.player": {
+      "kind": "flow",
+      "title": "매 수업 종료 · 플레이어: 봉인 상자",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [],
+      "evidence": [
+        "apps/web/src/App.tsx:525"
+      ],
+      "note": "봉인 상자는 데모 콘솔에만, 학생 월드에 없음"
+    },
+    "F10.8.매_수업_종료.teacher": {
+      "kind": "flow",
+      "title": "매 수업 종료 · 교사: 리포트 초안",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::after the lesson ends the report link and preview are shown"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:715"
+      ],
+      "note": "리포트 초안·미리보기"
+    },
+    "F10.8.매_수업_종료.parent": {
+      "kind": "flow",
+      "title": "매 수업 종료 · 학부모: 수업 리포트",
+      "status": "done",
+      "owner": "parent",
+      "route": "/r/<토큰>",
+      "e2e": {
+        "route": "/r/x",
+        "expect": [
+          "testid:parent-report-page"
+        ],
+        "auth": "report-link"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::report carries this lesson only: quotes, speaking time, stages, expressions; numbers match the summary",
+        "apps/web/src/__tests__/parent-report.test.ts::with facts.lesson the table shows only this lesson, and its shared numbers equal the sentence"
+      ],
+      "evidence": [
+        "apps/web/src/ParentReportPage.tsx:291"
+      ],
+      "note": "수업 리포트 열람(도착 알림은 없음)"
+    },
+    "F10.8.매주_월요일.player": {
+      "kind": "flow",
+      "title": "매주 월요일 · 플레이어: 주간 시드 도전",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "주간 시드 도전 없음"
+    },
+    "F10.8.매주_월요일.teacher": {
+      "kind": "flow",
+      "title": "매주 월요일 · 교사: 주간 요약, 확인함",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::records cron runs so a keeper can detect silent failures"
+      ],
+      "evidence": [
+        "apps/edge/src/platform.ts:452",
+        "apps/web/src/LessonDirector.tsx:443"
+      ],
+      "note": "월요일 크론은 학생 수만 셈; 주간 요약 화면 없음"
+    },
+    "F10.8.매주_월요일.parent": {
+      "kind": "flow",
+      "title": "매주 월요일 · 학부모: 주간 요약",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/dashboard?child=<id>",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/dashboard.test.ts::home: headline with the 4-week ratio, four cards whose numbers equal this week, interpretation lines"
+      ],
+      "evidence": [
+        "apps/edge/src/platform.ts:452",
+        "apps/edge/src/app.ts:644"
+      ],
+      "note": "주간 리포트 자동 생성·발송 없음(대시보드만)"
+    },
+    "F10.8.매주_월요일.outsider": {
+      "kind": "flow",
+      "title": "매주 월요일 · 외부인: 표현 페이지 갱신",
+      "status": "missing",
+      "owner": "outsider",
+      "route": "/learn",
+      "tests": [],
+      "evidence": [
+        "apps/web/src/site/copy.ts:1"
+      ],
+      "note": "표현 페이지는 고정 문구, 주간 갱신 없음"
+    },
+    "F10.8.+14일.parent": {
+      "kind": "flow",
+      "title": "+14일 · 학부모: 기준선 확정 안내",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/dashboard?child=<id>",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/growth-12w.test.ts::late starter with a 5-sentence trial in week 3: the trial is not the start; the start is the first two full weeks"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:722"
+      ],
+      "note": "기준선 계산·표시만, 확정 안내 알림 없음"
+    },
+    "F10.8.+16일.player": {
+      "kind": "flow",
+      "title": "+16일 · 플레이어: 그림만 보고 회상",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/review.test.ts::the 16-day review accepts another bank sentence for the same thing (same meaning, other words)",
+        "apps/client/src/__tests__/dialog.test.tsx::shrinks the sentence keyword → initial → picture, and hides listening above full"
+      ],
+      "evidence": [
+        "apps/client/src/dialog/hints.ts:15",
+        "apps/edge/src/review.ts:81"
+      ],
+      "note": "그림 힌트 회상"
+    },
+    "F10.8.+28일.teacher": {
+      "kind": "flow",
+      "title": "+28일 · 교사: 월간 상담 자료",
+      "status": "missing",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [],
+      "note": "월간 상담 자료 없음"
+    },
+    "F10.8.+28일.parent": {
+      "kind": "flow",
+      "title": "+28일 · 학부모: 고정 과제 전후 음성",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/report",
+      "tests": [
+        "apps/web/src/__tests__/web.test.ts::renders parent report delivery, 4-week anchor comparison, solo reuse, and opened target refresh on /report"
+      ],
+      "evidence": [
+        "apps/web/src/App.tsx:252"
+      ],
+      "note": "전후 음성은 데모 /report 에만, 실제 데이터·화면 없음"
+    },
+    "F10.8.+35일.player": {
+      "kind": "flow",
+      "title": "+35일 · 플레이어: 마스터 도안",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/review.test.ts::time-accelerated: passing every due review reaches the master blueprint after 35 days; the bonus is paid once into the ledger"
+      ],
+      "evidence": [
+        "apps/edge/src/review.ts:31"
+      ],
+      "note": "코인 보너스만, 도안 아이템 없음"
+    },
+    "F10.8.+35일.parent": {
+      "kind": "flow",
+      "title": "+35일 · 학부모: 마스터 클립, 공유 제안",
+      "status": "missing",
+      "owner": "parent",
+      "tests": [],
+      "evidence": [],
+      "note": "마스터 클립·공유 제안 없음"
+    },
+    "F10.8.+35일.outsider": {
+      "kind": "flow",
+      "title": "+35일 · 외부인: 쇼룸 유입",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/s/<토큰>",
+      "e2e": {
+        "route": "/s/demo",
+        "expect": [
+          "text:하늘 카페 마을"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/showroom.test.ts::keeps one link per child, and withdrawing consent hides it at once"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Showroom.tsx:60"
+      ],
+      "note": "쇼룸은 있으나 35일 공유 제안 계기 없음"
+    },
+    "F10.8.매월_1일.player": {
+      "kind": "flow",
+      "title": "매월 1일 · 플레이어: 게스트 패스 3장 충전",
+      "status": "missing",
+      "owner": "ops",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/storage.ts:90"
+      ],
+      "note": "게스트 패스 월 3장 충전 없음(월간 크론도 없음)"
+    },
+    "F10.8.매월_1일.teacher": {
+      "kind": "flow",
+      "title": "매월 1일 · 교사: 월간 리포트 확인",
+      "status": "missing",
+      "owner": "lesson",
+      "tests": [],
+      "evidence": [],
+      "note": "월간 리포트 없음"
+    },
+    "F10.8.매월_1일.parent": {
+      "kind": "flow",
+      "title": "매월 1일 · 학부모: 월간 리포트",
+      "status": "missing",
+      "owner": "parent",
+      "tests": [],
+      "evidence": [],
+      "note": "월간 리포트 없음"
+    },
+    "F10.8.미접속_7일.player": {
+      "kind": "flow",
+      "title": "미접속 7일 · 플레이어: 우체통 선물",
+      "status": "missing",
+      "owner": "world",
+      "tests": [],
+      "evidence": [],
+      "note": "우체통 선물 없음"
+    },
+    "F10.8.미접속_7일.teacher": {
+      "kind": "flow",
+      "title": "미접속 7일 · 교사: 결석 표시",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:444"
+      ],
+      "note": "7일 발화 수만 보이고 결석 표시 없음"
+    },
+    "F10.8.미접속_7일.parent": {
+      "kind": "flow",
+      "title": "미접속 7일 · 학부모: \"돌아올 문장 3개\"(주 1회 상한)",
+      "status": "missing",
+      "owner": "parent",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/dashboard.ts:81"
+      ],
+      "note": "대시보드 '돌아올 문장'은 있으나 미접속 7일 알림(주 1회 상한) 없음"
+    },
+    "F10.8.좌석_만료_7일_전.parent": {
+      "kind": "flow",
+      "title": "좌석 만료 7일 전 · 학부모: 연장 안내",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/push.test.ts::subscribe → seat 7d notice queued → held while off → sent encrypted to this family only once on",
+        "apps/web/src/__tests__/seats-page.test.ts::expiring, read-only, archived and refunded each explain what happens, in words"
+      ],
+      "evidence": [
+        "apps/edge/src/seats.ts:102",
+        "apps/edge/src/push.ts:159"
+      ],
+      "note": "7일 전 푸시·좌석 화면 안내(운영자 발송 스위치가 켜져야 실제 발송)"
+    },
+    "C01.1.s1": {
+      "kind": "promise",
+      "title": "플레이어는 무작위로 조합된 288m 복셀 월드를 여러 개 만들 수 있고, 혼자 또는 친구와 생존·건축·전투·경영·탐험을 합니다",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-401: generates 100 deterministic seeds with all 4 required services and identical hashes",
+        "apps/client/src/world/__tests__/world.test.ts::lists the five handcrafted scenes"
+      ],
+      "evidence": [
+        "packages/sim-core/src/worldgen.ts:102",
+        "apps/edge/src/platform.ts:339"
+      ],
+      "note": "화면은 손으로 지은 장면 5개, 288m 시드 배치는 서버 저장에만 쓰임, 월드 여러 개·친구 멀티·전투·경영·탐험 없음"
+    },
+    "C01.1.s2": {
+      "kind": "promise",
+      "title": "물건을 사고, 만들고, 고치고, 흥정하고, 변론하는 모든 순간이 목표 언어로 말하는 순간입니다",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/converse-score.test.ts::price-0 sentences (barter, asking the way) sell nothing: no item, no coins, the asked key comes back",
+        "apps/edge/src/__tests__/furniture.test.ts::first lamp is 10% off, the second lamp that day is full price; the ledger matches"
+      ],
+      "evidence": [
+        "apps/edge/src/app.ts:239",
+        "packages/sim-core/src/domains.ts:277"
+      ],
+      "note": "사기·흥정 문장·읽기 할인은 연결됨, 고치기(수리)·변론은 sim-core 함수뿐"
+    },
+    "C01.1.s3": {
+      "kind": "promise",
+      "title": "더 좋은 문장은 더 싼 가격과 더 강한 장비가 됩니다",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/converse-score.test.ts::a full 3-star order is charged the 50% price from the bank",
+        "apps/edge/src/__tests__/converse-score.test.ts::the star grade comes from the bank sentence, not from chosen_stars"
+      ],
+      "evidence": [
+        "apps/edge/src/app.ts:239",
+        "packages/sim-core/src/domains.ts:46"
+      ],
+      "note": "별이 많을수록 싼 가격은 동작, 더 강한 장비(능력치)는 없음"
+    },
+    "C01.1.s4": {
+      "kind": "promise",
+      "title": "운영자이자 유일한 교사는 자기 학생의 월드에 들어가 NPC가 되어 말을 걸고, 사건을 일으키고, 함께 던전을 돕니다",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does",
+        "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-mode.ts:478",
+        "apps/web/src/DirectorLive.tsx:63"
+      ],
+      "note": "NPC 빙의·사건 버튼은 동작, 함께 던전은 이벤트 효과음뿐이고 학생 자기 월드가 아닌 수업 마을"
+    },
+    "C01.1.s5": {
+      "kind": "promise",
+      "title": "학부모는 아이가 자기 생각을 말로 꺼내는 힘이 자라는 과정을 그래프와 육성으로 확인합니다.",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/dashboard.test.ts::home: headline with the 4-week ratio, four cards whose numbers equal this week, interpretation lines",
+        "apps/web/src/__tests__/voice-clips.test.ts::lists the child’s turns with a player each, quoted in English, time in KST"
+      ],
+      "evidence": [
+        "apps/web/src/DashboardPage.tsx:918",
+        "apps/web/src/VoiceClips.tsx:32"
+      ],
+      "note": "성장 그래프와 육성 클립 재생이 보호자 화면에 연결됨"
+    },
+    "C01.2.플레이어": {
+      "kind": "promise",
+      "title": "플레이어 · 과외 학생, 일반 유저(아동·성인) · 좌석 1개 · 재미, 자유, 자랑 · 제한 없는 샌드박스, 말이 통하는 효능감",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/identity.test.ts::reads the seat: play_allowed=false stops solo play and is remembered for an offline start (docs/19 6장)"
+      ],
+      "evidence": [
+        "apps/edge/src/seats.ts:94",
+        "apps/client/src/world/api.ts:151"
+      ],
+      "note": "좌석 1개·혼자 놀기는 동작, 제한 없는 샌드박스가 아니라 장면 5개와 내 부지뿐"
+    },
+    "C01.2.교사": {
+      "kind": "promise",
+      "title": "교사 · 운영자 본인 1명 · 운영자 계정 · 과외의 가치 상승, 준비 시간 절감 · 디렉터 콘솔, 수업 리포트, 기여 증명",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson.test.ts::live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters",
+        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
+      ],
+      "evidence": [
+        "apps/web/src/LessonDirector.tsx:1",
+        "apps/edge/src/lesson-mode.ts:673"
+      ],
+      "note": "디렉터 콘솔·수업 리포트 동작, 기여 증명은 리포트 숫자 수준"
+    },
+    "C01.2.학부모": {
+      "kind": "promise",
+      "title": "학부모 · 과외 학생의 보호자, 일반 아동 유저의 보호자 · 가족 계정의 보호자 · 유창성과 생각을 말하는 힘의 성장 확인 · 성장 대시보드, 음성 박물관, (과외 학부모) 수업 창문",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/lesson-window-page.test.ts::live: status bar with place · situation, goal sentence, density band, captions, listen-only note — no media elements",
+        "apps/web/src/__tests__/voice-clips.test.ts::consent off and empty periods say so; no guardian on this device shows nothing"
+      ],
+      "evidence": [
+        "apps/web/src/LessonWindowPage.tsx:174",
+        "apps/web/src/DashboardPage.tsx:918"
+      ],
+      "note": "성장 대시보드·음성 박물관·수업 창문 모두 연결됨"
+    },
+    "C01.2.외부인": {
+      "kind": "promise",
+      "title": "외부인 · 검색·공유 링크 유입, 친구의 친구 · 없음 또는 게스트 · 부담 없는 체험 · 체험 씬, 게스트 패스, 쇼룸",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/try",
+      "e2e": {
+        "route": "/try",
+        "expect": [
+          "canvas",
+          "text:카페에서 영어로 주문해 볼까요?"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::golden path: start → walk → greet → choose → speak → receive → drink → save → end"
+      ],
+      "evidence": [
+        "apps/web/src/site/TryScene.tsx:224",
+        "apps/web/src/site/pages/Info.tsx:94"
+      ],
+      "note": "체험 씬·쇼룸은 동작, 게스트 패스는 입력 화면뿐"
+    },
+    "C01.3.체험_씬": {
+      "kind": "promise",
+      "title": "체험 씬 · 계정 없는 방문자 · 광장과 카페 한 곳. 음성 주문 1회 후 슬롯 수령, 마시기까지 5분 · 0 (브라우저 인식 + 문장 뱅크, 성인 안내 문구) · \"이 월드를 저장할까요\"",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/try",
+      "e2e": {
+        "route": "/try",
+        "expect": [
+          "canvas",
+          "text:카페에서 영어로 주문해 볼까요?"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::golden path: start → walk → greet → choose → speak → receive → drink → save → end",
+        "apps/web/src/__tests__/site.test.tsx::starts without asking for anything and states that voice is not stored"
+      ],
+      "evidence": [
+        "apps/web/src/site/TryScene.tsx:224",
+        "apps/web/src/site/tryCopy.ts:56"
+      ],
+      "note": "계정 없이 카페 주문→마시기→'이 월드를 저장할까요' 흐름이 동작"
+    },
+    "C01.3.게스트_패스": {
+      "kind": "promise",
+      "title": "게스트 패스 · 유료 플레이어의 친구 · 친구 월드에 60분 입장, 전 기능. 좌석당 월 3장 · 낮음 (기기 내 인식 우선, 음성 미저장) · \"부모님께 소개 보내기\"",
+      "status": "partial",
+      "owner": "outsider",
+      "route": "/pass",
+      "e2e": {
+        "route": "/pass",
+        "expect": [
+          "text:게스트 패스"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::normalises pass codes",
+        "apps/web/src/__tests__/site.test.tsx::/play and /pass"
+      ],
+      "evidence": [
+        "apps/web/src/site/pages/Info.tsx:94",
+        "apps/edge/src/storage.ts:90"
+      ],
+      "note": "코드 입력 화면과 표만 있음, /world 가 pass 를 읽지 않고 발급·60분·좌석당 3장 로직 없음"
+    },
+    "C01.3.쇼룸": {
+      "kind": "promise",
+      "title": "쇼룸 · 링크를 받은 누구나 · 월드의 건축물과 아바타를 돌려 보는 정적 스냅샷. 실시간·음성·실명 없음 · 0 (정적 파일) · 소개 페이지",
+      "status": "done",
+      "owner": "outsider",
+      "route": "/s/<token>",
+      "e2e": {
+        "route": "/s/demo",
+        "expect": [
+          "text:하늘 카페 마을"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/showroom.test.ts::needs the showroom consent, then serves only the allow-listed snapshot the site can draw",
+        "apps/web/src/__tests__/site.test.tsx::accepts the sample and rejects live position, voice or real-name fields"
+      ],
+      "evidence": [
+        "apps/edge/src/showroom.ts:72",
+        "apps/client/src/world/engine.ts:464"
+      ],
+      "note": "부지 스냅샷 게시(동의 필요)→정적 쇼룸 링크가 동작"
+    },
+    "C01.4.Solo": {
+      "kind": "promise",
+      "title": "Solo (1좌석) · 14,900원 · 119,000원 · 9,917원 · 연 33% 할인",
+      "status": "done",
+      "owner": "parent",
+      "route": "/pricing",
+      "e2e": {
+        "route": "/pricing",
+        "expect": [
+          "text:Solo"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::shows plans, refund and cancellation on one screen, plus the ten FAQ answers",
+        "apps/web/src/__tests__/web.test.ts::displays transparent pricing without dark patterns on /parents and the tutoring page on /teachers (docs/14)",
+        "apps/web/src/__tests__/seats-page.test.ts::payer sees state, period, the amount paid and the refund deadline"
+      ],
+      "evidence": [
+        "apps/web/src/site/copy.ts:301",
+        "packages/quota/src/duo.ts:9"
+      ],
+      "note": "14,900·119,000·9,917원이 사이트와 좌석 화면·서버 가격표에 있음"
+    },
+    "C01.4.Duo": {
+      "kind": "promise",
+      "title": "Duo (2좌석) · 19,900원 · 159,000원 · 6,625원 · 월 결제도 좌석당 33% 할인, 연 결제는 56% 할인",
+      "status": "done",
+      "owner": "parent",
+      "route": "/pricing",
+      "e2e": {
+        "route": "/pricing",
+        "expect": [
+          "text:Solo"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::shows plans, refund and cancellation on one screen, plus the ten FAQ answers",
+        "apps/web/src/__tests__/seats-page.test.ts::Duo: payment lines include extensions; the payer chooses when the other family asked; the friend waits"
+      ],
+      "evidence": [
+        "apps/web/src/site/copy.ts:310",
+        "packages/quota/src/duo.ts:11"
+      ],
+      "note": "19,900·159,000·6,625원이 사이트와 좌석 화면에 있음"
+    },
+    "C01.4.좌석_추가": {
+      "kind": "promise",
+      "title": "좌석 추가 (3번째부터) · 7,000원 · 59,000원 · 4,917원 · 가족·친구 묶음",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/pricing",
+      "e2e": {
+        "route": "/pricing",
+        "expect": [
+          "text:Solo"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::shows plans, refund and cancellation on one screen, plus the ten FAQ answers"
+      ],
+      "evidence": [
+        "apps/web/src/site/copy.ts:319",
+        "apps/edge/src/seats.ts:123"
+      ],
+      "note": "사이트 요금표에만 있음, 서버 좌석 plan 에 extra 가 없어 3번째 좌석을 발급할 수 없음"
+    },
+    "C01.4.과외_패키지": {
+      "kind": "promise",
+      "title": "과외 패키지 · 과외비에 포함 ·  ·  · 좌석 + 수업 창문 + 수업 리포트",
+      "status": "done",
+      "owner": "parent",
+      "route": "/tutoring",
+      "e2e": {
+        "route": "/tutoring",
+        "expect": [
+          "text:과외 수업"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/web.test.ts::displays transparent pricing without dark patterns on /parents and the tutoring page on /teachers (docs/14)",
+        "apps/edge/src/__tests__/review-seats.test.ts::R2 payment time cannot be far ahead; a rule refund closes the open review item, so no exception can follow"
+      ],
+      "evidence": [
+        "apps/web/src/site/copy.ts:327",
+        "apps/edge/src/seats.ts:334"
+      ],
+      "note": "tutoring 좌석+수업 창문+리포트가 연결됨, 금액은 운영자가 입력"
+    },
+    "C01.4.b1": {
+      "kind": "promise",
+      "title": "모든 좌석은 전 기능입니다. 보호자 대시보드는 미성년 좌석에 무료로 딸려 옵니다.",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/web/src/__tests__/site.test.tsx::shows plans, refund and cancellation on one screen, plus the ten FAQ answers",
+        "apps/web/src/__tests__/dashboard.test.ts::waiting, no session, /dashboard route, family link"
+      ],
+      "evidence": [
+        "apps/web/src/site/copy.ts:304",
+        "apps/edge/src/family.ts:414"
+      ],
+      "note": "좌석별 기능 차등이 없고 보호자 대시보드는 결제와 무관하게 열림"
+    },
+    "C01.4.b2": {
+      "kind": "promise",
+      "title": "Duo의 두 좌석은 가족이 아니어도 됩니다. 친구와 함께 가입하면 둘 다 싸집니다. 멀티플레이가 곧 할인 사유입니다.",
+      "status": "done",
+      "owner": "parent",
+      "route": "/seats",
+      "e2e": {
+        "route": "/seats",
+        "expect": [
+          "testid:seats-admin"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/seats.test.ts::Duo: one payer; one seat refunded → payer gets the difference, the other seat becomes Solo, other family sees no name or money",
+        "apps/web/src/__tests__/seats-page.test.ts::other family Duo seat: no name, no money; non-payer sees no payment"
+      ],
+      "evidence": [
+        "apps/edge/src/seats.ts:314",
+        "apps/web/src/site/copy.ts:313"
+      ],
+      "note": "다른 가족 두 아이를 Duo 한 결제로 묶는 것이 동작"
+    },
+    "C01.4.b3": {
+      "kind": "promise",
+      "title": "환불: 결제 후 7일 이내 전액. 무료 체험 기간 대신 환불 보장을 둡니다.",
+      "status": "done",
+      "owner": "parent",
+      "route": "/seats",
+      "e2e": {
+        "route": "/seats",
+        "expect": [
+          "testid:seats-admin"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/seats.test.ts::Solo: manual issue at list price, one seat per child, 7-day full refund, then play stops",
+        "apps/web/src/__tests__/seats-page.test.ts::refund deadline: the date of the last refundable moment, at 24:00 KST"
+      ],
+      "evidence": [
+        "packages/quota/src/duo.ts:22",
+        "apps/edge/src/seats.ts:254"
+      ],
+      "note": "7일(KST) 전액 환불 규칙과 보호자 요청 화면이 동작"
+    },
+    "C01.4.b4": {
+      "kind": "promise",
+      "title": "**Duo 부분 환불**: Duo의 한 좌석만 7일 이내에 환불하면, 남은 한 좌석은 Solo 요금제로 전환합니다. 둘 중 하나로 처리합니다. (a) 결제자에게 `Duo 결제액 − Solo 가격`을 환불하고 남은 좌석은 약정 기간을 그대로 씁니다(월 ",
+      "status": "done",
+      "owner": "parent",
+      "route": "/seats",
+      "e2e": {
+        "route": "/seats",
+        "expect": [
+          "testid:seats-admin"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "packages/quota/src/__tests__/duo.test.ts::refunds Duo minus Solo when one seat leaves within 7 days (monthly and yearly)",
+        "apps/edge/src/__tests__/seats.test.ts::Duo convert mode (payer picks): no cash back, the remaining seat keeps pro-rata Solo days"
+      ],
+      "evidence": [
+        "packages/quota/src/duo.ts:73",
+        "apps/edge/src/seats.ts:271"
+      ],
+      "note": "차액 환불(a)과 Solo 일수 전환(b) 두 방식이 모두 동작"
+    },
+    "C01.4.b5": {
+      "kind": "promise",
+      "title": "**결제자는 1명**: Duo에는 `payer_id`가 정확히 하나이며 두 좌석이 같은 값을 가집니다. 환불·동의 철회·계정 삭제 요청은 결제자 또는 해당 좌석의 보호자만 낼 수 있고, 한쪽의 요청이 다른 쪽 좌석의 데이터를 지우지 않습니다. 구현은 ",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/seats",
+      "e2e": {
+        "route": "/seats",
+        "expect": [
+          "testid:seats-admin"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "packages/quota/src/__tests__/duo.test.ts::never refunds more than was paid and requires exactly one payer_id",
+        "apps/edge/src/__tests__/review-seats.test.ts::R6 a non-payer request waits for the payer, who then chooses the settlement"
+      ],
+      "evidence": [
+        "packages/quota/src/duo.ts:63",
+        "apps/edge/src/seats.ts:44"
+      ],
+      "note": "payer_id 1명·비결제자 요청 대기는 동작, 계정 삭제 요청 경로는 없음"
+    },
+    "C01.4.b6": {
+      "kind": "promise",
+      "title": "과외 패키지의 가격은 선생님이 정합니다. 이 플랫폼의 역할은 과외비 인상의 근거를 보여 주는 것입니다(`06`, `07`).",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/tutoring",
+      "e2e": {
+        "route": "/tutoring",
+        "expect": [
+          "text:과외 수업"
+        ]
+      },
+      "tests": [
+        "apps/web/src/__tests__/web.test.ts::displays transparent pricing without dark patterns on /parents and the tutoring page on /teachers (docs/14)",
+        "packages/metrics/src/__tests__/metrics.test.ts::calculates teacher contribution rates: 14-day solo transfer and 35-day retention"
+      ],
+      "evidence": [
+        "apps/web/src/site/copy.ts:327",
+        "apps/edge/src/app.ts:830"
+      ],
+      "note": "과외비는 선생님이 정한다고 안내, 기여 근거는 수업 리포트 숫자로 제공"
+    },
+    "C01.5.창작_AI_호출": {
+      "kind": "promise",
+      "title": "창작 AI 호출(문장 뱅크에 없는 발화) · 일 60회 · 가장 가까운 뱅크 문장으로 진행",
+      "status": "partial",
+      "owner": "ops",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/quota-ladder.test.ts::stage 1 keeps creative AI for lessons only; stage 3 stops it for everyone; the meter counts before calling",
+        "apps/edge/src/__tests__/worker.test.ts::caps Workers AI calls per day durably"
+      ],
+      "evidence": [
+        "packages/quota/src/index.ts:9",
+        "apps/edge/src/platform.ts:253"
+      ],
+      "note": "60회 계기는 있으나 운영에서 LLM 이 꺼져 있어(runWorkersAi undefined) 늘 뱅크로만 진행"
+    },
+    "C01.5.AI_제작": {
+      "kind": "promise",
+      "title": "AI 제작(아이템·의상·반려·의뢰) · 일 30회 · \"오늘 주문은 마감\" 안내, 기존 물건은 그대로",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [],
+      "evidence": [
+        "packages/quota/src/index.ts:10",
+        "packages/quota/src/index.ts:211"
+      ],
+      "note": "상수와 canUseAiCraft 함수뿐, 호출처·AI 제작 화면·'오늘 주문은 마감' 안내 없음"
+    },
+    "C01.5.서버_음성_인식": {
+      "kind": "promise",
+      "title": "서버 음성 인식 · 일 40분 · 기기 내 인식 또는 조합판",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/stt.test.ts::the meter decides: bank-only days and a used-up seat get 429 with the word-card fallback, no model call",
+        "apps/edge/src/__tests__/stt.test.ts::stage 2: a device that has its own recognition is sent back to it; one without keeps the server"
+      ],
+      "evidence": [
+        "apps/edge/src/stt.ts:80",
+        "packages/quota/src/index.ts:206"
+      ],
+      "note": "좌석당 일 40분 한도와 기기 인식·단어 카드 대체가 동작"
+    },
+    "C01.5.월드_수": {
+      "kind": "promise",
+      "title": "월드 수 · 좌석당 5개 활성 · 보관함으로 이동 후 새로 생성",
+      "status": "partial",
+      "owner": "world",
+      "tests": [],
+      "evidence": [
+        "packages/quota/src/index.ts:12",
+        "apps/edge/src/platform.ts:339"
+      ],
+      "note": "5개 상수만 있음, 집 월드 1개 고정이라 생성·보관함 흐름이 없음"
+    },
+    "C01.5.월드당_개체": {
+      "kind": "promise",
+      "title": "월드당 개체(가구·반려·의뢰 등) · 300개 · 오래된 것 해체 후 추가",
+      "status": "partial",
+      "owner": "world",
+      "tests": [],
+      "evidence": [
+        "packages/guard/src/index.ts:160",
+        "apps/edge/src/storage.ts:757"
+      ],
+      "note": "300개 거절은 운영자 전용 objects/propose 에만 있음, 클라이언트 호출 없음, 오래된 것 해체도 없음"
+    },
+    "C01.6.건축가": {
+      "kind": "promise",
+      "title": "건축가 · 블록을 하나씩 쌓아 집·마을 건설, 주민 입주, 쇼룸 자랑 · 부지 확장, 섹터별 특산 블록, 새 월드 · 재료 주문(수량·색·용도), 석공에게 묻기, 입주 주민과 대화",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/build.test.ts::places and breaks one block per input through setBlock, remeshes it, and undoes the last 20",
+        "packages/sim-core/src/__tests__/plot.test.ts::a lamp counts as light, and a stove in a complete room invites the chef (D13 residents)"
+      ],
+      "evidence": [
+        "apps/client/src/world/build.ts:338",
+        "apps/edge/src/plot.ts:43"
+      ],
+      "note": "블록 쌓기·방 판정·주민 입주 안내·쇼룸은 동작, 부지 확장·섹터 특산 블록·새 월드 없음"
+    },
+    "C01.6.전사": {
+      "kind": "promise",
+      "title": "전사 · 몬스터 사냥, 던전, 친구와 대전 · 수직 밴드별 적, 장비 제작, 아레나 · 음성 스킬, 무기 주문, 수리",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-507, WP-607, WP-608: checks combat table, 400-block room flood-fill, and vertical bands"
+      ],
+      "evidence": [
+        "packages/sim-core/src/domains.ts:331",
+        "packages/sim-core/src/domains.ts:346"
+      ],
+      "note": "피해 계산·수직 밴드 함수뿐, 몬스터·던전·아레나·음성 스킬 화면 없음"
+    },
+    "C01.6.경영자": {
+      "kind": "promise",
+      "title": "경영자 · 채굴·환전, 취업·승진, 가게 운영 · 시세 변동, 직급, 플레이어 간 거래 · 흥정, 면접, 고객 응대, 변론",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world",
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+      ],
+      "evidence": [
+        "apps/edge/src/economy.ts:1",
+        "packages/sim-core/src/domains.ts:271"
+      ],
+      "note": "월드별 주간 시세·흥정 문장은 연결됨, 채굴·취업·가게·플레이어 거래·변론은 함수뿐"
+    },
+    "C01.6.탐험가": {
+      "kind": "promise",
+      "title": "탐험가 · 9개 섹터, 지하에서 우주까지, 도감 수집 · 월드마다 다른 조합, 시즌 팩 · 기후별 장비 주문, 현지 상인",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-401: generates 100 deterministic seeds with all 4 required services and identical hashes"
+      ],
+      "evidence": [
+        "packages/sim-core/src/worldgen.ts:126",
+        "packages/sim-core/src/tuning.ts:8"
+      ],
+      "note": "3x3 섹터 배치 함수만 있음, 섹터 지형·이동·도감·시즌 팩이 화면에 없음"
+    },
+    "C01.7.북극성": {
+      "kind": "promise",
+      "title": "북극성 · 주간 자유 발화 단어 수(플레이어당) · 4주 이동 평균이 꾸준히 상승",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/dashboard.test.ts::weekly numbers: free words, speech rate, median response, connectors; low confidence excluded; lesson vs solo modes",
+        "apps/web/src/__tests__/dashboard.test.ts::home: headline with the 4-week ratio, four cards whose numbers equal this week, interpretation lines"
+      ],
+      "evidence": [
+        "packages/metrics/src/dashboard.ts:118",
+        "apps/web/src/DashboardPage.tsx:73"
+      ],
+      "note": "주간 자유 발화 단어 수와 4주 비교가 보호자 대시보드에 표시됨(운영자용 전체 집계는 없음)"
+    },
+    "C01.7.활성화": {
+      "kind": "promise",
+      "title": "활성화 · 첫 접속부터 첫 문장 통과까지 · 3분 이내",
+      "status": "partial",
+      "owner": "parent",
+      "tests": [
+        "apps/edge/src/__tests__/errand.test.ts::ask -> accept -> buy the cold water at the cafe -> hand it over: +50 once, the drink leaves the bag"
+      ],
+      "evidence": [
+        "apps/edge/src/errand.ts:111",
+        "apps/edge/src/errand.ts:28"
+      ],
+      "note": "첫 문장 통과 시각만 기록됨, 3분 지표 계산·표시는 없음"
+    },
+    "C01.7.학습": {
+      "kind": "promise",
+      "title": "학습 · 힌트 없는 회상 성공률 · 65% 이상",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/metrics.test.ts::computes the docs/07 2.1 index (six components, clamped) when >= 30 free utterances exist"
+      ],
+      "evidence": [
+        "packages/metrics/src/index.ts:337",
+        "apps/web/src/DashboardPage.tsx:468"
+      ],
+      "note": "recall_retention_rate 는 계산만 하고 화면에 없음, 대시보드는 힌트 없는 발화 비율(다른 지표)만 표시"
+    },
+    "C01.7.학습_2": {
+      "kind": "promise",
+      "title": "학습 · 생각말하기 지수 · 8주에 기준선 대비 +20",
+      "status": "done",
+      "owner": "parent",
+      "route": "/dashboard",
+      "e2e": {
+        "route": "/dashboard",
+        "expect": [
+          "testid:dashboard-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/dashboard.test.ts::think-and-speak index: needs 30 free sentences in the week and a start made of two such weeks",
+        "apps/web/src/__tests__/growth-12w-view.test.ts::grower: headline and the index table say what the child did; six components and the 12 estimate rows are there"
+      ],
+      "evidence": [
+        "packages/metrics/src/index.ts:410",
+        "apps/web/src/DashboardPage.tsx:656"
+      ],
+      "note": "생각말하기 지수와 기준선이 계산되어 대시보드에 표시됨"
+    },
+    "C01.7.수업": {
+      "kind": "promise",
+      "title": "수업 · 학생 발화 점유율 · 40~60%",
+      "status": "done",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/metrics.test.ts::computes lesson talk ratio, long silence minutes, and anchor task delta",
+        "apps/web/src/__tests__/dashboard.test.ts::lessons list: duration, student share meter, report link; window button only with consent"
+      ],
+      "evidence": [
+        "packages/metrics/src/index.ts:521",
+        "apps/web/src/DirectorLive.tsx:439"
+      ],
+      "note": "학생 발화 점유율이 콘솔과 보호자 수업 목록에 표시됨"
+    },
+    "C01.7.수업_2": {
+      "kind": "promise",
+      "title": "수업 · 수업 유래 표현의 14일 전이율 · 50% 이상",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/r/<token>",
+      "e2e": {
+        "route": "/r/x",
+        "expect": [
+          "testid:parent-report-page"
+        ],
+        "auth": "report-link"
+      },
+      "tests": [
+        "packages/metrics/src/__tests__/metrics.test.ts::calculates teacher contribution rates: 14-day solo transfer and 35-day retention"
+      ],
+      "evidence": [
+        "packages/metrics/src/index.ts:529",
+        "apps/edge/src/app.ts:867"
+      ],
+      "note": "14일 전이율은 계산되지만 리포트에는 '다시 쓴 표현' 개수로만 나오고 비율 표시는 없음"
+    },
+    "C01.7.학부모": {
+      "kind": "promise",
+      "title": "학부모 · 수업 리포트 열람률 · 80% 이상",
+      "status": "partial",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::teacher preview (operator token) does not count as the parent opening the report"
+      ],
+      "evidence": [
+        "apps/edge/src/storage.ts:554",
+        "apps/edge/src/family.ts:310"
+      ],
+      "note": "리포트별 열람 여부만 기록·표시됨, 열람률 집계·표시는 없음"
+    },
+    "C01.7.사업": {
+      "kind": "promise",
+      "title": "사업 · 게스트 패스 사용 후 구매 전환 · 15% 이상",
+      "status": "missing",
+      "owner": "outsider",
+      "tests": [],
+      "evidence": [
+        "apps/edge/src/storage.ts:90"
+      ],
+      "note": "게스트 패스가 동작하지 않고 구매 전환 계산 코드도 없음"
+    },
+    "C01.7.운영": {
+      "kind": "promise",
+      "title": "운영 · 무료 한도 사용률 · 일 70% 미만 유지",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "apps/edge/src/__tests__/quota-ladder.test.ts::the hourly cron records the stage and keeps a day that reached 85% as an alert day",
+        "apps/edge/src/__tests__/quota-ladder.test.ts::health quota block before and without an alert"
+      ],
+      "evidence": [
+        "packages/quota/src/index.ts:155",
+        "apps/edge/src/quota.ts:99"
+      ],
+      "note": "사용률 계산과 70% 단계 전환, 운영 health JSON 은 있음, 대시보드 화면 표시는 없음"
+    },
+    "C02.1.1": {
+      "kind": "promise",
+      "title": "**한도를 넘으면 과금이 아니라 기능 저하.** 무료 플랜은 한도 초과 시 해당 작업이 실패합니다. 모든 서버 호출 앞에 한도 계기를 두고, 실패하기 전에 스스로 낮은 단계로 내려갑니다.",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "packages/quota/src/__tests__/quota.test.ts::transitions cleanly across degradation stages 0..4 and prioritizes lessons",
+        "apps/edge/src/__tests__/quota-ladder.test.ts::a provider outage is stage 4 and bank only; clearing it brings the ladder back"
+      ],
+      "evidence": [
+        "packages/quota/src/index.ts:151",
+        "apps/edge/src/platform.ts:276"
+      ],
+      "note": "0~4단계 기능 저하와 호출 전 계기 검사가 동작 · 사용자 화면 경로가 없어 실화면 확인을 붙일 수 없음(done → partial)"
+    },
+    "C02.1.2": {
+      "kind": "promise",
+      "title": "**싱글은 서버 없이.** 싱글 월드의 시뮬레이션은 전부 기기에서 돕니다. 서버에는 저장과 회화 요청만 갑니다.",
+      "status": "done",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/build.test.ts::sends queued ops in order, resends the remainder when the pace ran out, and survives a reload",
+        "apps/client/src/__tests__/client.test.ts::builds Three.js voxel scene from generated chunks and supports F5/Tab/slot/place/undo"
+      ],
+      "evidence": [
+        "apps/client/src/world/engine.ts:184",
+        "apps/client/src/world/plot-sync.ts:1"
+      ],
+      "note": "월드·물리·건축은 기기에서 돌고, 서버에는 저장(plot ops)과 채점 요청만 감"
+    },
+    "C02.1.3": {
+      "kind": "promise",
+      "title": "**월드마다 저장 창구는 하나.** 월드 하나당 Durable Object 하나가 유일한 기록자입니다. 동시 쓰기로 월드가 깨질 여지를 구조적으로 없앱니다.",
+      "status": "partial",
+      "owner": "world",
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::keeps worlds apart in one database through table prefixes",
+        "apps/edge/src/__tests__/worker.test.ts::runs world block edits atomically on DO SQLite (transactionSync, no BEGIN)"
+      ],
+      "evidence": [
+        "apps/edge/wrangler.toml:34",
+        "apps/edge/src/platform.ts:813"
+      ],
+      "note": "월드마다 DO 가 아니라 PlatformDO 하나 안에서 표 이름 앞붙이로 나눔(기록자 하나는 지켜짐)"
+    },
+    "C02.1.4": {
+      "kind": "promise",
+      "title": "**LLM 없이도 돈다.** 필수 거래는 문장 뱅크로 처리합니다. AI가 꺼져도 게임은 계속됩니다.",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/quota-ladder.test.ts::bank only at limit 0: the solo order is scored, charged and granted; understand answers from the bank; no AI call",
+        "packages/converse/src/__tests__/converse.test.ts::WP-108 & WP-112: scores deterministically and works with quota set to 0"
+      ],
+      "evidence": [
+        "apps/edge/src/platform.ts:253",
+        "packages/converse/src/scoring.ts:1"
+      ],
+      "note": "모든 거래가 문장 뱅크로 처리되고 AI 없이 동작"
+    },
+    "C02.1.5": {
+      "kind": "promise",
+      "title": "**아이 데이터는 밖으로 내보내지 않는다.** 음성은 기기에서 인식하는 것이 기본이고, 서버로 가더라도 식별 정보 없이 가며, 외부 LLM 사업자에게는 보내지 않습니다.",
+      "status": "done",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/edge.test.ts::rejects guardian audio uplink on Lesson Window and strips PII before Workers AI calls",
+        "apps/edge/src/__tests__/stt.test.ts::transcribes a child turn with Whisper in English, charges the meter by length, keeps no audio"
+      ],
+      "evidence": [
+        "apps/edge/src/stt.ts:80",
+        "apps/client/src/dialog/speech.ts:3"
+      ],
+      "note": "기기 인식이 기본, 서버는 Workers AI Whisper 만 쓰고 음성은 남기지 않으며 외부 LLM 호출 없음"
+    },
+    "C02.2.클라이언트": {
+      "kind": "promise",
+      "title": "클라이언트 · TypeScript, Vite, Three.js(WebGL2), React(HUD는 DOM 오버레이), PWA · 설치 없이 링크로 실행",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/startup.test.ts::meshes only the chunks around the start spot and shows them"
+      ],
+      "evidence": [
+        "apps/client/package.json:19",
+        "apps/client/src/HudOverlay.tsx:1"
+      ],
+      "note": "TS·Vite·Three.js·React HUD 는 있음, /world 에 PWA 매니페스트·서비스워커 없음(/family 에만)"
+    },
+    "C02.2.게임_로직": {
+      "kind": "promise",
+      "title": "게임 로직 · `sim-core` 패키지(결정론), ECS(bitecs), Web Worker(월드젠·메싱·조명) · 클라이언트와 서버가 같은 규칙 코드",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/look.test.ts::builds the same blocks twice (deterministic)",
+        "packages/sim-core/src/__tests__/town-steps.test.ts::stepping gives the very same world as building at once, with many pause points"
+      ],
+      "evidence": [
+        "apps/client/src/world/engine.ts:233",
+        "apps/client/src/world/town.ts:7"
+      ],
+      "note": "결정론 sim-core 를 클라이언트·서버가 공유, bitecs ECS 없음, Worker 는 메싱만(월드젠·조명 아님)"
+    },
+    "C02.2.정적_호스팅": {
+      "kind": "promise",
+      "title": "정적 호스팅 · Workers 정적 자산 · 정적 요청은 무료·무제한",
+      "status": "done",
+      "owner": "ops",
+      "route": "/",
+      "e2e": {
+        "route": "/",
+        "expect": [
+          "text:말하면 생기는 세계"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::routes /v1 and /health to the platform DO and everything else to static assets",
+        "apps/edge/src/__tests__/html-cache.test.ts::every path the Worker skips (wrangler run_worker_first) is a detached non-HTML path, and the other way round"
+      ],
+      "evidence": [
+        "apps/edge/wrangler.toml:1",
+        "apps/edge/src/platform.ts:837"
+      ],
+      "note": "Workers 정적 자산으로 사이트와 /world/ 를 서빙"
+    },
+    "C02.2.API": {
+      "kind": "promise",
+      "title": "API · Workers + Hono · 호출당 CPU 10ms 예산",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::gates writes behind the operator token and fails closed without one",
+        "apps/edge/src/__tests__/worker.test.ts::drains request bodies a route never read, so a kept-alive connection survives an early answer"
+      ],
+      "evidence": [
+        "apps/edge/src/app.ts:203",
+        "apps/edge/src/platform.ts:537"
+      ],
+      "note": "Workers+Hono API 동작(호출당 CPU 10ms 예산을 재는 시험은 없음) · 사용자 화면 경로가 없어 실화면 확인을 붙일 수 없음(done → partial)"
+    },
+    "C02.2.월드_저장_멀티_룸": {
+      "kind": "promise",
+      "title": "월드 저장·멀티 룸 · Durable Object(SQLite) `WorldDO` · 월드당 1개",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::keeps built blocks after the DO restarts (worlds rehydrate from SQLite)",
+        "apps/edge/src/__tests__/plot.test.ts::starts from the town plot with the starter bag, saves only what changed, and survives a restart"
+      ],
+      "evidence": [
+        "apps/edge/src/storage.ts:611",
+        "apps/edge/src/platform.ts:126"
+      ],
+      "note": "월드 저장은 동작, 독립 WorldDO 가 아니고 WebSocket 멀티 룸 없음"
+    },
+    "C02.2.수업_룸": {
+      "kind": "promise",
+      "title": "수업 룸 · Durable Object `LessonDO` · 신호 교환, 대화 밀도 집계",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/director",
+      "e2e": {
+        "route": "/director",
+        "expect": [
+          "text:선생님 열쇠"
+        ],
+        "auth": "operator"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/lesson-window.test.ts::live lesson: text status (schema-valid), density band, captions from both sides; listen-only audio contract",
+        "apps/web/src/__tests__/lesson-window-page.test.ts::density band: one 4px cell per minute in two rows, shade by share of the minute; legend + note"
+      ],
+      "evidence": [
+        "apps/edge/src/storage.ts:1286",
+        "apps/edge/src/lesson-mode.ts:239"
+      ],
+      "note": "대화 밀도 집계·HTTP 폴링 신호는 동작, LessonDO 는 별도 DO 가 아닌 PlatformDO 안의 클래스"
+    },
+    "C02.2.공용_DB": {
+      "kind": "promise",
+      "title": "공용 DB · D1 · 계정, 좌석, 지표, 리포트, 서버 목록",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::boots the platform schema on DO SQLite and reports health without auth"
+      ],
+      "evidence": [
+        "apps/edge/wrangler.toml:2",
+        "apps/edge/src/storage.ts:94"
+      ],
+      "note": "계정·좌석·지표·리포트·서버 목록 표는 있음, D1 이 아니라 DO SQLite 하나에 둠"
+    },
+    "C02.2.파일": {
+      "kind": "promise",
+      "title": "파일 · R2 · 음성 클립, 스냅샷, 쇼룸, 사전 합성 음성",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "apps/edge/src/__tests__/voice.test.ts::a speech turn with consent uploads once; non-audio, oversize and replays are refused"
+      ],
+      "evidence": [
+        "apps/edge/wrangler.toml:28",
+        "apps/edge/src/do-sqlite.ts:104"
+      ],
+      "note": "R2 는 음성 클립만, 스냅샷·쇼룸은 DO SQLite blob, 사전 합성 음성 없음"
+    },
+    "C02.2.실시간_음성": {
+      "kind": "promise",
+      "title": "실시간 음성 · WebRTC + Cloudflare Realtime(TURN·SFU) · 수업 창문, 초대 월드 음성",
+      "status": "partial",
+      "owner": "lesson",
+      "route": "/window",
+      "e2e": {
+        "route": "/window",
+        "expect": [
+          "testid:lesson-window-page"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/lesson-audio.test.ts::teacher publishes → window shows the stream → guardian pulls, answers recvonly → teacher sees 1 listener"
+      ],
+      "evidence": [
+        "apps/edge/src/lesson-audio.ts:64",
+        "apps/web/src/LessonWindowPage.tsx:174"
+      ],
+      "note": "수업 창문 듣기는 Realtime SFU 로 동작, 초대 월드 음성 없음"
+    },
+    "C02.2.AI": {
+      "kind": "promise",
+      "title": "AI · Workers AI(Whisper, 소형 LLM) · 일 10,000 뉴런",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::caps Workers AI calls per day durably",
+        "apps/edge/src/__tests__/stt.test.ts::transcribes a child turn with Whisper in English, charges the meter by length, keeps no audio"
+      ],
+      "evidence": [
+        "apps/edge/src/stt.ts:80",
+        "apps/edge/src/platform.ts:253"
+      ],
+      "note": "Whisper 와 1만 뉴런 계기는 동작, 소형 LLM 은 운영에서 꺼져 있음"
+    },
+    "C02.2.기기_내_AI": {
+      "kind": "promise",
+      "title": "기기 내 AI · Whisper 소형(WebGPU), 음성 활동 감지, 브라우저 음성 합성 · 비용 0",
+      "status": "partial",
+      "owner": "talk",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/client/src/__tests__/stt.test.ts::never loads on-device Whisper on low tier, even with WebGPU",
+        "apps/client/src/__tests__/dialog.test.tsx::auto-stops 2.5 s after the child stops speaking, shows the 1.5 s hangover nudge first"
+      ],
+      "evidence": [
+        "apps/client/src/stt.ts:42",
+        "apps/client/src/dialog/sound.ts:73"
+      ],
+      "note": "브라우저 음성 인식·VAD·speechSynthesis 는 동작, WebGPU Whisper 는 경로 선택 함수만 있고 모델 로딩 없음"
+    },
+    "C02.2.예약_작업": {
+      "kind": "promise",
+      "title": "예약 작업 · Cron Trigger 3개, Queues · 무료 플랜은 크론 5개까지",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "apps/edge/src/__tests__/worker.test.ts::records cron runs so a keeper can detect silent failures",
+        "apps/edge/src/__tests__/review-seats.test.ts::R9 notices: once per kind, also when swept twice an hour; the cron run is recorded on its own"
+      ],
+      "evidence": [
+        "apps/edge/wrangler.toml:42",
+        "apps/edge/src/platform.ts:438"
+      ],
+      "note": "크론 3개는 동작, Queues 없음"
+    },
+    "C02.2.로그인": {
+      "kind": "promise",
+      "title": "로그인 · 카카오·구글 OAuth(보호자·성인), 기기 연결 코드(아이 프로필) · 비밀번호와 메일 발송이 필요 없음",
+      "status": "partial",
+      "owner": "ops",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/parent.test.ts::guardian creates a child profile and links a device with a one-time 6-digit code",
+        "apps/web/src/__tests__/family.test.ts::no session (or a bad invite) asks for the teacher link, never a password form"
+      ],
+      "evidence": [
+        "apps/edge/src/platform.ts:87",
+        "apps/edge/src/family.ts:557"
+      ],
+      "note": "기기 연결 코드·교사 초대 링크는 동작, 카카오·구글 OAuth 없음(코드 주석에 WP-301 미구현)"
+    },
+    "C02.2.알림": {
+      "kind": "promise",
+      "title": "알림 · 웹 푸시(`push.ts`·`web-push.ts`, VAPID 키는 DO 안에서 생성, 발송 스위치는 운영자), 리포트 링크 복사(메신저 공유) · 비용 0. 알림톡은 나중에",
+      "status": "done",
+      "owner": "parent",
+      "route": "/family",
+      "e2e": {
+        "route": "/family",
+        "expect": [
+          "text:우리 가족"
+        ],
+        "auth": "guardian"
+      },
+      "tests": [
+        "apps/edge/src/__tests__/push.test.ts::subscribe → seat 7d notice queued → held while off → sent encrypted to this family only once on",
+        "apps/web/src/__tests__/family-push.test.ts::off → one button; on → state, test, off; held → says sending starts later and hides the test"
+      ],
+      "evidence": [
+        "apps/edge/src/push.ts:44",
+        "apps/edge/src/push.ts:54"
+      ],
+      "note": "웹 푸시·DO 안 VAPID·운영자 발송 스위치·리포트 링크 복사가 동작"
+    },
+    "C02.2.오류_수집": {
+      "kind": "promise",
+      "title": "오류 수집 · Workers Logs, 클라이언트 오류 수집 엔드포인트 · ",
+      "status": "partial",
+      "owner": "ops",
+      "tests": [
+        "apps/edge/src/__tests__/lesson-watch.test.ts::tail: a worker killed for CPU/memory counts as a server fault; a client hang-up does not"
+      ],
+      "evidence": [
+        "tools/lesson-watch.mjs:1",
+        "apps/edge/wrangler.toml:1"
+      ],
+      "note": "수업 감시 도구가 Worker tail 만 읽음, 클라이언트 오류 수집 엔드포인트와 Workers Logs 설정 없음"
+    }
+  },
+  "features": [
+    {
+      "id": "talk_order",
+      "status": "live",
+      "owner": "talk",
+      "evidence": "apps/client/src/dialog/DialogPanel.tsx:113 · apps/edge/src/app.ts:239 카페 주문 1~3성",
+      "route": "/world/?scene=honey_cafe",
+      "e2e": {
+        "route": "/world/?scene=honey_cafe",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/converse-score.test.ts::a full 3-star order is charged the 50% price from the bank",
+        "apps/client/src/__tests__/dialog.test.tsx::tap starts, tap finishes and delivers"
+      ]
+    },
+    {
+      "id": "talk_trade",
+      "status": "live",
+      "owner": "talk",
+      "evidence": "apps/client/src/world/town.ts:97 물물교환 가게 장면 · apps/edge 물물교환",
+      "route": "/world/?scene=trade_shop",
+      "e2e": {
+        "route": "/world/?scene=trade_shop",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/edge.test.ts::executes bilateral trade atomically, tracks solo expression reuse, sends parent report, triggers 48h reminder, and updates on open"
+      ]
+    },
+    {
+      "id": "build_plot",
+      "status": "live",
+      "owner": "world",
+      "evidence": "apps/client/src/world/build.ts:310 · apps/edge/src/plot.ts:215 블록 놓기·저장",
+      "route": "/world/?scene=build_plot",
+      "e2e": {
+        "route": "/world/?scene=build_plot",
+        "expect": [
+          "canvas",
+          "text:방 검사"
+        ]
+      },
+      "tests": [
+        "apps/client/src/world/__tests__/build.test.ts::places and breaks one block per input through setBlock, remeshes it, and undoes the last 20",
+        "apps/edge/src/__tests__/plot.test.ts::starts from the town plot with the starter bag, saves only what changed, and survives a restart"
+      ]
+    },
+    {
+      "id": "residents",
+      "status": "building",
+      "owner": "world",
+      "evidence": "apps/client/src/world/build-hud.ts:4 방 판정은 있으나 주민 입주(고정 명단 12명) 없음",
+      "tests": []
+    },
+    {
+      "id": "fight",
+      "status": "planned",
+      "owner": "world",
+      "evidence": "전투·던전·음성 스킬 코드 없음(packages/sim-core/src/domains.ts 표만)",
+      "tests": []
+    },
+    {
+      "id": "earn",
+      "status": "building",
+      "owner": "world",
+      "evidence": "apps/edge/src/errand.ts 첫 심부름 +50 코인·가게 시세(apps/edge/src/economy.ts). 채굴·환전·취업 화면 없음",
+      "route": "/world/",
+      "e2e": {
+        "route": "/world/",
+        "expect": [
+          "canvas",
+          "text:지금 할 일"
+        ]
+      },
+      "tests": []
+    },
+    {
+      "id": "explore_regions",
+      "status": "planned",
+      "owner": "world",
+      "evidence": "중앙 섹터 마을 하나뿐(apps/client/src/world/town.ts). 9섹터·288m 무작위 월드 없음",
+      "tests": []
+    },
+    {
+      "id": "court",
+      "status": "planned",
+      "owner": "world",
+      "evidence": "법정 코드 없음",
+      "tests": []
+    },
+    {
+      "id": "destruction",
+      "status": "building",
+      "owner": "world",
+      "evidence": "packages/destruction 커널·시험은 있으나 월드 화면에 폭발·물폭탄·로켓 없음",
+      "tests": []
+    },
+    {
+      "id": "craft_gear",
+      "status": "planned",
+      "owner": "talk",
+      "evidence": "AI 제작(아이템·의상) 미리보기·검문 화면 없음(G09)",
+      "tests": []
+    },
+    {
+      "id": "jetpack",
+      "status": "planned",
+      "owner": "world",
+      "evidence": "제트팩 아이템·비행 없음(사이트 문구에만)",
+      "tests": []
+    },
+    {
+      "id": "mine",
+      "status": "planned",
+      "owner": "world",
+      "evidence": "채굴·광산 장면 없음",
+      "tests": []
+    },
+    {
+      "id": "sky_island",
+      "status": "planned",
+      "owner": "world",
+      "evidence": "하늘섬(수직 밴드) 없음",
+      "tests": []
+    },
+    {
+      "id": "space_station",
+      "status": "planned",
+      "owner": "world",
+      "evidence": "우주 정거장(수직 밴드) 없음",
+      "tests": []
+    },
+    {
+      "id": "friends_pass",
+      "status": "building",
+      "owner": "outsider",
+      "evidence": "apps/web/src/site/pages/Info.tsx:104 입력 화면만. 3D 월드가 ?pass 를 읽지 않고 패스 발급 경로 없음",
+      "route": "/pass",
+      "e2e": {
+        "route": "/pass",
+        "expect": [
+          "text:게스트 패스"
+        ]
+      },
+      "tests": []
+    },
+    {
+      "id": "showroom",
+      "status": "live",
+      "owner": "outsider",
+      "evidence": "apps/web/src/site/pages/Showroom.tsx:60 · apps/edge/src/showroom.ts:143",
+      "route": "/s/demo",
+      "e2e": {
+        "route": "/s/demo",
+        "expect": [
+          "text:하늘 카페 마을"
+        ]
+      },
+      "tests": [
+        "apps/edge/src/__tests__/showroom.test.ts::needs the showroom consent, then serves only the allow-listed snapshot the site can draw"
+      ]
+    }
+  ],
+  "broken_refs": [
+    {
+      "doc": "docs/01-product.md",
+      "ref": "06",
+      "owner": "lesson",
+      "note": "06-lesson-teacher.md(교사·수업 아크·디렉터 콘솔·수업 창문·리포트)가 docs/ 에 없음. 18-lesson-mode.md 가 일부를 대신함 — 06 을 복원하거나 참조를 18 로 고칠 것(수업 도메인)"
+    },
+    {
+      "doc": "docs/04-conversation-engine.md",
+      "ref": "06",
+      "owner": "lesson",
+      "note": "06-lesson-teacher.md(교사·수업 아크·디렉터 콘솔·수업 창문·리포트)가 docs/ 에 없음. 18-lesson-mode.md 가 일부를 대신함 — 06 을 복원하거나 참조를 18 로 고칠 것(수업 도메인)"
+    },
+    {
+      "doc": "docs/08-design-system.md",
+      "ref": "06",
+      "owner": "lesson",
+      "note": "06-lesson-teacher.md(교사·수업 아크·디렉터 콘솔·수업 창문·리포트)가 docs/ 에 없음. 18-lesson-mode.md 가 일부를 대신함 — 06 을 복원하거나 참조를 18 로 고칠 것(수업 도메인)"
+    },
+    {
+      "doc": "docs/11-build-plan.md",
+      "ref": "06",
+      "owner": "lesson",
+      "note": "06-lesson-teacher.md(교사·수업 아크·디렉터 콘솔·수업 창문·리포트)가 docs/ 에 없음. 18-lesson-mode.md 가 일부를 대신함 — 06 을 복원하거나 참조를 18 로 고칠 것(수업 도메인)"
+    },
+    {
+      "doc": "docs/14-site-and-marketing.md",
+      "ref": "06",
+      "owner": "lesson",
+      "note": "06-lesson-teacher.md(교사·수업 아크·디렉터 콘솔·수업 창문·리포트)가 docs/ 에 없음. 18-lesson-mode.md 가 일부를 대신함 — 06 을 복원하거나 참조를 18 로 고칠 것(수업 도메인)"
+    },
+    {
+      "doc": "docs/README.md",
+      "ref": "06",
+      "owner": "lesson",
+      "note": "06-lesson-teacher.md(교사·수업 아크·디렉터 콘솔·수업 창문·리포트)가 docs/ 에 없음. 18-lesson-mode.md 가 일부를 대신함 — 06 을 복원하거나 참조를 18 로 고칠 것(수업 도메인)"
+    }
+  ]
+}

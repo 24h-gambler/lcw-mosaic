@@ -135,3 +135,66 @@ Cloudflare 수치는 공식 요금 문서에서, AWS는 공식 안내 문서에�
 4. **가격**: 요금은 가설입니다. 과외비에 좌석을 포함할지 따로 받을지 정해 주세요.
 5. **두 번째 언어**: 언어마다 원어민 검수가 필요합니다.
 6. **제품 이름**: "LCW (Language Conversation World)"와 내부 가칭 "네더"는 출시 전 상표 검색 후 확정합니다.
+
+## 10. 설계서 대조 (2026-11-16, 운영자 지시 R2553)
+
+설계서에 있는 화면(08 §8.6의 G07 월드 고르기, G15 첫 접속 안내)과 약속(02 로그인 OAuth)이 만들어지지 않았는데도 '완료'로 보고된 일이 있었습니다. 그 뒤로 '완료'는 사람의 주의가 아니라 아래 시험이 정합니다. 다른 에이전트는 이 장만 읽고 같은 구조를 다시 만들 수 있어야 합니다.
+
+### 10.1 무엇이 목록에 오르나 — `tools/spec-ids.mjs`
+
+| 종류 | 출처 | id 모양 |
+|---|---|---|
+| 화면 | 표 머리가 `ID | 화면` 또는 `ID | 주소`인 표의 행(08 §8.6, 14 §2). `W01~W09`처럼 범위는 펼침 | `G07`, `T01`, `P04`, `W06` |
+| 흐름 | 10 §1–§7 도표: 순서도는 자동 번호, 흐름도는 노드 이름. §8 표는 행 × 역할 칸 | `F10.2.07`, `F10.3.A2`, `F10.8.+3분.player` |
+| 핵심 약속 | 01의 §1 문장·모든 표 행·글머리, 02 §1 원칙과 §2 기술 스택 행 | `C01.3.체험_씬`, `C02.2.로그인` |
+| 끊긴 참조 | 문서가 가리키는 번호(`06`, `06-이름.md`)에 해당 파일이 없음 | `docs/08-design-system.md#06` |
+
+`node tools/spec-ids.mjs --summary`로 수와 끊긴 참조를 봅니다. 설계서를 고치면 목록이 저절로 바뀝니다.
+
+### 10.2 목록 — `docs/spec-coverage.json`
+
+```json
+{
+  "ids": {
+    "G07": { "kind": "screen", "title": "월드 고르기·만들기", "status": "missing", "owner": "world", "tests": [], "evidence": [], "note": "무엇이 빠졌는지" },
+    "T01": { "status": "done", "owner": "lesson", "route": "/director",
+             "e2e": { "route": "/director", "expect": ["text:선생님 열쇠"], "auth": "operator" },
+             "tests": ["apps/web/src/__tests__/directorLive.test.ts::<it 이름 그대로>"], "evidence": ["apps/web/src/LessonDirector.tsx:65"] }
+  },
+  "features": [ { "id": "showroom", "status": "live", "owner": "outsider", "evidence": "…", "route": "/s/demo", "e2e": { … }, "tests": [ … ] } ],
+  "broken_refs": [ { "doc": "docs/08-design-system.md", "ref": "06", "owner": "lesson", "note": "할 일" } ]
+}
+```
+
+- `status`: `done`(사용자 화면에서 동작 + 시험 + 실화면 확인) · `partial`(일부, `note`에 빠진 것, `evidence` 필수) · `missing`(없음, `note` 필수) · `deferred`/`retired`(운영자 결정으로만, `decision` 필수).
+- `owner`: `world` · `talk` · `lesson` · `parent` · `outsider` · `ops`. 빈틈은 이 소유자에게 갑니다.
+- `tests`: `파일::it 이름`(파일 안에 그 이름이 그대로 있어야 함) 또는 `tools/*.mjs` 실화면 도구.
+- `e2e`: 야간 감사가 운영에서 여는 주소와 화면에 보여야 할 표시(`canvas`, `text:…`, `testid:…`). `auth`는 열쇠가 있어야 보이는 화면임을 뜻하고, 감사는 열쇠 없이 보이는 화면까지만 확인했다고 적습니다.
+- `features`: 소개 사이트가 약속을 기능 상태와 묶어 읽는 구역(외부인 도메인이 import). `live`는 `done`과 같은 규칙.
+- 처음 상태(2026-11-16)는 코드 대조와 독립 감사(운영 43장 촬영)로 채웠습니다. missing 이 많은 것이 정직한 상태입니다.
+
+### 10.3 무엇이 머지를 막나 — `pnpm test`의 `tools/__tests__/spec-coverage.test.ts`
+
+1. 설계서에 있는데 목록에 없는 id.
+2. `done`(또는 `live`)인데 시험이 없거나, 시험 파일·이름을 찾을 수 없거나, `e2e`가 없는 것.
+3. 범위 축소: 목록에서 id·기능을 지움, `deferred`/`retired`로 바꿈, 기능을 `planned`로 내림 — 운영자 결정 id(`d_…` 결정 카드 또는 `R…` 원장)가 `decision`에 없으면 실패. 비교 기준은 main 과 갈라진 지점의 목록(`git merge-base HEAD origin/main`, 바꾸려면 `LCW_COVERAGE_BASE=<ref>`).
+4. 새로 끊긴 문서 참조. 이미 아는 끊긴 참조는 `broken_refs`에 소유자·할 일과 함께 두고, 고쳐지면 목록에서 빼야 통과합니다.
+
+`missing`·`partial`은 실패가 아닙니다. `node tools/spec-coverage.mjs`가 소유자별 빈틈 목록으로 보여 줍니다.
+
+### 10.4 매일 밤 운영 화면 — `tools/nightly-audit.mjs`
+
+```bash
+PLAYWRIGHT_CORE=<playwright-core/index.mjs> node tools/nightly-audit.mjs --base https://lcw.worldwidesomething.com --out <폴더>
+```
+
+- 목록의 모든 `e2e`·`route`와 사이트 페이지를 1440×900, 390×844 에서 헤드리스(창 없음, 소리 끔)로 엽니다.
+- 경로·크기마다 HTTP 상태, 도착 주소, 콘솔·페이지 오류, 가로 넘침, 금지어(`docs/21` 5장), 사용자 화면의 내부 번호(WP-305, T01, R2553), 한국어 줄바꿈(`word-break: keep-all`), 내부 화면(콘솔·보호자 화면)의 공통 틀(글꼴·배경)을 적고 촬영합니다.
+- `done`인데 운영에서 열리지 않거나 표시가 없으면 **회귀**입니다. 결과는 `<폴더>/report.json`과 `summary.md`.
+- 집 PC 예약 작업 `Dan-LCW-Nightly-Audit`(자동화 저장소 `server/lcw_nightly_audit.py`)이 매일 밤 돌리고, 회귀·빈틈·디자인 문제가 있으면 허브에 정보 카드(P3) 한 장을 올립니다.
+
+### 10.5 일하는 사람의 규칙
+
+- '완료'라고 보고하려면 그 id 가 `done`이고 시험과 실화면 확인이 통과해야 합니다(AGENTS.md 0.5).
+- 화면을 만들면 같은 PR 에서 그 id 의 `status`·`tests`·`e2e`·`evidence`를 고칩니다.
+- 범위를 줄이려면 먼저 운영자 결정(결정 카드)을 받고 그 id 를 `decision`에 적습니다(AGENTS.md 0.6).

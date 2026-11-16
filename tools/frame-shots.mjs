@@ -37,7 +37,8 @@ const SETTINGS = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTI
 // the title screen (world lane) and the first-visit / mic cards (dialog domain): step past them like a child would
 async function passTitle(page) {
   const start = page.getByRole('button', { name: /^(시작하기|Start)/ });
-  if (await start.count()) {
+  // the title can come up a moment after the load bar on a busy machine: wait for it rather than count once
+  if (await start.first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) {
     await start.first().click({ timeout: 3000 }).catch(() => {});
     await page.waitForTimeout(2500);
   }
@@ -128,11 +129,19 @@ for (const vp of VIEWPORTS) {
 
   // 1. start: status line, coins, explained empty bar
   // the empty-bar line shows for 6 s after loading; a busy machine can get here later, so pick slot 1 to bring it back
-  const capOn = () => page.evaluate(() => document.querySelector('.lw-cap')?.classList.contains('on') ?? false);
+  // (a key press can land while a late first-visit card holds focus, so tap the slot and wait for the fade-in)
+  const capShown = () =>
+    page
+      .waitForFunction(() => {
+        const c = document.querySelector('.lw-cap');
+        return !!c && c.classList.contains('on') && Number(getComputedStyle(c).opacity) > 0.9;
+      }, null, { timeout: 2500 })
+      .then(() => true)
+      .catch(() => false);
   await dismissCards(page);
-  if (!(await capOn())) {
-    await page.keyboard.press('Digit1');
-    await page.waitForTimeout(400);
+  for (let n = 0; n < 3 && !(await capShown()); n++) {
+    await dismissCards(page);
+    await page.evaluate(() => document.querySelectorAll('.lw-slot')[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
   }
   const a = await boxes(page);
   await page.screenshot({ path: `${out}/${vp.name}-1start.png` });

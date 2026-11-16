@@ -128,7 +128,8 @@ for (const vp of VIEWPORTS) {
   await page.waitForTimeout(1500);
   // the title screen (world lane) and the first-visit / mic cards (dialog domain): step past them like a child would
   const start = page.getByRole('button', { name: /^(시작하기|Start)/ });
-  if (await start.count()) {
+  // the title can come up a moment after the load bar on a busy machine: wait for it rather than count once
+  if (await start.first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) {
     await start.first().click({ timeout: 3000 }).catch(() => {});
     await page.waitForTimeout(2500);
   }

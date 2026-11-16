@@ -32,6 +32,8 @@ export interface PendingSignup {
   match_ambiguous?: boolean;
   /** A student with a guardian has this name now (after the sign-up): not as a new student; link or reject. */
   name_taken?: boolean;
+  /** The student with a guardian who holds the name now (not linkable: player_has_guardian). */
+  taken_by?: { player_id: string; nickname: string } | null;
 }
 /** The consenting adult (docs/16 §3): the child's guardian aged 19+, or the student aged 14+ themselves. */
 export type AgeAttest = 'guardian_19' | 'self_14';

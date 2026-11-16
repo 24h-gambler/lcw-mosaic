@@ -181,7 +181,7 @@ describe('student sign-up on the guardian account (student-account.ts)', () => {
     expect(await kiki()).toMatchObject({ match: { player_id: 'stu-kiki' }, match_ambiguous: false, name_taken: false });
     const kinv = await call(p, 'POST', '/v1/admin/family-invites', { player_id: 'stu-kiki' });
     expect((await call(p, 'POST', '/v1/family/session', { invite: kinv.body.invite_path.split('#k=')[1] }, anon)).status).toBe(200);
-    expect(await kiki()).toMatchObject({ match: null, match_ambiguous: false, name_taken: true });
+    expect(await kiki()).toMatchObject({ match: null, match_ambiguous: false, name_taken: true, taken_by: { player_id: 'stu-kiki', nickname: 'Kiki' } });
     // Two teacher-made rows called Mina: the sign-up waits for the teacher, who picks (no row guessed).
     await teacherRow(p, 'stu-mina-1', 'Mina');
     await teacherRow(p, 'stu-mina-2', 'Mina');

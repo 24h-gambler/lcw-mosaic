@@ -21,9 +21,10 @@ import {
 } from '@lcw/metrics';
 import { LessonDO, type DirectorEventKind, type EdgePlatformDb, type SqliteExecutor } from './storage.js';
 import { markSeatUse } from './seats.js';
-import { buildLessonParentFacts } from './parent-report.js';
+import { buildLessonParentFacts, mergeLessonParentFacts } from './parent-report.js';
 import { createMemoryCard } from './review.js';
 import { enqueueLessonEnd, mountOpsCardRoutes } from './ops-cards.js';
+import { isTestPlayerId } from './nickname.js';
 
 /**
  * Lesson mode (docs/18): a real lesson without the 3D world. The teacher (operator token) starts a lesson and gets a
@@ -94,6 +95,29 @@ export const TYPED_INPUT_MAX_STARS = 2;
 export const UTTERANCE_CLAIM_STALE_MS = 60_000;
 const TYPED_INPUT_SOURCES: ReadonlySet<string> = new Set(['keyboard', 'board']);
 
+/**
+ * Abandoned lessons (Oreo lesson 11-16: the child's screen and the console both went away at 17:03 and nobody pressed
+ * '수업 끝', so the lesson stayed open with no summary, no progress table and no report). A lesson with no sign of the
+ * teacher (console beat) or the child (state poll, answer) and no director action for LESSON_IDLE_CLOSE_MS is closed
+ * by the cron sweep as 'left without ending' (end_reason 'auto_idle'): ended at its last sign of life, pin expressions
+ * kept, the progress table and a report draft made, the join code and student tokens closed, hub cards queued. Nothing
+ * goes to the guardian: the report is made and sent only when the teacher confirms it on the console (send: true),
+ * because a report reaching a parent is a message to a person. A same-day lesson for the same student continues it
+ * (lesson_continuations) and its report covers both parts.
+ */
+export const LESSON_IDLE_CLOSE_MS = 15 * 60_000;
+/** An auto-closed lesson whose last sign of life is older than this closes without hub cards (a stale card is noise). */
+export const LESSON_AUTO_CARD_MAX_AGE_MS = 24 * 3_600_000;
+/** The cron that runs the idle sweep (wrangler.toml); the hourly tasks keep '0 * * * *' (platform.ts scheduled). */
+export const LESSON_SWEEP_CRON = '*/5 * * * *';
+export const LESSON_END_AUTO_IDLE = 'auto_idle';
+/** The site the hub card links to when neither the lesson's start nor the deploy (LCW_PUBLIC_ORIGIN) gave one. */
+export const LCW_SITE_ORIGIN = 'https://lcw.worldwidesomething.com';
+/** The console box lists auto-closed lessons whose last sign of life is this recent (an old lesson is not a to-do). */
+export const LESSON_AUTO_BOX_MAX_AGE_MS = 14 * 86_400_000;
+/** The talk lane's last mic error (sessionStorage 'lcw.micIssue' = "<issue>:<browser code>|<epoch ms>", PR 122). */
+export const MIC_ISSUE_RE = /^([a-z_]{1,20}):([a-z0-9_-]{0,40})\|(\d{10,14})$/;
+
 export const LESSON_MODE_SCHEMA = `
 create table if not exists lesson_joins (code text primary key, lesson_id text not null, player_id text not null, expires_at integer not null);
 create table if not exists student_tokens (token_hash text primary key, lesson_id text not null, player_id text not null, expires_at integer not null);
@@ -111,7 +135,10 @@ create table if not exists lesson_director (lesson_id text primary key, possesse
 create table if not exists lesson_presence (lesson_id text primary key, last_seen_at integer not null, scene_id text, ui text);
 create table if not exists lesson_utterance_clients (lesson_id text not null, client_id text not null, response text not null, at integer not null, primary key (lesson_id, client_id));
 create table if not exists lesson_teacher (lesson_id text primary key, first_beat_at integer not null, last_beat_at integer not null, present_since integer not null, panel text not null default 'open', op_session text, name text, left_at integer, account_name text);
-create table if not exists lesson_panel_lock (lesson_id text primary key, pin_hash text not null, set_at integer not null, fails integer not null default 0, fail_since integer)
+create table if not exists lesson_panel_lock (lesson_id text primary key, pin_hash text not null, set_at integer not null, fails integer not null default 0, fail_since integer);
+create table if not exists lesson_auto_close (lesson_id text primary key, closed_at integer not null, last_activity_at integer not null, draft text not null, sent_at integer, folded_into text, empty integer not null default 0);
+create table if not exists lesson_continuations (lesson_id text primary key, continues_from text not null, at integer not null);
+create table if not exists lesson_origins (lesson_id text primary key, origin text not null)
 `;
 
 export interface LessonModeDeps {
@@ -213,7 +240,7 @@ export const FEEDBACK_EN: Readonly<Record<FeedbackKey, string>> = {
   freeLong: 'Wow, a long answer! 3 stars!',
   freeMore: 'Nice! Say a little more to get more stars.',
   perfect: 'Perfect! 3 stars!',
-  passedTryUp: 'You passed! Try a harder sentence next time?',
+  passedTryUp: 'You passed! Next time, try a harder sentence.',
   passed: 'You passed!'
 };
 export function feedbackKo(r: FeedbackInput): string {
@@ -221,6 +248,16 @@ export function feedbackKo(r: FeedbackInput): string {
 }
 export function feedbackEn(r: FeedbackInput): string {
   return FEEDBACK_EN[feedbackKey(r)];
+}
+/** Both lines of one answer from one key choice. */
+function feedbackOf(r: FeedbackInput): { feedback_ko: string; feedback_en: string } {
+  const k = feedbackKey(r);
+  return { feedback_ko: FEEDBACK_KO[k], feedback_en: FEEDBACK_EN[k] };
+}
+/** An answer stored before feedback_en existed: the English line found from its Korean one (review #121). */
+export function feedbackEnFromKo(ko: unknown): string | undefined {
+  const k = (Object.keys(FEEDBACK_KO) as FeedbackKey[]).find((x) => FEEDBACK_KO[x] === ko);
+  return k ? FEEDBACK_EN[k] : undefined;
 }
 
 const StartSchema = z
@@ -263,8 +300,14 @@ const PinSchema = z
   })
   .strict();
 const EndSchema = z
-  .object({ teacher_comment: z.string().max(400).default(''), next_lesson_at: z.string().max(60).default('') })
+  .object({
+    teacher_comment: z.string().max(400).default(''),
+    next_lesson_at: z.string().max(60).default(''),
+    // An auto-closed lesson's report goes to the guardian only with this (the teacher confirmed it on the console).
+    send: z.boolean().optional()
+  })
   .strict();
+const SweepSchema = z.object({ dry_run: z.boolean().default(false) }).strict();
 const NpcIdSchema = z.enum(LESSON_NPCS.map((n) => n.id) as [string, ...string[]]);
 const NpcSaySchema = z.object({ npc_id: NpcIdSchema, text: z.string().trim().min(1).max(200) }).strict();
 const PossessSchema = z.object({ npc_id: NpcIdSchema.nullable() }).strict();
@@ -331,7 +374,9 @@ export function lessonMinutes(
   return { minutes: out, complete };
 }
 
-export function buildLessonModeApp(d: LessonModeDeps): Hono {
+export function buildLessonModeApp(
+  d: LessonModeDeps
+): Hono & { sweepIdleLessons: (now: number, origin: string | null, dryRun?: boolean) => IdleSweepResult } {
   d.sql.exec(LESSON_MODE_SCHEMA);
   // lesson_presence predates the mic column: add it once on an existing database.
   if (!d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').some((col) => col.name === 'mic')) {
@@ -340,6 +385,11 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   const teacherCols = d.sql.all<{ name: string }>('pragma table_info(lesson_teacher)').map((col) => col.name);
   if (!teacherCols.includes('left_at')) d.sql.exec('alter table lesson_teacher add column left_at integer');
   if (!teacherCols.includes('account_name')) d.sql.exec('alter table lesson_teacher add column account_name text');
+  const presenceCols = d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').map((col) => col.name);
+  if (!presenceCols.includes('mic_issue')) d.sql.exec('alter table lesson_presence add column mic_issue text');
+  if (!d.sql.all<{ name: string }>('pragma table_info(lesson_auto_close)').some((col) => col.name === 'empty')) {
+    d.sql.exec('alter table lesson_auto_close add column empty integer not null default 0');
+  }
   const app = new Hono();
   // Hub cards for the teacher (after-lesson summary, student's daily record): an outbox the spine side pulls.
   mountOpsCardRoutes(app, d);
@@ -577,6 +627,145 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       row.text
     ]);
 
+  /* ---------- abandoned lessons (see LESSON_IDLE_CLOSE_MS) ---------- */
+
+  /**
+   * F2 pins become lesson-born expressions (WP-310 transfer tracking): the teacher's note, else the top candidate, as
+   * a whole unit ("Can I have" -> the child's "Can I have a warm honey tea?"); fragments nothing explains are dropped.
+   * Insert-or-ignore by pin id, so the auto-close and the teacher's later report never count one twice.
+   */
+  const registerPinExpressions = (id: string, playerId: string, pinWindows: ReturnType<typeof pinWindowsOf>) => {
+    const targets = planTargetsOf(id);
+    for (const w of pinWindows) {
+      const note = /[A-Za-z]{2,}/.test(w.note) ? w.note.trim() : '';
+      const said = w.lines.filter((x) => x.speaker === 'student').map((x) => x.text).reverse();
+      // The lemma stays the pattern the teacher pinned ("can I have"): transfer tracking looks for it in solo play
+      // (every lemma token must reappear), so a whole sentence would almost never count. A note that nothing in the
+      // lesson explains (a remark, "for your") is not a pattern: the top candidate line stands in.
+      const pattern = note && meaningfulExpression(note, { utterances: said, targets }) ? note : '';
+      const lemma = w.kind === 'expression' ? (pattern || w.candidate_expressions[0] || '').slice(0, 120) : '';
+      if (lemma) {
+        d.db.registerLessonExpression({ id: `expr-${w.pin_id}`, playerId, lemmaKey: lemma, lessonId: id, nowMs: d.nowMs() });
+      }
+    }
+  };
+
+  /** The last sign of life of a running lesson: its start, the child's poll or answer, the console, a director act. */
+  const lastActivityOf = (id: string, startedAt: number): number =>
+    Math.max(
+      startedAt,
+      ...d.sql
+        .all<{ at: number | null }>(
+          `select max(last_seen_at) as at from lesson_presence where lesson_id = ?
+           union all select max(max(last_beat_at, coalesce(left_at, 0))) from lesson_teacher where lesson_id = ?
+           union all select max(at) from lesson_live where lesson_id = ?
+           union all select max(at) from lesson_stage_log where lesson_id = ?
+           union all select max(updated_at) from lesson_director where lesson_id = ?
+           union all select max(created_at) from utterances where session_id = ?`,
+          [id, id, id, id, id, id]
+        )
+        .map((r) => Number(r.at ?? 0))
+    );
+
+  type AutoRow = { lesson_id: string; closed_at: number; last_activity_at: number; draft: string; sent_at: number | null; folded_into: string | null; empty: number };
+  const autoOf = (id: string) => d.sql.get<AutoRow>('select * from lesson_auto_close where lesson_id = ?', [id]) ?? null;
+  const continuesFromOf = (id: string) =>
+    d.sql.get<{ continues_from: string }>('select continues_from from lesson_continuations where lesson_id = ?', [id])?.continues_from ?? null;
+  /** The earlier parts this lesson's report also covers: auto-closed, not sent and not folded yet, oldest first. */
+  const unsentPartsBefore = (id: string): string[] => {
+    const out: string[] = [];
+    for (let cur = continuesFromOf(id); cur && out.length < 10 && !out.includes(cur); cur = continuesFromOf(cur)) {
+      const a = autoOf(cur);
+      if (!a || a.sent_at !== null || a.folded_into !== null) break;
+      out.unshift(cur);
+    }
+    return out;
+  };
+  /** Talk balance over several parts of one lesson (each part's own minutes; the gap between parts is not counted). */
+  const progressOfParts = (id: string, ids: readonly string[]) => {
+    if (ids.length <= 1) return progressOf(id, minutesOf(id, d.nowMs()));
+    const minutes = ids.flatMap((x) => minutesOf(x, d.nowMs()).minutes.map((m) => ({ ...m, lesson_id: id })));
+    const m = computeLessonMetrics(id, minutes, ids.flatMap((x) => lessonUtterances(x).map((u) => ({ ...u, lesson_id: id }))));
+    return {
+      student_ms: m.student_ms,
+      teacher_ms: m.teacher_ms,
+      student_talk_ratio: m.student_talk_ratio,
+      exchanges: m.exchanges,
+      long_silence_minutes: m.long_silence_minutes,
+      mode_breakdown: m.mode_breakdown
+    };
+  };
+  const draftSummaryOf = (a: AutoRow | null): string | null => {
+    if (!a) return null;
+    try {
+      const v = JSON.parse(a.draft) as { facts?: { summary_ko?: unknown } | null };
+      return typeof v.facts?.summary_ko === 'string' ? v.facts.summary_ko : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Close one abandoned lesson. Synchronous on purpose: the Durable Object runs it without a break, so a console's end
+   * or a child's answer never lands halfway. Makes no report row and no delivery (nothing reaches the guardian).
+   */
+  const autoCloseLesson = (id: string, lastActivity: number, now: number, fallbackOrigin: string | null): AutoCloseOutcome | null => {
+    const l = lessonRow(id);
+    if (!l || l.ended_at) return null;
+    // The child never came (no screen poll, no answer): nothing to report, so no card and no box row (N2).
+    const empty =
+      !d.sql.get('select 1 from lesson_presence where lesson_id = ?', [id]) && !d.sql.get('select 1 from utterances where session_id = ? limit 1', [id]);
+    const endAt = Math.max(l.started_at, Math.min(lastActivity, now));
+    d.sql.run('update lessons set ended_at = ? where id = ? and ended_at is null', [endAt, id]);
+    registerPinExpressions(id, l.player_id, pinWindowsOf(id));
+    // The draft the teacher sees before sending: the parent page's numbers as they would be now (the confirm rebuilds
+    // them from the same rows, so a draft never drifts from what is sent).
+    const draft = { facts: buildLessonParentFacts(d.sql, id, endAt), progress: progressOf(id, minutesOf(id, endAt)) };
+    d.sql.run(
+      'insert or replace into lesson_auto_close (lesson_id, closed_at, last_activity_at, draft, sent_at, folded_into, empty) values (?, ?, ?, ?, null, null, ?)',
+      [id, now, lastActivity, JSON.stringify(draft), empty ? 1 : 0]
+    );
+    d.sql.run('update student_tokens set expires_at = min(expires_at, ?) where lesson_id = ?', [now, id]);
+    d.sql.run('delete from lesson_joins where lesson_id = ?', [id]);
+    // The deploy's LCW_PUBLIC_ORIGIN (or the operator's own request) first, then where the lesson was started, then the site.
+    const origin =
+      fallbackOrigin ?? d.sql.get<{ origin: string }>('select origin from lesson_origins where lesson_id = ?', [id])?.origin ?? LCW_SITE_ORIGIN;
+    let card: AutoCloseOutcome['card'] = 'sent';
+    if (empty) card = 'empty';
+    else if (isTestPlayerId(l.player_id)) card = 'test';
+    else if (now - endAt > LESSON_AUTO_CARD_MAX_AGE_MS) card = 'stale';
+    else {
+      try {
+        enqueueLessonEnd(d.sql, id, now, origin);
+      } catch (err) {
+        // the teacher's confirm writes the cards again; the ops run says it failed (never a silent miss)
+        card = `failed:${err instanceof Error ? err.message.slice(0, 80) : 'error'}`;
+      }
+    }
+    return { lesson_id: id, card };
+  };
+
+  /** The cron sweep (platform.ts /internal/cron) and the operator's on-demand run share this. */
+  const sweepIdleLessons = (now: number, origin: string | null, dryRun = false) => {
+    const open = d.sql.all<{ id: string; player_id: string; started_at: number }>(
+      'select id, player_id, started_at from lessons where ended_at is null order by started_at limit 200'
+    );
+    const idle: Array<{ lesson_id: string; test: boolean; last_activity_at: number; idle_min: number }> = [];
+    for (const l of open) {
+      const last = lastActivityOf(l.id, l.started_at);
+      if (now - last < LESSON_IDLE_CLOSE_MS) continue;
+      idle.push({ lesson_id: l.id, test: isTestPlayerId(l.player_id), last_activity_at: last, idle_min: Math.floor((now - last) / 60_000) });
+    }
+    const outcomes = dryRun ? [] : idle.map((x) => autoCloseLesson(x.lesson_id, x.last_activity_at, now, origin)).filter((x) => x !== null);
+    return { open: open.length, idle, closed: outcomes.map((x) => x.lesson_id), cards: outcomes, dry_run: dryRun };
+  };
+
+  app.post('/v1/admin/lessons/sweep-idle', async (c) => {
+    const p = SweepSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    return c.json(sweepIdleLessons(d.nowMs(), new URL(c.req.url).origin, p.data.dry_run));
+  });
+
   /* ---------- operator ---------- */
 
   app.get('/v1/admin/students', (c) => {
@@ -613,17 +802,47 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       p.data.player_id,
       now + JOIN_CODE_TTL_MS
     ]);
+    d.sql.run('insert or replace into lesson_origins (lesson_id, origin) values (?, ?)', [lessonId, new URL(c.req.url).origin]);
     const first = plan.stages[0]!;
     d.sql.run(
       'insert or replace into lesson_state (lesson_id, plan_id, stage_id, targets, updated_at) values (?, ?, ?, ?, ?)',
       [lessonId, plan.id, first.id, JSON.stringify(first.targets.map((t) => t.text)), now]
     );
-    logStage(lessonId, first.id, now);
+    // Picking up a lesson the idle sweep closed today (LESSON_IDLE_CLOSE_MS): this lesson continues it, its report
+    // covers both parts, and the same plan starts where the child left off.
+    const prior = d.sql.get<{ lesson_id: string; plan: string | null }>(
+      `select a.lesson_id, l.plan from lesson_auto_close a join lessons l on l.id = a.lesson_id
+       where l.player_id = ? and l.started_at >= ? and a.sent_at is null and a.folded_into is null and a.empty = 0
+         and not exists (select 1 from lesson_continuations c where c.continues_from = a.lesson_id)
+       order by l.started_at desc limit 1`,
+      [p.data.player_id, kstDayStartMs(kstDay(now))]
+    );
+    let startStage: { id: string; targets: string[] } = { id: first.id, targets: first.targets.map((t) => t.text) };
+    if (prior) {
+      d.sql.run('insert or replace into lesson_continuations (lesson_id, continues_from, at) values (?, ?, ?)', [lessonId, prior.lesson_id, now]);
+      const was = stateOf(prior.lesson_id);
+      if (was && was.plan_id === plan.id && planStage(plan, was.stage_id)) {
+        startStage = { id: was.stage_id, targets: was.targets };
+        d.sql.run('update lesson_state set stage_id = ?, targets = ? where lesson_id = ?', [was.stage_id, JSON.stringify(was.targets), lessonId]);
+      }
+    }
+    logStage(lessonId, startStage.id, now);
     setPossessed(lessonId, null);
     // A console that beats says so at start: the start is the first beat (an old console never does: see above).
     if (p.data.presence) beat(lessonId, now, 'open', c.req.header('x-lcw-op-session') ?? null);
     const linked = d.sql.get<{ n: number }>(`select ${LINKED_DEVICES_SQL} as n from players p where p.id = ?`, [now - LINKED_DEVICE_TTL_MS, p.data.player_id])?.n;
-    return c.json({ lesson_id: lessonId, join_code: code, expires_at: now + JOIN_CODE_TTL_MS, plan, linked_devices: Number(linked ?? 0) }, 201);
+    return c.json(
+      {
+        lesson_id: lessonId,
+        join_code: code,
+        expires_at: now + JOIN_CODE_TTL_MS,
+        plan,
+        linked_devices: Number(linked ?? 0),
+        stage_id: startStage.id,
+        continues_from: prior?.lesson_id ?? null
+      },
+      201
+    );
   });
 
   /*
@@ -823,7 +1042,27 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         }
       ];
     });
-    return c.json({ lessons, server_now: now });
+    // Closed by the idle sweep, report not sent and not picked up again: the console's '자동 마무리된 수업' box.
+    const auto_closed = d.sql
+      .all<{ lesson_id: string; player_id: string; nickname: string | null; plan: string | null; started_at: number; ended_at: number; closed_at: number; draft: string; utterances: number; passes: number }>(
+        `select l.id as lesson_id, l.player_id, p.nickname, l.plan, l.started_at, l.ended_at, a.closed_at, a.draft,
+                (select count(*) from utterances u where u.session_id = l.id) as utterances,
+                (select count(*) from utterances u where u.session_id = l.id and u.stars > 0) as passes
+         from lesson_auto_close a join lessons l on l.id = a.lesson_id left join players p on p.id = l.player_id
+         where a.sent_at is null and a.folded_into is null and a.empty = 0 and a.last_activity_at >= ?
+           and not exists (select 1 from lesson_continuations c join lessons n on n.id = c.lesson_id
+                           where c.continues_from = a.lesson_id and n.ended_at is null)${withTest ? '' : ` and l.player_id not like 'smoke-%' and l.player_id <> 'player-demo'`}
+         order by l.started_at desc limit 20`,
+        [now - LESSON_AUTO_BOX_MAX_AGE_MS]
+      )
+      .map(({ draft, ...r }) => ({
+        ...r,
+        nickname: r.nickname ?? r.player_id,
+        plan_id: getLessonPlan(r.plan ?? undefined).id,
+        stage_id: stateOf(r.lesson_id)?.stage_id ?? null,
+        draft_summary_ko: draftSummaryOf({ draft } as AutoRow)
+      }));
+    return c.json({ lessons, auto_closed, server_now: now });
   });
 
   /** Lessons of one KST day for the hub (report check, send to parent). */
@@ -832,10 +1071,12 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const from = kstDayStartMs(day);
     const rows = d.sql.all<Record<string, unknown>>(
       `select l.id, l.player_id, p.nickname, l.plan, l.started_at, l.ended_at,
-              (select share_token from reports r where r.ref_id = l.id and r.kind = 'lesson' order by created_at desc limit 1) as share_token,
+              (select share_token from reports r where r.ref_id = coalesce(a.folded_into, l.id) and r.kind = 'lesson' order by created_at desc limit 1) as share_token,
+              case when a.lesson_id is null then null else '${LESSON_END_AUTO_IDLE}' end as end_reason,
+              case when a.lesson_id is not null and a.sent_at is null and a.folded_into is null then 1 else 0 end as report_pending,
               (select count(*) from utterances u where u.session_id = l.id) as utterances,
               (select count(*) from utterances u where u.session_id = l.id and u.stars > 0) as passes
-       from lessons l left join players p on p.id = l.player_id
+       from lessons l left join players p on p.id = l.player_id left join lesson_auto_close a on a.lesson_id = l.id
        where l.started_at >= ? and l.started_at < ? and l.player_id not like 'smoke-%' order by l.started_at`,
       [from, from + 86_400_000]
     );
@@ -884,10 +1125,12 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       [id]
     );
     const now = d.nowMs();
-    const presence = d.sql.get<{ last_seen_at: number; scene_id: string | null; ui: string | null; mic: string | null }>(
-      'select last_seen_at, scene_id, ui, mic from lesson_presence where lesson_id = ?',
+    const presence = d.sql.get<{ last_seen_at: number; scene_id: string | null; ui: string | null; mic: string | null; mic_issue: string | null }>(
+      'select last_seen_at, scene_id, ui, mic, mic_issue from lesson_presence where lesson_id = ?',
       [id]
     );
+    const micIssue = presence?.mic_issue ? MIC_ISSUE_RE.exec(presence.mic_issue) : null;
+    const auto = autoOf(id);
     const lastUtt = d.sql.get<Record<string, unknown>>(
       `select created_at as at, target_text, final_text as transcript, stars from utterances
        where session_id = ? order by created_at desc limit 1`,
@@ -906,7 +1149,13 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         stage_id: st?.stage_id ?? null,
         targets: st?.targets ?? [],
         plan_id: plan.id,
-        possessed_npc_id: possessedOf(id)
+        possessed_npc_id: possessedOf(id),
+        // null: running or ended by the teacher; 'auto_idle': closed by the idle sweep (LESSON_IDLE_CLOSE_MS).
+        end_reason: auto ? LESSON_END_AUTO_IDLE : null,
+        // The auto-closed lesson's report waits for the teacher's send.
+        report_pending: Boolean(auto && auto.sent_at === null && auto.folded_into === null),
+        draft_summary_ko: auto ? draftSummaryOf(auto) : null,
+        continues_from: continuesFromOf(id)
       },
       utterances,
       pins,
@@ -928,6 +1177,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         ui: presence?.ui ?? null,
         // The child's one-time mic check on this device (talk lane): ok | quiet | none | skipped, null = not reported.
         mic: presence?.mic ?? null,
+        // The last mic error on the child's device with the browser's own code (PR 122 'lcw.micIssue'), null = none.
+        mic_issue: micIssue ? { issue: micIssue[1]!, raw: micIssue[2]!, at: Number(micIssue[3]) } : null,
         expected_scene_id: stage?.sceneId ?? null,
         goal_ko: stage?.studentGoalKo ?? '',
         targets: st?.targets ?? [],
@@ -947,10 +1198,13 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     // Ended already (another device, a double tap): hand back the report that exists. A new one would replace the
     // share token and the comment, and the link the teacher already sent to the parent would stop opening.
+    const auto = autoOf(id);
     if (l.ended_at) {
+      // A part folded into a later lesson's report: that report is this lesson's too.
+      const reportOf = auto?.folded_into ?? id;
       const prev = d.sql.get<{ share_token: string; facts: string }>(
         `select share_token, facts from reports where ref_id = ? and kind = 'lesson' and share_token is not null order by created_at desc limit 1`,
-        [id]
+        [reportOf]
       );
       if (prev) {
         let facts: unknown = null;
@@ -961,6 +1215,12 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
         }
         return c.json({ report_path: `/r/${prev.share_token}`, share_token: prev.share_token, facts, pin_windows: pinWindowsOf(id), already_ended: true });
       }
+      if (auto?.folded_into) return c.json({ error: 'auto_closed_folded', folded_into: auto.folded_into }, 409);
+      // Closed by the idle sweep: the report reaches the guardian only when the teacher says so on the console. An
+      // older console's '리포트 가져오기' (no send) gets the draft back instead of sending one.
+      if (auto && p.data.send !== true) {
+        return c.json({ error: 'auto_closed_unsent', draft_summary_ko: draftSummaryOf(auto), ended_at: l.ended_at }, 409);
+      }
     }
     const guardian = d.sql.get<{ id: string }>(
       'select g.id from guardians g join players p on p.family_id = g.family_id where p.id = ? limit 1',
@@ -968,21 +1228,13 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     );
     const token = hex(d.randomBytes(16));
     const pinWindows = pinWindowsOf(id);
-    // F2 pins become lesson-born expressions (WP-310 transfer tracking): the teacher's note, else the top candidate,
-    // as a whole unit ("Can I have" -> the child's "Can I have a warm honey tea?"); fragments nothing explains are dropped.
-    const targets = planTargetsOf(id);
-    for (const w of pinWindows) {
-      const note = /[A-Za-z]{2,}/.test(w.note) ? w.note.trim() : '';
-      const said = w.lines.filter((x) => x.speaker === 'student').map((x) => x.text).reverse();
-      // The lemma stays the pattern the teacher pinned ("can I have"): transfer tracking looks for it in solo play
-      // (every lemma token must reappear), so a whole sentence would almost never count. A note that nothing in the
-      // lesson explains (a remark, "for your") is not a pattern: the top candidate line stands in.
-      const pattern = note && meaningfulExpression(note, { utterances: said, targets }) ? note : '';
-      const lemma = w.kind === 'expression' ? (pattern || w.candidate_expressions[0] || '').slice(0, 120) : '';
-      if (lemma) {
-        d.db.registerLessonExpression({ id: `expr-${w.pin_id}`, playerId: l.player_id, lemmaKey: lemma, lessonId: id, nowMs: d.nowMs() });
-      }
-    }
+    registerPinExpressions(id, l.player_id, pinWindows);
+    // A continued lesson: the auto-closed parts before it that were never sent go out in this one report.
+    const parts = [...unsentPartsBefore(id), id];
+    const factsOfParts =
+      parts.length > 1
+        ? mergeLessonParentFacts(parts.flatMap((x) => buildLessonParentFacts(d.sql, x, d.nowMs()) ?? []))
+        : buildLessonParentFacts(d.sql, id, d.nowMs());
     const res = await d.completeLesson(id, {
       report_id: `rep-${id}`,
       player_id: l.player_id,
@@ -995,8 +1247,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       share_url: `/r/${token}`,
       clips: [],
       // Numbers only on the public report (docs/18 §1, 07 §5); pin transcripts go back to the teacher below.
-      lesson_extra: { progress: progressOf(id, minutesOf(id, d.nowMs())) },
-      lesson_facts: buildLessonParentFacts(d.sql, id, d.nowMs()) ?? undefined
+      lesson_extra: { progress: progressOfParts(id, parts) },
+      lesson_facts: factsOfParts ?? undefined
     });
     const body = (await res.json()) as { facts?: unknown; error?: string };
     if (!res.ok) return c.json({ error: body.error ?? 'report_failed' }, 500);
@@ -1004,10 +1256,12 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     d.sql.run('update lessons set ended_at = coalesce(ended_at, ?) where id = ?', [now, id]);
     d.sql.run('update student_tokens set expires_at = min(expires_at, ?) where lesson_id = ?', [now + 10 * 60_000, id]);
     d.sql.run('delete from lesson_joins where lesson_id = ?', [id]);
+    d.sql.run('update lesson_auto_close set sent_at = ? where lesson_id = ? and sent_at is null', [now, id]);
+    for (const x of parts.slice(0, -1)) d.sql.run('update lesson_auto_close set folded_into = ? where lesson_id = ?', [id, x]);
     // The after-lesson summary and the student's daily record go to the card outbox (ops-cards.ts). A card failure
-    // never fails the end: the report is out and the lesson is closed.
+    // never fails the end: the report is out and the lesson is closed. Folded parts' cards say where their report went.
     try {
-      enqueueLessonEnd(d.sql, id, now, new URL(c.req.url).origin);
+      for (const x of parts) enqueueLessonEnd(d.sql, x, now, new URL(c.req.url).origin);
     } catch {
       /* the next end or daily refresh writes the cards again */
     }
@@ -1120,17 +1374,19 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const scene = c.req.query('scene');
     const ui = c.req.query('ui');
     const mic = c.req.query('mic');
+    const micIssue = c.req.query('mic_issue');
     d.sql.run(
-      `insert into lesson_presence (lesson_id, last_seen_at, scene_id, ui, mic) values (?, ?, ?, ?, ?)
+      `insert into lesson_presence (lesson_id, last_seen_at, scene_id, ui, mic, mic_issue) values (?, ?, ?, ?, ?, ?)
        on conflict(lesson_id) do update set last_seen_at = excluded.last_seen_at,
          scene_id = coalesce(excluded.scene_id, lesson_presence.scene_id), ui = coalesce(excluded.ui, lesson_presence.ui),
-         mic = coalesce(excluded.mic, lesson_presence.mic)`,
+         mic = coalesce(excluded.mic, lesson_presence.mic), mic_issue = coalesce(excluded.mic_issue, lesson_presence.mic_issue)`,
       [
         s.lesson_id,
         now,
         scene && /^[a-z_]{1,32}$/.test(scene) ? scene : null,
         ui === '3d' || ui === 'cards' ? ui : null,
-        mic && (LESSON_MIC_STATUSES as readonly string[]).includes(mic) ? mic : null
+        mic && (LESSON_MIC_STATUSES as readonly string[]).includes(mic) ? mic : null,
+        micIssue && MIC_ISSUE_RE.test(micIssue) ? micIssue : null
       ]
     );
     const live = liveForStudent(s.lesson_id, c.req.query('cursor'), now);
@@ -1195,8 +1451,10 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       if (seen && !seen.response && now - seen.at < UTTERANCE_CLAIM_STALE_MS) return c.json({ error: 'in_progress' }, 409);
       if (seen && seen.response) {
         const first = JSON.parse(seen.response) as Record<string, unknown>;
+        const en = first.feedback_en ?? feedbackEnFromKo(first.feedback_ko);
         return c.json({
           ...first,
+          ...(en ? { feedback_en: en } : {}),
           ...(d.coins ? { coins_total: d.coins.balance(s.player_id) } : {}),
           lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
           replayed: true
@@ -1312,9 +1570,9 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       pass,
       score: Math.round(score * 1000) / 1000,
       stars,
-      feedback_ko: feedbackKo({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
-      // The child's screen shows this one (the Korean only as the help line); answers stored before it lack it.
-      feedback_en: feedbackEn({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
+      // The child's screen shows feedback_en (the Korean only as the help line); a resend of an answer stored before
+      // feedback_en existed finds it from the Korean line (feedbackEnFromKo).
+      ...feedbackOf({ pass, stars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped }),
       coins_total: coinsTotal,
       // This lesson's star sum right after this answer was stored: the HUD chip takes it as is (adding the answer's
       // stars to its own count could count one twice when a poll lands between the store and this answer).
@@ -1336,5 +1594,20 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     return c.json({ ...answer, ...(audioUpload ? { audio_upload: audioUpload } : {}) });
   });
 
-  return app;
+  // The cron (platform.ts /internal/cron) runs the idle sweep through this, without an HTTP round trip.
+  return Object.assign(app, { sweepIdleLessons });
 }
+
+/**
+ * What happened to one auto-closed lesson's hub card: 'sent' (queued), 'empty' (the child never came), 'test' (smoke
+ * student), 'stale' (last sign of life over LESSON_AUTO_CARD_MAX_AGE_MS), or 'failed:<why>'. The ops run keeps it.
+ */
+export type AutoCloseOutcome = { lesson_id: string; card: 'sent' | 'empty' | 'test' | 'stale' | `failed:${string}` };
+
+export type IdleSweepResult = {
+  open: number;
+  idle: Array<{ lesson_id: string; test: boolean; last_activity_at: number; idle_min: number }>;
+  closed: string[];
+  cards: AutoCloseOutcome[];
+  dry_run: boolean;
+};

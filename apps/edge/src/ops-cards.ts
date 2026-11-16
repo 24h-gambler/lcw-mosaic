@@ -73,6 +73,23 @@ function speechCounts(sql: SqliteExecutor, where: string, params: unknown[]): Sp
     last_at: r?.last_at == null ? null : Number(r.last_at)
   };
 }
+/** Closed by the idle sweep (lesson-mode.ts LESSON_IDLE_CLOSE_MS): its report waits for the teacher, or went out with a later part. */
+function autoCloseOf(sql: SqliteExecutor, lessonId: string): { sent_at: number | null; folded_into: string | null } | null {
+  try {
+    return sql.get<{ sent_at: number | null; folded_into: string | null }>('select sent_at, folded_into from lesson_auto_close where lesson_id = ?', [lessonId]) ?? null;
+  } catch {
+    return null; /* no lesson tables (ops-card unit setups) */
+  }
+}
+/**
+ * The auto-closed lesson's card: '리포트 확인·보내기' opens that lesson on the console (the report goes to the guardian
+ * only from there, after the teacher looks), '이어 하기' opens the console at the same lesson ready to continue it.
+ */
+const autoActions = (origin: string, lessonId: string) => [
+  { type: 'open', url: `${origin}/director?auto=${encodeURIComponent(lessonId)}`, label: '리포트 확인·보내기' },
+  { type: 'open', url: `${origin}/director?auto=${encodeURIComponent(lessonId)}&next=continue`, label: '이어 하기' },
+  { type: 'dismiss' }
+];
 const nicknameOf = (sql: SqliteExecutor, playerId: string) =>
   sql.get<{ nickname: string }>('select nickname from players where id = ?', [playerId])?.nickname ?? playerId;
 const secs = (ms: number) => Math.round(ms / 1000);
@@ -91,19 +108,33 @@ export function lessonSummaryCard(sql: SqliteExecutor, lessonId: string, nowMs: 
   const pins = sql.get<{ n: number }>('select count(*) as n from pins where lesson_id = ?', [lessonId])?.n ?? 0;
   const report = sql.get<{ n: number }>("select count(*) as n from reports where ref_id = ? and kind = 'lesson'", [lessonId])?.n ?? 0;
   const nick = nicknameOf(sql, l.player_id);
+  const auto = autoCloseOf(sql, lessonId);
+  const pending = Boolean(auto && auto.sent_at === null && auto.folded_into === null);
+  const numbers = `말 ${s.utterances}번 · 통과 ${s.passes}`;
   return {
     source: OPS_CARD_SOURCE,
     ref: `${OPS_CARD_SOURCE}:lcw:lesson:${lessonId}:summary`,
-    title: `📚 LCW 수업 끝 · ${nick} · ${minutes}분 · 말 ${s.utterances}번 · 통과 ${s.passes}`,
+    title: pending
+      ? `⏸ LCW 수업 자동 마무리됨 · ${nick} · ${minutes}분 · ${numbers} · 리포트 보내기/이어 하기`
+      : `📚 LCW 수업 끝 · ${nick} · ${minutes}분 · ${numbers}`,
     body: [
       `수업 ${lessonId} · 학생 ${nick} (${l.player_id})`,
       `시간 ${kstClock(l.started_at)}–${kstClock(end)} (${minutes}분)`,
       `말한 횟수 ${s.utterances} · 통과 ${s.passes} · 별 ${s.stars} · 단어 ${s.words} · 말한 시간 ${secs(s.speaking_ms)}초`,
-      `단계 ${stages}개 · 핀 ${pins}개 · 보호자 보고서 ${report ? '만듦' : '없음'}`,
+      `단계 ${stages}개 · 핀 ${pins}개 · 보호자 보고서 ${
+        report ? '만듦' : auto?.folded_into ? `이어 한 수업 ${auto.folded_into} 의 보고서에 합쳐 보냄` : pending ? '초안만 있음(아직 안 보냄)' : '없음'
+      }`,
+      ...(auto
+        ? [
+            pending
+              ? `선생님과 학생이 ${kstClock(end)} 뒤로 15분 넘게 없어서 서버가 '끝내지 않고 떠난 수업'으로 닫았습니다. 보호자에게는 아직 아무것도 가지 않았습니다. 콘솔에서 리포트를 확인하고 보내거나, 오늘 안에 이어 하면 두 수업이 한 리포트로 갑니다.`
+              : `'끝내지 않고 떠난 수업'으로 자동 마무리됐던 수업입니다.`
+          ]
+        : []),
       '자세한 것은 디렉터 콘솔에서 봅니다(아이가 한 말 원문은 카드에 싣지 않습니다).'
     ].join('\n'),
     importance: LESSON_SUMMARY_IMPORTANCE,
-    actions: consoleActions(origin)
+    actions: pending ? autoActions(origin, lessonId) : consoleActions(origin)
   };
 }
 

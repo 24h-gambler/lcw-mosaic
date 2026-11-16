@@ -61,6 +61,8 @@ export interface AdventureCreature {
   leaves: AdventureLine;
   /** The reply prompt for a ✅ pick TALK (what it says, the child answers). */
   asks: AdventureLine;
+  /** Which of the island's sentences answers `asks` (greet / feel / the phrase-bank line). */
+  askKind: 'greet' | 'feel' | 'bank';
 }
 
 export interface AdventureChapter {
@@ -79,9 +81,9 @@ export interface AdventureChapter {
   villager: { nameEn: string; nameKo: string; lines: AdventureLine[] };
   /** Spoken when the chapter is cleared. */
   outro: AdventureLine;
-  greet: Record<AdventureLevel, string>;
-  feel: Record<AdventureLevel, string>;
-  befriend: Record<AdventureLevel, string>;
+  greet: Record<AdventureLevel, AdventureLine>;
+  feel: Record<AdventureLevel, AdventureLine>;
+  befriend: Record<AdventureLevel, AdventureLine>;
   critters: [AdventureCreature, AdventureCreature];
   guardian: AdventureCreature;
   music: 'woods' | 'shore' | 'bakery' | 'tower';
@@ -116,19 +118,19 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     },
     outro: L('The moss bells ring again. Ding, ding!', '이끼 방울이 다시 울려요. 딩, 딩!'),
     greet: {
-      1: 'Hello! Nice to meet you.',
-      2: 'Hello! Are you okay? I want to help you.',
-      3: 'Hi there! You look a little sad. Can I help you?'
+      1: L('Hello! Nice to meet you.', '안녕! 만나서 반가워.'),
+      2: L('Hello! Are you okay? I want to help you.', '안녕! 괜찮아? 도와주고 싶어.'),
+      3: L('Hi there! You look a little sad. Can I help you?', '안녕! 조금 슬퍼 보여. 내가 도와줄까?')
     },
     feel: {
-      1: 'I am happy.',
-      2: 'I feel happy today because I met you.',
-      3: 'Actually, I feel happy today because I found a new friend.'
+      1: L('I am happy.', '나는 행복해.'),
+      2: L('I feel happy today because I met you.', '오늘 너를 만나서 행복해.'),
+      3: L('Actually, I feel happy today because I found a new friend.', '사실 오늘 새 친구를 찾아서 행복해.')
     },
     befriend: {
-      1: "Let's be friends!",
-      2: 'Do you want to be my friend?',
-      3: "I would love to be your friend. Let's play together!"
+      1: L("Let's be friends!", '우리 친구 하자!'),
+      2: L('Do you want to be my friend?', '나랑 친구 할래?'),
+      3: L("I would love to be your friend. Let's play together!", '네 친구가 되고 싶어. 같이 놀자!')
     },
     critters: [
       {
@@ -146,7 +148,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         friend: L('Sprigget gives you a tiny leaf. Friends!', '스프리겟이 작은 잎을 줬어요. 친구가 됐어요!'),
         poked: L('Ow! Sprigget pulls in its leaves.', '아야! 스프리겟이 잎을 오므려요.'),
         leaves: L('Sprigget hides back in the ground.', '스프리겟이 땅속으로 숨어 버렸어요.'),
-        asks: L('Who are you?', '너는 누구야?')
+        asks: L('Hello? Who is there?', '안녕? 거기 누구야?'),
+        askKind: 'greet'
       },
       {
         id: 'puffmoth',
@@ -163,7 +166,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         friend: L('Puffmoth sprinkles soft dust. You are friends!', '퍼프모스가 부드러운 가루를 뿌려요. 친구가 됐어요!'),
         poked: L('Puffmoth flaps away a little.', '퍼프모스가 조금 날아가 버려요.'),
         leaves: L('Puffmoth flies far away.', '퍼프모스가 멀리 날아가 버렸어요.'),
-        asks: L('Where are you going?', '어디 가는 길이야?')
+        asks: L('How do you feel?', '기분이 어때?'),
+        askKind: 'feel'
       }
     ],
     guardian: {
@@ -190,7 +194,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
       friend: L('Ding! You are my first friend. Here, take back your words!', '딩! 넌 내 첫 친구야. 자, 네 낱말을 돌려줄게!'),
       poked: L('Ouch! Words would be nicer than that...', '아야! 그것보다 말이 더 좋을 텐데…'),
       leaves: L('Bramblebun rolls away into the dark woods.', '브램블번이 어두운 숲으로 굴러가 버렸어요.'),
-      asks: L('Why are you here?', '여기 왜 왔어?')
+      asks: L('Are you lost in the woods?', '숲에서 길을 잃었어?'),
+      askKind: 'bank'
     },
     music: 'woods'
   },
@@ -213,19 +218,19 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     },
     outro: L('Waves sing on the shore. Everyone is trading and laughing.', '파도가 해변에서 노래해요. 모두 물건을 바꾸며 웃어요.'),
     greet: {
-      1: 'Hi! I like your shell.',
-      2: 'Hi, Captain! Your shell is so cool.',
-      3: 'Hello, Captain! I have never seen a shell as cool as yours.'
+      1: L('Hi! I like your shell.', '안녕! 네 조개 멋지다.'),
+      2: L('Hi, Captain! Your shell is so cool.', '안녕하세요, 선장님! 조개가 정말 멋져요.'),
+      3: L('Hello, Captain! I have never seen a shell as cool as yours.', '안녕하세요, 선장님! 이렇게 멋진 조개는 처음 봐요.')
     },
     feel: {
-      1: 'I am excited.',
-      2: 'I feel excited today because I am at the beach.',
-      3: 'Actually, I feel excited today because the sea looks so beautiful.'
+      1: L('I am excited.', '나는 신나.'),
+      2: L('I feel excited today because I am at the beach.', '오늘 해변에 와서 신나.'),
+      3: L('Actually, I feel excited today because the sea looks so beautiful.', '사실 오늘 바다가 너무 아름다워서 신나.')
     },
     befriend: {
-      1: "Let's trade and be friends!",
-      2: 'Can we be friends and trade together?',
-      3: "I hope we can be friends, so let's trade together every day."
+      1: L("Let's trade and be friends!", '바꾸고 친구 하자!'),
+      2: L('Can we be friends and trade together?', '우리 친구 하면서 같이 바꿀까?'),
+      3: L("I hope we can be friends, so let's trade together every day.", '우리가 친구가 되면 좋겠어. 그러니 매일 같이 바꾸자.')
     },
     critters: [
       {
@@ -243,7 +248,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         friend: L('Bubblit gives you a shiny bubble. Friends!', '버블릿이 반짝 거품을 줬어요. 친구가 됐어요!'),
         poked: L('Pop! Bubblit shrinks a little.', '퐁! 버블릿이 조금 작아졌어요.'),
         leaves: L('Bubblit sinks back into the water.', '버블릿이 물속으로 가라앉아 버렸어요.'),
-        asks: L('Do you like the sea?', '바다 좋아해?')
+        asks: L('How do you feel at the beach?', '해변에 오니 기분이 어때?'),
+        askKind: 'feel'
       },
       {
         id: 'shellbop',
@@ -260,7 +266,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         friend: L('Shellbop spins happily. Friends!', '셸밥이 신나게 빙글 돌아요. 친구가 됐어요!'),
         poked: L('Shellbop hides inside its shell.', '셸밥이 껍데기 속에 숨어요.'),
         leaves: L('Shellbop rolls far down the beach.', '셸밥이 해변 멀리 굴러가 버렸어요.'),
-        asks: L('What do you want?', '뭘 원해?')
+        asks: L('Who are you?', '너는 누구야?'),
+        askKind: 'greet'
       }
     ],
     guardian: {
@@ -287,7 +294,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
       friend: L('Fine, fine! A fair trade. Take your words back, friend!', '좋아, 좋아! 공정한 교환이야. 네 낱말을 돌려가, 친구!'),
       poked: L('Hey! Pinching is my job!', '야! 꼬집는 건 내 일이야!'),
       leaves: L('The captain grabs his shells and stomps away.', '선장이 조개를 챙겨 쿵쿵 가 버렸어요.'),
-      asks: L('What do you want to trade?', '뭘 바꾸고 싶어?')
+      asks: L('What do you want to trade?', '뭘 바꾸고 싶어?'),
+      askKind: 'bank'
     },
     music: 'shore'
   },
@@ -310,19 +318,19 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     },
     outro: L('The oven is warm again. Fresh bread for everyone!', '화덕이 다시 따뜻해요. 모두에게 갓 구운 빵을!'),
     greet: {
-      1: 'Hello! Your bread looks good.',
-      2: 'Hello! Your bread smells so good.',
-      3: 'Good morning! Your bread smells so good that I want to try it.'
+      1: L('Hello! Your bread looks good.', '안녕하세요! 빵이 맛있어 보여요.'),
+      2: L('Hello! Your bread smells so good.', '안녕하세요! 빵 냄새가 정말 좋아요.'),
+      3: L('Good morning! Your bread smells so good that I want to try it.', '좋은 아침이에요! 빵 냄새가 너무 좋아서 먹어 보고 싶어요.')
     },
     feel: {
-      1: 'I am hungry.',
-      2: 'I feel hungry today because I did not eat lunch.',
-      3: 'Actually, I feel very hungry today because I walked across the whole town.'
+      1: L('I am hungry.', '나는 배고파.'),
+      2: L('I feel hungry today because I did not eat lunch.', '점심을 안 먹어서 오늘 배고파.'),
+      3: L('Actually, I feel very hungry today because I walked across the whole town.', '사실 마을을 다 걸어 다녀서 오늘 아주 배고파.')
     },
     befriend: {
-      1: 'Thank you! You are my friend.',
-      2: 'Thank you so much! Can we be friends?',
-      3: 'Thank you for the food. I want to come back here with my friends!'
+      1: L('Thank you! You are my friend.', '고마워! 넌 내 친구야.'),
+      2: L('Thank you so much! Can we be friends?', '정말 고마워! 우리 친구 할래?'),
+      3: L('Thank you for the food. I want to come back here with my friends!', '음식 고마워. 친구들이랑 여기 다시 오고 싶어!')
     },
     critters: [
       {
@@ -340,7 +348,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         friend: L('Doughdot gives you a warm crumb. Friends!', '도우닷이 따뜻한 부스러기를 줬어요. 친구가 됐어요!'),
         poked: L('Doughdot gets a little flat.', '도우닷이 조금 납작해졌어요.'),
         leaves: L('Doughdot rolls into a bakery and hides.', '도우닷이 빵집으로 굴러가 숨어 버렸어요.'),
-        asks: L('Are you hungry?', '배고파?')
+        asks: L('Are you hungry?', '배고파?'),
+        askKind: 'feel'
       },
       {
         id: 'sugarfly',
@@ -357,7 +366,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         friend: L('Sugarfly draws a heart in sugar. Friends!', '슈가플라이가 설탕으로 하트를 그려요. 친구가 됐어요!'),
         poked: L('Sugarfly buzzes away a little.', '슈가플라이가 조금 윙 날아가요.'),
         leaves: L('Sugarfly zooms over the roofs.', '슈가플라이가 지붕 너머로 휙 날아가 버렸어요.'),
-        asks: L('What is your favorite snack?', '제일 좋아하는 간식이 뭐야?')
+        asks: L('Hi! Who are you?', '안녕! 너는 누구야?'),
+        askKind: 'greet'
       }
     ],
     guardian: {
@@ -384,7 +394,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
       friend: L('Here you go, friend! A warm treat and your words, fresh from the oven!', '자, 친구! 따뜻한 간식이랑 네 낱말, 화덕에서 갓 나왔어!'),
       poked: L('Hey! Do not bonk the baker!', '야! 제빵사를 콩 하지 마!'),
       leaves: L('Ovenna turns her back and closes her door.', '오베나가 등을 돌리고 문을 닫아 버렸어요.'),
-      asks: L('What would you like?', '뭘 드릴까요?')
+      asks: L('What would you like?', '뭘 드릴까요?'),
+      askKind: 'bank'
     },
     music: 'bakery'
   },
@@ -407,19 +418,19 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     },
     outro: L('The wind is warm now. Every word flies home to the isles.', '이제 바람이 따뜻해요. 모든 낱말이 섬으로 날아가요.'),
     greet: {
-      1: 'Hello, Hushwind!',
-      2: 'Hello, Hushwind. Can we talk for a minute?',
-      3: 'Hello, Hushwind. I climbed the whole tower because I wanted to talk to you.'
+      1: L('Hello, Hushwind!', '안녕, 휘파람 바람!'),
+      2: L('Hello, Hushwind. Can we talk for a minute?', '안녕, 휘파람 바람. 잠깐 얘기할 수 있어?'),
+      3: L('Hello, Hushwind. I climbed the whole tower because I wanted to talk to you.', '안녕, 휘파람 바람. 너랑 얘기하고 싶어서 탑을 끝까지 올라왔어.')
     },
     feel: {
-      1: 'I am brave.',
-      2: 'I feel brave today because my friends helped me.',
-      3: 'Actually, I feel brave today because I made friends on every island.'
+      1: L('I am brave.', '나는 용감해.'),
+      2: L('I feel brave today because my friends helped me.', '친구들이 도와줘서 오늘 용감해.'),
+      3: L('Actually, I feel brave today because I made friends on every island.', '사실 모든 섬에서 친구를 사귀어서 오늘 용감해.')
     },
     befriend: {
-      1: 'You are not alone. I am your friend.',
-      2: 'You are not alone anymore. I will be your friend.',
-      3: 'You do not have to take words anymore, because I will talk with you every day.'
+      1: L('You are not alone. I am your friend.', '넌 혼자가 아니야. 내가 네 친구야.'),
+      2: L('You are not alone anymore. I will be your friend.', '이제 넌 혼자가 아니야. 내가 친구가 되어 줄게.'),
+      3: L('You do not have to take words anymore, because I will talk with you every day.', '이제 낱말을 가져가지 않아도 돼. 내가 매일 너랑 얘기할 거니까.')
     },
     critters: [
       {
@@ -437,7 +448,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         friend: L('Inkling draws a smile on the wall. Friends!', '잉클링이 벽에 웃는 얼굴을 그려요. 친구가 됐어요!'),
         poked: L('Inkling splashes and shrinks.', '잉클링이 철벅 튀더니 작아져요.'),
         leaves: L('Inkling drips away through a crack.', '잉클링이 틈 사이로 흘러가 버렸어요.'),
-        asks: L('Can you read my letters?', '내 글자 읽을 수 있어?')
+        asks: L('Hello? Who is there?', '안녕? 거기 누구야?'),
+        askKind: 'greet'
       },
       {
         id: 'paperkite',
@@ -454,7 +466,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         friend: L('Paperkite folds into a little star. Friends!', '페이퍼카이트가 작은 별로 접혀요. 친구가 됐어요!'),
         poked: L('Paperkite crinkles a little.', '페이퍼카이트가 조금 구겨졌어요.'),
         leaves: L('Paperkite flies out of a window.', '페이퍼카이트가 창밖으로 날아가 버렸어요.'),
-        asks: L('How do you feel?', '기분이 어때?')
+        asks: L('How do you feel?', '기분이 어때?'),
+        askKind: 'feel'
       }
     ],
     guardian: {
@@ -482,7 +495,8 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
       friend: L('Thank you, Keeper. I will give the words back... if you visit me again.', '고마워, 등불지기. 낱말을 돌려줄게… 다시 놀러 와 준다면.'),
       poked: L('That does not help... I only get stronger.', '그건 소용없어… 난 더 세질 뿐이야.'),
       leaves: L('The Hushwind blows away into the clouds, still lonely.', '휘파람 바람이 여전히 외로운 채로 구름 속으로 날아가 버렸어요.'),
-      asks: L('Why did you come here?', '여기 왜 왔어?')
+      asks: L('Can you help me? I feel so alone.', '나 좀 도와줄래? 너무 외로워.'),
+      askKind: 'bank'
     },
     music: 'tower'
   }
@@ -569,7 +583,7 @@ export const ADVENTURE_WORDS: Readonly<Record<string, AdventureWordInfo>> = {
   bake: W('굽다', 'v', '🍞'),
   taste: W('맛보다', 'v', '👅', ["Let's taste it!", 'I want to taste the cake.', 'Can I taste it before I choose one?']),
   hungry: W('배고픈', 'adj', '🍽️', ['I am hungry.', 'I am very hungry now.', 'I am so hungry that I could eat a whole cake.']),
-  recipe: W('요리법', 'n', '📖', ['I have a recipe.', 'This is my mom's recipe.', 'I want to learn this recipe so that I can cook for my family.']),
+  recipe: W('요리법', 'n', '📖', ['I have a recipe.', "This is my mom's recipe.", 'I want to learn this recipe so that I can cook for my family.']),
   chewy: W('쫄깃한', 'adj', '🍡'),
   crunchy: W('바삭한', 'adj', '🥨'),
   delicious: W('맛있는', 'adj', '😋'),
@@ -664,8 +678,11 @@ export function adventureBankSentences(chapter: AdventureChapter, level: Adventu
   const entries = bankEntriesFor(chapter.ctx, adventureLangLevel(level));
   const pick = level === 3 ? 2 : 1;
   const out: string[] = [];
-  for (const e of entries) {
+  // The errand bank also has "here is your water" hand-over lines; the tower only needs the offer to help.
+  for (const e of chapter.ctx === 'errand' ? entries.filter((x) => x.intent !== 'errand_deliver').slice(0, 1) : entries) {
     const t = e.offers[pick]?.text;
+    // A bakery orders something warm or sweet, not "large water"
+    if (chapter.ctx === 'cafe' && /\bwater\b/i.test(t ?? '')) continue;
     if (t && !out.includes(t)) out.push(t);
   }
   return out;
@@ -693,7 +710,7 @@ export function adventureFixedLines(lang: string = 'en'): Array<{ text: string; 
     const guide = adventureVoice('guide', lang);
     for (const l of ch.villager.lines) out.push({ text: l.en, voice: guide });
     for (const lv of [1, 2, 3] as const) {
-      out.push({ text: ch.greet[lv], voice: model }, { text: ch.feel[lv], voice: model }, { text: ch.befriend[lv], voice: model });
+      out.push({ text: ch.greet[lv].en, voice: model }, { text: ch.feel[lv].en, voice: model }, { text: ch.befriend[lv].en, voice: model });
     }
   }
   for (const w of Object.keys(ADVENTURE_WORDS)) {

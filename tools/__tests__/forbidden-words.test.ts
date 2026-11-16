@@ -42,14 +42,14 @@ describe('forbidden words on user-visible text (docs/21)', () => {
   it('closes the holes found in review: absolute links, one-word labels, gaming/minigame, 겜 (fault injection)', () => {
     expect(bannedIn('https://lcw.worldwidesomething.com/game/?code=123')).toEqual(['path-game']);
     expect(bannedIn('lcw.worldwidesomething.com/game')).toEqual(['path-game']);
-    for (const label of ['Game', 'Game:', 'Games', 'Gaming', 'GAME']) expect(bannedIn(label), label).toEqual(['en-game']);
+    for (const label of ['Game', 'Game:', 'Games', 'Gaming', 'GAME', 'GAMING', 'GAMER', 'Minigame', 'Gameplay']) expect(bannedIn(label), label).toEqual(['en-game']);
     expect(bannedIn('a minigame for kids')).toEqual(['en-game']);
     expect(bannedIn('3D game월드')).toEqual(['en-game']);
     expect(bannedIn('겜 하러 가자')).toEqual(['ko-game']);
     const src = 'const e = <button aria-label="Game" title="ok">x</button>;';
     expect((visibleStrings(src, 'x.tsx') as { text: string }[]).flatMap((s) => bannedIn(s.text))).toEqual(['en-game']);
     // still legal: lower-case tokens that are identifiers, other paths
-    for (const ok of ['game', 'game-canvas-viewport', '/games', '/gamer/', '/world/?code=1']) expect(bannedIn(ok), ok).toEqual([]);
+    for (const ok of ['game', 'minigame', 'game-canvas-viewport', 'GameOver', '/games', '/gamer/', '/world/?code=1']) expect(bannedIn(ok), ok).toEqual([]);
   });
 
   it('every banned word is written down in the glossary, and every allowance has a reason and a real file', () => {

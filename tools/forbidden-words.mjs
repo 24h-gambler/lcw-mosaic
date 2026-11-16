@@ -41,7 +41,8 @@ export const BANNED = [
   {
     id: 'en-game',
     en: /\b(?:mini-?)?(?:games?|gaming|gamers?|gameplay)\b/i,
-    enWord: /^[\s"'([]*(?:Mini-?)?(?:Games?|Gaming|Gamers?|Gameplay|GAMES?)[\s"')\].,:;!?]*$/,
+    // one word with a capital letter anywhere (Game, GAMING, Minigame); all-lower-case tokens stay identifiers
+    enWord: /^[\s"'([]*(?:mini-?)?(?:games?|gaming|gamers?|gameplay)[\s"')\].,:;!?]*$/i,
     use: 'world · town · play (docs/21-glossary.md)'
   },
   { id: 'path-game', path: /\/game(?=[/?#'"`\s)]|$)/, use: '/world/ (apps/edge/src/world-path.ts redirects /game/)' }
@@ -118,7 +119,7 @@ export function bannedIn(text, { prose = false } = {}) {
   const hits = [];
   for (const b of BANNED) {
     if (b.ko && b.ko.test(text)) hits.push(b.id);
-    if (b.en && b.en.test(text) && (prose || /\s/.test(text.trim()) || b.enWord.test(text))) hits.push(b.id);
+    if (b.en && b.en.test(text) && (prose || /\s/.test(text.trim()) || (b.enWord.test(text) && /[A-Z]/.test(text)))) hits.push(b.id);
     if (b.path && b.path.test(text)) hits.push(b.id);
   }
   return hits;

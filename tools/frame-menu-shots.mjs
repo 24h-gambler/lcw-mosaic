@@ -127,15 +127,20 @@ for (const vp of VIEWPORTS) {
   await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
   await page.waitForTimeout(1500);
   // the title screen (world lane) and the first-visit / mic cards (dialog domain): step past them like a child would
+  // the title can come up a moment after the load bar, and a click can take seconds on a busy machine: keep stepping
+  // until the menu button is there (up to about a minute)
   const start = page.getByRole('button', { name: /^(시작하기|Start)/ });
-  // the title can come up a moment after the load bar on a busy machine: wait for it rather than count once
-  if (await start.first().waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false)) {
-    await start.first().click({ timeout: 3000 }).catch(() => {});
-    await page.waitForTimeout(2500);
-  }
-  for (const label of ['건너뛰기', '좋아요, 출발!', 'Skip', "OK, let's go!"]) {
-    const b = page.getByRole('button', { name: label });
-    if (await b.count()) await b.first().click({ timeout: 2000 }).catch(() => {});
+  const menuBtn = page.locator('.lcw-hudbtn--bag');
+  for (let n = 0; n < 6; n++) {
+    if (await start.first().isVisible().catch(() => false)) {
+      await start.first().click({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(2500);
+    }
+    for (const label of ['건너뛰기', '좋아요, 출발!', 'Skip', "OK, let's go!"]) {
+      const b = page.getByRole('button', { name: label });
+      if (await b.count()) await b.first().click({ timeout: 5000 }).catch(() => {});
+    }
+    if (await menuBtn.first().waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false)) break;
   }
   await page.waitForTimeout(800);
 
@@ -199,6 +204,8 @@ for (const vp of VIEWPORTS) {
   for (const tab of ['mirror', 'map', 'book', 'repair', 'settings']) {
     await page.click(`#lcw-menu-tab-${tab}`);
     await page.waitForTimeout(tab === 'mirror' ? 2500 : 1000);
+    // a busy machine can still show "Loading" here: wait for the server answer to be drawn
+    if (tab === 'book') await page.waitForFunction(() => document.querySelectorAll('.lcw-ach li').length > 0, null, { timeout: 20000 }).catch(() => {});
     await page.screenshot({ path: `${out}/${vp.name}-2${tab}.png` });
     check(vp.name, await noSideways(page), `${tab} tab scrolls sideways`);
     if (tab === 'mirror') {

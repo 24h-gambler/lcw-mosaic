@@ -274,7 +274,7 @@ for (const vp of VIEWPORTS) {
         /* storage blocked */
       }
     });
-    await page.reload({ waitUntil: 'load' });
+    await page.reload({ waitUntil: 'load', timeout: 90000 });
     await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
     await page.waitForTimeout(1500);
     await passTitle(page);

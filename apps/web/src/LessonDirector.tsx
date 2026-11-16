@@ -276,6 +276,10 @@ function KeyBox({
   onForget: () => void;
 }): React.ReactElement {
   const [editing, setEditing] = useState(!token);
+  // A token that arrives after the first render (Google sign-in fragment, another tab) closes the key form.
+  useEffect(() => {
+    if (token) setEditing(false);
+  }, [token]);
   const [draft, setDraft] = useState('');
   const [notStored, setNotStored] = useState(false);
   const showForm = editing || !token;

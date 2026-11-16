@@ -310,13 +310,14 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
   const sessionNameOf = (opSession: string | null): string | null => {
     if (!opSession) return null;
     try {
+      // operator-login.ts: the session's label is the device ("Chrome on Windows"); the name is the Google account's.
       const r = d.sql.get<{ name: string | null }>(
         'select o.name as name from operator_sessions s join operators o on o.id = s.operator_id where s.id = ?',
         [opSession]
       );
       return normalizeTeacherName(r?.name);
     } catch {
-      return null; /* no operator tables yet */
+      return null; /* no operator tables (a platform without Google sign-in) */
     }
   };
   /** panel null = keep the panel state (console beats); a beat always clears an earlier leave. */

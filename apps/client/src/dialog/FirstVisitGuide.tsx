@@ -89,10 +89,11 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
   useEffect(() => {
     if (!errand || !world) return;
     const prev = lastState.current;
-    lastState.current = errand.state;
     // the town goals own the goal line once the errand is over (first run: "Errand done!" came back over them each
-    // time a dialog closed)
+    // time a dialog closed). While hidden the last shown step is kept: the hand-over happens with the dialog open, and
+    // the reward toast must still play when it closes (it was skipped: done looked "done before this visit").
     if (hidden || errandOver) return;
+    lastState.current = errand.state;
     world.setGoal(errandGoalKo(errand));
     if (errand.state === 'done') {
       // done on an earlier visit: straight to the town goals

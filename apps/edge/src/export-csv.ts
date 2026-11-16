@@ -96,6 +96,7 @@ type UtteranceRow = {
   player_id: string;
   nickname: string | null;
   ctx: string;
+  mode: string;
   target_text: string;
   final_text: string;
   stars: number;
@@ -125,7 +126,7 @@ export function buildExportApp(d: ExportDeps): Hono {
     const player = c.req.query('player_id')?.trim() || null;
     const rows = d.sql.all<UtteranceRow>(
       `select u.created_at, u.session_id, u.session_kind, u.player_id, p.nickname, u.ctx, u.target_text, u.final_text,
-              u.stars, u.hint_level, u.attempts, u.dur_ms
+              u.mode, u.stars, u.hint_level, u.attempts, u.dur_ms
          from utterances u left join players p on p.id = u.player_id
         where u.created_at >= ? and u.created_at < ? ${player ? 'and u.player_id = ?' : realOnly('u.player_id', c.req.query('include_test'))}
         order by u.player_id, u.created_at, u.id`,
@@ -139,8 +140,8 @@ export function buildExportApp(d: ExportDeps): Hono {
         u.player_id,
         u.nickname ?? '',
         u.session_kind,
-        // Lesson vs solo `mode` on the record lands with dom/teacher-presence; empty until then (session_kind says it today).
-        '',
+        // The utterance's dialog mode as stored (lesson stages: guided | free). Lesson vs solo is session_kind.
+        u.mode,
         u.ctx,
         u.target_text,
         u.final_text,

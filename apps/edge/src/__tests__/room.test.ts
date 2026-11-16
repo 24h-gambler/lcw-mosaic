@@ -1,0 +1,224 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ROOM_CLOSE, TUNING } from '@lcw/sim-core';
+import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
+import { ROOM_HEADERS, WorldRoomDO, routeRoomConnect } from '../room.js';
+import { fakeDurableStorage } from './fake-do.js';
+
+const TOKEN = 'op-token-0123456789abcdef';
+const op = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
+const anon = { 'content-type': 'application/json' };
+
+function platform() {
+  return new PlatformDO({ storage: fakeDurableStorage() }, { PLATFORM: undefined as never, LCW_OPERATOR_TOKEN: TOKEN } as LcwEnv);
+}
+async function call(p: PlatformDO, method: string, path: string, body?: unknown, headers: Record<string, string> = op) {
+  const res = await p.fetch(new Request(`https://x${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }));
+  return { status: res.status, body: (await res.json()) as any };
+}
+const redeem = (p: PlatformDO, ticket: string) =>
+  p.fetch(
+    new Request('https://platform/internal/room-ticket', {
+      method: 'POST',
+      headers: { 'x-lcw-internal': 'room', 'content-type': 'application/json' },
+      body: JSON.stringify({ ticket })
+    })
+  );
+
+describe('room tickets (room.ts, docs/02 §11)', () => {
+  it('is a public route that checks its own tokens: nobody without a token gets a seat', async () => {
+    expect(isPublicRoute('POST', '/v1/room/ticket')).toBe(true);
+    const p = platform();
+    expect((await call(p, 'POST', '/v1/room/ticket', {}, anon)).status).toBe(401);
+    expect((await call(p, 'POST', '/v1/room/ticket', {}, { ...anon, authorization: `Bearer ${'x'.repeat(40)}` })).status).toBe(401);
+  });
+
+  it('a lesson student sits in their lesson room under their nickname; the body cannot move them', async () => {
+    const p = platform();
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-kim', guardian_id: 'g-kim', player_id: 'kid-1', nickname: 'Juno', birth_year: 2016, level: 'L1' });
+    const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1' });
+    const j = await call(p, 'POST', '/v1/join', { code: s.body.join_code }, anon);
+    const st = { authorization: `Bearer ${j.body.student_token}`, 'content-type': 'application/json' };
+    const t = await call(p, 'POST', '/v1/room/ticket', { room: 'smoke-x' }, st);
+    expect(t.status).toBe(200);
+    expect(t.body).toMatchObject({ room: `lesson-${s.body.lesson_id}`, cap: 8, connect: '/v1/room/connect' });
+    const seat = await redeem(p, t.body.ticket);
+    expect(seat.status).toBe(200);
+    expect(await seat.json()).toEqual({ room: `lesson-${s.body.lesson_id}`, key: 'kid-1', name: 'Juno', role: 'student' });
+    // one use
+    expect((await redeem(p, t.body.ticket)).status).toBe(403);
+  });
+
+  it('the operator names a room; smoke- rooms seat load bots under their own keys', async () => {
+    const p = platform();
+    expect((await call(p, 'POST', '/v1/room/ticket', { room: 'anything' })).status).toBe(401);
+    const a = await call(p, 'POST', '/v1/room/ticket', { room: 'smoke-cap', name: 'bot-1', key: 'b1' });
+    expect(await (await redeem(p, a.body.ticket)).json()).toEqual({ room: 'smoke-cap', key: 'op:b1', name: 'bot-1', role: 'bot' });
+    const b = await call(p, 'POST', '/v1/room/ticket', { room: 'lesson-abc' });
+    expect(await (await redeem(p, b.body.ticket)).json()).toEqual({ room: 'lesson-abc', key: 'operator', name: '선생님', role: 'teacher' });
+  });
+
+  it('expired tickets do not open a room; the internal route refuses outside callers', async () => {
+    const p = platform();
+    const now = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const a = await call(p, 'POST', '/v1/room/ticket', { room: 'smoke-x', key: 'b' });
+    spy.mockReturnValue(now + TUNING.multi.ticketTtlMs + 1);
+    expect((await redeem(p, a.body.ticket)).status).toBe(403);
+    spy.mockRestore();
+    const res = await p.fetch(new Request('https://x/internal/room-ticket', { method: 'POST', headers: anon, body: '{"ticket":"x"}' }));
+    expect(res.status).toBe(403);
+  });
+});
+
+// ---- WorldRoomDO with a fake hibernation state
+
+class FakeWs {
+  sent: string[] = [];
+  closed: { code: number; reason: string } | null = null;
+  att: unknown = null;
+  tags: string[] = [];
+  peer: FakeWs | null = null;
+  send(d: string) {
+    if (this.closed) throw new Error('closed');
+    this.sent.push(d);
+  }
+  close(code: number, reason: string) {
+    this.closed = { code, reason };
+  }
+  serializeAttachment(v: unknown) {
+    this.att = structuredClone(v);
+  }
+  deserializeAttachment() {
+    return this.att;
+  }
+  frames() {
+    return this.sent.map((s) => JSON.parse(s));
+  }
+}
+class FakeState {
+  sockets: FakeWs[] = [];
+  acceptWebSocket(ws: FakeWs, tags: string[] = []) {
+    ws.tags = tags;
+    this.sockets.push(ws);
+  }
+  getWebSockets(tag?: string) {
+    return this.sockets.filter((w) => !w.closed && (!tag || w.tags.includes(tag)));
+  }
+}
+
+let lastServer: FakeWs | null = null;
+beforeEach(() => {
+  (globalThis as any).WebSocketPair = class {
+    0: FakeWs;
+    1: FakeWs;
+    constructor() {
+      this[0] = new FakeWs();
+      this[1] = new FakeWs();
+      lastServer = this[1];
+    }
+  };
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  delete (globalThis as any).WebSocketPair;
+  vi.useRealTimers();
+});
+
+// Node's Response refuses status 101; the room only needs the socket to be accepted.
+async function connect(room: WorldRoomDO, key: string, name = key) {
+  const headers = new Headers({ upgrade: 'websocket', [ROOM_HEADERS.key]: key, [ROOM_HEADERS.name]: encodeURIComponent(name), [ROOM_HEADERS.role]: 'bot' });
+  await room.fetch(new Request('https://room/r', { headers })).catch(() => undefined);
+  return lastServer!;
+}
+
+describe('WorldRoomDO (WebSocket relay, capacity)', () => {
+  it('9th socket gets {"t":"full"} and close 4003; the 8 inside keep relaying', async () => {
+    const state = new FakeState();
+    const room = new WorldRoomDO(state as never, {});
+    const socks: FakeWs[] = [];
+    for (let i = 0; i < 8; i++) socks.push(await connect(room, `b${i}`));
+    expect(socks[0]!.frames()[0]).toMatchObject({ t: 'hello', cap: 8, peers: [] });
+    expect(socks[7]!.frames()[0].peers).toHaveLength(7);
+    const ninth = await connect(room, 'b8');
+    expect(ninth.frames()).toEqual([{ t: 'full', cap: 8 }]);
+    expect(ninth.closed).toEqual({ code: ROOM_CLOSE.full, reason: 'room_full' });
+    // the refused socket's words reach nobody
+    room.webSocketMessage(ninth as never, '{"t":"e","e":"wave"}');
+    expect(socks[0]!.frames().some((f) => f.t === 'e')).toBe(false);
+    expect(room.stats()).toMatchObject({ members: 8, cap: 8, full: 1 });
+
+    // the first pose after a quiet spell goes out at once; the next ones inside the window ride one batch
+    const me = socks[0]!.frames()[0].you;
+    socks[1]!.sent = [];
+    room.webSocketMessage(socks[0] as never, JSON.stringify({ t: 'p', p: [1, 2, 3, 0, 1, 7] }));
+    expect(socks[1]!.frames()).toEqual([{ t: 'poses', p: [[me, 1, 2, 3, 0, 1, 7]] }]);
+    room.webSocketMessage(socks[0] as never, JSON.stringify({ t: 'p', p: [2, 2, 3, 0, 1, 8] }));
+    room.webSocketMessage(socks[0] as never, JSON.stringify({ t: 'p', p: [3, 2, 3, 0, 1, 9] }));
+    expect(socks[1]!.sent).toHaveLength(1);
+    vi.advanceTimersByTime(TUNING.multi.broadcastMs);
+    expect(socks[1]!.frames()[1]).toEqual({ t: 'poses', p: [[me, 3, 2, 3, 0, 1, 9]] });
+    expect(socks[1]!.sent).toHaveLength(2);
+
+    // someone leaves → a seat opens for the next one
+    room.webSocketClose(socks[2] as never, 1000, '', true);
+    expect((await connect(room, 'b9')).frames()[0].t).toBe('hello');
+  });
+
+  it('a refresh by the same person replaces the old socket instead of filling a seat', async () => {
+    const state = new FakeState();
+    const room = new WorldRoomDO(state as never, {});
+    const a = await connect(room, 'kid');
+    const other = await connect(room, 'kid2');
+    const a2 = await connect(room, 'kid');
+    expect(a.closed).toEqual({ code: ROOM_CLOSE.replaced, reason: 'replaced' });
+    room.webSocketClose(a as never, ROOM_CLOSE.replaced, 'replaced', true);
+    expect(room.stats()).toMatchObject({ members: 2 });
+    const kinds = other.frames().map((f) => f.t);
+    expect(kinds.filter((k) => k === 'leave')).toHaveLength(1);
+    expect(a2.frames()[0].peers).toHaveLength(1);
+  });
+
+  it('hibernation wake rebuilds the members from socket attachments', async () => {
+    const state = new FakeState();
+    const room = new WorldRoomDO(state as never, {});
+    await connect(room, 'x');
+    await connect(room, 'y');
+    const woke = new WorldRoomDO(state as never, {});
+    expect(woke.stats()).toMatchObject({ members: 2 });
+  });
+
+  it('a flooding socket is closed with 4008', async () => {
+    const state = new FakeState();
+    const room = new WorldRoomDO(state as never, {});
+    const a = await connect(room, 'flood');
+    for (let i = 0; i <= TUNING.multi.maxMsgPerSec; i++) room.webSocketMessage(a as never, '{"t":"ping","c":1}');
+    expect(a.closed?.code).toBe(ROOM_CLOSE.rate);
+    expect(room.stats()).toMatchObject({ members: 0 });
+  });
+});
+
+describe('routeRoomConnect (Worker)', () => {
+  it('drops client-sent seat headers and forwards the redeemed seat to the named room', async () => {
+    const seen: { name?: string; headers?: Headers } = {};
+    const platformStub = { fetch: async () => Response.json({ room: 'lesson-1', key: 'kid-1', name: 'Juno', role: 'student' }) };
+    const rooms = {
+      idFromName: (n: string) => n,
+      get: (id: unknown) => ({
+        fetch: async (req: Request | string) => {
+          seen.name = String(id);
+          seen.headers = (req as Request).headers;
+          return new Response('ok');
+        }
+      })
+    };
+    const req = new Request('https://lcw/v1/room/connect?t=abc', { headers: { upgrade: 'websocket', [ROOM_HEADERS.role]: 'teacher', 'x-lcw-room-key': 'evil' } });
+    await routeRoomConnect(req, platformStub, rooms);
+    expect(seen.name).toBe('lesson-1');
+    expect(seen.headers!.get(ROOM_HEADERS.role)).toBe('student');
+    expect(seen.headers!.get(ROOM_HEADERS.key)).toBe('kid-1');
+    const bad = await routeRoomConnect(req, { fetch: async () => new Response('{}', { status: 403 }) }, rooms);
+    expect(bad.status).toBe(403);
+    expect((await routeRoomConnect(new Request('https://lcw/v1/room/connect'), platformStub, rooms)).status).toBe(426);
+    expect((await routeRoomConnect(req, platformStub, undefined)).status).toBe(503);
+  });
+});

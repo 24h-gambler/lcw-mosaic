@@ -7,19 +7,25 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, TOKENS } from '@lcw/ui';
 import { LESSON_PLANS, type LessonStage } from '@lcw/content';
 import {
+  TEACHER_SIGN_IN_PATH,
   createLessonApi,
   errorCodeOf,
+  isOperatorSession,
+  operatorSignInFromHash,
+  operatorTokenFromResult,
   loadDirectorLesson,
   loadOperatorToken,
   saveDirectorLesson,
   saveOperatorToken,
   recordFromLive,
   type AdminStudent,
+  type ConsoleSeat,
   type DirectorLessonRecord,
   type FeedLive,
   type LessonApi,
   type LessonFeed,
   type LiveLessonRow,
+  type OperatorSessions,
   type PinInput,
   type PinKind
 } from './lessonApi.js';
@@ -55,6 +61,7 @@ import { handleDirectorKeydown } from './director.js';
 import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView } from './directorLiveState.js';
 import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentScreenBox } from './DirectorLive.js';
 import { LessonAudioBox } from './LessonAudioBox.js';
+import { ConsoleSeatBadge, SeatManager, useConsoleSeats } from './DirectorSeats.js';
 import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 import { TeacherModeHelp, TeacherPresenceBox } from './teacherPresence.js';
@@ -97,6 +104,8 @@ export interface LessonDirectorConsoleProps {
   initialToken?: string | null;
   initialLesson?: DirectorLessonRecord | null;
   initialStudents?: AdminStudent[];
+  /** Seats for the student rows' badges and controls; undefined → fetched (GET /v1/admin/seats). */
+  initialSeats?: ConsoleSeat[];
   /** Running lessons for the resume card; undefined → fetched. */
   initialLive?: { lessons: LiveLessonRow[]; server_now: number };
   initialFeed?: LessonFeed;
@@ -120,14 +129,51 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
     saveDirectorLesson(rec);
   }, []);
 
+  // Back from Google sign-in: /director#oauth=<one-use code> traded for the session from this browser only (the token
+  // never sits in the address bar), or #oauth_error=<code>.
+  useEffect(() => {
+    if (typeof location === 'undefined' || !location.hash) return;
+    const r = operatorSignInFromHash(location.hash);
+    if (!r) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    if ('error' in r) {
+      setKeyError(S.signInError(r.error));
+      return;
+    }
+    api
+      .oauthExchange(r.code)
+      .then((x) => {
+        const t = operatorTokenFromResult(x.result);
+        if (!t) {
+          const e = /^oauth_error=([a-z_]{1,40})$/.exec(x.result ?? '');
+          setKeyError(S.signInError(e?.[1] ?? 'handoff_invalid'));
+          return;
+        }
+        saveOperatorToken(t);
+        setToken(t);
+        setKeyError(null);
+      })
+      .catch((e: unknown) => setKeyError(S.signInError(errorCodeOf(e))));
+  }, [api]);
+
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
   const onAuthError = useCallback((code: string) => {
-    if (code === 'operator_only') setKeyError(S.errOperator);
+    // Several calls answer 401 at once: only the first one decides; later ones find the token already gone.
+    if (code !== 'operator_only' || !tokenRef.current) return;
+    // A teacher sign-in that ended (logout elsewhere, 30 days, taken off the list): back to the sign-in box.
+    if (isOperatorSession(tokenRef.current)) {
+      saveOperatorToken(null);
+      setToken(null);
+      setKeyError(S.sessionEnded);
+    } else setKeyError(S.errOperator);
   }, []);
 
   return (
     <div className="lcw-lesson" data-testid="lesson-director" style={{ display: 'grid', gap: sp(4) }}>
       <LessonStyle />
       <KeyBox
+        api={api}
         token={token}
         error={keyError}
         onSave={(t) => {
@@ -156,6 +202,7 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
           now={now}
           onAuthError={onAuthError}
           initialStudents={props.initialStudents}
+          initialSeats={props.initialSeats}
           initialLive={props.initialLive}
           onStarted={setLesson}
         />
@@ -166,18 +213,79 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
 
 /* ---------- operator key ---------- */
 
+/** A teacher signed in with Google: who, logout, and the other browsers signed in to the same account. */
+function TeacherAccount({ api, token, onSignedOut }: { api: LessonApi; token: string; onSignedOut: () => void }): React.ReactElement {
+  const [info, setInfo] = useState<OperatorSessions | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    api.operatorSessions(token).then(setInfo).catch(() => undefined);
+  }, [api, token]);
+  useEffect(load, [load]);
+  const me = info?.me ?? null;
+  const live = (info?.sessions ?? []).filter((s) => s.live);
+  const end = async (input: { id: string } | { all: true }, signOut: boolean) => {
+    setBusy(true);
+    try {
+      await api.revokeOperatorSession(token, input);
+    } catch {
+      /* already ended: signing out here still forgets it */
+    }
+    setBusy(false);
+    if (signOut) onSignedOut();
+    else load();
+  };
+  return (
+    <div data-testid="teacher-account" style={{ display: 'grid', gap: sp(2) }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
+        <span>{S.signedInAs(me?.name ?? '')}</span>
+        <Button type="button" variant="paper" disabled={busy} onClick={() => void (me ? end({ id: me.session_id }, true) : onSignedOut())}>
+          {S.logout}
+        </Button>
+      </div>
+      {live.length > 0 ? (
+        <details data-testid="teacher-devices">
+          <summary style={{ cursor: 'pointer' }}>{S.devicesTitle(live.length)}</summary>
+          <ul style={{ margin: `${sp(2)} 0 0`, paddingLeft: sp(4), display: 'grid', gap: sp(1) }}>
+            {live.map((s) => (
+              <li key={s.id} style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
+                <span>
+                  {s.id === me?.session_id ? S.thisDevice : s.label} · {S.deviceSeen(new Date(s.last_seen_at ?? s.created_at).toLocaleString('ko-KR'))}
+                </span>
+                {s.id === me?.session_id ? null : (
+                  <Button type="button" variant="paper" disabled={busy} onClick={() => void end({ id: s.id }, false)}>
+                    {S.deviceEnd}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <Button type="button" variant="paper" disabled={busy} onClick={() => void end({ all: true }, true)}>
+            {S.logoutAll}
+          </Button>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 function KeyBox({
+  api,
   token,
   error,
   onSave,
   onForget
 }: {
+  api: LessonApi;
   token: string | null;
   error: string | null;
   onSave: (t: string) => void;
   onForget: () => void;
 }): React.ReactElement {
   const [editing, setEditing] = useState(!token);
+  // A token that arrives after the first render (Google sign-in fragment, another tab) closes the key form.
+  useEffect(() => {
+    if (token) setEditing(false);
+  }, [token]);
   const [draft, setDraft] = useState('');
   const [notStored, setNotStored] = useState(false);
   const showForm = editing || !token;
@@ -191,6 +299,20 @@ function KeyBox({
   };
   return (
     <Box title={S.keyTitle} testId="director-key" tone="tinted">
+      {showForm ? (
+        <div style={{ display: 'grid', gap: sp(2), marginBottom: sp(3) }}>
+          <a
+            href={TEACHER_SIGN_IN_PATH}
+            data-testid="teacher-google"
+            className="lcw-btn"
+            style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: `0 ${sp(4)}`, borderRadius: 12, background: C['brand-d'], color: C['paper-0'], fontWeight: 700, textDecoration: 'none' }}
+          >
+            {S.googleSignIn}
+          </a>
+          <p style={{ margin: 0, fontSize: `${T.scale.small.sizePx}px` }}>{S.googleHelp}</p>
+          <strong style={{ marginTop: sp(2) }}>{S.keyOr}</strong>
+        </div>
+      ) : null}
       {showForm ? (
         <form
           onSubmit={(e) => {
@@ -215,6 +337,8 @@ function KeyBox({
           </Button>
           <p style={{ flexBasis: '100%', margin: 0, fontSize: `${T.scale.small.sizePx}px` }}>{S.keyHelp}</p>
         </form>
+      ) : isOperatorSession(token) && token ? (
+        <TeacherAccount api={api} token={token} onSignedOut={onForget} />
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
           <span>{S.keySaved}</span>
@@ -310,6 +434,7 @@ function StudentPicker({
   now,
   onAuthError,
   initialStudents,
+  initialSeats,
   initialLive,
   onStarted
 }: {
@@ -318,6 +443,7 @@ function StudentPicker({
   now: () => number;
   onAuthError: (code: string) => void;
   initialStudents: AdminStudent[] | undefined;
+  initialSeats: ConsoleSeat[] | undefined;
   initialLive: { lessons: LiveLessonRow[]; server_now: number } | undefined;
   onStarted: (rec: DirectorLessonRecord) => void;
 }): React.ReactElement {
@@ -355,6 +481,8 @@ function StudentPicker({
   const [startingId, setStartingId] = useState<string | null>(null);
   const [startError, setStartError] = useState<{ id: string; text: string } | null>(null);
   const [planId, setPlanId] = useState<string>(loadPlanChoice);
+  const seats = useConsoleSeats(api, token, initialSeats);
+  const [seatOpen, setSeatOpen] = useState<string | null>(null);
   const choosePlan = (id: string) => {
     setPlanId(id);
     savePlanChoice(id);
@@ -444,6 +572,7 @@ function StudentPicker({
             onClick={() => {
               void load();
               void loadLive();
+              void seats.reload();
             }}
             disabled={loading}
           >
@@ -473,6 +602,11 @@ function StudentPicker({
           <p style={{ margin: `${sp(1)} 0 0`, fontSize: `${T.scale.small.sizePx}px` }}>{S.planHint}</p>
         </div>
         {listError ? <Notice onRetry={() => void load()} retryLabel={S.retry}>{listError}</Notice> : null}
+        {seats.error ? (
+          <Notice kind="info" onRetry={() => void seats.reload()} retryLabel={S.retry}>
+            {S.seat.loadError}
+          </Notice>
+        ) : null}
         {students && students.length === 0 ? <p>{S.studentsEmpty}</p> : null}
         {students && students.length > 0 ? (
           <div style={{ overflowX: 'auto' }}>
@@ -484,17 +618,33 @@ function StudentPicker({
                   <th style={th}>{S.colBirth}</th>
                   <th style={th}>{S.colLast}</th>
                   <th style={th}>{S.col7d}</th>
+                  <th style={th}>{S.seat.col}</th>
                   <th style={th} />
                 </tr>
               </thead>
               <tbody>
                 {students.map((s) => (
-                  <tr key={s.player_id} data-testid="student-row">
+                  <React.Fragment key={s.player_id}>
+                  <tr data-testid="student-row">
                     <td style={{ ...td, fontWeight: 700 }}>{s.nickname}</td>
                     <td style={td}>{s.level}</td>
                     <td style={td}>{s.birth_year ?? '—'}</td>
                     <td style={td}>{kstLabel(s.last_lesson_at)}</td>
                     <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{s.utterances_7d ?? 0}</td>
+                    <td style={td} data-testid="student-seat">
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(1), alignItems: 'center' }}>
+                        {seats.loaded ? <ConsoleSeatBadge seat={seats.byPlayer.get(s.player_id)} now={now()} /> : null}
+                        <Button
+                          type="button"
+                          variant="paper"
+                          aria-expanded={seatOpen === s.player_id}
+                          data-testid={`seat-manage-${s.player_id}`}
+                          onClick={() => setSeatOpen(seatOpen === s.player_id ? null : s.player_id)}
+                        >
+                          {seatOpen === s.player_id ? S.seat.close : S.seat.manage}
+                        </Button>
+                      </div>
+                    </td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       <Button
                         type="button"
@@ -513,6 +663,22 @@ function StudentPicker({
                       ) : null}
                     </td>
                   </tr>
+                  {seatOpen === s.player_id ? (
+                    <tr data-testid="student-seat-row">
+                      <td colSpan={7} style={td}>
+                        <SeatManager
+                          api={api}
+                          token={token}
+                          nickname={s.nickname}
+                          playerId={s.player_id}
+                          seat={seats.byPlayer.get(s.player_id)}
+                          now={now}
+                          onChanged={seats.reload}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

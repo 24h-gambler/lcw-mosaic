@@ -20,6 +20,24 @@ export interface AdminStudent {
   utterances_7d: number;
 }
 
+export type ConsoleSeatState = 'active' | 'expiring' | 'read_only' | 'archived' | 'refunded';
+/** GET /v1/admin/seats row, the fields the console uses (newest end first). */
+export interface ConsoleSeat {
+  id: string;
+  player_id: string;
+  plan: string;
+  term: string;
+  starts_at: number;
+  ends_at: number;
+  state: ConsoleSeatState;
+}
+export interface SeatChangeResult {
+  id: string;
+  ends_at: number;
+  starts_at?: number;
+  state: ConsoleSeatState;
+}
+
 /** GET /v1/admin/lessons/live row: a running lesson, whichever device started it (server clock). */
 export interface LiveLessonRow {
   lesson_id: string;
@@ -314,6 +332,10 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
   const enc = encodeURIComponent;
 
   return {
+    oauthExchange: (code: string) => request<{ result: string }>('POST', '/v1/oauth/exchange', null, { code }),
+    operatorSessions: (op: string) => request<OperatorSessions>('GET', '/v1/admin/operator-sessions', op),
+    revokeOperatorSession: (op: string, input: { id: string } | { all: true }) =>
+      request<{ revoked: number }>('POST', '/v1/admin/operator-sessions/revoke', op, input),
     listStudents: (op: string) => request<AdminStudent[]>('GET', '/v1/admin/students', op),
     liveLessons: (op: string, includeTest = false) =>
       request<{ lessons: LiveLessonRow[]; server_now: number }>('GET', `/v1/admin/lessons/live${includeTest ? '?include_test=1' : ''}`, op),
@@ -364,6 +386,27 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       request<StudentDailyRow[]>('GET', `/v1/admin/students/${enc(playerId)}/daily?days=${days}`, op),
     daily: (op: string, day?: string) =>
       request<DailySummary>('GET', `/v1/admin/daily${day ? `?day=${enc(day)}` : ''}`, op),
+    /* Seats from the console's student rows (DirectorSeats.tsx; server apps/edge/src/seats.ts). */
+    seats: (op: string) => request<ConsoleSeat[]>('GET', '/v1/admin/seats', op),
+    /** 과외 좌석 발급: 0원 (included in tutoring), payer = the child's family guardian. */
+    issueTutoringSeat: (op: string, playerId: string) =>
+      request<{ seat_ids: string[]; ends_at: number }>('POST', '/v1/admin/seats', op, {
+        payer_player_id: playerId,
+        plan: 'tutoring',
+        term: 'month',
+        player_ids: [playerId],
+        amount_krw: 0,
+        note: 'console'
+      }),
+    /**
+     * A free extension: through /dates, so no payment row is made and no refund window opens (a paid extension stays
+     * on the /seats screen's POST /extend).
+     */
+    extendSeat: (op: string, seatId: string, days: number) =>
+      request<SeatChangeResult>('POST', `/v1/admin/seats/${enc(seatId)}/dates`, op, { extend_days: days, note: 'console' }),
+    editSeatDates: (op: string, seatId: string, dates: { starts_at?: number; ends_at?: number }) =>
+      request<SeatChangeResult>('POST', `/v1/admin/seats/${enc(seatId)}/dates`, op, { ...dates, note: 'console' }),
+    stopSeat: (op: string, seatId: string) => request<SeatChangeResult>('POST', `/v1/admin/seats/${enc(seatId)}/stop`, op, { note: 'console' }),
     /**
      * Operator CSV export (edge export-csv.ts). It needs the Bearer token, so it cannot be a plain link: the console
      * fetches the file and saves the blob. Without `day` the server uses today in KST.
@@ -409,6 +452,48 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
 }
 
 export type LessonApi = ReturnType<typeof createLessonApi>;
+
+/** A teacher account's sign-in on one browser (edge operator-login.ts). */
+export interface OperatorSessionRow {
+  id: string;
+  name: string;
+  label: string;
+  created_at: number;
+  expires_at: number;
+  last_seen_at: number | null;
+  revoked_at: number | null;
+  live: boolean;
+}
+export interface OperatorSessions {
+  /** null when the console holds the ops key instead of a teacher sign-in */
+  me: { session_id: string; name: string } | null;
+  sessions: OperatorSessionRow[];
+}
+
+/** Teacher sign-in tokens start with this (an ops key never does). */
+export const OPERATOR_SESSION_PREFIX = 'lcwop_';
+export const isOperatorSession = (token: string | null): boolean => Boolean(token?.startsWith(OPERATOR_SESSION_PREFIX));
+/** Google sign-in for teachers (shared OAuth module, role=teacher); it comes back to /director#op=<token>. */
+export const TEACHER_SIGN_IN_PATH = '/v1/oauth/google/start?role=teacher&return=%2Fdirector';
+
+/**
+ * The session from a sign-in result: `op=<token>` (what POST /v1/oauth/exchange or the Google button answers; the
+ * token is never in the address bar).
+ */
+export function operatorTokenFromResult(result: string | null | undefined): string | null {
+  return /^op=(lcwop_[A-Za-z0-9_-]{16,200})$/.exec(result ?? '')?.[1] ?? null;
+}
+
+/**
+ * Teacher sign-in coming back to /director: `#oauth=<one-use code>` (traded with POST /v1/oauth/exchange from this
+ * browser) or `#oauth_error=<code>`.
+ */
+export function operatorSignInFromHash(hash: string): { code: string } | { error: string } | null {
+  const c = /(?:^#|&)oauth=([0-9a-f]{32})(?:&|$)/.exec(hash);
+  if (c) return { code: c[1]! };
+  const e = /(?:^#|&)oauth_error=([a-z_]{1,40})(?:&|$)/.exec(hash);
+  return e ? { error: e[1]! } : null;
+}
 
 /* ---------- device storage (try/catch: private mode and SSR have no storage) ---------- */
 

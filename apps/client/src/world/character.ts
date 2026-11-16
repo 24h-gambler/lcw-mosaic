@@ -275,12 +275,25 @@ export class BlobShadows {
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
   }
+  private readonly free: number[] = [];
+  /** A slot for one figure; -1 when all are taken (that figure then has no blob shadow). */
   claim(): number {
-    const i = this.used++;
+    const reused = this.free.pop();
+    if (reused === undefined && this.used >= this.mesh.instanceMatrix.count) return -1;
+    const i = reused ?? this.used++;
     this.mesh.count = this.used;
     this.m.makeScale(0, 0, 0);
     this.mesh.setMatrixAt(i, this.m);
+    this.mesh.instanceMatrix.needsUpdate = true;
     return i;
+  }
+  /** Figures that leave (people in a multi room) give their slot back. */
+  release(i: number): void {
+    if (i < 0 || i >= this.used) return;
+    this.m.makeScale(0, 0, 0);
+    this.mesh.setMatrixAt(i, this.m);
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.free.push(i);
   }
   place(i: number, x: number, y: number, z: number, scale: number): void {
     this.m.makeScale(scale, 1, scale).setPosition(x, y + 0.02, z);
@@ -506,6 +519,15 @@ export class VoxelCharacter {
 
   setHeadVisible(v: boolean): void {
     this.headVisible = v;
+  }
+
+  /** Frees the GPU side and the blob-shadow slot (a figure that leaves for good, e.g. a person leaving the room). */
+  dispose(): void {
+    if (this.shadowSlot >= 0) VoxelCharacter.shadows?.release(this.shadowSlot);
+    this.shadowSlot = -1;
+    this.mesh.geometry.dispose();
+    this.mat.map?.dispose();
+    this.mat.dispose();
   }
 
   private fade = 1;

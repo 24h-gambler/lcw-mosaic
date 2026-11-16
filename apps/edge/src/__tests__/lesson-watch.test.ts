@@ -14,6 +14,8 @@ import {
   planTick,
   planWindowEnd,
   recordPosted,
+  relayOnce,
+  RELAY_MAX_IMPORTANCE,
   readAdjust,
   planSettle,
   scopeRef,
@@ -290,5 +292,65 @@ describe('live-lesson watch (tools/lesson-watch.mjs)', () => {
     expect(recordPosted(prev, 'p_new', { sig: 'b', at: 't2' })).toEqual({ id: 'p_new', sig: 'b', at: 't2' });
     expect(recordPosted(prev, 'p_old', { sig: 'b', at: 't2' })).toEqual({ id: 'p_old', sig: 'b', at: 't2', closed: 't1' });
     expect(recordPosted(undefined, 'p_1', { sig: 'c', at: 't3' })).toEqual({ id: 'p_1', sig: 'c', at: 't3' });
+  });
+
+  it('relay: posts the outbox cards, acks what reached the spine (its version), never above 2, never a foreign card', async () => {
+    const card = (ref: string, importance: number, source = 'outsourcing') => ({ source, ref, title: 't', body: 'b', importance, actions: [] });
+    const box = {
+      status: 200,
+      body: {
+        cards: [
+          { ref: 'outsourcing:lcw:lesson:les-1:summary', updated_at: 11, card: card('outsourcing:lcw:lesson:les-1:summary', 2) },
+          { ref: 'outsourcing:lcw:student:kid-1:2026-11-16', updated_at: 12, card: card('outsourcing:lcw:student:kid-1:2026-11-16', 1) },
+          { ref: 'outsourcing:lcw:x:urgent', updated_at: 13, card: card('outsourcing:lcw:x:urgent', 3) },
+          { ref: 'other:x', updated_at: 14, card: card('other:x', 1, 'sori') },
+          { ref: 'outsourcing:lcw:mismatch', updated_at: 15, card: card('outsourcing:lcw:else', 1) },
+          { ref: 'outsourcing:lcw:skip', updated_at: 16, card: card('outsourcing:lcw:skip', 1) },
+          { ref: 'outsourcing:lcw:fail', updated_at: 17, card: card('outsourcing:lcw:fail', 1) }
+        ]
+      }
+    };
+    const posted: Array<{ ref: string; importance: number }> = [];
+    let acked: Array<{ ref: string; updated_at: number; spine_id: string }> = [];
+    const logs: Array<Record<string, unknown>> = [];
+    const out = await relayOnce({
+      pull: async () => box,
+      postCard: async (c: { ref: string; importance: number }) => {
+        posted.push({ ref: c.ref, importance: c.importance });
+        if (c.ref.endsWith(':skip')) return { skipped: true, r: { status: 0, body: null } };
+        if (c.ref.endsWith(':fail')) return { r: { status: 503, body: null } };
+        return { r: { status: 201, body: { id: `p_${posted.length}` } } };
+      },
+      ack: async (items: typeof acked) => {
+        acked = items;
+        return { status: 200, body: { acked: items.length } };
+      },
+      log: (r: Record<string, unknown>) => logs.push(r)
+    });
+    expect(posted.map((x) => x.ref)).toEqual([
+      'outsourcing:lcw:lesson:les-1:summary',
+      'outsourcing:lcw:student:kid-1:2026-11-16',
+      'outsourcing:lcw:x:urgent',
+      'outsourcing:lcw:skip',
+      'outsourcing:lcw:fail'
+    ]);
+    expect(posted.find((x) => x.ref.endsWith(':urgent'))?.importance).toBe(RELAY_MAX_IMPORTANCE);
+    expect(acked).toEqual([
+      { ref: 'outsourcing:lcw:lesson:les-1:summary', updated_at: 11, spine_id: 'p_1' },
+      { ref: 'outsourcing:lcw:student:kid-1:2026-11-16', updated_at: 12, spine_id: 'p_2' },
+      { ref: 'outsourcing:lcw:x:urgent', updated_at: 13, spine_id: 'p_3' }
+    ]);
+    expect(out).toEqual({ ok: false, pulled: 7, posted: 3, skipped: 1, failed: 3, acked: 3 });
+    expect(logs.map((r) => r.key)).toEqual(['relay_bad_card', 'relay_bad_card', 'card_error']);
+  });
+
+  it('relay: a pull or ack failure acks nothing and says so', async () => {
+    const down = await relayOnce({ pull: async () => ({ status: 0, body: null }), postCard: async () => ({ r: { status: 201, body: { id: 'p' } } }), ack: async () => ({ status: 200, body: {} }) });
+    expect(down).toMatchObject({ ok: false, pulled: 0 });
+    const one = { status: 200, body: { cards: [{ ref: 'outsourcing:a', updated_at: 1, card: { source: 'outsourcing', ref: 'outsourcing:a', title: 't', body: '', importance: 1, actions: [] } }] } };
+    const noAck = await relayOnce({ pull: async () => one, postCard: async () => ({ r: { status: 201, body: { id: 'p_1' } } }), ack: async () => ({ status: 503, body: null }) });
+    expect(noAck).toMatchObject({ ok: false, posted: 1, acked: 0 });
+    const empty = await relayOnce({ pull: async () => ({ status: 200, body: { cards: [] } }), postCard: async () => ({ r: { status: 201, body: {} } }), ack: async () => ({ status: 200, body: {} }) });
+    expect(empty).toEqual({ ok: true, pulled: 0, posted: 0, skipped: 0, failed: 0, acked: 0 });
   });
 });

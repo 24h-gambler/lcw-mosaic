@@ -19,7 +19,7 @@ import {
   type SeatRefundMode,
   type SeatState
 } from './familyApi.js';
-import { GuestPasses } from './GuestPasses.js';
+import { GuestPasses, passBoxFor } from './GuestPasses.js';
 import { errorCodeOf, loadOperatorToken } from './lessonApi.js';
 import { kstLabel } from './lessonFlow.js';
 import { Box, LessonStyle, Notice, border, inputStyle, labelStyle, sp } from './lessonUi.js';
@@ -332,7 +332,7 @@ export function FamilySeats({ api, token }: { api: FamilyApi; token: string }): 
       busy={busy}
       sent={sent}
       // A friend pass belongs to a live seat of this family's own child (another family's Duo seat is theirs to give).
-      extra={(s) => (s.child && (s.state === 'active' || s.state === 'expiring') ? <GuestPasses api={api} token={token} seatId={s.id} /> : null)}
+      extra={(s) => (passBoxFor(s) ? <GuestPasses api={api} token={token} seatId={s.id} /> : null)}
       onRequest={(seatId, input) => {
         setBusy(true);
         void api

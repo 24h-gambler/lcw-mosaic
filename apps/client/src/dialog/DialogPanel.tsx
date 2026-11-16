@@ -35,6 +35,7 @@ import { FRAME_STRINGS } from '../frame/strings.js';
 
 export type { DialogOffer, DialogPanelProps, DialogResult, NpcRef, UtteranceSubmit } from './types.js';
 export { createLessonSubmit, createSoloSubmit, createSoloSubmitWith } from './submit.js';
+export { noteSoloDone, soloTalkPlan } from './npc-lines.js';
 
 const S = live('dialog');
 const SK = ko('dialog');
@@ -141,8 +142,14 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   );
   const [offers, setOffers] = useState<DialogOffer[]>(initialOffers);
   useEffect(() => setOffers(initialOffers), [initialOffers]);
-  const freeTalk = mode === 'free' && props.offers.length > 0;
-  const needsUnderstand = mode === 'free' && offers.length === 0;
+  // R2625: after the opening line's answer passes, the NPC asks `followUps` one by one in this window (turn 1..n).
+  // A follow-up is answered in the child's own words, so it is free talk whatever the window's mode.
+  const followUps = props.followUps;
+  const [turn, setTurn] = useState(0);
+  const followTurn = turn > 0;
+  const followSubmit = props.followUpSubmit ?? submit;
+  const freeTalk = (mode === 'free' && props.offers.length > 0) || followTurn;
+  const needsUnderstand = !followTurn && mode === 'free' && offers.length === 0;
 
   const [selected, setSelected] = useState<1 | 2 | 3>(() => (initialOffers[0]?.stars ?? 1) as 1 | 2 | 3);
   const offer = offers.find((o) => o.stars === selected) ?? offers[0];
@@ -181,17 +188,18 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const echoRef = useRef(echo);
   echoRef.current = echo;
 
-  const npcLine = props.npcLine ?? NPC_OPENING_LINES[npc.ctx] ?? NPC_OPENING_LINES.guide!;
+  const openLine = props.npcLine ?? NPC_OPENING_LINES[npc.ctx] ?? NPC_OPENING_LINES.guide!;
+  const npcLine = followTurn ? followUps?.[turn - 1] ?? openLine : openLine;
 
   // Voices from the cast pack: the NPC speaks in its own, the child's sentences are read in the model voice.
-  const npcVoice = voiceForCtx(npc.ctx);
+  const npcVoice = voiceForCtx(props.voiceCtx ?? npc.ctx);
   const modelVoice = npcCast().modelVoice;
   // NPC asks on open (docs/12: the mic only opens after the NPC line ends — a tap on the mic cuts the voice first).
   useEffect(() => {
     void speakEnglish(npcLine, level, npcVoice);
     return () => stopSpeaking();
-    // npcVoice follows npc.ctx
-  }, [npcLine, level, npc.ctx]);
+    // npcVoice follows npc.ctx / voiceCtx
+  }, [npcLine, level, npc.ctx, props.voiceCtx]);
   // The offers' model sentences are fetched once the NPC line is in (it goes first: four parallel new lines took
   // 1.2-1.7 s each against ~0.6 s alone, measured 11-16), so a 🔊 tap plays at once.
   useEffect(() => {
@@ -208,14 +216,18 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       setNotice(null);
       const slowTimer = setTimeout(() => setSlow(true), SLOW_PROCESSING_MS);
       try {
-        const r = await submit({ ...u, dialogId: dialogId.current });
+        const r = await (followTurn ? followSubmit : submit)({ ...u, dialogId: dialogId.current });
         setResult(r);
         onResultRef.current?.(r);
         setLastTarget(r.matchedText ?? u.target_text);
         setLastSpoken(u.transcript);
         setPending(null);
         const key = u.chosen_stars;
-        if (r.pass) {
+        if (r.pass && followTurn) {
+          // A follow-up answer sells nothing: the window's best (the item the server granted) stays the opening's.
+          playPass(Math.max(1, r.stars));
+          setMissedWords(new Set());
+        } else if (r.pass) {
           const prev = bestPass.current;
           bestPass.current =
             !prev || r.stars >= prev.stars
@@ -259,7 +271,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         clearTimeout(slowTimer);
       }
     },
-    [submit, misses, level, hint]
+    [submit, followSubmit, followTurn, misses, level, hint]
   );
 
   const sendSpoken = useCallback(
@@ -395,7 +407,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
     };
   }, [engine, recordClip]);
 
-  const micDisabled = !!micIssue || phase === 'scoring' || (offers.length === 0 && !needsUnderstand);
+  const micDisabled = !!micIssue || phase === 'scoring' || (!followTurn && offers.length === 0 && !needsUnderstand);
   const toggleMic = useCallback(() => {
     unlockDialogAudio();
     if (micIssue) return;
@@ -430,9 +442,46 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
 
   // Closing after a pass still finishes the order: the server already granted (and charged for) the item.
   const closeWindow = useCallback(() => {
-    if (bestPass.current) onDone(bestPass.current);
-    else onClose();
-  }, [onDone, onClose]);
+    if (bestPass.current) {
+      if (followUps) onDone(bestPass.current, { followUpsDone: false });
+      else onDone(bestPass.current);
+    } else onClose();
+  }, [onDone, onClose, followUps]);
+
+  // 완료 / "keep this one" / "next": the NPC asks its next follow-up in this window, or the window is finished.
+  const finish = useCallback(
+    (r: DialogResult) => {
+      if (!followUps) {
+        onDone(r);
+        return;
+      }
+      if (turn < followUps.length && (bestPass.current || r.pass)) {
+        setTurn(turn + 1);
+        setResult(null);
+        setNotice(null);
+        setHeard(null);
+        setEcho(null);
+        setPending(null);
+        setMisses({});
+        setMissedWords(new Set());
+        setCardsPicked([]);
+        setTyped('');
+        setLastTarget('');
+        setLastSpoken('');
+        noSpeechRun.current = 0;
+        readyAt.current = Date.now();
+        setPhase(micIssue ? 'keyboard' : 'choose');
+        return;
+      }
+      onDone(bestPass.current ?? r, { followUpsDone: true });
+    },
+    [followUps, turn, onDone, micIssue]
+  );
+  const skipFollowUp = () => {
+    unlockDialogAudio();
+    playSfx('ui.click');
+    finish(bestPass.current ?? result ?? { pass: false, stars: 0, feedbackKo: '' });
+  };
 
   // Space toggles the mic inside the dialog (docs/08 7.1), Esc closes. The player's "hold" setting (G14, docs/08 11장
   // 누르고 있기 <-> 켜고 끄기) turns the mic button and Space into hold-to-talk: press starts, release ends.
@@ -478,7 +527,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const retry = () => {
     setResult(null);
     setNotice(null);
-    setPhase(micIssue ? (offers.length > 0 ? 'board' : 'keyboard') : 'choose');
+    // a follow-up is free talk: no sentence to build on the board, so a child without a mic types
+    setPhase(micIssue ? (offers.length > 0 && !followTurn ? 'board' : 'keyboard') : 'choose');
     setCardsPicked([]);
     readyAt.current = Date.now();
   };
@@ -489,7 +539,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
     retry();
   };
 
-  const higherExists = !!result?.pass && offers.some((o) => o.stars > (result?.stars ?? 3));
+  const higherExists = !followTurn && !!result?.pass && offers.some((o) => o.stars > (result?.stars ?? 3));
   const resultWords = lastTarget ? splitWords(lastTarget) : [];
   const resultMask = lastTarget ? heardMask(lastTarget, lastSpoken) : [];
   // A review card from the 1-day box on shows the sentence without its voice (docs/03 D8).
@@ -503,14 +553,15 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   // Recall ('initial') hides the chips: a tag like "can i have" would give the masked sentence away.
   const showTags = offer && (hint === 'full' || hint === 'keyword');
 
-  const titleKey = phase === 'echo' ? 'echoTitle' : phase === 'board' ? 'boardTitle' : freeTalk || needsUnderstand ? 'freePrompt' : 'chooseTitle';
+  const titleKey =
+    phase === 'echo' ? 'echoTitle' : phase === 'board' ? 'boardTitle' : followTurn ? 'followUpHint' : freeTalk || needsUnderstand ? 'freePrompt' : 'chooseTitle';
   return (
     <div className="lcw-dlg" style={style} role="dialog" aria-modal="true" aria-label={`${learnLang() === 'en' ? npc.nameEn : npc.nameKo} ${S.chooseTitle}`}>
       <style>{DIALOG_CSS}</style>
       <div className="lcw-dlg__win">
         <section className="lcw-dlg__side">
           <div className="lcw-dlg__npc">
-            <div className="lcw-dlg__avatar" aria-hidden="true">{npcImg ? <img src={npcImg} alt="" /> : NPC_EMOJI[npc.ctx] ?? '🙂'}</div>
+            <div className="lcw-dlg__avatar" aria-hidden="true">{npcImg ? <img src={npcImg} alt="" /> : NPC_EMOJI[props.voiceCtx ?? npc.ctx] ?? '🙂'}</div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className="lcw-dlg__name">{learnLang() !== 'en' ? `${npc.nameKo} · ${npc.nameEn}` : helpKoOn() ? `${npc.nameEn} · ${npc.nameKo}` : npc.nameEn}</div>
               <div className="lcw-dlg__bubble" lang="en">
@@ -542,7 +593,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               </>
             ) : (
               <div className="lcw-dlg__pics lcw-dlg__face" aria-hidden="true">
-                {npcImg ? <img className="lcw-dlg__item3d" src={npcImg} alt="" /> : <span>{NPC_EMOJI[npc.ctx] ?? '🙂'}</span>}
+                {npcImg ? <img className="lcw-dlg__item3d" src={npcImg} alt="" /> : <span>{NPC_EMOJI[props.voiceCtx ?? npc.ctx] ?? '🙂'}</span>}
               </div>
             )}
           </div>
@@ -603,13 +654,15 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                 {result.pass ? (
                   <>
                     {higherExists ? <button type="button" className="lcw-cta lcw-cta--up" onClick={tryHigher}>{S.tryHigher}</button> : null}
-                    <button type="button" className="lcw-cta lcw-cta--go" onClick={() => onDone(result)}>{S.done}</button>
+                    <button type="button" className="lcw-cta lcw-cta--go" onClick={() => finish(result)}>{S.done}</button>
                   </>
                 ) : (
                   <>
                     <button type="button" className="lcw-cta lcw-cta--again" onClick={retry}>{S.retry}</button>
-                    {bestPass.current ? (
-                      <button type="button" className="lcw-cta lcw-cta--go" onClick={() => onDone(bestPass.current!)}>{S.keepBest}</button>
+                    {followTurn ? (
+                      <button type="button" className="lcw-cta lcw-cta--go lcw-dlg__next" onClick={skipFollowUp}>{S.followUpSkip}</button>
+                    ) : bestPass.current ? (
+                      <button type="button" className="lcw-cta lcw-cta--go" onClick={() => finish(bestPass.current!)}>{S.keepBest}</button>
                     ) : null}
                   </>
                 )}
@@ -677,7 +730,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                 if (typed.trim()) sendSpoken(typed.trim(), 'keyboard', 1, 0);
               }}
             >
-              {offer ? (
+              {offer && !followTurn ? (
                 <div className="lcw-offer" data-s={offer.stars} aria-pressed="true">
                   <span className="lcw-offer__stars">{starsText(offer.stars)}</span>
                   <OfferText offer={offer} hint={hint} />
@@ -693,6 +746,10 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
             <div className="lcw-res" aria-live="polite">
               <span className="lcw-dots" aria-hidden="true"><i /><i /><i /></span>
               <div className="lcw-res__fb">{slow ? S.processingSlow : S.processing}</div>
+            </div>
+          ) : followTurn ? (
+            <div className="lcw-row">
+              <button type="button" className="lcw-alt lcw-dlg__next" onClick={skipFollowUp}>{S.followUpSkip} →</button>
             </div>
           ) : (
             <div className="lcw-dlg__offers">
@@ -757,7 +814,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               </button>
               <div className="lcw-mic-label">
                 {mic.recording ? S.micListening : S.micStart}
-                {mic.recording ? <small>{hold ? FRAME_STRINGS.micHoldRelease : mic.hangover ? S.micHangover : S.micStop}</small> : <small className="kbd">Space</small>}
+                {mic.recording ? <small>{hold ? FRAME_STRINGS.micHoldRelease : mic.secondsLeft !== undefined ? S.timeLeft.replace('{n}', String(mic.secondsLeft)) : mic.hangover ? S.micHangover : S.micStop}</small> : <small className="kbd">Space</small>}
               </div>
               {phase !== 'echo' ? (
                 <>

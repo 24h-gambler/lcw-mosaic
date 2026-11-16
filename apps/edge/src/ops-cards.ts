@@ -17,8 +17,11 @@ import type { SqliteExecutor } from './storage.js';
 
 export const OPS_CARD_SCHEMA = `
 create table if not exists ops_card_outbox (ref text primary key, card text not null, created_at integer not null, updated_at integer not null, acked_at integer, spine_id text);
-create index if not exists ops_card_outbox_pending on ops_card_outbox (acked_at, updated_at)
+create index if not exists ops_card_outbox_pending on ops_card_outbox (acked_at, updated_at);
+create index if not exists utterances_by_time on utterances (created_at)
 `;
+// utterances_by_time: the hourly enqueueRecentStudentDays reads the last two hours of every student; without it each
+// hour scans the whole table. utterances exists by then (storage.ts schema, lesson-mode.ts indexes it before mounting).
 
 /** The spine source the watch has always used for LCW cards (tools/lesson-watch.mjs CARD_SOURCE). */
 export const OPS_CARD_SOURCE = 'outsourcing';
@@ -73,6 +76,23 @@ function speechCounts(sql: SqliteExecutor, where: string, params: unknown[]): Sp
     last_at: r?.last_at == null ? null : Number(r.last_at)
   };
 }
+/** Closed by the idle sweep (lesson-mode.ts LESSON_IDLE_CLOSE_MS): its report waits for the teacher, or went out with a later part. */
+function autoCloseOf(sql: SqliteExecutor, lessonId: string): { sent_at: number | null; folded_into: string | null } | null {
+  try {
+    return sql.get<{ sent_at: number | null; folded_into: string | null }>('select sent_at, folded_into from lesson_auto_close where lesson_id = ?', [lessonId]) ?? null;
+  } catch {
+    return null; /* no lesson tables (ops-card unit setups) */
+  }
+}
+/**
+ * The auto-closed lesson's card: '리포트 확인·보내기' opens that lesson on the console (the report goes to the guardian
+ * only from there, after the teacher looks), '이어 하기' opens the console at the same lesson ready to continue it.
+ */
+const autoActions = (origin: string, lessonId: string) => [
+  { type: 'open', url: `${origin}/director?auto=${encodeURIComponent(lessonId)}`, label: '리포트 확인·보내기' },
+  { type: 'open', url: `${origin}/director?auto=${encodeURIComponent(lessonId)}&next=continue`, label: '이어 하기' },
+  { type: 'dismiss' }
+];
 const nicknameOf = (sql: SqliteExecutor, playerId: string) =>
   sql.get<{ nickname: string }>('select nickname from players where id = ?', [playerId])?.nickname ?? playerId;
 const secs = (ms: number) => Math.round(ms / 1000);
@@ -91,19 +111,33 @@ export function lessonSummaryCard(sql: SqliteExecutor, lessonId: string, nowMs: 
   const pins = sql.get<{ n: number }>('select count(*) as n from pins where lesson_id = ?', [lessonId])?.n ?? 0;
   const report = sql.get<{ n: number }>("select count(*) as n from reports where ref_id = ? and kind = 'lesson'", [lessonId])?.n ?? 0;
   const nick = nicknameOf(sql, l.player_id);
+  const auto = autoCloseOf(sql, lessonId);
+  const pending = Boolean(auto && auto.sent_at === null && auto.folded_into === null);
+  const numbers = `말 ${s.utterances}번 · 통과 ${s.passes}`;
   return {
     source: OPS_CARD_SOURCE,
     ref: `${OPS_CARD_SOURCE}:lcw:lesson:${lessonId}:summary`,
-    title: `📚 LCW 수업 끝 · ${nick} · ${minutes}분 · 말 ${s.utterances}번 · 통과 ${s.passes}`,
+    title: pending
+      ? `⏸ LCW 수업 자동 마무리됨 · ${nick} · ${minutes}분 · ${numbers} · 리포트 보내기/이어 하기`
+      : `📚 LCW 수업 끝 · ${nick} · ${minutes}분 · ${numbers}`,
     body: [
       `수업 ${lessonId} · 학생 ${nick} (${l.player_id})`,
       `시간 ${kstClock(l.started_at)}–${kstClock(end)} (${minutes}분)`,
       `말한 횟수 ${s.utterances} · 통과 ${s.passes} · 별 ${s.stars} · 단어 ${s.words} · 말한 시간 ${secs(s.speaking_ms)}초`,
-      `단계 ${stages}개 · 핀 ${pins}개 · 보호자 보고서 ${report ? '만듦' : '없음'}`,
+      `단계 ${stages}개 · 핀 ${pins}개 · 보호자 보고서 ${
+        report ? '만듦' : auto?.folded_into ? `이어 한 수업 ${auto.folded_into} 의 보고서에 합쳐 보냄` : pending ? '초안만 있음(아직 안 보냄)' : '없음'
+      }`,
+      ...(auto
+        ? [
+            pending
+              ? `선생님과 학생이 ${kstClock(end)} 뒤로 15분 넘게 없어서 서버가 '끝내지 않고 떠난 수업'으로 닫았습니다. 보호자에게는 아직 아무것도 가지 않았습니다. 콘솔에서 리포트를 확인하고 보내거나, 오늘 안에 이어 하면 두 수업이 한 리포트로 갑니다.`
+              : `'끝내지 않고 떠난 수업'으로 자동 마무리됐던 수업입니다.`
+          ]
+        : []),
       '자세한 것은 디렉터 콘솔에서 봅니다(아이가 한 말 원문은 카드에 싣지 않습니다).'
     ].join('\n'),
     importance: LESSON_SUMMARY_IMPORTANCE,
-    actions: consoleActions(origin)
+    actions: pending ? autoActions(origin, lessonId) : consoleActions(origin)
   };
 }
 
@@ -151,6 +185,31 @@ export function enqueueLessonEnd(sql: SqliteExecutor, lessonId: string, nowMs: n
   const l = sql.get<{ player_id: string; started_at: number }>('select player_id, started_at from lessons where id = ?', [lessonId]);
   const daily = l ? studentDailyCard(sql, l.player_id, kstDay(l.started_at), origin) : null;
   if (daily && enqueueCard(sql, daily, nowMs)) out.push(daily.ref);
+  return out;
+}
+
+/** Production origin for cards made without a request (the hourly cron): the console button must open the real site. */
+export const OPS_CARD_ORIGIN = 'https://lcw.worldwidesomething.com';
+
+/**
+ * Hourly (docs/09-ops.md 15): the daily record of every student who spoke in the last two hours - in a lesson or in
+ * solo play. A lesson that closed itself (no teacher pressed end) or play outside a lesson still reaches the hub that
+ * day; two hours so the last minutes before midnight (KST) are still written to that day's card. An unchanged card
+ * stays as it is (enqueueCard), so an acked card goes again only when its numbers moved. Test students never.
+ */
+export function enqueueRecentStudentDays(sql: SqliteExecutor, nowMs: number, origin: string): string[] {
+  const rows = sql.all<{ player_id: string; d: number }>(
+    `select player_id, (created_at + 32400000) / 86400000 as d from utterances
+     where created_at >= ? and player_id is not null group by player_id, d`,
+    [nowMs - 2 * 3_600_000]
+  );
+  const out: string[] = [];
+  for (const r of rows) {
+    if (isTestPlayerId(r.player_id)) continue;
+    const day = new Date(Number(r.d) * 86_400_000).toISOString().slice(0, 10);
+    const card = studentDailyCard(sql, r.player_id, day, origin);
+    if (card && enqueueCard(sql, card, nowMs)) out.push(card.ref);
+  }
   return out;
 }
 

@@ -6,6 +6,9 @@
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/perf-probe.mjs https://lcw.worldwidesomething.com/game/ out.json [gpu]
 //
 // `gpu` uses the machine's GPU (ANGLE d3d11/default) instead of SwiftShader software GL.
+// Headless Chrome paces frames at about 30 fps whatever the GPU (measured: a blank WebGL page draws 32 rAF/s on an
+// RTX 3080). `PROBE_UNCAPPED=1` lifts that pace (--disable-gpu-vsync --disable-frame-rate-limit) to see the headroom;
+// without it a 60 fps tier looks capped at 30, which is also how the governor's frame-cap path is checked.
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -18,7 +21,8 @@ const chromium = pw.chromium ?? pw.default.chromium;
 const browser = await chromium.launch({
   channel: 'chrome',
   headless: true,
-  args: ['--mute-audio', '--ignore-gpu-blocklist', '--enable-precise-memory-info', ...(gpu ? ['--enable-gpu'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])]
+  args: ['--mute-audio', '--ignore-gpu-blocklist', '--enable-precise-memory-info', ...(gpu ? ['--enable-gpu'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']),
+    ...(process.env.PROBE_UNCAPPED === '1' ? ['--disable-gpu-vsync', '--disable-frame-rate-limit'] : [])]
 });
 
 const VIEWPORTS = [

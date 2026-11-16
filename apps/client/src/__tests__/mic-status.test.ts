@@ -29,6 +29,8 @@ describe('live mic status for the teacher console', () => {
     noteMicTurn(true, 1_000);
     noteMicIssue('aborted', 'aborted', 2_000);
     expect(mem.get(MIC_STATUS_KEY)).toBe('ok');
+    noteMicIssue('network', 'network', 2_500);
+    expect(mem.get(MIC_STATUS_KEY)).toBe('ok');
     noteMicIssue('denied', 'audio-capture', 3_000);
     expect(mem.get(MIC_STATUS_KEY)).toBe('none');
     expect(readMicIssue()).toEqual({ issue: 'denied', raw: 'audio-capture', at: 3_000 });

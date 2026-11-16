@@ -1,6 +1,7 @@
-import { ECHO_TRANSITION_LINE, FIRST_ERRAND, NPC_GENERIC_REACTIONS, NPC_OPENING_LINES, OPEN_ENDED_PROMPTS, PHRASE_BANK } from './lang-en-ko.js';
+import { ECHO_TRANSITION_LINE, FIRST_ERRAND, NPC_GENERIC_REACTIONS, NPC_OPENING_LINES, NPC_REVISIT_LINES, OPEN_ENDED_PROMPTS, PHRASE_BANK } from './lang-en-ko.js';
 import { npcCast, voiceForCtx, type NpcVoice } from './npc-cast.js';
 import { TRY_CAFE_OFFERS } from './try-order.js';
+import { LESSON_PLANS, getLessonNpc } from './lesson-plans.js';
 
 /**
  * English the public site speaks (apps/web: /try cafe owner, 🔊 buttons on the pages). Kept here so the server can
@@ -55,7 +56,11 @@ export function ttsVoiceId(v: NpcVoice): string {
   return `${v.engine}-${v.speaker}`;
 }
 
-export function fixedTtsLines(lang: string = 'en'): TtsLine[] {
+/**
+ * `priorityOnly`: just what every NPC says and the lesson plans (136 lines, ~13,300 neurons when none is cached),
+ * the set the morning prebuild makes first; the bank sentences follow on the nightly leftovers (edge tts.ts).
+ */
+export function fixedTtsLines(lang: string = 'en', opts: { priorityOnly?: boolean } = {}): TtsLine[] {
   const out: TtsLine[] = [];
   const seen = new Set<string>();
   const add = (text: string, voice: NpcVoice) => {
@@ -66,6 +71,7 @@ export function fixedTtsLines(lang: string = 'en'): TtsLine[] {
     out.push({ text: t, voice });
   };
   for (const [ctx, line] of Object.entries(NPC_OPENING_LINES)) add(line, voiceForCtx(ctx, lang));
+  for (const [ctx, lines] of Object.entries(NPC_REVISIT_LINES)) for (const line of lines) add(line, voiceForCtx(ctx, lang));
   const giver = voiceForCtx('errand', lang);
   for (const line of Object.values(FIRST_ERRAND.lines)) add(line, giver);
   for (const ctx of Object.keys(npcCast(lang).ctxNpc)) {
@@ -74,6 +80,18 @@ export function fixedTtsLines(lang: string = 'en'): TtsLine[] {
     add(ECHO_TRANSITION_LINE.text, voiceForCtx(ctx, lang));
   }
   const model = npcCast(lang).modelVoice;
+  // The lesson plans (fixed content, lesson-plans.ts) right after the NPC lines: a lesson speaks its stage script and
+  // follow-ups in the stage NPC's voice and its target sentences in the model voice, so the morning prebuild makes
+  // them before the bank (R2625 voice check, 11-16: lesson lines were made live and fell to the device voice at 95%).
+  for (const plan of LESSON_PLANS) {
+    for (const st of plan.stages) {
+      const v = voiceForCtx(getLessonNpc(st.npcId)?.ctx ?? 'guide', lang);
+      add(st.teacherScriptEn, v);
+      for (const line of st.followUpsEn ?? []) add(line, v);
+    }
+    for (const st of plan.stages) for (const tg of st.targets) add(tg.text, model);
+  }
+  if (opts.priorityOnly) return out;
   for (const entry of PHRASE_BANK) for (const o of entry.offers) add(o.text, model);
   for (const o of TRY_CAFE_OFFERS) add(o.text, model);
   const cafe = voiceForCtx('cafe', lang);

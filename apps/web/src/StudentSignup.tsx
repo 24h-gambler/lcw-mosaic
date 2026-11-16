@@ -44,12 +44,47 @@ export function signupErrorText(e: unknown): string {
     if (e.code === 'too_many_attempts' || e.code === 'too_many_pending') return S.errBusy;
     if (e.code === 'invalid') return S.errNickname;
     if (e.code === 'nickname_taken') return S.errNickTaken;
-    if (e.code === 'nickname_own_child') return S.errOwnChild(typeof e.body.nickname === 'string' ? e.body.nickname : '');
+    if (e.code === 'nickname_own_child') {
+      const nick = typeof e.body.nickname === 'string' ? e.body.nickname : '';
+      // player_id null: two own children have the name (edge student-account.ts), so no single button to point at.
+      return e.body.player_id === null ? S.errOwnChildTwo(nick) : S.errOwnChild(nick);
+    }
     if (e.code === 'guardian_only' || e.status === 401) return S.errSignedOut;
     if (e.code === 'service_consent_required') return S.errConsent;
     if (e.code === 'age_attest_required') return S.errAttest;
   }
   return S.errNetwork;
+}
+
+/**
+ * After `nickname_own_child`: reload the family so the '…(으)로 이 기기 연결' button the message points at is there
+ * (a child added on another device after this screen loaded). A lost session goes to the sign-in message rather than
+ * leaving a message that points at a button that is not on the screen; other errors keep the list as it was.
+ */
+export async function reloadOwnChildren(
+  api: Pick<StudentAccountApi, 'familyMe'>,
+  g: string,
+  setChildren: (k: FamilyChild[]) => void,
+  signedOut: () => void
+): Promise<'ok' | 'signed_out' | 'failed'> {
+  try {
+    setChildren((await api.familyMe(g)).children);
+    return 'ok';
+  } catch (e) {
+    if (e instanceof StudentApiError && e.status === 401) {
+      signedOut();
+      return 'signed_out';
+    }
+    return 'failed';
+  }
+}
+
+/** The 'who' button text; a name two children share gets the birth year (or a number) so the two differ. */
+export function connectLabel(k: FamilyChild, all: readonly FamilyChild[]): string {
+  const key = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[\s._-]+/g, '');
+  const same = all.filter((x) => key(x.nickname) === key(k.nickname));
+  if (same.length < 2) return S.connectAs(k.nickname);
+  return S.connectAs(S.childTag(k.nickname, k.birth_year, same.indexOf(k) + 1));
 }
 
 export interface StudentSignupProps {
@@ -236,10 +271,8 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
       // Our own child, maybe added on another device after this screen loaded the family: reload it so the
       // '…(으)로 이 기기 연결' button the message points at is there.
       if (e instanceof StudentApiError && e.code === 'nickname_own_child') {
-        await api
-          .familyMe(g)
-          .then((me) => setChildren(me.children))
-          .catch(() => undefined);
+        // Offline: say so, so the message does not point at a button that may not be on the screen yet.
+        if ((await reloadOwnChildren(api, g, setChildren, signedOut)) === 'failed') setMsg(`${signupErrorText(e)} ${S.errReload}`);
       }
     } finally {
       setBusy(false);
@@ -371,7 +404,7 @@ export function StudentSignupPage(props: StudentSignupProps): React.ReactElement
               <p style={{ margin: 0 }}>{S.whoExisting}</p>
               {children.map((k) => (
                 <Button key={k.player_id} type="button" variant="paper" disabled={busy} onClick={() => void connect(k)} data-testid={`signup-connect-${k.player_id}`}>
-                  {S.connectAs(k.nickname)}
+                  {connectLabel(k, children)}
                 </Button>
               ))}
             </div>

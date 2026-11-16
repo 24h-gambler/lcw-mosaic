@@ -105,6 +105,11 @@ for (const vp of VIEWPORTS) {
     if (m.type() === 'error') errs.push(m.text().slice(0, 200));
   });
   page.on('pageerror', (e) => errs.push(`pageerror: ${e.message.slice(0, 200)}`));
+  // "Failed to load resource" says no URL: name the request that failed next to it
+  page.on('requestfailed', (r) => {
+    const why = r.failure()?.errorText ?? '';
+    if (!/ERR_ABORTED/.test(why)) errs.push(`request failed ${why} ${r.url().slice(0, 160)}`);
+  });
   page.on('response', (r) => {
     if (r.status() >= 400) errs.push(`${r.status()} ${new URL(r.url()).pathname}`);
   });

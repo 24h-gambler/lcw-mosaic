@@ -99,8 +99,6 @@ export interface LessonDirectorConsoleProps {
   /** Running lessons for the resume card; undefined → fetched. */
   initialLive?: { lessons: LiveLessonRow[]; server_now: number };
   initialFeed?: LessonFeed;
-  /** Shown under the key box while there is no key (the old demo console). */
-  demo?: React.ReactNode;
   now?: () => number;
 }
 
@@ -140,14 +138,7 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
           setToken(null);
         }}
       />
-      {!token ? (
-        props.demo ? (
-          <details data-testid="director-demo">
-            <summary style={{ cursor: 'pointer', fontWeight: 700, padding: `${sp(1)} 0` }}>{S.demoSummary}</summary>
-            <div style={{ marginTop: sp(3) }}>{props.demo}</div>
-          </details>
-        ) : null
-      ) : lesson ? (
+      {!token ? null : lesson ? (
         <LiveLesson
           api={api}
           token={token}

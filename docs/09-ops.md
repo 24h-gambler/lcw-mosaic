@@ -142,14 +142,25 @@ P4와 P13은 크론 없이 돌아갑니다. 복습은 접속할 때 "지금 시�
 - 이상 신호: 보호자가 "듣기 시작이 안 돼요" → 콘솔이 내보내는 중인지(30초 안 신호), `listen_only`로 닫힌 줄이 있으면 그 브라우저가 송신 답을 만든 것(확장 프로그램 등). 콘솔에 "아이 소리 입력을 섞지 못해…"가 뜨면 두 번째 입력 섞기가 소리를 못 내서 선생님 마이크만 보내는 중입니다(첫 신호 때 스스로 바꿈).
 - 로컬 실측: `REALTIME_API_BASE`를 가짜 SFU(HTTP는 node, WebRTC 전달은 헤드리스 Chrome 중계 페이지)에 두고 교사·보호자 헤드리스 Chrome으로 측정합니다. 실제 Cloudflare SFU와 폰 브라우저는 앱을 만든 뒤 따로 확인합니다.
 
-## 12. 보호자 웹 푸시 (이용 기간·환불 안내)
+## 12. 보호자 웹 푸시 (수업 리포트·이용 기간·환불 안내)
 
-- 무엇: 이용 기간 7일·1일 남음·끝남(`seat_notices`)과 환불 결과(`seat_refunds`가 `done`·`declined`로 결정)를, 보호자가 우리 가족 화면의 「이용 기간·환불 알림」에서 켠 기기로 보냅니다. 알림에는 제목·한 줄·`/family` 링크만 있고 아이 이름·금액·좌석 id는 없습니다(잠금 화면). 문구는 `apps/edge/src/push-copy.ts`.
+- 수업 리포트(P5 "공유 링크 → 푸시"): 수업을 끝내 리포트가 생기면 그 자리에서 `lesson_report` 한 건을 넣고(스위치가 켜져 있으면 바로 보냄), 이틀 동안 열지 않아 `processPendingReportReminders`가 표시한 것은 `report_reminder` 한 건을 넣습니다(매시 크론). 큐에 있는 동안 보호자가 링크를 열었거나 끊었으면 보내지 않고 `skipped`로 둡니다. 알림은 리포트 주소를 싣지 않고 `/family`를 엽니다(잠금 화면).
+- 무엇: 이용 기간 7일·1일 남음·끝남(`seat_notices`)과 환불 결과(`seat_refunds`가 `done`·`declined`로 결정)를, 보호자가 우리 가족 화면의 「수업 리포트·이용 기간 알림」에서 켠 기기로 보냅니다. 알림에는 제목·한 줄·`/family` 링크만 있고 아이 이름·금액·좌석 id는 없습니다(잠금 화면). 문구는 `apps/edge/src/push-copy.ts`.
 - 비용 0: 브라우저 회사의 푸시 서비스(FCM·Mozilla·Apple·Windows)는 무료이고, 암호화(RFC 8291 aes128gcm)와 서명(RFC 8292 VAPID ES256)은 Worker가 WebCrypto로 직접 합니다(`web-push.ts`, 외부 라이브러리 없음). VAPID 키는 처음 쓸 때 DO 안에서 만들어 `push_meta`에 두고 개인 키는 밖으로 나가지 않습니다 — 설정할 비밀값이 없습니다.
 - **발송 스위치(기본 꺼짐)**: 꺼져 있으면 안내는 `push_outbox`에 `queued`로 쌓이기만 하고 아무에게도 가지 않습니다. 사람에게 처음 보내기 전에 담당자 확인을 받고 켭니다: `POST /v1/admin/push/sending {"enabled":true,"by":"<누가>"}`(운영자 토큰). 끄기는 `enabled:false`. 누가 언제 바꿨는지는 `GET /v1/admin/push`의 `sending_changed`.
-- 보기: `GET /v1/admin/push` — `sending`, 기기 수, 기기를 켠 가족 수, 상태별 개수(`queued`·`sent`·`no_device`·`failed`·`expired`), 최근 30건. 매시 `ops_runs`의 `hourly_push`(`queued`·`held`·`sent`·`devices_dropped`).
+- 보기: `GET /v1/admin/push` — `sending`, 기기 수, 기기를 켠 가족 수, 상태별 개수(`queued`·`sent`·`no_device`·`failed`·`expired`·`skipped`), 최근 30건. 매시 `ops_runs`의 `hourly_push`(`queued`·`held`·`sent`·`devices_dropped`).
 - 규칙: 2일보다 오래된 사건은 넣지 않고, 2일 넘게 못 보낸 것은 `expired`(지난주의 "7일 남았어요"가 늦게 가지 않게). 푸시 서비스가 404·410이면 그 기기를 바로 뺍니다. 그 밖의 실패는 기기당 5번 연속이면 뺍니다(보호자가 우리 가족 화면을 다시 열면 조용히 다시 등록). 가족당 기기 10대. 보호자의 「시험 알림 보내기」는 1분에 한 번이고, 스위치가 꺼져 있으면 버튼이 보이지 않습니다. 꺼진 동안 쌓인 시험 알림은 10분이 지나면 `expired`로 두고 나중에 켜도 보내지 않습니다.
 - 기기별: 안드로이드 크롬·삼성 인터넷·PC 크롬/엣지/파이어폭스는 바로 됩니다. 아이폰·아이패드는 사파리에서 "홈 화면에 추가"로 설치한 앱에서만 됩니다(iOS 16.4+; 카드가 그 방법을 안내하고 `/family.webmanifest`·아이콘이 이를 위해 있음). 카카오톡 같은 앱 안 브라우저는 푸시가 없어 "다른 브라우저로 열기"를 안내합니다.
 - 받는 쪽: 서비스 워커 `/family-sw.js`(범위 `/family`)는 서버가 보낸 제목·한 줄만 보여 주고, 누르면 `/family`를 엽니다. 캐시·fetch 가로채기는 하지 않습니다.
 - 엔드포인트는 위 푸시 서비스 주소만 받습니다(아무 URL로나 Worker가 요청을 보내지 않게).
 - 로컬 실측: `wrangler dev --test-scheduled` 에서 매시 작업은 `/cdn-cgi/handler/scheduled?cron=0+*+*+*+*` 로 돌립니다(정적 자산이 SPA 대체로 `/__scheduled` 를 먼저 받아 버림).
+
+## 13. 보호자가 받는 것 점검 (실제 수업 전후)
+
+수업 뒤 보호자가 무엇을 받는지 운영에서 읽기만 해서 확인합니다(운영자 토큰, 모두 GET).
+
+- 운영자 보기: `GET /v1/admin/children/:pid/guardian-view` — 우리 가족 첫 화면 카드(`/v1/family/me`와 같은 함수 `familyChildSummary`), 대시보드(`/v1/family/children/:pid/dashboard`와 같은 `buildDashboard`), 리포트 전달 행, 그 가족의 푸시 큐·기기 수·스위치, 보호자 로그인 상태(초대 열림·사용, 활성 세션 수, 서비스 동의 — 숫자만), 좌석 상태. 보호자 id와 선생님 한마디 본문은 싣지 않습니다. 이 보기를 읽어도 아무것도 바뀌지 않습니다.
+- 수업 전: `node tools/guardian-check.mjs --player <pid> --before` — 로그인할 길(초대 링크 또는 세션)이 없으면 FAIL, 수업 창문 동의가 꺼져 있으면 WARN.
+- 초대 링크 만들기: `node tools/family-invite.mjs --player <pid>` — 한 번 쓰는 7일짜리 `/family#k=…` 링크를 한 줄 찍기만 합니다. 보내는 일은 사람이 합니다(링크를 먼저 연 브라우저가 그 가족의 보호자 세션이 되므로 비밀번호처럼 다룹니다). 여러 개를 만들어도 되고, 쓰거나 지난 링크는 "invalid"일 뿐입니다.
+- 수업 뒤: `node tools/guardian-check.mjs --player <pid> [--lesson <id>]` — 수업이 끝났는지, 대시보드 줄(발화·통과·학생/선생님 분·학생 비율)과 리포트 숫자가 같은지, 우리 가족 첫 화면이 리포트를 보여 주는지, 전달 행·선생님 한마디·다음 수업 시각, 공개 리포트가 열리고 id·닉네임이 없는지, `/r/…` 페이지, `lesson_report` 알림이 큐에 있는지(스위치가 꺼져 있으면 `held`). 공개 리포트는 선생님 미리 보기(운영자 토큰)로 열어 보호자 "열람"을 쓰지 않습니다. 찍는 링크는 `/r/abcdef…`로 가립니다. FAIL이 있으면 종료 코드 1.
+- 학생별 CSV(수업 레인)와 보호자 화면은 같은 정의를 씁니다: 수업 한 줄 = `DashboardLesson`(`id`·`started_at`·`ended_at`·`duration_min`·`student_min`·`teacher_min`·`student_share`·`utterances`·`passes`·`report_path`, `apps/edge/src/dashboard.ts`). 아이 실명은 어디에도 없습니다(닉네임만, 공개 리포트는 닉네임도 가림).

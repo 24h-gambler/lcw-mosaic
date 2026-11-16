@@ -220,23 +220,52 @@ export function readMicStatus(): MicCheckStatus | null {
  * per lesson when they join (before the teacher's first sentence; the status goes to the teacher console through the
  * lesson state poll), a guest once on this device. Children with a device see it inside the first-visit intro.
  */
-export function MicCheckGate(props: { audience: 'lesson' | 'guest'; lessonCode?: string; hidden?: boolean; speech?: SpeechEngine }): React.ReactElement | null {
-  const key = props.audience === 'lesson' ? `${LESSON_CHECK_KEY}:${props.lessonCode ?? ''}` : SEEN_KEY;
-  const [open, setOpen] = useState(() => (props.audience === 'lesson' ? sessionGet(key) !== '1' : !seen()));
-  if (!open || props.hidden) return null;
+export function MicCheckGate(props: { identityKind: string; lessonCode?: string; hidden?: boolean; speech?: SpeechEngine }): React.ReactElement | null {
+  // The student session can appear while the page is open ("🎓 수업 코드 넣기" on a bare /game/): look again now and then.
+  const [, setTick] = useState(0);
+  const [closed, setClosed] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1500);
+    return () => clearInterval(id);
+  }, []);
+  const who = micCheckAudience(props.identityKind, props.lessonCode);
+  if (!who || closed || props.hidden) return null;
+  const pending = who.audience === 'lesson' ? !who.keys.some((k) => sessionGet(k) === '1') : !seen();
+  if (!pending) return null;
   return (
     <IntroCard
       speech={props.speech}
-      title={props.audience === 'lesson' ? F.lessonMicTitle : F.title}
-      tips={props.audience === 'guest'}
+      title={who.audience === 'lesson' ? F.lessonMicTitle : F.title}
+      tips={who.audience === 'guest'}
       onDone={(status) => {
         sessionSet(MIC_STATUS_KEY, status);
-        if (props.audience === 'lesson') sessionSet(key, '1');
+        // a ?code= student joins while the card is open: remember the lesson id too, so both ways in agree
+        const now = micCheckAudience(props.identityKind, props.lessonCode);
+        if (now?.audience === 'lesson') for (const k of now.keys) sessionSet(k, '1');
         else markSeen();
-        setOpen(false);
+        setClosed(true);
       }}
     />
   );
+}
+
+/** Student session keys the lesson client writes (lesson/api.ts STUDENT_TOKEN_KEY / STUDENT_LESSON_KEY). */
+const STUDENT_TOKEN = 'lcw.studentToken';
+const STUDENT_LESSON = 'lcw.studentLessonId';
+
+/**
+ * Who gets which check: a lesson student — a `?code=` link, or a student session in this tab (/join and "수업 코드
+ * 넣기" both land on a bare /game/ with it) — once per lesson (keyed by lesson id, and by the code before the join
+ * answers); a guest once per device; a child with a device sees it inside the first-visit intro instead (null).
+ */
+export function micCheckAudience(identityKind: string, lessonCode?: string): { audience: 'lesson' | 'guest'; keys: string[] } | null {
+  const lessonId = sessionGet(STUDENT_LESSON);
+  const student = !!sessionGet(STUDENT_TOKEN) && !!lessonId;
+  if (identityKind === 'lesson' || student) {
+    const ids = [student ? lessonId : null, lessonCode ?? null].filter((x): x is string => !!x);
+    return { audience: 'lesson', keys: ids.map((x) => `${LESSON_CHECK_KEY}:${x}`) };
+  }
+  return identityKind === 'guest' ? { audience: 'guest', keys: [SEEN_KEY] } : null;
 }
 
 /** The first screen: headset tip, volume with a guardian, and a short "Hello!" mic check (skippable). */

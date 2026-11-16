@@ -3,6 +3,7 @@
  * my build plot, and the windy hill, plus the meadow around them. Every block goes through
  * `VoxelWorld.setBlock` (AGENTS 4.1) with the system-generation actor; the builder is deterministic.
  */
+import { LANG_PACK_MANIFEST, npcPersona } from '@lcw/content';
 import type { NpcContext } from '@lcw/schemas';
 import { buildTown, buildTownSteps, terrainHeight, TOWN_CENTER, TERRAIN_MIN, TERRAIN_MAX, type VoxelWorld } from '@lcw/sim-core';
 import { collideHeight } from './blocks.js';
@@ -62,18 +63,23 @@ export interface NpcDef {
   spot?: Spot;
   /**
    * Solo play only (the errand giver): hidden and not talkable while a lesson runs, so the stage NPC is the only one
-   * E or a tap can reach in the lesson's scenes (review L4: 미나 stood 1.2 m farther than the cafe owner).
+   * E or a tap can reach in the lesson's scenes (review L4: the neighbour stood 1.2 m farther than the cafe owner).
    */
   soloOnly?: true;
 }
 
 
-export const NPCS: readonly NpcDef[] = [
+/**
+ * The world's own NPC table. Names here are only the fallback: the cast pack of the world's target language
+ * (`npcPersona`, packages/content/src/npc-cast.ts, Dan 11-16 "원어민 이름") names every NPC it knows, so the
+ * name plates, the dialog header and the voice read one table (`NPCS` below).
+ */
+const NPC_DEFS: readonly NpcDef[] = [
   {
     id: 'guide',
     ctx: 'guide',
     nameKo: '안내인 선생님',
-    nameEn: 'Luna',
+    nameEn: 'Guide',
     home: 'plaza',
     roams: ['plaza', 'open_hill', 'build_plot'],
     look: { skin: 0xf2c7a5, hair: 0xd9622b, shirt: 0xff6b4a, pants: 0x2f3b52, shoes: 0x3a4152, hairStyle: 'long', hat: 0x3fa9f5 }
@@ -81,16 +87,16 @@ export const NPCS: readonly NpcDef[] = [
   {
     id: 'cafe_owner',
     ctx: 'cafe',
-    nameKo: '카페 주인 하니',
-    nameEn: 'Hani',
+    nameKo: '카페 주인',
+    nameEn: 'Cafe owner',
     home: 'honey_cafe',
     look: { skin: 0xf6d2b5, hair: 0x6b4226, shirt: 0xffc53d, pants: 0x7a5235, shoes: 0x4a3322, apron: 0xfff9ee, hairStyle: 'bun' }
   },
   {
     id: 'shop_owner',
     ctx: 'trade_shop',
-    nameKo: '상점 주인 토비',
-    nameEn: 'Toby',
+    nameKo: '상점 주인',
+    nameEn: 'Shop owner',
     home: 'trade_shop',
     look: { skin: 0xc68e62, hair: 0x2a2320, shirt: 0xf3efe7, pants: 0x2f3b52, shoes: 0x2a2320, apron: 0x2f6fae, hairStyle: 'cap', hat: 0x3dbe6b }
   },
@@ -99,14 +105,24 @@ export const NPCS: readonly NpcDef[] = [
     // (2.5 m west of the walk to the counter, so the cafe two-shot stays clear).
     id: 'errand_neighbor',
     ctx: 'errand',
-    nameKo: '이웃 미나',
-    nameEn: 'Mina',
+    nameKo: '이웃',
+    nameEn: 'Neighbour',
     home: 'honey_cafe',
     spot: { x: 161.0, y: 1, z: 139.0, yaw: 0 },
     soloOnly: true,
     look: { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3dbe6b, pants: 0x3fa9f5, shoes: 0xf3efe7, hairStyle: 'bun', hat: 0xffc53d }
   }
 ];
+
+/** NPC table with names from the cast pack of `lang` (the world's target language); unknown ids keep their own. */
+export function castNpcs(lang: string = LANG_PACK_MANIFEST.target_lang): readonly NpcDef[] {
+  return NPC_DEFS.map((d) => {
+    const p = npcPersona(d.id, lang);
+    return p ? { ...d, nameKo: p.nameKo, nameEn: p.nameEn } : d;
+  });
+}
+
+export const NPCS: readonly NpcDef[] = castNpcs();
 
 /** Townsfolk who stroll around and make the town feel lived in (not talkable). */
 export const WANDERERS: readonly { id: string; look: NpcLook; route: Array<[number, number]> }[] = [
@@ -180,7 +196,7 @@ export const SCENES: Readonly<Record<SceneId, SceneDef>> = {
 
 /**
  * The auto-walk to a scene (goToScene): out along the current scene's path, in along the target's, starting from
- * where the player actually is. Already in the target scene (talked to 미나 by the cafe door, then "카페로 걸어가기"),
+ * where the player actually is. Already in the target scene (talked to the neighbour by the cafe door, then "카페로 걸어가기"),
  * only the rest of that scene's own path, never out to the plaza and back in. A route starts at the waypoint nearest
  * the player, or the next one when the player already stands on the stretch between them (no corner is cut).
  */

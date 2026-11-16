@@ -1205,6 +1205,11 @@ export const UI_STRINGS_KO = {
     echoNext: '다음 조각',
     missedHint: '밑줄 친 단어를 넣어 봐요',
     tagHelp: '꼬리표를 꾹 누르면 뜻이 보여요',
+    /** Preview (audit G02 "말이 곧 화폐"): the list price of the chosen sentence; the server decides the charge. */
+    previewBuy: '이 문장이면 🪙 {coins}',
+    previewCheaper: '{stars} 문장이면 🪙 {coins}!',
+    previewBest: '가장 싸게 사는 문장이에요',
+    priceAria: '{coins}코인',
     freePrompt: '하고 싶은 말을 영어로 해 봐요. 한국어를 섞어도 괜찮아요!',
     ideas: '이런 말도 할 수 있어요',
     coins: '코인',

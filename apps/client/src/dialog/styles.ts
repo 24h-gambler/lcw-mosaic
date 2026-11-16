@@ -30,10 +30,18 @@ export const DIALOG_CSS = `
 .lcw-dlg__name{font-size:${px(t.small.sizePx)};font-weight:700;color:var(--c-ink-700)}
 .lcw-dlg__bubble{position:relative;background:var(--c-paper-0);border:2px solid var(--c-ink-900);border-radius:${SHAPE_TOKENS.radiusCardPx}px;
   padding:10px 12px;font-family:${TYPOGRAPHY_TOKENS.fonts.target};font-size:${px(t['body-l'].sizePx)};line-height:1.35}
-.lcw-dlg__preview{flex:1;min-height:${px(96)};display:flex;align-items:center;justify-content:center;gap:8px;border-radius:${SHAPE_TOKENS.radiusCardPx}px;
+.lcw-dlg__preview{flex:1;min-height:${px(96)};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px;text-align:center;border-radius:${SHAPE_TOKENS.radiusCardPx}px;
   background:linear-gradient(160deg,var(--c-paper-100),var(--c-paper-0));border:2px dashed var(--c-line-200);font-size:${px(52)}}
-.lcw-dlg__preview span{animation:lcwBob 2.4s ease-in-out infinite}
-.lcw-dlg__preview span:nth-child(2){animation-delay:.3s}
+.lcw-dlg__pics{display:flex;align-items:center;justify-content:center;gap:8px;line-height:1}
+.lcw-dlg__pics span,.lcw-dlg__item3d{animation:lcwBob 2.4s ease-in-out infinite}
+.lcw-dlg__pics span:nth-child(2){animation-delay:.3s}
+.lcw-dlg__item3d{width:${px(120)};height:${px(120)};object-fit:contain}
+.lcw-dlg__pv{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;font-size:${px(t.body.sizePx)}}
+.lcw-dlg__coin{font-weight:800;background:var(--c-sun);border:2px solid var(--c-ink-900);border-radius:999px;padding:1px 10px;white-space:nowrap}
+.lcw-dlg__cheaper{font-size:${px(t.small.sizePx)};font-weight:700;color:var(--c-leaf-d)}
+.lcw-dlg__cheaper.best{color:var(--c-ink-700)}
+.lcw-offer__price{display:block;margin-top:3px;font-size:${px(t.micro.sizePx)};font-weight:800;letter-spacing:0;color:var(--c-ink-700)}
+.lcw-dlg__avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover}
 @keyframes lcwBob{50%{transform:translateY(-6px) rotate(-4deg)}}
 .lcw-dlg__tags{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .lcw-dlg__tagl{font-size:${px(t.small.sizePx)};color:var(--c-ink-500);margin-right:2px}

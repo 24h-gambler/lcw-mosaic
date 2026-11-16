@@ -43,7 +43,7 @@ import {
   resolvePossessionLook
 } from '../director.js';
 import { withSubjectParticle } from '../strings.js';
-import { App } from '../App.js';
+import { App, TeacherDirectorView } from '../App.js';
 import {
   GuestPassEndScreen,
   LessonWindowBar,
@@ -381,7 +381,7 @@ describe('item 4 and 5: director hotkeys and possession look', () => {
     );
     expect(panel).toContain('벤치에 앉아 지도를 읽는 중');
     expect(panel.match(/data-marker="sparkle"/g)?.length).toBe(1);
-    const director = renderToStaticMarkup(React.createElement(App, { initialRoute: '/director' }));
+    const director = renderToStaticMarkup(React.createElement(TeacherDirectorView, {}));
     expect(director).toContain('F1 코칭 순간');
     expect(director).toContain('possession-panel');
   });

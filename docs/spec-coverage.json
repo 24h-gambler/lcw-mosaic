@@ -4637,7 +4637,7 @@
         "apps/client/src/world/engine.ts:184",
         "apps/client/src/world/plot-sync.ts:1"
       ],
-      "note": "월드·물리·건축은 기기에서 돌고, 서버로 가는 것은 저장(plot ops)과 채점 요청 둘"
+      "note": "월드·물리·건축은 기기에서 돌고, 서버로 가는 것은 저장(plot ops·소지품·도감·설정)과 회화(채점·TTS·STT·음성 올리기·고쳐 말하기) 요청"
     },
     "C02.1.3": {
       "kind": "promise",

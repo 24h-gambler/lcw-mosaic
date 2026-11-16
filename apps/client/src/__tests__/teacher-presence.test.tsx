@@ -116,7 +116,7 @@ describe('teacher presence in the child world (Dan 11-16: the child knows whethe
   it('labels: the title once (review #80): world chip and status line', () => {
     // the world chip speaks the language the child learns (Dan 11-16 14:3x); the Korean title stays out of it
     expect(WORLD_STRINGS.teacherWith('Dan')).toBe('👩‍🏫 With Dan');
-    expect(WORLD_STRINGS.teacherWith('김민지 선생님')).toBe('👩‍🏫 With 김민지');
+    expect(WORLD_STRINGS.teacherWith('김민지 선생님')).toBe('👩‍🏫 With Teacher 김민지');
     expect(WORLD_STRINGS.teacherWith(null)).toBe('👩‍🏫 With your teacher');
     expect(LESSON_STRINGS_KO.status.ok('Oreo', 'Dan')).toBe('Oreo · Dan 선생님과 함께');
     expect(LESSON_STRINGS_KO.status.ok('Oreo', '선생님')).toBe('Oreo · 선생님과 함께');

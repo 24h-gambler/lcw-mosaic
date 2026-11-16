@@ -11,7 +11,7 @@ import { TILE_LAYER, blockLook } from './blocks.js';
 import { TILE_PX } from './atlas.js';
 import { furniturePieces } from './build-view.js';
 import type { RoomCheckEvent } from './build.js';
-import { BLOCK_NAMES_KO, BUILD_REASONS_KO, FURNITURE_NAMES_KO, ROOM_GLOSS_KO, SHOWROOM_REASONS_KO, WORLD_STRINGS as W } from './strings.js';
+import { BLOCK_NAMES_KO, BUILD_REASONS_KO, FURNITURE_NAMES_KO, ROOM_GLOSS_KO, SHOWROOM_DEFAULT_TITLE, SHOWROOM_REASONS_KO, WORLD_STRINGS as W } from './strings.js';
 import type { ShowroomResult } from './showroom.js';
 import { helpKoOn } from './lang.js';
 import type { SyncStatus } from './plot-sync.js';
@@ -269,7 +269,7 @@ export class BuildHud {
     lab.textContent = W.showroomName;
     this.shareInput = el('input', '', sp);
     this.shareInput.maxLength = 40;
-    this.shareInput.value = W.showroomDefault;
+    this.shareInput.value = SHOWROOM_DEFAULT_TITLE;
     this.shareInput.addEventListener('pointerdown', stop);
     this.shareOut = el('div', 'out', sp);
     this.shareLink = el('div', 'link', sp);
@@ -345,7 +345,7 @@ export class BuildHud {
   }
 
   private async publish(): Promise<void> {
-    const title = this.shareInput.value.trim() || W.showroomDefault;
+    const title = this.shareInput.value.trim() || SHOWROOM_DEFAULT_TITLE;
     this.shareGo.disabled = true;
     this.shareOut.classList.remove('bad');
     this.shareOut.textContent = W.showroomBusyNow;

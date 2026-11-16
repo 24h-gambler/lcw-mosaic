@@ -206,7 +206,9 @@ describe('the teacher in my world (Dan 11-16 12:10)', () => {
     expect(plateText('Ms. Kim', false)).toBe('Ms. Kim');
     expect(plateText('', false)).toBe('Teacher');
     expect(plateText('선생님', false)).toBe('Teacher');
-    expect(plateText('김 선생님', false)).toBe('김');
+    expect(plateText('김 선생님', false)).toBe('Teacher 김');
+    expect(teacherDef('김 선생님').nameKo).toBe('김 선생님');
+    expect(teacherDef('선생님')).toMatchObject({ nameEn: 'Teacher', nameKo: '선생님' });
     expect(plateText('Ms. Kim', true)).toBe('Ms. Kim · Ms. Kim 선생님');
     expect(plateText('', true)).toBe('Teacher · 선생님');
     expect(teacherDef('').nameEn).toBe('Teacher');

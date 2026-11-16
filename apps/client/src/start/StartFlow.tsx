@@ -79,7 +79,11 @@ export function Say(p: { line: Bi; help?: boolean }): React.ReactElement {
 /** The Korean help switch (a quiet link; parents and younger children find it on the title). */
 function HelpKoToggle(p: { on: boolean }): React.ReactElement {
   return (
-    <button type="button" className="lcw-start__link" lang="ko" data-testid="start-help-ko" aria-pressed={p.on} onClick={() => setHelpKo(!p.on)}>
+    <button type="button" className="lcw-start__link" lang="ko" data-testid="start-help-ko" aria-pressed={p.on} onClick={() => {
+        setHelpKo(!p.on);
+        // HUD buttons and other lanes' labels are set once when the world is built: reload so all follow at once
+        if (typeof location !== 'undefined') location.reload();
+      }}>
       {p.on ? X.helpKoOff : X.helpKoOn}
     </button>
   );
@@ -270,7 +274,7 @@ export function StartFlow(props: StartFlowProps): React.ReactElement | null {
           onPick={async (lang) => {
             setLearnLang(lang);
             // kept on the device at once; the server copy is retried on the next visit if this one fails
-            await saveLearnLang(identity, lang, fetchFn);
+            void saveLearnLang(identity, lang, fetchFn);
             setMine((m) => (m ? { ...m, learnLang: lang } : m));
             setStage(mine?.made === false ? 'make' : 'title');
           }}
@@ -341,7 +345,9 @@ export function StartFlow(props: StartFlowProps): React.ReactElement | null {
         ) : null}
         {actions.includes('lesson') ? (
           <div className="lcw-btn lcw-btn--lesson" role="status" aria-live="polite" data-testid="start-lesson">
-            <small>{X.lessonLive.en}</small>
+            <small>
+              <Say line={X.lessonLive} help={helpKo} />
+            </small>
             <Say line={joining ? X.lessonJoining : X.lessonEnter} help={helpKo} />
           </div>
         ) : null}
@@ -474,7 +480,7 @@ function OptionRow<K extends string>(p: { label: Bi; help: boolean; options: rea
           <button key={o.id} type="button" className="lcw-opt" aria-pressed={o.id === p.value} onClick={() => p.onPick(o.id)} data-opt={o.id}>
             <i aria-hidden>{o.emoji}</i>
             <b>{o.labelEn}</b>
-            <span>{p.help ? `${o.hintEn} · ${o.labelKo}` : o.hintEn}</span>
+            <span>{p.help ? `${o.hintEn} · ${o.labelKo}: ${o.hintKo}` : o.hintEn}</span>
           </button>
         ))}
       </div>

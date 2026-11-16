@@ -59,7 +59,8 @@ const WORLD_STRINGS_KO = {
   lessonBadge: '수업 중',
   teacherDefault: '선생님',
   /** name alone ("김민지"), or null: "👩‍🏫 김민지 선생님과 함께" / "👩‍🏫 선생님과 함께" (one label, @lcw/content). */
-  teacherWith: (name: string | null): string => `👩‍🏫 ${teacherLabel(name)}과 함께`,
+  // the Korean side is only the help line after the English one: no second emoji
+  teacherWith: (name: string | null): string => `${teacherLabel(name)}과 함께`,
   solo: '혼자 놀기',
   coinsLabel: '코인',
   // Seat paused (docs/19 6장): no price or payment words on a child screen, only "tell your grown-up".
@@ -133,7 +134,7 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   lessonBadge: 'Class',
   teacherDefault: 'Teacher',
   // the Korean title a console typed ("김민지 선생님") stays out of the English line
-  teacherWith: (name: string | null): string => `👩‍🏫 With ${(name ?? '').replace(/\s*선생님$/, '').trim() || 'your teacher'}`,
+  teacherWith: (name: string | null): string => `👩‍🏫 With ${teacherNameEn(name) ?? 'your teacher'}`,
   solo: 'Free play',
   coinsLabel: 'Coins',
   seatPausedTitle: 'Free play is resting for now',
@@ -417,6 +418,24 @@ export const welcomeBackEn = (name: string): string => `Hi, ${name}! Welcome bac
 export function itemNameKo(key: string): string {
   return ITEM_NAMES_KO[key] ?? ITEM_NAMES_KO.gift!;
 }
+
+/** "You got honey tea!" (and "· 꿀차를 받았어요" with the help on): each side gets the item name in its own language. */
+export function itemGotText(key: string): string {
+  const en = ITEM_NAMES_KO_EN[key] ?? ITEM_NAMES_KO_EN.gift!;
+  const ko = ITEM_NAMES_KO_SRC[key] ?? ITEM_NAMES_KO_SRC.gift!;
+  return joinHelp(WORLD_STRINGS_EN.itemGot(en), WORLD_STRINGS_KO.itemGot(ko));
+}
+
+/** The teacher's name for an English line: "Ms. Kim" as typed; "김 선생님" becomes "Teacher 김"; none is null. */
+export function teacherNameEn(name: string | null | undefined): string | null {
+  const n = (name ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
+  const bare = n.replace(/\s*선생님$/, '').trim();
+  if (!bare) return null;
+  return bare === n ? bare : `Teacher ${bare}`;
+}
+
+/** Data (a showroom title the server keeps), never a screen line: no help text mixed in. */
+export const SHOWROOM_DEFAULT_TITLE = WORLD_STRINGS_EN.showroomDefault;
 
 /** 을/를 by whether the last Hangul syllable has a final consonant (받침). Non-Hangul endings fall back to 을(를). */
 export function objectParticle(word: string): string {

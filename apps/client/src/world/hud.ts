@@ -4,7 +4,7 @@
  * Colors, type and motion come from @lcw/ui tokens only (AGENTS 6). No prices or payment on this screen (AGENTS 4.9).
  */
 import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
-import { WORLD_STRINGS as W, itemNameKo } from './strings.js';
+import { WORLD_STRINGS as W, itemGotText, itemNameKo } from './strings.js';
 import { bandOf, clockLabel, hotbarCaption, isNight, placeLabel, type BandId } from '../frame/status.js';
 
 const STYLE_ID = 'lcw-world-hud-style';
@@ -600,7 +600,7 @@ export class WorldHud {
     ti.alt = '';
     this.toast.appendChild(ti);
     const tt = document.createElement('span');
-    tt.textContent = W.itemGot(itemNameKo(key));
+    tt.textContent = itemGotText(key);
     this.toast.appendChild(tt);
     this.toast.classList.add('on');
     window.clearTimeout(this.toastTimer);

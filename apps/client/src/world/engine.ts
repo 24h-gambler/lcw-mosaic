@@ -203,10 +203,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // ---- Renderer.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: tier.antialias, powerPreference: 'high-performance', alpha: false });
   const basePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-  // G14 화면 설정 over the start tier (setGraphics changes these live). Antialias, block material and particle cap
-  // stay what the world started with; shadows need the lit material, so only a world started on high can show them.
+  // G14 화면 설정 over the start tier (setGraphics changes these live). Antialias and the particle cap stay what the
+  // world started with; the block material follows the tier (high or shadows on: lit, else fast), so shadows come and go
+  // with a tier change or the shadow switch on any world (applyGraphics swaps the chunk materials).
   let tierName: WorldTier = opts.tier;
-  const canShadow = tier.material === 'lit';
+  const canShadow = true;
   let gfxReq: GraphicsSettings = opts.graphics ?? { quality: opts.tier, viewChunks: null, shadows: null, renderScale: null };
   if (gfxReq.quality !== 'auto') tierName = gfxReq.quality;
   let gfx = graphicsFor(tierName, gfxReq, canShadow);
@@ -223,7 +224,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const sky = new Sky(scene, viewDistance);
   const skyDefaultHour = sky.hour;
   sky.clouds.visible = gfx.clouds;
-  if (canShadow) {
+  {
     sky.sun.castShadow = gfx.shadows;
     sky.sun.shadow.mapSize.set(2048, 2048);
     const c = sky.sun.shadow.camera;
@@ -250,7 +251,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   atlas.colorSpace = THREE.SRGBColorSpace;
   atlas.needsUpdate = true;
   mark('atlas');
-  const chunkMats = makeBlockMaterials(atlas, tier.material);
+  /** Block materials per mode, made once each (a tier change swaps them on every chunk mesh). */
+  const matsByMode: Partial<Record<'fast' | 'lit', ReturnType<typeof makeBlockMaterials>>> = {};
+  const matsFor = (mode: 'fast' | 'lit') => (matsByMode[mode] ??= makeBlockMaterials(atlas, mode));
+  const materialModeOf = (t: WorldTier, shadows: boolean): 'fast' | 'lit' => (t === 'high' || shadows ? 'lit' : 'fast');
+  let chunkMats = matsFor(materialModeOf(tierName, gfx.shadows));
   const workerCount = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
   const chunks = new ChunkRenderer(world, chunkMats, workerCount, () =>
     new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module' })
@@ -1118,6 +1123,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       viewChunks = next.viewChunks;
       viewDistance = viewChunks * 16;
       sky.setViewDistance(viewDistance);
+    }
+    const mode = materialModeOf(tierName, next.shadows);
+    if (mode !== chunkMats.mode) {
+      chunkMats = matsFor(mode);
+      chunks.setMaterials(chunkMats);
     }
     if (next.shadows !== gfx.shadows) {
       renderer.shadowMap.enabled = next.shadows;

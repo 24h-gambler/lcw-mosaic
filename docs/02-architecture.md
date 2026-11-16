@@ -314,6 +314,6 @@ create table snapshots (id text primary key, at integer, reason text, r2_key tex
 
 ### 11.4 클라이언트 그래픽 (G14 화면 설정과의 계약)
 
-- `WorldHandle.setGraphics({quality: 'auto'|'low'|'mid'|'high', viewChunks, shadows, renderScale})`: 실행 중 바로 적용(다시 시작 없음). null은 등급 기본값. 시야 3~8청크, 해상도 배율 0.5~1.0. 그림자는 high로 시작한 월드(조명 재질)에서만 켜집니다. 설정 화면·저장은 아이 화면 틀 레인(`frame/settings.ts`)이 갖고, 엔진은 값만 받습니다.
+- `WorldHandle.setGraphics({quality: 'auto'|'low'|'mid'|'high', viewChunks, shadows, renderScale})`: 실행 중 바로 적용(다시 시작 없음). null은 등급 기본값. 시야 3~8청크, 해상도 배율 0.5~1.0. 블록 재질은 단계를 따라갑니다(high 또는 그림자 켬 = 조명 재질, 그 밖 = 빠른 재질). 단계가 바뀌거나 그림자를 켜고 끄면 모든 청크 메시의 재질을 바로 바꾸므로, 어느 단계로 시작한 월드든 그림자가 켜지고 꺼집니다(MSAA·입자 수만 시작 값 유지). 설정 화면·저장은 아이 화면 틀 레인(`frame/settings.ts`)이 갖고, 엔진은 값만 받습니다.
 - 시작 등급: `?tier=`가 없으면 CPU·메모리 추정에 **GPU 종류**(WebGL 렌더러 이름: 소프트웨어 GL → low, 내장 GPU → high 금지)를 더해 고르고, `quality:'auto'`로 시작해 처음 4초를 뺀 뒤 해상도 바닥에서 목표 프레임의 85% 아래가 5초 이어지면 한 단계 내립니다(올리지는 않음). `getStats()`의 `tier`·`autoTier`·`graphics`로 읽습니다.
 - 근거 실측(운영 11-16, 헤드리스 SwiftShader): 1440 데스크톱(16코어)이 CPU 추정만으로 high(그림자·MSAA)가 되어 **5.9fps**, 걸을 때 프레임 간격 219ms였습니다. 같은 조건의 mid는 30fps입니다. 이 상태로 25초가 지나면 단어 카드로 넘어가는 장치(`FrameFloorWatch`)가 수업을 3D 밖으로 보냈을 자리입니다.

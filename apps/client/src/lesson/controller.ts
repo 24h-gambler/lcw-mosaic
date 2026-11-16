@@ -52,6 +52,8 @@ export interface LessonWorld {
   setStars?(n: number | null): void;
   /** Teacher name tag (WorldHandle.setTeacher): with the teacher, or "혼자 놀기"; null = no lesson. */
   setTeacher?(t: { present: boolean; name: string | null } | null): void;
+  /** Marks the NPC to talk to over its head (WorldHandle.setGoalNpc): the lesson's NPC while it runs, null after. */
+  setGoalNpc?(npcId: string | null): void;
 }
 
 export type LessonPhase = 'needs_code' | 'joining' | 'live' | 'ended';

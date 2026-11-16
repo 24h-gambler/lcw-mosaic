@@ -203,6 +203,8 @@ export const FRAME_STRINGS = {
   lookTouchTitle: '손가락으로 끌 때 빠르기',
   invertYTitle: '위아래 반대로',
   invertYHint: '끌어 올리면 아래를 봐요.',
+  autoJumpTitle: '블록 자동으로 오르기',
+  autoJumpHint: '켜면 한 칸 높이를 점프 없이 올라가요. 계단·반 블록은 늘 올라가요.',
   slow: '느리게',
   fast: '빠르게',
   micModeTitle: '대화창 마이크 버튼',

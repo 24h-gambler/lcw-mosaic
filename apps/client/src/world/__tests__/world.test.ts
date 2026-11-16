@@ -6,7 +6,7 @@ import { SCENE_IDS, type WorldHandle } from '../api.js';
 import { BK, BLOCK_LOOKS, TILE_LAYER, TILE_NAMES, blockLook, collideHeight, isOpaqueCube } from '../blocks.js';
 import { TILE_PX, buildAtlasPixels } from '../atlas.js';
 import { AO_CURVE, PAD, meshChunk, padIndex } from '../mesher.js';
-import { makeBody, pickVoxel, raycastDistance, stepBody, type BlockAt } from '../physics.js';
+import { STEP_UP_SMALL, makeBody, pickVoxel, raycastDistance, stepBody, type BlockAt } from '../physics.js';
 import { NPCS, SCENES, castNpcs, WANDERERS, buildTown, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
 import { PAGE_KEYS_ON_BUTTONS, TALK_RANGE, keyIsPressable, keyIsTyping } from '../engine.js';
 import { extractPadded } from '../chunks.js';
@@ -371,6 +371,30 @@ describe('player physics', () => {
     const w = makeBody(0.5, 0, 0.5);
     for (let i = 0; i < 180; i++) stepBody(w, { dx: 1, dz: 0, run: false, jump: false }, 1 / 60, wall);
     expect(w.x).toBeLessThan(3);
+  });
+
+  it('without auto jump a whole block stops the walk, a slab does not, and a pressed jump gets on top (R2625 ②)', () => {
+    const step: BlockAt = (x, y) => (y < 0 || (x >= 3 && y === 0) ? BK.stone : 0);
+    const walk = { dx: 1, dz: 0, run: false, jump: false };
+    const a = makeBody(0.5, 0, 0.5);
+    let rose = 0;
+    for (let i = 0; i < 180; i++) {
+      stepBody(a, walk, 1 / 60, step, [], STEP_UP_SMALL);
+      rose = Math.max(rose, a.y);
+    }
+    expect(a.x).toBeLessThan(3);
+    expect(rose).toBeLessThan(0.01);
+
+    const slab: BlockAt = (x, y) => (y < 0 ? BK.stone : x >= 3 && y === 0 ? BK.stoneSlab : 0);
+    const s = makeBody(0.5, 0, 0.5);
+    for (let i = 0; i < 180; i++) stepBody(s, walk, 1 / 60, slab, [], STEP_UP_SMALL);
+    expect(s.x).toBeGreaterThan(3.5);
+    expect(s.y).toBeCloseTo(0.5, 1);
+
+    const j = makeBody(0.5, 0, 0.5);
+    for (let i = 0; i < 240; i++) stepBody(j, { ...walk, jump: i > 30 && i < 40 }, 1 / 60, step, [], STEP_UP_SMALL);
+    expect(j.x).toBeGreaterThan(3.5);
+    expect(j.y).toBeCloseTo(1, 1);
   });
 
   it('jumps about a block high', () => {

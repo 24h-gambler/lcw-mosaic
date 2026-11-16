@@ -6,7 +6,7 @@
  *                     voice through the voice_npc bus value (dialog/sound.ts)
  * - text size      -> `--lcw-fs` on <html>: the player menu and the dialog window (`.lcw-dlg --fs`) both read it
  * - motion, font, colour assist, focus ring -> attributes on <html> + one global stylesheet (`SETTINGS_CSS`)
- * - look           -> WorldHandle.setLookSettings({ mouse, touch, invertY }) (FrameLayer, at start and on change)
+ * - look           -> WorldHandle.setLookSettings({ mouse, touch, invertY, autoJump }) (FrameLayer, at start and on change)
  * - motion, FPS    -> WorldHandle.setReduceMotion / setShowFps (FrameLayer)
  * - NPC voice      -> dialog/sound.ts speakEnglish reads `voiceRate()` and picks a voice with `pickEnglishVoice`
  * - quality        -> `savedTier()` is what App.pickTier starts the next world with (the `?tier=` address still wins)
@@ -121,6 +121,8 @@ export interface FrameSettings {
   lookMouse: number;
   lookTouch: number;
   invertY: boolean;
+  /** walk up a whole block without pressing jump (off by default, Dan 11-16 R2625); stairs and slabs always */
+  autoJump: boolean;
   micMode: MicMode;
   /** 0..1 of the docs/12 default level (1 = the bus default, 0 = silent) */
   volume: Record<VolumeGroup, number>;
@@ -150,6 +152,7 @@ export const DEFAULT_SETTINGS: Readonly<FrameSettings> = Object.freeze({
   lookMouse: 1,
   lookTouch: 1,
   invertY: false,
+  autoJump: false,
   micMode: 'toggle',
   volume: { master: 1, music: 1, effects: 1, voice: 1 },
   voiceRate: 1,
@@ -207,6 +210,7 @@ export function normalizeSettings(raw: unknown): FrameSettings {
     lookMouse: clampStep(raw.lookMouse, SETTINGS_LIMITS.look, d.lookMouse),
     lookTouch: clampStep(raw.lookTouch, SETTINGS_LIMITS.look, d.lookTouch),
     invertY: bool(raw.invertY, d.invertY),
+    autoJump: bool(raw.autoJump, d.autoJump),
     micMode: raw.micMode === 'hold' ? 'hold' : 'toggle',
     volume: {
       master: clampStep(vol.master, SETTINGS_LIMITS.volume, 1),
@@ -501,8 +505,8 @@ export function resetFrameSettingsForTest(): void {
 // Getters other domains read (cheap: no allocation, safe every frame).
 
 /** world: what WorldHandle.setLookSettings gets */
-export function lookSettingsOf(s: Readonly<FrameSettings>): { mouse: number; touch: number; invertY: boolean } {
-  return { mouse: s.lookMouse, touch: s.lookTouch, invertY: s.invertY };
+export function lookSettingsOf(s: Readonly<FrameSettings>): { mouse: number; touch: number; invertY: boolean; autoJump: boolean } {
+  return { mouse: s.lookMouse, touch: s.lookTouch, invertY: s.invertY, autoJump: s.autoJump };
 }
 /** The graphics contract of the performance lane: `WorldHandle.setGraphics?(g)`, applied live (world/engine.ts). */
 export interface GraphicsSettings {

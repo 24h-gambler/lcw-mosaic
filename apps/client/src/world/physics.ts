@@ -1,6 +1,8 @@
 /**
  * Player movement against the voxel grid: AABB 0.6 x 1.8 x 0.6 (docs/08 6.2), walk 4.5 m/s and sprint from
- * sim-core TUNING, gravity, jumping and automatic one-block step-up so children never get stuck on a curb.
+ * sim-core TUNING, gravity, jumping and step-up. The step-up height is the caller's: half a block (stairs, slabs) by
+ * default in play, a whole block only with the "auto jump" setting or while the world walks the child (Dan 11-16
+ * R2625: an automatic hop onto every block felt like a jump nobody pressed).
  * Pure: the block lookup is passed in.
  */
 import { TUNING } from '@lcw/sim-core';
@@ -11,6 +13,8 @@ export const PLAYER_H = TUNING.character.collisionBoxMeters[1];
 export const GRAVITY = 26;
 export const JUMP_SPEED = 8.2;
 export const STEP_UP_MAX = 1.05;
+/** Without auto jump: stairs, slabs and paths only (collide heights up to half a block). */
+export const STEP_UP_SMALL = 0.55;
 
 export interface Body {
   x: number;
@@ -89,7 +93,8 @@ export function stepBody(
   intent: MoveIntent,
   dt: number,
   blockAt: BlockAt,
-  pushers: readonly Pusher[] = []
+  pushers: readonly Pusher[] = [],
+  stepMax = STEP_UP_MAX
 ): boolean {
   dt = Math.min(dt, 1 / 20);
   const speed = intent.run ? TUNING.world.sprintSpeedMps : TUNING.world.walkSpeedMps;
@@ -113,7 +118,7 @@ export function stepBody(
   const nx = body.x + body.vx * dt;
   if (!boxHits(blockAt, nx, body.y, body.z)) {
     body.x = nx;
-  } else if (body.onGround && tryStep(blockAt, body, nx, body.z)) {
+  } else if (body.onGround && tryStep(blockAt, body, nx, body.z, stepMax)) {
     stepped = true;
   } else {
     body.vx = 0;
@@ -122,7 +127,7 @@ export function stepBody(
   const nz = body.z + body.vz * dt;
   if (!boxHits(blockAt, body.x, body.y, nz)) {
     body.z = nz;
-  } else if (body.onGround && tryStep(blockAt, body, body.x, nz)) {
+  } else if (body.onGround && tryStep(blockAt, body, body.x, nz, stepMax)) {
     stepped = true;
   } else {
     body.vz = 0;
@@ -177,13 +182,14 @@ export function stepBody(
   return stepped;
 }
 
-function tryStep(blockAt: BlockAt, body: Body, nx: number, nz: number): boolean {
+function tryStep(blockAt: BlockAt, body: Body, nx: number, nz: number, stepMax: number): boolean {
   for (const up of [0.5, 1.0, STEP_UP_MAX]) {
+    if (up > stepMax + 1e-6) break;
     if (boxHits(blockAt, body.x, body.y + up, body.z)) return false;
     if (!boxHits(blockAt, nx, body.y + up, nz)) {
       const floor = floorUnder(blockAt, nx, body.y + up, nz);
       const newY = floor > -Infinity ? Math.max(body.y, floor) : body.y + up;
-      if (newY - body.y > STEP_UP_MAX) return false;
+      if (newY - body.y > stepMax + 1e-6) return false;
       body.stepOffset -= newY - body.y;
       body.y = newY;
       body.x = nx;

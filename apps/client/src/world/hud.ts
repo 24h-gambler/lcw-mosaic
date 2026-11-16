@@ -64,6 +64,10 @@ function css(): string {
 .lw-bub.pos .n::before{content:"\\2726 ";color:${C['sun-d']}}
 .lw-prompt{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;pointer-events:auto;cursor:pointer;background:${C['brand-d']};color:${C['paper-0']};border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;box-shadow:${S.shadowDefault};padding:8px 14px;font-weight:700;font-size:${T.scale.body.sizePx}px;min-height:${S.touchTargetMinPx}px;align-items:center;gap:8px}
 .lw-prompt.on{display:flex}
+.lw-goalmark{position:absolute;left:0;top:0;display:none;pointer-events:none;width:30px;height:30px;border-radius:50%;background:${C.sun};color:${C['ink-900']};border:${S.borderWidthPx}px solid ${C['ink-900']};box-shadow:${S.shadowDefault};font-family:${T.fonts.pixel};font-size:20px;line-height:26px;text-align:center}
+.lw-goalmark.on{display:block}
+.lw-goalmark i{display:block;font-style:normal;animation:lwhop 1.2s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.lw-goalmark i{animation:none}}
 .lw-plate{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;background:${C['ink-900']};color:${C['paper-0']};border-radius:${S.radiusButtonPx}px;padding:2px 8px;font-family:${T.fonts.ui};font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px;font-weight:700;opacity:.85;white-space:nowrap}
 .lw-plate.on{display:block}
 .lw-prompt kbd{font-family:${T.fonts.pixel};background:${C['paper-0']};color:${C['ink-900']};border-radius:2px;padding:0 6px;font-size:12px}
@@ -223,6 +227,8 @@ export class WorldHud {
   private coinsN: HTMLSpanElement;
   private coinTotal: number | null = null;
   private prompt: HTMLDivElement;
+  private goalMark!: HTMLDivElement;
+  private goalKey = '';
   private plate: HTMLDivElement;
   private slots: HTMLDivElement[] = [];
   /** item slot contents, kept while the hotbar shows build stacks */
@@ -300,6 +306,9 @@ export class WorldHud {
     this.coinsN = el('span', 'cn', this.starsEl);
 
     this.plate = el('div', 'lw-plate', this.root);
+    this.goalMark = el('div', 'lw-goalmark', this.root);
+    this.goalMark.setAttribute('aria-hidden', 'true');
+    el('i', '', this.goalMark).textContent = '!';
     this.prompt = el('div', 'lw-prompt', this.root);
     this.prompt.innerHTML = '';
     const kbd = el('kbd', '', this.prompt);
@@ -334,7 +343,7 @@ export class WorldHud {
     this.touch = el('div', 'lw-touch', this.root);
     this.stick = el('div', 'lw-stick', this.touch);
     this.stickKnob = el('i', '', this.stick);
-    const jump = el('div', 'lw-btn', this.touch);
+    const jump = el('div', 'lw-btn jump', this.touch);
     jump.textContent = W.jump;
     jump.style.right = '24px';
     jump.style.bottom = '96px';
@@ -812,6 +821,15 @@ export class WorldHud {
   }
 
   private promptKey = '';
+
+  /** The "talk to me next" marker over the goal NPC (every frame; DOM only on change). */
+  showGoalMark(on: boolean, sx = 0, sy = 0): void {
+    const key = on ? `${Math.round(sx)}:${Math.round(sy)}` : 'off';
+    if (key === this.goalKey) return;
+    this.goalKey = key;
+    this.goalMark.classList.toggle('on', on);
+    if (on) this.goalMark.style.transform = `translate(${Math.round(sx)}px, ${Math.round(sy)}px) translate(-50%, -100%)`;
+  }
 
   /** Called every frame: touches the DOM only when something changed (whole pixels), so idle frames cost no style work. */
   showPrompt(on: boolean, sx = 0, sy = 0, touch = false): void {

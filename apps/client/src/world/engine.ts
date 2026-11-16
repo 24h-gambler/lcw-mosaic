@@ -13,7 +13,7 @@ import { makeBlockMaterials } from './materials.js';
 import { AutoTierPicker, ResolutionGovernor, TIER_SETTINGS, graphicsFor } from './tiers.js';
 import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
-import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
+import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
@@ -39,6 +39,8 @@ export { TIER_SETTINGS };
 
 const PLAYER_LOOK: NpcLook = { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3fa9f5, pants: 0x2f3b52, shoes: 0xff6b4a, hairStyle: 'short' };
 export const TALK_RANGE = 3.6;
+/** R2625 ①: how much of a jump's rise the view follows (the rest stays at the take-off height, so the screen does not bob) */
+export const JUMP_VIEW_FOLLOW = 0.15;
 const CAM_DIST_DEFAULT = 6.2;
 
 
@@ -155,6 +157,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let lookMouse = 1;
   let lookTouch = 1;
   let lookY = 1;
+  /** G14 "auto jump" (off by default, R2625 ②): walk up a whole block without pressing jump */
+  let autoJump = false;
 
   // ---- HUD first so the loading card shows while the town is built.
   const input = { fwd: 0, side: 0, run: false, jump: false, stickX: 0, stickZ: 0, stick: false, keys: new Set<string>() };
@@ -437,6 +441,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     sfx.play('mp.bubble');
   };
   let nearNpc: NpcRt | null = null;
+  /** R2625 ⑤: the NPC to talk to next (errand step) and the ones already talked to in this visit */
+  let goalNpcId: string | null = null;
+  const talkedTo = new Set<string>();
+  /** For the real-play check (getStats().interact / motion): talks opened by E, by a click or tap, jumps and climbs */
+  const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0 };
+  let promptOn = false;
   let autopilot: Array<[number, number]> = [];
   let autoStuck = 0;
   let autoTime = 0;
@@ -706,9 +716,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     sfx.startAmbient();
     if (attract) return;
     if (e.pointerType !== 'mouse') {
-      // touch taps on NPCs (the HUD touch layer handles sticks; taps reach here only when it is off)
-      buildPress(e, tool);
-      tapPick(e.clientX, e.clientY);
+      // touch taps on NPCs (the HUD touch layer handles sticks; taps reach here only when it is off): a tap on an NPC
+      // is a talk only, never also a block edit behind it (R2625)
+      if (!tapPick(e.clientX, e.clientY)) buildPress(e, tool);
       return;
     }
     if (e.button === 2) {
@@ -735,9 +745,18 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005 * lookMouse * lookY));
   };
   const pointerUp = (e: PointerEvent): void => {
-    buildRelease(e);
-    if (dragging && dragMoved < 6 && e.button === 0) tapPick(e.clientX, e.clientY);
+    // a click (no camera drag) on an NPC in reach talks to it and is not also a block click behind it (R2625 ③)
+    const click = dragging && dragMoved < 6 && e.button === 0;
     dragging = false;
+    if (click && npcAt(e.clientX, e.clientY)) {
+      if (hold && hold.id === e.pointerId) {
+        hold = null;
+        buildView.showBreak(null, 0);
+      }
+      tapPick(e.clientX, e.clientY);
+      return;
+    }
+    buildRelease(e);
   };
   const contextMenu = (e: Event): void => e.preventDefault();
   const wheel = (e: WheelEvent): void => {
@@ -764,18 +783,42 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   canvas.addEventListener('wheel', wheel, { passive: false });
   canvas.addEventListener('contextmenu', contextMenu);
   // Touch layer: a still finger is a build tap or hold on my plot; short touches without moving also pick NPCs.
+  // Where and when each finger went down: only a short, still touch is a tap (a stick or look drag that ends over an
+  // NPC is not a talk).
+  const touchDown = new Map<number, { x: number; y: number; t: number; far: boolean }>();
   hud.root.addEventListener('pointerdown', (e) => {
-    if (e.pointerType !== 'mouse') buildPress(e, tool);
+    if (e.pointerType === 'mouse') return;
+    touchDown.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now(), far: false });
+    buildPress(e, tool);
   });
   hud.root.addEventListener('pointermove', (e) => {
-    if (e.pointerType !== 'mouse') buildMove(e);
+    if (e.pointerType === 'mouse') return;
+    const d = touchDown.get(e.pointerId);
+    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 12) d.far = true;
+    buildMove(e);
   });
   hud.root.addEventListener('pointerup', (e) => {
     if (e.pointerType === 'mouse') return;
+    // A still tap on an NPC in talk range is a talk, never also a block placed behind it (390 real check: one tap
+    // placed a block on the plot and opened the guide's talk). A drag that ends on an NPC is neither.
+    const own = hold && hold.id === e.pointerId ? hold : null;
+    const down = touchDown.get(e.pointerId);
+    touchDown.delete(e.pointerId);
+    const still = !!down && !down.far && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 12 && performance.now() - down.t < 600;
+    const npc = still && !own?.moved ? npcAt(e.clientX, e.clientY) : null;
+    if (npc) {
+      if (own) {
+        hold = null;
+        buildView.showBreak(null, 0);
+      }
+      counts.talkTap++;
+      interact(npc);
+      return;
+    }
     buildRelease(e);
-    tapPick(e.clientX, e.clientY);
   });
   hud.root.addEventListener('pointercancel', (e) => {
+    touchDown.delete(e.pointerId);
     if (hold && hold.id === e.pointerId) hold = null;
   });
   const unlockOnce = (): void => {
@@ -788,29 +831,45 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
-  function tapPick(cx: number, cy: number): void {
+  const pickFoot = new THREE.Vector3();
+  const pickHead = new THREE.Vector3();
+  /** A click or tap at (cx, cy): talks to the NPC there when one is in reach; false = nobody there. */
+  function tapPick(cx: number, cy: number): boolean {
+    const n = npcAt(cx, cy);
+    if (!n) return false;
+    counts.talkTap++;
+    interact(n);
+    return true;
+  }
+
+  /** The pickable NPC under a screen point and within talk reach, or null. */
+  function npcAt(cx: number, cy: number): NpcRt | null {
     const rect = canvas.getBoundingClientRect();
     ndc.set(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
     let best: NpcRt | null = null;
     let bestD = Infinity;
     for (const n of npcs.values()) {
-      if (!pickableNpc(n.def, lessonMode)) continue;
-      const hit = raycaster.ray.distanceSqToPoint(new THREE.Vector3(n.pos.x, n.pos.y + 1, n.pos.z));
+      if (!pickableNpc(n.def, lessonMode) || !n.char.root.visible) continue;
+      // the whole body from the knees to the top of the head (R2625 ③: up close only the head or the legs are on
+      // screen, and a click there missed the one point at the chest)
+      pickFoot.set(n.pos.x, n.pos.y + 0.2, n.pos.z);
+      pickHead.set(n.pos.x, n.pos.y + CHAR_HEIGHT, n.pos.z);
+      const hit = raycaster.ray.distanceSqToSegment(pickFoot, pickHead);
       const along = raycaster.ray.origin.distanceTo(n.pos);
-      if (hit < 0.6 && along < bestD) {
+      if (hit < 0.36 && along < bestD) {
         best = n;
         bestD = along;
       }
     }
-    if (best) {
-      const d = Math.hypot(best.pos.x - body.x, best.pos.z - body.z);
-      if (d <= TALK_RANGE + 2.5) interact(best);
-    }
+    if (!best) return null;
+    const d = Math.hypot(best.pos.x - body.x, best.pos.z - body.z);
+    return d <= TALK_RANGE + 2.5 ? best : null;
   }
 
   function interact(n: NpcRt): void {
     if (paused) return;
+    talkedTo.add(n.def.id);
     sfx.play('ui.open');
     focusNpc = n;
     // NPC turns to the player and waves once.
@@ -824,7 +883,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     for (const cb of interactCbs) cb(n.ref);
   }
   tryTalk = () => {
-    if (nearNpc) interact(nearNpc);
+    const n = nearNpc ?? npcAt(viewW / 2, viewH / 2);
+    if (!n) return;
+    counts.talkE++;
+    interact(n);
   };
 
   function say(npcId: string, text: string, possessed: boolean): void {
@@ -1033,6 +1095,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const camPos = new THREE.Vector3();
   const camLook = new THREE.Vector3();
   let camInit = false;
+  let camGroundY = Number.NaN;
   /** Where the dialog NPC's face lands on screen (CSS px), for the headless framing check. */
   const dialogShotStats = (): { npc: string; face: [number, number] } | null => {
     if (!paused || !focusNpc) return null;
@@ -1040,7 +1103,14 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     return { npc: focusNpc.def.id, face: [Math.round(((v.x + 1) / 2) * viewW), Math.round(((1 - v.y) / 2) * viewH)] };
   };
   const updateCamera = (dt: number): void => {
-    const headY = body.y + body.stepOffset + 1.45;
+    // R2625 ①: a jump does not throw the view up and down. The view keeps the height it took off from and follows the
+    // body only a little; landing higher eases it up, dropping lower follows at once (never above the real eye).
+    const bodyY = body.y + body.stepOffset;
+    if (!Number.isFinite(camGroundY) || Math.abs(bodyY - camGroundY) > 4) camGroundY = bodyY;
+    else if (body.onGround) camGroundY += (bodyY - camGroundY) * (1 - Math.exp(-10 * dt));
+    if (bodyY < camGroundY) camGroundY = bodyY;
+    const viewY = camGroundY + (bodyY - camGroundY) * JUMP_VIEW_FOLLOW;
+    const headY = viewY + 1.45;
     camTarget.set(body.x, headY, body.z);
     let wantPos: THREE.Vector3;
     let wantLook: THREE.Vector3;
@@ -1059,7 +1129,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       wantPos = new THREE.Vector3(shot.pos.x, shot.pos.y, shot.pos.z);
     } else if (camMode === 'first') {
       const f = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw));
-      wantPos = new THREE.Vector3(body.x, body.y + body.stepOffset + EYE_Y, body.z);
+      wantPos = new THREE.Vector3(body.x, viewY + EYE_Y, body.z);
       wantLook = wantPos.clone().add(new THREE.Vector3(f.x * Math.cos(camPitch), -Math.sin(camPitch - 0.3), f.z * Math.cos(camPitch)));
     } else {
       const sign = camMode === 'mirror' ? -1 : 1;
@@ -1372,8 +1442,15 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     const npcRing = camMode === 'first' ? 0.55 : 0.35;
     const pushers = [...npcs.values()].filter((n) => n.def.id !== TEACHER_NPC_ID).map((n) => ({ x: n.pos.x, z: n.pos.z, r: npcRing }));
     const preVy = body.vy;
-    stepBody(body, intent, dt, blockAt, pushers);
-    if (intent.jump && wasGround && !body.onGround) sfx.play('body.jump');
+    const preY = body.y;
+    // the world's own walks (walk buttons, scene arrivals) still climb a whole block so they never get stuck
+    const walking = autopilot.length > 0;
+    const stepMax = autoJump || walking ? STEP_UP_MAX : STEP_UP_SMALL;
+    if (stepBody(body, intent, dt, blockAt, pushers, stepMax) && !walking && body.y - preY > STEP_UP_SMALL + 1e-3) counts.autoClimbs++;
+    if (intent.jump && wasGround && !body.onGround) {
+      counts.jumps++;
+      sfx.play('body.jump');
+    } else if (!intent.jump && wasGround && !body.onGround && body.vy > 0) counts.unpressedJumps++;
     if (!wasGround && body.onGround && preVy < -6) sfx.play('body.land');
     const speed = Math.hypot(body.vx, body.vz);
     if (speed > 0.4) {
@@ -1410,7 +1487,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
     // NPCs: walk if they have a path, otherwise idle and look at the player when near.
     nearNpc = null;
-    let nearD = TALK_RANGE;
+    let nearD = Infinity;
     for (const n of npcs.values()) {
       const inPlay = npcTalkable(n.def, lessonMode);
       n.char.root.visible = inPlay;
@@ -1448,8 +1525,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       n.char.possessed = possessedId === n.def.id;
       n.char.update(dt, { speed: sp, talking: hud.bubbleTyping(n.def.id), lookYaw: look });
       // the visiting teacher is not an E/tap target: E and the dialog frame stay on the lesson's own NPCs
-      if (pd < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode)) {
-        nearD = pd;
+      // R2625 ④: among NPCs in reach, the one in front of the view wins over one just behind the child's back
+      const off = Math.abs(wrapAngle(Math.atan2(n.pos.x - body.x, n.pos.z - body.z) - viewYaw()));
+      const score = pd + (off > 1.2 ? 2.5 : off * 0.6);
+      if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode)) {
+        nearD = score;
         nearNpc = n;
       }
     }
@@ -1510,10 +1590,19 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
     if (peers.count > 0) peers.update(dt, project, viewDistance, player.root.position, true);
     hud.flushBubbles();
-    if (nearNpc && !paused && autopilot.length === 0 && !hud.hasBubble(nearNpc.def.id, nowMs)) {
+    // R2625 ⑤: the talk prompt stays for the NPC to talk to next and for NPCs not met yet in this visit; one already
+    // talked to keeps quiet (E and a tap still open the talk), so the same button does not pop up at every corner.
+    promptOn = false;
+    if (nearNpc && !paused && autopilot.length === 0 && !hud.hasBubble(nearNpc.def.id, nowMs) && (nearNpc.def.id === goalNpcId || !talkedTo.has(nearNpc.def.id))) {
       const p = project(nearNpc.pos.x, nearNpc.pos.y + CHAR_HEIGHT + 0.35, nearNpc.pos.z);
+      promptOn = p.vis;
       hud.showPrompt(p.vis, p.sx, p.sy, touch);
     } else hud.showPrompt(false, 0, 0, touch);
+    const goal = goalNpcId && !paused ? npcs.get(goalNpcId) : undefined;
+    if (goal && goal.char.root.visible && !(promptOn && nearNpc === goal)) {
+      const g = project(goal.pos.x, goal.pos.y + CHAR_HEIGHT + 0.55, goal.pos.z);
+      hud.showGoalMark(g.vis, g.sx, g.sy);
+    } else hud.showGoalMark(false);
 
     renderer.render(scene, camera);
     lastStats = { draw: renderer.info.render.calls, tris: renderer.info.render.triangles };
@@ -1814,6 +1903,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       lookMouse = Math.max(0.1, o.mouse);
       lookTouch = Math.max(0.1, o.touch);
       lookY = o.invertY ? -1 : 1;
+      autoJump = o.autoJump === true;
+    },
+    setGoalNpc: (id) => {
+      goalNpcId = id;
     },
     setReduceMotion: (on) => {
       reduceMotion = on;
@@ -1926,6 +2019,38 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         scene: currentScene,
         player: { x: body.x, y: body.y, z: body.z },
         dialogShot: dialogShotStats(),
+        interact: {
+          near: nearNpc?.def.id ?? null,
+          goal: goalNpcId,
+          prompt: promptOn,
+          talked: [...talkedTo],
+          byKey: counts.talkE,
+          byTap: counts.talkTap
+        },
+        npcView: [...npcs.values()]
+          .filter((n) => n.char.root.visible && pickableNpc(n.def, lessonMode))
+          .map((n) => {
+            // the middle of the part of the body that is on screen (up close the feet or the head leave it)
+            const f = project(n.pos.x, n.pos.y + 0.3, n.pos.z);
+            const h = project(n.pos.x, n.pos.y + CHAR_HEIGHT - 0.1, n.pos.z);
+            const top = Math.max(0, Math.min(f.sy, h.sy));
+            const bot = Math.min(viewH, Math.max(f.sy, h.sy));
+            return {
+              id: n.def.id,
+              sx: Math.round((f.sx + h.sx) / 2),
+              sy: Math.round((top + bot) / 2),
+              vis: f.vis && h.vis && bot > top,
+              dist: Math.round(Math.hypot(n.pos.x - body.x, n.pos.z - body.z) * 10) / 10
+            };
+          }),
+        motion: {
+          jumps: counts.jumps,
+          unpressedJumps: counts.unpressedJumps,
+          autoClimbs: counts.autoClimbs,
+          autoJump,
+          bodyY: Math.round((body.y + body.stepOffset) * 100) / 100,
+          camY: Math.round(camera.position.y * 100) / 100
+        },
         startup: { ...startup },
         build: {
           active: buildActive,

@@ -169,7 +169,9 @@ async function playNeural(bytes: ArrayBuffer, gen: number): Promise<boolean> {
   }
   // Web Audio locked or the bytes would not decode there: a plain media element at its own level.
   const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
-  const a = new Audio(url);
+  const a = new Audio();
+  a.preload = 'auto';
+  a.src = url;
   return new Promise<boolean>((resolve) => {
     let started = false;
     let finished = false;
@@ -177,6 +179,16 @@ async function playNeural(bytes: ArrayBuffer, gen: number): Promise<boolean> {
       if (finished) return;
       finished = true;
       if (neuralPlaying === handle) neuralPlaying = null;
+      // Detach the element before revoking: revoking a blob it is still loading (play blocked before the first tap, a
+      // newer line took over) made Chrome log "Failed to load resource: net::ERR_FILE_NOT_FOUND" on the child's page.
+      try {
+        a.onerror = null;
+        a.pause();
+        a.removeAttribute('src');
+        a.load();
+      } catch {
+        /* ignore */
+      }
       URL.revokeObjectURL(url);
       if (started && gen === speechGen) rt.npcVoiceEnded();
       resolve(ok || started);

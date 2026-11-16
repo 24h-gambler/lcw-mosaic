@@ -7,3 +7,4 @@ export * from './npc-cast.js';
 export * from './world-setup.js';
 export * from './try-order.js';
 export * from './tts-lines.js';
+export * from './teacher-name.js';

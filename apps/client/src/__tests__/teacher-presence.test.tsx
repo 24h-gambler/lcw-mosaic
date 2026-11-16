@@ -7,6 +7,8 @@ import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { createStudentLessonApi, readLessonMicStatus, type KeyValue } from '../lesson/api.js';
 import { LessonController, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { TeacherPanel, createPanelApi, isPanelShortcut, stageContext } from '../lesson/TeacherPanel.js';
+import { LESSON_STRINGS_KO } from '../lesson/strings.js';
+import { WORLD_STRINGS } from '../world/strings.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
 const op = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
@@ -76,7 +78,7 @@ describe('teacher presence in the child world (Dan 11-16: the child knows whethe
     const { w, teacher } = world();
     const ctl = new LessonController({ api: createStudentLessonApi({ fetch }), world: w, store: memStore(), timers });
     await ctl.start(s.join_code);
-    expect(teacher.at(-1)).toEqual({ present: true, name: '선생님' });
+    expect(teacher.at(-1)).toEqual({ present: true, name: null });
     expect(ctl.state.teacher.present).toBe(true);
     expect(ctl.state.lessonId).toBe(s.lesson_id);
     expect(ctl.state.planId).toBe('first_lesson_v1');
@@ -93,7 +95,7 @@ describe('teacher presence in the child world (Dan 11-16: the child knows whethe
     await admin('POST', `/v1/admin/lessons/${s.lesson_id}/presence`, { panel: 'open' });
     await timers.run(4_000);
     expect(ctl.state.teacher.present).toBe(true);
-    expect(teacher.at(-1)).toEqual({ present: true, name: '선생님' });
+    expect(teacher.at(-1)).toEqual({ present: true, name: null });
     ctl.stop();
   });
 
@@ -109,6 +111,15 @@ describe('teacher presence in the child world (Dan 11-16: the child knows whethe
     await timers.run(120_000);
     expect(ctl.state.teacher.present).toBe(true);
     ctl.stop();
+  });
+
+  it('labels: the title once (review #80): world chip and status line', () => {
+    expect(WORLD_STRINGS.teacherWith('Dan')).toBe('👩‍🏫 Dan 선생님과 함께');
+    expect(WORLD_STRINGS.teacherWith('김민지 선생님')).toBe('👩‍🏫 김민지 선생님과 함께');
+    expect(WORLD_STRINGS.teacherWith(null)).toBe('👩‍🏫 선생님과 함께');
+    expect(LESSON_STRINGS_KO.status.ok('Oreo', 'Dan')).toBe('Oreo · Dan 선생님과 함께');
+    expect(LESSON_STRINGS_KO.status.ok('Oreo', '선생님')).toBe('Oreo · 선생님과 함께');
+    expect(LESSON_STRINGS_KO.status.ok('Oreo', null)).toBe('Oreo · 선생님과 함께');
   });
 
   it('mic check value: only the four known values are read', () => {
@@ -174,11 +185,16 @@ describe('1PC teacher panel (TeacherPanel.tsx)', () => {
     expect(await api.unlock(TOKEN, s.lesson_id, '0000')).toBe('wrong_pin');
     expect(await api.unlock('not-the-key-but-long', s.lesson_id, '1357')).toBe('error');
     expect(await api.unlock(TOKEN, s.lesson_id, '1357')).toBe('ok');
-    expect(await api.beat(TOKEN, s.lesson_id, 'closed')).toBe(true);
+    expect(await api.beat(TOKEN, s.lesson_id, 'closed')).toBe('ok');
     expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).teacher).toMatchObject({ present: true, panel: 'closed' });
     expect(await api.pushStage(TOKEN, s.lesson_id, FIRST_LESSON_PLAN.stages[1]!)).toBe(true);
     expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).lesson.stage_id).toBe(FIRST_LESSON_PLAN.stages[1]!.id);
     expect(await api.leave(TOKEN, s.lesson_id)).toBe(true);
     expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).teacher.present).toBe(false);
+    // Still unlocked elsewhere: its beats hear 'left' (the panel locks itself); the lock number's first beat resumes.
+    expect(await api.beat(TOKEN, s.lesson_id, 'closed')).toBe('left');
+    expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).teacher.present).toBe(false);
+    expect(await api.beat(TOKEN, s.lesson_id, 'open', true)).toBe('ok');
+    expect((await admin('GET', `/v1/admin/lessons/${s.lesson_id}/feed`)).teacher).toMatchObject({ present: true, panel: 'open' });
   });
 });

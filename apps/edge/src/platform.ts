@@ -46,6 +46,7 @@ import {
   type DurableStorageLike
 } from './do-sqlite.js';
 import { EdgePlatformDb, LessonDO, WorldDO, type SqliteExecutor } from './storage.js';
+import { ROOM_CONNECT_PATH, ROOM_TICKET_SCHEMA, buildRoomApp, redeemRoomTicket, routeRoomConnect } from './room.js';
 
 /**
  * Production platform (entry module: worker.ts). One SQLite Durable Object ("platform") holds the relational
@@ -69,6 +70,8 @@ interface AssetsBinding {
 }
 export interface LcwEnv {
   PLATFORM: DoNamespace;
+  /** Multi rooms (room.ts WorldRoomDO), one per room name. Unbound → /v1/room/connect answers 503. */
+  WORLD_ROOM?: DoNamespace;
   ASSETS?: AssetsBinding;
   AI?: AiBinding;
   /** Operator (teacher) token — `wrangler secret put LCW_OPERATOR_TOKEN`. Unset → gated routes fail closed. */
@@ -129,6 +132,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
   if (SHOWROOM_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Multi room tickets (room.ts): lesson, device or operator token, checked inside.
+  if (method === 'POST' && path === '/v1/room/ticket') return true;
   // Voice clips (voice.ts): upload checks its one-use token, playback its signature.
   if (VOICE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // My world (G07, my-world.ts): checks the child's device or lesson token itself.
@@ -260,6 +265,7 @@ export class PlatformDO {
     this.sql = createDurableSqliteExecutor(state.storage);
     this.db = new EdgePlatformDb(this.sql);
     this.sql.exec(OPS_SCHEMA);
+    this.sql.exec(ROOM_TICKET_SCHEMA);
     ensureOperatorLoginSchema(this.sql);
     ensureQuotaSchema(this.sql);
     const blobs = new SqliteBlobStore(this.sql);
@@ -589,6 +595,13 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (err instanceof SyntaxError) return c.json({ error: 'invalid_json' }, 400);
     return c.json({ error: 'internal_error' }, 500);
   });
+  // The Worker redeems a room ticket here before it hands a WebSocket to the room (room.ts routeRoomConnect).
+  app.post('/internal/room-ticket', async (c) => {
+    if (c.req.header('x-lcw-internal') !== 'room') return c.json({ error: 'forbidden' }, 403);
+    const body = (await c.req.json().catch(() => ({}))) as { ticket?: unknown };
+    const seat = await redeemRoomTicket({ sql: platform.sql, nowMs: () => Date.now(), sha256Hex }, String(body.ticket ?? ''));
+    return seat ? c.json(seat) : c.json({ error: 'bad_ticket' }, 403);
+  });
   app.post('/internal/cron', async (c) => {
     if (c.req.header('x-lcw-internal') !== 'cron') return c.json({ error: 'forbidden' }, 403);
     const body = (await c.req.json()) as { cron: string };
@@ -883,6 +896,26 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
   app.route(
     '/',
+    buildRoomApp({
+      sql: platform.sql,
+      nowMs: () => Date.now(),
+      randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
+      sha256Hex,
+      student: (req) => platform.studentFromRequest(req),
+      device: (req) => platform.deviceFromRequest(req),
+      isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN),
+      player: (id) => platform.sql.get<{ nickname: string; family_id: string }>('select nickname, family_id from players where id = ?', [id]) ?? null
+    })
+  );
+  // Operator read-out of one room (members, counters) for load checks and the docs/02 §11 capacity numbers.
+  app.get('/v1/admin/rooms/:room', async (c) => {
+    if (!env.WORLD_ROOM) return c.json({ error: 'rooms_not_configured' }, 503);
+    const room = c.req.param('room');
+    const res = await env.WORLD_ROOM.get(env.WORLD_ROOM.idFromName(room)).fetch(new Request('https://room/stats'));
+    return c.json({ room, ...((await res.json()) as Record<string, unknown>) });
+  });
+  app.route(
+    '/',
     buildMyWorldApp({
       sql: platform.sql,
       nowMs: familyDeps.nowMs,
@@ -936,6 +969,7 @@ function platformStub(env: LcwEnv): DoStub {
 
 async function routeWorkerRequest(request: Request, env: LcwEnv): Promise<Response> {
   const url = new URL(request.url);
+  if (url.pathname === ROOM_CONNECT_PATH) return routeRoomConnect(request, platformStub(env), env.WORLD_ROOM);
   // The world moved from /game/ to /world/ (world-path.ts): old lesson and pass links keep their query.
   const moved = legacyWorldRedirect(url);
   if (moved) return moved;

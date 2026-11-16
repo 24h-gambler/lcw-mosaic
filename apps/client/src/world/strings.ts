@@ -1,7 +1,10 @@
 /** Player-facing Korean strings of the world domain (AGENTS 6 "문자열"). English target sentences come from content. */
+import { teacherLabel } from '@lcw/content';
 
 export const WORLD_STRINGS = {
   loading: '마을을 짓는 중…',
+  /** multi room at capacity (docs/03 D11, server room.ts 4003) */
+  roomFull: '방이 가득 찼어요. 조금 뒤에 다시 들어가 볼게요',
   loadingHint: '잠깐만요, 블록을 하나씩 쌓고 있어요',
   talk: '말 걸기',
   talkKey: 'E',
@@ -25,7 +28,8 @@ export const WORLD_STRINGS = {
   weatherNight: '밤',
   lessonBadge: '수업 중',
   teacherDefault: '선생님',
-  teacherWith: (name: string): string => `👩‍🏫 ${name} 함께`,
+  /** name alone ("김민지"), or null: "👩‍🏫 김민지 선생님과 함께" / "👩‍🏫 선생님과 함께" (one label, @lcw/content). */
+  teacherWith: (name: string | null): string => `👩‍🏫 ${teacherLabel(name)}과 함께`,
   solo: '혼자 놀기',
   coinsLabel: '코인',
   // Seat paused (docs/19 6장): no price or payment words on a child screen, only "tell your grown-up".

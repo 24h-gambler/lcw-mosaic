@@ -155,7 +155,8 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
   const tokenRef = useRef(token);
   tokenRef.current = token;
   const onAuthError = useCallback((code: string) => {
-    if (code !== 'operator_only') return;
+    // Several calls answer 401 at once: only the first one decides; later ones find the token already gone.
+    if (code !== 'operator_only' || !tokenRef.current) return;
     // A teacher sign-in that ended (logout elsewhere, 30 days, taken off the list): back to the sign-in box.
     if (isOperatorSession(tokenRef.current)) {
       saveOperatorToken(null);

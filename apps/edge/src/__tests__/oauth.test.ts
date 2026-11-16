@@ -302,7 +302,7 @@ describe('shared sign-in (oauth.ts): Google and Kakao, redirect with state + PKC
     expect((await call(p, 'GET', '/v1/family/me', undefined, bearer(tok))).status).toBe(200);
     // the same credential a second time (copied): refused
     expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred, role: 'guardian' }, anon)).status).toBe(401);
-    const cred2 = await idToken(claimsFor('google', 'g-cred', 'n2', { nonce: undefined }));
+    const cred2 = await idToken(claimsFor('google', 'g-cred-2', 'n2', { nonce: undefined }));
     // teacher role is wired (operator-login.ts) but this account is not on the LCW_OPERATOR_GOOGLE_EMAILS secret
     expect((await call(p, 'POST', '/v1/oauth/google/credential', { credential: cred2, role: 'teacher' }, anon)).status).toBe(403);
     const bad = await idToken(claimsFor('google', 'g-cred', 'n'), other.privateKey);

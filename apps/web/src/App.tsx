@@ -133,7 +133,6 @@ export const DIRECTOR_EVENTS = [
 export interface AppProps {
   initialRoute?: AppRoute;
   initialShowChartTables?: boolean;
-  initialReportState?: ParentReportState;
   /** Token from a /r/<token> parent report link. */
   initialReportToken?: string | null;
 }
@@ -932,7 +931,6 @@ export function TeacherDirectorView({
 export function App({
   initialRoute = '/',
   initialShowChartTables = false,
-  initialReportState,
   initialReportToken = null
 }: AppProps): React.ReactElement {
   const [route, setRouteState] = useState<AppRoute>(initialRoute);
@@ -952,19 +950,6 @@ export function App({
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
-  const [reportState, setReportState] = useState<ParentReportState>(
-    initialReportState ?? DEFAULT_PARENT_REPORT_STATE
-  );
-
-  const handleMarkReportOpened = () => {
-    setReportState((prev) => ({
-      ...prev,
-      deliveryStatus: 'opened',
-      openedAtMs: prev.openedAtMs ?? 1_763_205_000_000,
-      nextTargetsUpdated: true
-    }));
-  };
-
   // Every public page (docs/14 W01–W09) is owned by the site module; the rest are signed-in or lesson screens.
   if (isSitePath(route)) return React.createElement(SiteRoot, { initialPath: route });
 
@@ -1008,12 +993,9 @@ export function App({
     route === '/guest-end' && React.createElement(GuestPassEndScreen, null),
     route === '/claim' && React.createElement(GuestClaimCard, null),
     route === '/window' && React.createElement(LessonWindowPage, null),
-    route === '/report' &&
-      React.createElement(ParentReportView, {
-        report: reportState,
-        onMarkOpened: handleMarkReportOpened,
-        onBackToDirector: () => setRoute('/director')
-      }),
+    // /report was the prototype parent screen with made-up lesson data (audit 11-16). Real reports live at
+    // /r/<token>; the bare old address shows the same "link not found" page as /r without a token.
+    route === '/report' && React.createElement(ParentReportPage, { token: '', initial: { status: 'not_found' } }),
     route === '/dashboard' && React.createElement(DashboardPage, null),
     // The old prototype console (T01–T04 cards with made-up NPCs and dev buttons) is not shown any more (audit
     // 11-16): the live console is the only director screen. TeacherDirectorView stays for the T02–T04 work.

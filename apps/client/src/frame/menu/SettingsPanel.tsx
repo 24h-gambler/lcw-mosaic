@@ -98,7 +98,7 @@ const PANEL_CSS = `
 .lcw-set__live{min-height:1.5em}
 @media (max-width:720px){
   .lcw-set{grid-template-columns:minmax(0,1fr);gap:10px}
-  .lcw-set__nav{flex-direction:row;overflow-x:auto;position:static;padding-bottom:2px;scrollbar-width:none}
+  .lcw-set__nav{flex-direction:row;flex-wrap:wrap;position:static;padding-bottom:2px}
   .lcw-set__nav::-webkit-scrollbar{display:none}
   .lcw-set__nav button{flex:none}
 }
@@ -286,7 +286,7 @@ function KeysEditor({ s }: { s: Readonly<FrameSettings> }): React.ReactElement {
 function ControlsSection({ s }: { s: Readonly<FrameSettings> }): React.ReactElement {
   return (
     <>
-      <KeysEditor s={s} />
+      {/* look speed first (what children change most); the long key list last */}
       <Row title={F.touchTitle}>
         <ul style={{ margin: 0, paddingLeft: 18 }}>
           {F.touchGuide.map((t) => (
@@ -314,6 +314,7 @@ function ControlsSection({ s }: { s: Readonly<FrameSettings> }): React.ReactElem
           onChange={(v) => updateFrameSettings({ micMode: v })}
         />
       </Row>
+      <KeysEditor s={s} />
     </>
   );
 }

@@ -196,6 +196,41 @@ for (const vp of VIEWPORTS) {
       check(vp.name, !(await page.locator('.lcw-dlg').count()), 'repair review window did not close');
       check(vp.name, !!(await rect(page, '.lcw-menu__win')), 'menu should still be open after the repair window closes');
     }
+    if (tab === 'settings') {
+      // G14: five sections, each with real controls; a change is kept on the device and sent to the server
+      const secs = await page.evaluate(() => [...document.querySelectorAll('.lcw-set__nav [data-sec]')].map((b) => b.getAttribute('data-sec')));
+      check(vp.name, ['controls', 'sound', 'screen', 'access', 'mic'].every((x) => secs.includes(x)), `settings sections ${secs.join(',')}`);
+      const ctl = await page.evaluate(() => ({ ranges: document.querySelectorAll('.lcw-set input[type="range"]').length, switches: document.querySelectorAll('.lcw-set [role="switch"]').length }));
+      check(vp.name, ctl.ranges >= 2 && ctl.switches >= 1, `controls: look sliders and invert switch (${ctl.ranges}/${ctl.switches})`);
+      const r0 = page.locator('.lcw-set input[type="range"]').first();
+      await r0.focus();
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('ArrowRight');
+      await page.waitForTimeout(1600);
+      const stored = await page.evaluate(() => {
+        try {
+          return JSON.parse(localStorage.getItem('lcw.settings') || '{}').lookMouse ?? null;
+        } catch {
+          return null;
+        }
+      });
+      check(vp.name, typeof stored === 'number' && stored > 1, `mouse look speed kept on the device (${stored})`);
+      check(vp.name, posts.some((x) => x.p === '/v1/settings' && /lookMouse|look_mouse/.test(x.body)), 'settings change did not reach the server');
+      for (const sec of ['sound', 'screen', 'access', 'mic']) {
+        await page.click(`#lcw-set-tab-${sec}`);
+        await page.waitForTimeout(500);
+        await page.screenshot({ path: `${out}/${vp.name}-4settings-${sec}.png` });
+        check(vp.name, await noSideways(page), `settings ${sec} scrolls sideways`);
+      }
+      await page.click('#lcw-set-tab-sound');
+      await page.waitForTimeout(400);
+      const sound = await page.evaluate(() => ({ text: document.querySelector('.lcw-set__main')?.textContent ?? '', ranges: document.querySelectorAll('.lcw-set input[type="range"]').length, switches: document.querySelectorAll('.lcw-set [role="switch"]').length }));
+      check(vp.name, /자연스러운 목소리/.test(sound.text) && sound.ranges >= 4 && sound.switches >= 1, `sound: volumes, voice speed, natural voice (${sound.ranges} sliders)`);
+      await page.click('#lcw-set-tab-screen');
+      await page.waitForTimeout(400);
+      const scr = await page.evaluate(() => document.querySelector('.lcw-set__main')?.textContent ?? '');
+      check(vp.name, ['시야 거리', '그림자', '해상도 배율', '자동'].every((w) => scr.includes(w)), 'screen: 시야 거리 / 그림자 / 해상도 배율 / 자동');
+    }
   }
   // Esc closes the menu
   await page.keyboard.press('Escape');

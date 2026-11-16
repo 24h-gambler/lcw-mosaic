@@ -212,7 +212,7 @@ function expectedNext(job: JobRow, clock: { day: number; minute: number }): Play
 /** The n-th customer of the day: a claim from the office.customer set; a director's second visitor negotiates. */
 function customerKeyFor(rank: JobRank, day: number, n: number): string {
   if (rank === 'director' && n === TUNING.play.shift.customersPerShift - 1) return NEGOTIATION.key;
-  return CUSTOMER_SCENARIOS[customerScenarioIndex(day, n, CUSTOMER_SCENARIOS.length)]!.key;
+  return (CUSTOMER_SCENARIOS[customerScenarioIndex(day, n, CUSTOMER_SCENARIOS.length)] ?? CUSTOMER_SCENARIOS[0]).key;
 }
 
 export function playState(db: EdgePlatformDb, world: WorldDO | undefined, playerId: string, worldId: string, nowMs: number): PlayState {

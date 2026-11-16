@@ -8,6 +8,7 @@ import {
   buildTown,
   clockIn,
   counterSpots,
+  customerScenarioIndex,
   customerSpot,
   elevatorSpot,
   hallDoor,
@@ -152,6 +153,16 @@ describe('play rules (play.ts, docs/03 D2 D4, docs/04 4.2)', () => {
     expect(marketRecovered(after, 0)).toBe(after);
     expect(marketRecovered(after, 48 * 3_600_000)).toBeGreaterThan(0.99);
     expect(oreMarketPrice('coal', 1)).toBe(TUNING.mining.ores.coal!.price);
+  });
+
+  it('customers: a valid claim every day, and the two customers of a day bring different claims', () => {
+    for (let day = 0; day < 400; day++) {
+      const a = customerScenarioIndex(day, 0, 4);
+      const b = customerScenarioIndex(day, 1, 4);
+      expect(a >= 0 && a < 4 && b >= 0 && b < 4, `day ${day}`).toBe(true);
+      expect(a, `day ${day}`).not.toBe(b);
+    }
+    expect(new Set(Array.from({ length: 12 }, (_, d) => customerScenarioIndex(d, 0, 4))).size).toBeGreaterThan(1);
   });
 
   it('tools: everyone has tier 1; the iron pickaxe and the drill raise it', () => {

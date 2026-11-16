@@ -167,6 +167,8 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
   const [hold, setHold] = useState(0);
   const holdTimer = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
+  const [topPx, setTopPx] = useState(0);
+  const cardTop = Math.max(64, topPx);
 
   // token (read at call time: a lesson student token beats the device token)
   useEffect(() => {
@@ -190,6 +192,10 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
       if (!s) return;
       setPos((p) => (p && Math.abs(p.x - s.player.x) < 0.05 && Math.abs(p.y - s.player.y) < 0.05 && Math.abs(p.z - s.player.z) < 0.05 ? p : { ...s.player }));
       setScene(s.scene);
+      // stay under the goal line when it spans the left corner (a phone: it wraps to two lines across the screen)
+      const g = document.querySelector('.lw-goal')?.getBoundingClientRect();
+      const below = g && g.bottom > 0 && g.left < 180 ? Math.ceil(g.bottom) + 8 : 0;
+      setTopPx((t) => (t === below ? t : below));
     }, 250);
     return () => window.clearInterval(id);
   }, [world]);
@@ -261,7 +267,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
   return (
     <div className="lcw-play" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
       {/* 내 일 card: left, under the coin chip */}
-      <div style={{ position: 'absolute', top: 64, left: 12, width: open ? 'min(280px, calc(100vw - 24px))' : 'auto', pointerEvents: 'auto' }}>
+      <div style={{ position: 'absolute', top: cardTop, left: 12, width: open ? 'min(280px, calc(100vw - 24px))' : 'auto', pointerEvents: 'auto' }}>
         <button
           type="button"
           data-play="card"
@@ -340,7 +346,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
 
       {/* exchange board */}
       {scene === 'exchange' && state ? (
-        <div data-play="market" style={{ ...box, position: 'absolute', top: 64, right: 12, width: 'min(240px, calc(100vw - 24px))', padding: 10, fontSize: T.scale.small.sizePx, pointerEvents: 'auto' }}>
+        <div data-play="market" style={{ ...box, position: 'absolute', top: topPx > 0 ? cardTop + 56 : 64, right: 12, width: 'min(240px, calc(100vw - 24px))', padding: 10, fontSize: T.scale.small.sizePx, pointerEvents: 'auto' }}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>{PLAY_KO.market.title}</div>
           {Object.entries(state.market).map(([ore, price]) => (
             <div key={ore} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>

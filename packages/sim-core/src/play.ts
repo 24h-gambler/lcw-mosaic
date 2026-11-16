@@ -139,11 +139,16 @@ export function shiftPay(rank: JobRank, shift: ShiftState): number {
   return Math.round(dailyPay(rank) * shift.payFactor);
 }
 
-/** Customer claim the shift's n-th customer brings: deterministic from day and index (docs/03 D4 office.customer.*). */
+/**
+ * Customer claim the shift's n-th customer brings: deterministic from the day (docs/03 D4 office.customer.*); the
+ * customers of one day always bring different claims. Unsigned all the way (a signed XOR once gave -2 on odd days).
+ */
 export function customerScenarioIndex(day: number, n: number, count: number): number {
-  let h = (day * 2654435761 + (n + 1) * 40503) >>> 0;
-  h ^= h >>> 15;
-  return count > 0 ? h % count : 0;
+  if (count <= 0) return 0;
+  let h = Math.imul(Math.max(0, Math.floor(day)) + 1, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = (h ^ (h >>> 13)) >>> 0;
+  return (h + Math.max(0, Math.floor(n))) % count;
 }
 
 /* ------------------------------------------------------------------ exchange & market (D2, D3) */

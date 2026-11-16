@@ -151,6 +151,33 @@ describe('the office day (docs/03 D4, docs/04 4.2 면접·상사·고객)', () =
     expect((await e.say('d-b2', 'boss', line('boss', 'boss_late', 3), 3)).play).toMatchObject({ blocked: 'closed' });
   });
 
+  it('the next morning is a new work day: clock in again and both customers pay (every day, not only day 0)', async () => {
+    const e = env();
+    await e.say('d-suit', 'boutique', line('boutique', 'suit', 2), 2);
+    await e.playFor(40);
+    for (const [i, t] of INTERVIEW_TURNS.entries()) await e.say(`d-i${i}`, 'interview', line('interview', t, 2), 2);
+    for (let day = 0; day < 3; day++) {
+      if (day > 0) {
+        // to 08:10 of the next day
+        const s0 = await e.state();
+        await e.playFor((day * 1440 + 490 - (s0.clock.day * 1440 + s0.clock.minute)) as number);
+      }
+      const s = await e.state();
+      expect(s.clock).toMatchObject({ day, hours: 'on_time' });
+      expect(s.next).toEqual({ ctx: 'boss', key: 'boss_report' });
+      await e.say(`d-b${day}`, 'boss', line('boss', 'boss_report', 2), 2);
+      const keys: string[] = [];
+      for (let n = 0; n < 2; n++) {
+        const st = await e.state();
+        keys.push(st.next.key);
+        expect((await e.say(`d-c${day}-${n}`, 'customer', line('customer', st.next.key, 2), 2)).play).toMatchObject({ kind: 'customer', served: n + 1 });
+      }
+      expect(keys[0]).not.toBe(keys[1]);
+      expect((await e.state()).shift).toMatchObject({ day, paid: true });
+    }
+    expect(e.world.sql.all("select * from ledger where reason like 'play:pay:%'")).toHaveLength(3);
+  });
+
   it('the clock moves only while the world is open: a long gap adds nothing', async () => {
     const e = env();
     await e.beat();

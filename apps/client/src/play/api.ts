@@ -48,7 +48,7 @@ export interface PlayStep {
 
 export type MineAnswer =
   | { ok: true; ore: string; vein_id: string; count: number; coins_total: number | null }
-  | { ok: false; reason: 'unknown_vein' | 'no_world' | 'tool' | 'resting' | 'too_fast' | 'network' | 'guest' | 'seat'; wait_ms?: number; need_tier?: number };
+  | { ok: false; reason: 'unknown_vein' | 'no_world' | 'tool' | 'resting' | 'too_fast' | 'tired' | 'network' | 'guest' | 'seat'; wait_ms?: number; need_tier?: number };
 
 type Fetch = typeof fetch;
 

@@ -222,6 +222,12 @@ export const TUNING = {
        * best day wage per hour (D3 "코인이 빠듯해야", review M5; play-sites.test.ts measures it).
        */
       respawnReferencePrice: 10,
+      /**
+       * One digging budget across all floors (review M5: veins of three floors rest apart, so rotating floors would pay
+       * ~10,000 an hour): in any 20 minutes of play a child digs at most the best day wage's worth for 20 minutes
+       * (director 2,000 a 24-minute day -> 1,667 of ore at list price). Floor 1 alone never meets it.
+       */
+      budgetWindowPlayMs: 20 * 60 * 1000,
       respawnValueExponent: 0.75,
       /** Two swings closer than this are one (anti-autoclick; the hold animation is longer). */
       minIntervalMs: 1200,

@@ -9,6 +9,7 @@
  *   play_mine   — when each vein was last taken (on play time)
  *   play_market — the world's price index per ore (docs/03 D2 평균 회귀, docs/09 P7 월드별)
  *   play_sales  — one exchange sale per dialog (a better retry tops up the difference, never pays twice)
+ *   play_dig    — list value of each ore dug, on play time (the hourly mining budget across all floors)
  *   play_turns  — which office turn a dialog answered (a better retry in the same window raises that turn's stars)
  */
 import { Hono } from 'hono';
@@ -44,6 +45,7 @@ import {
   toolTierOf,
   veinById,
   veinRespawnMs,
+  miningBudgetWait,
   type JobRank,
   type JobState,
   type OfficeHours,
@@ -62,6 +64,8 @@ create table if not exists play_job (player_id text not null, world_id text not 
 create table if not exists play_mine (player_id text not null, world_id text not null, vein_id text not null, last_play_ms integer not null, primary key (player_id, world_id, vein_id));
 create table if not exists play_market (world_id text not null, ore text not null, idx real not null, updated_at integer not null, primary key (world_id, ore));
 create table if not exists play_sales (dialog_id text not null, player_id text not null, world_id text not null, ore text not null, units integer not null, idx real not null, stars integer not null, coins integer not null, at integer not null, primary key (player_id, world_id, dialog_id, ore));
+create table if not exists play_dig (player_id text not null, world_id text not null, play_ms integer not null, value integer not null);
+create index if not exists play_dig_by_player on play_dig (player_id, world_id, play_ms);
 create table if not exists play_turns (player_id text not null, world_id text not null, dialog_id text not null, kind text not null, day integer not null, idx integer not null, item text not null, stars integer not null, primary key (player_id, world_id, dialog_id, item));
 `);
 }
@@ -303,7 +307,7 @@ export function applyPlayStep(
     [s.playerId, s.worldId, s.dialogId, s.askedKey]
   );
   // (the same sentence set only: another turn's sentence in this window is a new turn)
-  if (turn) {
+  if (turn && Number(turn.day) === clock.day) {
     const t = { kind: turn.kind, day: Number(turn.day), idx: Number(turn.idx), item: turn.item, stars: Number(turn.stars) as Stars };
     return retryTurn(db, s, job, t, stars, pay);
   }
@@ -484,7 +488,7 @@ function sellOre(
 
 export type MineResult =
   | { ok: true; ore: string; vein_id: string; count: number; coins_total: number | null }
-  | { ok: false; reason: 'unknown_vein' | 'no_world' | 'tool' | 'resting' | 'too_fast'; wait_ms?: number; need_tier?: number };
+  | { ok: false; reason: 'unknown_vein' | 'no_world' | 'tool' | 'resting' | 'too_fast' | 'tired'; wait_ms?: number; need_tier?: number };
 
 /** One swing at a vein (docs/03 D2 채굴): server checks tool tier and regrowth on play time, then gives one ore. */
 export function mine(db: EdgePlatformDb, world: WorldDO | undefined, p: { playerId: string; worldId: string; veinId: string; nowMs: number }): MineResult {
@@ -505,6 +509,16 @@ export function mine(db: EdgePlatformDb, world: WorldDO | undefined, p: { player
   if (!check.ok) {
     return { ok: false, reason: check.reason, wait_ms: check.waitMs, need_tier: check.reason === 'tool' ? TUNING.mining.ores[vein.ore]?.requiredToolTier : undefined };
   }
+  // one budget across every floor (review M5): the veins of three floors rest apart, the miner does not
+  const windowMs = TUNING.play.mine.budgetWindowPlayMs;
+  const dug = db.sql.all<{ play_ms: number; value: number }>(
+    'select play_ms, value from play_dig where player_id = ? and world_id = ? and play_ms > ? order by play_ms',
+    [p.playerId, p.worldId, c.play_ms - windowMs]
+  );
+  const value = TUNING.mining.ores[vein.ore]?.price ?? 0;
+  const tired = miningBudgetWait(dug.map((d) => ({ playMs: Number(d.play_ms), value: Number(d.value) })), c.play_ms, value);
+  if (tired > 0) return { ok: false, reason: 'tired', wait_ms: tired };
+  db.sql.run('insert into play_dig (player_id, world_id, play_ms, value) values (?, ?, ?, ?)', [p.playerId, p.worldId, c.play_ms, value]);
   db.sql.run('update play_clock set last_swing_at = ? where player_id = ? and world_id = ?', [p.nowMs, p.playerId, p.worldId]);
   db.sql.run(
     'insert into play_mine (player_id, world_id, vein_id, last_play_ms) values (?, ?, ?, ?) on conflict(player_id, world_id, vein_id) do update set last_play_ms = excluded.last_play_ms',

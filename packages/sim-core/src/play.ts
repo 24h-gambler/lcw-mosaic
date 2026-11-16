@@ -193,6 +193,28 @@ export function toolTierOf(itemKeys: Iterable<string>): number {
 
 export type MineRefusal = 'tool' | 'resting' | 'too_fast';
 
+/** List value a child may dig in one budget window, all floors together: the best day wage for that much play time. */
+export function miningBudget(): number {
+  const best = Math.max(...JOB_RANKS.map((r) => dailyPay(r)));
+  const dayMs = 24 * 60 * P.realMsPerGameMinute;
+  return Math.round((best * P.mine.budgetWindowPlayMs) / dayMs);
+}
+
+/**
+ * Play time to wait before ore worth `value` fits the budget (0 = dig now). `dug` = what was dug inside the window,
+ * oldest first; the window slides on play time, so the oldest swing leaving frees its value.
+ */
+export function miningBudgetWait(dug: ReadonlyArray<{ playMs: number; value: number }>, playMs: number, value: number): number {
+  const cap = miningBudget();
+  let used = dug.reduce((s, d) => s + d.value, 0);
+  if (used + value <= cap) return 0;
+  for (const d of dug) {
+    used -= d.value;
+    if (used + value <= cap) return Math.max(1000, d.playMs + P.mine.budgetWindowPlayMs - playMs);
+  }
+  return P.mine.budgetWindowPlayMs;
+}
+
 /** Play time a vein of this ore needs to grow back (deeper, richer ores slower; tuning.play.mine). */
 export function veinRespawnMs(ore: string): number {
   const price = TUNING.mining.ores[ore]?.price ?? P.mine.respawnReferencePrice;

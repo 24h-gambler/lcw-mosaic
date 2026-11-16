@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { QuotaMeter } from '@lcw/quota';
 import { INTERVIEW_TURNS, lookupPhraseBank } from '@lcw/content';
-import { TUNING, clockOf, mineVeins } from '@lcw/sim-core';
+import { TUNING, clockOf, mineVeins, miningBudget } from '@lcw/sim-core';
 import { createNodeSqliteExecutor } from '../node-sqlite.js';
 import { createEdgeApp } from '../app.js';
 import { EdgePlatformDb, InMemoryR2Store, WorldDO } from '../storage.js';
@@ -292,6 +292,19 @@ describe('review fixes: every level, saying it again, one child per sale', () =>
     expect((await e.say('d-c0', 'customer', line('customer', st.next.key, 3), 3)).play).toMatchObject({ retry: 'same' });
     // the retry did not count as the second customer
     expect((await e.state()).shift).toMatchObject({ served: 1, paid: false });
+  });
+
+  it('one digging budget across all floors: past it the child rests, the vein stays (M5)', async () => {
+    const e = env(0);
+    const coal = mineVeins().filter((v) => v.floor === 'mine' && v.ore === 'coal');
+    expect((await e.mine(coal[0]!.id)).body).toMatchObject({ ok: true });
+    // as if the other floors were dug just now, up to the budget
+    e.db.sql.run('insert into play_dig (player_id, world_id, play_ms, value) values (?, ?, ?, ?)', ['kid', 'w', 0, miningBudget() - TUNING.mining.ores.coal!.price]);
+    e.tick(TUNING.play.mine.minIntervalMs);
+    const r = await e.mine(coal[1]!.id);
+    expect(r.body).toMatchObject({ ok: false, reason: 'tired' });
+    expect(r.body.wait_ms).toBeGreaterThan(0);
+    expect((await e.state()).ores).toEqual({ coal: 1 });
   });
 
   it("another child sending my sale's dialog id gets no top-up (M1)", async () => {

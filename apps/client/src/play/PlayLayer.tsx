@@ -246,6 +246,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
     else if (r.reason === 'tool') playToast(PLAY_KO.mine.tool(r.need_tier ?? 2));
     else if (r.reason === 'resting') playToast(PLAY_KO.mine.resting(Math.ceil((r.wait_ms ?? 60000) / 60000)));
     else if (r.reason === 'too_fast') playToast(PLAY_KO.mine.tooFast);
+    else if (r.reason === 'tired') playToast(PLAY_KO.mine.tired(Math.ceil((r.wait_ms ?? 60000) / 60000)));
   };
   // a better tool digs faster (tuning holdMsByTier, keyed by the child's tool tier)
   const holdMs = TUNING.play.mine.holdMsByTier[state?.tool_tier ?? 1] ?? 1400;

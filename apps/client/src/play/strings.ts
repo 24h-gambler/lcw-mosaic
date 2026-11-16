@@ -63,6 +63,7 @@ export const PLAY_KO = {
     tool: (tier: number) => (tier >= 3 ? '드릴이 있어야 캘 수 있어요 · 제작소 레오' : '철 곡괭이가 있어야 캘 수 있어요 · 제작소 레오'),
     resting: (min: number) => `다시 자라는 중이에요 · ${Math.max(1, min)}분 더 놀면 생겨요`,
     tooFast: '천천히 한 번씩 캐요',
+    tired: (min: number) => `팔이 조금 아파요 · ${Math.max(1, min)}분 쉬었다 다시 캐요 (그동안 사무실이나 환전소에 가 봐요)`,
     guest: '연결된 기기에서만 광석을 가방에 담을 수 있어요',
     key: 'F'
   },

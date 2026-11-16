@@ -4,6 +4,8 @@ import {
   JOB_RANKS,
   dailyPay,
   veinRespawnMs,
+  miningBudget,
+  miningBudgetWait,
   TERRAIN_MAX,
   TERRAIN_MIN,
   TUNING,
@@ -176,6 +178,20 @@ describe('play rules (play.ts, docs/03 D2 D4, docs/04 4.2)', () => {
   });
 });
 
+describe('mining budget (one window across all floors)', () => {
+  it('digs freely under the budget, then waits until the oldest swing leaves the window', () => {
+    const W = TUNING.play.mine.budgetWindowPlayMs;
+    const cap = miningBudget();
+    expect(miningBudgetWait([], 0, 90)).toBe(0);
+    const dug = [
+      { playMs: 1000, value: cap - 100 },
+      { playMs: 5000, value: 90 }
+    ];
+    expect(miningBudgetWait(dug, 6000, 10)).toBe(0);
+    expect(miningBudgetWait(dug, 6000, 90)).toBe(1000 + W - 6000);
+  });
+});
+
 describe('mining income (docs/03 D3: 채굴 초반 10분 300 ~ 500)', () => {
   it('floor 1 cleared as often as it grows back in 10 minutes of play pays 300 ~ 500 coins at the exchange', () => {
     const floor1 = mineVeins().filter((v) => v.floor === 'mine');
@@ -197,6 +213,11 @@ describe('mining income (docs/03 D3: 채굴 초반 10분 300 ~ 500)', () => {
     const bestWagePerHour = (Math.max(...JOB_RANKS.map((r) => dailyPay(r))) * 3600 * 1000) / dayMs;
     expect(b3).toBeLessThanOrEqual(bestWagePerHour);
     expect(veinRespawnMs('coal')).toBe(TUNING.play.mine.veinRespawnPlayMs);
+    // all three floors rotated: the shared budget holds the hour at the best wage (review M5)
+    expect(b1 + b2 + b3).toBeGreaterThan(bestWagePerHour);
+    expect((miningBudget() * 3600 * 1000) / TUNING.play.mine.budgetWindowPlayMs).toBeLessThanOrEqual(bestWagePerHour + 1);
+    // floor 1 alone (the D3 early range) never meets the budget
+    expect((b1 * TUNING.play.mine.budgetWindowPlayMs) / (3600 * 1000)).toBeLessThan(miningBudget());
     expect(veinRespawnMs('diamond')).toBeGreaterThan(veinRespawnMs('gold'));
   });
 });

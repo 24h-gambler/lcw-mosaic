@@ -20,14 +20,15 @@ export const SEAT_FAIR_USE_LIMITS = {
  */
 export const SERVER_STT = {
   model: '@cf/openai/whisper-large-v3-turbo',
-  maxSec: 15,
-  /** 15 s of Opus at up to 64 kbps plus container overhead; larger bodies are refused unread. */
-  maxBytes: 160_000,
+  /** One turn is up to 60 s (client mic-controller HARD_TURN_MS; a stage-1 task is ~20 s, 11-16). */
+  maxSec: 61,
+  /** 61 s of Opus at up to 64 kbps plus container overhead; larger bodies are refused unread. */
+  maxBytes: 520_000,
   /** 16 kbps Opus: the length estimate from the size when it is longer than the client says. */
   opusBytesPerSec: 2_000,
   neuronsPerMinute: 46,
   /** Transcripts longer than this are cut (a dialog sentence is far shorter). */
-  maxTranscriptChars: 400
+  maxTranscriptChars: 1000
 } as const;
 
 export function serverSttNeurons(sec: number): number {

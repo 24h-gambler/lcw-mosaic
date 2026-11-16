@@ -274,7 +274,7 @@ const JoinSchema = z.object({ code: z.string().regex(/^\d{6}$/) }).strict();
 const UtteranceSchema = z
   .object({
     target_text: z.string().max(200).default(''),
-    transcript: z.string().min(1).max(400),
+    transcript: z.string().min(1).max(1000),
     chosen_stars: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
     hint_level: z.enum(['full', 'keyword', 'initial', 'picture', 'none']).default('full'),
     latency_ms: z.number().int().min(0).max(600_000).default(0),

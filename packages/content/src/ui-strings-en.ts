@@ -50,6 +50,7 @@ export const UI_STRINGS_EN: UiStrings = {
     micStop: "I'm done",
     micListening: 'Listening…',
     micHangover: 'Done? Tap once more',
+    timeLeft: '{n} s left — finish your sentence',
     processing: 'Checking',
     processingSlow: 'Almost done',
     mySpeech: 'I said',

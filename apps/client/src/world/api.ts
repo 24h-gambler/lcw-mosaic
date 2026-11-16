@@ -32,6 +32,8 @@ export interface WorldStats {
   chunksVisible: number;
   scene: SceneId;
   player: { x: number; y: number; z: number };
+  /** While a dialog pauses the world: the NPC and where its face lands on screen (CSS px). */
+  dialogShot?: { npc: string; face: [number, number] } | null;
   /** current dynamic-resolution scale (1 = tier scale x devicePixelRatio) */
   renderScale?: number;
   /** tier the world runs at */
@@ -105,7 +107,13 @@ export interface WorldHandle {
    * Pixels at the bottom of the canvas covered by a panel (the dialog window, ~70% of a phone screen). While a
    * dialog frames the NPC the shot is centred in the strip above it; 0 = nothing covers the world.
    */
-  setViewInset?(bottomPx: number): void;
+  setViewInset?(bottomPx: number, rightPx?: number): void;
+  /**
+   * Talk lane G02: a transparent square PNG (data URL) of a thing the sentence gets (the mesh `giveItem` puts in hand)
+   * or of an NPC's head and shoulders, drawn with the world's own meshes and cached per (req, size); null when the
+   * key is unknown or drawing fails (the dialog keeps its emoji).
+   */
+  renderPreview?(req: { kind: 'item'; itemKey: string; modifier?: string } | { kind: 'npc'; npcId: string }, sizePx: number): Promise<string | null>;
   /**
    * Who may build on my plot and where it is saved (docs/03 D13, WP-207). Default `local`: a guest builds on this
    * device only. `saved`: the linked child's device token; the server re-judges and keeps every edit. `paused`: the

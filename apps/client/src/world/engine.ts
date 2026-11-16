@@ -22,6 +22,8 @@ import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
 import { PlotSync } from './plot-sync.js';
+import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMirror, toggleThirdPerson, type CamMode } from './dialog-shot.js';
+import { FirstPersonHands } from './viewmodel.js';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
 import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
@@ -31,11 +33,7 @@ export { TIER_SETTINGS };
 const PLAYER_LOOK: NpcLook = { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3fa9f5, pants: 0x2f3b52, shoes: 0xff6b4a, hairStyle: 'short' };
 export const TALK_RANGE = 3.6;
 const CAM_DIST_DEFAULT = 6.2;
-/** Dialog shot: metres above and below the look point that fit the visible strip, and the camera's downward pitch. */
-const DIALOG_SHOT_HALF_HEIGHT = 1.05;
-const DIALOG_SHOT_PITCH = 0.2;
 
-type CamMode = 'third' | 'first' | 'mirror';
 
 interface NpcRt {
   def: NpcDef;
@@ -149,7 +147,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
   // ---- HUD first so the loading card shows while the town is built.
   const input = { fwd: 0, side: 0, run: false, jump: false, stickX: 0, stickZ: 0, stick: false, keys: new Set<string>() };
-  let camMode: CamMode = 'third';
+  // docs/08 7.1 (Dan 11-16 09:20): first person by default, F5 third person, Tab the mirror
+  let camMode: CamMode = DEFAULT_CAM_MODE;
+  let camBeforeMirror: Exclude<CamMode, 'mirror'> = DEFAULT_CAM_MODE;
   let camYaw = 0;
   let camPitch = 0.32;
   let camDist = CAM_DIST_DEFAULT;
@@ -277,6 +277,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   scene.add(VoxelCharacter.shadows.mesh);
   const player = new VoxelCharacter(PLAYER_LOOK);
   scene.add(player.root);
+  const hands = new FirstPersonHands(PLAYER_LOOK);
   // one character per task (each is a few dozen boxes; all of them at once was a 150 ms task on a throttled tablet)
   await yieldToMain();
   let heldItem: THREE.Group | null = null;
@@ -504,11 +505,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (e.code === 'KeyE') tryTalk();
     if (e.code === 'F5') {
       e.preventDefault();
-      camMode = camMode === 'first' ? 'third' : 'first';
+      camMode = toggleThirdPerson(camMode);
     }
     if (e.code === 'Tab' && !paused) {
       e.preventDefault();
-      camMode = camMode === 'mirror' ? 'third' : 'mirror';
+      if (camMode !== 'mirror') camBeforeMirror = camMode;
+      camMode = toggleMirror(camMode, camBeforeMirror);
     }
     if (e.code.startsWith('Digit')) {
       const n = Number(e.code.slice(5)) - 1;
@@ -524,7 +526,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     input.keys.delete(e.code);
   };
   const cycleView = (): void => {
-    camMode = camMode === 'third' ? 'first' : camMode === 'first' ? 'mirror' : 'third';
+    camMode = cycleCamMode(camMode);
+    if (camMode !== 'mirror') camBeforeMirror = camMode;
     sfx.play('ui.click');
   };
   let dragging = false;
@@ -897,8 +900,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     }
     if (disposed) return;
     playerYaw = Math.atan2(n.pos.x - body.x, n.pos.z - body.z);
-    // a little off the shoulder, so the NPC's face is not hidden behind the player
-    camYaw = playerYaw + 0.45;
+    camYaw = playerYaw;
     n.yaw = Math.atan2(body.x - n.pos.x, body.z - n.pos.z);
   }
 
@@ -907,42 +909,26 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const camPos = new THREE.Vector3();
   const camLook = new THREE.Vector3();
   let camInit = false;
+  /** Where the dialog NPC's face lands on screen (CSS px), for the headless framing check. */
+  const dialogShotStats = (): { npc: string; face: [number, number] } | null => {
+    if (!paused || !focusNpc) return null;
+    const v = new THREE.Vector3(focusNpc.pos.x, focusNpc.pos.y + NPC_FACE_Y, focusNpc.pos.z).project(camera);
+    return { npc: focusNpc.def.id, face: [Math.round(((v.x + 1) / 2) * viewW), Math.round(((1 - v.y) / 2) * viewH)] };
+  };
   const updateCamera = (dt: number): void => {
     const headY = body.y + body.stepOffset + 1.45;
     camTarget.set(body.x, headY, body.z);
     let wantPos: THREE.Vector3;
     let wantLook: THREE.Vector3;
     if (paused && focusNpc) {
-      // Dialog framing (docs/08 5장 slow 320 ms): over the player's shoulder onto the NPC's face, far enough that the
-      // NPC from head to waist fits the strip above the dialog window (setViewInset; ~30% of a phone screen). The
-      // side-on two-shot sat behind the panel on phones and showed profiles (outsider capture 2026-11-16).
-      const dx = focusNpc.pos.x - body.x;
-      const dz = focusNpc.pos.z - body.z;
-      const len = Math.hypot(dx, dz) || 1;
-      const ux = dx / len;
-      const uz = dz / len;
-      const lookX = body.x + ux * len * 0.6;
-      const lookZ = body.z + uz * len * 0.6;
-      const visible = Math.min(1, Math.max(0.22, (viewH - viewInset) / Math.max(1, viewH)));
-      const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const dist = Math.min(9, Math.max(3.2, DIALOG_SHOT_HALF_HEIGHT / (tanHalf * visible)));
-      // camera direction from the look point: behind the player, off to the side (the player's head clears the NPC)
-      const hx = -ux * 0.8 - uz * 0.6;
-      const hz = -uz * 0.8 + ux * 0.6;
-      const up = Math.sin(DIALOG_SHOT_PITCH);
-      const flat = Math.cos(DIALOG_SHOT_PITCH);
-      wantLook = new THREE.Vector3(lookX, body.y + 1.35, lookZ);
-      wantPos = new THREE.Vector3(lookX + hx * dist * flat, wantLook.y + dist * up, lookZ + hz * dist * flat);
-      // keep the camera out of walls
-      const ddx = wantPos.x - wantLook.x;
-      const ddy = wantPos.y - wantLook.y;
-      const ddz = wantPos.z - wantLook.z;
-      const dl = Math.hypot(ddx, ddy, ddz);
-      const free = raycastDistance(blockAt, wantLook.x, wantLook.y, wantLook.z, ddx / dl, ddy / dl, ddz / dl, dl);
-      if (free < dl) wantPos.set(wantLook.x + (ddx / dl) * (free - 0.3), wantLook.y + (ddy / dl) * (free - 0.3), wantLook.z + (ddz / dl) * (free - 0.3));
+      // Dialog (dialog-shot.ts): face to face from the player's own eyes, whatever the walking view; the view offset
+      // (setViewInset) puts the face in the middle of the strip the dialog window leaves free.
+      const shot = dialogShot(body, focusNpc.pos, body.stepOffset, (ox, oy, oz, dx, dy, dz, max) => raycastDistance(blockAt, ox, oy, oz, dx, dy, dz, max));
+      wantLook = new THREE.Vector3(shot.look.x, shot.look.y, shot.look.z);
+      wantPos = new THREE.Vector3(shot.pos.x, shot.pos.y, shot.pos.z);
     } else if (camMode === 'first') {
       const f = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw));
-      wantPos = new THREE.Vector3(body.x, body.y + body.stepOffset + 1.55, body.z);
+      wantPos = new THREE.Vector3(body.x, body.y + body.stepOffset + EYE_Y, body.z);
       wantLook = wantPos.clone().add(new THREE.Vector3(f.x * Math.cos(camPitch), -Math.sin(camPitch - 0.3), f.z * Math.cos(camPitch)));
     } else {
       const sign = camMode === 'mirror' ? -1 : 1;
@@ -959,13 +945,17 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       player.setFade(d < 2.2 ? 0.25 + (d - 0.8) * 0.4 : 1);
     }
     const k = camInit ? 1 - Math.exp(-(paused ? 4.5 : 14) * dt) : 1;
-    camPos.lerp(wantPos, k);
+    // first person (and a dialog, which looks from the eyes): the eye moves with the body, only the gaze eases
+    const eyes = camMode === 'first' || (paused && !!focusNpc);
+    camPos.lerp(wantPos, eyes ? 1 : k);
     camLook.lerp(wantLook, k);
     camInit = true;
     camera.position.copy(camPos);
     camera.lookAt(camLook);
     player.setHeadVisible(!(camMode === 'first' && !paused));
     if (camMode !== 'third' || paused) player.setFade(1);
+    // looking out of the player's eyes: the body is not drawn (the first-person hands stand in for it)
+    player.root.visible = !eyes;
   };
   camPos.set(body.x - Math.sin(camYaw) * camDist, body.y + 3, body.z - Math.cos(camYaw) * camDist);
 
@@ -974,11 +964,14 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // layout per frame (the largest main-thread cost in a profile on a fast GPU).
   let viewW = window.innerWidth;
   let viewH = window.innerHeight;
-  // Bottom pixels a panel covers (setViewInset): the projection's centre moves up into the strip above it.
+  // Pixels a panel covers at the bottom and on the right (setViewInset; landscape phones put the dialog on the
+  // right): the projection's centre moves into the part of the screen the panel leaves free.
   let viewInset = 0;
+  let viewInsetRight = 0;
   const applyViewInset = (): void => {
-    const inset = Math.min(viewH * 0.78, Math.max(0, viewInset));
-    if (inset > 0) camera.setViewOffset(viewW, viewH, 0, inset / 2, viewW, viewH);
+    const bottom = Math.min(viewH * 0.78, Math.max(0, viewInset));
+    const right = Math.min(viewW * 0.78, Math.max(0, viewInsetRight));
+    if (bottom > 0 || right > 0) camera.setViewOffset(viewW, viewH, right / 2, bottom / 2, viewW, viewH);
     else camera.clearViewOffset();
   };
   const resize = (): void => {
@@ -1314,6 +1307,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
     renderer.render(scene, camera);
     lastStats = { draw: renderer.info.render.calls, tris: renderer.info.render.triangles };
+    if (camMode === 'first' && !(paused && focusNpc)) {
+      hands.update(dt, body.onGround ? Math.hypot(body.vx, body.vz) : 0, camera.aspect, camera.fov);
+      hands.render(renderer);
+    }
     // Dynamic resolution (docs/08 6.6 목표 프레임): slow frames lower the render scale, fast ones restore it.
     if (governor.frame(dt * 1000)) {
       renderer.setPixelRatio(basePixelRatio * governor.scale);
@@ -1396,6 +1393,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       heldItem = makeItemModel(itemKey);
       heldKey = itemKey;
       player.hand.add(heldItem);
+      hands.setItem(itemKey);
       const hp = new THREE.Vector3();
       player.hand.getWorldPosition(hp);
       effects.sparkle(hp.x, hp.y, hp.z);
@@ -1410,6 +1408,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         player.hand.remove(heldItem);
         heldItem = null;
         heldKey = null;
+        hands.setItem(null);
       }
       return true;
     },
@@ -1432,10 +1431,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     setGoal(goalKo, targetEn) {
       hud.setGoal(goalKo, targetEn);
     },
-    setViewInset(px) {
-      viewInset = Number.isFinite(px) ? px : 0;
+    setViewInset(bottomPx, rightPx = 0) {
+      viewInset = Number.isFinite(bottomPx) ? bottomPx : 0;
+      viewInsetRight = Number.isFinite(rightPx) ? rightPx : 0;
       applyViewInset();
-      hud.setDialogOpen(viewInset > 0);
+      hud.setDialogOpen(viewInset > 0 || viewInsetRight > 0);
     },
     setPaused(p) {
       paused = p;
@@ -1457,6 +1457,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     },
     dispose() {
       disposed = true;
+      hands.dispose();
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', keyDown);
       window.removeEventListener('keyup', keyUp);
@@ -1558,6 +1559,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         ground: { near: chunks.outstanding(body.x, body.z, FIRST_RING), view: chunks.outstanding(body.x, body.z, tier.viewChunks) },
         scene: currentScene,
         player: { x: body.x, y: body.y, z: body.z },
+        dialogShot: dialogShotStats(),
         startup: { ...startup },
         build: {
           active: buildActive,

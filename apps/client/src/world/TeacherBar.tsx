@@ -57,8 +57,16 @@ export const TS = {
   goNear: '학생 옆으로',
   console: '콘솔로',
   ended: '수업이 끝났어요. 콘솔로 돌아가세요',
-  signIn: '콘솔 로그인이 끝났어요. 콘솔에서 다시 들어와 주세요'
+  signIn: '콘솔 로그인이 끝났어요. 콘솔에서 다시 들어와 주세요',
+  replaced: '다른 탭에서 이 수업 월드를 열었어요. 학생은 그 탭의 선생님을 봐요',
+  takeOver: '여기서 다시 들어가기'
 } as const;
+
+/** The room connection as the bar sees it (room-client.ts RoomClient). */
+export interface TeachRoom {
+  readonly status: string;
+  takeOver(): void;
+}
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -66,13 +74,16 @@ export interface TeacherBarProps {
   world: WorldHandle;
   session: TeachSession;
   fetchImpl?: FetchLike;
+  /** The multi room connection: another tab of this teacher taking the seat shows here with a way back. */
+  room?: TeachRoom | null;
   /** Test seam: where "콘솔로" goes. */
   goConsole?: () => void;
 }
 
-export function TeacherBar({ world, session, fetchImpl, goConsole }: TeacherBarProps): React.ReactElement {
+export function TeacherBar({ world, session, room, fetchImpl, goConsole }: TeacherBarProps): React.ReactElement {
   const [peers, setPeers] = useState(0);
   const [state, setState] = useState<'live' | 'ended' | 'signin'>('live');
+  const [replaced, setReplaced] = useState(room?.status === 'replaced');
   const autoWent = useRef(false);
 
   // Presence beat while the teacher is in the world (the console's tab is this one now).
@@ -116,13 +127,14 @@ export function TeacherBar({ world, session, fetchImpl, goConsole }: TeacherBarP
     const id = setInterval(() => {
       const n = world.getStats?.().peers ?? 0;
       setPeers(n);
+      setReplaced(room?.status === 'replaced');
       if (n > 0 && !autoWent.current) {
         autoWent.current = true;
         void world.goNearPeer?.('student');
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [world]);
+  }, [world, room]);
 
   const back = goConsole ?? (() => location.assign('/director'));
   const btn: React.CSSProperties = {
@@ -137,7 +149,14 @@ export function TeacherBar({ world, session, fetchImpl, goConsole }: TeacherBarP
     minHeight: 40,
     cursor: 'pointer'
   };
-  const text = state === 'ended' ? TS.ended : state === 'signin' ? TS.signIn : `${TS.title} · ${TS.students(peers)}`;
+  const text =
+    state === 'ended'
+      ? TS.ended
+      : state === 'signin'
+        ? TS.signIn
+        : replaced
+          ? TS.replaced
+          : `${TS.title} · ${TS.students(peers)}`;
   return (
     <div
       className="lcw-teachbar"
@@ -161,7 +180,19 @@ export function TeacherBar({ world, session, fetchImpl, goConsole }: TeacherBarP
       }}
     >
       <span>{text}</span>
-      {state === 'live' ? (
+      {state === 'live' && replaced ? (
+        <button
+          type="button"
+          style={btn}
+          onClick={() => {
+            room?.takeOver();
+            setReplaced(false);
+          }}
+        >
+          {TS.takeOver}
+        </button>
+      ) : null}
+      {state === 'live' && !replaced ? (
         <button type="button" style={btn} disabled={peers === 0} onClick={() => void world.goNearPeer?.('student')}>
           {TS.goNear}
         </button>

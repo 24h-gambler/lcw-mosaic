@@ -517,6 +517,7 @@ export function App(): React.ReactElement {
   // token is read on every (re)connect, so a lesson joined after the world opened is picked up by the next retry.
   const identityRef = useRef(identity);
   identityRef.current = identity;
+  const [roomClient, setRoomClient] = useState<RoomClient | null>(null);
   useEffect(() => {
     if (!world?.multi || !world.multiPose) return;
     const sink = world.multi;
@@ -535,7 +536,20 @@ export function App(): React.ReactElement {
     });
     room.start();
     (window as unknown as { __lcwRoom?: RoomClient }).__lcwRoom = room;
-    return () => room.stop();
+    setRoomClient(room);
+    // The same person in two tabs holds one seat (the newer tab wins, close 4009): coming back to this tab takes
+    // the seat back here, so the tab being looked at is the one in the room.
+    const back = (): void => {
+      if (document.visibilityState === 'visible') room.takeOver();
+    };
+    window.addEventListener('focus', back);
+    document.addEventListener('visibilitychange', back);
+    return () => {
+      window.removeEventListener('focus', back);
+      document.removeEventListener('visibilitychange', back);
+      setRoomClient(null);
+      room.stop();
+    };
   }, [world, identity?.kind, teach]);
 
   // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
@@ -648,7 +662,7 @@ export function App(): React.ReactElement {
           {/* the title screen holds the whole screen: the menu button and keys step aside like for a dialog */}
           <FrameLayer world={world} identity={identity} lessonOn={lessonOn} dialogOpen={dialogNpc !== null || startOpen} />
           {/* The title is the whole screen: no lesson-layer button over it (a ?code= address never opens the title). */}
-          {world && teach ? <TeacherBar world={world} session={teach} /> : null}
+          {world && teach ? <TeacherBar world={world} session={teach} room={roomClient} /> : null}
           {Lesson && !startOpen && !teach ? (
             <Lesson
               key={lessonKey}

@@ -35,6 +35,7 @@ const WORLD_STRINGS_KO = {
   loading: '마을을 짓는 중…',
   /** multi room at capacity (docs/03 D11, server room.ts 4003) */
   roomFull: '방이 가득 찼어요. 조금 뒤에 다시 들어가 볼게요',
+  roomReplaced: '다른 창에서 월드를 열었어요. 이 창으로 돌아오면 다시 같이 놀아요',
   loadingHint: '잠깐만요, 블록을 하나씩 쌓고 있어요',
   talk: '말 걸기',
   talkKey: 'E',
@@ -115,6 +116,7 @@ const WORLD_STRINGS_KO = {
 const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   loading: 'Building your town…',
   roomFull: 'The room is full. We will try again soon',
+  roomReplaced: 'The world is open in another window. Come back here to play together again',
   loadingHint: 'Just a moment, stacking the blocks one by one',
   talk: 'Talk',
   talkKey: 'E',

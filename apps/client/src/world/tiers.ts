@@ -120,7 +120,7 @@ export function graphicsFor(
   const t = TIER_SETTINGS[tier];
   const viewChunks = g.viewChunks === null || !Number.isFinite(g.viewChunks) ? t.viewChunks : Math.max(3, Math.min(8, Math.round(g.viewChunks)));
   const renderScale = g.renderScale === null || !Number.isFinite(g.renderScale) ? t.pixelScale : Math.max(0.5, Math.min(1, g.renderScale));
-  // shadows need the lit block material, which only a world started on high has
+  // shadows need the lit block material; the engine swaps it in on a tier change (canShadow false = a caller without it)
   const shadows = canShadow && (g.shadows ?? t.shadows);
   return { viewChunks, shadows, renderScale, minScale: Math.min(t.minScale, renderScale), targetFps: t.targetFps, clouds: t.clouds };
 }

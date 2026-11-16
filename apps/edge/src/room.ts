@@ -15,6 +15,7 @@
  */
 import { Hono } from 'hono';
 import { ROOM_CLOSE, ROOM_ID_RE, RoomCore, TUNING, cleanRoomName, type RoomPose, type RoomRole } from '@lcw/sim-core';
+import { OP_SESSION_HEADER } from './operator-login.js';
 
 // ---- minimal workerd types (the repo does not pull @cloudflare/workers-types)
 
@@ -272,9 +273,17 @@ export async function roomSeatFor(d: RoomTicketDeps, req: Request, body: { room?
     const room = typeof body.room === 'string' ? body.room : '';
     if (!ROOM_ID_RE.test(room)) return null;
     const name = cleanRoomName(body.name ?? '선생님');
-    // Load bots in smoke- rooms each bring their own key; the teacher is one person everywhere.
+    // Load bots in smoke- rooms each bring their own key. A teacher is one seat per sign-in session (the session id the
+    // platform sets after checking the lcwop_ token; a client's own header is stripped first): the same teacher's second
+    // tab takes the seat over, two teachers signed in separately are two people. The ops key alone is one 'operator'.
     const smoke = room.startsWith('smoke-');
-    const key = smoke && typeof body.key === 'string' && body.key.length <= 64 ? `op:${body.key}` : 'operator';
+    const session = req.headers.get(OP_SESSION_HEADER);
+    const key =
+      smoke && typeof body.key === 'string' && body.key.length <= 64
+        ? `op:${body.key}`
+        : session && /^[A-Za-z0-9_-]{1,64}$/.test(session)
+          ? `op:s:${session}`
+          : 'operator';
     return { room, key, name, role: smoke ? 'bot' : 'teacher' };
   }
   return null;

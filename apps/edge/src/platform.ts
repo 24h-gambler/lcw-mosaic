@@ -848,9 +848,8 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       const g = await passVisitor(c.req.raw);
       if (!g) return next();
       const body = await readBody(c);
+      // ended, revoked, or the host's seat stopped (guestPassFromRequest folds the seat in): the friend sees /guest-end
       if (!g.active) return c.json({ error: 'pass_ended' }, 410);
-      // the host's seat must still run (a pass on a stopped seat ends; the friend sees /guest-end)
-      if (!playAllowed(platform.sql, g.player_id, Date.now()).allowed) return c.json({ error: 'seat_inactive' }, 410);
       if (!body) return c.json({ error: 'invalid_plot_ops' }, 400);
       return forwardSolo(c.req.url, { player_id: g.player_id, session_id: `pass-${g.grant_id}` }, { ops: body.ops, batch: body.batch }, (p) => ({
         player_id: p.player_id,

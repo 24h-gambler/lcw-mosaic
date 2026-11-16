@@ -55,6 +55,8 @@ export function GuestPassLayer(props: {
    * look (season, sky, animal friend) when the host made one.
    */
   onActive?: (token: string | null, look: WorldSetupChoice | null) => void;
+  /** false while a lesson runs: the walk to the host's plot waits for the teacher's time to end (skipped) */
+  canWalk?: () => boolean;
 }): React.ReactElement | null {
   const { code, world } = props;
   // Held in refs: a caller passing a fresh arrow each render must not re-run the entry (each redeem spends a lookup).
@@ -63,6 +65,8 @@ export function GuestPassLayer(props: {
   onEndRef.current = props.onEnd;
   const onActiveRef = useRef(props.onActive);
   onActiveRef.current = props.onActive;
+  const canWalkRef = useRef(props.canWalk);
+  canWalkRef.current = props.canWalk;
   const [view, setView] = useState<View>(code ? { kind: 'entering' } : { kind: 'refused', why: 'not_found' });
   const [tries, setTries] = useState(0);
   const ended = useRef(false);
@@ -130,7 +134,7 @@ export function GuestPassLayer(props: {
     void passHostWorld(token, fetchRef.current).then((look) => {
       if (!alive) return;
       if (look) onActiveRef.current?.(token, look);
-      void world?.goToScene?.('build_plot');
+      if (canWalkRef.current?.() ?? true) void world?.goToScene?.('build_plot');
     });
     return () => {
       alive = false;

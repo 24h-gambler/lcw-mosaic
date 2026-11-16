@@ -66,7 +66,9 @@ export const WORLD_TABLES = [
   'plot_cells',
   'plot_furniture',
   'plot_inv',
-  'plot_journal'
+  'plot_journal',
+  // cells a friend on a guest pass placed in this plot (docs/19 §8)
+  'plot_guest_cells'
 ] as const;
 
 /**

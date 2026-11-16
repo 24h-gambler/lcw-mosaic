@@ -378,6 +378,15 @@ describe("a friend on a guest pass plays in the host's world (docs/19 §8)", () 
     const after = (await call(p, 'GET', '/v1/plot', undefined, dev)).body;
     expect(after.cells.some((c: number[]) => c[0] === X + 3 && c[2] === Z)).toBe(true);
     expect(after.cells.some((c: number[]) => c[0] === X && c[1] === 1 && c[2] === Z)).toBe(true);
+    // the slots stay the host's on the server too
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'store', slot: 0, n: 1 }, { op: 'swap', a: 0, b: 1 }] }, h)).body.results).toEqual([
+      { ok: false, reason: 'not_yours' },
+      { ok: false, reason: 'not_yours' }
+    ]);
+    // a query cannot pick another child's plot or another grant's cells: the gate overwrites them
+    const forgedRead = await call(p, 'GET', '/v1/plot?player_id=kid-other&world_id=home-kid-other&guest_grant=zzz', undefined, h);
+    expect(forgedRead.body.cells.some((c: number[]) => c[0] === X && c[1] === 1 && c[2] === Z)).toBe(true);
+    expect(forgedRead.body.guest_cells).toEqual([[X + 3, 1, Z]]);
     // a body cannot pose as another child or grant: the server fills them
     const forged = await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'break', x: X, y: 1, z: Z }], player_id: 'kid-other', guest_grant: 'x' }, h);
     expect(forged.body.results).toEqual([{ ok: false, reason: 'not_yours' }]);
@@ -413,5 +422,36 @@ describe("a friend on a guest pass plays in the host's world (docs/19 §8)", () 
     // the host's seat is refunded: no more building on the pass
     expect((await call(p, 'POST', `/v1/admin/seats/${sid}/refund`, {}, op)).status).toBe(200);
     expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 2, y: 1, z: Z, slot: 0 }] }, h)).status).toBe(410);
+    // one answer everywhere: the status says ended (the client goes to /guest-end), reads stop too
+    expect((await call(p, 'GET', '/v1/guest-pass/status', undefined, h)).body).toMatchObject({ state: 'ended', remaining_ms: 0 });
+    expect((await call(p, 'GET', '/v1/plot', undefined, h)).status).toBe(410);
+    expect((await call(p, 'GET', '/v1/my-world', undefined, h)).status).toBe(401);
+  });
+
+  it("each home world keeps its own friends' cells, and a friend builds at their own pace, never the host's", async () => {
+    const p = platform();
+    const a = await guardianWithSeat(p, 'kid-a', 'fam-a');
+    const b = await guardianWithSeat(p, 'kid-b', 'fam-b');
+    const enter = async (sid: string, g: Record<string, string>, device: string) => {
+      const code = (await call(p, 'POST', `/v1/family/seats/${sid}/guest-passes`, {}, g)).body.pass.code;
+      return { ...anon, [GUEST_PASS_HEADER]: (await call(p, 'POST', '/v1/guest-pass/redeem', { code, device })).body.token };
+    };
+    const ha = await enter(a.sid, a.g, DEV_A);
+    const hb = await enter(b.sid, b.g, DEV_B);
+    const place = { ops: [{ op: 'place', x: X + 1, y: 1, z: Z, slot: 0 }] };
+    expect((await call(p, 'POST', '/v1/plot/ops', place, ha)).body.results).toEqual([{ ok: true }]);
+    // host b builds on the same spot in b's own world: a's friend keeps their cell in a's world
+    const code6 = (await call(p, 'POST', '/v1/family/children/kid-b/device-code', {}, b.g)).body.code;
+    const devB = bearer((await call(p, 'POST', '/v1/device/link', { code: code6, label: 'tab' })).body.device_token);
+    expect((await call(p, 'POST', '/v1/plot/ops', place, devB)).body.results).toEqual([{ ok: true }]);
+    expect((await call(p, 'GET', '/v1/plot', undefined, ha)).body.guest_cells).toEqual([[X + 1, 1, Z]]);
+    expect((await call(p, 'GET', '/v1/plot', undefined, hb)).body.guest_cells).toEqual([]);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'break', x: X + 1, y: 1, z: Z }] }, ha)).body.results).toEqual([{ ok: true }]);
+    // b's friend spends their own pace: host b still builds after the friend ran out
+    const many = { ops: Array.from({ length: 40 }, (_, i) => ({ op: 'place', x: X + 1 + (i % 2), y: 2 + Math.floor(i / 2), z: Z + 1, slot: 0 })) };
+    const burst = await call(p, 'POST', '/v1/plot/ops', many, hb);
+    expect(burst.body.processed).toBeLessThan(40);
+    expect((await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: X + 2, y: 1, z: Z + 2, slot: 0 }] }, devB)).body.results).toEqual([{ ok: true }]);
   });
 });
+

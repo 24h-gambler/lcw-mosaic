@@ -230,7 +230,8 @@ const BUILD_REASONS_KO_SRC: Readonly<Record<string, string>> = {
   self: '내가 서 있는 자리예요',
   paused: '지금은 혼자 놀기가 쉬는 중이에요',
   loading: '내 부지를 불러오는 중이에요',
-  not_yours: '친구 땅이에요 · 내가 놓은 것만 부술 수 있어요'
+  not_yours: '친구 땅이에요 · 내가 놓은 것만 부술 수 있어요',
+  pass_over: '친구 집 놀러 가기가 끝났어요'
 };
 const BUILD_REASONS_KO_EN: Readonly<Record<string, string>> = {
   not_my_plot: 'You can build only on your plot',
@@ -251,7 +252,8 @@ const BUILD_REASONS_KO_EN: Readonly<Record<string, string>> = {
   self: "You're standing there",
   paused: 'Free play is resting for now',
   loading: 'Loading your plot',
-  not_yours: "It's your friend's land · You can break only what you placed"
+  not_yours: "It's your friend's land · You can break only what you placed",
+  pass_over: 'Your visit is over'
 };
 export const BUILD_REASONS_KO = biTable(BUILD_REASONS_KO_EN, BUILD_REASONS_KO_SRC);
 

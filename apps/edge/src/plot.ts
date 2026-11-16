@@ -73,6 +73,8 @@ export class PlotStore {
   private state: PlotState;
   private rev = 0;
   private readonly bucket: EditBucket;
+  /** each guest pass builds at its own pace, so a friend never spends the host's (docs/19 §8) */
+  private readonly guestBuckets = new Map<string, EditBucket>();
 
   constructor(
     private readonly sql: SqliteExecutor,
@@ -171,7 +173,8 @@ export class PlotStore {
           continue;
         }
       }
-      if ((op.op === 'place' || op.op === 'break') && !this.bucket.take(nowMs)) break;
+      const pace = guest ? this.guestBucket(guest, nowMs) : this.bucket;
+      if ((op.op === 'place' || op.op === 'break') && !pace.take(nowMs)) break;
       const r = applyPlotOp(this.state, this.playerId, op);
       results.push(r.ok ? { ok: true } : { ok: false, reason: r.reason });
       if (r.ok && (op.op === 'place' || op.op === 'break')) {
@@ -273,6 +276,17 @@ export class PlotStore {
     return this.sql
       .all<{ x: number; y: number; z: number }>('select x, y, z from plot_guest_cells where grant_id = ? order by y, z, x', [grant])
       .map((r) => [Number(r.x), Number(r.y), Number(r.z)]);
+  }
+
+  private guestBucket(grant: string, nowMs: number): EditBucket {
+    let b = this.guestBuckets.get(grant);
+    if (!b) {
+      // a few passes a month per seat: keep only the latest handful
+      if (this.guestBuckets.size >= 8) this.guestBuckets.delete(this.guestBuckets.keys().next().value!);
+      b = new EditBucket(nowMs);
+      this.guestBuckets.set(grant, b);
+    }
+    return b;
   }
 
   private guestCell(grant: string, x: number, y: number, z: number): boolean {

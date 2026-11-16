@@ -408,6 +408,8 @@ export function App(): React.ReactElement {
   const teach = useMemo(() => teachFrom(location.search, browserStore()), []);
   /** The running pass session's token: the plot shown and built on is the host's while it is set. */
   const [passToken, setPassToken] = useState<string | null>(null);
+  /** The host's world look while the pass runs; my own look comes back when it ends. */
+  const [passLook, setPassLook] = useState<WorldSetupChoice | null>(null);
   const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
@@ -431,12 +433,12 @@ export function App(): React.ReactElement {
   const lastLook = useRef<{ world: WorldHandle | null; key: string }>({ world: null, key: '' });
   useEffect(() => {
     if (!world || startOpen) return;
-    const look = lessonOn ? null : myLook;
+    const look = lessonOn ? null : (passLook ?? myLook);
     const key = JSON.stringify(look);
     if (lastLook.current.world === world && lastLook.current.key === key) return;
     lastLook.current = { world, key };
     world.setWorldLook?.(look);
-  }, [world, startOpen, lessonOn, myLook]);
+  }, [world, startOpen, lessonOn, myLook, passLook]);
 
   const onLessonSession = useCallback((s: DeviceLessonSession) => {
     // the title closes either way; already in this lesson (a poll answered twice): keep the running layer
@@ -662,9 +664,11 @@ export function App(): React.ReactElement {
           {passCode !== null && !codeFromSearch(location.search) ? <GuestPassLayer
               code={passCode}
               world={world}
+              canWalk={() => !lessonActive.current}
               onActive={(token, look) => {
                 setPassToken(token);
-                if (look) setMyLook(look);
+                if (!token) setPassLook(null);
+                else if (look) setPassLook(look);
               }}
             /> : null}
           {startOpen ? (

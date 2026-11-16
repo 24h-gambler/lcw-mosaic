@@ -152,6 +152,13 @@ describe('PlotBuilder: aim, one input one block, undo (WP-201)', () => {
     expect(b.swap(0, 1, 0)).toEqual({ ok: false, reason: 'not_yours' });
     expect(sent.map((o: any) => o.op)).toEqual(['break', 'place', 'break']);
     expect(BUILD_REASONS_KO.not_yours).toBeTruthy();
+    // the pass ended (410): look only, and the reason is the visit's end, not the host seat's rest
+    b.access = 'paused';
+    expect(b.place({ x: X + 3, y: 1, z: Z }, 0, 0)).toEqual({ ok: false, reason: 'pass_over' });
+    expect(b.aim({ x: X + 1, y: 1, z: Z, nx: 0, ny: 1, nz: 0 }, me, 0).placeReason).toBe('pass_over');
+    expect(BUILD_REASONS_KO.pass_over).toBeTruthy();
+    b.guestCells = null;
+    expect(b.place({ x: X + 3, y: 1, z: Z }, 0, 0)).toEqual({ ok: false, reason: 'paused' });
   });
 
   it('a server snapshot puts the plot back exactly (town + saved delta), furniture and bag included', () => {

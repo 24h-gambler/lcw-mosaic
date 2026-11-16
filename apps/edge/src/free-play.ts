@@ -44,7 +44,7 @@ import {
 } from '@lcw/schemas';
 import { gradeTryOrder } from '@lcw/content';
 import { runInTransaction, type SqliteExecutor } from './storage.js';
-import { seatState } from './seats.js';
+import { playAllowed, seatState } from './seats.js';
 import { ensureQuotaSchema } from './quota.js';
 
 const MIN = 60_000;
@@ -201,7 +201,10 @@ export async function guestPassFromRequest(
     [th]
   );
   if (!g || g.ends_at === null) return null;
-  return { grant_id: g.id, seat_id: g.seat_id, player_id: g.player_id, world_id: `home-${g.player_id}`, active: grantState(g, now) === 'active', ends_at: g.ends_at };
+  // The host's seat must still run: a refunded or lapsed seat ends a running pass for every route at once (status
+  // answers 'ended', the plot and the world look answer 410), so the friend reaches /guest-end, not a dead plot.
+  const active = grantState(g, now) === 'active' && playAllowed(d.sql, g.player_id, now).allowed;
+  return { grant_id: g.id, seat_id: g.seat_id, player_id: g.player_id, world_id: `home-${g.player_id}`, active, ends_at: g.ends_at };
 }
 
 export interface GuardianRefLike {
@@ -536,7 +539,7 @@ export function buildFreePlayApp(d: FreePlayDeps): Hono {
       world_id: g.world_id,
       started_at: row.started_at ?? now,
       ends_at: g.ends_at,
-      remaining_ms: Math.max(0, g.ends_at - now),
+      remaining_ms: g.active ? Math.max(0, g.ends_at - now) : 0,
       server_now: now
     };
     return c.json(body);

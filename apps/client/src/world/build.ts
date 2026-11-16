@@ -47,7 +47,7 @@ export interface PlotSnapshotLike {
 }
 
 /** Client-only refusals on top of the shared rules. */
-export type BuildReason = PlotEditReason | 'far' | 'self' | 'paused' | 'loading';
+export type BuildReason = PlotEditReason | 'far' | 'self' | 'paused' | 'loading' | 'pass_over';
 
 export type BuildAccessKind = 'local' | 'saved' | 'paused' | 'loading';
 
@@ -144,7 +144,7 @@ export class PlotBuilder {
     const place = { x: hit.x + hit.nx, y: hit.y + hit.ny, z: hit.z + hit.nz };
     const eye = { x: player.x, y: player.y + 1.5, z: player.z };
     const far = (c: { x: number; y: number; z: number }): boolean => Math.hypot(c.x + 0.5 - eye.x, c.y + 0.5 - eye.y, c.z + 0.5 - eye.z) > BUILD_REACH_M + 0.5;
-    const paused = this.access === 'paused' ? 'paused' : this.access === 'loading' ? 'loading' : null;
+    const paused = this.access === 'paused' ? this.pausedReason() : this.access === 'loading' ? 'loading' : null;
     let placeReason: BuildReason | null = paused ?? (far(place) ? 'far' : plotCellRule(this.world, place.x, place.y, place.z));
     if (!placeReason) {
       const s = this.state.inv.slots[slot];
@@ -179,6 +179,11 @@ export class PlotBuilder {
    */
   guestCells: Set<string> | null = null;
 
+  /** a friend whose pass ended sees that, not the host seat's 'free play is resting' */
+  private pausedReason(): BuildReason {
+    return this.guestCells ? 'pass_over' : 'paused';
+  }
+
   private notYours(op: PlotOp): boolean {
     if (!this.guestCells) return false;
     if (op.op === 'place') return false;
@@ -187,7 +192,8 @@ export class PlotBuilder {
 
   /** Run one op locally (rules, pace), record undo, queue it for the server. */
   private run(op: PlotOp, nowMs: number, record: boolean): { ok: boolean; reason?: BuildReason } {
-    if (this.access === 'paused' || this.access === 'loading') return { ok: false, reason: this.access };
+    if (this.access === 'paused') return { ok: false, reason: this.pausedReason() };
+    if (this.access === 'loading') return { ok: false, reason: 'loading' };
     if (this.notYours(op)) return { ok: false, reason: 'not_yours' };
     if ((op.op === 'place' || op.op === 'break') && !this.bucket.take(nowMs)) return { ok: false, reason: 'rate' };
     const r = applyPlotOp(this.state, 'me', op);

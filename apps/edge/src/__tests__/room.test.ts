@@ -128,8 +128,8 @@ afterEach(() => {
 });
 
 // Node's Response refuses status 101; the room only needs the socket to be accepted.
-async function connect(room: WorldRoomDO, key: string, name = key) {
-  const headers = new Headers({ upgrade: 'websocket', [ROOM_HEADERS.key]: key, [ROOM_HEADERS.name]: encodeURIComponent(name), [ROOM_HEADERS.role]: 'bot' });
+async function connect(room: WorldRoomDO, key: string, name = key, proto = '2') {
+  const headers = new Headers({ upgrade: 'websocket', [ROOM_HEADERS.key]: key, [ROOM_HEADERS.name]: encodeURIComponent(name), [ROOM_HEADERS.role]: 'bot', [ROOM_HEADERS.proto]: proto });
   await room.fetch(new Request('https://room/r', { headers })).catch(() => undefined);
   return lastServer!;
 }
@@ -142,6 +142,7 @@ describe('WorldRoomDO (WebSocket relay, capacity)', () => {
     for (let i = 0; i < 8; i++) socks.push(await connect(room, `b${i}`));
     expect(socks[0]!.frames()[0]).toMatchObject({ t: 'hello', cap: 8, peers: [] });
     expect(socks[7]!.frames()[0].peers).toHaveLength(7);
+    expect(socks[7]!.frames()[0].peers[0][8]).toBe(2); // each entry says which protocol that person's page speaks
     const ninth = await connect(room, 'b8');
     expect(ninth.frames()).toEqual([{ t: 'full', cap: 8 }]);
     expect(ninth.closed).toEqual({ code: ROOM_CLOSE.full, reason: 'room_full' });
@@ -219,6 +220,10 @@ describe('routeRoomConnect (Worker)', () => {
     expect(seen.name).toBe('lesson-1');
     expect(seen.headers!.get(ROOM_HEADERS.role)).toBe('student');
     expect(seen.headers!.get(ROOM_HEADERS.key)).toBe('kid-1');
+    // a page from before the pose budget asks for no protocol: the room keeps the old steady rate for it
+    expect(seen.headers!.get(ROOM_HEADERS.proto)).toBe('1');
+    await routeRoomConnect(new Request('https://lcw/v1/room/connect?t=abc&v=2', { headers: { upgrade: 'websocket', [ROOM_HEADERS.proto]: '7' } }), platformStub, rooms);
+    expect(seen.headers!.get(ROOM_HEADERS.proto)).toBe('2');
     const bad = await routeRoomConnect(req, { fetch: async () => new Response('{}', { status: 403 }) }, rooms);
     expect(bad.status).toBe(403);
     expect((await routeRoomConnect(new Request('https://lcw/v1/room/connect'), platformStub, rooms)).status).toBe(426);

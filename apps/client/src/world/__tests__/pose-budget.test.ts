@@ -162,7 +162,7 @@ async function run(kind: 'wander' | 'circle' | 'straight', seconds: number, sche
           }
         });
         setTimeout(() => {
-          s.onmessage?.({ data: JSON.stringify({ t: 'hello', you: 'me', cap: 8, peers: [['o', 'Mina', 'player', otherAt, 1, 0, 0, 0]] }) });
+          s.onmessage?.({ data: JSON.stringify({ t: 'hello', you: 'me', cap: 8, peers: [['o', 'Mina', 'player', otherAt, 1, 0, 0, 0, 2, 0, 0, 0, 0]] }) });
         }, 0);
         return s;
       },
@@ -257,14 +257,18 @@ describe('pose budget (docs/02 §11.3): fewer requests, no worse smoothness', ()
       // and it does not slide or jump more than before (a late sharp turn glides at most ~6 m/s on top of walking)
       expect(n.slideP99).toBeLessThanOrEqual(o.slideP99 * 1.05);
       expect(n.slideMax).toBeLessThanOrEqual(12);
+      // the worst moment (a sudden reversal seen a round trip late) stays well under the 8 m snap
+      expect(n.max).toBeLessThanOrEqual(3.5);
     }
     for (const seed of [11, 23, 37, 51]) {
       const n = rows[`wander new, seed ${seed}`]!;
       expect(n.msgsPerS * 8 * 7200).toBeLessThan(100_000);
       expect(n.p95).toBeLessThanOrEqual(rows['wander old']!.p95);
       expect(n.slideMax).toBeLessThanOrEqual(12);
+      expect(n.max).toBeLessThanOrEqual(3.5);
     }
-    expect(rows['circle new']!.msgsPerS).toBeLessThanOrEqual(TUNING.multi.poseBudgetHz + 0.05);
+    // a steady turn is predicted (position and facing): well under the budget, not pressed against it
+    expect(rows['circle new']!.msgsPerS).toBeLessThanOrEqual(TUNING.multi.poseBudgetHz / 2);
     expect(rows['wander new, nobody near']!.msgsPerS).toBeLessThan(rows['wander new']!.msgsPerS);
   }, 120_000);
 });

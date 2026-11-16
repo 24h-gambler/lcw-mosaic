@@ -14,8 +14,10 @@
  *                   {"t":"e","e":"wave"}                    emote from TUNING.multi.emotes
  *                   {"t":"ping","c":<client ms>}            round trip through the room (load bots, latency read-out)
  *                   "ping"                                  keep-alive, answered "pong" by the platform without waking the room
- *   room → client   {"t":"hello","you":id,"cap":8,"peers":[[id,name,role,x,y,z,yaw,anim],...]}
- *                   {"t":"join","id","name","role"} / {"t":"leave","id"}
+ *   room → client   {"t":"hello","you":id,"cap":8,"peers":[[id,name,role,x,y,z,yaw,anim,proto,vx,vz,w,ageMs],...]}
+ *                   {"t":"join","id","name","role","v":proto} / {"t":"leave","id"}
+ *                   proto 2 = draws others from velocity + turn rate (connect URL `&v=2`); a sender keeps the old
+ *                   steady 5 Hz while anyone with proto 1 (a page loaded before the change) is in the room
  *                   {"t":"poses","p":[[id,x,y,z,yaw,anim,seq,vx,vz,w],...]}  every changed pose, batched per broadcastMs
  *                   {"t":"e","id","e"} / {"t":"pong","c"}
  *                   {"t":"full","cap"} then close 4003     the room is at capacity ("방이 가득 찼어요")
@@ -61,6 +63,10 @@ export interface RoomMember {
   name: string;
   role: RoomRole;
   pose: RoomPose;
+  /** 1 = an older page that only eases toward the last pose; 2 = predicts from velocity + turn rate */
+  proto: number;
+  /** when the pose was last set (ms, server clock): a newcomer gets its age to carry it along */
+  poseAt: number;
   lastMsgAt: number;
   winStart: number;
   winCount: number;
@@ -141,7 +147,7 @@ export class RoomCore {
    * the room refuses once it holds `capacity` people.
    */
   join(
-    p: { id: string; key: string; name: string; role: RoomRole; pose?: RoomPose },
+    p: { id: string; key: string; name: string; role: RoomRole; pose?: RoomPose; proto?: number },
     now: number
   ): { ok: true; hello: string; joinFrame: string; replaces: string | null } | { ok: false; frame: string } {
     const old = this.memberByKey(p.key);
@@ -156,6 +162,8 @@ export class RoomCore {
       name: cleanRoomName(p.name),
       role: p.role,
       pose: p.pose ?? old?.pose ?? [...ZERO_POSE],
+      proto: p.proto === 2 ? 2 : 1,
+      poseAt: p.pose || !old ? now : old.poseAt,
       lastMsgAt: now,
       winStart: now,
       winCount: 0,
@@ -164,18 +172,19 @@ export class RoomCore {
     };
     this.members.set(m.id, m);
     this.counters.joins++;
-    const peers = [...this.members.values()].filter((o) => o.id !== m.id).map((o) => [o.id, o.name, o.role, ...o.pose.slice(0, 5)]);
+    const peers = [...this.members.values()].filter((o) => o.id !== m.id).map((o) => [o.id, o.name, o.role, ...o.pose.slice(0, 5), o.proto, o.pose[6], o.pose[7], o.pose[8], Math.min(Math.max(0, now - o.poseAt), 60_000)]);
     return {
       ok: true,
       hello: JSON.stringify({ t: 'hello', you: m.id, cap: this.capacity, peers }),
-      joinFrame: JSON.stringify({ t: 'join', id: m.id, name: m.name, role: m.role }),
+      joinFrame: JSON.stringify({ t: 'join', id: m.id, name: m.name, role: m.role, v: m.proto }),
       replaces: old?.id ?? null
     };
   }
 
   /** Puts a member back after the Durable Object woke from hibernation (from the socket's attachment). */
-  restore(m: { id: string; key: string; name: string; role: RoomRole; pose: RoomPose }, now: number): void {
-    this.members.set(m.id, { ...m, lastMsgAt: now, winStart: now, winCount: 0, invalid: 0, dirty: false });
+  restore(m: { id: string; key: string; name: string; role: RoomRole; pose: RoomPose; proto?: number; at?: number }, now: number): void {
+    const { at, ...rest } = m;
+    this.members.set(m.id, { ...rest, proto: m.proto === 2 ? 2 : 1, poseAt: typeof at === 'number' && at <= now ? at : now, lastMsgAt: now, winStart: now, winCount: 0, invalid: 0, dirty: false });
   }
 
   leave(id: string): string | null {
@@ -207,6 +216,7 @@ export class RoomCore {
       const pose = parseRoomPose(msg.p, this.t.coordLimit);
       if (!pose) return this.bad(m);
       m.pose = pose;
+      m.poseAt = now;
       m.dirty = true;
       return { kind: 'dirty' };
     }

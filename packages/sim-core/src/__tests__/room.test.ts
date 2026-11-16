@@ -38,8 +38,27 @@ describe('multi room core (docs/03 D11 capacity, docs/02 §11)', () => {
     if (!r.ok) return;
     const hello = JSON.parse(r.hello);
     expect(hello).toMatchObject({ t: 'hello', you: 'id1', cap: 8 });
-    expect(hello.peers).toEqual([['id0', 'p0', 'bot', 1.23, 2, 3, 0.5, 1]]);
-    expect(JSON.parse(r.joinFrame)).toEqual({ t: 'join', id: 'id1', name: 'p1', role: 'bot' });
+    // [id, name, role, x, y, z, yaw, anim, protocol, vx, vz, turn rate, pose age ms]
+    expect(hello.peers).toEqual([['id0', 'p0', 'bot', 1.23, 2, 3, 0.5, 1, 1, 0, 0, 0, 0]]);
+    expect(JSON.parse(r.joinFrame)).toEqual({ t: 'join', id: 'id1', name: 'p1', role: 'bot', v: 1 });
+  });
+
+  it('hello carries protocol, velocity, turn rate and pose age so a newcomer draws the others moving', () => {
+    const core = new RoomCore();
+    core.join({ id: 'a', key: 'ka', name: 'A', role: 'player', proto: 2 }, 0);
+    core.receive('a', JSON.stringify({ t: 'p', p: [1, 0, 2, 0, 1, 1, 4.5, -1, 0.5] }), 1000);
+    core.receive('a', JSON.stringify({ t: 'e', e: 'wave' }), 2500); // not a pose: the age keeps running
+    const r = core.join({ id: 'b', key: 'kb', name: 'B', role: 'player', proto: 2 }, 3000);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(JSON.parse(r.hello).peers).toEqual([['a', 'A', 'player', 1, 0, 2, 0, 1, 2, 4.5, -1, 0.5, 2000]]);
+    expect(JSON.parse(r.joinFrame)).toMatchObject({ t: 'join', id: 'b', v: 2 });
+    // after hibernation the pose time comes back from the socket attachment
+    const core2 = new RoomCore();
+    core2.restore({ id: 'a', key: 'ka', name: 'A', role: 'player', pose: [1, 0, 2, 0, 1, 1, 4.5, -1, 0.5], proto: 2, at: 1000 }, 9000);
+    const r2 = core2.join({ id: 'c', key: 'kc', name: 'C', role: 'player' }, 9500);
+    if (!r2.ok) return;
+    expect(JSON.parse(r2.hello).peers[0].slice(8)).toEqual([2, 4.5, -1, 0.5, 8500]);
   });
 
   it('poses are batched: many sends between flushes become one frame with each mover once', () => {

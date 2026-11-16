@@ -8,6 +8,7 @@
  * stops trying for a while.
  */
 import { MAX_TURN_RATE, TUNING, predictPose } from '@lcw/sim-core';
+import { peerMotionOf } from './peer-motion.js';
 
 export interface RoomPoseSource {
   /** x, y, z, yaw, anim of the local player (null while the world is not ready) */
@@ -58,6 +59,8 @@ export interface RoomClientOptions {
 const STILL_SPEED = 0.2;
 /** a walking direction this far (rad) from the predicted one, or a pace change this large (m/s), goes out at once */
 const SWERVE_RAD = 0.6;
+/** the steady rate older pages were drawn for (until everyone has the pose budget) */
+const LEGACY_POSE_HZ = 5;
 const SWERVE_SPEED = 1.5;
 /** height change (m) that goes out even when the ground prediction holds (steps, a jump) */
 const ERR_Y = 0.6;
@@ -91,6 +94,8 @@ export class RoomClient {
   private tokensAt = 0;
   private prevSample: { x: number; z: number; t: number; h: number | null } | null = null;
   /** where the others are (last pose + velocity), to send less often to a room where nobody is near */
+  /** others on a page from before the pose budget (proto 1): while any is here, poses go at the old steady rate */
+  private legacy = new Set<string>();
   private otherPos = new Map<string, { x: number; z: number; vx: number; vz: number; w: number; t: number }>();
   private lastSentAt = 0;
   private seq = 0;
@@ -204,7 +209,7 @@ export class RoomClient {
     this.room = ticket.room;
     const loc = typeof location !== 'undefined' ? location : null;
     const origin = base || (loc ? `${loc.protocol}//${loc.host}` : '');
-    const url = `${origin.replace(/^http/, 'ws')}${ticket.connect}?t=${encodeURIComponent(ticket.ticket)}`;
+    const url = `${origin.replace(/^http/, 'ws')}${ticket.connect}?t=${encodeURIComponent(ticket.ticket)}&v=2`;
     let ws: SocketLike;
     try {
       ws = this.o.socket ? this.o.socket(url) : (new WebSocket(url) as unknown as SocketLike);
@@ -254,10 +259,13 @@ export class RoomClient {
         this.toldFull = false;
         const peers = ((f.peers as unknown[][]) ?? []).map((p) => ({ id: String(p[0]), name: String(p[1]), role: String(p[2]), pose: p.slice(3) as number[] }));
         this.others = new Set(peers.map((p) => p.id));
+        this.legacy = new Set(peers.filter((p) => p.pose[5] !== 2).map((p) => p.id));
+        this.prevSample = null;
         this.otherPos.clear();
         for (const p of peers) {
           const [x, , z] = p.pose as number[];
-          if (typeof x === 'number' && typeof z === 'number') this.otherPos.set(p.id, { x, z, vx: 0, vz: 0, w: 0, t: this.now });
+          const v = peerMotionOf(p.pose);
+          if (typeof x === 'number' && typeof z === 'number') this.otherPos.set(p.id, { x, z, vx: v.vx, vz: v.vz, w: v.w, t: this.now - v.ageMs });
         }
         sink.hello(String(f.you), peers);
         this.lastSent = null;
@@ -266,6 +274,7 @@ export class RoomClient {
       }
       case 'join':
         this.others.add(String(f.id));
+        if (f.v !== 2) this.legacy.add(String(f.id));
         sink.join(String(f.id), String(f.name), String(f.role));
         // the newcomer only knows where I stood when I last moved (nothing is sent while alone): tell them now
         this.lastSent = null;
@@ -273,6 +282,7 @@ export class RoomClient {
         break;
       case 'leave':
         this.others.delete(String(f.id));
+        this.legacy.delete(String(f.id));
         this.otherPos.delete(String(f.id));
         sink.leave(String(f.id));
         break;
@@ -365,9 +375,16 @@ export class RoomClient {
           need < 1 ||
           err > errM ||
           Math.abs(p[1] - l[1]!) > ERR_Y ||
-          Math.abs(wrapAngle(p[3] - l[3]!)) > (far ? T.poseYawFarRad : T.poseYawRad) ||
+          // facing is predicted too (it turns with the walking direction on the receivers)
+          Math.abs(wrapAngle(p[3] - (l[3]! + this.lastV[2] * age))) > (far ? T.poseYawFarRad : T.poseYawRad) ||
           (moving && now - this.lastPoseAt >= T.poseRefreshMs);
         free = false;
+        // someone on an older page eases toward the last pose only: keep the old steady 5 Hz for them
+        if (this.legacy.size > 0) {
+          const movedAtAll = p[4] !== l[4] || Math.hypot(p[0] - l[0]!, p[2] - l[2]!) > 0.03 || Math.abs(p[1] - l[1]!) > 0.03 || Math.abs(wrapAngle(p[3] - l[3]!)) > 0.03;
+          send = movedAtAll && (p[4] !== l[4] || now - this.lastPoseAt >= 1000 / LEGACY_POSE_HZ - 1);
+          free = send;
+        }
       }
       const due = now - this.lastPoseAt >= 1000 / T.poseHz - 1;
       if (send && (free || (due && this.tokens >= need))) {

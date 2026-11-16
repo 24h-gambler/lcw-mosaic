@@ -9,6 +9,12 @@
  */
 import { TUNING, predictPose } from '@lcw/sim-core';
 
+/** velocity, turn rate and pose age from a hello entry's pose part ([x,y,z,yaw,anim,proto,vx,vz,w,ageMs]) */
+export function peerMotionOf(pose: readonly unknown[]): { vx: number; vz: number; w: number; ageMs: number } {
+  const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  return { vx: n(pose[6]), vz: n(pose[7]), w: n(pose[8]), ageMs: Math.max(0, n(pose[9])) };
+}
+
 /** time constant of the correction ease (s) */
 export const PEER_EASE_S = 0.1;
 /** fastest a correction slides the figure on top of its walking (m/s) */

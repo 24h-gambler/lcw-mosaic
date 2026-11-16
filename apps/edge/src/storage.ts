@@ -232,7 +232,8 @@ export class EdgePlatformDb {
         params.familyId,
         'child',
         params.nickname,
-        params.birthYear ?? 2016,
+        // Not sent → unknown (null), never a made-up year: Oreo was stored as 2016 (11-16). Level comes from `level`.
+        params.birthYear ?? null,
         params.level ?? 'L2'
       ]
     );

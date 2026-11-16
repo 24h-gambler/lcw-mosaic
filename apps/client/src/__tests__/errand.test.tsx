@@ -12,14 +12,14 @@ import type { NpcRef } from '../dialog/types.js';
 
 /**
  * WP-111 / docs/03 D1 from the child's side: the client errand module drives the real PlatformDO routes with a
- * device token — Mina (the neighbour at the cafe door) asks, the cafe sells the cold water, Mina takes it, +50 once —
+ * device token — Mia (the neighbour at the cafe door) asks, the cafe sells the cold water, Mina takes it, +50 once —
  * and the dialog shapes match. Luna stays the guide.
  */
 
 const TOKEN = 'op-token-0123456789abcdef';
 const LUNA: NpcRef = { id: 'guide', ctx: 'guide', nameKo: '루나', nameEn: 'Luna' };
-const MINA: NpcRef = { id: 'errand_neighbor', ctx: 'errand', nameKo: '이웃 미나', nameEn: 'Mina' };
-const HANI: NpcRef = { id: 'cafe_owner', ctx: 'cafe', nameKo: '하니', nameEn: 'Hani' };
+const MINA: NpcRef = { id: 'errand_neighbor', ctx: 'errand', nameKo: '이웃 미아', nameEn: 'Mia' };
+const HANI: NpcRef = { id: 'cafe_owner', ctx: 'cafe', nameKo: '카페 주인 해나', nameEn: 'Hannah' };
 const TOBY: NpcRef = { id: 'shop_owner', ctx: 'trade_shop', nameKo: '토비', nameEn: 'Toby' };
 
 async function platform() {
@@ -50,13 +50,13 @@ const utter = (text: string, stars: 1 | 2 | 3) => ({
 });
 
 describe('first-visit errand: client module against the real platform routes', () => {
-  it('Mina asks -> accept -> the cafe sells only the cold water -> hand it over -> done with +50', async () => {
+  it('Mia asks -> accept -> the cafe sells only the cold water -> hand it over -> done with +50', async () => {
     const { f, devToken } = await platform();
     let e: ErrandView = await fetchErrand({ token: devToken, fetchImpl: f });
     expect(e).toMatchObject({ state: 'offered', item_key: FIRST_ERRAND.item, npc_line: FIRST_ERRAND.lines.ask });
-    expect(errandGoalKo(e)).toBe(UI_STRINGS_KO.firstVisit.goalErrand);
+    expect(errandGoalKo(e)).toBe('카페 앞 이웃 미아에게 가서 말을 걸어요'); // the name comes from the cast pack
 
-    // Mina gives the errand: ctx errand, accept lines, her ask line first. Luna is a normal guide talk.
+    // Mia gives the errand: ctx errand, accept lines, her ask line first. Luna is a normal guide talk.
     expect(errandDialogFor(LUNA, e, 'L1')).toBeNull();
     const ask = errandDialogFor(MINA, e, 'L1')!;
     expect(ask.npc).toMatchObject({ id: 'errand_neighbor', ctx: 'errand' });
@@ -69,7 +69,7 @@ describe('first-visit errand: client module against the real platform routes', (
     expect(e.state).toBe('accepted');
     expect(errandGoalKo(e)).toContain(FIRST_ERRAND.itemKo);
 
-    // On the way Mina reminds (waiting line, the yes lines again move nothing); Luna and Toby talk as usual.
+    // On the way Mia reminds (waiting line, the yes lines again move nothing); Luna and Toby talk as usual.
     const wait = errandDialogFor(MINA, e, 'L1')!;
     expect(wait.npcLine).toBe(FIRST_ERRAND.lines.waiting);
     expect(errandDialogFor(LUNA, e, 'L1')).toBeNull();
@@ -126,12 +126,12 @@ describe('FirstVisitGuide', () => {
     expect(renderToStaticMarkup(<FirstVisitGuide world={world} player={{ deviceToken: 'd'.repeat(48) }} errand={null} onErrand={() => undefined} fetchImpl={noFetch} />)).toBe('');
   });
 
-  it('shows the way button for the step: to Mina at the cafe door to start and to hand over, to the cafe while ordering', () => {
+  it('shows the way button for the step: to Mia at the cafe door to start and to hand over, to the cafe while ordering', () => {
     const at = (s: ErrandView['state'], hidden = false) =>
       renderToStaticMarkup(<FirstVisitGuide world={world} player={{ deviceToken: 'd'.repeat(48) }} errand={view(s)} onErrand={() => undefined} hidden={hidden} fetchImpl={noFetch} />);
     expect(at('accepted')).toContain(UI_STRINGS_KO.firstVisit.walkCafe);
-    expect(at('carrying')).toContain(UI_STRINGS_KO.firstVisit.walkMina);
-    expect(at('offered')).toContain(UI_STRINGS_KO.firstVisit.walkMina);
+    expect(at('carrying')).toContain('미아에게 가기');
+    expect(at('offered')).toContain('미아에게 가기');
     expect(at('done')).not.toContain('lcw-errand-walk');
     expect(at('accepted', true)).toBe('');
   });

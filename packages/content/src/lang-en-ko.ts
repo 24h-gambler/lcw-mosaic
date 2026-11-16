@@ -648,13 +648,13 @@ for (const level of ['L1', 'L2', 'L3'] as const) {
 
 /**
  * First-visit 1-minute errand (docs/03 D1 "첫 방문 섹터의 카페 앞에는 반드시 1분 심부름 NPC", D3 +50 coins, WP-111):
- * the errand giver asks for a drink from the honey cafe; the child agrees, orders that drink from Hani (the first
+ * the errand giver asks for a drink from the honey cafe; the child agrees, orders that drink from the cafe owner (the first
  * order), and hands it over. Accepting and handing over sell nothing (price 0); the server moves the errand and pays
  * the reward from the ledger.
  */
 export interface ErrandDef {
   key: string;
-  /** The cafe drink the giver asks for (CAFE_MENU key + modifier, so Hani's offers match it). */
+  /** The cafe drink the giver asks for (CAFE_MENU key + modifier, so the cafe owner's offers match it). */
   item: string;
   mod: string;
   itemKo: string;
@@ -668,10 +668,10 @@ export const FIRST_ERRAND: ErrandDef = {
   mod: 'cold',
   itemKo: '시원한 물',
   lines: {
-    ask: 'Hi! I am so thirsty. Could you get me a cold water from the honey cafe?',
-    waiting: 'The honey cafe is right over there. Can you get me a cold water?',
-    deliver: 'Oh, you are back! Is that my cold water?',
-    thanks: 'Thank you so much! Here are 50 coins for you.'
+    ask: "Hi! I'm super thirsty. Can you get me some cold water from the honey cafe?",
+    waiting: "The honey cafe's right over there! Can you get me some cold water?",
+    deliver: "You're back! Is that my cold water?",
+    thanks: 'Thank you so much! Here, 50 coins for you.'
   }
 };
 
@@ -1235,6 +1235,8 @@ export const UI_STRINGS_KO = {
     headset: '헤드셋이나 이어폰을 쓰면 내 목소리가 더 잘 들려요.',
     volume: '소리 크기는 보호자와 함께 알맞게 맞춰 주세요.',
     micTitle: '마이크 점검',
+    /** Lesson students see only the mic check when they join (audit G15). */
+    lessonMicTitle: '수업 전에 마이크를 점검해요',
     micCta: '"Hello!" 하고 말해 보기',
     micListening: '듣고 있어요… 다 말하면 한 번 더 눌러요',
     micOk: '잘 들려요! "{heard}"',
@@ -1242,12 +1244,13 @@ export const UI_STRINGS_KO = {
     micNone: '이 기기는 마이크를 쓸 수 없어요. 단어 카드와 글자로도 할 수 있어요.',
     skip: '건너뛰기',
     next: '좋아요, 출발!',
-    goalErrand: '카페 앞 이웃 미나에게 가서 말을 걸어요',
-    goalOrder: '꿀벌 카페 하니에게 {item}을 주문해요',
-    goalDeliver: '카페 앞 미나에게 {item}을 가져다줘요',
+    /** {giver}/{cafe}: the NPC names from the cast pack (npc-cast.ts nameKoShort), never written here. */
+    goalErrand: '카페 앞 이웃 {giver}에게 가서 말을 걸어요',
+    goalOrder: '꿀벌 카페 {cafe}에게 {item}을 주문해요',
+    goalDeliver: '카페 앞 {giver}에게 {item}을 가져다줘요',
     goalDone: '심부름 끝! 50코인을 받았어요',
     walkCafe: '카페로 걸어가기',
-    walkMina: '미나에게 가기',
+    walkGiver: '{giver}에게 가기',
     rewardToast: '+{coins} 코인! 심부름 완료'
   },
   /** Memory-card review (docs/03 D8, docs/08 6장 "복습 징후": a small lightning mark, never a scolding). */

@@ -189,6 +189,15 @@ const AdminPlayerSchema = z
     level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).optional()
   })
   .strict();
+/** Teacher's fix of a registered student: nickname, level, birth year (null = unknown). Only the fields sent change. */
+const AdminPlayerPatchSchema = z
+  .object({
+    nickname: z.string().min(1).max(32).optional(),
+    birth_year: z.number().int().min(2005).max(2025).nullable().optional(),
+    level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']).optional()
+  })
+  .strict()
+  .refine((o) => Object.keys(o).length > 0, { message: 'nothing_to_change' });
 const AdminWorldSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9-]{3,40}$/),
@@ -715,6 +724,15 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       nowMs: Date.now()
     });
     return c.json({ ok: true }, 201);
+  });
+  app.patch('/v1/admin/players/:id', async (c) => {
+    const p = AdminPlayerPatchSchema.safeParse(await c.req.json().catch(() => null));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const id = c.req.param('id');
+    if (!platform.sql.get('select id from players where id = ?', [id])) return c.json({ error: 'player_not_found' }, 404);
+    const cols = Object.entries(p.data).filter(([, v]) => v !== undefined);
+    platform.sql.run(`update players set ${cols.map(([k]) => `${k} = ?`).join(', ')} where id = ?`, [...cols.map(([, v]) => v), id]);
+    return c.json(platform.sql.get('select id, nickname, level, birth_year from players where id = ?', [id]));
   });
   app.post('/v1/admin/worlds', async (c) => {
     const p = AdminWorldSchema.safeParse(await c.req.json());

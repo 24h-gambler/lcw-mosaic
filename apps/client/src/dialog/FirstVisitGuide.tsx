@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { UI_STRINGS_KO } from '@lcw/content';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
-import { errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
+import { errandGiverNameKo, errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
 import { MicController, type MicView } from './mic-controller.js';
 import { micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
 import type { SpeechEngine } from './speech.js';
@@ -11,8 +11,8 @@ import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 
 /**
  * docs/08 G15 첫 접속 안내: mic check -> move -> first order within 3 minutes (docs/01 활성화, docs/09 첫 문장까지
- * 시간), carried by the first-visit errand (docs/03 D1): the neighbour Mina at the honey cafe door asks for a cold
- * water, the child orders it from Hani inside (the first order) and brings it out to her for 50 coins. The headset tip and the "volume with a
+ * 시간), carried by the first-visit errand (docs/03 D1): the neighbour at the honey cafe door (cast pack: Mia) asks for a cold
+ * water, the child orders it from the cafe owner inside (the first order) and brings it out to her for 50 coins. The headset tip and the "volume with a
  * guardian" note are shown once (docs/12 3·4장). The server owns the errand; this screen shows the step and the way.
  */
 
@@ -107,7 +107,8 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
     return (
       <IntroCard
         speech={props.speech}
-        onDone={() => {
+        onDone={(status) => {
+          sessionSet(MIC_STATUS_KEY, status);
           markSeen();
           setIntro(false);
         }}
@@ -115,13 +116,13 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
     );
   }
   if (hidden) return null;
-  // Mina waits at the honey cafe door (world errand_neighbor) and the cafe is behind her: to her to start and to hand
+  // The giver waits at the honey cafe door (world errand_neighbor) and the cafe is behind her: to her to start and to hand
   // over, to the counter to order. A world without walkToNpc walks to the scene.
   const walk =
     errand.state === 'accepted'
       ? { label: `☕ ${F.walkCafe}`, scene: 'honey_cafe' as const, npcId: null }
       : errand.state === 'offered' || errand.state === 'carrying'
-        ? { label: `🙋 ${F.walkMina}`, scene: 'honey_cafe' as const, npcId: ERRAND_GIVER_NPC_ID }
+        ? { label: `🙋 ${F.walkGiver.replace('{giver}', errandGiverNameKo())}`, scene: 'honey_cafe' as const, npcId: ERRAND_GIVER_NPC_ID }
         : null;
   return (
     <>
@@ -187,13 +188,65 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
   );
 }
 
+/** How the "Hello!" check ended: heard words, too quiet, no usable microphone (blocked / unsupported), or not tried. */
+export type MicCheckStatus = 'ok' | 'quiet' | 'none' | 'skipped';
+/** sessionStorage key the lesson client reads to tell the teacher console the student's mic (docs/19 4장). */
+export const MIC_STATUS_KEY = 'lcw.micStatus';
+const LESSON_CHECK_KEY = 'lcw.lessonMicChecked';
+
+function sessionGet(k: string): string | null {
+  try {
+    return sessionStorage.getItem(k);
+  } catch {
+    return null;
+  }
+}
+function sessionSet(k: string, v: string): void {
+  try {
+    sessionStorage.setItem(k, v);
+  } catch {
+    /* private mode: the check shows again next time, harmless */
+  }
+}
+
+/** The mic status of the last check in this tab (null: not checked yet). */
+export function readMicStatus(): MicCheckStatus | null {
+  const v = sessionGet(MIC_STATUS_KEY);
+  return v === 'ok' || v === 'quiet' || v === 'none' || v === 'skipped' ? v : null;
+}
+
+/**
+ * The same "Hello!" check for players who never see the errand intro (audit G15, 11-16): a lesson student gets it once
+ * per lesson when they join (before the teacher's first sentence; the status goes to the teacher console through the
+ * lesson state poll), a guest once on this device. Children with a device see it inside the first-visit intro.
+ */
+export function MicCheckGate(props: { audience: 'lesson' | 'guest'; lessonCode?: string; hidden?: boolean; speech?: SpeechEngine }): React.ReactElement | null {
+  const key = props.audience === 'lesson' ? `${LESSON_CHECK_KEY}:${props.lessonCode ?? ''}` : SEEN_KEY;
+  const [open, setOpen] = useState(() => (props.audience === 'lesson' ? sessionGet(key) !== '1' : !seen()));
+  if (!open || props.hidden) return null;
+  return (
+    <IntroCard
+      speech={props.speech}
+      title={props.audience === 'lesson' ? F.lessonMicTitle : F.title}
+      tips={props.audience === 'guest'}
+      onDone={(status) => {
+        sessionSet(MIC_STATUS_KEY, status);
+        if (props.audience === 'lesson') sessionSet(key, '1');
+        else markSeen();
+        setOpen(false);
+      }}
+    />
+  );
+}
+
 /** The first screen: headset tip, volume with a guardian, and a short "Hello!" mic check (skippable). */
-function IntroCard(props: { speech?: SpeechEngine; onDone: () => void }): React.ReactElement {
+function IntroCard(props: { speech?: SpeechEngine; title?: string; tips?: boolean; onDone: (status: MicCheckStatus) => void }): React.ReactElement {
   const engine = useMemo(() => props.speech ?? createDialogSpeechEngine(), [props.speech]);
   const ok = useMemo(() => engine.availability().ok, [engine]);
   const [mic, setMic] = useState<MicView>({ recording: false, interim: '', hangover: false, level: 0 });
   const [note, setNote] = useState<string | null>(ok ? null : F.micNone);
   const [heard, setHeard] = useState<string | null>(null);
+  const status = useRef<MicCheckStatus>(ok ? 'skipped' : 'none');
   const ctrl = useRef<MicController | null>(null);
   const pending = useRef(false);
 
@@ -209,9 +262,16 @@ function IntroCard(props: { speech?: SpeechEngine; onDone: () => void }): React.
         if (text) {
           setHeard(text);
           setNote(F.micOk.replace('{heard}', text));
-        } else setNote(F.micQuiet);
+          status.current = 'ok';
+        } else {
+          setNote(F.micQuiet);
+          if (status.current !== 'ok') status.current = 'quiet';
+        }
       },
-      onIssue: (issue) => setNote(issue === 'no_speech' ? F.micQuiet : F.micNone)
+      onIssue: (issue) => {
+        setNote(issue === 'no_speech' ? F.micQuiet : F.micNone);
+        if (status.current !== 'ok') status.current = issue === 'no_speech' ? 'quiet' : 'none';
+      }
     });
     ctrl.current = c;
     return () => {
@@ -251,17 +311,21 @@ function IntroCard(props: { speech?: SpeechEngine; onDone: () => void }): React.
   });
 
   return (
-    <div className="lcw-firstvisit" role="dialog" aria-modal="true" aria-label={F.title} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, background: `${C['ink-900']}40`, pointerEvents: 'auto', fontFamily: T.fonts.ui }}>
+    <div className="lcw-firstvisit" role="dialog" aria-modal="true" aria-label={F.title} style={{ position: 'absolute', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, background: `${C['ink-900']}40`, pointerEvents: 'auto', fontFamily: T.fonts.ui }}>
       <div style={{ width: 'min(460px, 100%)', background: C['paper-50'], color: C['ink-900'], border: `${S.borderWidthPx}px solid ${C['ink-900']}`, borderRadius: S.radiusCardPx, boxShadow: S.shadowDefault, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: T.scale.h3.sizePx, lineHeight: 1.3 }}>{F.title}</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <span aria-hidden>🎧</span>
-          <span>{F.headset}</span>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', color: C['ink-700'], fontSize: T.scale.small.sizePx }}>
-          <span aria-hidden>🔈</span>
-          <span>{F.volume}</span>
-        </div>
+        <h2 style={{ margin: 0, fontSize: T.scale.h3.sizePx, lineHeight: 1.3 }}>{props.title ?? F.title}</h2>
+        {props.tips === false ? null : (
+          <>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span aria-hidden>🎧</span>
+              <span>{F.headset}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', color: C['ink-700'], fontSize: T.scale.small.sizePx }}>
+              <span aria-hidden>🔈</span>
+              <span>{F.volume}</span>
+            </div>
+          </>
+        )}
         <div style={{ borderTop: `1px dashed ${C['ink-700']}`, paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <strong>{F.micTitle}</strong>
           <button type="button" className="lcw-firstvisit-mic" style={btn(false)} disabled={!ok} data-on={mic.recording} onClick={tapMic}>
@@ -272,10 +336,10 @@ function IntroCard(props: { speech?: SpeechEngine; onDone: () => void }): React.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          <button type="button" style={btn(false)} onClick={props.onDone}>
+          <button type="button" style={btn(false)} onClick={() => props.onDone(status.current)}>
             {F.skip}
           </button>
-          <button type="button" className="lcw-firstvisit-go" style={btn(true)} onClick={props.onDone}>
+          <button type="button" className="lcw-firstvisit-go" style={btn(true)} onClick={() => props.onDone(status.current)}>
             {F.next}
           </button>
         </div>

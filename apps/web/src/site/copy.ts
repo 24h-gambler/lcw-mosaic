@@ -4,6 +4,7 @@
  * English target sentences stay English.
  */
 
+import { npcPersona } from '@lcw/content';
 export const BRAND = 'LCW';
 export const BRAND_LONG = '말하면 생기는 세계';
 
@@ -52,16 +53,24 @@ export const TOUR = {
   ] as ReadonlyArray<readonly [string, string]>
 } as const;
 
+/** NPC names on the site come from the world's cast pack (packages/content npc-cast.ts), never typed here. */
+const castKo = (npcId: string): string => npcPersona(npcId)?.nameKo ?? '';
+/** Korean particle after a name: `withBatchim` when the last syllable ends in a consonant (해나가, 루나 선생님이). */
+export function josa(word: string, withBatchim: string, without: string): string {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  return `${word}${code >= 0 && code <= 11171 && code % 28 !== 0 ? withBatchim : without}`;
+}
+
 /** Labels on the real-game pictures (GameMedia.tsx). */
 export const MEDIA = {
   realTag: '실제 게임 화면 · 시연',
   play: '재생',
   pause: '일시 정지',
-  cafeOffers: '실제 게임 화면: 카페 주인 하니가 묻고, 별 1개부터 3개까지 세 가지 영어 문장이 펼쳐진 대화창',
+  cafeOffers: `실제 게임 화면: ${josa(castKo('cafe_owner'), '이', '가')} 묻고, 별 1개부터 3개까지 세 가지 영어 문장이 펼쳐진 대화창`,
   cafeStars: '실제 게임 화면: 별 3개 문장 "Can I have some cold water, please?"를 말해 별 3개를 받은 대화창',
-  tradeOffers: '실제 게임 화면: 물물교환 상점 주인 토비와 헬멧을 바꾸는 세 가지 영어 문장',
+  tradeOffers: `실제 게임 화면: 물물교환 ${josa(castKo('shop_owner'), '과', '와')} 헬멧을 바꾸는 세 가지 영어 문장`,
   buildPlot: '실제 게임 화면: 울타리와 벽돌이 놓인 내 부지',
-  guideOffers: '실제 게임 화면: 안내인 선생님 루나가 어디로 가고 싶은지 묻는 대화창',
+  guideOffers: `실제 게임 화면: ${josa(castKo('guide'), '이', '가')} 어디로 가고 싶은지 묻는 대화창`,
   cafeFront: '실제 게임 화면: 꿀 카페 앞에 선 플레이어',
   plaza: '실제 게임 화면: 분수가 있는 중앙 광장'
 } as const;

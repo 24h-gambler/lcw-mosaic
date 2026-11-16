@@ -64,6 +64,8 @@ interface FirstVisitModule {
     hidden?: boolean;
   }>;
   errandDialogFor?: (npc: NpcRef, errand: ErrandLike | null, level: Level) => ErrandDialogLike | null;
+  /** The "Hello!" mic check for lesson students (once per lesson) and guests (once per device), audit G15. */
+  MicCheckGate?: React.ComponentType<{ audience: 'lesson' | 'guest'; lessonCode?: string; hidden?: boolean }>;
 }
 
 /** Props the shell passes to the lesson layer (docs/19 5장). */
@@ -178,6 +180,16 @@ export function guideDestination(npc: NpcRef, r: DialogResultLike): SceneId | nu
  * with ✕/Esc after a pass reports the window's best): stars celebrate only when they beat what this window already
  * showed, a fail shows "try again" only before any pass, and the server-named item lands in hand once.
  */
+/**
+ * What the dialog window covers, for the world's NPC shot: a side panel (full height, part of the width — landscape
+ * phones) covers the right edge; a bottom sheet or a centred window covers the bottom. Rect is the `.lcw-dlg__win`.
+ */
+export function dialogViewInset(r: { left: number; top: number; width: number; height: number }, vw: number, vh: number): { bottom: number; right: number } {
+  const side = r.height >= vh * 0.9 && r.width < vw * 0.8;
+  if (side) return { bottom: 0, right: Math.max(0, Math.round(vw - r.left)) };
+  return { bottom: Math.max(0, Math.round(vh - r.top)), right: 0 };
+}
+
 export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveItem'> & { setCoins?: WorldHandle['setCoins'] }): (r: DialogResultLike) => void {
   let best = -1;
   const given = new Set<string>();
@@ -263,19 +275,25 @@ function DialogHost(props: {
     cfg.onClose?.();
     onClose(last.current);
   }, [cfg, onClose]);
-  // The world frames the NPC in the strip above the dialog window (it covers ~70% of a phone screen).
+  // The world frames the NPC in the part of the screen the dialog window leaves free: the strip above it (a bottom
+  // sheet, ~60-70% of a portrait phone) or the strip left of it (the side panel on a landscape phone).
   useEffect(() => {
     if (!world.setViewInset) return;
     let obs: ResizeObserver | null = null;
     let raf = 0;
     const measure = () => {
-      const el = document.querySelector('.lcw-dlg');
+      const el = document.querySelector('.lcw-dlg__win');
       if (!el) return false;
-      world.setViewInset?.(Math.max(0, window.innerHeight - el.getBoundingClientRect().top));
+      // offset* (layout box, not the slide-in transform): the overlay .lcw-dlg is fixed at 0,0, so these are viewport px
+      const w = el as HTMLElement;
+      const box = { left: w.offsetLeft, top: w.offsetTop, width: w.offsetWidth, height: w.offsetHeight };
+      const inset = dialogViewInset(box, window.innerWidth, window.innerHeight);
+      // rightPx: world api setViewInset(bottomPx, rightPx?) — engines that read only bottomPx ignore it.
+      (world.setViewInset as ((bottomPx: number, rightPx?: number) => void) | undefined)?.call(world, inset.bottom, inset.right);
       return true;
     };
     const attach = () => {
-      const el = document.querySelector('.lcw-dlg');
+      const el = document.querySelector('.lcw-dlg__win');
       if (!el) {
         raf = requestAnimationFrame(attach);
         return;
@@ -482,7 +500,7 @@ export function App(): React.ReactElement {
   const Lesson = lessonMod?.LessonLayer;
   const SoloPanel = dialogMod?.DialogPanel;
   const soloLevel = identity?.kind === 'child' ? identity.level : undefined;
-  // docs/03 D1 first-visit errand: the giver (Luna) and the cafe speak the errand's sentences while it runs.
+  // docs/03 D1 first-visit errand: the giver (the neighbour at the cafe door) and the cafe speak the errand's sentences while it runs.
   if (errandDialog.current.npc !== soloNpc) {
     errandDialog.current = {
       npc: soloNpc,
@@ -508,6 +526,7 @@ export function App(): React.ReactElement {
     }
   };
   const FirstVisit = firstVisitMod?.FirstVisitGuide;
+  const MicGate = firstVisitMod?.MicCheckGate;
   const Review = reviewMod?.ReviewDock;
   const ReadAloud = readAloudMod?.ReadAloudPrompt;
   return (
@@ -547,6 +566,8 @@ export function App(): React.ReactElement {
               />
             </div>
           ) : null}
+          {MicGate && world && identity?.kind === 'lesson' ? <MicGate audience="lesson" lessonCode={identity.code} /> : null}
+          {MicGate && world && identity?.kind === 'guest' ? <MicGate audience="guest" hidden={soloNpc !== null} /> : null}
           {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (
             <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null} />
           ) : null}

@@ -1,6 +1,6 @@
 // Server Whisper rung end to end in a real browser: headless Chrome with a fake microphone playing a synthetic
 // "Cold water, please." WAV, browser SpeechRecognition removed (like an in-app browser), the built game on local
-// wrangler (Workers AI binding is remote). The child taps the mic at Hani's; MediaRecorder records Opus, the turn
+// wrangler (Workers AI binding is remote). The child taps the mic at the cafe owner's; MediaRecorder records Opus, the turn
 // goes to /v1/converse/stt, the transcript is scored.
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/stt-shot.mjs http://127.0.0.1:8951 dev.json speech.wav shots/dialog [desktop|phone]

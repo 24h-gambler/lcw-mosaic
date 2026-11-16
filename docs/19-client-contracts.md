@@ -115,7 +115,7 @@ export interface DialogPanelProps {
 
 ## 4. 수업 → 다른 도메인 (`apps/client/src/lesson/`)
 
-- `/game/?code=123456` 또는 첫 화면의 코드 입력 → `POST /v1/join` → 학생 토큰은 `sessionStorage`. 응답의 `voice_store`(보호자의 음성 저장 동의)는 `lcw.studentVoice='1'`로 같이 두고, 대화창 `recordClip`이 이것을 봅니다(3장).
+- `/world/?code=123456`(옛 `/game/?code=` 도 리다이렉트로 같은 곳) 또는 첫 화면의 코드 입력 → `POST /v1/join` → 학생 토큰은 `sessionStorage`. 응답의 `voice_store`(보호자의 음성 저장 동의)는 `lcw.studentVoice='1'`로 같이 두고, 대화창 `recordClip`이 이것을 봅니다(3장).
 - `GET /v1/lesson/state`를 3초마다: `stage_id`가 바뀌면 아래 표대로 `goToScene`, `targets`는 대화창 `offers`, 빙의 대사(`npc_lines`)는 `npcSay`.
 
 | stage_id | 장면 | NPC | 힌트 |
@@ -155,7 +155,7 @@ export interface DialogPanelProps {
   - 앱은 `LessonLayer`에 `identity`를 넘기고, 혼자 대화에는 `createSoloSubmit(npc, { deviceToken, nickname, level })`(게스트면 둘째 인자 없음)와 `cfg.level`을 넘깁니다. 월드는 `setPlayerName?(nickname)`으로 머리 위 이름표를 달고 안내인이 이름으로 한 번 인사합니다.
 - 좌석(6장): `identity.ts`가 `play_allowed`·`seat`를 읽어 연결된 아이에 `playAllowed`·`seat`(`{state, endsAt}`|null)로 둡니다. `play_allowed`가 **명시적으로 false**일 때만 혼자 놀기를 멈춥니다(필드가 없는 옛 서버·`seat:null`은 그대로 놉니다). 마지막 온라인 답은 `lcw.devicePlayBlocked`('1')로 남겨 오프라인 시작에도 지킵니다. 멈추면 월드는 걸어 다니며 둘러보기만 되고, NPC 에게 말을 걸면 대화창 대신 안내 카드(`world/SeatNotice.tsx`: "지금은 혼자 놀기가 쉬는 중이에요 … 보호자에게 말해 주세요", 가격·결제 낱말 없음)가 뜹니다. 왼쪽 위 '둘러보기만' 칩으로 다시 열 수 있습니다. 수업(`?code=`)은 기기 확인 자체를 하지 않으므로 좌석과 상관없이 들어옵니다.
 - 첫 화면(3초 예산): `index.html`의 스플래시(토큰 색 큐브)가 첫 페인트에 바로 뜨고 글꼴은 첫 페인트를 막지 않습니다. 월드는 시작 지점 둘레 `FIRST_RING`(2청크) 안만 메시한 뒤(최대 `FIRST_SCREEN_CAP_MS` 2초) 보여 주고, 나머지 시야는 첫 프레임 뒤에 이어서 메시합니다. 단계별 시간은 `getStats().startup`(`town`·`atlas`·`characters`·`mesh`·`firstFrame`, createWorld 기준 ms)입니다.
-- 화면 주소: `/game/?scene=<SceneId>`(시작 장면), `?tier=low|mid|high`(사양 강제), `?fps=1`(fps 표시). 디버그·검증용으로 `window.__lcwWorld`에 핸들을 둡니다.
+- 화면 주소: `/world/?scene=<SceneId>`(시작 장면), `?tier=low|mid|high`(사양 강제), `?fps=1`(fps 표시). 디버그·검증용으로 `window.__lcwWorld`에 핸들을 둡니다.
 - 검증: `node tools/world-shots.mjs <url> <out> [desktop|tablet|phone|flow]` — 헤드리스 Chrome(swiftshader)으로 장면 5개 × 3 화면 크기 스크린샷, fps, 콘솔 오류, 흐름(목표·말풍선·걷기·멈춤·별·아이템·빙의·눈·키보드·E 키)을 `report.json`에.
 
 ## 6. 보호자 → 월드 (기기 토큰 발급 쪽 보장, WP-301)

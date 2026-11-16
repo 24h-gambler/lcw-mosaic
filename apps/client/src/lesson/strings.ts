@@ -5,7 +5,7 @@ export const LESSON_STRINGS_KO = {
     sub: '수업 화면으로 바로 들어가요',
     enter: '들어가기',
     joining: '들어가는 중…',
-    /** The button on a bare /game/ (solo play) that opens the code entry. */
+    /** The button on a bare /world/ (solo play) that opens the code entry. */
     openFromWorld: '🎓 수업 코드 넣기',
     cancel: '혼자 놀기로 돌아가기',
     errors: {

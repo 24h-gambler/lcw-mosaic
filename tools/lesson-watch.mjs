@@ -93,8 +93,16 @@ const stamp = () => new Date().toISOString();
 /** Read in main() (importing this file for tests touches no secret and no disk). */
 let TOKEN = '';
 
-/** The only request this tool makes. */
+/** The only request this tool makes: one retry after a 2 s pause when the call never got an answer (status 0). */
 async function get(path) {
+  const first = await getOnce(path);
+  if (first.status !== 0) return first;
+  await new Promise((r) => setTimeout(r, 2_000));
+  const again = await getOnce(path);
+  return again.status === 0 ? { ...again, error: `${first.error} (retried)` } : again;
+}
+
+async function getOnce(path) {
   const t0 = Date.now();
   try {
     const r = await fetch(BASE + path, {

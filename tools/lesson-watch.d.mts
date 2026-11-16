@@ -101,3 +101,10 @@ export declare function settleImportance(
     log?: (row: Record<string, unknown>) => void;
   }
 ): Promise<{ r: SpineReply; rb: ReadBack | null; asked: number; landed: Array<number | null>; tooHigh: boolean }>;
+export declare const RELAY_MAX_IMPORTANCE: number;
+export declare function relayOnce(o: {
+  pull: () => Promise<{ status: number; body: any; error?: string }>;
+  postCard: (card: WatchCard) => Promise<{ r: { status: number; body: any }; skipped?: boolean }>;
+  ack: (items: Array<{ ref: string; updated_at: number; spine_id: string }>) => Promise<{ status: number; body: any; error?: string }>;
+  log?: (row: Record<string, unknown>) => void;
+}): Promise<{ ok: boolean; pulled: number; posted: number; skipped: number; failed: number; acked: number }>;

@@ -364,6 +364,25 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       request<StudentDailyRow[]>('GET', `/v1/admin/students/${enc(playerId)}/daily?days=${days}`, op),
     daily: (op: string, day?: string) =>
       request<DailySummary>('GET', `/v1/admin/daily${day ? `?day=${enc(day)}` : ''}`, op),
+    /**
+     * Operator CSV export (edge export-csv.ts). It needs the Bearer token, so it cannot be a plain link: the console
+     * fetches the file and saves the blob. Without `day` the server uses today in KST.
+     */
+    exportCsv: async (op: string, kind: 'utterances' | 'lesson-minutes', day?: string): Promise<{ blob: Blob; filename: string }> => {
+      const path = `/v1/admin/export/${kind}.csv${day ? `?day=${enc(day)}` : ''}`;
+      let res: Response;
+      try {
+        res = await doFetch(`${base}${path}`, { method: 'GET', headers: { authorization: `Bearer ${op}` }, cache: 'no-store' });
+      } catch {
+        throw new LessonApiError(NETWORK_ERROR_CODE, 0);
+      }
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: unknown } | null;
+        throw new LessonApiError(typeof data?.error === 'string' ? data.error : `http_${res.status}`, res.status);
+      }
+      const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1];
+      return { blob: await res.blob(), filename: name ?? `lcw-${kind}.csv` };
+    },
     join: (code: string) => request<JoinResult>('POST', '/v1/join', null, { code }),
     /** mic: this tab's one-time lesson mic check (sessionStorage lcw.micStatus, set by the 3D screen), for the console. */
     lessonState: (studentToken: string, mic?: string | null) =>

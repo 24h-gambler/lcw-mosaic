@@ -1,10 +1,11 @@
 /** Korean UI copy for the web UX additions (AGENTS.md 6: no inline screen strings). Child screens carry no price, payment or deadline. */
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
 
 export const WEB_UX_STRINGS_KO = {
   site: {
     nav: {
       home: '소개',
-      try: '5분 체험',
+      try: `${FREE_PLAY_LIMITS.tryMinutes}분 체험`,
       parents: '학부모',
       teachers: '과외',
       safety: '안전·개인정보',
@@ -20,7 +21,7 @@ export const WEB_UX_STRINGS_KO = {
       { title: '② 문장이 자란다', body: '★★★ so that I can fly' },
       { title: '③ 세계가 넓어진다', body: '하늘섬, 우주 정거장' }
     ],
-    tryCta: '지금 5분 체험: 설치도 가입도 없이 음료 한 잔 주문해 보기',
+    tryCta: `지금 ${FREE_PLAY_LIMITS.tryMinutes}분 체험: 설치도 가입도 없이 음료 한 잔 주문해 보기`,
     openGame: '월드 열기',
     sendToParent: '부모님께 소개 보내기',
     linkCopied: '소개 링크를 복사했어요. 부모님께 보내 주세요.'
@@ -130,6 +131,11 @@ export const LESSON_STRINGS_KO = {
     studentsEmpty: '아직 등록한 학생이 없어요. 아래에서 새 학생을 등록해 주세요.',
     refresh: '새로 고침',
     loading: '불러오는 중…',
+    csvToday: '오늘 기록 CSV 받기',
+    csvMinutes: '오늘 진행표 CSV',
+    csvBusy: '받는 중…',
+    csvHelp: '오늘(한국 시간) 발화 기록과 분 단위 진행표를 엑셀에서 여는 CSV 로 받아요. 아이는 별명·id 로만 적혀요.',
+    csvFailed: (code: string) => `CSV 를 받지 못했어요 (${code}). 다시 눌러 주세요.`,
     retry: '다시 시도',
     colNickname: '별명',
     colLevel: '수준',

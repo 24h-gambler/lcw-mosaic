@@ -2,6 +2,14 @@
 // the worker's error stream, and write a short summary plus alerts. Read only toward LCW: the only HTTP verb sent to
 // the LCW app is GET, and `wrangler tail` only listens (the one write is the alert card to our own spine, below).
 //
+// --relay (Dan 11-16 12:10, the default of the scheduled task since then): no live checks and no tail. The LCW server
+//   makes the hub cards itself (apps/edge/src/ops-cards.ts: the after-lesson summary and the student's daily record)
+//   and keeps them in an outbox; the spine is on a private tailnet the Worker cannot reach, so this relays them: every
+//   --every minutes in the window (and once after it) it pulls GET /v1/admin/outbox/cards, posts each card to the
+//   spine with the same source-adjustment walk and ceiling as below (never above the card's importance, never above
+//   2), and acks it (POST /v1/admin/outbox/cards/ack, the one write to LCW). A failed ack only means the card goes
+//   again: the spine rewrites the open card with the same ref in place. docs/09-ops.md "운영 카드".
+//
 //   node tools/lesson-watch.mjs [--from 15:00] [--to 17:00] [--every 15] [--once] [--include-test] [--no-tail]
 //                               [--base https://lcw.worldwidesomething.com] [--token-file <path>] [--out <dir>]
 //
@@ -54,6 +62,7 @@ const WORKER = opt('worker', 'lcw');
 const SPINE = opt('spine', 'https://home-pc-vm.tail0c44c8.ts.net').replace(/\/$/, '');
 const SPINE_TOKEN_FILE = opt('spine-token-file', process.env.DANOS_TOKEN_FILE || 'C:/Users/2idki/automation/secrets/danos-automation.token');
 const TEST_CARD = flag('test-card');
+const RELAY = flag('relay');
 const CARDS = !TEST_CARD && (ONCE ? flag('cards') : !flag('no-cards'));
 
 /** Thresholds for alerts. */
@@ -98,6 +107,21 @@ async function get(path) {
     return { status: r.status, ms: Date.now() - t0, body };
   } catch (e) {
     return { status: 0, ms: Date.now() - t0, body: null, error: String(e?.message ?? e).slice(0, 120) };
+  }
+}
+
+/** --relay only: the outbox ack (POST /v1/admin/outbox/cards/ack), the one write this tool sends to LCW. */
+async function postLcw(path, body) {
+  try {
+    const r = await fetch(BASE + path, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000)
+    });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch (e) {
+    return { status: 0, body: null, error: String(e?.message ?? e).slice(0, 120) };
   }
 }
 
@@ -828,8 +852,107 @@ function atToday(hhmm) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 
+/** Outbox cards are never relayed above this (3 is the urgent channel; the server makes 2 and 1). */
+export const RELAY_MAX_IMPORTANCE = 2;
+
+/**
+ * One relay pass (see --relay in the header): pull the LCW card outbox, post each card through `postCard` (the
+ * adjustment walk), ack what reached the spine. Pure but for the injected calls, for tests. A card the walk skipped
+ * (it could only land above its importance) or that failed is not acked: it goes again on the next pass. A card that
+ * is not ours (another source, a ref that does not match) is never posted.
+ */
+export async function relayOnce({ pull, postCard, ack, log = () => {} }) {
+  const out = { ok: true, pulled: 0, posted: 0, skipped: 0, failed: 0, acked: 0 };
+  const box = await pull();
+  if (box.status !== 200 || !Array.isArray(box.body?.cards)) {
+    log({ key: 'relay_pull_error', status: box.status, error: box.error ?? null });
+    return { ...out, ok: false };
+  }
+  const acks = [];
+  for (const it of box.body.cards) {
+    out.pulled++;
+    const card = it?.card;
+    if (!card || card.source !== CARD_SOURCE || card.ref !== it.ref || typeof it.updated_at !== 'number' || typeof card.importance !== 'number') {
+      out.failed++;
+      log({ key: 'relay_bad_card', ref: typeof it?.ref === 'string' ? it.ref.slice(0, 200) : null });
+      continue;
+    }
+    const capped = { ...card, importance: Math.max(0, Math.min(RELAY_MAX_IMPORTANCE, Math.trunc(card.importance))) };
+    const res = await postCard(capped);
+    if (res.skipped) {
+      out.skipped++;
+      continue;
+    }
+    if (res.r?.status !== 201 || !res.r.body?.id) {
+      out.failed++;
+      log({ key: 'card_error', ref: card.ref, status: res.r?.status ?? 0 });
+      continue;
+    }
+    out.posted++;
+    acks.push({ ref: it.ref, updated_at: it.updated_at, spine_id: String(res.r.body.id).slice(0, 64) });
+  }
+  if (acks.length) {
+    const a = await ack(acks);
+    if (a.status === 200) out.acked = Number(a.body?.acked ?? 0);
+    else log({ key: 'relay_ack_error', status: a.status, error: a.error ?? null });
+  }
+  out.ok = out.failed === 0 && out.acked === acks.length;
+  return out;
+}
+
+/** --relay: one pass against the real LCW outbox and spine, the adjustment read once per pass. */
+async function relayTick() {
+  let adj = null;
+  const r = await relayOnce({
+    pull: () => get('/v1/admin/outbox/cards?limit=50'),
+    postCard: async (card) => {
+      adj ??= await readAdjust((p) => spine('GET', p), Date.now());
+      return postChecked(card, card.importance >= SUMMARY_IMPORTANCE ? SUMMARY_SETTLE : LESSON_SETTLE, adj);
+    },
+    ack: (items) => postLcw('/v1/admin/outbox/cards/ack', { items }),
+    log: (row) => write('lesson-watch-alerts.jsonl', { at: stamp(), ...row })
+  });
+  write(`lesson-watch-relay-${day()}.jsonl`, { at: stamp(), ...r, adjust: adj });
+  console.log(`${stamp().slice(11, 16)} RELAY pulled ${r.pulled} posted ${r.posted} acked ${r.acked} skipped ${r.skipped} failed ${r.failed}`);
+  return r;
+}
+
+async function relayMain() {
+  // Let fetch's handles close before exiting: process.exit right after a fetch can abort node on Windows
+  // (libuv async.c assertion, exit 0xC0000409), seen in the relay probe 11-16.
+  if (ONCE) {
+    const r = await relayTick();
+    await sleep(500);
+    process.exit(r.ok ? 0 : 1);
+  }
+  const from = atToday(FROM);
+  const to = atToday(TO);
+  if (Date.now() > to) {
+    console.error(`--to ${TO} has already passed today`);
+    process.exit(2);
+  }
+  await relayTick().catch((e) => console.error('relay failed', e));
+  const step = EVERY_MIN * 60_000;
+  let next = Math.max(from, Date.now() + 1000);
+  if (next > from) next = from + Math.ceil((next - from) / step) * step;
+  while (next <= to) {
+    await sleep(next - Date.now());
+    await relayTick().catch((e) => console.error('relay failed', e));
+    next += step;
+  }
+  // One more pass after the window: a lesson that ended at the last minute.
+  await sleep(60_000);
+  const last = await relayTick().catch((e) => {
+    console.error('relay failed', e);
+    return { ok: false };
+  });
+  console.log('relay window ended');
+  await sleep(500);
+  process.exit(last.ok ? 0 : 1);
+}
+
 async function main() {
-  if (CARDS || TEST_CARD) {
+  if (CARDS || TEST_CARD || RELAY) {
     if (!existsSync(SPINE_TOKEN_FILE)) {
       console.error(`spine token file not found: ${SPINE_TOKEN_FILE} (or run with --no-cards)`);
       process.exit(2);
@@ -843,6 +966,7 @@ async function main() {
   }
   TOKEN = readFileSync(TOKEN_FILE, 'utf8').trim();
   mkdirSync(OUT, { recursive: true });
+  if (RELAY) return relayMain();
   if (ONCE) {
     // One look (no tail unless asked to listen): exit 1 when that look has an alert.
     if (TAIL) {

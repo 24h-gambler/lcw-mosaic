@@ -225,7 +225,47 @@ export const LESSON_STRINGS_KO = {
     endedElsewhereHelp: '다른 기기에서 끝낸 수업이에요. 이미 만든 부모님 리포트 링크를 그대로 가져와요(새로 만들지 않아요).',
     fetchReport: '리포트 링크 가져오기',
     resumeRefresh: '다시 보기',
-    resumeNote: '진행 중이던 수업을 이어서 보여 드려요.'
+    resumeNote: '진행 중이던 수업을 이어서 보여 드려요.',
+    /** Subscription controls on each student row (DirectorSeats.tsx). Money is never collected here. */
+    seat: {
+      col: '구독',
+      plan: { solo: '혼자', duo: '둘이', tutoring: '과외' } as Record<string, string>,
+      none: '구독 없음',
+      active: (plan: string, until: string) => `${plan} 구독 중 · ${until}까지`,
+      expiring: (plan: string, until: string, left: string) => `${plan} 구독 중 · ${until}까지 · ${left}`,
+      ended: (plan: string, state: string, until: string) => `${plan} · ${state} · ${until} 끝남`,
+      refunded: (plan: string, state: string) => `${plan} · ${state}`,
+      manage: '구독 관리',
+      close: '닫기',
+      title: (name: string) => `${name} 구독`,
+      period: (from: string, to: string) => `기간 ${from} ~ ${to}`,
+      start: '시작일',
+      end: '종료일',
+      endHint: '종료일을 뒤로 고르고 저장하면 그날까지 연장돼요. 앞으로 당기면 그날 끝나요.',
+      saveDates: '날짜 저장',
+      extendMonth: '1개월 연장',
+      stop: '중지',
+      stopConfirm: '지금 바로 중지할까요? 혼자 하기가 멈추고 30일 동안 보기만 돼요. 환불은 따로 처리돼요.',
+      issue: '과외 좌석 발급 (0원)',
+      issueHint: '과외에 포함된 좌석이라 결제는 없어요. 한 달 동안 열려요.',
+      refundedNote: '환불된 좌석이에요. 새로 시작하려면 과외 좌석을 발급해 주세요.',
+      busy: '저장하는 중…',
+      saved: (until: string) => `저장했어요 · ${until}까지`,
+      extended: (until: string) => `연장했어요 · ${until}까지`,
+      stopped: '중지했어요. 부모님 화면에도 바로 보여요.',
+      issued: (until: string) => `과외 좌석을 발급했어요 · ${until}까지`,
+      loadError: '구독 정보를 못 불러왔어요.',
+      err: {
+        already_refunded: '환불된 좌석이라 바꿀 수 없어요.',
+        ends_before_starts: '종료일은 시작일보다 뒤여야 해요.',
+        date_too_far: '너무 먼 날짜예요. 3년 안으로 골라 주세요.',
+        already_ended: '이미 끝난 좌석이에요.',
+        seat_exists: '이미 이용 중인 좌석이 있어요.',
+        payer_not_found: '보호자 계정이 없어 발급할 수 없어요. 먼저 부모님 연결을 해 주세요.',
+        invalid: '날짜를 다시 골라 주세요.'
+      } as Record<string, string>,
+      errGeneric: (code: string) => `저장하지 못했어요 (${code}).`
+    }
   },
   join: {
     title: '수업 들어가기',

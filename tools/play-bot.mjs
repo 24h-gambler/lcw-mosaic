@@ -46,6 +46,16 @@ const toasts = () => page.$$eval('[data-play="toast"]', (ts) => ts.map((t) => t.
 await page.goto(`${base}/world/`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 120000 });
 await page.waitForFunction(() => !document.body.innerText.includes('마을을 짓는 중'), null, { timeout: 120000 }).catch(() => {});
+// the title screen (start/StartFlow): a new child makes a world (name + picks) and goes in; a returning one continues.
+// The play card must not show over the title.
+for (let i = 0; i < 8; i++) {
+  const b = page.getByRole('button', { name: /^(내 월드 만들기|만들기|들어가기|시작하기|.+ 가기|.+ 열기)$/ }).first();
+  // making a world takes a few seconds on a busy machine: wait for the next step's button before deciding it is over
+  if (!(await b.waitFor({ state: 'visible', timeout: 12000 }).then(() => true).catch(() => false))) break;
+  if (i === 0) mark('title', { play_card_over_title: (await page.$('[data-play="card"]')) !== null });
+  await b.click();
+  await page.waitForTimeout(2500);
+}
 // the first-visit guide may cover the screen: close it if it is there
 await page.waitForSelector('.lcw-firstvisit', { timeout: 15000 }).catch(() => {});
 await page.click('.lcw-firstvisit-go', { timeout: 3000 }).catch(() => {});
@@ -53,7 +63,10 @@ await page.waitForTimeout(1200);
 mark('spawn', { scene: await scene() });
 
 // 1. the card and its 가기 button (no suit yet -> the tailor)
-await page.waitForSelector('[data-play="card"]', { timeout: 20000 });
+await page.waitForSelector('[data-play="card"]', { timeout: 20000 }).catch(async (e) => {
+  await shot('59-no-card');
+  throw e;
+});
 await page.click('[data-play="card"]');
 await page.waitForSelector('[data-play="card-body"]');
 await page.waitForTimeout(600);

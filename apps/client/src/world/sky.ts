@@ -56,17 +56,52 @@ uniform vec3 uTop;
 uniform vec3 uHorizon;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
+uniform float uNight;
 varying vec3 vDir;
+float lcwHash(vec3 p) {
+  p = fract(p * 0.3183099 + 0.1);
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
 void main() {
-  float h = clamp(vDir.y, -1.0, 1.0);
-  float t = pow(clamp(h, 0.0, 1.0), 0.55);
+  vec3 dir = normalize(vDir);
+  float h = clamp(dir.y, -1.0, 1.0);
+  float t = pow(clamp(h, 0.0, 1.0), 0.45);
   vec3 col = mix(uHorizon, uTop, t);
-  col = mix(col, uHorizon * 0.92, clamp(-h * 3.0, 0.0, 1.0));
-  float s = max(dot(normalize(vDir), normalize(uSunDir)), 0.0);
-  col += uSunColor * (pow(s, 900.0) * 1.6 + pow(s, 40.0) * 0.18);
+  col = mix(col, uHorizon * 0.82, clamp(-h * 4.0, 0.0, 1.0));
+  vec3 sd = normalize(uSunDir);
+  float mu = dot(dir, sd);
+  // forward (Mie) glow around the sun and the warm horizon band toward it
+  float day = 1.0 - uNight * 0.8;
+  float mie = pow(max(mu, 0.0), 8.0) * 0.28 + pow(max(mu, 0.0), 90.0) * 0.7;
+  float band = pow(1.0 - abs(h), 6.0) * pow(max(mu * 0.5 + 0.5, 0.0), 3.0);
+  col += uSunColor * (mie * day + band * 0.25 * day);
+  // the sun's disc by day, the moon's by night
+  float disc = smoothstep(0.99955, 0.99975, mu);
+  col += uSunColor * disc * mix(7.0, 1.1, uNight);
+  // stars: sparse hashed points, only above the horizon at night
+  if (uNight > 0.01 && h > 0.02) {
+    vec3 p = dir * 260.0;
+    vec3 cell = floor(p);
+    float r = lcwHash(cell);
+    float star = step(0.9972, r) * smoothstep(0.42, 0.0, length(fract(p) - 0.5));
+    col += vec3(0.85, 0.9, 1.0) * star * uNight * (0.6 + 0.9 * lcwHash(cell + 3.1)) * smoothstep(0.02, 0.25, h);
+  }
   gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
+
+const GROUND = new THREE.Color(0x6a5c44);
+
+/** 0 by day .. 1 at night, smooth over dusk and dawn. */
+export function nightOf(hour: number): number {
+  const h = ((hour % 24) + 24) % 24;
+  if (h >= 7 && h <= 17.5) return 0;
+  if (h > 17.5 && h < 20) return (h - 17.5) / 2.5;
+  if (h >= 4.5 && h < 7) return 1 - (h - 4.5) / 2.5;
+  return 1;
+}
 
 export class Sky {
   readonly dome: THREE.Mesh;
@@ -88,7 +123,8 @@ export class Sky {
         uTop: { value: new THREE.Color() },
         uHorizon: { value: new THREE.Color() },
         uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3) },
-        uSunColor: { value: new THREE.Color() }
+        uSunColor: { value: new THREE.Color() },
+        uNight: { value: 0 }
       },
       vertexShader: SKY_VERT,
       fragmentShader: SKY_FRAG,
@@ -117,6 +153,7 @@ export class Sky {
   /** Puffy rounded clouds as ONE instanced draw (26 clouds, 3–6 soft boxes each). */
   private buildClouds(): void {
     const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xfff9ee, emissiveIntensity: 0.45, fog: false });
+    this.cloudMat = mat;
     let seed = 17;
     const rnd = (): number => {
       seed = (seed * 16807) % 2147483647;
@@ -162,25 +199,52 @@ export class Sky {
 
   apply(): void {
     const s = skyAt(this.hour);
+    const night = nightOf(this.hour);
+    this.night = night;
     this.mat.uniforms.uTop!.value.copy(s.top);
     this.mat.uniforms.uHorizon!.value.copy(s.horizon);
     this.mat.uniforms.uSunColor!.value.copy(s.sun);
+    this.mat.uniforms.uNight!.value = night;
     this.fog.color.copy(s.horizon);
-    this.hemi.color.copy(s.horizon).lerp(new THREE.Color(0xffffff), 0.3);
-    this.hemi.intensity = 0.55 + s.ambient * 1.1;
+    // fog toward the sun: lit haze (aerial perspective), warmer at dawn and dusk
+    this.fogSun.copy(s.horizon).lerp(s.sun, 0.55).multiplyScalar(1.0 + (1 - night) * 0.25);
+    this.haze = 0.0035 + night * 0.004;
+    this.hemi.color.copy(s.horizon).lerp(s.top, 0.35).lerp(new THREE.Color(0xffffff), 0.15);
+    this.hemi.groundColor.copy(GROUND).lerp(new THREE.Color(0x1a2030), night * 0.8);
+    // never black at night (docs/08 6.3): a blue moonlit fill, the lanterns carry the warm light
+    this.hemi.intensity = 0.45 + s.ambient * 1.25;
     this.sun.color.copy(s.sun);
+    // clouds take the light of the hour: white by day, peach at dusk, dim blue-grey at night
+    this.cloudMat?.color.copy(s.sun).lerp(s.horizon, 0.35).multiplyScalar(0.55 + (1 - night) * 0.45);
+    this.cloudMat?.emissive.copy(s.horizon).lerp(s.top, 0.3);
+    if (this.cloudMat) this.cloudMat.emissiveIntensity = 0.12 + (1 - night) * 0.3;
+    this.exposure = 1.05 + night * 0.35;
+    this.lamp = 1 + night * 0.7;
     // Sun arc: rises east (+x), sets west; a bit south so building fronts are lit.
     const a = ((this.hour - 6) / 12) * Math.PI;
     const dir = new THREE.Vector3(Math.cos(a) * 0.75, Math.max(0.12, Math.sin(a)), 0.45).normalize();
     if (this.hour < 5 || this.hour > 19) dir.set(-0.3, 0.8, 0.4).normalize();
     this.mat.uniforms.uSunDir!.value.copy(dir);
-    this.sun.intensity = s.ambient * 2.8;
+    this.sun.intensity = night > 0.5 ? 0.5 : s.ambient * 3.1;
     this.sunDir.copy(dir);
   }
 
   readonly sunDir = new THREE.Vector3(0.4, 0.8, 0.3);
+  /** fog colour toward the sun and the haze per metre (materials.ts) */
+  readonly fogSun = new THREE.Color();
+  haze = 0.004;
+  /** 0 by day .. 1 at night */
+  night = 0;
+  /** tone-mapping exposure for the hour (the engine copies it to the renderer) */
+  exposure = 1.05;
+  /** lantern brightness factor */
+  lamp = 1;
+  /** seconds since the sky was made (wind, water) */
+  time = 0;
+  private cloudMat: THREE.MeshLambertMaterial | null = null;
 
   update(dt: number, center: THREE.Vector3): void {
+    this.time += dt;
     if (this.timeFlows) {
       this.hour = (this.hour + (dt / (24 * 60)) * 24) % 24;
       this.apply();

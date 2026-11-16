@@ -84,7 +84,7 @@ describe('block table and atlas', () => {
     expect(blockLook(9999)).toBeDefined(); // unknown ids still draw (as a fallback cube) instead of crashing
   });
 
-  it('paints one 16x16 RGBA layer per tile, deterministically', () => {
+  it('paints one RGBA layer per tile, deterministically', () => {
     const a = buildAtlasPixels();
     const b = buildAtlasPixels();
     expect(a.length).toBe(TILE_NAMES.length * TILE_PX * TILE_PX * 4);
@@ -111,10 +111,23 @@ describe('greedy mesher', () => {
   it('darkens corners with ambient occlusion', () => {
     // a single block in a corner formed by two walls: some vertices must be darker than full light
     const m = meshChunk(vox((x, y, z) => ((x === 4 && z === 4 && y <= 1) || (y === 0 && x >= 3 && x <= 5 && z >= 3 && z <= 5) || (x === 5 && z === 4 && y === 1) ? BK.stone : 0)));
+    // color = (ambient occlusion, sky light, block light) per vertex; AO is the first channel
     let min = 1;
-    for (let i = 0; i < m.opaque.color.length; i++) min = Math.min(min, m.opaque.color[i]!);
+    for (let i = 0; i < m.opaque.color.length; i += 3) min = Math.min(min, m.opaque.color[i]!);
     expect(min).toBeLessThan(1);
     expect(min).toBeGreaterThanOrEqual(AO_CURVE[0]);
+  });
+
+  it('without a light grid every face is open sky and unlit by lamps (R2627 channels g, b)', () => {
+    const open = meshChunk(vox((x, y, z) => (y === 0 && x >= 0 && x < 16 && z >= 0 && z < 16 ? BK.stone : 0)));
+    let maxSky = 0;
+    let maxBlock = 0;
+    for (let i = 0; i < open.opaque.color.length; i += 3) {
+      maxSky = Math.max(maxSky, open.opaque.color[i + 1]!);
+      maxBlock = Math.max(maxBlock, open.opaque.color[i + 2]!);
+    }
+    expect(maxSky).toBeCloseTo(1, 5);
+    expect(maxBlock).toBe(0);
   });
 
   it('routes glass and water to the translucent pass and plants to cross quads', () => {

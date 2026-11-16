@@ -19,15 +19,18 @@ export interface TierSettings {
   antialias: boolean;
   /** frame target the governor holds (30 / 60 / 60) */
   targetFps: number;
-  /** block material: per-vertex `fast` shader, or `lit` (Lambert, receives sun shadows) */
-  material: 'fast' | 'lit';
+  /**
+   * block material (materials.ts): `fast` light per vertex, `fine` per pixel with normal / roughness maps, `lit`
+   * physically based with the sun's shadow map
+   */
+  material: 'fast' | 'fine' | 'lit';
   /** drifting clouds (one instanced draw) */
   clouds: boolean;
 }
 
 export const TIER_SETTINGS: Readonly<Record<WorldTier, TierSettings>> = {
   low: { viewChunks: 4, pixelScale: 0.75, minScale: 0.5, shadows: false, particles: 200, antialias: false, targetFps: 30, material: 'fast', clouds: false },
-  mid: { viewChunks: 6, pixelScale: 1.0, minScale: 0.6, shadows: false, particles: 400, antialias: false, targetFps: 60, material: 'fast', clouds: true },
+  mid: { viewChunks: 6, pixelScale: 1.0, minScale: 0.6, shadows: false, particles: 400, antialias: false, targetFps: 60, material: 'fine', clouds: true },
   high: { viewChunks: 8, pixelScale: 1.0, minScale: 0.75, shadows: true, particles: 600, antialias: true, targetFps: 60, material: 'lit', clouds: true }
 };
 

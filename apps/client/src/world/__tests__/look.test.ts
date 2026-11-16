@@ -1,11 +1,11 @@
 // LCW look and performance rules (WP-004, docs/08 6.1/6.2/6.6): tier budgets, the resolution governor, region
-// merging, the toy bevel table, the face sheet, and the town builder shared through sim-core.
+// merging, the block texture atlas, the face sheet, and the town builder shared through sim-core.
 import { describe, expect, it } from 'vitest';
 import { VoxelWorld, buildTown as simBuildTown, BK as SIM_BK } from '@lcw/sim-core';
 import { BLOCK_PALETTE } from '@lcw/content';
 import { TIER_SETTINGS, ResolutionGovernor } from '../tiers.js';
 import { REGION, mergeGeo } from '../chunks.js';
-import { tileBevel, TILE_PX } from '../atlas.js';
+import { TILE_PX, atlasMaterialSteps, tileAverageColor } from '../atlas.js';
 import { TILE_NAMES, BK, type TileName } from '../blocks.js';
 import { faceCell } from '../character.js';
 import { buildTown } from '../town.js';
@@ -22,13 +22,14 @@ describe('device tiers (docs/08 6.6)', () => {
     expect(mid.particles).toBeLessThan(high.particles);
   });
 
-  it('only the high tier pays for sun shadows, MSAA and the lit material', () => {
+  it('only the high tier pays for sun shadows, MSAA and the lit material; mid gets per-pixel normal maps', () => {
     expect(TIER_SETTINGS.low.shadows).toBe(false);
     expect(TIER_SETTINGS.mid.shadows).toBe(false);
     expect(TIER_SETTINGS.high.shadows).toBe(true);
     expect(TIER_SETTINGS.low.antialias || TIER_SETTINGS.mid.antialias).toBe(false);
     expect(TIER_SETTINGS.low.material).toBe('fast');
-    expect(TIER_SETTINGS.mid.material).toBe('fast');
+    expect(TIER_SETTINGS.mid.material).toBe('fine');
+    expect(TIER_SETTINGS.high.material).toBe('lit');
     expect(TIER_SETTINGS.low.clouds).toBe(false);
     expect(TIER_SETTINGS.low.targetFps).toBe(30);
   });
@@ -197,21 +198,53 @@ describe('region meshes', () => {
   });
 });
 
-describe('LCW toy-block look (docs/08 6.1)', () => {
-  it('atlas tiles are 32 px painted tiles', () => {
-    expect(TILE_PX).toBe(32);
+describe('LCW block look (docs/08 6.1, R2627)', () => {
+  const atlas = (() => {
+    const steps = atlasMaterialSteps();
+    for (;;) {
+      const r = steps.next();
+      if (r.done) return r.value;
+    }
+  })();
+  const layer = (n: string): number => {
+    expect(TILE_NAMES).toContain(n);
+    return TILE_NAMES.indexOf(n as TileName);
+  };
+  const S = TILE_PX * TILE_PX * 4;
+
+  it('atlas tiles are 64 px with an albedo and a material layer each', () => {
+    expect(TILE_PX).toBe(64);
+    expect(atlas.albedo.length).toBe(TILE_NAMES.length * S);
+    expect(atlas.material.length).toBe(TILE_NAMES.length * S);
   });
 
-  it('solid blocks get the full rounded bevel, ground a soft one, cut-outs none', () => {
-    const name = (n: string): TileName => {
-      expect(TILE_NAMES).toContain(n);
-      return n as TileName;
+  it('surfaces have relief: the normal map is not flat on stone, brick and planks', () => {
+    for (const n of ['stone', 'brick', 'plank']) {
+      const base = layer(n) * S;
+      let off = 0;
+      for (let i = base; i < base + S; i += 4) if (Math.abs(atlas.material[i]! - 128) > 6 || Math.abs(atlas.material[i + 1]! - 128) > 6) off++;
+      expect(off / (TILE_PX * TILE_PX)).toBeGreaterThan(0.05);
+    }
+  });
+
+  it('roughness tells materials apart: glass and water are smoother than stone', () => {
+    const rough = (n: string): number => {
+      const base = layer(n) * S;
+      let sum = 0;
+      for (let i = base; i < base + S; i += 4) sum += atlas.material[i + 2]!;
+      return sum / (TILE_PX * TILE_PX);
     };
-    expect(tileBevel(name('plank'))).toBe(1);
-    expect(tileBevel(name('glass'))).toBe(0);
-    expect(tileBevel(name('leaves'))).toBe(0);
-    expect(tileBevel(name('grass_top'))).toBeGreaterThan(0);
-    expect(tileBevel(name('grass_top'))).toBeLessThan(1);
+    expect(rough('glass')).toBeLessThan(rough('stone'));
+    expect(rough('water')).toBeLessThan(rough('stone'));
+  });
+
+  it('grass reads green and water reads blue on average (minimap, debris)', () => {
+    const [gr, gg, gb] = tileAverageColor(atlas.albedo, layer('grass_top'));
+    expect(gg).toBeGreaterThan(gr);
+    expect(gg).toBeGreaterThan(gb);
+    const [wr, wg, wb] = tileAverageColor(atlas.albedo, layer('water'));
+    expect(wb).toBeGreaterThan(wr);
+    expect(wb + wg).toBeGreaterThan(wr * 2);
   });
 
   it('the shelf block is the LCW honey-jar shelf (no book-shelf block)', () => {

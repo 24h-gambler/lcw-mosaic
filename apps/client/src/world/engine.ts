@@ -5,11 +5,12 @@
 import * as THREE from 'three';
 import { VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
-import { atlasSteps, TILE_PX } from './atlas.js';
+import { atlasMaterialSteps, TILE_PX } from './atlas.js';
+import { PostChain } from './post.js';
 import { TILE_NAMES, blockLook } from './blocks.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import { ChunkRenderer } from './chunks.js';
-import { makeBlockMaterials } from './materials.js';
+import { makeBlockMaterials, type BlockMaterialMode } from './materials.js';
 import { AutoTierPicker, ResolutionGovernor, TIER_SETTINGS, graphicsFor } from './tiers.js';
 import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
@@ -219,6 +220,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let governor = new ResolutionGovernor({ pixelScale: gfx.renderScale, minScale: gfx.minScale, targetFps: gfx.targetFps });
   renderer.setPixelRatio(basePixelRatio * governor.scale);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // filmic tone mapping for every material (R2627): highlights roll off instead of clipping; exposure follows the hour
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  // draw calls are counted over the whole frame (post passes included), reset once per frame
+  renderer.info.autoReset = false;
   renderer.shadowMap.enabled = gfx.shadows;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
@@ -242,23 +248,32 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     sky.sun.shadow.normalBias = 0.04;
   }
 
-  const atlasPixels = await runSliced(atlasSteps());
-  const atlas = new THREE.DataArrayTexture(atlasPixels, TILE_PX, TILE_PX, TILE_NAMES.length);
-  atlas.format = THREE.RGBAFormat;
-  atlas.type = THREE.UnsignedByteType;
-  // Soft painted toy look: linear filtering on 32 px tiles (array layers never bleed into each other).
-  atlas.magFilter = THREE.LinearFilter;
-  atlas.minFilter = THREE.LinearMipmapLinearFilter;
-  // anisotropic filtering only where the GPU has room (it is expensive on tablets and software GL)
-  if (opts.tier === 'high') atlas.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-  atlas.generateMipmaps = true;
-  atlas.colorSpace = THREE.SRGBColorSpace;
-  atlas.needsUpdate = true;
+  // Block textures (textures.ts, R2627): albedo (sRGB) and material (normal, roughness, metal; linear) atlases, 64 px.
+  const atlasData = await runSliced(atlasMaterialSteps());
+  const atlasPixels = atlasData.albedo;
+  const arrayTex = (px: Uint8Array<ArrayBuffer>, srgb: boolean): THREE.DataArrayTexture => {
+    const t = new THREE.DataArrayTexture(px, TILE_PX, TILE_PX, TILE_NAMES.length);
+    t.format = THREE.RGBAFormat;
+    t.type = THREE.UnsignedByteType;
+    // array layers never bleed into each other; linear + mipmaps keep the far ground calm
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    // anisotropic filtering only where the GPU has room (it is expensive on tablets and software GL)
+    if (opts.tier === 'high') t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    else if (opts.tier === 'mid') t.anisotropy = Math.min(2, renderer.capabilities.getMaxAnisotropy());
+    t.generateMipmaps = true;
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  const atlas = arrayTex(atlasData.albedo, true);
+  const atlasMat = arrayTex(atlasData.material, false);
   mark('atlas');
   /** Block materials per mode, made once each (a tier change swaps them on every chunk mesh). */
-  const matsByMode: Partial<Record<'fast' | 'lit', ReturnType<typeof makeBlockMaterials>>> = {};
-  const matsFor = (mode: 'fast' | 'lit') => (matsByMode[mode] ??= makeBlockMaterials(atlas, mode));
-  const materialModeOf = (t: WorldTier, shadows: boolean): 'fast' | 'lit' => (t === 'high' || shadows ? 'lit' : 'fast');
+  const matsByMode: Partial<Record<BlockMaterialMode, ReturnType<typeof makeBlockMaterials>>> = {};
+  const matsFor = (mode: BlockMaterialMode) => (matsByMode[mode] ??= makeBlockMaterials({ albedo: atlas, material: atlasMat }, mode));
+  // the tier's material (low: per-vertex, mid: per-pixel with the material atlas, high: PBR); sun shadows need PBR
+  const materialModeOf = (t: WorldTier, shadows: boolean): BlockMaterialMode => (shadows ? 'lit' : TIER_SETTINGS[t].material);
   let chunkMats = matsFor(materialModeOf(tierName, gfx.shadows));
   const workerCount = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
   const chunks = new ChunkRenderer(world, chunkMats, workerCount, () =>
@@ -1134,12 +1149,26 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     viewW = w;
     viewH = h;
     renderer.setSize(w, h, false);
+    post?.setSize(w, h, renderer.getPixelRatio());
     camera.aspect = w / Math.max(1, h);
     camera.fov = camera.aspect < 0.8 ? 80 : 70;
     applyViewInset();
     camera.updateProjectionMatrix();
   };
+  /** bloom and the colour grade (post.ts): the high tier only */
+  let post: PostChain | null = null;
+  const syncPost = (): void => {
+    const want = tierName === 'high';
+    if (want && !post) {
+      post = new PostChain(renderer, scene, camera);
+      post.setSize(viewW, viewH, renderer.getPixelRatio());
+    } else if (!want && post) {
+      post.dispose();
+      post = null;
+    }
+  };
   resize();
+  syncPost();
   window.addEventListener('resize', resize);
   // the canvas can also change size without a window resize (panels, rotation on some tablets)
   const resizeObs = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null;
@@ -1168,6 +1197,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       });
     }
     sky.clouds.visible = next.clouds;
+    syncPost();
     if (next.renderScale !== gfx.renderScale || next.minScale !== gfx.minScale || next.targetFps !== gfx.targetFps) {
       governor = new ResolutionGovernor({ pixelScale: next.renderScale, minScale: next.minScale, targetFps: next.targetFps });
       renderer.setPixelRatio(basePixelRatio * governor.scale);
@@ -1551,7 +1581,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       nowMs
     );
 
-    renderer.render(scene, camera);
+    renderer.info.reset();
+    renderer.toneMappingExposure = sky.exposure;
+    if (post) post.render();
+    else renderer.render(scene, camera);
     lastStats = { draw: renderer.info.render.calls, tris: renderer.info.render.triangles };
     if (camMode === 'first' && !(paused && focusNpc) && !attract) {
       hands.update(dt, body.onGround ? Math.hypot(body.vx, body.vz) : 0, camera.aspect, camera.fov);
@@ -1600,6 +1633,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   };
   try {
     renderer.initTexture(atlas);
+    renderer.initTexture(atlasMat);
   } catch {
     /* uploaded by the first render instead */
   }
@@ -1782,6 +1816,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       buildView.dispose();
       storefronts.dispose();
       wayfinder.dispose();
+      post?.dispose();
       chunks.dispose();
       VoxelCharacter.shadows = null;
       sfx.dispose();

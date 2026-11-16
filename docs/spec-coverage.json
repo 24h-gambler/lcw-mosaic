@@ -4736,7 +4736,7 @@
         "apps/client/src/world/engine.ts:233",
         "apps/client/src/world/town.ts:7"
       ],
-      "note": "결정론 sim-core 를 클라이언트·서버가 공유, bitecs ECS 없음, Worker 는 메싱만(월드젠·조명 아님)"
+      "note": "결정론 sim-core 를 클라이언트·서버가 공유, bitecs ECS 없음, Worker 는 메싱과 복셀 빛(R2627, 월드젠 아님)"
     },
     "C02.2.정적_호스팅": {
       "kind": "promise",
@@ -5389,13 +5389,16 @@
       "owner": "world",
       "tests": [
         "packages/sim-core/src/__tests__/sim-core.test.ts::WP-101 & WP-208: meshes a populated chunk in <4ms and propagates torch light in <8ms",
-        "packages/sim-core/src/__tests__/town-steps.test.ts::setBlock keeps the light registry exact and the zones for players"
+        "packages/sim-core/src/__tests__/town-steps.test.ts::setBlock keeps the light registry exact and the zones for players",
+        "apps/client/src/world/__tests__/voxel-light.test.ts::a lantern lights its room, one level less per block, and walls stop it",
+        "apps/client/src/world/__tests__/voxel-light.test.ts::lighting one padded chunk stays inside the WP-208 budget (8 ms for a torch)"
       ],
       "evidence": [
         "packages/sim-core/src/chunk.ts:282",
+        "apps/client/src/world/voxel-light.ts:43",
         "apps/client/src/world/blocks.ts:29"
       ],
-      "note": "광원 BFS 전파는 sim-core 함수(개발 PC 8ms 시험)뿐. 3D 월드는 propagateBlockLight 를 안 쓰고 발광 블록 색조만, 횃불 설치 시 조명 갱신 없음"
+      "note": "R2627: 3D 월드도 메싱 Worker 에서 하늘빛·블록 빛 BFS 를 칸마다 계산(voxel-light.ts, 청크 + 둘레 6칸). 횃불·랜턴을 놓으면 빛이 닿는 청크를 다시 메싱해 갱신. 1청크 계산 8ms 이하 시험"
     },
     "WP-301": {
       "kind": "wp",

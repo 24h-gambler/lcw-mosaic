@@ -1,5 +1,5 @@
 import { DEVICE_TOKEN_KEY } from '../world/identity.js';
-import { createBrowserSpeechEngine, type MicIssue, type SpeechCallbacks, type SpeechEngine, type SpeechSession } from './speech.js';
+import { browserRecognitionCuts, clearRecognitionCuts, createBrowserSpeechEngine, type MicIssue, type SpeechCallbacks, type SpeechEngine, type SpeechSession } from './speech.js';
 import { readStudentToken } from './submit.js';
 
 /**
@@ -228,7 +228,21 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
  */
 export function createDialogSpeechEngine(): SpeechEngine {
   const browser = createBrowserSpeechEngine();
-  if (browser.availability().ok) return browser;
   const server = createServerSpeechEngine();
-  return server.availability().ok ? server : browser;
+  if (!browser.availability().ok) return server.availability().ok ? server : browser;
+  // A browser whose recognition kept cutting short (speech.ts RECOGNITION_KEEPALIVE) hands this device to Whisper;
+  // if the server rung refuses (quota, token), the mark is cleared so the next turn is the browser again.
+  if (!(browserRecognitionCuts() && server.availability().ok)) return browser;
+  return {
+    ...server,
+    start(cb) {
+      return server.start({
+        ...cb,
+        onError(issue) {
+          if (issue === 'unsupported') clearRecognitionCuts();
+          cb.onError(issue);
+        }
+      });
+    }
+  };
 }

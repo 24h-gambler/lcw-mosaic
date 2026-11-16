@@ -1908,6 +1908,21 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       });
       return true;
     },
+    debugPose(p) {
+      // headless screenshots (tools/visual-shots.mjs): the same spot, view and hour before and after a change
+      autopilot = [];
+      body.x = p.x;
+      body.z = p.z;
+      body.y = standHeight(world, p.x, p.z, Math.ceil(p.y ?? 40));
+      body.vx = body.vy = body.vz = 0;
+      playerYaw = camYaw = p.yaw;
+      camPitch = p.pitch ?? 0.3;
+      camInit = false;
+      if (p.hour !== undefined) {
+        sky.hour = p.hour;
+        sky.apply();
+      }
+    },
     getStats(): WorldStats {
       return {
         fps,

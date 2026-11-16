@@ -414,7 +414,8 @@ describe('player-facing strings', () => {
   it('picks 을/를 from the final consonant', () => {
     expect(objectParticle('꿀차')).toBe('를');
     expect(objectParticle('헬멧')).toBe('을');
-    expect(WORLD_STRINGS.itemGot('따뜻한 꿀차')).toBe('따뜻한 꿀차를 받았어요');
+    // the screen speaks English (world/lang.ts); the particle helper stays for the Korean help line
+    expect(WORLD_STRINGS.itemGot('warm honey tea')).toBe('You got warm honey tea!');
     expect(objectParticle('ABC')).toBe('을(를)');
   });
 });

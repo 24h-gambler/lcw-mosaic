@@ -21,7 +21,7 @@ import {
   type PassSession
 } from './guestPass.js';
 import { START_STRINGS as X } from './strings.js';
-import { injectStyle } from './StartFlow.js';
+import { Say, injectStyle, useHelpKo } from './StartFlow.js';
 
 type View = { kind: 'entering' } | { kind: 'active'; s: PassSession } | { kind: 'refused'; why: Exclude<PassRefusal, 'ended'> };
 
@@ -56,6 +56,7 @@ export function GuestPassLayer(props: {
   const [view, setView] = useState<View>(code ? { kind: 'entering' } : { kind: 'refused', why: 'not_found' });
   const [tries, setTries] = useState(0);
   const ended = useRef(false);
+  const help = useHelpKo();
   useEffect(() => injectStyle(), []);
   const end = useMemo(
     () => () => {
@@ -135,7 +136,9 @@ export function GuestPassLayer(props: {
   if (view.kind === 'entering') {
     return (
       <div className="lcw-invite lcw-card" role="status" aria-live="polite" data-testid="pass-entering">
-        <b>🎟️ {X.pass.entering}</b>
+        <b>
+          🎟️ <Say line={X.pass.entering} help={help} />
+        </b>
       </div>
     );
   }
@@ -150,15 +153,19 @@ export function GuestPassLayer(props: {
             : [X.pass.retry, X.pass.retryHint];
     return (
       <div className="lcw-invite lcw-card" role="alertdialog" data-testid={`pass-${view.why}`} style={{ top: '30%' }}>
-        <b>{title}</b>
-        <span>{hint}</span>
+        <b>
+          <Say line={title} help={help} />
+        </b>
+        <span>
+          <Say line={hint} help={help} />
+        </span>
         <div className="lcw-invite__row">
           <a className="lcw-btn" href="/world/">
-            {X.pass.home}
+            <Say line={X.pass.home} help={help} />
           </a>
           {view.why === 'retry' ? (
             <button type="button" className="lcw-btn lcw-btn--main" onClick={() => setTries((n) => n + 1)}>
-              {X.pass.again}
+              <Say line={X.pass.again} help={help} />
             </button>
           ) : null}
         </div>
@@ -167,7 +174,7 @@ export function GuestPassLayer(props: {
   }
   return (
     <div className="lcw-pass-chip" role="status" data-testid="pass-chip">
-      {X.pass.chip(view.s.hostNickname)}
+      <Say line={X.pass.chip(view.s.hostNickname)} help={help} />
     </div>
   );
 }

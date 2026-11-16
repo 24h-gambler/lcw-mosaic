@@ -223,7 +223,7 @@ export function sweepEndedGuestCells(
   now: number,
   drop: (playerId: string, grantId: string) => number,
   limit = GUEST_CELLS_SWEEP_LIMIT
-): { grants: number; cells: number } {
+): { grants: number; cells: number; failed: number } {
   sql.exec(GUEST_CELLS_SWEPT_SQL);
   const over = sql.all<{ id: string; player_id: string }>(
     `select g.id, s.player_id from guest_pass_grants g join seats s on s.id = g.seat_id
@@ -233,11 +233,18 @@ export function sweepEndedGuestCells(
     [now, limit]
   );
   let cells = 0;
+  let failed = 0;
   for (const g of over) {
-    cells += drop(g.player_id, g.id);
+    // one bad world never holds up the others; a failed grant is not marked, so the next day tries it again
+    try {
+      cells += drop(g.player_id, g.id);
+    } catch {
+      failed++;
+      continue;
+    }
     sql.run('insert or ignore into guest_cells_swept (grant_id, at) values (?, ?)', [g.id, now]);
   }
-  return { grants: over.length, cells };
+  return { grants: over.length - failed, cells, failed };
 }
 
 export interface GuardianRefLike {

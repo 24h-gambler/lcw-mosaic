@@ -516,6 +516,9 @@ export class PlatformDO {
         } catch (err) {
           guestCells = { error: err instanceof Error ? err.message : String(err) };
         }
+        // a failure shows on the ops runs as its own failed line (the retention task itself still ran)
+        const gc = guestCells as { error?: string; failed?: number };
+        if (gc.error || (gc.failed ?? 0) > 0) this.recordRun('daily_guest_cells', false, guestCells);
         detail = { purged_audio_without_consent: true, guest_cells: guestCells };
       } else if (cron === '0 6 * * 1') {
         task = 'weekly_parent_reports';

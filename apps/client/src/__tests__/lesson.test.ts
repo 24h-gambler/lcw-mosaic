@@ -444,6 +444,8 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(lessonGoneInWorld({ ...base, viewPhase: 'needs_code', controllerPhase: 'needs_code' })).toBe(true);
     expect(lessonGoneInWorld({ ...base, code: '123456', viewPhase: 'needs_code', controllerPhase: 'needs_code' })).toBe(false);
     expect(lessonGoneInWorld({ ...base, active: false, viewPhase: 'needs_code', controllerPhase: 'needs_code' })).toBe(false);
+    // a slow device hands the same session to /join?lite=1: the session must survive until that move
+    expect(lessonGoneInWorld({ ...base, lowTier: true, viewPhase: 'needs_code', controllerPhase: 'needs_code' })).toBe(false);
     const html = renderToStaticMarkup(React.createElement(LessonLayer, { world: null, search: '?code=123456' }));
     expect(html).toContain(LESSON_STRINGS_KO.code.title);
     const all = JSON.stringify(LESSON_STRINGS_KO);

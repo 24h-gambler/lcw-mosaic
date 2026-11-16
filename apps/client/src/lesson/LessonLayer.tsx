@@ -210,7 +210,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   // controller's own phase decides, not the rendered one: on mount the view still shows the initial 'needs_code' while
   // `start` has already resumed the saved session (live), and that session must not be dropped.
   useEffect(() => {
-    if (!lessonGoneInWorld({ code, active, viewPhase: view.phase, controllerPhase: ctl.state.phase })) return;
+    if (!lessonGoneInWorld({ code, active, lowTier, viewPhase: view.phase, controllerPhase: ctl.state.phase })) return;
     backToSolo?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.phase, active, code]);
@@ -610,9 +610,10 @@ export const LESSON_ENDED_BACK_MS = 8_000;
  * In the child's own world (no ?code=), a lesson that asks for a code is gone (expired session, ended lesson): back to
  * solo play. Both phases must say so: right after mount the rendered view is still the initial 'needs_code' while the
  * controller already resumed the saved session — dropping it there would undo every lesson that comes to the world.
+ * A low-tier device never starts the controller here (it goes to /join?lite=1 with the same session): never gone.
  */
-export function lessonGoneInWorld(s: { code: string | null; active: boolean; viewPhase: LessonView['phase']; controllerPhase: LessonView['phase'] }): boolean {
-  return !s.code && s.active && s.viewPhase === 'needs_code' && s.controllerPhase === 'needs_code';
+export function lessonGoneInWorld(s: { code: string | null; active: boolean; lowTier?: boolean; viewPhase: LessonView['phase']; controllerPhase: LessonView['phase'] }): boolean {
+  return !s.code && s.active && !s.lowTier && s.viewPhase === 'needs_code' && s.controllerPhase === 'needs_code';
 }
 
 /** How long the teacher's newest line shows over the dialog window. */

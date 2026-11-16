@@ -14,6 +14,14 @@ export const TEACHER_NPC_ID = 'teacher';
 /** One look for every teacher (no likeness of a real person): dark hair in a bun, a sky-blue cardigan. */
 export const TEACHER_LOOK: NpcLook = { skin: 0xf0c8a0, hair: 0x3a2a22, shirt: 0x3fa9f5, pants: 0x2f3b52, shoes: 0x3a4152, hairStyle: 'bun' };
 
+/**
+ * Can E, a tap or the dialog frame pick this NPC? The visiting teacher never: in a lesson E must reach the stage's
+ * NPC even with the teacher standing nearer (review of #86).
+ */
+export function pickableNpc(def: Pick<NpcDef, 'id' | 'soloOnly'>, lesson: boolean): boolean {
+  return def.id !== TEACHER_NPC_ID && !(lesson && def.soloOnly);
+}
+
 export function teacherDef(name: string): NpcDef {
   const clean = cleanTeacherName(name);
   return { id: TEACHER_NPC_ID, ctx: 'guide', nameKo: plateText(clean), nameEn: clean || 'Teacher', home: 'plaza', look: TEACHER_LOOK };
@@ -33,8 +41,8 @@ export function plateText(name: string): string {
 }
 
 /**
- * Where the teacher walks to: 2.4 m from the child, on the side away from where the child looks (so the teacher is
- * in view in first person, ahead-left). Returns null while the teacher is already close enough (no fidgeting).
+ * Where the teacher walks to: 2.4 m from the child, in front and 34° to one side of where the child looks (in view in
+ * first person, beside a stage NPC rather than between). Returns null while the teacher is already close enough.
  */
 export function teacherTarget(px: number, pz: number, playerYaw: number, tx: number, tz: number): [number, number] | null {
   const d = Math.hypot(tx - px, tz - pz);

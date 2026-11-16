@@ -410,10 +410,10 @@ export function App(): React.ReactElement {
   }, [world, startOpen, lessonOn, myLook]);
 
   const onLessonSession = useCallback((s: DeviceLessonSession) => {
-    // already in this lesson (a poll answered twice): keep the running layer
+    // the title closes either way; already in this lesson (a poll answered twice): keep the running layer
+    setStartOpen(false);
     if (loadStudentSession()?.lessonId === s.lessonId) return;
     saveStudentSession(s);
-    setStartOpen(false);
     setLessonKey((k) => k + 1);
   }, []);
 

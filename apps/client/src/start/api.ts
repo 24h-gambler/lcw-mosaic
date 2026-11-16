@@ -88,7 +88,8 @@ export async function liveLessonId(id: PlayerIdentity | null, fetchFn: FetchLike
     const res = await fetchFn(`${base}/v1/device/lesson`, { headers: auth(id.token), cache: 'no-store' });
     if (!res.ok) return null;
     const body = (await res.json()) as { live?: unknown; lesson_id?: unknown };
-    return body.live === true ? (typeof body.lesson_id === 'string' && body.lesson_id ? body.lesson_id : 'live') : null;
+    // no id, no auto-join: without it a running lesson cannot be told from the next one (it would join every poll)
+    return body.live === true && typeof body.lesson_id === 'string' && body.lesson_id ? body.lesson_id : null;
   } catch {
     return null;
   }

@@ -53,7 +53,16 @@ export function buildMyWorldApp(d: MyWorldDeps): Hono {
 
   app.post('/v1/my-world', async (c) => {
     // Read the body first: answering a POST before draining it breaks the next request on a kept-alive connection.
-    const body = (await c.req.json().catch(() => null)) as unknown;
+    // A choice is a few dozen bytes; anything over 2 KB is refused unread.
+    if (Number(c.req.header('content-length') ?? 0) > 2048) return c.json({ error: 'invalid_world_setup' }, 413);
+    const text = await c.req.text().catch(() => '');
+    if (text.length > 2048) return c.json({ error: 'invalid_world_setup' }, 413);
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
     const who = await d.soloPlayer(c.req.raw);
     if (!who) return c.json({ error: 'device_only' }, 401);
     const choice = readWorldChoice(body);

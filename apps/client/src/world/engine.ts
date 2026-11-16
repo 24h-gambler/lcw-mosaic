@@ -26,7 +26,7 @@ import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMi
 import { FirstPersonHands } from './viewmodel.js';
 import { Buddy } from './buddy.js';
 import { SeasonWeather } from './season.js';
-import { TEACHER_NPC_ID, disposePlate, makePlate, plateText, teacherDef, teacherTarget } from './visitor.js';
+import { TEACHER_NPC_ID, disposePlate, makePlate, pickableNpc, plateText, teacherDef, teacherTarget } from './visitor.js';
 import { WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
@@ -342,30 +342,48 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   /** Where the child looks (first and third person: the camera; mirror: the body), for who stands in view. */
   const viewYaw = (): number => (camMode === 'mirror' ? playerYaw : camYaw);
   /** The teacher's avatar near the child (NPC 'teacher' with a name plate); null removes it. The same name: kept. */
+  // One teacher figure for the page (a character claims a blob-shadow slot for good): shown and hidden, renamed by
+  // its plate only (review of #86: re-creating it on every presence beat leaked shadow slots and meshes).
+  let teacherRt: NpcRt | null = null;
   const showTeacher = (name: string | null): void => {
-    const old = npcs.get(TEACHER_NPC_ID);
-    if (old && name !== null && old.def.nameKo === teacherDef(name).nameKo) return;
-    if (old) {
-      scene.remove(old.char.root);
+    if (name === null) {
+      if (!teacherRt || !npcs.has(TEACHER_NPC_ID)) return;
       npcs.delete(TEACHER_NPC_ID);
-      if (nearNpc === old) nearNpc = null;
+      if (nearNpc === teacherRt) nearNpc = null;
+      if (focusNpc === teacherRt) focusNpc = null;
+      teacherRt.path = [];
+      teacherRt.char.root.visible = false;
+      // puts its shadow away (a hidden figure places a zero-size shadow)
+      teacherRt.char.update(0, { speed: 0, talking: false, lookYaw: 0 });
+      return;
     }
-    if (teacherPlate) {
-      disposePlate(teacherPlate);
-      teacherPlate = null;
-    }
-    if (name === null) return;
     const def = teacherDef(name);
-    const char = new VoxelCharacter(def.look);
-    scene.add(char.root);
+    if (!teacherRt) {
+      const char = new VoxelCharacter(def.look);
+      char.root.visible = false;
+      scene.add(char.root);
+      teacherRt = { def, ref: { id: def.id, ctx: def.ctx, nameKo: def.nameKo, nameEn: def.nameEn }, char, pos: new THREE.Vector3(), yaw: 0, homeYaw: 0, path: [], speed: 0, greeted: false };
+    }
+    const t = teacherRt;
+    if (!teacherPlate || t.def.nameKo !== def.nameKo) {
+      t.def = def;
+      t.ref = { id: def.id, ctx: def.ctx, nameKo: def.nameKo, nameEn: def.nameEn };
+      if (teacherPlate) {
+        t.char.root.remove(teacherPlate);
+        disposePlate(teacherPlate);
+      }
+      teacherPlate = makePlate(plateText(name));
+      teacherPlate.position.set(0, CHAR_HEIGHT + 0.3, 0);
+      t.char.root.add(teacherPlate);
+    }
+    if (npcs.has(TEACHER_NPC_ID)) return;
     const [x, z] = teacherTarget(body.x, body.z, viewYaw(), body.x, body.z) ?? [body.x + 2, body.z + 2];
-    const pos = new THREE.Vector3(x, standHeight(world, x, z, Math.ceil(body.y) + 2), z);
-    const yaw = Math.atan2(body.x - x, body.z - z);
-    npcs.set(TEACHER_NPC_ID, { def, ref: { id: def.id, ctx: def.ctx, nameKo: def.nameKo, nameEn: def.nameEn }, char, pos, yaw, homeYaw: yaw, path: [], speed: 0, greeted: false });
-    teacherPlate = makePlate(plateText(name));
-    teacherPlate.position.set(0, CHAR_HEIGHT + 0.3, 0);
-    char.root.add(teacherPlate);
-    char.wave();
+    t.pos.set(x, standHeight(world, x, z, Math.ceil(body.y) + 2), z);
+    t.yaw = t.homeYaw = Math.atan2(body.x - x, body.z - z);
+    t.path = [];
+    t.char.root.visible = true;
+    npcs.set(TEACHER_NPC_ID, t);
+    t.char.wave();
   };
   let weather: SeasonWeather | null = null;
   let disposed = false;
@@ -726,7 +744,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     let best: NpcRt | null = null;
     let bestD = Infinity;
     for (const n of npcs.values()) {
-      if (!npcTalkable(n.def, lessonMode) || n.def.id === TEACHER_NPC_ID) continue;
+      if (!pickableNpc(n.def, lessonMode)) continue;
       const hit = raycaster.ray.distanceSqToPoint(new THREE.Vector3(n.pos.x, n.pos.y + 1, n.pos.z));
       const along = raycaster.ray.origin.distanceTo(n.pos);
       if (hit < 0.6 && along < bestD) {
@@ -814,7 +832,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (focusNpc) return;
     let best = 6;
     for (const n of npcs.values()) {
-      if (!npcTalkable(n.def, lessonMode) || n.def.id === TEACHER_NPC_ID) continue;
+      if (!pickableNpc(n.def, lessonMode)) continue;
       const d = Math.hypot(n.pos.x - body.x, n.pos.z - body.z);
       if (d < best) {
         best = d;
@@ -1321,7 +1339,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       n.char.possessed = possessedId === n.def.id;
       n.char.update(dt, { speed: sp, talking: hud.bubbleTyping(n.def.id), lookYaw: look });
       // the visiting teacher is not an E/tap target: E and the dialog frame stay on the lesson's own NPCs
-      if (pd < nearD && Math.abs(body.y - n.pos.y) < 2.5 && n.def.id !== TEACHER_NPC_ID) {
+      if (pd < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode)) {
         nearD = pd;
         nearNpc = n;
       }
@@ -1547,6 +1565,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       }
       // null (a lesson, no world made): the town's own daytime, no weather, no animal friend
       sky.hour = look ? WORLD_TIME_HOUR[look.time] : skyDefaultHour;
+      // the sky repaints itself only while time flows: paint the chosen hour now (colours, sun, light)
+      sky.apply();
       if (!look) return;
       weather = new SeasonWeather(look.season, opts.tier === 'low' ? 240 : 480);
       scene.add(weather.points);
@@ -1580,6 +1600,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     dispose() {
       disposed = true;
       hands.dispose();
+      if (teacherPlate) disposePlate(teacherPlate);
       buddy?.dispose();
       weather?.dispose();
       cancelAnimationFrame(raf);

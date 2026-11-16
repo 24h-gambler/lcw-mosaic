@@ -147,26 +147,30 @@ export function StartFlow(props: StartFlowProps): React.ReactElement | null {
     [world, onPlay]
   );
 
-  const enterLesson = useCallback(async () => {
+  const enterLesson = useCallback(async (): Promise<boolean> => {
     setJoining(true);
     const s = await joinDeviceLesson(identity, fetchFn);
     setJoining(false);
     if (!s) {
       setLive(false);
-      return;
+      return false;
     }
-    if (done.current) return;
+    if (done.current) return true;
     done.current = true;
     world?.setAttract?.(false);
     onLessonSession(s);
+    return true;
   }, [identity, fetchFn, world, onLessonSession]);
 
-  // The student presses nothing (Dan 11-16 12:10): a live lesson takes the child into it from the title at once.
+  // The student presses nothing (Dan 11-16 12:10): a live lesson takes the child into it from the title at once. A
+  // failed join tries again on the next poll that finds the lesson live.
   const autoTried = useRef(false);
   useEffect(() => {
     if (!live || identity?.kind !== 'child' || autoTried.current || done.current) return;
     autoTried.current = true;
-    void enterLesson();
+    void enterLesson().then((ok) => {
+      if (!ok) autoTried.current = false;
+    });
   }, [live, identity, enterLesson]);
 
   if (stage === 'make') {

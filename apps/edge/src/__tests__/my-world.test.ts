@@ -64,6 +64,7 @@ describe('my world (G07, Dan 11-16 R2555)', () => {
       expect(r.status).toBe(400);
       expect(r.body.error).toBe('invalid_world_setup');
     }
+    expect((await call(p, 'POST', '/v1/my-world', { ...choice, pad: 'x'.repeat(4000) }, a)).status).toBe(413);
     expect((await call(p, 'POST', '/v1/my-world', choice, a)).status).toBe(201);
     expect((await call(p, 'GET', '/v1/my-world', undefined, b)).body).toEqual({ made: false });
   });

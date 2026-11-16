@@ -6,7 +6,7 @@ import { revealCards } from '../start/StartFlow.js';
 import { BIOME_NAMES_KO, START_STRINGS, ro } from '../start/strings.js';
 import { buddyTarget } from '../world/buddy.js';
 import { mod } from '../world/season.js';
-import { TEACHER_NPC_ID, cleanTeacherName, plateText, teacherDef, teacherTarget } from '../world/visitor.js';
+import { TEACHER_NPC_ID, cleanTeacherName, pickableNpc, plateText, teacherDef, teacherTarget } from '../world/visitor.js';
 import type { PlayerIdentity } from '../world/identity.js';
 
 const child: PlayerIdentity = { kind: 'child', token: 'dev-token-0123456789abcdef0123456789', nickname: '지우', level: 'L1', playAllowed: true } as PlayerIdentity;
@@ -97,6 +97,8 @@ describe('start flow data (docs/08 §8.4 G07, Dan 11-16 R2555)', () => {
     expect(await lessonLive(child, live)).toBe(true);
     expect(await liveLessonId(child, live)).toBe('l1');
     expect(await liveLessonId(child, fakeFetch({ 'GET /v1/device/lesson': () => [200, { live: false }] }))).toBeNull();
+    // live without an id never auto-joins (it could not be told from the lesson already joined)
+    expect(await liveLessonId(child, fakeFetch({ 'GET /v1/device/lesson': () => [200, { live: true }] }))).toBeNull();
     expect(await lessonLive(guest, live)).toBe(false);
     expect(await lessonLive(lesson, live)).toBe(false);
     // the sign-up lane's routes not deployed yet: 404 reads as "no lesson", never an error on screen
@@ -174,5 +176,13 @@ describe('the teacher in my world (Dan 11-16 12:10)', () => {
     // already close enough: stays put
     expect(teacherTarget(10, 20, 0, 12, 21)).toBeNull();
     expect(teacherTarget(10, 20, 0, 18, 20)).not.toBeNull();
+  });
+
+  it('is never what E, a tap or the dialog frame picks, so the stage NPC answers in a lesson', () => {
+    expect(pickableNpc(teacherDef('Kim'), true)).toBe(false);
+    expect(pickableNpc(teacherDef('Kim'), false)).toBe(false);
+    expect(pickableNpc({ id: 'cafe_owner' }, true)).toBe(true);
+    expect(pickableNpc({ id: 'errand_neighbor', soloOnly: true }, true)).toBe(false);
+    expect(pickableNpc({ id: 'errand_neighbor', soloOnly: true }, false)).toBe(true);
   });
 });

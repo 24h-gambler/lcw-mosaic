@@ -12,6 +12,7 @@ import { onSeatInactive } from './world/seat.js';
 import type { BuildAccess } from './world/api.js';
 import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
+import { FrameLayer } from './frame/FrameLayer.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
@@ -535,6 +536,7 @@ export function App(): React.ReactElement {
       <div ref={hudRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
         <div style={{ pointerEvents: 'auto' }}>
+          <FrameLayer world={world} identity={identity} />
           {Lesson ? (
             <Lesson
               world={world}

@@ -1,6 +1,6 @@
 /**
  * Student side of the lesson API (docs/18 §2, docs/19 §4). The token lives in sessionStorage under the same keys the
- * /join fallback screen uses (apps/web/src/lessonApi.ts), so a child moved between /game/ and /join keeps one session.
+ * /join fallback screen uses (apps/web/src/lessonApi.ts), so a child moved between /world/ and /join keeps one session.
  * Scores, stars and coins are always the server's (AGENTS 4.7).
  */
 import { UTTERANCE_CLIENT_ID_RE, type LessonDirectorEventKind, type LessonHintLevel, type LessonSceneId, type LessonUtteranceMode } from '@lcw/content';
@@ -79,7 +79,31 @@ export interface StudentLessonState {
   stage_started_at?: number | null;
   /** The teacher's newest line as the stage NPC in this stage (any age), or null. */
   stage_last_line_en?: string | null;
+  /** With the teacher now (console heartbeat), or alone ("혼자 놀기"). Absent on an older server = with the teacher. */
+  teacher?: { present: boolean; name: string | null; since: number | null };
+  /** The lesson's plan (the 1PC teacher panel shows that plan's stages); absent on an older server. */
+  plan_id?: string;
   server_now: number;
+}
+
+/** The talk lane's one-time "Hello!" mic check result (sessionStorage 'lcw.micStatus'), shown on the director console. */
+export type LessonMicStatus = 'ok' | 'quiet' | 'none' | 'skipped';
+const MIC_STATUSES: readonly LessonMicStatus[] = ['ok', 'quiet', 'none', 'skipped'];
+export const LESSON_MIC_STATUS_KEY = 'lcw.micStatus';
+export function readLessonMicStatus(store: { getItem(k: string): string | null } | null = safeSessionStorage()): LessonMicStatus | null {
+  try {
+    const v = store?.getItem(LESSON_MIC_STATUS_KEY) ?? null;
+    return v && (MIC_STATUSES as readonly string[]).includes(v) ? (v as LessonMicStatus) : null;
+  } catch {
+    return null;
+  }
+}
+function safeSessionStorage(): { getItem(k: string): string | null } | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
+  } catch {
+    return null;
+  }
 }
 
 const STT_SOURCES: readonly SttSource[] = ['browser', 'keyboard', 'board', 'device', 'workers_ai'];
@@ -194,7 +218,7 @@ export function getStudentToken(store: KeyValue | null = sessionStore()): string
   return loadStudentSession(store)?.token ?? null;
 }
 
-/** `?code=123456` in the /game/ URL (link from the director console). */
+/** `?code=123456` in the /world/ URL (link from the director console). */
 export function codeFromSearch(search: string): string | null {
   const m = /[?&]code=(\d{6})(?:&|$)/.exec(search);
   return m ? m[1]! : null;
@@ -223,11 +247,12 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
   }
   return {
     join: (code: string) => request<JoinResult>('POST', '/v1/join', null, { code }),
-    state: (token: string, q: { cursor?: number | null; scene?: string; ui?: '3d' | 'cards' } = {}) => {
+    state: (token: string, q: { cursor?: number | null; scene?: string; ui?: '3d' | 'cards'; mic?: LessonMicStatus | null } = {}) => {
       const p = new URLSearchParams();
       if (q.cursor !== undefined && q.cursor !== null) p.set('cursor', String(Math.floor(q.cursor)));
       if (q.scene) p.set('scene', q.scene);
       if (q.ui) p.set('ui', q.ui);
+      if (q.mic) p.set('mic', q.mic);
       const qs = p.toString();
       return request<StudentLessonState>('GET', `/v1/lesson/state${qs ? `?${qs}` : ''}`, token);
     },

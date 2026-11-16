@@ -49,7 +49,7 @@ export function fillShell(shell: string, page: PrerenderedPage, origin = SITE_OR
     `<meta property="og:image" content="${esc(`${origin}/og/${page.image}.jpg`)}" />`,
     `<meta property="og:image:width" content="${SHARE_IMAGE_SIZE.width}" />`,
     `<meta property="og:image:height" content="${SHARE_IMAGE_SIZE.height}" />`,
-    `<meta property="og:image:alt" content="${esc(page.title)} — 실제 게임 화면" />`,
+    `<meta property="og:image:alt" content="${esc(page.title)} — 실제 월드 화면" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     ...(page.index ? [] : ['<meta name="robots" content="noindex" />'])
   ].join('\n    ');
@@ -66,5 +66,5 @@ export function allPages(): PrerenderedPage[] {
 
 /** robots.txt for the whole host (tools/prerender-site.mjs). /r/ and /s/ stay crawlable for link previews, see there. */
 export function robotsTxt(origin = SITE_ORIGIN): string {
-  return ['User-agent: *', 'Disallow: /join', 'Disallow: /director', 'Disallow: /family', 'Disallow: /link', 'Disallow: /seats', 'Disallow: /window', 'Disallow: /report', 'Disallow: /dashboard', 'Disallow: /claim', 'Disallow: /guest-end', 'Disallow: /game/', 'Disallow: /v1/', `Sitemap: ${origin}/sitemap.xml`, ''].join('\n');
+  return ['User-agent: *', 'Disallow: /join', 'Disallow: /director', 'Disallow: /family', 'Disallow: /link', 'Disallow: /seats', 'Disallow: /window', 'Disallow: /report', 'Disallow: /dashboard', 'Disallow: /claim', 'Disallow: /guest-end', 'Disallow: /world/', 'Disallow: /game/', 'Disallow: /v1/', `Sitemap: ${origin}/sitemap.xml`, ''].join('\n');
 }

@@ -23,7 +23,8 @@ export default defineConfig({
       'packages/*/src/**/*.test.ts',
       'packages/*/src/**/*.test.tsx',
       'apps/*/src/**/*.test.ts',
-      'apps/*/src/**/*.test.tsx'
+      'apps/*/src/**/*.test.tsx',
+      'tools/__tests__/*.test.ts'
     ],
     environment: 'node'
   }

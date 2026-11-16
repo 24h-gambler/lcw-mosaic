@@ -79,7 +79,7 @@ const mark = (name, extra = {}) => {
 };
 const shot = (n) => page.screenshot({ path: `${out}/${n}.png` });
 
-await page.goto(`${base}/game/`, { waitUntil: 'domcontentloaded' });
+await page.goto(`${base}/world/`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 180000 });
 await page.waitForFunction(() => !document.body.innerText.includes('마을을 짓는 중'), null, { timeout: 180000 }).catch(() => {});
 mark('spawn', { ua_kakao: await page.evaluate(() => /KAKAOTALK/.test(navigator.userAgent)), browser_sr: await page.evaluate(() => 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window) });

@@ -21,6 +21,7 @@ import { SubmitError } from '../dialog/submit.js';
 import {
   LessonHttpError,
   loadStudentSession,
+  readLessonMicStatus,
   readUtteranceSubmit,
   saveStudentSession,
   type DialogResult,
@@ -49,6 +50,8 @@ export interface LessonWorld {
   setCoins?(n: number | null): void;
   /** HUD star chip owned by the lesson: this lesson's stars (WorldHandle.setStars). */
   setStars?(n: number | null): void;
+  /** Teacher name tag (WorldHandle.setTeacher): with the teacher, or "혼자 놀기"; null = no lesson. */
+  setTeacher?(t: { present: boolean; name: string | null } | null): void;
 }
 
 export type LessonPhase = 'needs_code' | 'joining' | 'live' | 'ended';
@@ -101,6 +104,12 @@ export interface LessonView {
   stageLastLineEn: string;
   /** Answers kept on this device while the connection was down, sent after the next good poll. */
   outbox: number;
+  /** With the teacher now (console heartbeat) or alone; an older server without the field = with the teacher. */
+  teacher: { present: boolean; name: string | null };
+  /** The lesson's plan id from the server (1PC teacher panel); null on an older server. */
+  planId: string | null;
+  /** The joined lesson (1PC teacher panel calls). */
+  lessonId: string | null;
   /** Bumps on every stage change so the dialog can reset. */
   stageSeq: number;
 }
@@ -150,6 +159,9 @@ export function initialLessonView(): LessonView {
     stageStartedAt: 0,
     stageLastLineEn: '',
     outbox: 0,
+    teacher: { present: true, name: null },
+    planId: null,
+    lessonId: null,
     stageSeq: 0
   };
 }
@@ -168,6 +180,8 @@ export class LessonController {
   private cursor: number | null = null;
   private timer: unknown = null;
   private bannerTimer: unknown = null;
+  /** The world got the teacher tag at least once (the first poll always sets it). */
+  private teacherShown = false;
   private retryMs = LESSON_POLL_MS;
   private readonly seenLines = new Set<string>();
   private readonly seenEvents = new Set<string>();
@@ -293,7 +307,8 @@ export class LessonController {
       const st = await this.opts.api.state(s.token, {
         cursor: this.cursor,
         scene: this.view.sceneId ?? undefined,
-        ui: this.opts.ui ?? '3d'
+        ui: this.opts.ui ?? '3d',
+        mic: readLessonMicStatus()
       });
       if (run !== this.run) return;
       this.retryMs = LESSON_POLL_MS;
@@ -452,7 +467,18 @@ export class LessonController {
         if (this.view.banner?.id === id) this.set({ banner: null });
       }, LESSON_BANNER_MS);
     }
-    if (st.ended) patch.phase = 'ended';
+    if ((st.plan_id ?? null) !== this.view.planId) patch.planId = st.plan_id ?? null;
+    if (st.lesson_id !== this.view.lessonId) patch.lessonId = st.lesson_id;
+    const teacher = st.teacher ? { present: st.teacher.present, name: st.teacher.name } : { present: true, name: null };
+    if (teacher.present !== this.view.teacher.present || teacher.name !== this.view.teacher.name || !this.teacherShown) {
+      patch.teacher = teacher;
+      this.teacherShown = true;
+      w?.setTeacher?.(teacher);
+    }
+    if (st.ended) {
+      patch.phase = 'ended';
+      w?.setTeacher?.(null);
+    }
     this.set(patch);
   }
 

@@ -88,7 +88,9 @@ describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
     expect(parentsHtml).toContain('119,000원');
     expect(parentsHtml).toContain('19,900원');
     expect(parentsHtml).toContain('159,000원');
-    expect(parentsHtml).toContain('7일 이내 전액 환불');
+    // Dan 2026-11-16 + the guardian lane's server rule: within 7 days of payment and before the seat is first used.
+    expect(parentsHtml).toContain('쓰기 전·결제 후 7일 안 환불');
+    expect(parentsHtml).not.toContain('7일 이내');
 
     // /teachers is the old link to the tutoring page (docs/14 W04). The tutoring fee is set by the teacher
     // (docs/01 §4), so the page shows the lesson arc and the consult form instead of an invented seat price.

@@ -1,4 +1,8 @@
 /** /try copy (child-facing): 짧은 해요체, 탓하지 않음, 가격·결제·기한 없음 (08 §10, AGENTS.md 4.9). */
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
+
+const MIN = FREE_PLAY_LIMITS.tryMinutes;
+
 export const TRY = {
   back: '← 처음으로',
   soundOn: '소리 켬',
@@ -19,6 +23,17 @@ export const TRY = {
   startBtn: '시작하기 (소리 켜기)',
   startQuiet: '소리 없이 시작',
   localOnly: '체험에서는 브라우저의 음성 인식을 써요. 목소리는 저장되지 않아요.',
+  limitNote: `체험은 ${MIN}분 동안 음료 한 잔을 주문하는 거예요. 하루에 한 번 할 수 있어요.`,
+  timeLeft: (clock: string) => `남은 체험 ${clock}`,
+  timeLeftLabel: (clock: string) => `체험 시간 ${clock} 남았어요`,
+  serverMissed: '이번 문장은 주문이 안 됐어요. 문장을 골라 한 번 더 말해 봐요.',
+  netError: '연결이 잠깐 끊겼어요. 문장을 골라 한 번 더 말해 봐요.',
+  retry: '다시 시작하기',
+  gate: {
+    used_today: { title: '오늘 체험을 다 했어요', body: `체험은 하루에 한 번, ${MIN}분 동안 음료 한 잔이에요. 더 놀고 싶으면 부모님께 소개를 보내 봐요.` },
+    ended: { title: '체험 시간이 끝났어요', body: `${MIN}분 체험이 끝났어요. 더 놀고 싶으면 부모님께 소개를 보내 봐요.` },
+    error: { title: '연결이 잠깐 끊겼어요', body: '인터넷 연결을 확인하고 다시 눌러 봐요.' }
+  },
   walkHint: '→ 버튼을 누르고 있거나, 카페를 눌러요',
   walkKeys: '키보드 → 나 D 키도 돼요',
   walkBtn: '앞으로',
@@ -62,8 +77,6 @@ export const TRY = {
   endSavedYes: '저장하려면 부모님이 계정을 만들어 주셔야 해요. 부모님께 소개를 보내 볼까요?',
   endSavedNo: '재밌었다면 부모님께 소개를 보내 봐요.',
   sendParent: '부모님께 소개 보내기',
-  again3: '별 3개 문장으로 다시 하기',
-  againAny: '한 번 더 하기',
   myVoice: '내 목소리 다시 듣기',
   forParents: '학부모님이세요?',
   forAdults: '어른 학습자세요?',

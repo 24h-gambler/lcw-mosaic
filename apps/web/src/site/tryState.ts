@@ -2,8 +2,7 @@
  * /try scene flow (docs/14 §8): 시작(소리 켜기) → 10초 이동 → 카페 → 마이크 → 음성 주문 1회 → 슬롯 수령 → 마시기 →
  * "이 월드를 저장할까요" → 끝 화면. Pure reducer so the whole path is testable without a browser and without a server.
  */
-import { FIRST_LESSON_PLAN } from '@lcw/content';
-import type { TryOffer } from '../tryFlow.js';
+import { TRY_CAFE_OFFERS, type TryOffer } from '@lcw/content';
 
 export type TryPhase = 'start' | 'walk' | 'greet' | 'choose' | 'speak' | 'receive' | 'drink' | 'save' | 'end';
 
@@ -14,14 +13,8 @@ export const TRY_WALLET = 50;
 /** Better sentence, lower price (01 §1). */
 export const TRY_PRICES: Readonly<Record<1 | 2 | 3, number>> = { 1: 30, 2: 24, 3: 15 };
 
-const cafeStage = FIRST_LESSON_PLAN.stages.find((s) => s.id === 'cafe_order');
-
-/** Same three sentences the first lesson uses for the cafe (content/lesson-plans), so /try and the lesson agree. */
-export const TRY_OFFERS: readonly TryOffer[] = [1, 2, 3].map((n) => {
-  const t = cafeStage?.targets.find((x) => x.stars === n);
-  const fallback = ['Honey tea, please.', 'Can I have a warm honey tea?', 'Can I have a warm honey tea so that I stay warm?'][n - 1]!;
-  return { stars: n as 1 | 2 | 3, text: t?.text ?? fallback, ...(n === 3 ? { required: ['so', 'that'] } : {}) };
-});
+/** Same three sentences the first lesson uses for the cafe (content/try-order.ts), graded the same way by the server. */
+export const TRY_OFFERS: readonly TryOffer[] = TRY_CAFE_OFFERS;
 
 export const TRY_NPC = {
   welcome: 'Welcome to the honey cafe! What would you like today?',

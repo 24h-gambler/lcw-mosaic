@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { LEGAL, PASS, SAFETY } from '../copy.js';
+import React, { useEffect, useState } from 'react';
+import { formatGuestPassCode, normalizeGuestPassCode } from '@lcw/schemas';
+import { LEGAL, NAV, PASS, SAFETY } from '../copy.js';
 import { SLink } from '../SiteShell.js';
 
 function Rows({ rows }: { rows: ReadonlyArray<{ k: string; v: string }> }): React.ReactElement {
@@ -85,24 +86,52 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }): React.ReactE
   );
 }
 
-/** Guest pass code: 6 digits or the invite token format used by /game (letters, digits, dashes). */
+/** Guest pass code (free-play.ts): 8 characters, typed with or without the dash, any case. */
 export function normalizePassCode(raw: string): string | null {
-  const c = raw.trim().replace(/\s+/g, '');
-  return /^[A-Za-z0-9-]{4,32}$/.test(c) ? c : null;
+  return normalizeGuestPassCode(raw.trim());
+}
+
+/** What the /pass page says for each answer of GET /v1/guest-pass/check (the check never starts the clock). */
+export type PassCheckView = 'go' | 'ended' | 'expired' | 'revoked' | 'not_found' | 'busy' | 'error';
+export function passCheckView(status: number, state: string | undefined): PassCheckView {
+  if (status === 404) return 'not_found';
+  if (status === 429) return 'busy';
+  if (status !== 200) return 'error';
+  if (state === 'ready' || state === 'active') return 'go';
+  if (state === 'ended' || state === 'expired' || state === 'revoked') return state;
+  return 'error';
 }
 
 export function PassPage(): React.ReactElement {
   const [code, setCode] = useState('');
-  const [bad, setBad] = useState(false);
+  const [view, setView] = useState<PassCheckView | 'bad' | null>(null);
+  const [busy, setBusy] = useState(false);
+  // A link from the guardian (/pass?code=XXXXXXXX) fills the box.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('code');
+    const c = q ? normalizePassCode(q) : null;
+    if (c) setCode(formatGuestPassCode(c));
+  }, []);
   const go = (e: React.FormEvent) => {
     e.preventDefault();
     const c = normalizePassCode(code);
     if (!c) {
-      setBad(true);
+      setView('bad');
       return;
     }
-    window.location.assign(`/game/?pass=${encodeURIComponent(c)}`);
+    setBusy(true);
+    // The server says whether the code still opens a world; the world client redeems it there and the clock starts
+    // at that first entry (docs/19 7장).
+    void fetch(`/v1/guest-pass/check?code=${encodeURIComponent(c)}`, { credentials: 'omit' })
+      .then(async (r) => passCheckView(r.status, ((await r.json().catch(() => ({}))) as { state?: string }).state))
+      .catch((): PassCheckView => 'error')
+      .then((v) => {
+        setBusy(false);
+        if (v === 'go') window.location.assign(`/world/?pass=${encodeURIComponent(c)}`);
+        else setView(v);
+      });
   };
+  const message = view === 'bad' || view === 'not_found' ? PASS.invalid : view && view !== 'go' ? PASS.state[view] : null;
   return (
     <section className="s-hero">
       <div className="s-wrap s-split" style={{ alignItems: 'start' }}>
@@ -128,20 +157,20 @@ export function PassPage(): React.ReactElement {
               style={{ fontSize: 28, letterSpacing: 4, minHeight: 56 }}
               onChange={(e) => {
                 setCode(e.target.value);
-                setBad(false);
+                setView(null);
               }}
             />
           </div>
-          {bad ? (
-            <p className="s-note s-warn" role="alert">
-              {PASS.invalid}
+          {message ? (
+            <p className="s-note s-warn" role="alert" data-pass-view={view ?? ''}>
+              {message}
             </p>
           ) : null}
-          <button type="submit" className="s-btn s-btn-brand s-btn-lg">
+          <button type="submit" className="s-btn s-btn-brand s-btn-lg" disabled={busy}>
             {PASS.go} ▶
           </button>
           <SLink to="/try" className="s-small">
-            코드가 없으면 5분 체험부터 →
+            코드가 없으면 {NAV.try}부터 →
           </SLink>
         </form>
       </div>

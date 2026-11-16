@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
-import { App, CONSENT_SCOPE_LABELS, DEFAULT_PARENT_REPORT_STATE, DIRECTOR_EVENTS, ParentDashboardView } from '../App.js';
+import { App, CONSENT_SCOPE_LABELS, DEFAULT_PARENT_REPORT_STATE, DIRECTOR_EVENTS, ParentDashboardView, TeacherDirectorView } from '../App.js';
 
 describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
   it('enforces zero payment/price/deadline copy on child /play and /try routes (AGENTS.md 4.9)', () => {
@@ -36,7 +36,8 @@ describe('apps/web (WP-305, WP-307, WP-309, WP-701, WP-702)', () => {
   });
 
   it('renders teacher director console with 7-stage arc, teacher scripts, bilateral barter, events/pins, and report tracker', () => {
-    const html = renderToStaticMarkup(React.createElement(App, { initialRoute: '/director' }));
+    // The prototype is no longer mounted on /director (audit 11-16); its pieces are still checked here for T02–T04.
+    const html = renderToStaticMarkup(React.createElement(TeacherDirectorView, {}));
     expect(html).toContain('T01 120분 7단계 연속 수업 아크');
     expect(html).toContain('선생님 회화 대본');
     expect(html).toContain('선생-학생 물물교환');

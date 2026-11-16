@@ -607,11 +607,12 @@ describe('/r/<token> parent report', () => {
 /* ---------- 8. director console ---------- */
 
 describe('/director live console', () => {
-  it('without a key: key box plus the old demo console tucked away', () => {
+  it('without a key: the key box only; the old prototype console is gone (audit 11-16)', () => {
     const html = renderToStaticMarkup(React.createElement(App, { initialRoute: '/director' }));
     expect(html).toContain(LESSON_STRINGS_KO.director.keyTitle);
-    expect(html).toContain('data-testid="director-demo"');
-    expect(html).toContain('<details');
+    expect(html).not.toContain('director-demo');
+    expect(html).not.toContain('teacher-director-console');
+    for (const stale of ['T01', 'T02', 'WP-311', 'boutique', 'makers_lab', '옷가게', '메이커스 랩', '7단계']) expect(html).not.toContain(stale);
   });
 
   it('with a key: student list with a start button and the registration form', () => {

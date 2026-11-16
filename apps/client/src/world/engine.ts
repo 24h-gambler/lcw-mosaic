@@ -837,7 +837,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   }
 
   /**
-   * Walk up to an NPC and face it (the talk lane's "미나에게 가기"). A scene's NPC on its own spot (a counter) is the
+   * Walk up to an NPC and face it (the talk lane's "미아에게 가기"). A scene's NPC on its own spot (a counter) is the
    * scene walk itself; anyone else: its scene first when it is far, then about 1.5 m in front of it (talkSpotFor),
    * well inside the talk range. Reduced motion, or a walk that got stuck, steps there.
    */

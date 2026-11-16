@@ -1015,33 +1015,8 @@ export function App({
         onBackToDirector: () => setRoute('/director')
       }),
     route === '/dashboard' && React.createElement(DashboardPage, null),
-    route === '/director' &&
-      React.createElement(LessonDirectorConsole, {
-        demo: React.createElement(TeacherDirectorView, {
-        reportState,
-        onSendReportToParent: ({ verifiedBody, teacherComment, nextLessonAt, trackedExpressions }) => {
-          setReportState((prev) => ({
-            ...prev,
-            verifiedBody,
-            teacherComment,
-            nextLessonAt,
-            todayExpressions:
-              trackedExpressions.length > 0 ? trackedExpressions : prev.todayExpressions,
-            deliveryStatus: 'sent',
-            sentAtMs: 1_763_200_000_000,
-            openedAtMs: null,
-            nextTargetsUpdated: false
-          }));
-        },
-        onTriggerReminder: () => {
-          setReportState((prev) => ({
-            ...prev,
-            deliveryStatus: prev.openedAtMs ? prev.deliveryStatus : 'reminder_sent',
-            reminderSentAtMs: 1_763_373_000_000
-          }));
-        },
-        onOpenParentReportView: () => setRoute('/report')
-        })
-      })
+    // The old prototype console (T01–T04 cards with made-up NPCs and dev buttons) is not shown any more (audit
+    // 11-16): the live console is the only director screen. TeacherDirectorView stays for the T02–T04 work.
+    route === '/director' && React.createElement(LessonDirectorConsole, {})
   );
 }

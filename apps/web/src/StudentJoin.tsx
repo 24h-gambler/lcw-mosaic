@@ -799,7 +799,7 @@ function SpeakArea({
             aria-label={S.typeLabel}
             placeholder={S.typePlaceholder}
             value={typed}
-            maxLength={400}
+            maxLength={1000}
             autoCapitalize="sentences"
             autoCorrect="off"
             spellCheck={false}

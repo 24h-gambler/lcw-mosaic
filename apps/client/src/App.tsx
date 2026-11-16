@@ -13,6 +13,7 @@ import type { BuildAccess } from './world/api.js';
 import { FrameFloorWatch, TIER_SETTINGS } from './world/tiers.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { FrameLayer } from './frame/FrameLayer.js';
+import { savedTier } from './frame/settings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
@@ -213,9 +214,11 @@ export function createResultPlayer(world: Pick<WorldHandle, 'celebrate' | 'giveI
   };
 }
 
-export function pickTier(search: string, nav: { deviceMemory?: number; hardwareConcurrency?: number }, coarse: boolean): WorldTier {
+/** `saved`: the quality the player picked in settings (G14 화질, frame/settings.ts savedTier); the address still wins. */
+export function pickTier(search: string, nav: { deviceMemory?: number; hardwareConcurrency?: number }, coarse: boolean, saved: WorldTier | null = null): WorldTier {
   const q = new URLSearchParams(search).get('tier');
   if (q === 'low' || q === 'mid' || q === 'high') return q;
+  if (saved) return saved;
   const mem = nav.deviceMemory ?? null;
   const cores = nav.hardwareConcurrency ?? 4;
   if (coarse) return mem !== null && mem < 4 ? 'low' : 'mid';
@@ -414,7 +417,7 @@ export function App(): React.ReactElement {
     let handle: WorldHandle | null = null;
     let cancelled = false;
     const nav = navigator as Navigator & { deviceMemory?: number };
-    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches);
+    const tier = pickTier(location.search, nav, matchMedia('(pointer: coarse)').matches, savedTier());
     createWorld({ canvas: canvasRef.current, tier, startScene: startSceneFrom(location.search), hudRoot: hudRef.current ?? undefined })
       .then((h) => {
         if (cancelled) {

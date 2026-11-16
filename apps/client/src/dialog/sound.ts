@@ -1,6 +1,7 @@
 import { LEVEL_DEFINITIONS, type LangLevel } from '@lcw/content';
 import { PROCEDURAL_SFX_PRESETS, synthesizeProceduralPcm, type AudioBusName } from '@lcw/audio';
 import { getAudioRuntime } from '../audio/runtime.js';
+import { frameSettings, pickEnglishVoice } from '../frame/settings.js';
 
 /**
  * Dialog sounds (docs/12 6.2 `dlg.*`, temporary procedural sounds of 6.4) and the NPC/offer voice (4.8), on the
@@ -84,7 +85,10 @@ export function speakEnglish(text: string, level: LangLevel): Promise<void> {
     // The NPC voice ducks music/ambience/effects (docs/12 3장 "NPC가 말하는 중") until it ends.
     const rt = getAudioRuntime();
     const gen = ++speechGen;
-    rt.npcVoiceStarted(400 + text.length * 90);
+    // Player settings (G14): voice speed (slower for young children) and natural (neural) voice on/off.
+    const pref = frameSettings();
+    const estMs = (400 + text.length * 90) / pref.voiceRate;
+    rt.npcVoiceStarted(estMs);
     let ended = false;
     const resolve = () => {
       if (ended) return;
@@ -97,14 +101,16 @@ export function speakEnglish(text: string, level: LangLevel): Promise<void> {
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'en-US';
-      u.rate = LEVEL_DEFINITIONS[level].speechRate * 0.95;
-      const voice = synth.getVoices().find((v) => v.lang === 'en-US') ?? synth.getVoices().find((v) => v.lang.startsWith('en'));
+      u.rate = LEVEL_DEFINITIONS[level].speechRate * 0.95 * pref.voiceRate;
+      // The device voice is not on the WebAudio graph: the player's voice volume (G14) reaches it here.
+      u.volume = Math.min(1, Math.max(0, rt.engine.getSnapshot().busVolumes.voice_npc));
+      const voice = pickEnglishVoice(synth.getVoices(), pref.neuralVoice);
       if (voice) u.voice = voice;
       u.onend = () => resolve();
       u.onerror = () => resolve();
       synth.speak(u);
       // Some browsers never fire onend; never block the dialog on a voice.
-      setTimeout(resolve, 400 + text.length * 90);
+      setTimeout(resolve, estMs);
     } catch {
       resolve();
     }

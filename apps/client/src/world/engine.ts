@@ -143,7 +143,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const tier = TIER_SETTINGS[opts.tier];
   const hudParent = opts.hudRoot ?? canvas.parentElement ?? document.body;
   const touch = isTouchDevice();
-  const reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // G14 look settings (setLookSettings): mouse and touch drag speed, up/down inversion (-1).
+  let lookMouse = 1;
+  let lookTouch = 1;
+  let lookY = 1;
 
   // ---- HUD first so the loading card shows while the town is built.
   const input = { fwd: 0, side: 0, run: false, jump: false, stickX: 0, stickZ: 0, stick: false, keys: new Set<string>() };
@@ -167,8 +171,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       input.stick = active;
     },
     onLook: (dx, dy) => {
-      camYaw -= dx * 0.008;
-      camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.006));
+      camYaw -= dx * 0.008 * lookTouch;
+      camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.006 * lookTouch * lookY));
     },
     onSlot: (i) => {
       hud.selectSlot(i);
@@ -345,7 +349,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let fps = 60;
   let frameMs = 16.7;
   let lastStats = { draw: 0, tris: 0 };
-  const showFps = new URLSearchParams(location.search).has('fps');
+  let showFps = new URLSearchParams(location.search).has('fps');
   hud.setScene(SCENE_TITLES_KO[currentScene]);
 
   // ---- Initial meshing: the chunks right around the start spot (FIRST_RING) are meshed and merged before the world
@@ -609,8 +613,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     lastX = e.clientX;
     lastY = e.clientY;
     dragMoved += Math.abs(dx) + Math.abs(dy);
-    camYaw -= dx * 0.006;
-    camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005));
+    camYaw -= dx * 0.006 * lookMouse;
+    camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005 * lookMouse * lookY));
   };
   const pointerUp = (e: PointerEvent): void => {
     buildRelease(e);
@@ -1530,6 +1534,18 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     },
     setCoins: (total) => hud.setCoins(total),
     setOnline: (on) => hud.setOnline(on),
+    setLookSettings: (o) => {
+      lookMouse = Math.max(0.1, o.mouse);
+      lookTouch = Math.max(0.1, o.touch);
+      lookY = o.invertY ? -1 : 1;
+    },
+    setReduceMotion: (on) => {
+      reduceMotion = on;
+    },
+    setShowFps: (on) => {
+      showFps = on || new URLSearchParams(location.search).has('fps');
+      if (!showFps) hud.setFps(null);
+    },
     setStars: (total) => hud.setStars(total),
     setPlayerName(name) {
       const clean = name ? name.trim().slice(0, 16) : '';

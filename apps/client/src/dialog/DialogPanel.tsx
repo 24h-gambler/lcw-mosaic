@@ -24,6 +24,8 @@ import { cancelMicCue, micClosed, micCue, playAgain, playPass, playSfx, speakEng
 import { DIALOG_CSS } from './styles.js';
 import { newDialogId, SubmitError } from './submit.js';
 import type { DialogOffer, DialogPanelProps, DialogResult, SttSource, UtteranceSubmit } from './types.js';
+import { micHoldMode } from '../frame/settings.js';
+import { FRAME_STRINGS } from '../frame/strings.js';
 
 export type { DialogOffer, DialogPanelProps, DialogResult, NpcRef, UtteranceSubmit } from './types.js';
 export { createLessonSubmit, createSoloSubmit, createSoloSubmitWith } from './submit.js';
@@ -412,19 +414,33 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
     else onClose();
   }, [onDone, onClose]);
 
-  // Space toggles the mic inside the dialog (docs/08 7.1), Esc closes.
+  // Space toggles the mic inside the dialog (docs/08 7.1), Esc closes. The player's "hold" setting (G14, docs/08 11장
+  // 누르고 있기 <-> 켜고 끄기) turns the mic button and Space into hold-to-talk: press starts, release ends.
+  const hold = micHoldMode();
+  const micLive = () => !!ctrl.current?.recording || micPending.current;
+  const holdRelease = useCallback(() => {
+    if (ctrl.current?.recording || micPending.current) toggleMic();
+  }, [toggleMic]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
       if (e.code === 'Space' && !micDisabled && (phase === 'choose' || phase === 'listening' || phase === 'echo')) {
         e.preventDefault();
-        toggleMic();
+        if (!hold) toggleMic();
+        else if (!e.repeat && !ctrl.current?.recording && !micPending.current) toggleMic();
       } else if (e.key === 'Escape') closeWindow();
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (hold && e.code === 'Space') holdRelease();
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [micDisabled, phase, toggleMic, closeWindow]);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [micDisabled, phase, toggleMic, closeWindow, hold, holdRelease]);
 
   const cards = useMemo(() => (offer ? buildWordCards(offer.text, distractorsFor(offer.text)) : []), [offer]);
   const usedCards = new Set(cardsPicked);
@@ -459,7 +475,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   // A review card from the 1-day box on shows the sentence without its voice (docs/03 D8).
   const listenOk = listenAllowed(hint) && props.listen !== false;
   const extUrl = typeof location !== 'undefined' ? kakaoOpenExternalUrl(location.href) : '#';
-  const style = { ['--fs' as string]: String(fontScale) } as React.CSSProperties;
+  // No prop: the window follows the player's text size setting (G14, `--lcw-fs` on <html>, read in styles.ts).
+  const style = props.fontScale !== undefined ? ({ ['--fs' as string]: String(fontScale) } as React.CSSProperties) : undefined;
   const pictures = offer ? picturesFor(offer.text) : [];
   const priced = offers.filter((o) => (o.price ?? 0) > 0);
   const cheaper = offer?.price ? priced.filter((o) => o.stars > offer.stars && o.price! < offer.price!).sort((a, b) => a.price! - b.price!)[0] : undefined;
@@ -699,13 +716,23 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                 disabled={micDisabled}
                 style={{ ['--lvl' as string]: String(mic.recording ? Math.max(0.2, mic.level) : 0) } as React.CSSProperties}
                 aria-label={mic.recording ? S.micStop : S.micStart}
-                onClick={toggleMic}
+                onClick={hold ? (e) => void (e.detail === 0 && toggleMic()) : toggleMic}
+                onPointerDown={
+                  hold
+                    ? (e) => {
+                        e.currentTarget.setPointerCapture?.(e.pointerId);
+                        if (!micLive()) toggleMic();
+                      }
+                    : undefined
+                }
+                onPointerUp={hold ? holdRelease : undefined}
+                onPointerCancel={hold ? holdRelease : undefined}
               >
                 <span>{mic.recording ? '⏹' : '🎤'}</span>
               </button>
               <div className="lcw-mic-label">
                 {mic.recording ? S.micListening : S.micStart}
-                {mic.recording ? <small>{mic.hangover ? S.micHangover : S.micStop}</small> : <small className="kbd">Space</small>}
+                {mic.recording ? <small>{hold ? FRAME_STRINGS.micHoldRelease : mic.hangover ? S.micHangover : S.micStop}</small> : <small className="kbd">Space</small>}
               </div>
               {phase !== 'echo' ? (
                 <>

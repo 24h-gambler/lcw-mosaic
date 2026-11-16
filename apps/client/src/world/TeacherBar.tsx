@@ -87,7 +87,8 @@ export function TeacherBar({ world, session, fetchImpl, goConsole }: TeacherBarP
         const r = await f(`/v1/admin/lessons/${encodeURIComponent(session.lessonId)}/presence`, {
           method: 'POST',
           headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ panel: 'open', source: 'console' })
+          // the same beat as the console's, name included (the console sends the name it keeps in lcw.teacherName)
+          body: JSON.stringify({ panel: 'open', source: 'console', ...(session.name ? { name: session.name } : {}) })
         });
         if (r.status === 409 || r.status === 404) {
           setState('ended');
@@ -108,7 +109,7 @@ export function TeacherBar({ world, session, fetchImpl, goConsole }: TeacherBarP
       stop = true;
       if (timer !== null) clearTimeout(timer);
     };
-  }, [session.lessonId, session.token, fetchImpl]);
+  }, [session.lessonId, session.token, session.name, fetchImpl]);
 
   // How many people share the room; on the first child seen, stand next to them once.
   useEffect(() => {

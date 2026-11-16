@@ -4,6 +4,7 @@ import { calmFor, type Graded, type Stars } from './grade.js';
 import { autopilotDir, patternDone, startPattern, stepPattern, type PatternState } from './bullets.js';
 import { talkChoices, type EncounterPlan, type TalkItem } from './plan.js';
 import type { Rng } from './rng.js';
+import { S } from '../ui/strings.js';
 
 /**
  * One encounter (A03): the turn order and every number in it, without drawing. The engine feeds it input and steps;
@@ -30,8 +31,8 @@ export interface BattleHooks {
 }
 
 export const ITEM_INFO: Record<ItemKey, { en: string; ko: string; heal: number }> = {
-  honeyDrop: { en: 'Honey Drop', ko: '꿀 사탕', heal: ADV.items.honeyDrop.heal },
-  berryBun: { en: 'Berry Bun', ko: '베리 빵', heal: ADV.items.berryBun.heal }
+  honeyDrop: { ...S.items.honeyDrop, heal: ADV.items.honeyDrop.heal },
+  berryBun: { ...S.items.berryBun, heal: ADV.items.berryBun.heal }
 };
 
 export class Battle {
@@ -99,7 +100,7 @@ export class Battle {
       this.phase = 'talkPick';
     } else if (cmd === 'pouch') {
       if (this.items.honeyDrop + this.items.berryBun <= 0) {
-        this.say([{ who: 'narrator', line: { en: 'Your pouch is empty.', ko: '주머니가 비었어요.' } }], 'menu');
+        this.say([{ who: 'narrator', line: S.narr.pouchEmpty }], 'menu');
         return;
       }
       this.phase = 'pouch';
@@ -108,7 +109,7 @@ export class Battle {
       this.phase = 'poke';
     } else if (cmd === 'friend') {
       if (!this.ready) {
-        this.say([{ who: 'narrator', line: { en: `${this.enc.creature.nameEn} is not ready yet. Try TALK first!`, ko: `${this.enc.creature.nameKo}는 아직 준비가 안 됐어요. 먼저 TALK 로 말을 걸어 봐요!` } }], 'menu');
+        this.say([{ who: 'narrator', line: S.narr.notReady(this.enc.creature.nameEn, this.enc.creature.nameKo) }], 'menu');
         return;
       }
       this.phase = 'befriend';
@@ -162,7 +163,7 @@ export class Battle {
     const heal = Math.min(ADV.hp.max - this.hp, ITEM_INFO[k].heal);
     this.hp += heal;
     this.hooks.sfx?.('heal');
-    this.say([{ who: 'narrator', line: { en: `You ate a ${ITEM_INFO[k].en}. Your voice feels stronger! (+${heal})`, ko: `${ITEM_INFO[k].ko}을(를) 먹었어요. 목소리에 힘이 나요! (+${heal})` } }], 'turn');
+    this.say([{ who: 'narrator', line: S.narr.ate(ITEM_INFO[k].en, ITEM_INFO[k].ko, heal) }], 'turn');
   }
 
   /** POKE: strike when the shrinking ring meets the mark. */
@@ -178,7 +179,7 @@ export class Battle {
     const c = this.enc.creature;
     if (acc <= 0.05) {
       this.hooks.sfx?.('miss');
-      this.say([{ who: 'narrator', line: { en: 'Missed!', ko: '빗나갔어요!' } }], 'turn');
+      this.say([{ who: 'narrator', line: S.narr.missed }], 'turn');
       return;
     }
     const dmg = Math.round(ADV.pokeDamage * Math.max(0.3, acc));
@@ -277,7 +278,7 @@ export class Battle {
       this.downs += 1;
       this.pattern = null;
       this.hooks.sfx?.('down');
-      this.say([{ who: 'narrator', line: { en: "Your voice bubble needs a rest. Let's try again!", ko: '말풍선이 조금 쉬어야 해요. 다시 해 봐요!' } }], 'restart');
+      this.say([{ who: 'narrator', line: S.narr.voiceRest }], 'restart');
       return;
     }
     if (patternDone(ps)) {

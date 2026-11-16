@@ -22,6 +22,8 @@ function base(over: Partial<Snapshot> = {}): Snapshot {
   return {
     v: 1,
     scene: 'title',
+    booted: true,
+    linked: true,
     help: true,
     sound: true,
     touch: false,
@@ -86,6 +88,12 @@ describe('adventure screens (A01–A06)', () => {
     expect(s).toContain('data-testid="adv-start"');
     expect(s).toContain('data-testid="adv-parent-link"');
     noBanned(s);
+    // opened without the student document, a locked island waits for tomorrow
+    expect(html(<Panel engine={engine} snap={base({ linked: false })} />)).toContain(S.stateTomorrow.en);
+    // until the day file and the server progress are in, start waits
+    const loading = html(<Panel engine={engine} snap={base({ booted: false })} />);
+    expect(loading).toMatch(/data-testid="adv-start"[^>]*disabled/);
+    expect(loading).toContain(S.loading.en);
   });
 
   it('A01 state: a document that did not open says so in one line and still starts', () => {

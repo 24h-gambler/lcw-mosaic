@@ -6,6 +6,7 @@ import { PAL, type PalKey } from './art/palette.js';
 import { paintBell, paintCreature, paintKeeper, paintSoul, paintStone, paintVillager } from './art/sprites.js';
 import { paintIsland } from './art/tiles.js';
 import type { Engine } from './engine.js';
+import { S } from './ui/strings.js';
 
 /** Draws one frame of the logical 320×240 screen (scaled by an integer `scale`, smoothing off). */
 
@@ -25,6 +26,15 @@ function sprite(key: string, make: () => { toCanvas(): Img }): Img {
 }
 
 let islandImg: { ch: number; img: Img } | null = null;
+
+/** docs/08 MOTION_TOKENS: with reduced motion asked for, no screen shake and no fades (the picture just changes). */
+function reducedMotion(): boolean {
+  try {
+    return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
 
 export class Renderer {
   scale = 1;
@@ -52,7 +62,7 @@ export class Renderer {
     else if (e.scene === 'explore') this.explore(e);
     else if (e.scene === 'battle') this.battle(e);
     else if (e.scene === 'end') this.end(e);
-    if (e.fade > 0) {
+    if (e.fade > 0 && !reducedMotion()) {
       c.globalAlpha = Math.min(1, e.fade);
       c.fillStyle = PAL.night;
       c.fillRect(0, 0, W, H);
@@ -217,7 +227,7 @@ export class Renderer {
     const b = e.battle;
     if (!b) return;
     const c = this.ctx;
-    const shake = b.shake > 0 ? Math.round(Math.sin(e.t * 70) * ADV.shakePx) : 0;
+    const shake = b.shake > 0 && !reducedMotion() ? Math.round(Math.sin(e.t * 70) * ADV.shakePx) : 0;
     c.fillStyle = PAL.night;
     c.fillRect(0, 0, W, H);
     // backdrop: soft stripes in the island's colours
@@ -275,7 +285,8 @@ export class Renderer {
       c.clip();
       for (const bl of ps.bullets) if (bl.alive) this.bullet(bl, e.help);
       // the soul
-      const blink = b.invuln > 0 && Math.floor(e.t * 12) % 2 === 0;
+      // after a hit the bubble blinks at most ADV.hitBlinkHz times a second (docs/08: no more than 3 flashes a second)
+      const blink = b.invuln > 0 && Math.floor(e.t * 2 * ADV.hitBlinkHz) % 2 === 0;
       if (!blink) this.img(sprite('soul', paintSoul), b.soul.x - 5, b.soul.y - 5);
       c.restore();
       // word guide above the page
@@ -285,15 +296,15 @@ export class Renderer {
         this.text(`${currentWord(ps).emoji} ${shown}`, W / 2, a.y - 9, PAL.cream, 11, 'center');
       } else if (ps.id === 'spellBubbles') {
         const wc = currentWord(ps);
-        this.text(`${wc.emoji} Catch the right spelling${e.help && wc.ko ? ` · ${wc.ko}` : ''}`, W / 2, a.y - 9, PAL.cream, 10, 'center');
+        this.text(`${wc.emoji} ${S.catchSpelling.en}${e.help && wc.ko ? ` · ${wc.ko}` : ''}`, W / 2, a.y - 9, PAL.cream, 10, 'center');
       } else if (ps.id === 'wordCookies' && ps.prompt) {
-        this.text(`Catch: ${ps.prompt.emoji}${e.help && ps.prompt.ko ? ` ${ps.prompt.ko}` : ''}`, W / 2, a.y - 9, PAL.cream, 11, 'center');
+        this.text(`${S.catchPrompt.en} ${ps.prompt.emoji}${e.help && ps.prompt.ko ? ` ${ps.prompt.ko}` : ''}`, W / 2, a.y - 9, PAL.cream, 11, 'center');
       }
     }
     // bars
     const by = a.y + a.h + 9;
-    this.bar(W / 2 - 112, by, 100, b.hp / ADV.hp.max, PAL.sun, 'VOICE');
-    this.bar(W / 2 + 12, by, 100, b.calm / b.enc.calmMax, b.ready ? PAL.leaf : PAL.pink, b.ready ? 'CALM ✓' : 'CALM');
+    this.bar(W / 2 - 112, by, 100, b.hp / ADV.hp.max, PAL.sun, S.voiceLabel.en);
+    this.bar(W / 2 + 12, by, 100, b.calm / b.enc.calmMax, b.ready ? PAL.leaf : PAL.pink, b.ready ? `${S.calmLabel.en} ✓` : S.calmLabel.en);
     if (b.flash > 0) {
       c.globalAlpha = Math.min(0.25, b.flash);
       c.fillStyle = PAL.danger;

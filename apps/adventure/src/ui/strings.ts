@@ -18,6 +18,9 @@ export const S = {
     previous: { en: 'Finish the island before', ko: '앞 섬을 먼저 끝내요' },
     'next-day': { en: 'Opens on your next lesson day', ko: '다음 수업 날 열려요' }
   },
+  /** Opened without the student document: the next island waits for tomorrow (Korea time). */
+  stateTomorrow: { en: 'Opens tomorrow', ko: '내일 열려요' },
+  loading: { en: 'Getting your islands ready…', ko: '섬을 준비하고 있어요…' },
   dayWords: { en: "Today's words", ko: '오늘의 낱말' },
   dayFailed: { en: 'Island words today (your page did not open).', ko: '문서 자료를 못 읽어서 섬의 낱말로 해요.' },
   next: { en: 'Next', ko: '다음' },
@@ -81,6 +84,7 @@ export const S = {
   endLines: { en: 'Sentences you used', ko: '쓴 문장' },
   endNext: {
     'next-day': { en: 'The next island opens on your next lesson day.', ko: '다음 섬은 다음 수업 날 열려요.' },
+    tomorrow: { en: 'The next island opens tomorrow.', ko: '다음 섬은 내일 열려요.' },
     'done-all': { en: 'You made friends on all four islands. The words are home!', ko: '네 섬 모두에서 친구가 됐어요. 낱말이 모두 돌아왔어요!' },
     replay: { en: 'You can play any island you finished again.', ko: '끝낸 섬은 언제든 다시 할 수 있어요.' }
   },
@@ -90,6 +94,46 @@ export const S = {
   toWorld: { en: 'Use these words in the LCW town', ko: 'LCW 마을에서 이 문장 써 보기' },
   sent: { en: 'Saved to your English Day page ✓', ko: '내 영어 문서에 저장했어요 ✓' },
   items: { honeyDrop: { en: 'Honey Drop', ko: '꿀 사탕' }, berryBun: { en: 'Berry Bun', ko: '베리 빵' } },
+  /** TALK buttons (A04): what kind of line, how it is answered. */
+  talkKind: {
+    greet: { en: 'Say hello', ko: '인사하기' },
+    feel: { en: 'Share a feeling', ko: '기분 말하기' },
+    word: { en: 'Use a new word', ko: '새 낱말로 말하기' },
+    bank: { en: 'Ask nicely', ko: '예의 바르게 묻기' },
+    befriend: { en: 'Offer friendship', ko: '친구 하자고 말하기' }
+  },
+  talkMode: {
+    say: { en: 'say it', ko: '말하기' },
+    build: { en: 'build it', ko: '문장 조립' },
+    pick: { en: 'pick a reply', ko: '대답 고르기' },
+    spell: { en: 'spell it', ko: '철자 맞히기' }
+  },
+  spellLabel: (emoji: string) => ({ en: `Spell the word ${emoji}`.trim(), ko: '낱말 철자 맞히기' }),
+  answerLabel: (q: { en: string; ko: string }) => ({ en: `Answer "${q.en}"`, ko: `"${q.ko}"에 대답하기` }),
+  /** What the island's phrase-bank line is for (its Korean help: the bank has no Korean of its own). */
+  bankKo: {
+    guide: '길을 묻는 문장 (LCW 마을 안내인에게도 써요)',
+    trade_shop: '물건을 바꾸자는 문장 (LCW 교환 상점에서도 써요)',
+    cafe: '주문하는 문장 (LCW 카페에서도 써요)',
+    errand: '도와주겠다는 문장 (LCW 심부름에서도 써요)'
+  } as Record<string, string>,
+  /** The narrator in an encounter (A03). */
+  narr: {
+    pouchEmpty: { en: 'Your pouch is empty.', ko: '주머니가 비었어요.' },
+    notReady: (en: string, ko: string) => ({ en: `${en} is not ready yet. Try TALK first!`, ko: `${ko}는 아직 준비가 안 됐어요. 먼저 TALK 로 말을 걸어 봐요!` }),
+    ate: (en: string, ko: string, heal: number) => ({ en: `You ate a ${en}. Your voice feels stronger! (+${heal})`, ko: `${ko}을(를) 먹었어요. 목소리에 힘이 나요! (+${heal})` }),
+    missed: { en: 'Missed!', ko: '빗나갔어요!' },
+    voiceRest: { en: "Your voice bubble needs a rest. Let's try again!", ko: '말풍선이 조금 쉬어야 해요. 다시 해 봐요!' }
+  },
+  /** On the island (A02). */
+  walkStones: { en: 'Walk right. Touch the glowing word stones and meet the islanders!', ko: '오른쪽으로 걸어가요. 빛나는 낱말 돌을 만지고 섬 주민을 만나요!' },
+  walkOn: { en: 'Walk right to meet the islanders.', ko: '오른쪽으로 걸어가 섬 주민을 만나요.' },
+  wordStone: { en: 'Word Stone', ko: '낱말 돌' },
+  bell: { en: 'Moss Bell', ko: '종 기둥' },
+  bellFirst: { en: 'Ding! The bell rings. You found a Honey Drop for your pouch.', ko: '딩! 종이 울려요. 주머니에 꿀 사탕이 하나 생겼어요.' },
+  bellAgain: { en: 'Ding! The bell rings softly.', ko: '딩! 종이 살짝 울려요.' },
+  catchSpelling: { en: 'Catch the right spelling', ko: '맞는 철자를 잡아요' },
+  catchPrompt: { en: 'Catch:', ko: '잡을 것:' },
   voiceLabel: { en: 'VOICE', ko: '목소리 힘' },
   calmLabel: { en: 'CALM', ko: '마음' }
 } as const;

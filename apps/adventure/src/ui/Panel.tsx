@@ -78,7 +78,7 @@ function Msg({ who, text, ko, reveal, help, onNext }: { who: string; text: strin
 function Title({ engine, snap }: { engine: Engine; snap: Snapshot }) {
   const help = snap.help;
   const sel = snap.islands.find((i) => i.id === snap.selected)!;
-  const can = sel.state === 'open' || sel.state === 'cleared';
+  const can = snap.booted && (sel.state === 'open' || sel.state === 'cleared');
   const ch = ADVENTURE_CHAPTERS.find((c) => c.id === sel.id)!;
   return (
     <>
@@ -102,7 +102,7 @@ function Title({ engine, snap }: { engine: Engine; snap: Snapshot }) {
       <div className="isles" data-testid="adv-isles">
         {snap.islands.map((i) => {
           const locked = i.state === 'previous' || i.state === 'next-day';
-          const st = S.state[i.state];
+          const st = i.state === 'next-day' && !snap.linked ? S.stateTomorrow : S.state[i.state];
           return (
             <button
               key={i.id}
@@ -128,7 +128,8 @@ function Title({ engine, snap }: { engine: Engine; snap: Snapshot }) {
       </div>
       <Line l={ch.intro} help={help} cls="hintline" />
       <button type="button" className="btn primary" disabled={!can} onClick={() => engine.startChapter(sel.id)} data-testid="adv-start" style={{ alignItems: 'center' }}>
-        {sel.state === 'cleared' ? S.replay.en : S.start.en} ▶{help && <span className="ko">{sel.state === 'cleared' ? S.replay.ko : S.start.ko}</span>}
+        {!snap.booted ? S.loading.en : sel.state === 'cleared' ? S.replay.en : `${S.start.en} ▶`}
+        {help && <span className="ko">{!snap.booted ? S.loading.ko : sel.state === 'cleared' ? S.replay.ko : S.start.ko}</span>}
       </button>
       <div className="hintline">
         {S.keysHint.en}
@@ -366,7 +367,7 @@ function End({ engine, snap }: { engine: Engine; snap: Snapshot }) {
             ))}
         </ul>
       </div>
-      <Line l={S.endNext[e.nextNote]} help={help} />
+      <Line l={S.endNext[e.nextNote === 'next-day' && !snap.linked ? 'tomorrow' : e.nextNote]} help={help} />
       {e.sent === 'sent' && <div className="ko" data-testid="adv-sent">{S.sent.en}</div>}
       {e.back && (
         <a className="btn go" href={e.back} data-testid="adv-back-doc" style={{ textDecoration: 'none', alignItems: 'center' }}>

@@ -36,6 +36,14 @@ export function gradeExact(target: string, answer: string, tries: number): Grade
   return { stars, score: ok ? 1 : 0, pass: ok, missed: [] };
 }
 
+/** 🔤 spell: only the letters count ("ice cream" is spelled i-c-e-c-r-e-a-m, "don't" d-o-n-t). */
+export function gradeSpelling(target: string, answer: string, tries: number): Graded {
+  const letters = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
+  const ok = letters(target).length > 0 && letters(target) === letters(answer);
+  const stars: Stars = !ok ? 0 : tries <= 1 ? 3 : tries === 2 ? 2 : 1;
+  return { stars, score: ok ? 1 : 0, pass: ok, missed: [] };
+}
+
 /** ✅ pick: the right reply = 2 stars (first try) or 1. */
 export function gradePick(target: string, choice: string, tries: number): Graded {
   const ok = norm(target) === norm(choice);

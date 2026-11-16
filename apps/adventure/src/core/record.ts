@@ -16,11 +16,15 @@ export interface LineEntry {
   ok: boolean;
   tries: number;
   stars: 0 | 1 | 2 | 3;
+  /** Said at a word stone (practice on the way; not counted for the chapter's three stars). */
+  stone?: boolean;
 }
 
 export interface ChapterRecord {
   chapter: AdventureChapterId;
   level: AdventureLevel;
+  /** The student's own level (L1-L6) when the document or device named it. */
+  langLevel: string | null;
   startedMs: number;
   endedMs: number | null;
   lines: LineEntry[];
@@ -32,10 +36,10 @@ export interface ChapterRecord {
   fought: string[];
 }
 
-export function startRecord(chapter: AdventureChapterId, level: AdventureLevel, words: readonly string[], nowMs: number): ChapterRecord {
+export function startRecord(chapter: AdventureChapterId, level: AdventureLevel, words: readonly string[], nowMs: number, langLevel: string | null = null): ChapterRecord {
   const m = new Map<string, { caught: number; missed: number }>();
   for (const w of words) m.set(w, { caught: 0, missed: 0 });
-  return { chapter, level, startedMs: nowMs, endedMs: null, lines: [], words: m, hpLost: 0, outcome: 'quit', befriended: [], fought: [] };
+  return { chapter, level, langLevel: langLevel && /^L[1-6]$/.test(langLevel) ? langLevel : null, startedMs: nowMs, endedMs: null, lines: [], words: m, hpLost: 0, outcome: 'quit', befriended: [], fought: [] };
 }
 
 /** One TALK answered: the same sentence tried again updates its entry (tries go up, the best result stays). */
@@ -50,8 +54,8 @@ export function addLine(r: ChapterRecord, e: Omit<LineEntry, 'tries'> & { tries?
     }
     return;
   }
-  if (r.lines.length >= 60) return;
-  r.lines.push({ en: e.en, ko: e.ko, mode: e.mode, ok: e.ok, tries: e.tries ?? 1, stars: e.stars });
+  if (r.lines.length >= ADV.recordMax.lines) return;
+  r.lines.push({ en: e.en, ko: e.ko, mode: e.mode, ok: e.ok, tries: e.tries ?? 1, stars: e.stars, ...(e.stone ? { stone: true } : {}) });
 }
 
 const isSpeech = (m: AdventureLineMode) => m === 'voice' || m === 'typed';
@@ -59,14 +63,14 @@ const isSpeech = (m: AdventureLineMode) => m === 'voice' || m === 'typed';
 export function wordHit(r: ChapterRecord, w: string, kind: 'caught' | 'missed'): void {
   const x = r.words.get(w) ?? { caught: 0, missed: 0 };
   x[kind] += 1;
-  if (r.words.has(w) || r.words.size < 60) r.words.set(w, x);
+  if (r.words.has(w) || r.words.size < ADV.recordMax.words) r.words.set(w, x);
 }
 
 /** Chapter stars (docs/22 4장). */
 export function chapterStars(r: ChapterRecord): 0 | 1 | 2 | 3 {
   if (r.outcome === 'quit') return 0;
   if (r.outcome !== 'spared') return 1;
-  const spoken = r.lines.filter((l) => isSpeech(l.mode) && l.ok && l.stars >= 2).length;
+  const spoken = r.lines.filter((l) => !l.stone && isSpeech(l.mode) && l.ok && l.stars >= 2).length;
   return r.befriended.length >= 3 && spoken >= ADV.chapterThreeStarSpoken ? 3 : 2;
 }
 
@@ -77,7 +81,7 @@ function iso(ms: number): string {
 
 export function toActivity(r: ChapterRecord, nowMs: number): AdventureActivity {
   const end = r.endedMs ?? nowMs;
-  const words = [...r.words.entries()].slice(0, 60).map(([w, x]) => ({ w, ok: x.caught > 0 && x.caught >= x.missed, caught: x.caught, missed: x.missed }));
+  const words = [...r.words.entries()].slice(0, ADV.recordMax.words).map(([w, x]) => ({ w, ok: x.caught > 0 && x.caught >= x.missed, caught: x.caught, missed: x.missed }));
   return {
     id: `ch${r.chapter}`,
     kind: 'chapter',
@@ -90,9 +94,18 @@ export function toActivity(r: ChapterRecord, nowMs: number): AdventureActivity {
     correct: r.lines.filter((l) => l.ok).length,
     total: r.lines.length,
     words,
-    lines: r.lines.slice(0, 60).map((l) => ({ en: l.en.slice(0, 300), ko: l.ko.slice(0, 300), mode: l.mode, ok: l.ok, tries: Math.max(1, l.tries) })),
-    extra: { outcome: r.outcome, hp_lost: r.hpLost, level: `L${r.level}` }
+    lines: r.lines.slice(0, ADV.recordMax.lines).map((l) => ({ en: l.en.slice(0, ADV.recordMax.text), ko: l.ko.slice(0, ADV.recordMax.text), mode: l.mode, ok: l.ok, tries: Math.max(1, l.tries) })),
+    extra: { outcome: r.outcome, hp_lost: r.hpLost, level: r.langLevel ?? `L${r.level}` }
   };
+}
+
+const OUTCOME_RANK = { quit: 0, fought: 1, spared: 2 } as const;
+
+/** A replay sends only when it is at least as good as the play already sent for that island (spared, then stars). */
+export function betterPlay(a: AdventureActivity, b: AdventureActivity): boolean {
+  const ra = OUTCOME_RANK[a.extra.outcome];
+  const rb = OUTCOME_RANK[b.extra.outcome];
+  return ra !== rb ? ra > rb : a.stars >= b.stars;
 }
 
 const OUTCOME_KO: Record<AdventureOutcome, string> = { spared: '말로 친구가 되어 끝냄', fought: '콕 찌르기로 끝냄', quit: '중간에 멈춤' };
@@ -107,13 +120,13 @@ export function summaryKo(acts: readonly AdventureActivity[]): string {
       return `${a.label}: ${OUTCOME_KO[a.extra.outcome]}, 별 ${a.stars}/3, 문장 ${a.correct}/${a.total}개 성공(말·타이핑 ${spoken}개), 낱말 ${a.words.length}개 중 ${caught}개 잡음`;
     })
     .join(' · ')
-    .slice(0, 300);
+    .slice(0, ADV.recordMax.text);
 }
 
 /** The envelope (contract v1); null when it would not pass the receiver's checks. */
 export function buildEnvelope(student: string, date: string, acts: readonly AdventureActivity[]): AdventureEnvelope | null {
   if (!acts.length) return null;
-  const env: AdventureEnvelope = { v: 1, source: 'lcw-adventure', student, date, activities: acts.slice(0, 50), summaryKo: summaryKo(acts) };
+  const env: AdventureEnvelope = { v: 1, source: 'lcw-adventure', student, date, activities: acts.slice(0, ADV.recordMax.activities), summaryKo: summaryKo(acts) };
   const ok = AdventureEnvelopeSchema.safeParse(env);
   if (!ok.success) return null;
   if (new TextEncoder().encode(JSON.stringify(env)).length > ADVENTURE_ENVELOPE_MAX_BYTES) return null;

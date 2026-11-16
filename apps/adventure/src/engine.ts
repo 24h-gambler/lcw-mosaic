@@ -13,11 +13,12 @@ import { EnglishDayFileSchema, type AdventureActivity, type AdventureLineMode, t
 import { ADV } from './core/tuning.js';
 import { buildChapterPlan, type ChapterPlan, type TalkItem } from './core/plan.js';
 import { Battle, type Command, type ItemKey } from './core/battle.js';
-import { gradeExact, gradePick, gradeSpoken, type Graded } from './core/grade.js';
+import { gradeExact, gradePick, gradeSpelling, gradeSpoken, type Graded } from './core/grade.js';
 import { buildIsland, feetBox, findPath, moveFeet, type IslandMap, type MapEntity } from './core/map.js';
 import { createRng, hashSeed } from './core/rng.js';
 import {
   CHAPTER_IDS,
+  SETTINGS_KEY,
   STORAGE_KEY,
   earlierWords,
   isCleared,
@@ -31,11 +32,12 @@ import {
   toSettings,
   type Progress
 } from './core/progress.js';
-import { addLine, buildEnvelope, chapterStars, startRecord, toActivity, wordHit, type ChapterRecord } from './core/record.js';
+import { addLine, betterPlay, buildEnvelope, chapterStars, startRecord, toActivity, wordHit, type ChapterRecord } from './core/record.js';
 import { dayFileUrls, readEdLink, resultUrl, type EdLink } from './core/edlink.js';
 import { Sound, type SfxName } from './audio/sound.js';
 import type { TrackId } from './audio/tracks.js';
 import { Voice } from './audio/voice.js';
+import { S } from './ui/strings.js';
 
 /**
  * The adventure at run time: scenes, input, the fixed-step loop and every link out (document file, result envelope,
@@ -66,6 +68,10 @@ export interface EntityState {
 export interface Snapshot {
   v: number;
   scene: Scene;
+  /** The document's day file and the server progress are in (start waits for them, docs/22 1.2). */
+  booted: boolean;
+  /** Opened from the student document (the next island waits for the next lesson day, not just tomorrow). */
+  linked: boolean;
   help: boolean;
   sound: boolean;
   touch: boolean;
@@ -133,8 +139,11 @@ export class Engine {
   help = store()?.getItem(HELP_KEY) !== '0';
   soundOn = store()?.getItem(SOUND_KEY) !== '0';
   touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  /** The sentence level: the document's level first, then ?level=, then the linked device's level (docs/22 2.3). */
   level: AdventureLevel = adventureLevelOf(this.params.get('level'));
-  levelFromUrl = this.params.has('level');
+  /** The student's own level as the document / device says it (L1-L6), reported in the envelope. */
+  langLevel: string | null = /^L?[1-6]$/i.test(this.params.get('level') ?? '') ? `L${(this.params.get('level') ?? '').replace(/^L/i, '')}` : null;
+  booted = false;
   day: EnglishDayFile | null = null;
   dayNote: Snapshot['dayNote'] = 'none';
   selected: AdventureChapterId = 1;
@@ -171,17 +180,24 @@ export class Engine {
   private lastPhaseKey = '';
   /** The last envelope the document answered OK to (nothing new → no beacon on leaving). */
   private confirmed: string | null = null;
+  /** The last body sent as a beacon (hiding the tab again with nothing new sends nothing). */
+  private beaconed: string | null = null;
 
   constructor() {
     this.sound.setEnabled(this.soundOn);
     this.voice.enabled = this.soundOn;
-    this.selected = nextChapter(this.progress, this.today(), { unlockAll: this.unlockAll });
+    this.selected = nextChapter(this.progress, this.lessonDay(), { unlockAll: this.unlockAll });
     if (this.params.get('view') === 'parent') this.scene = 'parent';
     this.snap = this.build();
   }
 
   today(): string {
     return kstDate(Date.now());
+  }
+
+  /** The lesson day: the student document's day when opened from it (a new document day = a new lesson), else today. */
+  lessonDay(): string {
+    return this.ed ? (this.ed.date ?? this.day?.date ?? this.today()) : this.today();
   }
 
   // ---------- store for React ----------
@@ -196,7 +212,7 @@ export class Engine {
   }
 
   private islands(): Snapshot['islands'] {
-    const today = this.today();
+    const today = this.lessonDay();
     return ADVENTURE_CHAPTERS.map((c) => {
       const lr = this.unlockAll ? 'open' : lockReason(this.progress, c.id, today);
       const state: Snapshot['islands'][number]['state'] = isCleared(this.progress, c.id) ? 'cleared' : lr;
@@ -210,6 +226,8 @@ export class Engine {
     return {
       v: ++this.snapV,
       scene: this.scene,
+      booted: this.booted,
+      linked: Boolean(this.ed),
       help: this.help,
       sound: this.soundOn,
       touch: this.touch,
@@ -233,7 +251,7 @@ export class Engine {
               creatureEn: enc.creature.nameEn,
               creatureKo: enc.creature.nameKo,
               turnLine: b.turnLine,
-              befriendLine: this.plan ? this.plan.chapter.befriend[this.level] : null
+              befriendLine: this.plan ? this.plan.chapter.befriend[this.plan.level] : null
             }
           : null,
       end: this.end,
@@ -247,21 +265,28 @@ export class Engine {
     const alive = this.entities.filter((e) => (e.e.kind === 'critter' || e.e.kind === 'guardian') && e.state === 'idle');
     if (!alive.length) return null;
     const unlit = this.entities.filter((e) => e.e.kind === 'stone' && e.talked === 0).length;
-    return unlit
-      ? { en: 'Walk right. Touch the glowing word stones and meet the islanders!', ko: '오른쪽으로 걸어가요. 빛나는 낱말 돌을 만지고 섬 주민을 만나요!' }
-      : { en: 'Walk right to meet the islanders.', ko: '오른쪽으로 걸어가 섬 주민을 만나요.' };
+    return unlit ? S.walkStones : S.walkOn;
   }
 
   // ---------- boot ----------
   async boot(): Promise<void> {
-    const tasks: Array<Promise<void>> = [this.loadDay(), this.loadServerProgress()];
-    await Promise.all(tasks);
-    this.selected = nextChapter(this.progress, this.today(), { unlockAll: this.unlockAll });
+    // both loads finish (or time out) before the islands can be started: the level and the open island depend on them
+    const timeout = new Promise<[null, null]>((r) => setTimeout(() => r([null, null]), ADV.bootWaitMs));
+    const [docLevel, deviceLevel] = await Promise.race([Promise.all([this.loadDay(), this.loadServerProgress()]), timeout]);
+    const urlLevel = this.params.get('level');
+    const chosen = docLevel ?? (urlLevel && /^L?[1-6]$/i.test(urlLevel) ? urlLevel : null) ?? deviceLevel;
+    if (chosen != null) {
+      this.level = adventureLevelOf(chosen);
+      this.langLevel = typeof chosen === 'number' ? `L${chosen}` : `L${String(chosen).replace(/^L/i, '')}`;
+    }
+    this.booted = true;
+    this.selected = nextChapter(this.progress, this.lessonDay(), { unlockAll: this.unlockAll });
     this.notify();
   }
 
-  private async loadDay() {
-    if (!this.ed) return;
+  /** The document's day file; returns the level it names. */
+  private async loadDay(): Promise<string | number | null> {
+    if (!this.ed) return null;
     for (const url of dayFileUrls(this.ed)) {
       try {
         const r = await fetch(url, { cache: 'no-store' });
@@ -270,13 +295,13 @@ export class Engine {
         if (!parsed.success) continue;
         this.day = parsed.data;
         this.dayNote = 'document';
-        if (!this.levelFromUrl && parsed.data.level) this.level = adventureLevelOf(parsed.data.level);
-        return;
+        return parsed.data.level ?? null;
       } catch {
         // blocked or offline: try the next file
       }
     }
     this.dayNote = 'document-failed';
+    return null;
   }
 
   private deviceToken(): string | null {
@@ -287,27 +312,28 @@ export class Engine {
     }
   }
 
-  private async loadServerProgress() {
+  /** A linked child's progress on the server (and the device's level, returned). */
+  private async loadServerProgress(): Promise<string | null> {
     const tok = this.deviceToken();
-    if (!tok) return;
+    if (!tok) return null;
     const h = { authorization: `Bearer ${tok}` };
+    const level = fetch('/v1/device/me', { headers: h })
+      .then(async (me) => (me.ok ? (((await me.json()) as { level?: string }).level ?? null) : null))
+      .catch(() => null);
     try {
-      if (!this.levelFromUrl && !this.day?.level) {
-        const me = await fetch('/v1/device/me', { headers: h });
-        if (me.ok) {
-          const j = (await me.json()) as { level?: string };
-          if (j.level) this.level = adventureLevelOf(j.level);
-        }
-      }
       const r = await fetch('/v1/settings', { headers: h });
       if (r.ok) {
         const j = (await r.json()) as { settings?: Record<string, unknown> };
         this.progress = mergeSettings(this.progress, j.settings);
         this.saveLocal();
+        // the server lost or lacks what this device has (another screen rewrote the row): put it back
+        const mine = toSettings(this.progress)[SETTINGS_KEY];
+        if (mine && j.settings?.[SETTINGS_KEY] !== mine) void this.saveServer();
       }
     } catch {
       // offline: the device copy is enough
     }
+    return level;
   }
 
   private saveLocal() {
@@ -318,16 +344,22 @@ export class Engine {
     }
   }
 
-  private async saveServer() {
+  private async saveServer(): Promise<boolean> {
     const tok = this.deviceToken();
-    if (!tok) return;
+    if (!tok) return false;
     const h = { authorization: `Bearer ${tok}`, 'content-type': 'application/json' };
     try {
+      // the PUT replaces the whole row: never write without having read it (a failed read would wipe the world's settings)
       const r = await fetch('/v1/settings', { headers: h });
-      const cur = r.ok ? (((await r.json()) as { settings?: Record<string, unknown> }).settings ?? {}) : {};
-      await fetch('/v1/settings', { method: 'PUT', headers: h, body: JSON.stringify({ settings: { ...cur, ...toSettings(this.progress) } }) });
+      if (!r.ok) return false;
+      const cur = ((await r.json()) as { settings?: Record<string, unknown> }).settings ?? {};
+      const next = { ...cur, ...toSettings(this.progress) };
+      if (Object.keys(next).length > ADV.settingsMaxKeys) return false;
+      const put = await fetch('/v1/settings', { method: 'PUT', headers: h, body: JSON.stringify({ settings: next }) });
+      return put.ok;
     } catch {
-      // next finish tries again
+      // next finish or the next start tries again
+      return false;
     }
   }
 
@@ -371,11 +403,12 @@ export class Engine {
   }
 
   canStart(id: AdventureChapterId): boolean {
-    return isUnlocked(this.progress, id, this.today(), { unlockAll: this.unlockAll });
+    return isUnlocked(this.progress, id, this.lessonDay(), { unlockAll: this.unlockAll });
   }
 
   startChapter(id: AdventureChapterId = this.selected) {
     this.sound.unlock();
+    if (!this.booted) return;
     if (!this.canStart(id)) {
       this.sfx('wrong');
       return;
@@ -391,12 +424,12 @@ export class Engine {
     this.entities = this.island.entities.map((e) => ({ e, x: e.tx * T + T / 2, y: e.ty * T + T - 2, state: 'idle', talked: 0 }));
     this.player = { x: this.island.start.tx * T + T / 2, y: this.island.start.ty * T + T - 2, dir: 2, flip: false, frame: 0, walkT: 0 };
     this.items = { honeyDrop: ADV.items.honeyDrop.startCount, berryBun: ADV.items.berryBun.startCount };
-    this.record = startRecord(id, this.level, [...this.plan.words, ...this.plan.review].map((w) => w.w), Date.now());
+    this.record = startRecord(id, this.plan.level, [...this.plan.words, ...this.plan.review].map((w) => w.w), Date.now(), this.langLevel);
     this.end = null;
     this.battle = null;
     this.scene = 'explore';
     this.fade = 1;
-    this.exploreMsg = { who: 'Hushwind Isles', whoKo: '휘파람 바람 섬', lines: [{ en: ch.islandEn, ko: ch.islandKo }, ch.intro], i: 0, voice: null };
+    this.exploreMsg = { who: S.title.en, whoKo: S.title.ko, lines: [{ en: ch.islandEn, ko: ch.islandKo }, ch.intro], i: 0, voice: null };
     this.reveal = 0;
     this.music(ch.music);
     this.voice.prefetch(this.plan.words.map((w) => ({ voice: npcCast().modelVoice, text: w.w })));
@@ -408,7 +441,7 @@ export class Engine {
     this.scene = 'title';
     this.battle = null;
     this.exploreMsg = null;
-    this.selected = nextChapter(this.progress, this.today(), { unlockAll: this.unlockAll });
+    this.selected = nextChapter(this.progress, this.lessonDay(), { unlockAll: this.unlockAll });
     this.music('title');
     this.fade = 1;
     this.notify();
@@ -486,7 +519,7 @@ export class Engine {
     const t = this.battle?.current;
     if (t && t.mode !== 'spell') {
       // a learner hears the model sentence first at L1; above, on the 🔊
-      if (this.level === 1 && t.mode === 'say') void this.voice.speak(npcCast().modelVoice, t.target);
+      if (this.plan?.level === 1 && t.mode === 'say') void this.voice.speak(npcCast().modelVoice, t.target);
       if (t.mode === 'pick' && t.prompt && this.battle) void this.voice.speak(adventureVoice(this.battle.enc.creature.voice), t.prompt.en);
     } else if (t?.mode === 'spell') void this.voice.speak(npcCast().modelVoice, t.target, 0.8);
     this.afterBattleChange();
@@ -498,8 +531,10 @@ export class Engine {
     const t = b?.current;
     if (!b || !t || !this.record) return { stars: 0, score: 0, pass: false, missed: [] };
     let g: Graded;
-    if (t.mode === 'say') g = gradeSpoken(t.target, a.transcripts ?? [], this.level);
+    const level = this.plan?.level ?? this.level;
+    if (t.mode === 'say') g = gradeSpoken(t.target, a.transcripts ?? [], level);
     else if (t.mode === 'pick') g = gradePick(t.target, a.answer ?? '', a.tries);
+    else if (t.mode === 'spell') g = gradeSpelling(t.target, a.answer ?? '', a.tries);
     else g = gradeExact(t.target, a.answer ?? '', a.tries);
     const ko = t.ko ?? '';
     addLine(this.record, { en: t.target, ko, mode: a.mode, ok: g.pass && g.stars > 0, stars: g.stars });
@@ -527,9 +562,9 @@ export class Engine {
   befriend(said: boolean, transcript?: string[], mode: 'voice' | 'typed' = 'voice') {
     const b = this.battle;
     if (!b || b.phase !== 'befriend' || !this.plan || !this.record) return;
-    const line = this.plan.chapter.befriend[this.level];
+    const line = this.plan.chapter.befriend[this.plan.level];
     if (said && transcript) {
-      const g = gradeSpoken(line.en, transcript, this.level);
+      const g = gradeSpoken(line.en, transcript, this.plan.level);
       addLine(this.record, { en: line.en, ko: line.ko, mode, ok: g.pass, stars: g.stars });
     }
     b.befriend();
@@ -625,8 +660,8 @@ export class Engine {
       const w = this.stoneLines(e.index);
       if (!w) return;
       this.exploreMsg = {
-        who: 'Word Stone',
-        whoKo: '낱말 돌',
+        who: S.wordStone.en,
+        whoKo: S.wordStone.ko,
         lines: [{ en: w.sentence, ko: w.ko ? `${w.w} = ${w.ko}` : '' }],
         i: 0,
         voice: null,
@@ -639,12 +674,10 @@ export class Engine {
       if (first) this.items.honeyDrop += 1;
       this.sfx('bell');
       this.exploreMsg = {
-        who: 'Moss Bell',
-        whoKo: '종 기둥',
+        who: S.bell.en,
+        whoKo: S.bell.ko,
         lines: [
-          first
-            ? { en: 'Ding! The bell rings. You found a Honey Drop for your pouch.', ko: '딩! 종이 울려요. 주머니에 꿀 사탕이 하나 생겼어요.' }
-            : { en: 'Ding! The bell rings softly.', ko: '딩! 종이 살짝 울려요.' }
+          first ? S.bellFirst : S.bellAgain
         ],
         i: 0,
         voice: null
@@ -661,10 +694,11 @@ export class Engine {
     if (!m?.stone || !this.record) return false;
     const w = this.plan?.words[m.stone.index];
     if (!w) return false;
-    const g = gradeSpoken(w.sentence, transcripts, this.level);
-    const gw = gradeSpoken(w.w, transcripts, this.level);
+    const g = gradeSpoken(w.sentence, transcripts, this.plan!.level);
+    const gw = gradeSpoken(w.w, transcripts, this.plan!.level);
     const best = g.stars >= gw.stars ? { g, en: w.sentence } : { g: gw, en: w.w };
-    addLine(this.record, { en: best.en, ko: w.ko ? `${w.w} = ${w.ko}` : '', mode, ok: best.g.pass, stars: best.g.stars });
+    // a word stone is practice on the way: it is recorded, but the three-star count is the islanders' talks
+    addLine(this.record, { en: best.en, ko: w.ko ? `${w.w} = ${w.ko}` : '', mode, ok: best.g.pass, stars: best.g.stars, stone: true });
     if (best.g.pass) {
       const es = this.entities.find((x) => x.e.kind === 'stone' && x.e.index === m.stone!.index);
       if (es) es.talked += 1;
@@ -853,12 +887,13 @@ export class Engine {
     const r = this.record;
     r.endedMs = Date.now();
     const act = toActivity(r, r.endedMs);
-    const today = this.today();
+    const today = this.lessonDay();
     const wasCleared = isCleared(this.progress, this.chapter);
     this.progress = recordFinish(this.progress, this.chapter, today, { stars: chapterStars(r), outcome: r.outcome, words: this.plan.words.map((w) => w.w), activity: act });
     this.saveLocal();
     void this.saveServer();
-    this.sessionActs.set(act.id, act);
+    const had = this.sessionActs.get(act.id);
+    if (!had || betterPlay(act, had)) this.sessionActs.set(act.id, act);
     const friends = r.befriended.map((id) => {
       const c = [...this.plan!.chapter.critters, this.plan!.chapter.guardian].find((x) => x.id === id);
       return c?.nameEn ?? id;
@@ -922,9 +957,11 @@ export class Engine {
     const url = this.ed ? resultUrl(this.ed) : null;
     const body = this.envelope(includeOpen);
     if (!url || !body) return 'off';
-    if (body === this.confirmed) return 'sent';
+    if (body === this.confirmed || body === this.beaconed) return 'sent';
     try {
-      return navigator.sendBeacon(url, new Blob([body], { type: 'text/plain;charset=UTF-8' })) ? 'sent' : 'failed';
+      const ok = navigator.sendBeacon(url, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
+      if (ok) this.beaconed = body;
+      return ok ? 'sent' : 'failed';
     } catch {
       return 'failed';
     }
@@ -963,11 +1000,11 @@ export class Engine {
 }
 
 function entityBox(e: EntityState) {
-  const big = e.e.kind === 'guardian';
-  const w = big ? 28 : 14;
-  const h = e.e.kind === 'critter' ? 44 : big ? 40 : 12;
-  // critters fill their gate (three tiles high); others are a small block at their feet
-  return e.e.kind === 'critter' ? { x: e.x - w / 2, y: e.y - h + 14, w, h } : { x: e.x - w / 2, y: e.y - h, w, h };
+  // critters fill their gate (three tiles high); others are a block at their feet
+  const B = ADV.entityBox;
+  if (e.e.kind === 'critter') return { x: e.x - B.critter.w / 2, y: e.y - B.critter.h + B.critter.below, w: B.critter.w, h: B.critter.h };
+  const { w, h } = e.e.kind === 'guardian' ? B.guardian : B.small;
+  return { x: e.x - w / 2, y: e.y - h, w, h };
 }
 
 function grow(b: { x: number; y: number; w: number; h: number }, n: number) {

@@ -23,9 +23,10 @@
 
 ### 1.2 하루에 한 장 (4장)
 
-- 1장은 늘 열립니다. k장(k ≥ 2)은 k−1장을 끝낸 날(한국 시간)보다 **뒤의 날**에 열립니다. 그래서 수업 날마다 한 장씩 진행되고, 끝낸 장은 언제든 다시 할 수 있습니다. 잠긴 섬에는 "Opens on your next lesson day"(도움말: 다음 수업 날 열려요)만 보입니다 — 날짜·시계는 보이지 않습니다.
+- 1장은 늘 열립니다. k장(k ≥ 2)은 k−1장을 끝낸 **수업 날**보다 뒤의 수업 날에 열립니다. 수업 날은 학생 문서 링크로 열었을 때 그 링크의 날(`edd`, 없으면 문서 자료의 `date`)이고 — 문서에 새 수업 날이 생겨야 다음 섬이 열립니다 — 링크 없이 열면 한국 시간 달력 날입니다. 끝낸 장은 언제든 다시 할 수 있습니다. 잠긴 섬에는 링크로 열었으면 "Opens on your next lesson day"(다음 수업 날 열려요), 링크 없이 열었으면 "Opens tomorrow"(내일 열려요)만 보입니다 — 날짜·시계는 보이지 않습니다.
+- 섬 고르기의 시작 단추는 문서 자료와 서버 진행을 다 읽을 때까지(최대 `bootWaitMs` 4초) "Getting your islands ready…" 로 잠겨 있습니다 — 단계와 열린 섬이 그 둘에 달려 있기 때문입니다. 단계는 장을 시작할 때 계획에 고정되고, 채점도 그 단계로 합니다.
 - 문서 페이지가 여는 링크(3장)는 그날 문서 자료(`today.json`)의 낱말로 다음 장을 엽니다. 수업 시연·점검용 `?unlock=all` 은 네 장을 모두 엽니다.
-- 진행은 기기의 `localStorage`(`lcw.adventure.v1`)에 두고, 연결된 아이 기기(`lcw.deviceToken`)면 `GET/PUT /v1/settings`(`19` 3장, 평평한 키 `adv.c1`~`adv.c4` = `날짜|별|결과`, `adv.w1`~`adv.w4` = 그 장 낱말)에도 둡니다. 다른 기기에서 열어도 같은 장부터 이어집니다. 설정은 읽어서 합친 뒤 씁니다(다른 설정을 지우지 않음).
+- 진행은 기기의 `localStorage`(`lcw.adventure.v1`)에 두고, 연결된 아이 기기(`lcw.deviceToken`)면 `GET/PUT /v1/settings`(`19` 3장: 키 ≤ 40개·값 ≤ 32자이고 월드가 이미 대부분을 써서, 모험은 **키 하나** `adv` = "1" + 장마다 5글자[끝낸 수업 날(2024-01-01부터 날 수, 36진 3자리)·별(0~3)·결과(s 친구/f 찌르기/q 멈춤/- 없음)], 안 끝낸 장은 `-----`. 낱말은 기기에만 둡니다 — 새 기기에서는 섬 낱말로 다시 합니다)에도 둡니다. 다른 기기에서 열어도 같은 장부터 이어집니다. 설정은 읽어서 합친 뒤 씁니다(다른 설정을 지우지 않음). 읽기가 실패하면 쓰지 않고(PUT 은 행 전체를 바꾸므로), 키가 40개를 넘게 되면 쓰지 않으며, 응답이 OK 인지 확인합니다. 시작할 때 서버에 이 기기 진행이 없으면(다른 화면이 행을 다시 썼으면) 다시 써 넣습니다.
 
 ### 1.3 영어 학습 장치
 
@@ -39,7 +40,7 @@
 | 낱말 돌 | 섬 길 | 그날 낱말 셋이 길가 돌에 새겨져 있습니다. 다가가면 읽어 주고 따라 말할 수 있습니다 |
 | 4장 복습 | 별다락 탑 | 1~3장에 쓴 낱말·문장이 다시 나옵니다(문서 자료의 `review_words` 포함) |
 
-문장은 학생 단계(L1~L3, L4 이상은 L3 문장 + 긴 문장)에 맞춥니다. 단계는 ① 문서 자료 `level`(1~3) ② 주소 `?level=L2` ③ 연결된 기기 `GET /v1/device/me` 의 `level` ④ L1 순서로 정합니다. 한 장의 문장 묶음(`buildChapterPlan`, `apps/adventure/src/core/plan.ts`):
+문장은 학생 단계(L1~L3, L4 이상은 L3 문장 + 긴 문장)에 맞춥니다. 단계는 ① 문서 자료 `level` ② 주소 `?level=L2` ③ 연결된 기기 `GET /v1/device/me` 의 `level` ④ L1 순서로, 둘 다 읽은 뒤 한 번에 정합니다. 봉투의 `extra.level` 에는 아이의 원래 단계(L1~L6)를 그대로 적습니다. 한 장의 문장 묶음(`buildChapterPlan`, `apps/adventure/src/core/plan.ts`):
 
 1. 그날 문장: 문서 자료의 `sentence`·`typing[]`(그날 단계 맞춤 문장). 없으면 낱말마다 품사 틀(`ADVENTURE_WORD_FRAMES`) — 명사 "I see a puppy." / 형용사 "It is so sweet!" / 동사 "Let's bake together!".
 2. 기분 문장: 문서 오프너의 기분 틀과 같은 모양(L1 "I am happy." · L2 "I feel happy today because …" · L3 "Actually, I feel …").
@@ -65,7 +66,7 @@
   - 문서 페이지가 `/adventure/?ed=<학생키>&edd=<수업 날>&edk=<쓰기 키>&edr=<문서 주소>` 로 엽니다. 모험은 네 값을 `sessionStorage`(`lcw.adventure.ed`)에 두고 `https://english-day.pages.dev/<ed>/days/<edd>.json`(없으면 `today.json`)을 읽어 그날 낱말·문장·단계를 씁니다.
   - 장이 끝날 때마다 `POST https://english-day.pages.dev/api/result?k=<edk>`(text/plain, 봉투)를 보내고 응답을 기다립니다. 실패하면 1.5초·4초 뒤 두 번 더 보내고, 그래도 안 되면 화면은 그대로 두고 다음 장 끝이나 페이지를 떠날 때(`pagehide`·탭 숨김, `navigator.sendBeacon`) 같은 봉투를 다시 보냅니다(같은 장 id 는 덮어씀). 장 끝 화면의 '저장했어요 ✓' 는 응답 OK 를 받은 뒤에만 보입니다. `ed` 없이 열리면 보내지 않습니다.
   - 봉투: `{v:1, source:'lcw-adventure', student, date, activities:[{id:'ch<N>', kind:'chapter', label:'모험 N장', startedAt, endedAt, seconds, stars, starsMax:3, correct, total, words:[{w, ok, caught, missed}], lines:[{en, ko, mode:'voice'|'typed'|'pick'|'spell', ok, tries}], extra:{outcome:'spared'|'fought'|'quit', hp_lost, level}}], summaryKo}` — `packages/schemas/src/adventure.ts` 가 모양과 한도(64KB, words·lines ≤ 60, 문자열 ≤ 300자)를 검사합니다.
-  - 아이 별명·문장만 갑니다. 음성은 기기를 떠나지 않습니다(브라우저 인식 글자만 채점).
+  - 문서로는 아이 별명·문장만 갑니다. 마이크 말하기는 브라우저의 음성 인식(`SpeechRecognition`)을 씁니다 — 크롬 등은 인식을 위해 소리를 **브라우저 회사의 인식 서버**로 보낼 수 있습니다. 모험은 소리를 녹음·저장하거나 LCW·문서 서버로 보내지 않고, 인식된 글자만 채점·기록합니다. 마이크를 쓰고 싶지 않으면 늘 타이핑으로 답할 수 있습니다.
 - **신경망 목소리**: 섬 주민 대사는 배역 팩 목소리(`ADVENTURE_CAST` → `npc-cast.ts` 의 기존 목소리), 아이 문장은 `modelVoice`. 고정 대사와 내장 낱말 문장은 `fixedTtsLines()` 에 들어 있어 손님도 신경망 목소리를 듣고, 문서 자료에서 온 새 문장은 아이 토큰이 있을 때만 서버가 만듭니다(없으면 기기 목소리).
 - **LCW 월드**: 장마다 같은 상황의 문장 뱅크 문장을 써서, 모험에서 연습한 문장을 `/world/` 카페·상점·안내인에게 그대로 씁니다. 장 끝 화면에 `/world/` 로 가는 단추가 있습니다.
 

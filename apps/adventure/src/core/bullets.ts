@@ -98,8 +98,16 @@ export function arenaRect(id: AdventurePatternId): Rect {
 
 const MAX_BULLETS = 160;
 
-export function startPattern(id: AdventurePatternId, words: readonly WordCard[], rng: Rng, opts: { duration: number; speed?: number }): PatternState {
+/** Word cookies ask by picture: every word needs its own picture (an unknown word's ✨ cannot be told apart). */
+export function cookiesReadable(words: readonly WordCard[]): boolean {
+  const em = words.map((w) => w.emoji);
+  return em.length > 0 && !em.includes('✨') && new Set(em).size === em.length;
+}
+
+export function startPattern(asked: AdventurePatternId, words: readonly WordCard[], rng: Rng, opts: { duration: number; speed?: number }): PatternState {
   const ws = words.length ? [...words] : [{ w: 'word', ko: null, emoji: '✨', sentence: 'I know the word word.' }];
+  // words without their own pictures are caught by spelling instead
+  const id: AdventurePatternId = asked === 'wordCookies' && !cookiesReadable(ws) ? 'spellBubbles' : asked;
   const ps: PatternState = {
     id,
     arena: arenaRect(id),

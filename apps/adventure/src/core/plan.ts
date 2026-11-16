@@ -13,6 +13,7 @@ import {
 import type { EnglishDayFile } from '@lcw/schemas';
 import { ADV, type CreatureClass } from './tuning.js';
 import { createRng, hashSeed, pickOne, shuffle, type Rng } from './rng.js';
+import { S } from '../ui/strings.js';
 
 /**
  * One chapter's learning plan (docs/22 1.3): the day's words with their sentences, and for each encounter the TALK
@@ -180,28 +181,18 @@ export function buildTiles(s: string, rng: Rng): string[] {
 
 /** Letter pieces for 🔤 spell: the word's letters plus two decoys, shuffled. */
 export function spellTiles(w: string, rng: Rng): string[] {
-  const letters = [...w.replace(/[^a-z]/g, '')];
+  // letters only: a word with a space, hyphen or apostrophe is spelled by its letters (graded the same way)
+  const letters = [...w.toLowerCase().replace(/[^a-z]/g, '')];
   const abc = 'abcdefghijklmnoprstuwy';
   const decoys = [pickOne([...abc].filter((c) => !letters.includes(c)), rng), pickOne([...abc], rng)];
   return shuffle([...letters, ...decoys], rng);
 }
 
-const LABELS: Record<TalkKind, { en: string; ko: string }> = {
-  greet: { en: 'Say hello', ko: '인사하기' },
-  feel: { en: 'Share a feeling', ko: '기분 말하기' },
-  word: { en: 'Use a new word', ko: '새 낱말로 말하기' },
-  bank: { en: 'Ask nicely', ko: '예의 바르게 묻기' },
-  befriend: { en: 'Offer friendship', ko: '친구 하자고 말하기' }
-};
-const MODE_LABEL: Record<TalkMode, { en: string; ko: string }> = {
-  say: { en: 'say it', ko: '말하기' },
-  build: { en: 'build it', ko: '문장 조립' },
-  pick: { en: 'pick a reply', ko: '대답 고르기' },
-  spell: { en: 'spell it', ko: '철자 맞히기' }
-};
+const LABELS: Record<TalkKind, { en: string; ko: string }> = S.talkKind;
+const MODE_LABEL: Record<TalkMode, { en: string; ko: string }> = S.talkMode;
 
 function item(id: string, kind: TalkKind, mode: TalkMode, target: string, ko: string | null, rng: Rng, extra: Partial<TalkItem> = {}): TalkItem {
-  const label = mode === 'spell' ? { en: `Spell the word ${extra.emoji ?? ''}`.trim(), ko: '낱말 철자 맞히기' } : LABELS[kind];
+  const label = mode === 'spell' ? S.spellLabel(extra.emoji ?? '') : LABELS[kind];
   const t: TalkItem = {
     id,
     mode,
@@ -224,8 +215,8 @@ function pickItem(id: string, creature: AdventureCreature, target: { en: string;
     id,
     mode: 'pick',
     kind: creature.askKind === 'bank' ? 'bank' : creature.askKind,
-    labelEn: `Answer "${creature.asks.en}"`,
-    labelKo: `"${creature.asks.ko}"에 대답하기`,
+    labelEn: S.answerLabel(creature.asks).en,
+    labelKo: S.answerLabel(creature.asks).ko,
     target: target.en,
     ko: target.ko,
     prompt: creature.asks,
@@ -254,12 +245,7 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
   const review = reviewRaw.map((w) => wordCard(w, level, input.day));
   const bank = adventureBankSentences(chapter, level);
   const bankLine = bank.length ? pickOne(bank, rng) : chapter.greet[level].en;
-  const bankKo: Record<AdventureChapter['ctx'], string> = {
-    guide: '길을 묻는 문장 (LCW 마을 안내인에게도 써요)',
-    trade_shop: '물건을 바꾸자는 문장 (LCW 교환 상점에서도 써요)',
-    cafe: '주문하는 문장 (LCW 카페에서도 써요)',
-    errand: '도와주겠다는 문장 (LCW 심부름에서도 써요)'
-  };
+  const bankKo: Record<string, string> = S.bankKo;
   const greet = chapter.greet[level];
   const feel = chapter.feel[level];
   const befriend = chapter.befriend[level];

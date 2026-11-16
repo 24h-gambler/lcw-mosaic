@@ -3,11 +3,12 @@ import { ADVENTURE_CHAPTERS, ADVENTURE_WORDS, adventureFixedLines, adventureLeve
 import { AdventureEnvelopeSchema, EnglishDayFileSchema } from '@lcw/schemas';
 import { buildChapterPlan, cleanSentence, cleanWord, misspellings, talkChoices } from '../core/plan.js';
 import { createRng } from '../core/rng.js';
-import { gradeExact, gradePick, gradeSpoken } from '../core/grade.js';
+import { gradeExact, gradePick, gradeSpelling, gradeSpoken } from '../core/grade.js';
 import { earlierWords, emptyProgress, isUnlocked, kstDate, lockReason, mergeSettings, nextChapter, parseProgress, recordFinish, toSettings } from '../core/progress.js';
-import { addLine, buildEnvelope, chapterStars, startRecord, summaryKo, toActivity, wordHit } from '../core/record.js';
+import { addLine, betterPlay, buildEnvelope, chapterStars, startRecord, summaryKo, toActivity, wordHit } from '../core/record.js';
 import { dayFileUrls, parseEdLink, readEdLink, resultUrl, safeBack } from '../core/edlink.js';
-import { arenaRect, autopilotDir, startPattern, stepPattern } from '../core/bullets.js';
+import { arenaRect, autopilotDir, cookiesReadable, startPattern, stepPattern } from '../core/bullets.js';
+import { spellTiles } from '../core/plan.js';
 import { Battle } from '../core/battle.js';
 import { blocks, buildIsland, findPath, moveFeet, reachable, tileAt } from '../core/map.js';
 import { ADV } from '../core/tuning.js';
@@ -139,6 +140,15 @@ describe('adventure grading', () => {
     expect(gradePick('Hello! Nice to meet you.', 'Hello! Nice to meet you.', 1).stars).toBe(2);
     expect(gradePick('Hello! Nice to meet you.', 'Banana, banana, banana!', 1).pass).toBe(false);
   });
+
+  it('spelling counts letters only (a word with a space or an apostrophe)', () => {
+    const tiles = spellTiles('ice cream', createRng(3));
+    expect(tiles.join('')).not.toMatch(/[^a-z]/);
+    expect(gradeSpelling('ice cream', 'icecream', 1).stars).toBe(3);
+    expect(gradeSpelling("don't", 'dont', 2).stars).toBe(2);
+    expect(gradeSpelling('T-rex', 'trex', 1).pass).toBe(true);
+    expect(gradeSpelling('puppy', 'pupy', 1).pass).toBe(false);
+  });
 });
 
 describe('adventure progress (one island per lesson day)', () => {
@@ -230,6 +240,32 @@ describe('adventure record and the english-day envelope', () => {
     expect(chapterStars(r)).toBe(0);
   });
 
+  it("word stone lines are kept but do not count for three stars; the student's own level is reported", () => {
+    const r = startRecord(1, 3, [], 0, 'L5');
+    r.outcome = 'spared';
+    r.befriended.push('a', 'b', 'c');
+    for (const en of ['puppy', 'I see a puppy.', 'owl']) addLine(r, { en, ko: '', mode: 'voice', ok: true, stars: 3, stone: true });
+    expect(r.lines).toHaveLength(3);
+    expect(chapterStars(r)).toBe(2);
+    const act = toActivity(r, 1000);
+    expect(act.extra.level).toBe('L5');
+    expect(toActivity(startRecord(1, 2, [], 0, 'nope'), 1000).extra.level).toBe('L2');
+  });
+
+  it('a replay replaces the sent play only when it is as good or better', () => {
+    const play = (outcome: 'spared' | 'fought' | 'quit', stars: number) => {
+      const r = startRecord(1, 1, [], 0);
+      r.outcome = outcome;
+      if (outcome === 'spared') r.befriended.push('a', 'b', 'c');
+      for (let i = 0; i < stars - 2; i++) for (const en of ['a b.', 'c d.', 'e f.']) addLine(r, { en, ko: '', mode: 'voice', ok: true, stars: 2 });
+      return toActivity(r, 1000);
+    };
+    expect(betterPlay(play('fought', 1), play('spared', 3))).toBe(false);
+    expect(betterPlay(play('spared', 2), play('fought', 1))).toBe(true);
+    expect(betterPlay(play('spared', 3), play('spared', 2))).toBe(true);
+    expect(betterPlay(play('spared', 2), play('spared', 3))).toBe(false);
+  });
+
   it('reads the document link and keeps it for the tab; refuses a foreign way back', () => {
     const q = '?ed=oreo&edd=2026-11-19&edk=abcdefghijklmnopqrstuvwx&edr=' + encodeURIComponent('https://english-day.pages.dev/oreo/');
     const link = parseEdLink(q)!;
@@ -255,6 +291,14 @@ describe('adventure record and the english-day envelope', () => {
 describe('adventure bullet patterns', () => {
   const words = buildChapterPlan({ chapter: 1, level: 1 }).words;
   const ids = ['acornDrop', 'leafRing', 'letterCatch', 'spellBubbles', 'shellSweep', 'bubbleRise', 'rollBounce', 'sprinkleRain', 'wordCookies', 'windSpiral', 'inkRain', 'kiteDive'] as const;
+
+  it('word cookies need a picture per word, else the page catches spellings', () => {
+    expect(cookiesReadable(words)).toBe(true);
+    const unknown = [{ w: 'zork', ko: null, emoji: '✨', sentence: 'I see a zork.' }, { w: 'blip', ko: null, emoji: '✨', sentence: 'I see a blip.' }];
+    expect(cookiesReadable(unknown)).toBe(false);
+    expect(startPattern('wordCookies', unknown, createRng(1), { duration: 6 }).id).toBe('spellBubbles');
+    expect(startPattern('wordCookies', words, createRng(1), { duration: 6 }).id).toBe('wordCookies');
+  });
 
   it('every pattern spawns inside its page and is deterministic for a seed', () => {
     for (const id of ids) {

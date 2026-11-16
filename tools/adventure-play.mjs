@@ -114,8 +114,15 @@ async function run(vp) {
   const press = async (sel) => {
     const l = typeof sel === 'string' ? tid(sel) : sel;
     // force: the FRIEND button pulses when ready (a moving target is fine for a finger, not for the stability wait)
-    if (vp.touch) await l.first().tap({ force: true });
-    else await l.first().click();
+    // a button can go away while we reach for it (the poke ring runs out, a message moves on): the loop reads the
+    // state again instead of failing the run
+    try {
+      if (vp.touch) await l.first().tap({ force: true, timeout: 4000 });
+      else await l.first().click({ timeout: 4000 });
+      return true;
+    } catch {
+      return false;
+    }
   };
   const exists = async (t) => (await tid(t).count()) > 0 && (await tid(t).first().isVisible());
   const canvasPoint = async (lx, ly) => {
@@ -266,7 +273,7 @@ async function run(vp) {
           modesUsed.add(b.choices[idx].mode);
           allModes.add(b.choices[idx].mode);
           const btn = page.locator('[data-testid=adv-talk-choice]').nth(idx);
-          if (vp.touch) await btn.tap({ force: true });
+          if (vp.touch) await press(btn);
           else {
             for (let i = 0; i < idx; i++) await page.keyboard.press('ArrowDown');
             await page.keyboard.press('Enter');

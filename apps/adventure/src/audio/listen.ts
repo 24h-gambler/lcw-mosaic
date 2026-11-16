@@ -1,6 +1,7 @@
 /**
  * The 🎤 in a TALK (docs/22 1.3): the browser's speech recogniser, English, interim text shown as the child speaks.
- * Audio stays on the device (only the recognised words are graded). Anything that is missing, refused or silent ends
+ * The adventure never records or uploads audio itself; the browser may send it to its maker's recogniser (docs/22 3장),
+ * and only the recognised words are graded. Anything that is missing, refused or silent ends
  * with a reason, and the panel turns to typing at once.
  */
 export type ListenEnd = { kind: 'heard'; alternatives: string[] } | { kind: 'unsupported' | 'denied' | 'silent' | 'error' };

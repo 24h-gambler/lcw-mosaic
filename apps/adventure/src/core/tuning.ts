@@ -39,10 +39,20 @@ export const ADV = {
   textCps: 45,
   /** docs/08 MOTION_TOKENS: no more than 3 flashes a second, shake ≤ 0.3° / 300 ms (we shake by pixels ≤ 2). */
   hitFlashMs: 340,
+  /** The voice bubble's blink after a hit (on-off cycles a second, ≤ 3). */
+  hitBlinkHz: 2.5,
   shakePx: 2,
   shakeMs: 240,
   /** Result POST at a chapter end: first try, then two retries after these waits (docs/22 3장). */
-  resultRetryMs: [0, 1500, 4000]
+  resultRetryMs: [0, 1500, 4000],
+  /** Longest wait for the day file and the server progress before the islands open anyway. */
+  bootWaitMs: 4000,
+  /** What one play may hold (english-day contract v1 limits). */
+  recordMax: { lines: 60, words: 60, text: 300, activities: 50 },
+  /** Solid boxes on the island (pixels): critters fill their three-tile gate, the guardian is big, the rest small. */
+  entityBox: { small: { w: 14, h: 12 }, critter: { w: 14, h: 44, below: 14 }, guardian: { w: 28, h: 40 } },
+  /** The server settings row's key limit (docs/19 3장). */
+  settingsMaxKeys: 40
 } as const;
 
 export type CreatureClass = 'critter' | 'guardian' | 'final';

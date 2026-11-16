@@ -99,6 +99,50 @@ describe('resolution governor', () => {
     expect(g.capMs).toBeNull();
   });
 
+  it('a ~32 fps headless pace is found even when start-up hitches already pushed the scale to the floor', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.high); // floor 0.75
+    feed(g, 40, 3.1);
+    expect(g.scale).toBe(TIER_SETTINGS.high.minScale);
+    feed(g, 31.3, 6);
+    expect(g.capMs).toBeCloseTo(31.3, 0);
+    expect(g.scale).toBe(TIER_SETTINGS.high.pixelScale);
+  });
+
+  it('a device bound at 35-40 fps (CPU or GPU) still reaches the floor so the tier can step down', () => {
+    // CPU-bound: the same 25 ms whatever the resolution
+    const cpu = new ResolutionGovernor(TIER_SETTINGS.high);
+    feed(cpu, 25, 30);
+    expect(cpu.capMs).toBeNull();
+    expect(cpu.scale).toBe(TIER_SETTINGS.high.minScale);
+    // GPU-bound, still 40 fps at the floor (45 ms x scale^2): no cap guess either, and it stays at the floor
+    const gpu = new ResolutionGovernor(TIER_SETTINGS.high);
+    let atFloor = 0;
+    for (let t = 0; t < 60_000; ) {
+      const ms = 45 * gpu.scale * gpu.scale;
+      gpu.frame(ms);
+      t += ms;
+      if (t > 20_000 && gpu.scale <= TIER_SETTINGS.high.minScale) atFloor += ms;
+    }
+    expect(gpu.capMs).toBeNull();
+    expect(atFloor).toBeGreaterThan(39_000);
+  });
+
+  it('a failed probe goes back to the scale that held (no slide below it)', () => {
+    const g = new ResolutionGovernor(TIER_SETTINGS.mid);
+    const seen = new Set<number>();
+    let changes = 0;
+    for (let t = 0; t < 200_000; ) {
+      const ms = Math.max(1000 / 60, 22 * g.scale * g.scale); // 0.85 keeps 60 Hz, 0.9 does not quite
+      const before = g.scale;
+      g.frame(ms);
+      if (g.scale !== before) changes++;
+      if (t > 30_000) seen.add(g.scale);
+      t += ms;
+    }
+    expect(Math.min(...seen)).toBeGreaterThanOrEqual(0.85);
+    expect(changes).toBeLessThanOrEqual(14);
+  });
+
   it('a device under 29 fps still goes down to the floor (no cap guess there)', () => {
     const g = new ResolutionGovernor(TIER_SETTINGS.mid);
     feed(g, 36, 10);

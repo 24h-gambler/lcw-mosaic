@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { readWorldChoice, readWorldSetup, type WorldSetup } from '@lcw/content';
+import { readLearnLang, readWorldChoice, readWorldSetup, type LearnLang, type WorldSetup } from '@lcw/content';
 import type { SqliteExecutor } from './storage.js';
 
 /**
@@ -16,12 +16,20 @@ import type { SqliteExecutor } from './storage.js';
 
 export const MY_WORLD_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['GET', /^\/v1\/my-world$/],
-  ['POST', /^\/v1\/my-world$/]
+  ['POST', /^\/v1\/my-world$/],
+  ['POST', /^\/v1\/my-world\/lang$/]
 ];
 
 export const MY_WORLD_SCHEMA = `
-create table if not exists world_setups (world_id text primary key, player_id text not null, name text not null, season text not null, time text not null, buddy text not null, seed text not null, created_at integer not null)
+create table if not exists world_setups (world_id text primary key, player_id text not null, name text not null, season text not null, time text not null, buddy text not null, seed text not null, created_at integer not null);
+create table if not exists player_learn_lang (player_id text primary key, learn_lang text not null, updated_at integer not null)
 `;
+
+/** The language the child learns (Dan 11-16: the screen speaks it), or null before the child chose. */
+export function readPlayerLearnLang(sql: SqliteExecutor, playerId: string): LearnLang | null {
+  const row = sql.get<{ learn_lang: string }>('select learn_lang from player_learn_lang where player_id = ?', [playerId]);
+  return row ? readLearnLang(row.learn_lang) : null;
+}
 
 export interface MyWorldDeps {
   sql: SqliteExecutor;
@@ -48,7 +56,8 @@ export function buildMyWorldApp(d: MyWorldDeps): Hono {
     const who = await d.soloPlayer(c.req.raw);
     if (!who) return c.json({ error: 'device_only' }, 401);
     const world = readMyWorld(d.sql, d.ensureHomeWorld(who.player_id));
-    return c.json(world ? { made: true, world } : { made: false });
+    const learn_lang = readPlayerLearnLang(d.sql, who.player_id);
+    return c.json(world ? { made: true, world, learn_lang } : { made: false, learn_lang });
   });
 
   app.post('/v1/my-world', async (c) => {
@@ -85,6 +94,28 @@ export function buildMyWorldApp(d: MyWorldDeps): Hono {
     // already holds the coin ledger and the saved plot, which were judged on that terrain.
     d.sql.run('update worlds set name = ? where id = ?', [choice.name, worldId]);
     return c.json({ made: true, world: readMyWorld(d.sql, worldId) }, 201);
+  });
+
+  // The language the child learns: kept with the child so every device of theirs speaks it (any later choice wins).
+  app.post('/v1/my-world/lang', async (c) => {
+    if (Number(c.req.header('content-length') ?? 0) > 256) return c.json({ error: 'invalid_learn_lang' }, 413);
+    const text = await c.req.text().catch(() => '');
+    if (text.length > 256) return c.json({ error: 'invalid_learn_lang' }, 413);
+    let body: { learn_lang?: unknown } | null = null;
+    try {
+      body = JSON.parse(text) as { learn_lang?: unknown };
+    } catch {
+      body = null;
+    }
+    const who = await d.soloPlayer(c.req.raw);
+    if (!who) return c.json({ error: 'device_only' }, 401);
+    const lang = readLearnLang(body?.learn_lang);
+    if (!lang) return c.json({ error: 'invalid_learn_lang' }, 400);
+    d.sql.run(
+      'insert into player_learn_lang (player_id, learn_lang, updated_at) values (?, ?, ?) on conflict(player_id) do update set learn_lang = excluded.learn_lang, updated_at = excluded.updated_at',
+      [who.player_id, lang, d.nowMs()]
+    );
+    return c.json({ learn_lang: lang });
   });
 
   return app;

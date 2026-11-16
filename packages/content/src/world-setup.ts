@@ -29,26 +29,29 @@ export interface WorldSetupOption<K extends string> {
   labelKo: string;
   /** One short line under the card: what the child will see. */
   hintKo: string;
+  /** The same in the language the child learns (the screen speaks it; Korean is the optional help line). */
+  labelEn: string;
+  hintEn: string;
 }
 
 export const WORLD_SEASONS: readonly WorldSetupOption<WorldSeason>[] = [
-  { id: 'spring', emoji: '🌸', labelKo: '봄', hintKo: '꽃잎이 날려요' },
-  { id: 'summer', emoji: '☀️', labelKo: '여름', hintKo: '햇살이 반짝여요' },
-  { id: 'autumn', emoji: '🍁', labelKo: '가을', hintKo: '단풍잎이 떨어져요' },
-  { id: 'winter', emoji: '❄️', labelKo: '겨울', hintKo: '눈이 내려요' }
+  { id: 'spring', emoji: '🌸', labelKo: '봄', hintKo: '꽃잎이 날려요', labelEn: 'Spring', hintEn: 'Petals fly' },
+  { id: 'summer', emoji: '☀️', labelKo: '여름', hintKo: '햇살이 반짝여요', labelEn: 'Summer', hintEn: 'The sun shines' },
+  { id: 'autumn', emoji: '🍁', labelKo: '가을', hintKo: '단풍잎이 떨어져요', labelEn: 'Fall', hintEn: 'Red leaves fall' },
+  { id: 'winter', emoji: '❄️', labelKo: '겨울', hintKo: '눈이 내려요', labelEn: 'Winter', hintEn: 'Snow falls' }
 ];
 
 export const WORLD_TIMES: readonly WorldSetupOption<WorldTime>[] = [
-  { id: 'morning', emoji: '🌅', labelKo: '아침', hintKo: '해가 막 떴어요' },
-  { id: 'noon', emoji: '🌞', labelKo: '한낮', hintKo: '하늘이 파래요' },
-  { id: 'sunset', emoji: '🌇', labelKo: '노을', hintKo: '하늘이 주황빛이에요' }
+  { id: 'morning', emoji: '🌅', labelKo: '아침', hintKo: '해가 막 떴어요', labelEn: 'Morning', hintEn: 'The sun is up' },
+  { id: 'noon', emoji: '🌞', labelKo: '한낮', hintKo: '하늘이 파래요', labelEn: 'Noon', hintEn: 'The sky is blue' },
+  { id: 'sunset', emoji: '🌇', labelKo: '노을', hintKo: '하늘이 주황빛이에요', labelEn: 'Sunset', hintEn: 'The sky is orange' }
 ];
 
 export const WORLD_BUDDIES: readonly WorldSetupOption<WorldBuddy>[] = [
-  { id: 'puppy', emoji: '🐶', labelKo: '강아지', hintKo: '꼬리를 흔들며 따라와요' },
-  { id: 'kitten', emoji: '🐱', labelKo: '고양이', hintKo: '살금살금 따라와요' },
-  { id: 'bunny', emoji: '🐰', labelKo: '토끼', hintKo: '깡충깡충 따라와요' },
-  { id: 'chick', emoji: '🐥', labelKo: '병아리', hintKo: '삐약삐약 따라와요' }
+  { id: 'puppy', emoji: '🐶', labelKo: '강아지', hintKo: '꼬리를 흔들며 따라와요', labelEn: 'Puppy', hintEn: 'Wags and follows you' },
+  { id: 'kitten', emoji: '🐱', labelKo: '고양이', hintKo: '살금살금 따라와요', labelEn: 'Kitten', hintEn: 'Tiptoes after you' },
+  { id: 'bunny', emoji: '🐰', labelKo: '토끼', hintKo: '깡충깡충 따라와요', labelEn: 'Bunny', hintEn: 'Hops after you' },
+  { id: 'chick', emoji: '🐥', labelKo: '병아리', hintKo: '삐약삐약 따라와요', labelEn: 'Chick', hintEn: 'Peeps after you' }
 ];
 
 /** Hour of the sky for each time of day (the sky never goes to night: a child's town is always lit). */
@@ -96,4 +99,31 @@ export function readWorldSetup(raw: unknown): WorldSetup | null {
 export function randomWorldChoice(rand: () => number): WorldSetupChoice {
   const one = <K extends string>(list: readonly WorldSetupOption<K>[]): K => list[Math.min(list.length - 1, Math.floor(rand() * list.length))]!.id;
   return { season: one(WORLD_SEASONS), time: one(WORLD_TIMES), buddy: one(WORLD_BUDDIES) };
+}
+
+/**
+ * The language a child learns (Dan 11-16 14:3x: the screen speaks the language the child chose). English is open;
+ * the others are listed as coming soon so the child sees the choice exists. The device keeps the choice
+ * (client world/lang.ts) and the server keeps it with the child (edge my-world.ts, POST /v1/my-world/lang).
+ */
+export type LearnLang = 'en';
+export interface LearnLangOption {
+  id: string;
+  /** the language's own name, shown big */
+  label: string;
+  labelKo: string;
+  flag: string;
+  ready: boolean;
+}
+export const LEARN_LANGS: readonly LearnLangOption[] = [
+  { id: 'en', label: 'English', labelKo: '영어', flag: '🇺🇸', ready: true },
+  { id: 'ja', label: '日本語', labelKo: '일본어', flag: '🇯🇵', ready: false },
+  { id: 'zh', label: '中文', labelKo: '중국어', flag: '🇨🇳', ready: false },
+  { id: 'es', label: 'Español', labelKo: '스페인어', flag: '🇪🇸', ready: false }
+];
+export const DEFAULT_LEARN_LANG: LearnLang = 'en';
+
+/** A language the child can learn now, or null (unknown, or listed but not ready). */
+export function readLearnLang(raw: unknown): LearnLang | null {
+  return LEARN_LANGS.some((l) => l.ready && l.id === raw) ? (raw as LearnLang) : null;
 }

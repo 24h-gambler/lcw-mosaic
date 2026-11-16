@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { TEACHER_NAME_MAX, normalizeTeacherName } from '@lcw/content';
 import { Button } from '@lcw/ui';
 import type { LessonApi, TeacherPresence } from './lessonApi.js';
 import { Box, inputStyle, labelStyle, sp } from './lessonUi.js';
@@ -16,6 +17,17 @@ import { P } from './presenceStrings.js';
 export const TEACHER_BEAT_MS = 15_000;
 /** A failed beat is sent again this soon (a blip must not cost the child the teacher at the 45 s mark). */
 export const TEACHER_RETRY_MS = 5_000;
+/** The name alone ("김민지"; the child sees "김민지 선생님"), kept per console browser. */
+export const TEACHER_NAME_KEY = 'lcw.teacherName';
+/** The name alone the server accepts (title dropped, 1-TEACHER_NAME_MAX chars, no control characters or <>), else null. */
+export const cleanTeacherName = normalizeTeacherName;
+function readTeacherName(): string | null {
+  try {
+    return cleanTeacherName(globalThis.localStorage?.getItem(TEACHER_NAME_KEY));
+  } catch {
+    return null;
+  }
+}
 
 export interface Ticker {
   stop(): void;
@@ -57,6 +69,8 @@ export function useTeacherHeartbeat(o: {
   panel?: 'open' | 'closed';
   ticker?: typeof startTicker;
   retryMs?: number;
+  /** Sent with each beat ('' clears it); null sends nothing about the name. The child sees teacherLabel(name). */
+  name?: string | null;
 }): { teacher: TeacherPresence | null; failing: boolean; left: boolean; resume: () => Promise<void>; leave: () => Promise<void> } {
   const [teacher, setTeacher] = useState<TeacherPresence | null>(null);
   const [failing, setFailing] = useState(false);
@@ -64,6 +78,8 @@ export function useTeacherHeartbeat(o: {
   const [left, setLeft] = useState(false);
   const panelRef = useRef(o.panel ?? 'open');
   panelRef.current = o.panel ?? 'open';
+  const nameRef = useRef<string | null>(o.name ?? null);
+  nameRef.current = o.name ?? null;
   const { api, token, lessonId, active } = o;
   const ticker = o.ticker ?? startTicker;
   const retryMs = o.retryMs ?? TEACHER_RETRY_MS;
@@ -75,7 +91,7 @@ export function useTeacherHeartbeat(o: {
       if (retry !== null) clearTimeout(retry);
       retry = null;
       try {
-        const r = await api.presence(token, lessonId, panelRef.current);
+        const r = await api.presence(token, lessonId, panelRef.current, false, nameRef.current);
         if (!live) return;
         setTeacher(r.teacher);
         setLeft(r.left === true);
@@ -103,7 +119,7 @@ export function useTeacherHeartbeat(o: {
   const resume = async () => {
     if (!token || !lessonId) return;
     try {
-      const r = await api.presence(token, lessonId, panelRef.current, true);
+      const r = await api.presence(token, lessonId, panelRef.current, true, nameRef.current);
       setTeacher(r.teacher);
       setLeft(r.left === true);
       setFailing(false);
@@ -162,7 +178,20 @@ export function TeacherPresenceBox({
   lessonId: string;
   ended: boolean;
 }): React.ReactElement {
-  const { teacher, failing, left, resume, leave } = useTeacherHeartbeat({ api, token, lessonId, active: !ended });
+  const [name, setName] = useState<string>(() => readTeacherName() ?? '');
+  const cleanName = cleanTeacherName(name);
+  // Always says the name: an emptied field goes back to the account's name or "선생님" (review #80).
+  const { teacher, failing, left, resume, leave } = useTeacherHeartbeat({ api, token, lessonId, active: !ended, name: cleanName ?? '' });
+  const saveName = (v: string) => {
+    setName(v);
+    try {
+      const c = cleanTeacherName(v);
+      if (c) globalThis.localStorage?.setItem(TEACHER_NAME_KEY, c);
+      else globalThis.localStorage?.removeItem(TEACHER_NAME_KEY);
+    } catch {
+      /* private mode: the name still goes with this tab's beats */
+    }
+  };
   const [pinSet, setPinSet] = useState<boolean | null>(null);
   const [pin, setPin] = useState('');
   const [pinMsg, setPinMsg] = useState<string | null>(null);
@@ -191,6 +220,19 @@ export function TeacherPresenceBox({
     <Box title={P.boxTitle} testId="teacher-presence-box">
       <div style={{ display: 'grid', gap: sp(2) }}>
         {ended ? null : <TeacherStatus teacher={teacher} failing={failing} left={left} />}
+        <label style={{ ...labelStyle, maxWidth: 320 }}>
+          {P.nameLabel}
+          <input
+            data-testid="teacher-name-input"
+            type="text"
+            autoComplete="off"
+            maxLength={TEACHER_NAME_MAX}
+            placeholder={P.namePlaceholder}
+            value={name}
+            onChange={(e) => saveName(e.target.value)}
+            style={inputStyle}
+          />
+        </label>
         {ended ? null : left && !teacher?.present ? (
           <div>
             <Button type="button" variant="brand" data-testid="teacher-resume" onClick={() => void resume()}>

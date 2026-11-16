@@ -33,6 +33,8 @@ export interface AudioRuntimeOptions {
   clock?: RuntimeClock;
   /** Test seam: build the AudioContext (null = no WebAudio). */
   createContext?: () => AudioContext | null;
+  /** Test seam: has the page had a tap or key press yet (navigator.userActivation)? */
+  activated?: () => boolean;
   /** Called when a mic tap cuts the NPC voice (the device voice must actually stop). */
   cutNpcVoice?: () => void;
 }
@@ -68,6 +70,37 @@ const realClock: RuntimeClock = {
   clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>)
 };
 
+function pageActivated(): boolean {
+  const ua = (globalThis as { navigator?: { userActivation?: { hasBeenActive?: boolean } } }).navigator?.userActivation;
+  // Browsers without the API (older Safari) keep the old behaviour: build now, resume on the gesture.
+  return ua?.hasBeenActive !== false;
+}
+
+/**
+ * Runs `cb` once, right after the page's first real activation. On a touch screen the first pointerdown is not an
+ * activation yet (Chrome activates on pointerup / click / touchend), so a sound started from pointerdown could not
+ * open audio on the first tap; listening here (capture, passive) opens it on that same tap. Returns a stop function.
+ */
+export function onPageActivation(cb: () => void, target: Pick<Window, 'addEventListener' | 'removeEventListener'> | null = typeof window === 'undefined' ? null : window): () => void {
+  if (!target) return () => undefined;
+  const events = ['pointerup', 'click', 'touchend', 'keydown'] as const;
+  let done = false;
+  const off = (): void => {
+    for (const e of events) target.removeEventListener(e, handler, true);
+  };
+  function handler(): void {
+    if (done || !pageActivated()) return;
+    done = true;
+    off();
+    cb();
+  }
+  for (const e of events) target.addEventListener(e, handler, { capture: true, passive: true });
+  return () => {
+    done = true;
+    off();
+  };
+}
+
 function browserContext(): AudioContext | null {
   const g = globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
   const C = g.AudioContext ?? g.webkitAudioContext;
@@ -91,6 +124,9 @@ export function createAudioRuntime(opts: AudioRuntimeOptions = {}): AudioRuntime
 
   function build(): void {
     if (tried) return;
+    // Before the first tap a context only starts suspended and Chrome logs "The AudioContext was not allowed to start"
+    // on every child page (a lesson poll cue, a world sound): wait for the gesture; the next unlock() builds it.
+    if (!(opts.activated ?? pageActivated)()) return;
     tried = true;
     ctx = (opts.createContext ?? browserContext)();
     if (!ctx) return;

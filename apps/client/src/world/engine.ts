@@ -16,6 +16,7 @@ import { WorldHud } from './hud.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
+import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
 import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn } from './strings.js';
 import { PlotBuilder, type Aim, type BuildReason } from './build.js';
@@ -748,6 +749,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     sfx.startAmbient();
   };
   hud.root.addEventListener('pointerdown', unlockOnce);
+  // Touch screens: the first pointerdown is not an activation yet, so open audio on the first pointerup/click too.
+  const stopAudioTap = onPageActivation(unlockOnce);
 
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -1665,6 +1668,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       window.removeEventListener('resize', resize);
       resizeObs?.disconnect();
       canvas.removeEventListener('pointerdown', pointerDown);
+      stopAudioTap();
       canvas.removeEventListener('wheel', wheel);
       canvas.removeEventListener('contextmenu', contextMenu);
       plotSync?.stop();

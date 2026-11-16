@@ -61,10 +61,10 @@ describe('neural NPC voice (tts.ts)', () => {
     expect(r1.headers.get('content-type')).toBe('audio/mpeg');
     expect(r1.headers.get('x-lcw-tts')).toBe('miss');
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ model: NEURAL_TTS.models.aura, input: { speaker: 'stella', encoding: 'mp3' } });
-    expect(meter.getStatus(deps.nowMs()).neuronsUsed).toBe(ttsNeurons('aura', FIRST_ERRAND.lines.ask.length));
+    expect(calls[0]).toMatchObject({ model: NEURAL_TTS.models.aura2, input: { speaker: 'delia', encoding: 'mp3' } });
+    expect(meter.getStatus(deps.nowMs()).neuronsUsed).toBe(ttsNeurons('aura2', FIRST_ERRAND.lines.ask.length));
     const key = await ttsCacheKey(voiceForCtx('errand'), FIRST_ERRAND.lines.ask, sha256Hex);
-    expect(key.startsWith('tts/v1/aura-stella/')).toBe(true);
+    expect(key.startsWith('tts/v1/aura2-delia/')).toBe(true);
     expect(store.has(key)).toBe(true);
     const r2 = await handleTts(url(mia, `  ${FIRST_ERRAND.lines.ask}  `), guest, deps);
     expect(r2.headers.get('x-lcw-tts')).toBe('hit');
@@ -97,9 +97,10 @@ describe('neural NPC voice (tts.ts)', () => {
     expect(parseTryVoice('aura-orion')).toEqual({ engine: 'aura', speaker: 'orion' });
     expect(parseTryVoice('melo-en')).toEqual({ engine: 'melo', speaker: 'en' });
     expect(parseTryVoice('aura-nobody')).toBeNull();
+    expect(parseTryVoice('aura2-thalia')).toEqual({ engine: 'aura2', speaker: 'thalia' });
     const { deps, calls } = rig();
     const op: TtsCaller = { operator: true, player_id: null, lesson: false };
-    const r = await handleTts(url('aura-luna', 'Can I have some cold water, please?'), op, deps);
+    const r = await handleTts(url('aura2-luna', 'Can I have some cold water, please?'), op, deps);
     expect(r.status).toBe(200);
     expect(calls.at(-1)!.input).toMatchObject({ speaker: 'luna' });
   });
@@ -107,11 +108,11 @@ describe('neural NPC voice (tts.ts)', () => {
   it('prebuild makes the missing fixed lines within its neuron budget and skips cached ones next time', async () => {
     const { deps, calls } = rig({ limit: 1_000_000 });
     const all = fixedTtsLines();
-    const first = await prebuildFixedLines(deps, { budgetNeurons: 500 });
+    const first = await prebuildFixedLines(deps, { budgetNeurons: 1200 });
     expect(first.made).toBeGreaterThan(0);
-    expect(first.neurons).toBeLessThanOrEqual(500);
+    expect(first.neurons).toBeLessThanOrEqual(1200);
     expect(first.made + first.left + first.cached).toBe(all.length);
-    const second = await prebuildFixedLines(deps, { budgetNeurons: 500 });
+    const second = await prebuildFixedLines(deps, { budgetNeurons: 1200 });
     expect(second.cached).toBe(first.made);
     expect(calls.length).toBe(first.made + second.made);
     // the NPC lines come first: the first small budget already covers Mia's ask

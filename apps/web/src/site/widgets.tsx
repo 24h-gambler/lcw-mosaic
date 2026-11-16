@@ -44,7 +44,7 @@ export function StateTag({ ids }: { ids: readonly FeatureId[] }): React.ReactEle
 
 export function ListenButton({ text, label = LEARN.listen }: { text: string; label?: string }): React.ReactElement | null {
   const [ok, setOk] = useState(false);
-  useEffect(() => setOk(canSpeak()), []);
+  useEffect(() => setOk(typeof fetch !== 'undefined' || canSpeak()), []);
   if (!ok) return null;
   return (
     <button type="button" className="s-listen" onClick={() => sayEnglish(text, { force: true })} aria-label={`${label}: ${text}`}>

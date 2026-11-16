@@ -66,6 +66,14 @@ export function boxHits(blockAt: BlockAt, x: number, y: number, z: number, hw = 
 }
 
 /** Height of the floor directly under the box (max collide top among blocks below feet), or -Infinity. */
+/** Any solid block in the column under (x, z) within `depth` m below y (the mine floors under the town). */
+function groundBelow(blockAt: BlockAt, x: number, y: number, z: number, depth: number): boolean {
+  const bx = Math.floor(x);
+  const bz = Math.floor(z);
+  for (let by = Math.floor(y + 0.5); by >= Math.floor(y) - depth; by--) if (collideHeight(blockAt(bx, by, bz)) > 0) return true;
+  return false;
+}
+
 function floorUnder(blockAt: BlockAt, x: number, y: number, z: number): number {
   const hw = PLAYER_HALF_W - 1e-3;
   let best = -Infinity;
@@ -169,8 +177,9 @@ export function stepBody(
 
   body.stepOffset *= Math.exp(-12 * dt);
   if (Math.abs(body.stepOffset) < 1e-3) body.stepOffset = 0;
-  // Fell out of the world: put back on top.
-  if (body.y < -20) {
+  // Fell out of the world: put back on top. Under the town only the mine floors (play-sites.ts, y -24 / -72 / -120)
+  // have ground: standing on one, or falling onto one within 8 m, is not falling out.
+  if (body.y < -20 && (body.y < -200 || !groundBelow(blockAt, body.x, body.y, body.z, 8))) {
     body.y = 30;
     body.vy = 0;
   }

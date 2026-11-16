@@ -352,7 +352,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
           })
         : undefined;
     // Play modes (play.ts, docs/03 D2·D4, docs/04 4.2): exchange, interview, boss, customer. Other contexts never enter.
-    const play = PLAY_CTXS.has(req.npc_ctx)
+    const play = PLAY_CTXS.has(req.npc_ctx) && req.session_kind !== 'lesson'
       ? applyPlayStep(deps.db, worldDo, {
           playerId: req.player_id,
           worldId: req.world_id,

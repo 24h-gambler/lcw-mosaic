@@ -22,7 +22,9 @@ function vox(fill: (x: number, y: number, z: number) => number): Uint16Array {
 
 describe('world api contract (docs/19 §2)', () => {
   it('lists the five handcrafted scenes', () => {
-    expect([...SCENE_IDS]).toEqual(['plaza', 'honey_cafe', 'trade_shop', 'build_plot', 'open_hill']);
+    expect([...SCENE_IDS].slice(0, 5)).toEqual(['plaza', 'honey_cafe', 'trade_shop', 'build_plot', 'open_hill']);
+    // play domain (play-sites.ts): the market hall counters and the mine floors under it
+    expect([...SCENE_IDS].slice(5)).toEqual(['tailor', 'workshop', 'exchange', 'office', 'mine', 'mine_deep', 'mine_core']);
     for (const id of SCENE_IDS) expect(SCENES[id].id).toBe(id);
   });
 
@@ -35,7 +37,7 @@ describe('world api contract (docs/19 §2)', () => {
 
   it('gives every NPC a ctx the dialog schema accepts', () => {
     const ids = NPCS.map((n) => n.id).sort();
-    expect(ids).toEqual(['cafe_owner', 'errand_neighbor', 'guide', 'shop_owner']);
+    expect(ids).toEqual(['cafe_owner', 'errand_neighbor', 'exchange_clerk', 'guide', 'maker', 'office_boss', 'office_customer', 'shop_owner', 'tailor']);
     for (const n of NPCS) {
       expect(NpcContextSchema.safeParse(n.ctx).success).toBe(true);
       expect(n.nameKo.length).toBeGreaterThan(0);
@@ -178,7 +180,8 @@ describe('town build (all through setBlock)', () => {
       const d = NPCS.find((n) => n.id === npcId)!;
       return d.spot ?? (SCENES[d.home].npc?.id === npcId ? SCENES[d.home].npc!.spot : undefined);
     };
-    expect(NPCS.filter((n) => n.soloOnly).map((n) => n.id)).toEqual(['errand_neighbor']);
+    // the errand giver and the market hall (play domain) are solo play only
+    expect(NPCS.filter((n) => n.soloOnly).map((n) => n.id)).toEqual(['errand_neighbor', 'tailor', 'maker', 'exchange_clerk', 'office_boss', 'office_customer']);
     expect(npcTalkable(NPCS.find((n) => n.id === 'errand_neighbor')!, false)).toBe(true);
     for (const id of SCENE_IDS) {
       const s = SCENES[id];
@@ -220,7 +223,9 @@ describe('town build (all through setBlock)', () => {
     for (const id of SCENE_IDS) {
       const s = SCENES[id];
       if (!s.npc) continue;
-      for (const lesson of [false, true]) {
+      // a solo-only scene (the market hall, play domain) has nobody to talk to in a lesson: checked solo only
+      const soloScene = NPCS.find((n) => n.id === s.npc!.id)?.soloOnly === true;
+      for (const lesson of soloScene ? [false] : [false, true]) {
         const t = eTarget(s.player.x, s.player.z, s.player.y, id, lesson);
         expect(t?.id, `${id} lesson=${lesson}`).toBe(s.npc.id);
         expect(t!.d, id).toBeLessThanOrEqual(2.5);
@@ -280,6 +285,8 @@ describe('town build (all through setBlock)', () => {
     for (const from of SCENE_IDS)
       for (const to of SCENE_IDS) {
         if (from === to) continue;
+        // two mine floors share the elevator column: the engine fades between floors, it never walks (play domain)
+        if (from.startsWith('mine') && to.startsWith('mine')) continue;
         expect(sceneRoute(from, to, SCENES[from].player.x, SCENES[from].player.z), `${from} -> ${to}`).toEqual(old(from, to));
       }
   });
@@ -358,6 +365,21 @@ describe('player physics', () => {
     for (let i = 0; i < 120; i++) stepBody(b, { dx: 0, dz: 0, run: false, jump: false }, 1 / 60, floor);
     expect(b.onGround).toBe(true);
     expect(b.y).toBeCloseTo(0, 3);
+  });
+
+  it('stands on a mine floor under the town (play domain); falling into the void still puts the player back on top', () => {
+    const mine: BlockAt = (_x, y) => (y === -24 ? BK.stone : 0);
+    const m = makeBody(0.5, -23, 0.5);
+    for (let i = 0; i < 120; i++) stepBody(m, { dx: 0, dz: 0, run: false, jump: false }, 1 / 60, mine);
+    expect(m.onGround).toBe(true);
+    expect(m.y).toBeCloseTo(-23, 3);
+    const voidB = makeBody(0.5, -19, 0.5);
+    let top = -Infinity;
+    for (let i = 0; i < 120; i++) {
+      stepBody(voidB, { dx: 0, dz: 0, run: false, jump: false }, 1 / 60, () => 0);
+      top = Math.max(top, voidB.y);
+    }
+    expect(top).toBe(30);
   });
 
   it('steps up one block and is stopped by a two-block wall', () => {

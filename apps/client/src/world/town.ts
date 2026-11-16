@@ -5,7 +5,22 @@
  */
 import { LANG_PACK_MANIFEST, npcPersona } from '@lcw/content';
 import type { NpcContext } from '@lcw/schemas';
-import { buildTown, buildTownSteps, terrainHeight, TOWN_CENTER, TERRAIN_MIN, TERRAIN_MAX, type VoxelWorld } from '@lcw/sim-core';
+import {
+  buildTown,
+  buildTownSteps,
+  counterSpots,
+  customerSpot,
+  elevatorSpot,
+  hallDoor,
+  terrainHeight,
+  TOWN_CENTER,
+  TERRAIN_MIN,
+  TERRAIN_MAX,
+  type MineFloorId,
+  type PlayCounterId,
+  type PlaySpot,
+  type VoxelWorld
+} from '@lcw/sim-core';
 import { collideHeight } from './blocks.js';
 import { SCENE_TITLES_KO } from './strings.js';
 
@@ -111,8 +126,93 @@ const NPC_DEFS: readonly NpcDef[] = [
     spot: { x: 161.0, y: 1, z: 139.0, yaw: 0 },
     soloOnly: true,
     look: { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3dbe6b, pants: 0x3fa9f5, shoes: 0xf3efe7, hairStyle: 'bun', hat: 0xffc53d }
+  },
+  // Market hall (play domain, packages/sim-core/src/play-sites.ts): a keeper behind each counter, and the office's
+  // customer by the east window. Solo play only: a lesson never sends the child here.
+  {
+    id: 'tailor',
+    ctx: 'boutique',
+    nameKo: '재단사',
+    nameEn: 'Tailor',
+    home: 'tailor',
+    soloOnly: true,
+    look: { skin: 0xf6d2b5, hair: 0x1b1f2a, shirt: 0x8e5be8, pants: 0x2f3b52, shoes: 0x1b1f2a, hairStyle: 'long' }
+  },
+  {
+    id: 'maker',
+    ctx: 'makers_lab',
+    nameKo: '장인',
+    nameEn: 'Maker',
+    home: 'workshop',
+    soloOnly: true,
+    look: { skin: 0xc68e62, hair: 0x5f6778, shirt: 0x5f6778, pants: 0x3a4152, shoes: 0x2a2320, apron: 0x7a5235, hairStyle: 'cap', hat: 0xffc53d }
+  },
+  {
+    id: 'exchange_clerk',
+    ctx: 'exchange',
+    nameKo: '환전원',
+    nameEn: 'Clerk',
+    home: 'exchange',
+    soloOnly: true,
+    look: { skin: 0xe8b894, hair: 0x6b4226, shirt: 0xf3efe7, pants: 0x1b1f2a, shoes: 0x1b1f2a, hairStyle: 'short', hat: 0x1b7a3e }
+  },
+  {
+    id: 'office_boss',
+    ctx: 'boss',
+    nameKo: '사장님',
+    nameEn: 'Boss',
+    home: 'office',
+    soloOnly: true,
+    look: { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x1b6fb8, pants: 0x1b1f2a, shoes: 0x1b1f2a, hairStyle: 'bun' }
+  },
+  {
+    id: 'office_customer',
+    ctx: 'customer',
+    nameKo: '손님',
+    nameEn: 'Customer',
+    home: 'office',
+    spot: playSpot(customerSpot()),
+    soloOnly: true,
+    look: { skin: 0x9a6a4a, hair: 0x1b1f2a, shirt: 0xffc53d, pants: 0x5f6778, shoes: 0x3a4152, hairStyle: 'short' }
   }
 ];
+
+function playSpot(s: PlaySpot): Spot {
+  return { x: s.x, y: s.y, z: s.z, yaw: s.yaw };
+}
+
+/** A market hall counter scene: walk in by the east road and the hall door, stop 2.2 m in front of the keeper. */
+function counterScene(id: PlayCounterId, npcId: string): SceneDef {
+  const s = counterSpots(id);
+  const door = hallDoor();
+  return {
+    id,
+    titleKo: SCENE_TITLES_KO[id],
+    player: playSpot(s.player),
+    npc: { id: npcId, spot: playSpot(s.npc) },
+    cameraYaw: 0,
+    camPitch: 0.3,
+    path: [[152, 144], [176, 143.5], [door.x, 143.5], [door.x, door.z + 3], [s.player.x, door.z + 6], [s.player.x, s.player.z]]
+  };
+}
+
+/**
+ * A mine floor: the elevator stop, looking along the rails (east). Reached only through the elevator: the engine
+ * fades to a scene on another floor. Its path is the walk to the hall's elevator above it, so routes from it stay the
+ * same shape as every other scene's (world.test sceneRoute).
+ */
+function mineScene(id: MineFloorId): SceneDef {
+  const s = elevatorSpot(id);
+  const door = hallDoor();
+  return {
+    id,
+    titleKo: SCENE_TITLES_KO[id],
+    player: { x: s.x, y: s.y, z: s.z, yaw: Math.PI / 2 },
+    cameraYaw: 0,
+    camPitch: 0.3,
+    path: [[152, 144], [176, 143.5], [door.x, 143.5], [door.x, door.z + 3], [door.x, door.z + 6], [s.x, door.z + 6], [s.x, s.z]]
+  };
+}
 
 /** NPC table with names from the cast pack of `lang` (the world's target language); unknown ids keep their own. */
 export function castNpcs(lang: string = LANG_PACK_MANIFEST.target_lang): readonly NpcDef[] {
@@ -191,7 +291,14 @@ export const SCENES: Readonly<Record<SceneId, SceneDef>> = {
     cameraYaw: 0,
     // the last steps pass beside the guide (not through) to stop in front of her, looking down at the town
     path: [[150.5, 152], [150.5, 135], [144.5, 127], [144.5, 112], [146.0, 107], [145.6, 103.5], [144.5, 102.2]]
-  }
+  },
+  tailor: counterScene('tailor', 'tailor'),
+  workshop: counterScene('workshop', 'maker'),
+  exchange: counterScene('exchange', 'exchange_clerk'),
+  office: counterScene('office', 'office_boss'),
+  mine: mineScene('mine'),
+  mine_deep: mineScene('mine_deep'),
+  mine_core: mineScene('mine_core')
 };
 
 /**

@@ -208,8 +208,9 @@ export function meshChunk(vox: Uint16Array, origin: readonly [number, number, nu
               const nb = at(qx, qy, qz);
               const nbShape = shapeOf[nb]!;
               let visible = nbShape !== SHAPE_CUBE && nb !== id;
-              // Nobody sees the underside of the ground: skip downward faces at or below the bottom layer.
-              if (axis === 1 && sign < 0 && origin[1] + p[1]! <= GROUND_FLOOR_Y) visible = false;
+              // Nobody sees the underside of the ground: skip downward faces of the bottom layer. Blocks under it are the
+              // mine floors (play-sites.ts), whose ceilings are seen from inside.
+              if (axis === 1 && sign < 0 && origin[1] + p[1]! === GROUND_FLOOR_Y) visible = false;
               // Water surface under a non-water block still shows its lowered top.
               if (sh === SHAPE_WATER && axis === 1 && sign > 0 && nb !== id && nbShape === SHAPE_CUBE) visible = true;
               if (visible) {

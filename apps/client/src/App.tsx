@@ -41,6 +41,8 @@ export interface DialogResultLike {
   practice?: boolean;
   /** First-visit errand step this answer moved (server state, docs/03 D1). */
   errand?: { state: ErrandState; rewardCoins?: number };
+  /** Play modes step this answer moved (server state, edge play.ts); the play slot reads it. */
+  play?: { kind: 'interview' | 'shift' | 'customer' | 'exchange'; blocked?: string; coins?: number };
 }
 
 type ErrandState = 'offered' | 'accepted' | 'carrying' | 'done';
@@ -141,6 +143,14 @@ interface DialogModule {
   /** Second argument: the linked child's device token and level, when there is one (guest otherwise). */
   createSoloSubmit?: (npc: NpcRef, player?: SoloPlayer) => (u: unknown) => Promise<DialogResultLike>;
 }
+/** Play domain (`play/PlayLayer.tsx`): market hall and mine (docs/01 6장, docs/03 D2·D4, docs/04 4.2). */
+interface PlayModule {
+  PlayLayer?: React.ComponentType<{ world: WorldHandle | null; deviceToken?: string; hidden?: boolean }>;
+  /** A play NPC with nothing to say yet answers in a bubble: true = handled, the dialog does not open. */
+  playIntercept?: (npc: NpcRef, world: WorldHandle | null) => boolean;
+  playDialogFor?: (npc: NpcRef, level: Level) => ErrandDialogLike | null;
+  onPlayResult?: (step: NonNullable<DialogResultLike['play']>) => void;
+}
 interface ReviewModule {
   /** Review signs of the child's memory cards (dialog domain, docs/03 D8). */
   ReviewDock?: React.ComponentType<{ world: WorldHandle | null; player?: SoloPlayer; hidden?: boolean }>;
@@ -166,6 +176,7 @@ const lessonLoaders = import.meta.glob<LessonModule>('./lesson/LessonLayer.tsx')
 const reviewLoaders = import.meta.glob<ReviewModule>('./dialog/ReviewDock.tsx');
 const readAloudLoaders = import.meta.glob<ReadAloudModule>('./dialog/ReadAloudPrompt.tsx');
 const firstVisitLoaders = import.meta.glob<FirstVisitModule>('./dialog/FirstVisitGuide.tsx');
+const playLoaders = import.meta.glob<PlayModule>('./play/PlayLayer.tsx');
 
 /** Guide answers name a place (`askedKey`); the solo world walks the child there after the window closes. */
 const PLACE_SCENES: Readonly<Record<string, SceneId>> = { cafe: 'honey_cafe', honey_cafe: 'honey_cafe', trade_shop: 'trade_shop', plaza: 'plaza', build_plot: 'build_plot', open_hill: 'open_hill' };
@@ -350,6 +361,7 @@ export function App(): React.ReactElement {
   const [readKind, setReadKind] = useState<'light' | 'rest' | 'flat' | null>(null);
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
   const [firstVisitMod, setFirstVisitMod] = useState<FirstVisitModule | null>(null);
+  const [playMod, setPlayMod] = useState<PlayModule | null>(null);
   const [errand, setErrand] = useState<ErrandLike | null>(null);
   // The errand shape of a solo dialog is fixed when its window opens (a step it moves must not swap its sentences).
   const errandDialog = useRef<{ npc: NpcRef | null; ed: ErrandDialogLike | null }>({ npc: null, ed: null });
@@ -406,6 +418,7 @@ export function App(): React.ReactElement {
     for (const load of Object.values(reviewLoaders)) void load().then(setReviewMod);
     for (const load of Object.values(readAloudLoaders)) void load().then(setReadAloudMod);
     for (const load of Object.values(firstVisitLoaders)) void load().then(setFirstVisitMod);
+    for (const load of Object.values(playLoaders)) void load().then(setPlayMod);
   }, []);
 
   useEffect(() => {
@@ -485,9 +498,10 @@ export function App(): React.ReactElement {
         setSeatCard(true);
         return;
       }
+      if (playMod?.playIntercept?.(npc, world)) return;
       if (dialogMod?.DialogPanel && dialogMod.createSoloSubmit) setSoloNpc(npc);
     });
-  }, [world, dialogMod, soloBlocked]);
+  }, [world, dialogMod, soloBlocked, playMod]);
 
   const renderDialog = useCallback(
     (npc: NpcRef, cfg: DialogConfig): React.ReactNode => {
@@ -510,7 +524,11 @@ export function App(): React.ReactElement {
   if (errandDialog.current.npc !== soloNpc) {
     errandDialog.current = {
       npc: soloNpc,
-      ed: soloNpc && firstVisitMod?.errandDialogFor ? firstVisitMod.errandDialogFor(soloNpc, errand, soloLevel ?? 'L1') : null
+      ed: soloNpc
+        ? ((firstVisitMod?.errandDialogFor ? firstVisitMod.errandDialogFor(soloNpc, errand, soloLevel ?? 'L1') : null) ??
+          playMod?.playDialogFor?.(soloNpc, soloLevel ?? 'L1') ??
+          null)
+        : null
     };
   }
   const ed = errandDialog.current.ed;
@@ -529,12 +547,14 @@ export function App(): React.ReactElement {
       if (step) setErrand((prev) => (prev && prev.state !== step.state ? { ...prev, state: step.state } : prev));
       // handed over: the server already moved the drink out of the bag (given); the hand and slot follow
       if (step?.state === 'done' && errand && typeof errand.item_key === 'string') world?.takeItem?.(errand.item_key);
+      if (r.play) playMod?.onPlayResult?.(r.play);
     }
   };
   const FirstVisit = firstVisitMod?.FirstVisitGuide;
   const MicGate = firstVisitMod?.MicCheckGate;
   const Review = reviewMod?.ReviewDock;
   const ReadAloud = readAloudMod?.ReadAloudPrompt;
+  const Play = playMod?.PlayLayer;
   return (
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: C['paper-50'], touchAction: 'none' }}>
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
@@ -578,6 +598,7 @@ export function App(): React.ReactElement {
           {FirstVisit && identity?.kind === 'child' && !soloBlocked ? (
             <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null} />
           ) : null}
+          {Play && world && !soloBlocked ? <Play world={world} deviceToken={soloPlayerOf(identity)?.deviceToken} hidden={lessonOn || soloNpc !== null} /> : null}
           {world && !soloBlocked && SoloPanel && soloNpc && dialogNpc && soloSubmit ? (
             <DialogHost
               Panel={SoloPanel}

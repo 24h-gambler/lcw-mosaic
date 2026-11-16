@@ -210,8 +210,12 @@ export const TUNING = {
     /** ...and it climbs back by this share of the gap per real hour. */
     marketRecoveryPerHour: 0.1,
     mine: {
-      /** A vein grows back after this much of the child's own play time (no offline farming). */
-      veinRespawnPlayMs: 10 * 60 * 1000,
+      /**
+       * A vein grows back after this much of the child's own play time (no offline farming). 2.5 minutes: the 12 veins
+       * of floor 1 four times in 10 minutes = 336 coins at list price, 420 with 3-star sentences — docs/03 D3
+       * "채굴(초반 10분) 300 ~ 500" (tested in play-sites.test.ts).
+       */
+      veinRespawnPlayMs: 150 * 1000,
       /** Two swings closer than this are one (anti-autoclick; the hold animation is longer). */
       minIntervalMs: 1200,
       /** Every child owns a wooden pickaxe (tier 1, docs/03 D2 "나무 곡괭이"); bought tools raise it. */

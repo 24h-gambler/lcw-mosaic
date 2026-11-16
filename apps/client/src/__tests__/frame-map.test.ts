@@ -8,6 +8,7 @@ import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import type { SceneId, WorldHandle, WorldMapInfo } from '../world/api.js';
 import { buildMapInfo } from '../world/map-info.js';
 import { SCENES } from '../world/town.js';
+import { BAND_NAMES_KO, SCENE_TITLES_KO, SECTOR_NAMES_KO } from '../world/strings.js';
 import { FRAME_STRINGS as F, withCopula, withDirection } from '../frame/strings.js';
 import {
   areasIn,
@@ -58,8 +59,8 @@ describe('getMap read-out (world/map-info)', () => {
     const info = townInfo({ x: 150, z: 140, yaw: 0.5 });
     expect(info.size_m).toBe(TUNING.world.sizeX);
     expect(info.sectors).toEqual([
-      { id: 'town', nameKo: '중앙 마을', kind: 'town', explored: true, rect: [96, 96, 192, 192] },
-      { id: 'plot', nameKo: '내 부지', kind: 'plot', explored: true, rect: [plot.x0, plot.z0, plot.x1, plot.z1] }
+      { id: 'town', nameKo: SECTOR_NAMES_KO.town, kind: 'town', explored: true, rect: [96, 96, 192, 192] },
+      { id: 'plot', nameKo: SCENE_TITLES_KO.build_plot, kind: 'plot', explored: true, rect: [plot.x0, plot.z0, plot.x1, plot.z1] }
     ]);
     expect(info.scenes.map((s) => s.id).sort()).toEqual(Object.keys(SCENES).sort());
     const plaza = info.scenes.find((s) => s.id === 'plaza')!;
@@ -166,7 +167,8 @@ describe('vertical band elevator (docs/03 3.2)', () => {
     const stops = bandStops(1);
     expect(stops.map((s) => s.id)).toEqual(TUNING.verticalBands.map((b) => b.id));
     expect(stops.map((s) => s.state)).toEqual(['locked', 'locked', 'locked', 'here', 'locked', 'locked']);
-    expect(stops.map((s) => s.nameKo)).toEqual(['심우주', '우주 정거장', '하늘섬', '지상', '광산', '네더']);
+    // the band names are the world domain's (they follow the learn language, world/lang.ts)
+    expect(stops.map((s) => s.nameKo)).toEqual(TUNING.verticalBands.map((b) => BAND_NAMES_KO[b.id as keyof typeof BAND_NAMES_KO]));
     expect(stops.map((s) => s.range)).toEqual(['+600 ~ +1,000m', '+300 ~ +600m', '+80 ~ +300m', '−8 ~ +80m', '−150 ~ −9m', '−400 ~ −151m']);
   });
   it('opens a stop for each reached band; the band under the player is "here"', () => {
@@ -184,9 +186,15 @@ describe('screen-reader summary and particles', () => {
   const places = knownScenes(info, cells);
   it('says how much is explored, where I am and face, and where I can go', () => {
     const s = mapSummary({ cells, playerCell: 4, near: places.find((p) => p.id === 'plaza')!, band: 'surface', yaw: Math.PI, places, lessonOn: false });
+    // place and band names come from the world domain in the learn language; the sentence around them is the frame's
     expect(s).toBe(
-      '지도예요. 온 세상 9칸 중 1칸을 가 봤어요. 나는 중앙 마을 중앙 광장 근처, 지상에서 북쪽을 보고 있어요. 갈 수 있는 곳은 중앙 광장, 꿀 카페, 물물교환 상점, 내 부지, 바람 언덕이에요.'
+      [
+        '지도예요. 온 세상 9칸 중 1칸을 가 봤어요.',
+        F.mapSummaryHere(SECTOR_NAMES_KO.town, F.mapSummaryNear(SCENE_TITLES_KO.plaza), BAND_NAMES_KO.surface, '북'),
+        F.mapSummaryPlaces(places.map((p) => p.nameKo))
+      ].join(' ')
     );
+    expect(places.map((p) => p.id)).toEqual(['plaza', 'honey_cafe', 'trade_shop', 'build_plot', 'open_hill']);
   });
   it('in a lesson says the teacher picks the place instead of listing places', () => {
     const s = mapSummary({ cells, playerCell: 4, near: null, band: 'surface', yaw: 0, places, lessonOn: true });
@@ -231,7 +239,7 @@ describe('MapPanel render', () => {
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
     expect(html.match(/data-scene="/g)).toHaveLength(5);
     expect(html.match(/class="btn lcw-map__go/g)).toHaveLength(5);
-    expect(html).toContain('aria-label="바람 언덕으로 가기"');
+    expect(html).toContain(`aria-label="${goLabel(SCENE_TITLES_KO.open_hill)}"`);
     expect(html.match(/class="lcw-map__stop /g)).toHaveLength(6);
     expect(html).toContain('aria-current="location"');
     for (const z of Object.values(F.zones)) expect(html).toContain(z);
@@ -253,7 +261,7 @@ describe('MapPanel render', () => {
 
   it('marks the elevator stop for the band I am in', () => {
     const html = render({ world: fakeWorld(townInfo(), -40) });
-    expect(html).toMatch(/lcw-map__stop is-here[^>]*><span class="lcw-map__car"[^>]*>나<\/span><span><b>광산<\/b>/);
+    expect(html).toMatch(new RegExp(`lcw-map__stop is-here[^>]*><span class="lcw-map__car"[^>]*>나</span><span><b>${BAND_NAMES_KO.mine}</b>`));
   });
 
   it('says the map comes with the world when there is none', () => {

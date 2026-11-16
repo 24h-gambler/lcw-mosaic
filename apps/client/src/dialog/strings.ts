@@ -33,9 +33,9 @@ export function ko<K extends keyof UiStrings>(section: K): UiStrings[K] {
 }
 
 /** Result feedback (answered in Korean by the grader / server) in the screen language, plus its help line. */
-export function feedbackLine(feedbackKo: string): { text: string; help: string | null } {
+export function feedbackLine(feedbackKo: string, feedbackEn?: string | null): { text: string; help: string | null } {
   if (learnLang() !== 'en') return { text: feedbackKo, help: null };
-  const en = feedbackEnFromKo(feedbackKo);
+  const en = feedbackEn?.trim() || feedbackEnFromKo(feedbackKo);
   if (!en) return { text: feedbackKo, help: null };
   return { text: en, help: helpKo(feedbackKo, en) };
 }

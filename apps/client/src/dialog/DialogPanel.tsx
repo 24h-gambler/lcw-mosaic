@@ -594,8 +594,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                   ))}
                 </div>
               ) : null}
-              <div className="lcw-res__fb">{feedbackLine(result.feedbackKo).text}</div>
-              {feedbackLine(result.feedbackKo).help ? <div className="lcw-dlg__name">{feedbackLine(result.feedbackKo).help}</div> : null}
+              <div className="lcw-res__fb">{feedbackLine(result.feedbackKo, result.feedbackEn).text}</div>
+              {feedbackLine(result.feedbackKo, result.feedbackEn).help ? <div className="lcw-dlg__name">{feedbackLine(result.feedbackKo, result.feedbackEn).help}</div> : null}
               {!result.pass && missedWords.size > 0 ? <div className="lcw-dlg__name">{S.missedHint}</div> : null}
               {result.practice ? <div className="lcw-dlg__name">{S.practiceNote}</div> : null}
               {typeof result.coinsTotal === 'number' ? <div className="lcw-res__coins">🪙 {result.coinsTotal} {S.coins}</div> : null}
@@ -696,7 +696,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
             </div>
           ) : (
             <div className="lcw-dlg__offers">
-              {freeTalk ? <div className="lcw-dlg__name">{S.ideas}</div> : null}
+              {freeTalk ? <div className="lcw-dlg__name lcw-dlg__ideas">{S.ideas}</div> : null}
               {offers.map((o) => (
                 <button
                   key={o.stars}

@@ -26,6 +26,14 @@ describe('dialog strings in the learning language', () => {
     expect(helpKo('말하고 싶은 문장을 골라요', 'Pick a sentence to say')).toBeNull();
   });
 
+  it("the server's own English line wins over the table (lesson feedback_en), the Korean as help only", () => {
+    expect(feedbackLine('수업 고정 문장이에요', 'A lesson line')).toEqual({ text: 'A lesson line', help: null });
+    setHelpKo(true);
+    expect(feedbackLine('수업 고정 문장이에요', 'A lesson line')).toEqual({ text: 'A lesson line', help: '수업 고정 문장이에요' });
+    setHelpKo(false);
+    expect(feedbackLine(UI_STRINGS_KO.dialog.feedback.pass, '')).toEqual({ text: UI_STRINGS_EN.dialog.feedback.pass, help: null });
+  });
+
   it('read-aloud and review lines from the server come out in English, values included', () => {
     const R = UI_STRINGS_KO.readAloud;
     expect(feedbackLine(R.voiceOnly).text).toBe(UI_STRINGS_EN.readAloud.voiceOnly);

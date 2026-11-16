@@ -10,14 +10,18 @@ import {
   createFamilyApi,
   inviteFromHash,
   loadDevice,
+  oauthResultFromHash,
+  oauthStartPath,
   loadGuardianToken,
   saveDevice,
   saveGuardianToken,
   type FamilyApi,
   type FamilyChild,
   type FamilyMe,
-  type GuardianConsentScope
+  type GuardianConsentScope,
+  type OAuthProvider
 } from './familyApi.js';
+import { detectInAppBrowser } from './inapp.js';
 import { errorCodeOf } from './lessonApi.js';
 import { kstLabel } from './lessonFlow.js';
 import { Box, LessonStyle, Notice, border, inputStyle, labelStyle, sp } from './lessonUi.js';
@@ -52,6 +56,8 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
   const [load, setLoad] = useState<FamilyLoad>(initial ?? { status: 'loading' });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [providers, setProviders] = useState<OAuthProvider[]>([]);
   useFamilyManifest();
 
   const refresh = useCallback(async (g: string) => {
@@ -67,8 +73,26 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
   }, []);
 
   useEffect(() => {
+    void apiRef.current
+      .oauthConfig()
+      .then((c) => setProviders(c.providers))
+      .catch(() => setProviders([]));
+  }, []);
+
+  useEffect(() => {
     if (initial) return;
     void (async () => {
+      // Back from Google / Kakao (oauth.ts): the result rides in the fragment; clear it before anything can copy it.
+      const signIn = typeof window !== 'undefined' ? oauthResultFromHash(window.location.hash) : null;
+      if (signIn) window.history.replaceState(null, '', window.location.pathname);
+      if (signIn && 'token' in signIn) {
+        saveGuardianToken(signIn.token);
+        setToken(signIn.token);
+        await refresh(signIn.token);
+        return;
+      }
+      if (signIn && 'linked' in signIn) setInfo(F.signInJustLinked(F.providerName[signIn.linked] ?? signIn.linked));
+      if (signIn && 'error' in signIn) setNotice(F.signInErrors[signIn.error] ?? F.signInErrors.provider_error!);
       const invite = typeof window !== 'undefined' ? inviteFromHash(window.location.hash) : null;
       if (invite) {
         // The code is one-time: clear it from the address bar before anything else can copy it.
@@ -136,6 +160,7 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
         <Box title={F.noSessionTitle} testId="family-no-session">
           {load.inviteInvalid ? <Notice kind="error">{F.inviteInvalid}</Notice> : null}
           <p style={{ margin: 0 }}>{F.noSessionBody}</p>
+          <SignInButtons providers={providers} />
         </Box>
       ) : null}
       {load.status === 'error' ? (
@@ -146,6 +171,7 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
         </Box>
       ) : null}
       {notice ? <Notice kind="error">{notice}</Notice> : null}
+      {info ? <Notice kind="ok">{info}</Notice> : null}
       {load.status === 'ok' && !load.me.service_consented ? (
         <Box title={F.serviceTitle} tone="tinted" testId="family-service">
           <p style={{ marginTop: 0 }}>{F.serviceBody}</p>
@@ -169,6 +195,7 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
         : null}
       {load.status === 'ok' && token ? <FamilySeats api={apiRef.current} token={token} /> : null}
       {load.status === 'ok' && token ? <FamilyPush api={apiRef.current} token={token} /> : null}
+      {load.status === 'ok' && token ? <SignIns api={apiRef.current} token={token} /> : null}
       {load.status === 'ok' && load.me.service_consented ? (
         <AddChild
           disabled={busy}
@@ -181,6 +208,96 @@ export function FamilyPage({ api, initial, initialToken }: FamilyPageProps): Rea
         />
       ) : null}
     </main>
+  );
+}
+
+/** Sign-in with Kakao / Google (oauth.ts) when the server has them set up; Google is hidden inside in-app browsers. */
+function SignInButtons({ providers }: { providers: OAuthProvider[] }): React.ReactElement | null {
+  if (!providers.length) return null;
+  const inApp = typeof navigator !== 'undefined' && detectInAppBrowser(navigator.userAgent).kind !== null;
+  const shown = providers.filter((p) => p !== 'google' || !inApp);
+  return (
+    <div data-testid="family-sign-in" style={{ display: 'grid', gap: sp(2), marginTop: sp(3) }}>
+      <p style={{ margin: 0 }}>{F.signInLead}</p>
+      {shown.map((p) => (
+        <Button key={p} type="button" variant={p === 'kakao' ? 'brand' : 'paper'} onClick={() => window.location.assign(oauthStartPath(p))}>
+          {p === 'kakao' ? F.signInKakao : F.signInGoogle}
+        </Button>
+      ))}
+      {inApp && providers.includes('google') ? <p style={small}>{F.signInGoogleInApp}</p> : null}
+      <p style={small}>{F.signInInviteFirst}</p>
+    </div>
+  );
+}
+
+/** "로그인 연결": the Kakao / Google accounts that open this family, link one more, take one off. */
+function SignIns({ api, token }: { api: FamilyApi; token: string }): React.ReactElement | null {
+  const [state, setState] = useState<{ available: OAuthProvider[]; linked: OAuthProvider[] } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    void api
+      .signIns(token)
+      .then((r) => setState({ available: r.available, linked: r.linked.map((l) => l.provider) }))
+      .catch(() => setState(null));
+  }, [api, token]);
+  useEffect(load, [load]);
+  if (!state) return null;
+  const all = (['kakao', 'google'] as OAuthProvider[]).filter((p) => state.available.includes(p) || state.linked.includes(p));
+  if (!all.length) return null;
+  return (
+    <Box title={F.signInsTitle} testId="family-sign-ins">
+      <p style={{ marginTop: 0 }}>{F.signInsBody}</p>
+      {err ? <Notice kind="error">{err}</Notice> : null}
+      <div style={{ display: 'grid', gap: sp(2) }}>
+        {all.map((p) => {
+          const name = F.providerName[p] ?? p;
+          const linked = state.linked.includes(p);
+          return (
+            <div key={p} data-testid={`sign-in-${p}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: sp(2), flexWrap: 'wrap' }}>
+              <span>{linked ? F.signInLinked(name) : name}</span>
+              {linked ? (
+                <Button
+                  type="button"
+                  variant="paper"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setErr(null);
+                    void api
+                      .unlinkSignIn(token, p)
+                      .then(load)
+                      .catch((e) => setErr(errorCodeOf(e) === 'last_sign_in' ? F.signInLastOne : F.errorBody))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  {F.signInUnlink}
+                </Button>
+              ) : state.available.includes(p) ? (
+                <Button
+                  type="button"
+                  variant="brand"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setErr(null);
+                    void api
+                      .linkSignIn(token, p)
+                      .then((r) => window.location.assign(r.start_path))
+                      .catch(() => {
+                        setErr(F.errorBody);
+                        setBusy(false);
+                      });
+                  }}
+                >
+                  {F.signInLink(name)}
+                </Button>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </Box>
   );
 }
 

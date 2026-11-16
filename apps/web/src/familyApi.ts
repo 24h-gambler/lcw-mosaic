@@ -316,10 +316,36 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
       ),
     adminDecideRefund: (op: string, requestId: string, decision: { decision: 'decline' } | { decision: 'refund'; refund_krw: number }) =>
       request<{ id: string; status: string }>('POST', `/v1/admin/seat-refunds/${enc(requestId)}/decide`, op, decision),
-    adminStudents: (op: string) => request<Array<{ player_id: string; nickname: string; family_id: string }>>('GET', '/v1/admin/students', op)
+    adminStudents: (op: string) => request<Array<{ player_id: string; nickname: string; family_id: string }>>('GET', '/v1/admin/students', op),
+    /* sign-in with Google / Kakao (edge oauth.ts, guardian-oauth.ts) */
+    oauthConfig: () => request<{ providers: OAuthProvider[]; google_client_id: string | null }>('GET', '/v1/oauth/config', null),
+    signIns: (g: string) =>
+      request<{ available: OAuthProvider[]; linked: Array<{ provider: OAuthProvider; linked_at: number; last_login_at: number }> }>('GET', '/v1/family/sign-in', g),
+    linkSignIn: (g: string, provider: OAuthProvider) => request<{ start_path: string }>('POST', '/v1/family/sign-in/link', g, { provider }),
+    unlinkSignIn: (g: string, provider: OAuthProvider) => request<{ ok: boolean }>('DELETE', `/v1/family/sign-in/${provider}`, g)
   };
 }
 export type FamilyApi = ReturnType<typeof createFamilyApi>;
+
+export type OAuthProvider = 'google' | 'kakao';
+export const OAUTH_ERROR_CODES = ['not_configured', 'state_mismatch', 'provider_error', 'token_invalid', 'cancelled', 'ticket_invalid', 'already_linked', 'guardian_not_found'] as const;
+
+/** Where the guardian's browser goes to sign in with a provider (the server answers with a redirect). */
+export const oauthStartPath = (provider: OAuthProvider, ret = '/family') => `/v1/oauth/${provider}/start?role=guardian&return=${encodeURIComponent(ret)}`;
+
+/**
+ * What a sign-in left in the fragment: `#g=<64 hex>` a new guardian session, `#linked=<provider>` a sign-in added to
+ * this family, `#oauth_error=<code>` why it did not work. Null when the fragment carries none of them.
+ */
+export function oauthResultFromHash(hash: string): { token: string } | { linked: OAuthProvider } | { error: string } | null {
+  const g = /(?:^#|&)g=([0-9a-f]{64})(?:&|$)/.exec(hash);
+  if (g) return { token: g[1]! };
+  const l = /(?:^#|&)linked=(google|kakao)(?:&|$)/.exec(hash);
+  if (l) return { linked: l[1] as OAuthProvider };
+  const e = /(?:^#|&)oauth_error=([a-z_]{1,40})(?:&|$)/.exec(hash);
+  if (e) return { error: (OAUTH_ERROR_CODES as readonly string[]).includes(e[1]!) ? e[1]! : 'provider_error' };
+  return null;
+}
 
 /** `#k=<48 hex>` from the invite link, or null. */
 export function inviteFromHash(hash: string): string | null {

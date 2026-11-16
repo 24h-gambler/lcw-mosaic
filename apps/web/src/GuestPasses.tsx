@@ -21,7 +21,7 @@ const px = (n: number) => `${n}px`;
 const small: React.CSSProperties = { fontSize: px(T.scale.small.sizePx), lineHeight: px(T.scale.small.lineHeightPx), color: C['ink-700'] };
 const KST = 9 * 3_600_000;
 const day = (ms: number | null) => kstLabel(ms, false).replace(/^\d{4}년 /, '');
-const when = (ms: number | null) => kstLabel(ms, true).replace(/^\d{4}년 /, '');
+const when = (ms: number | null) => kstLabel(ms, true);
 const kstMonth = (ms: number) => new Date(ms + KST).toISOString().slice(0, 7);
 
 export type PassNotice = { kind: 'ok' | 'info' | 'error'; text: string };
@@ -176,7 +176,7 @@ export function GuestPasses({ api, token, seatId }: { api: FamilyApi; token: str
       setFailed(null);
       return d;
     } catch (e) {
-      setFailed(errorCodeOf(e) ?? 'error');
+      setFailed(errorCodeOf(e));
       return null;
     }
   }, [api, token, seatId]);

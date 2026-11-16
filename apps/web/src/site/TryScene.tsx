@@ -1,5 +1,6 @@
 /**
- * W06 /try (docs/14 §8, WP-702): account-free, server-free trial. One obvious action per step so a child finishes
+ * W06 /try (docs/14 §8, WP-702): account-free trial. The server judges the limits (docs/01 §3, edge free-play.ts):
+ * it stamps a 3-minute session and counts the one voice order; this page only shows the time it gave. One obvious action per step so a child finishes
  * without instructions: start (sound on) → walk to the cafe → hear the owner → pick a sentence → say it → the drink
  * pops into slot 1 → drink → "이 월드를 저장할까요" → hand-off to a parent.
  *
@@ -14,6 +15,7 @@ import { SLink } from './SiteShell.js';
 import { blip, isSoundOn, sayEnglish, setSoundOn, stopSpeaking } from './sound.js';
 import { TRY } from './tryCopy.js';
 import { TrySpeak } from './TrySpeak.js';
+import { formatClock, orderTry, startTrySession, tryDeviceId, tryRemainingMs } from './trySession.js';
 import {
   TRY_INITIAL,
   TRY_NPC,
@@ -237,6 +239,11 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
   const use3d = stage.stage === '3d' && wstatus === 'ready';
   const phaseRef = useRef(s.phase);
   phaseRef.current = s.phase;
+  // Server-judged session (null in tests and screenshots that start from a given phase).
+  const [session, setSession] = useState<{ id: string; endsAt: number; offsetMs: number } | null>(null);
+  const [gate, setGate] = useState<'open' | 'starting' | 'used_today' | 'ended' | 'error'>('open');
+  const [orderNote, setOrderNote] = useState<string | null>(null);
+  const [leftMs, setLeftMs] = useState<number | null>(null);
 
   useEffect(() => {
     const d = detectPath();
@@ -298,6 +305,22 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
     if (s.phase !== 'walk') stopWalk();
   }, [s.phase, stopWalk]);
   useEffect(() => stopWalk, [stopWalk]);
+
+  const beforeOrder = s.phase === 'walk' || s.phase === 'greet' || s.phase === 'choose' || s.phase === 'speak';
+  useEffect(() => {
+    if (!session || !beforeOrder || gate !== 'open') return undefined;
+    const tick = () => {
+      const left = tryRemainingMs(session.endsAt, session.offsetMs, Date.now());
+      setLeftMs(left);
+      if (left <= 0) {
+        stopSpeaking();
+        setGate('ended');
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1_000);
+    return () => clearInterval(id);
+  }, [session, beforeOrder, gate]);
 
   // keyboard: → / D walks, 1 drinks
   useEffect(() => {
@@ -388,8 +411,47 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
   const start = (withSound: boolean) => {
     setSoundOn(withSound);
     setSound(withSound);
-    track('try_start');
-    dispatch({ type: 'start', sound: withSound });
+    if (gate === 'starting') return;
+    setGate('starting');
+    let store: Storage | null = null;
+    try {
+      store = window.localStorage;
+    } catch {
+      store = null;
+    }
+    void startTrySession((u, i) => fetch(u, i), tryDeviceId(store)).then((r) => {
+      if (r.kind === 'used_today') return setGate('used_today');
+      if (r.kind === 'error') return setGate('error');
+      // A reload after the order was served: the one order is used.
+      if (r.session.order) return setGate('used_today');
+      setSession({ id: r.session.try_id, endsAt: r.session.ends_at, offsetMs: r.offsetMs });
+      setGate('open');
+      track('try_start');
+      dispatch({ type: 'start', sound: withSound });
+    });
+  };
+  const spoke = (stars: 1 | 2 | 3, text: string, rec: string | null) => {
+    const serve = (granted: 1 | 2 | 3) => {
+      track('order_done');
+      if (rec) setRecording(rec);
+      setOrderNote(null);
+      dispatch({ type: 'spoke', stars: granted, text });
+    };
+    if (!session) return serve(stars);
+    const aim = s.aim;
+    void orderTry((u, i) => fetch(u, i), {
+      tryId: session.id,
+      aim,
+      text,
+      path,
+      ...(path === 'wordcards_with_loudness' ? { spoke: stars === aim } : {})
+    }).then((r) => {
+      if (r.kind === 'granted') return serve(r.stars);
+      if (r.kind === 'ended') return setGate('ended');
+      if (r.kind === 'used') return setGate('used_today');
+      setOrderNote(r.kind === 'missed' ? TRY.serverMissed : TRY.netError);
+      dispatch({ type: 'repick' });
+    });
   };
   const toggleSound = () => {
     const v = !sound;
@@ -408,6 +470,11 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
         <span className="s-try-goal" aria-live="polite">
           {TRY.goals[s.phase]}
         </span>
+        {session && beforeOrder && leftMs !== null && gate === 'open' ? (
+          <span className="s-tag" data-testid="try-clock" aria-label={TRY.timeLeftLabel(formatClock(leftMs))}>
+            {TRY.timeLeft(formatClock(leftMs))}
+          </span>
+        ) : null}
         {s.phase !== 'start' ? (
           <button type="button" className="s-btn s-btn-icon" onClick={toggleSound} aria-pressed={sound} aria-label={sound ? TRY.soundOn : TRY.soundOff}>
             {sound ? '♪' : '×'}
@@ -462,6 +529,9 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
         </div>
         <section className="s-try-panel" aria-label="체험 진행">
           {use3d && s.phase !== 'start' ? <Hud s={s} onDrink={() => dispatch({ type: 'drink' })} inPanel /> : null}
+          {gate === 'used_today' || gate === 'ended' || gate === 'error' ? (
+            <GatePanel gate={gate} onShare={share} onRetry={() => start(sound)} />
+          ) : (
           <Panel
             world3d={use3d}
             s={s}
@@ -482,15 +552,13 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
               dispatch({ type: 'pick', stars: n });
             }}
             onRepick={() => dispatch({ type: 'repick' })}
-            onSpoke={(stars, text, rec) => {
-              track('order_done');
-              if (rec) setRecording(rec);
-              dispatch({ type: 'spoke', stars, text });
-            }}
+            onSpoke={spoke}
             onDrink={() => dispatch({ type: 'drink' })}
             onShare={share}
-            onRestart={() => dispatch({ type: 'restart' })}
+            starting={gate === 'starting'}
+            note={orderNote}
           />
+          )}
           {recording ? <audio ref={audioRef} src={recording} preload="auto" hidden /> : null}
         </section>
       </main>
@@ -517,7 +585,38 @@ interface PanelProps {
   onSpoke: (stars: 1 | 2 | 3, text: string, rec: string | null) => void;
   onDrink: () => void;
   onShare: () => void;
-  onRestart: () => void;
+  /** The server session is being opened (the start buttons wait). */
+  starting?: boolean;
+  /** Why the last sentence went back to the choice (the server did not count it, or the network dropped). */
+  note?: string | null;
+}
+
+/** Shown instead of the steps when the server says the session is over, used today, or out of reach. */
+function GatePanel({ gate, onShare, onRetry }: { gate: 'used_today' | 'ended' | 'error'; onShare: () => void; onRetry: () => void }): React.ReactElement {
+  const t = TRY.gate[gate];
+  return (
+    <div className="s-end s-risein" data-testid="try-gate" data-gate={gate}>
+      <h2 className="s-h2">{t.title}</h2>
+      <p className="s-muted">{t.body}</p>
+      {gate === 'error' ? (
+        <button type="button" className="s-btn s-btn-brand s-btn-mic" onClick={onRetry}>
+          {TRY.retry}
+        </button>
+      ) : (
+        <button type="button" className="s-btn s-btn-brand s-btn-mic" onClick={onShare}>
+          {TRY.sendParent}
+        </button>
+      )}
+      <div className="s-row" style={{ gap: 8, marginTop: 8 }}>
+        <SLink to="/parents" className="s-btn s-btn-ghost">
+          {TRY.forParents}
+        </SLink>
+        <SLink to="/pricing" className="s-btn s-btn-ghost">
+          {TRY.forAdults}
+        </SLink>
+      </div>
+    </div>
+  );
 }
 
 function Panel(p: PanelProps): React.ReactElement {
@@ -528,13 +627,14 @@ function Panel(p: PanelProps): React.ReactElement {
       <div className="s-stack s-risein" style={{ gap: 16 }}>
         <h1 className="s-h2">{TRY.startTitle}</h1>
         <p className="s-lead">{TRY.startBody}</p>
-        <button type="button" className="s-btn s-btn-brand s-btn-mic" onClick={() => p.onStart(true)} autoFocus>
+        <button type="button" className="s-btn s-btn-brand s-btn-mic" onClick={() => p.onStart(true)} autoFocus disabled={p.starting}>
           ▶ {TRY.startBtn}
         </button>
-        <button type="button" className="s-btn s-btn-ghost" onClick={() => p.onStart(false)} style={{ justifySelf: 'start' }}>
+        <button type="button" className="s-btn s-btn-ghost" onClick={() => p.onStart(false)} style={{ justifySelf: 'start' }} disabled={p.starting}>
           {TRY.startQuiet}
         </button>
         <p className="s-note">{TRY.localOnly}</p>
+        <p className="s-note">{TRY.limitNote}</p>
       </div>
     );
   if (phase === 'walk' && p.world3d)
@@ -601,6 +701,11 @@ function Panel(p: PanelProps): React.ReactElement {
           <span className="s-small">{TRY.welcomeKo}</span>
         </div>
         <h2 className="s-h3">{TRY.chooseTitle}</h2>
+        {p.note ? (
+          <p className="s-note s-warn" role="status" data-testid="try-note">
+            {p.note}
+          </p>
+        ) : null}
         <p className="s-small">{TRY.chooseHint}</p>
         <div className="s-pickgrid">
           {[...TRY_OFFERS].reverse().map((o) => (
@@ -664,9 +769,6 @@ function Panel(p: PanelProps): React.ReactElement {
       <p className="s-muted">{s.saved ? TRY.endSavedYes : TRY.endSavedNo}</p>
       <button type="button" className="s-btn s-btn-brand s-btn-mic" onClick={p.onShare}>
         {TRY.sendParent}
-      </button>
-      <button type="button" className="s-btn" onClick={p.onRestart} style={{ justifySelf: 'start' }}>
-        {s.stars < 3 ? TRY.again3 : TRY.againAny}
       </button>
       <div className="s-row" style={{ gap: 8, marginTop: 8 }}>
         <SLink to="/parents" className="s-btn s-btn-ghost">

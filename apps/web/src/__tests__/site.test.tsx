@@ -6,7 +6,7 @@ import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { App } from '../App.js';
 import { routeFromPath } from '../main.js';
 import { bestOfferMatch, wordHits } from '../tryFlow.js';
-import { FAQ, LEARN_PAGES, LOOP, PARENTS, PRICING, TOUR } from '../site/copy.js';
+import { FAQ, LEARN_PAGES, LOOP, PARENTS, PRICING, REFUND_RULE, TOUR } from '../site/copy.js';
 import { clipCaptionAt } from '../site/GameMedia.js';
 import { SITE_CLIPS, SITE_STILLS } from '../site/media.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -23,7 +23,7 @@ import { TRY_LOUDNESS_TRIES, TRY_RECOGNITION_ANSWER_MS, TRY_RECOGNITION_AUDIO_MS
 import { TRY_INITIAL, TRY_OFFERS, TRY_PRICES, TRY_WALK_STEPS, TRY_WALLET, tryReducer, type TryPhase, type TryState } from '../site/tryState.js';
 import { eventPayload } from '../site/track.js';
 import { validateConsult } from '../site/pages/Tutoring.js';
-import { normalizePassCode } from '../site/pages/Info.js';
+import { normalizePassCode, passCheckView } from '../site/pages/Info.js';
 import { VoxelSvg, collisions, projectIso, rotateQuarter, box } from '../site/voxel.js';
 import { LEARN_ART_PARTS } from '../site/pages/Learn.js';
 import { movingAverage } from '../site/widgets.js';
@@ -145,7 +145,11 @@ describe('W02 parents and W05 pricing', () => {
   it('shows plans, refund and cancellation on one screen, plus the ten FAQ answers', () => {
     const html = render('/pricing');
     for (const p of PRICING.plans) expect(html).toContain(p.month);
-    expect(html).toContain('7일 이내 전액 환불');
+    // Dan 2026-11-16: refunds only before the seat is first used, and the page sends people to the free try first.
+    expect(html).toContain(REFUND_RULE.short);
+    expect(html).toContain(REFUND_RULE.line);
+    expect(html).toContain(REFUND_RULE.tryFirst);
+    expect(html).not.toContain('7일 이내');
     expect(html).toContain('해지');
     expect(html).toContain('Duo는 가족이 아니어도 됩니다');
     expect(FAQ).toHaveLength(10);
@@ -364,9 +368,20 @@ describe('forms, counters and helpers', () => {
     expect(JSON.parse(eventPayload('try_start', '/try?utm=x#a'))).toEqual({ event: 'try_start', path: '/try' });
   });
 
-  it('normalises pass codes', () => {
-    expect(normalizePassCode(' AB12-CD ')).toBe('AB12-CD');
+  it('normalises pass codes (server format since free-play.ts: 8 characters, no 0/O/1/I/L)', () => {
+    expect(normalizePassCode(' ab2c-de3f ')).toBe('AB2CDE3F');
+    expect(normalizePassCode('AB12-CD')).toBeNull();
     expect(normalizePassCode('<script>')).toBeNull();
+  });
+
+  it('/pass tells each server answer apart and only "ready"/"active" open the world', () => {
+    expect(passCheckView(200, 'ready')).toBe('go');
+    expect(passCheckView(200, 'active')).toBe('go');
+    expect(passCheckView(200, 'ended')).toBe('ended');
+    expect(passCheckView(200, 'expired')).toBe('expired');
+    expect(passCheckView(404, undefined)).toBe('not_found');
+    expect(passCheckView(429, undefined)).toBe('busy');
+    expect(passCheckView(500, undefined)).toBe('error');
   });
 
   it('computes a 4-week moving average', () => {
@@ -398,5 +413,19 @@ describe('forms, counters and helpers', () => {
     const css = siteCss();
     expect(css).toContain('prefers-reduced-motion: reduce');
     expect(css).not.toMatch(/blur\(|backdrop-filter/);
+  });
+});
+
+describe('free play limits and the refund rule on every public page (docs/01 §3, Dan 2026-11-16)', () => {
+  it('pages read the minutes from FREE_PLAY_LIMITS: no old 5-minute try, 60-minute pass or 7-day refund left', async () => {
+    const { FREE_PLAY_LIMITS } = await import('@lcw/schemas');
+    const { prerenderPage } = await import('../site/prerender.js');
+    for (const path of ['/', '/parents', '/play', '/pricing', '/try', '/pass', '/terms', '/safety', '/tutoring']) {
+      const html = prerenderPage(path).body + prerenderPage(path).description;
+      expect(html, path).not.toMatch(/5분 체험|5분 해 보기|60분|7일 이내|결제 후 7일/);
+    }
+    expect(prerenderPage('/pass').body).toContain(`${FREE_PLAY_LIMITS.guestPassMinutes}분`);
+    expect(prerenderPage('/pricing').body).toContain(`${FREE_PLAY_LIMITS.tryMinutes}분 체험`);
+    expect(prerenderPage('/terms').body).toContain('쓰기 시작한 뒤에는 환불되지 않습니다');
   });
 });

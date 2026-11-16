@@ -105,12 +105,16 @@ export function TrySpeak({ offers, aim, path: basePath, onDone, onRepick }: TryS
     },
     []
   );
+  // The parent re-renders every second (the server clock), so onDone is a new function each time; keep the latest
+  // in a ref so the 1.3 s pause after a pass is not restarted by every tick (it never fired before this).
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
   useEffect(() => {
     if (passed === null) return undefined;
     const said = passedText.current ?? (offers.find((o) => o.stars === passed) ?? target).text;
-    const id = setTimeout(() => onDone(passed, said, recording.current), 1_300);
+    const id = setTimeout(() => onDoneRef.current(passed, said, recording.current), 1_300);
     return () => clearTimeout(id);
-  }, [passed, onDone, offers, target]);
+  }, [passed, offers, target]);
 
   const finish = (stars: 1 | 2 | 3, rec: string | null = null, text: string | null = null) => {
     recording.current = rec;
@@ -283,14 +287,17 @@ function WordCards({
   const [playback, setPlayback] = useState<string | null>(null);
   const h = useRef<{ stream?: MediaStream; ctx?: AudioContext; timer?: ReturnType<typeof setInterval>; recorder?: MediaRecorder; samples: EnergySample[] }>({ samples: [] });
   const done = useRef(false);
+  // Latest callback in a ref: the parent re-renders every second (server clock), which must not restart the wait below.
+  const onPassedRef = useRef(onPassed);
+  onPassedRef.current = onPassed;
 
   useEffect(() => {
     if (!assembled || done.current) return;
     if (!withLoudness) {
       done.current = true;
-      onPassed(null, false);
+      onPassedRef.current(null, false);
     }
-  }, [assembled, withLoudness, onPassed]);
+  }, [assembled, withLoudness]);
   useEffect(() => {
     if (!loudOk || done.current) return undefined;
     // Wait briefly for the recorder to hand over the take so the child can hear themselves afterwards.
@@ -298,14 +305,14 @@ function WordCards({
       const id = setTimeout(() => {
         if (done.current) return;
         done.current = true;
-        onPassed(null, spoke.current);
+        onPassedRef.current(null, spoke.current);
       }, 1_000);
       return () => clearTimeout(id);
     }
     done.current = true;
-    onPassed(playback, spoke.current);
+    onPassedRef.current(playback, spoke.current);
     return undefined;
-  }, [loudOk, playback, onPassed]);
+  }, [loudOk, playback]);
   useEffect(
     () => () => {
       const x = h.current;

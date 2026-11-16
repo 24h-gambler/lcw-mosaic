@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SignupQueue } from '../DirectorSignups.js';
-import { StudentSignupPage } from '../StudentSignup.js';
+import { StudentSignupPage, signupErrorText } from '../StudentSignup.js';
 import { SIGNUP_STRINGS_KO } from '../signupStrings.js';
 import { createStudentAccountApi, isOAuthReturn, oauthStartPath } from '../studentAccountApi.js';
 
@@ -50,6 +50,22 @@ describe('student sign-up client (/signup)', () => {
     // An older server without the OAuth module: no buttons, no throw.
     const old = createStudentAccountApi('', (async () => new Response('{}', { status: 404 })) as unknown as typeof fetch);
     expect(await old.oauthConfig()).toEqual({ providers: [] });
+  });
+
+  it("a sign-up under our own child's name says so and points at that child's connect button", async () => {
+    const fetchFn = (async () =>
+      new Response(JSON.stringify({ error: 'nickname_own_child', player_id: 'kid-1', nickname: 'Lulu' }), { status: 409 })) as unknown as typeof fetch;
+    const err = await createStudentAccountApi('', fetchFn)
+      .signup(G, 'LULU', '학생 기기')
+      .then(
+        () => null,
+        (e: unknown) => e
+      );
+    const text = signupErrorText(err);
+    expect(text).toBe(S.errOwnChild('Lulu'));
+    // The message names the button the screen really shows.
+    expect(text).toContain(S.connectAs('Lulu'));
+    expect(signupErrorText(new Error('offline'))).toBe(S.errNetwork);
   });
 
   it('first screen: who signs in, the lesson code path stays one tap away', () => {

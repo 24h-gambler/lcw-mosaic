@@ -235,6 +235,32 @@ describe('student sign-up on the guardian account (student-account.ts)', () => {
     expect(nori).toMatchObject({ match: null, name_taken: true, taken_by: null });
   });
 
+  it("the signing family's own child is found first, whichever family's student with the name comes first; not counted as a failed try", async () => {
+    const p = platform();
+    const failures = () => p.sql.get<{ n: number }>('select coalesce(sum(n), 0) as n from student_failures', [])?.n ?? 0;
+    const gb = await adultSignsIn(p, 'fam-mina-b');
+    const sb = await call(p, 'POST', '/v1/student/signup', { nickname: 'mina' }, bearer(gb));
+    expect(sb.status).toBe(201);
+    // Family A adds its Mina first, family B adds its own Mina later (both on the family page).
+    const ga = await adultSignsIn(p, 'fam-mina-a');
+    expect((await call(p, 'POST', '/v1/family/children', { nickname: 'Mina', birth_year: 2015 }, bearer(ga))).status).toBe(201);
+    expect((await call(p, 'POST', '/v1/family/children', { nickname: 'Mina', birth_year: 2016 }, bearer(gb))).status).toBe(201);
+    const minaB = (await call(p, 'GET', '/v1/family/me', undefined, bearer(gb))).body.children.find((k: any) => k.nickname === 'Mina').player_id;
+    const minaA = (await call(p, 'GET', '/v1/family/me', undefined, bearer(ga))).body.children.find((k: any) => k.nickname === 'Mina').player_id;
+    expect(minaA).not.toBe(minaB);
+    // Console: B's sign-up matches B's own Mina, not 'taken by A's Mina'.
+    const row = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.id === sb.body.id || s.nickname === 'mina');
+    expect(row).toMatchObject({ match: { player_id: minaB, nickname: 'Mina' }, match_own_family: true, name_taken: false });
+    // Sign-up: B again under 'MINA' → its own child, and the failure count does not move.
+    const before = failures();
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'MINA' }, bearer(gb))).body).toEqual({ error: 'nickname_own_child', player_id: minaB, nickname: 'Mina' });
+    expect(failures()).toBe(before);
+    // Another family under the same name: taken, and counted like a wrong guess.
+    const gc = await adultSignsIn(p, 'fam-mina-c');
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'mina' }, bearer(gc))).body.error).toBe('nickname_taken');
+    expect(failures()).toBe(before + 1);
+  });
+
   it('a pending nickname is not kept: cleared on reject or after 3 hours; bad nicknames refused', async () => {
     const p = platform();
     const g = await adultSignsIn(p, 'fam-n');

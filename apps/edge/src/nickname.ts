@@ -31,8 +31,13 @@ export type NameOwner =
   | { kind: 'teacher_row'; player_id: string | null };
 
 export interface NameIndex {
-  /** Who has this name now; `exceptSignup`: the sign-up being approved or listed does not block itself. */
-  owner(nickname: string, exceptSignup?: string): NameOwner;
+  /**
+   * Who has this name now; `exceptSignup`: the sign-up being approved or listed does not block itself.
+   * `familyId`: the asking family (a sign-up, a listed sign-up) — its own child with the name is answered first, so
+   * another family's student or a waiting sign-up with the same name never hides it (the answer does not depend on
+   * which row the database returns first).
+   */
+  owner(nickname: string, exceptSignup?: string, familyId?: string): NameOwner;
 }
 
 /**
@@ -70,10 +75,12 @@ export function nameIndex(sql: SqliteExecutor): NameIndex {
     return guarded.get(familyId)!;
   };
   return {
-    owner(nickname, exceptSignup) {
+    owner(nickname, exceptSignup, familyId) {
       const key = nicknameKey(nickname);
-      if ((waitingByKey.get(key) ?? []).some((id) => id !== exceptSignup)) return { kind: 'taken', by: { kind: 'signup' } };
       const same = playersByKey.get(key) ?? [];
+      const own = familyId ? same.find((k) => k.family_id === familyId && hasGuardian(k.family_id)) : undefined;
+      if (own) return { kind: 'taken', by: { kind: 'student', player_id: own.id } };
+      if ((waitingByKey.get(key) ?? []).some((id) => id !== exceptSignup)) return { kind: 'taken', by: { kind: 'signup' } };
       if (!same.length) return { kind: 'free' };
       const held = same.find((k) => hasGuardian(k.family_id));
       if (held) return { kind: 'taken', by: { kind: 'student', player_id: held.id } };
@@ -83,8 +90,8 @@ export function nameIndex(sql: SqliteExecutor): NameIndex {
 }
 
 /** One-off lookup (a sign-up, an approval): see nameIndex. */
-export function nameOwner(sql: SqliteExecutor, nickname: string, opts: { exceptSignup?: string } = {}): NameOwner {
-  return nameIndex(sql).owner(nickname, opts.exceptSignup);
+export function nameOwner(sql: SqliteExecutor, nickname: string, opts: { exceptSignup?: string; familyId?: string } = {}): NameOwner {
+  return nameIndex(sql).owner(nickname, opts.exceptSignup, opts.familyId);
 }
 
 /** Up to three free names close to the one asked for ('Oreo' → 'Oreo2', 'Oreo3', …), within `max` letters. */

@@ -50,7 +50,10 @@ describe('pr-lint: postponing is narrowing (fault injection)', () => {
       'TBD', '당분간 숨김', '일단 빼둠', '수업 마치고 넣음', 'next sprint', '> 원문: 다음 PR 에서 붙입니다', '로그인은 `다음 PR` 에서',
       // real ones from the sweep
       '시작 화면(가입 먼저·언어 단계·영어 화면)은 다음 PR 입니다.', '### 다음 PR', "## Follow-ups for #79's lane (server, not in this PR)",
-      '집 PC(나중에는 척추 수집기)가 가져갑니다', 'v2 에서 추가합니다', 'ship only the link first'])
+      '집 PC(나중에는 척추 수집기)가 가져갑니다', 'v2 에서 추가합니다', 'ship only the link first',
+      // review 11-16 round 3
+      '언젠가 붙입니다', '여유 될 때 넣습니다', '다음 회차에', '두 번째 PR 로', 'in a follow-up', '이 PR 범위가 아님', '이후에 연결합니다', '이어서 하겠습니다',
+      '여기까지만 합니다', 'leave the map out'])
       expect(ids(t).length, t).toBeGreaterThan(0);
   });
 

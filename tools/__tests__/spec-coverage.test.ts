@@ -179,6 +179,10 @@ describe('rules (fault injection: each one must fail)', () => {
     expect(gap.errors.join()).toContain('[거짓 done] G06: note 가 빠진 것을 말합니다');
     const only = run({ coverage: { ids: { G06: { ...done, note: '방 판정 문구뿐' } } } });
     expect(only.errors.join()).toContain('[거짓 done] G06');
+    // review 11-16 round 3: words that stepped around the first list
+    for (const note of ['아직 지도 화면은', '버튼 표시만 있음', '서버 쪽만', '함수만', '미작성', '미지원', '안 쓰고 자체 흐름', '음성은 SFU 비밀 없으면 텍스트',
+      '운영자 스위치가 켜져야 발송', '리포트 숫자 수준', 'no London sector', 'not wired to the dialog', 'only the button'])
+      expect(run({ coverage: { ids: { G06: { ...done, note } } } }).errors.join(), note).toContain('[거짓 done] G06');
     const fine = run({ coverage: { ids: { G06: { ...done, note: '좌석마다 기능이 같음' } } } });
     expect(fine.errors).toEqual([]);
     const { title: _t, ...untitled } = done;

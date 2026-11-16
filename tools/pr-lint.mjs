@@ -33,7 +33,10 @@ export const DEFER_PATTERNS = [
         '\\b(?:next|subsequent|separate|another|future) PR\\b', '\\bnot (?:included|in this PR|done yet)\\b',
         // review 11-16 round 2: words that put work off without saying "later"
         '향후', '차후', '보류', '후순위', '당분간', '추가\\s*예정', '다음\\s*(?:버전|릴리스|스프린트)', `\\bv\\d+\\s*(?:에서|로)\\s*.{0,8}(?:${ACT}|지원|추가)`, '\\bphase\\s*\\d', '\\bTBD\\b',
-        '일단\\s*(?:빼|뺐|숨기|숨김|두고)', '빼\\s*둠|빼\\s*두', '\\bnext (?:sprint|release|version)\\b', '\\bfor later\\b(?!\\s+use)'
+        '일단\\s*(?:빼|뺐|숨기|숨김|두고)', '빼\\s*둠|빼\\s*두', '\\bnext (?:sprint|release|version)\\b', '\\bfor later\\b(?!\\s+use)',
+        // review 11-16 round 3
+        '언젠가', '여유\\s*(?:가\\s*)?(?:될|생길|있을)\\s*때', '다음\\s*회차', '두\\s*번째\\s*PR', '\\ba follow[- ]?up\\b', '범위가\\s*아님', '범위\\s*(?:에|가)\\s*(?:들지|안\\s*들)',
+        '이후에\\s*(?:연결|붙|넣|만들)', '이어서\\s*(?:하겠|할게|진행하겠)', '여기까지만', '\\bleave\\b[^.]{0,30}\\bout\\b', '\\bsomeday\\b', '\\bwhen (?:there is |we have )?time\\b'
       ].join('|'),
       'i'
     )

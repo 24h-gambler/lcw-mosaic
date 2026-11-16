@@ -33,7 +33,17 @@ export const OWNERS = ['world', 'talk', 'lesson', 'parent', 'outsider', 'ops'];
 export const DECISION = /^(d_[0-9a-f]{6,}|R\d{3,})$/;
 const NARROWED = new Set(['deferred', 'retired']);
 /** Words in a note that say something is missing: a `done`/`live` note with one of them is a partial in disguise. */
-export const GAP_WORDS = /없음|없고|없어|없습니다|없는\s*(?:것|부분)|아님|아니라|뿐(?:이|입니다|임)?(?=[\s,.)·;]|$)|안\s*씀|미구현|미연결|연결\s*안|빠짐|빠져|빠진|않음|않습니다|못\s*함|못\s*했|일부만|해당\s*없음/;
+// Review 11-16 round 3: a blacklist is easy to step around, so it also catches the limiting particle 만 after a noun,
+// conditions (없으면, 켜져야), levels (수준), "only" phrasing, and English.
+export const GAP_WORDS = new RegExp(
+  [
+    '없음', '없고', '없어', '없습니다', '없으면', '없는\\s*(?:것|부분)', '아님', '아니라', '아직', '뿐(?:이|입니다|임)?(?=[\\s,.)·;]|$)',
+    '안\\s*씀', '안\\s*쓰', '미구현', '미연결', '미작성', '미지원', '미실측', '미확인', '연결\\s*안', '빠짐', '빠져', '빠진', '않음', '않습니다', '않고',
+    '못\\s*함', '못\\s*했', '일부', '해당\\s*없음', '제외', '부재', '필요(?:함|합니다)?(?=[\\s,.)·;]|$)', '켜져야', '있어야', '수준', '고정\\s*(?:계획|값|문장)', '수동',
+    '[가-힣]만(?=[\\s,.)·;]|$)', '\\b(?:no|not|only|without|todo|tbd|stub|partial)\\b'
+  ].join('|'),
+  'i'
+);
 /**
  * Real-screen tools a test reference may name without an it() title (they open the live site or a browser and fail
  * on a broken screen). A new one is added here, where review sees it — a comment saying "playwright" is not enough.

@@ -835,7 +835,7 @@
         "packages/metrics/src/index.ts:410",
         "apps/web/src/DashboardPage.tsx:656"
       ],
-      "note": "표본 부족(주 30문장 미만) 안내"
+      "note": "표본 부족(한 주 30문장 아래) 안내"
     },
     "P04.state": {
       "kind": "state",
@@ -1499,16 +1499,9 @@
     "F10.2.13": {
       "kind": "flow",
       "title": "G→P: 실시간 음성, 대화 밀도, 자막",
-      "status": "done",
+      "status": "partial",
       "owner": "parent",
       "route": "/window?child=<id>",
-      "e2e": {
-        "route": "/window",
-        "expect": [
-          "testid:lesson-window-page"
-        ],
-        "auth": "guardian"
-      },
       "tests": [
         "apps/edge/src/__tests__/lesson-audio.test.ts::teacher publishes → window shows the stream → guardian pulls, answers recvonly → teacher sees 1 listener",
         "apps/web/src/__tests__/lesson-window-page.test.ts::density band: one 4px cell per minute in two rows, shade by share of the minute; legend + note"
@@ -1517,7 +1510,7 @@
         "apps/web/src/LessonWindowPage.tsx:58",
         "apps/edge/src/lesson-audio.ts:419"
       ],
-      "note": "듣기 전용 음성·밀도 띠·자막 있음(SFU 비밀 없으면 텍스트만)"
+      "note": "듣기 전용 음성·밀도 띠·자막은 있음. 음성은 SFU 설정이 있을 때만 나오고, 운영에 그 설정이 있는지는 확인하지 않음(없으면 텍스트만)"
     },
     "F10.2.14": {
       "kind": "flow",
@@ -2131,26 +2124,16 @@
     "F10.4.T2": {
       "kind": "flow",
       "title": "수업 1분 전: 오늘의 계획 읽기",
-      "status": "done",
+      "status": "partial",
       "owner": "lesson",
       "route": "/director",
-      "e2e": {
-        "route": "/director",
-        "expect": [
-          "text:선생님 열쇠"
-        ],
-        "auth": "operator",
-        "authExpect": [
-          "testid:director-plan || testid:director-live"
-        ]
-      },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines"
       ],
       "evidence": [
         "apps/web/src/LessonDirector.tsx:750"
       ],
-      "note": "계획·단계 안내를 콘솔에서 읽음(내용은 고정 계획)"
+      "note": "계획·단계 안내를 콘솔에서 읽음. 학생별로 준비된 계획이 아니라 고정 계획임"
     },
     "F10.4.T3": {
       "kind": "flow",
@@ -3750,16 +3733,9 @@
     "F10.8.좌석_만료_7일_전.parent": {
       "kind": "flow",
       "title": "좌석 만료 7일 전 · 학부모: 연장 안내",
-      "status": "done",
+      "status": "partial",
       "owner": "parent",
       "route": "/family",
-      "e2e": {
-        "route": "/family",
-        "expect": [
-          "text:우리 가족"
-        ],
-        "auth": "guardian"
-      },
       "tests": [
         "apps/edge/src/__tests__/push.test.ts::subscribe → seat 7d notice queued → held while off → sent encrypted to this family only once on",
         "apps/web/src/__tests__/seats-page.test.ts::expiring, read-only, archived and refunded each explain what happens, in words"
@@ -3768,7 +3744,7 @@
         "apps/edge/src/seats.ts:102",
         "apps/edge/src/push.ts:159"
       ],
-      "note": "7일 전 푸시·좌석 화면 안내(운영자 발송 스위치가 켜져야 실제 발송)"
+      "note": "7일 전 푸시·좌석 화면 안내 코드는 있음. 운영자 발송 스위치가 켜져 있어야 실제로 나가고, 운영에서 켜져 있는지는 확인하지 않음"
     },
     "C01.1.s1": {
       "kind": "promise",
@@ -3913,19 +3889,9 @@
     "C01.2.교사": {
       "kind": "promise",
       "title": "교사 · 운영자 본인 1명 · 운영자 계정 · 과외의 가치 상승, 준비 시간 절감 · 디렉터 콘솔, 수업 리포트, 기여 증명",
-      "status": "done",
+      "status": "partial",
       "owner": "lesson",
       "route": "/director",
-      "e2e": {
-        "route": "/director",
-        "expect": [
-          "text:선생님 열쇠"
-        ],
-        "auth": "operator",
-        "authExpect": [
-          "testid:director-plan || testid:director-live"
-        ]
-      },
       "tests": [
         "apps/web/src/__tests__/lesson.test.ts::live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters",
         "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
@@ -3934,7 +3900,7 @@
         "apps/web/src/LessonDirector.tsx:1",
         "apps/edge/src/lesson-mode.ts:673"
       ],
-      "note": "디렉터 콘솔·수업 리포트 동작, 기여 증명은 리포트 숫자 수준"
+      "note": "디렉터 콘솔·수업 리포트는 동작. 기여 증명(C01.4.b6 과외비 근거)은 리포트 숫자 수준이고 화면에 연결 안 됨"
     },
     "C01.2.학부모": {
       "kind": "promise",
@@ -4049,7 +4015,7 @@
         "apps/edge/src/showroom.ts:72",
         "apps/client/src/world/engine.ts:464"
       ],
-      "note": "부지 스냅샷 게시(동의 필요)→정적 쇼룸 링크가 동작"
+      "note": "보호자가 동의하면 부지 스냅샷을 게시하고 정적 쇼룸 링크가 동작"
     },
     "C01.4.Solo": {
       "kind": "promise",
@@ -4247,7 +4213,7 @@
         "apps/edge/src/seats.ts:13",
         "packages/quota/src/index.ts:1"
       ],
-      "note": "Duo 는 좌석마다 첫 사용을 따로 봄. 쓰지 않은 좌석만 환불되고 남은 좌석은 Solo 로 정산(a·b)"
+      "note": "Duo 는 좌석마다 첫 사용을 따로 봄. 쓰지 않은 좌석을 환불하고 남은 좌석은 Solo 로 정산(a·b)"
     },
     "C01.4.b5": {
       "kind": "promise",
@@ -4670,7 +4636,7 @@
         "apps/client/src/world/engine.ts:184",
         "apps/client/src/world/plot-sync.ts:1"
       ],
-      "note": "월드·물리·건축은 기기에서 돌고, 서버에는 저장(plot ops)과 채점 요청만 감"
+      "note": "월드·물리·건축은 기기에서 돌고, 서버로 가는 것은 저장(plot ops)과 채점 요청 둘"
     },
     "C02.1.3": {
       "kind": "promise",
@@ -4713,16 +4679,9 @@
     "C02.1.5": {
       "kind": "promise",
       "title": "**아이 데이터는 밖으로 내보내지 않는다.** 음성은 기기에서 인식하는 것이 기본이고, 서버로 가더라도 식별 정보 없이 가며, 외부 LLM 사업자에게는 보내지 않습니다.",
-      "status": "done",
+      "status": "partial",
       "owner": "talk",
       "route": "/world/",
-      "e2e": {
-        "route": "/world/",
-        "expect": [
-          "canvas",
-          "text:지금 할 일"
-        ]
-      },
       "tests": [
         "apps/edge/src/__tests__/edge.test.ts::rejects guardian audio uplink on Lesson Window and strips PII before Workers AI calls",
         "apps/edge/src/__tests__/stt.test.ts::transcribes a child turn with Whisper in English, charges the meter by length, keeps no audio"
@@ -4731,7 +4690,7 @@
         "apps/edge/src/stt.ts:80",
         "apps/client/src/dialog/speech.ts:3"
       ],
-      "note": "기기 인식이 기본. 서버는 Workers AI Whisper 만 쓰고 음성은 저장하지 않으며 외부 LLM 호출은 0"
+      "note": "서버는 Workers AI Whisper 만 쓰고 음성은 저장하지 않으며 외부 LLM 호출은 0. 그러나 클라이언트의 브라우저 인식(apps/client/src/dialog/speech.ts:85)이 processLocally 없이 webkitSpeechRecognition 을 써서, Chrome 에서는 음성이 브라우저 회사 서버로 갈 수 있음 — \"기기에서 인식이 기본\"이 실측되지 않음"
     },
     "C02.2.클라이언트": {
       "kind": "promise",
@@ -5160,16 +5119,9 @@
     "WP-105": {
       "kind": "wp",
       "title": "`converse`: 상태 기계(`04`의 4.1), 정규화, 의도·슬롯 파서 — 수용 기준: 상태 전이 단위 시험, 혼용 발화 20개 정규화",
-      "status": "done",
+      "status": "partial",
       "owner": "talk",
       "route": "/world/?scene=honey_cafe",
-      "e2e": {
-        "route": "/world/?scene=honey_cafe",
-        "expect": [
-          "canvas",
-          "text:지금 할 일"
-        ]
-      },
       "tests": [
         "packages/converse/src/__tests__/converse.test.ts::WP-105: normalizes 20 mixed Korean-English utterances",
         "apps/client/src/__tests__/dialog.test.tsx::shows Korean-mixed speech converted to English (docs/04 4.4) and colours heard words"
@@ -5178,21 +5130,14 @@
         "packages/converse/src/normalizer.ts:56",
         "apps/client/src/dialog/hints.ts:12"
       ],
-      "note": "혼용 발화 20개 정규화·의도/슬롯 파서는 대화창·edge 실경로에서 씀. 상태 전이 시험은 ConversationMachine 클래스 대상인데 대화창은 이 클래스를 안 쓰고 자체 흐름(ECHO 2회 실패 등은 edge 가 판정)"
+      "note": "혼용 발화 정규화·의도/슬롯 파서는 대화창·edge 실경로에서 씀. 상태 전이 시험의 대상 ConversationMachine 클래스를 대화창이 쓰지 않음(대화창은 자체 흐름) — 시험한 조각이 화면에 연결 안 됨"
     },
     "WP-106": {
       "kind": "wp",
       "title": "음성 입력: 기기 내 인식 → Workers AI → 조합판 순서의 폴백 — 수용 기준: 마이크 없는 환경에서 조합판만으로 주문 완료",
-      "status": "done",
+      "status": "partial",
       "owner": "talk",
       "route": "/world/?scene=honey_cafe",
-      "e2e": {
-        "route": "/world/?scene=honey_cafe",
-        "expect": [
-          "canvas",
-          "text:지금 할 일"
-        ]
-      },
       "tests": [
         "apps/client/src/__tests__/dialog.test.tsx::a phone without speech recognition opens on the word cards with a warm notice",
         "apps/client/src/__tests__/server-stt.test.ts::a bank-only day (429) closes the server rung: the panel gets \"unsupported\" and goes to the word cards"
@@ -5201,7 +5146,7 @@
         "apps/client/src/dialog/DialogPanel.tsx:22",
         "apps/client/src/dialog/server-stt.ts:102"
       ],
-      "note": "브라우저 인식 → 서버 Whisper → 단어 카드(조합판) 순서 동작, 마이크 없이 단어 카드로 주문 완료 가능(kakao-ladder 실측). 기기 내 WebGPU Whisper 는 경로 선택 함수만"
+      "note": "브라우저 인식 → 서버 Whisper → 단어 카드 순서는 동작. 설계서의 첫 단계 \"기기 내 인식\"(WebGPU Whisper)은 경로 선택 함수뿐이고, 브라우저 인식(webkitSpeechRecognition)은 processLocally 없이 써서 기기 안 처리가 보장되지 않음"
     },
     "WP-107": {
       "kind": "wp",
@@ -5291,17 +5236,9 @@
     "WP-111": {
       "kind": "wp",
       "title": "1분 심부름, 첫 접속 안내 — 수용 기준: 봇이 스폰부터 첫 주문 완료까지 3분 이내",
-      "status": "done",
+      "status": "partial",
       "owner": "talk",
       "route": "/world/",
-      "e2e": {
-        "route": "/world/",
-        "expect": [
-          "canvas",
-          "text:지금 할 일"
-        ],
-        "auth": "lesson"
-      },
       "tests": [
         "packages/bots/src/__tests__/bots.test.ts::completes full golden path end-to-end with spawn-to-order < 3 minutes (3600 ticks)",
         "apps/client/src/__tests__/errand.test.tsx::Mia asks -> accept -> the cafe sells only the cold water -> hand it over -> done with +50"
@@ -5310,7 +5247,7 @@
         "apps/client/src/dialog/FirstVisitGuide.tsx:39",
         "apps/edge/src/errand.ts:6"
       ],
-      "note": "첫 접속 안내·미아 심부름이 실경로. pnpm test 의 3분 봇은 sim 봇(packages/bots) — 실제 월드는 tools/errand-bot.mjs 수동 실측(스폰→첫 주문 39.7s/17.9s). 기기 연결 아이만 첫 주문 안내"
+      "note": "첫 접속 안내·미아 심부름은 실경로. pnpm test 의 3분 봇은 sim 봇이고 실제 월드는 tools/errand-bot.mjs 수동 실측뿐(39.7s/17.9s). 첫 주문 안내는 기기 연결 아이에게만"
     },
     "WP-112": {
       "kind": "wp",
@@ -5512,7 +5449,7 @@
         "packages/metrics/src/index.ts:410",
         "apps/edge/src/dashboard.ts:6"
       ],
-      "note": "지표 전부가 보호자 대시보드 실경로에 쓰임. 고정 입력 기대값·표본 부족·단어당 준비 시간·양만 는 아이 지수 100(growth-12w) 시험 있음"
+      "note": "지표 전부가 보호자 대시보드 실경로에 쓰임. 고정 입력 기대값·표본 부족·단어당 준비 시간·말의 양이 늘어난 아이의 지수는 100(growth-12w) 시험 있음"
     },
     "WP-304": {
       "kind": "wp",

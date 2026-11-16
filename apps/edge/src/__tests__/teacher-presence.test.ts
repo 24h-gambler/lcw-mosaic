@@ -160,15 +160,27 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     expect(await mic()).toBe('ok');
   });
 
-  it('an operator session id from the exchange names the teacher when that session has a name', async () => {
-    const p = platform();
-    p.sql.exec('create table if not exists operator_sessions (id text primary key, label text not null)');
-    p.sql.run("insert into operator_sessions (id, label) values ('ops-1', 'Dan')");
+  it('a Google-signed-in console (operator session) names the teacher with the account name, not the device label', async () => {
+    const p = new PlatformDO(
+      { storage: fakeDurableStorage() },
+      { PLATFORM: undefined as never, LCW_OPERATOR_TOKEN: TOKEN, LCW_OPERATOR_GOOGLE_EMAILS: 'teacher@example.com' } as LcwEnv
+    );
+    const session = 'lcwop_' + 'a'.repeat(64);
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(session));
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    // The real schema (operator-login.ts): the name is the Google account's, the session label is only the device.
+    p.sql.run("insert into operators (id, google_sub, email, name, created_at, last_login_at) values ('op-1', 'g-1', 'teacher@example.com', 'Dan', 1, 1)");
+    p.sql.run(
+      'insert into operator_sessions (id, token_hash, operator_id, label, created_at, expires_at, last_seen_at, revoked_at) values (?, ?, ?, ?, ?, ?, ?, null)',
+      ['ops-1', hash, 'op-1', 'Chrome on Windows', 1, Date.now() + 86_400_000, 1]
+    );
     const { lessonId, st } = await start(p, true);
-    // The platform drops a client-sent session header unless the parent's exchange set it; here we call the inner
-    // route path through the gate with the operator key, so the header reaches it only if the platform passes it on.
+    // A header the client sends itself is dropped (only the exchange sets it): still the default name.
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { ...op, 'x-lcw-op-session': 'ops-1' });
-    const name = (await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name;
-    expect(['Dan', '선생님']).toContain(name);
+    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name).toBe('선생님');
+    // The console signed in with Google beats with its session token: the exchange names the session.
+    const b = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, {}, { authorization: `Bearer ${session}`, 'content-type': 'application/json' });
+    expect(b.status).toBe(200);
+    expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher.name).toBe('Dan');
   });
 });

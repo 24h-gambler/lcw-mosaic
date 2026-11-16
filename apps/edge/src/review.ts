@@ -2,6 +2,7 @@ import { scoreUtterance } from '@lcw/converse';
 import {
   CAFE_MENU,
   GUIDE_PLACES,
+  PLAY_LABELS,
   PHRASE_BANK,
   TRADE_SHOP_GOODS,
   UI_STRINGS_KO,
@@ -59,7 +60,8 @@ export function itemKeyOfCard(itemId: string): string {
 const NAME_KO = new Map<string, { nameKo: string; emoji: string }>([
   ...CAFE_MENU.map((d) => [d.key, { nameKo: d.nameKo, emoji: d.emoji }] as const),
   ...TRADE_SHOP_GOODS.map((g) => [g.key, { nameKo: g.nameKo, emoji: g.emoji }] as const),
-  ...GUIDE_PLACES.map((g) => [g.key, { nameKo: g.nameKo, emoji: g.emoji }] as const)
+  ...GUIDE_PLACES.map((g) => [g.key, { nameKo: g.nameKo, emoji: g.emoji }] as const),
+  ...PLAY_LABELS.map((g) => [g.key, { nameKo: g.nameKo, emoji: g.emoji }] as const)
 ]);
 
 export function itemLabelKo(itemKey: string): { nameKo: string; emoji: string } {

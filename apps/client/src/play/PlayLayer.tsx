@@ -169,6 +169,15 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
   const [open, setOpen] = useState(false);
   const [topPx, setTopPx] = useState(0);
   const cardTop = Math.max(64, topPx);
+  // A phone: the top is full (goal line, review dock, view button), so the card sits bottom-left above the errand
+  // button and opens upward; the market board moves into the card; dig and elevator go up a row.
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 600);
+  useEffect(() => {
+    const on = (): void => setNarrow(window.innerWidth < 600);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  const actionBottom = narrow ? 204 : 150;
 
   // token (read at call time: a lesson student token beats the device token)
   useEffect(() => {
@@ -267,7 +276,20 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
   return (
     <div className="lcw-play" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
       {/* 내 일 card: left, under the coin chip */}
-      <div style={{ position: 'absolute', top: cardTop, left: 12, width: open ? 'min(280px, calc(100vw - 24px))' : 'auto', pointerEvents: 'auto' }}>
+      <div
+        data-play="card-wrap"
+        style={{
+          position: 'absolute',
+          ...(narrow ? { bottom: 148 } : { top: cardTop }),
+          left: 12,
+          width: open ? 'min(280px, calc(100vw - 24px))' : 'auto',
+          display: 'flex',
+          flexDirection: narrow ? 'column-reverse' : 'column',
+          alignItems: 'flex-start',
+          pointerEvents: 'auto',
+          zIndex: open ? 2 : undefined
+        }}
+      >
         <button
           type="button"
           data-play="card"
@@ -280,7 +302,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
           {state ? <span style={{ fontFamily: T.fonts.pixel, color: C['paper-0'] }}>{state.clock.hhmm}</span> : null}
         </button>
         {open ? (
-          <div data-play="card-body" style={{ ...box, marginTop: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: T.scale.small.sizePx, lineHeight: `${T.scale.small.lineHeightPx}px` }}>
+          <div data-play="card-body" style={{ ...box, ...(narrow ? { marginBottom: 8 } : { marginTop: 8 }), alignSelf: 'stretch', padding: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: T.scale.small.sizePx, lineHeight: `${T.scale.small.lineHeightPx}px` }}>
             {state ? (
               <>
                 <div style={{ fontWeight: 800 }}>{PLAY_KO.clock(state.clock.hhmm)}</div>
@@ -296,6 +318,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
                 <div data-play="task" style={{ fontWeight: 700, color: C['brand-d'] }}>
                   {taskLine(state)}
                 </div>
+                {narrow && scene === 'exchange' ? <MarketRows state={state} /> : null}
               </>
             ) : (
               <div>{PLAY_KO.mine.guest}</div>
@@ -311,7 +334,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
 
       {/* elevator buttons */}
       {lift ? (
-        <div data-play="elevator" style={{ ...box, position: 'absolute', left: '50%', bottom: 150, transform: 'translateX(-50%)', padding: 10, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', alignItems: 'center', pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}>
+        <div data-play="elevator" style={{ ...box, position: 'absolute', left: '50%', bottom: actionBottom, transform: 'translateX(-50%)', padding: 10, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', alignItems: 'center', pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}>
           <span style={{ fontWeight: 800, fontSize: T.scale.small.sizePx }}>{PLAY_KO.elevator.title}</span>
           {lift !== 'hall' ? (
             <button type="button" style={btn(C.sky)} onClick={() => world && void world.goToScene('exchange')}>
@@ -335,7 +358,7 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
           onPointerDown={startHold}
           onPointerUp={stopHold}
           onPointerLeave={stopHold}
-          style={{ ...btn(resting ? C['line-200'] : C.sun), position: 'absolute', left: '50%', bottom: 150, transform: 'translateX(-50%)', pointerEvents: 'auto', minWidth: 200, overflow: 'hidden' }}
+          style={{ ...btn(resting ? C['line-200'] : C.sun), position: 'absolute', left: '50%', bottom: actionBottom, transform: 'translateX(-50%)', pointerEvents: 'auto', minWidth: 200, overflow: 'hidden' }}
         >
           <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.round(hold * 100)}%`, background: C.leaf, opacity: 0.5 }} />
           <span style={{ position: 'relative' }}>
@@ -345,30 +368,39 @@ export function PlayLayer({ world, deviceToken, hidden }: PlayLayerProps): React
       ) : null}
 
       {/* exchange board */}
-      {scene === 'exchange' && state ? (
+      {scene === 'exchange' && state && !narrow ? (
         <div data-play="market" style={{ ...box, position: 'absolute', top: topPx > 0 ? cardTop + 56 : 64, right: 12, width: 'min(240px, calc(100vw - 24px))', padding: 10, fontSize: T.scale.small.sizePx, pointerEvents: 'auto' }}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>{PLAY_KO.market.title}</div>
-          {Object.entries(state.market).map(([ore, price]) => (
-            <div key={ore} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <span>{PLAY_KO.oreName(ore)}</span>
-              <span style={{ fontFamily: T.fonts.pixel }}>
-                🪙{price}
-                {state.ores[ore] ? ` · ${PLAY_KO.market.mine(state.ores[ore]!)}` : ''}
-              </span>
-            </div>
-          ))}
-          <div style={{ marginTop: 6, color: C['ink-700'], fontSize: T.scale.micro.sizePx }}>{PLAY_KO.market.hint}</div>
+          <MarketRows state={state} />
         </div>
       ) : null}
 
       {/* toasts */}
-      <div style={{ position: 'absolute', left: '50%', bottom: 210, transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', width: 'min(420px, calc(100vw - 24px))' }}>
+      <div style={{ position: 'absolute', left: '50%', bottom: narrow ? 262 : 210, transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', width: 'min(420px, calc(100vw - 24px))' }}>
         {st.toasts.map((t) => (
           <div key={t.id} role="status" data-play="toast" style={{ ...box, padding: '8px 14px', fontWeight: 700, fontSize: T.scale.small.sizePx, textAlign: 'center' }}>
             {t.text}
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Today's ore prices in this world and what the child carries (exchange board; inside the card on a phone). */
+function MarketRows({ state }: { state: PlayState }): React.ReactElement {
+  return (
+    <div data-play="market-rows">
+      <div style={{ fontWeight: 800, marginBottom: 6 }}>{PLAY_KO.market.title}</div>
+      {Object.entries(state.market).map(([ore, price]) => (
+        <div key={ore} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+          <span>{PLAY_KO.oreName(ore)}</span>
+          <span style={{ fontFamily: T.fonts.pixel }}>
+            🪙{price}
+            {state.ores[ore] ? ` · ${PLAY_KO.market.mine(state.ores[ore]!)}` : ''}
+          </span>
+        </div>
+      ))}
+      <div style={{ marginTop: 6, color: C['ink-700'], fontSize: T.scale.micro.sizePx }}>{PLAY_KO.market.hint}</div>
     </div>
   );
 }

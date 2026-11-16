@@ -101,6 +101,7 @@ export function playDialogFor(npc: NpcRef, state: PlayState | null, level: LangL
     return { kind: 'dialog', npc: as(npc, 'customer'), offers: playOffers('customer', next.key, level), npcLine: line };
   }
   if (next?.ctx === 'boss') return { kind: 'gate', lineEn: 'Hello! Is the office open yet?', ko: PLAY_KO.gate.clock_in_first };
+  if (state.shift?.paid) return { kind: 'gate', lineEn: 'Thank you for your help today!', ko: PLAY_KO.gate.day_done };
   return { kind: 'gate', lineEn: 'Hi! I am just looking around.', ko: PLAY_KO.gate.customer_idle };
 }
 

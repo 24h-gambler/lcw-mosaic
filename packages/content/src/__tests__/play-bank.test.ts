@@ -41,3 +41,12 @@ describe('play bank', () => {
     for (const c of CUSTOMER_SCENARIOS) expect(c.lineKo).not.toMatch(/게임|정답|오답|시험|평가/);
   });
 });
+
+describe('play labels (review dock names)', () => {
+  it('every play item key has a Korean name, no English key leaks to the child', async () => {
+    const { PLAY_LABELS } = await import('../index.js');
+    const keys = new Set(PLAY_LABELS.map((l) => l.key));
+    for (const e of PLAY_BANK) expect(keys.has(bankItemKey(e)), e.id).toBe(true);
+    for (const l of PLAY_LABELS) expect(l.nameKo).toMatch(/[가-힣]/);
+  });
+});

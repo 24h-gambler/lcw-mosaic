@@ -222,3 +222,22 @@ function build(): PhraseBankEntry[] {
 }
 
 export const PLAY_BANK: readonly PhraseBankEntry[] = build();
+
+/**
+ * Korean label and emoji of every play item key (memory cards, review dock: "{item}에 번개 표시가 떴어요").
+ * Interview, boss and customer keys name the moment the sentence was for.
+ */
+export const PLAY_LABELS: ReadonlyArray<{ key: string; nameKo: string; emoji: string }> = [
+  ...PLAY_SHOP_GOODS.map((g) => ({ key: g.key, nameKo: g.nameKo, emoji: g.emoji })),
+  ...EXCHANGE_ORES.map((o) => ({ key: o.key, nameKo: o.nameKo, emoji: o.emoji })),
+  { key: 'interview_intro', nameKo: '면접 자기소개', emoji: '💼' },
+  { key: 'interview_why', nameKo: '면접 지원 이유', emoji: '💼' },
+  { key: 'interview_strength', nameKo: '면접 내 장점', emoji: '💼' },
+  { key: 'boss_report', nameKo: '출근 인사', emoji: '🕘' },
+  { key: 'boss_late', nameKo: '늦은 사정 말하기', emoji: '🕘' },
+  { key: 'customer_cold_coffee', nameKo: '식은 커피 손님', emoji: '☕' },
+  { key: 'customer_lost_umbrella', nameKo: '우산 잃은 손님', emoji: '☂️' },
+  { key: 'customer_broken_lamp', nameKo: '전등 고장 손님', emoji: '💡' },
+  { key: 'customer_wrong_size', nameKo: '작은 셔츠 손님', emoji: '👕' },
+  { key: NEGOTIATION.key, nameKo: '손님과 협상', emoji: '🤝' }
+];

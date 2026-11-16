@@ -52,6 +52,9 @@ describe('play dialogs (which sentences a hall NPC offers now)', () => {
     const d = playDialogFor(customer, state({ next: { ctx: 'customer', key: 'customer_broken_lamp' } }), 'L3');
     expect(d).toMatchObject({ kind: 'dialog', npc: { ctx: 'customer' } });
     expect(playDialogFor(customer, state({ next: { ctx: 'boss', key: 'boss_report' } }), 'L3')).toMatchObject({ kind: 'gate', ko: PLAY_KO.gate.clock_in_first });
+    // the day's customers are done: a thank-you, not "come during work hours"
+    const paid = { day: 0, late: false, served: 2, need: 2, tips: 60, paid: true };
+    expect(playDialogFor(customer, state({ next: null, shift: paid }), 'L3')).toMatchObject({ kind: 'gate', ko: PLAY_KO.gate.day_done });
   });
 
   it('the exchange offers the ore the child carries most of; nothing carried = a bubble', () => {

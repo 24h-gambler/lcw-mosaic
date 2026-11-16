@@ -53,6 +53,7 @@ const WORLD_STRINGS_KO = {
   hotbarEmpty: '빈 칸',
   hotbarAllEmpty: '가방이 비어 있어요 · 영어로 주문하면 여기에 들어와요',
   offlineBand: '연결이 잠깐 끊겼어요 · 혼자 모드로 계속 중',
+  goingToPeer: '학생 옆으로 가는 중',
   weatherClear: '맑음',
   weatherSnow: '눈',
   weatherNight: '밤',
@@ -128,6 +129,7 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   hotbarEmpty: 'Empty',
   hotbarAllEmpty: 'Your bag is empty · Order in English to fill it',
   offlineBand: 'Connection lost for a moment · Playing on your own',
+  goingToPeer: 'Going to the student',
   weatherClear: 'Sunny',
   weatherSnow: 'Snow',
   weatherNight: 'Night',
@@ -444,6 +446,11 @@ export function objectParticle(word: string): string {
   if (code < 0 || code > 11171) return '을(를)';
   return code % 28 === 0 ? '를' : '을';
 }
+
+/** Sector names on the map (docs/08 G06). The central sector is the hand-built town; generated sectors bring their own. */
+export const SECTOR_NAMES_KO = {
+  town: '중앙 마을'
+} as const;
 
 /** A townsperson's name over their speech bubble: the English name, the Korean one after it with the help on. */
 export function npcName(def: { nameEn: string; nameKo: string }): string {

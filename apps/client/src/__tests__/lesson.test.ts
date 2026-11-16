@@ -14,7 +14,7 @@ import { SubmitError } from '../dialog/submit.js';
 // App mounts the layer through import.meta.glob (no compile-time check there): pin the docs/19 §5 contract here.
 const _slot: React.ComponentType<AppLessonSlotProps> = LessonLayer;
 void _slot;
-import { LESSON_STRINGS_KO } from '../lesson/strings.js';
+import { LESSON_STRINGS, LESSON_STRINGS_KO } from '../lesson/strings.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
 const op = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
@@ -122,7 +122,7 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(ctl.state).toMatchObject({ stageId: 'cafe_order', sceneId: 'honey_cafe', npcId: 'cafe_owner', hint: 'full' });
     expect(ctl.state.offers).toEqual([{ stars: 2, text: 'Can I have a warm honey tea?', hintTags: ['can i have'] }]);
     expect(ctl.state.banner?.kind).toBe('blackout');
-    expect(ctl.state.bubbles.at(-1)).toMatchObject({ npcNameKo: '카페 주인', possessed: true });
+    expect(ctl.state.bubbles.at(-1)).toMatchObject({ npcNameKo: '카페 주인 해나', npcNameEn: 'Hannah', possessed: true });
 
     // nothing is replayed on the next polls; the banner goes away by itself
     const before = calls.length;
@@ -360,6 +360,25 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(calls.filter((c) => c.startsWith('stars:'))).toEqual(['stars:2']);
   });
 
+  it('the goal line is the English goal the server sends (Korean only from an older server)', async () => {
+    const goals: string[] = [];
+    const world = { ...fakeWorld().world, setGoal: (g: string) => void goals.push(g) };
+    const state = (en: string | undefined) => ({
+      lesson_id: 'l', stage_id: 'cafe_order', stage_goal_ko: '카페에서 주문해요', ...(en === undefined ? {} : { stage_goal_en: en }), mode: 'guided', scene_id: 'honey_cafe', npc_id: 'cafe_owner', hint: 'full',
+      targets: [], offers: [], possessed_npc_id: null, npc_lines: [], events: [], cursor: 1, ended: false, lesson_stars: 0, server_now: 1
+    });
+    const api = {
+      join: async () => ({ student_token: 't'.repeat(48), lesson_id: 'l', player_id: 'p', nickname: 'n', level: 'L1' }),
+      state: async () => state('Order a drink at the cafe')
+    } as unknown as ConstructorParameters<typeof LessonController>[0]['api'];
+    const ctl = new LessonController({ api, world, store: memStore(), timers: fakeTimers({ now: 0 }) });
+    await ctl.start('123456');
+    expect(goals.at(-1)).toBe('Order a drink at the cafe');
+    expect(ctl.state.goalEn).toBe('Order a drink at the cafe');
+    ctl.apply(state(undefined) as never);
+    expect(goals.at(-1)).toBe('카페에서 주문해요');
+  });
+
   it('after a reload the window opens with the stage line the server names (older than the bubbles)', () => {
     const base = { npcId: 'cafe_owner', npcLineEn: 'Welcome to the honey cafe!', stageStartedAt: 1000, bubbles: [] };
     expect(openingLine({ ...base, stageLastLineEn: 'Anything else?' })).toBe('Anything else?');
@@ -447,7 +466,7 @@ describe('client lesson module (docs/19 §4)', () => {
     // a slow device hands the same session to /join?lite=1: the session must survive until that move
     expect(lessonGoneInWorld({ ...base, lowTier: true, viewPhase: 'needs_code', controllerPhase: 'needs_code' })).toBe(false);
     const html = renderToStaticMarkup(React.createElement(LessonLayer, { world: null, search: '?code=123456' }));
-    expect(html).toContain(LESSON_STRINGS_KO.code.title);
+    expect(html).toContain(LESSON_STRINGS.code.title);
     const all = JSON.stringify(LESSON_STRINGS_KO);
     for (const bad of FORBIDDEN_PLAYER_UI_PATTERNS) expect(all).not.toContain(bad);
     expect(all).not.toMatch(/원|결제|구매|가격/);

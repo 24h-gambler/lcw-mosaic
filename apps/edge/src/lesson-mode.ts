@@ -1110,6 +1110,7 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
       plan_id: plan.id,
       stage_id: st?.stage_id ?? null,
       stage_goal_ko: stage?.studentGoalKo ?? '',
+      stage_goal_en: stage?.studentGoalEn ?? '',
       mode: stage?.mode ?? 'guided',
       scene_id: stage?.sceneId ?? 'plaza',
       npc_id: stage?.npcId ?? 'guide',

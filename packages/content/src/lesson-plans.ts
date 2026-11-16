@@ -48,8 +48,10 @@ export interface LessonStage {
   /** What the teacher does now and how the platform helps — shown on the director console. */
   teacherGuideKo: string;
   teacherScriptEn: string;
-  /** What the child sees as the goal (Korean, no prices or deadlines). */
+  /** What the child sees as the goal (Korean, no prices or deadlines): the help line under the English. */
   studentGoalKo: string;
+  /** The same goal in the language the child learns (short; what the child sees first). */
+  studentGoalEn: string;
   /** Where the student's 3D client goes for this stage and who talks there (docs/19 §4 table). */
   sceneId: LessonSceneId;
   npcId: string;
@@ -83,6 +85,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '이름·좋아하는 것을 영어로 물어 보세요. 아이가 대본 없이 2분 말하면 첫 기준선이 저장되고, 4주 뒤 같은 질문과 비교해 부모 리포트에 성장으로 나옵니다.',
       teacherScriptEn: 'Hi! What is your name? What do you like to do after school?',
       studentGoalKo: '선생님 질문에 영어로 내 이야기를 해 봐요',
+      studentGoalEn: "Tell your teacher about you",
       sceneId: 'plaza',
       npcId: 'guide',
       hint: 'full',
@@ -109,6 +112,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '카페 주인 역할을 해 주세요. 아이가 1성 문장부터 말하고, 통과하면 2성·3성으로 올려 주세요. 3성은 so that·because 같은 연결어가 있어야 통과합니다(빠지면 2성까지만).',
       teacherScriptEn: 'Welcome to the honey cafe! What would you like today?',
       studentGoalKo: '카페에서 영어로 음료를 주문해요. 별 3개에 도전!',
+      studentGoalEn: "Order a drink at the cafe. Go for 3 stars!",
       sceneId: 'honey_cafe',
       npcId: 'cafe_owner',
       hint: 'full',
@@ -135,6 +139,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '가게 주인이 되어 물건을 바꿔 달라고 해 보세요. 아이가 왜 필요한지(because) 말하게 하면 3성입니다. 좋은 표현이 나오면 F2 를 눌러 표시하세요 — 수업 뒤 리포트 초안에 앞뒤 30초가 같이 들어갑니다.',
       teacherScriptEn: 'I have a shiny red helmet. What will you give me for it, and why?',
       studentGoalKo: '선생님과 물건을 바꿔요. 왜 필요한지도 말해 봐요',
+      studentGoalEn: "Trade with your teacher. Say why you need it",
       sceneId: 'trade_shop',
       npcId: 'shop_owner',
       hint: 'keyword',
@@ -165,6 +170,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '정답이 없는 질문을 하고 기다려 주세요(5초 이상). 아이 말이 길어질수록 생각말하기 지수가 오릅니다. 막히면 한국어 단어를 섞어도 화면이 영어로 바꿔 보여 줍니다.',
       teacherScriptEn: 'If you could build any place in a new world, what would you build? Why?',
       studentGoalKo: '내가 만들고 싶은 곳을 영어로 설명해요',
+      studentGoalEn: "Tell about a place you want to build",
       sceneId: 'open_hill',
       npcId: 'guide',
       hint: 'none',
@@ -191,6 +197,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '오늘 나온 문장을 힌트 없이 다시 말하게 하세요. 화면은 단어마다 첫 글자만 보여 줍니다. 여기서 통과한 문장이 다음 수업의 복습 카드가 됩니다.',
       teacherScriptEn: 'Do you remember how to order your honey tea? Try it without looking!',
       studentGoalKo: '오늘 배운 문장을 기억해서 말해요',
+      studentGoalEn: "Say today's sentences from memory",
       sceneId: 'honey_cafe',
       npcId: 'cafe_owner',
       hint: 'initial',
@@ -216,6 +223,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
         '오늘 가장 잘한 문장 하나를 칭찬하고 다음 수업을 예고하세요. 「수업 끝」을 누르면 숫자가 검증된 부모 리포트 링크가 만들어집니다 — 문자로 보내기 전에 한 번 읽어 보세요.',
       teacherScriptEn: 'Great job today! Next time, we will build our own shop. See you!',
       studentGoalKo: '오늘 제일 잘한 문장을 한 번 더 말해요',
+      studentGoalEn: "Say your best sentence one more time",
       sceneId: 'plaza',
       npcId: 'guide',
       hint: 'full',
@@ -250,6 +258,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
         '지난 수업에서 통과한 문장을 힌트 없이 다시 말하게 하세요. 화면은 단어마다 첫 글자만 보여 줍니다. 막히면 카페 주인으로 빙의해 첫 단어만 말해 주세요(대사 칸에 쓰고 Enter). 통과하면 바로 다음 문장으로 넘어가세요.',
       teacherScriptEn: 'Welcome back to the honey cafe! Do you remember how to order your drink?',
       studentGoalKo: '지난 시간에 배운 문장을 기억해서 말해요',
+      studentGoalEn: "Say last lesson's sentences from memory",
       sceneId: 'honey_cafe',
       npcId: 'cafe_owner',
       hint: 'initial',
@@ -276,6 +285,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
         '빈 땅에 서서 어떤 가게를 지을지 물어 보세요. 빵집·꽃집·장난감 가게 무엇이든 좋습니다. 3성은 so that 으로 이유까지 말해야 통과합니다 — 아이가 고른 가게 이름을 다음 단계 내내 써 주세요.',
       teacherScriptEn: 'This empty lot is yours! What shop do you want to build here?',
       studentGoalKo: '빈 땅에 어떤 가게를 지을지 영어로 말해요',
+      studentGoalEn: "Say what shop you will build here",
       sceneId: 'build_plot',
       npcId: 'guide',
       hint: 'full',
@@ -302,6 +312,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
         '상점 주인이 되어 가게 재료를 팔아 주세요. 지난 수업의 Can I have·because 가 새 물건에서 다시 나오는지 보세요 — 나오면 F2 로 표시하세요(리포트 초안에 앞뒤 30초가 같이 들어갑니다).',
       teacherScriptEn: 'Hello again! What do you need for your new shop?',
       studentGoalKo: '가게를 지을 재료를 영어로 달라고 해요',
+      studentGoalEn: "Ask for things to build your shop",
       sceneId: 'trade_shop',
       npcId: 'shop_owner',
       hint: 'keyword',
@@ -328,6 +339,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
         '이번에는 선생님이 손님입니다. 안내인 선생님으로 들어가 아이 가게에 무엇이 있는지 물어 보세요. 아이가 손님에게 권하며 because 로 이유를 말하면 3성입니다.',
       teacherScriptEn: 'Hi! I am so hungry. What do you have in your shop?',
       studentGoalKo: '내 가게에 온 손님을 영어로 맞이해요',
+      studentGoalEn: "Welcome the guests to your shop",
       sceneId: 'build_plot',
       npcId: 'guide',
       hint: 'keyword',
@@ -354,6 +366,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
         '정답이 없는 질문을 하고 5초 이상 기다려 주세요. 첫 수업 ④와 같은 방식입니다 — 말이 길어질수록 생각말하기 지수가 오르고, 한국어 단어를 섞어도 화면이 영어로 바꿔 보여 줍니다.',
       teacherScriptEn: 'What makes your shop special? Why will people come to your shop?',
       studentGoalKo: '내 가게가 왜 특별한지 영어로 설명해요',
+      studentGoalEn: "Tell why your shop is special",
       sceneId: 'open_hill',
       npcId: 'guide',
       hint: 'none',
@@ -379,6 +392,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
         '오늘 나온 문장을 힌트 없이 다시 말하게 하세요. 화면은 단어마다 첫 글자만 보여 줍니다. 여기서 통과한 문장이 다음 수업의 복습 카드가 됩니다.',
       teacherScriptEn: 'Can you tell me again what you bought for your shop? Try it without looking!',
       studentGoalKo: '오늘 배운 문장을 기억해서 말해요',
+      studentGoalEn: "Say today's sentences from memory",
       sceneId: 'trade_shop',
       npcId: 'shop_owner',
       hint: 'initial',
@@ -402,6 +416,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
         '오늘 가장 잘한 문장 하나를 칭찬하고 다음 수업을 예고하세요. 「수업 끝」을 누르면 숫자가 검증된 부모 리포트 링크가 만들어집니다 — 문자로 보내기 전에 한 번 읽어 보세요.',
       teacherScriptEn: 'Great job today! Next time, friends will visit your shop. See you!',
       studentGoalKo: '오늘 제일 잘한 문장을 한 번 더 말해요',
+      studentGoalEn: "Say your best sentence one more time",
       sceneId: 'plaza',
       npcId: 'guide',
       hint: 'full',

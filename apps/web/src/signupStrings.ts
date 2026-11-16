@@ -71,6 +71,8 @@ export const SIGNUP_STRINGS_KO = {
     linkTo: '연결할 학생',
     match: (nick: string) => `선생님이 만든 '${nick}' 학생과 이름이 같아요. 학생 화면의 숫자가 맞으면 이 학생에 연결해요.`,
     nickTaken: '이 이름은 이미 다른 학생이 써요. 기존 학생에 연결하거나 받지 않기를 눌러 주세요.',
+    nameTakenNow: (nick: string) => `'${nick}' 이름은 이제 보호자가 있는 다른 학생이 써요. 새 학생으로는 승인할 수 없어요. 기존 학생에 연결하거나 받지 않기를 눌러 주세요.`,
+    ambiguous: (nick: string) => `'${nick}' 와 같은 이름의 학생이 2명 이상 있어요. 연결할 학생을 골라 주세요.`,
     pick: '학생 고르기',
     approve: '연결하고 승인',
     signer: (provider: string, hint: string) =>

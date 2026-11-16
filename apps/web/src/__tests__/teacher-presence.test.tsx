@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { StudentScreenBox } from '../DirectorLive.js';
 import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive } from '../directorLiveState.js';
 import { P } from '../presenceStrings.js';
-import { TeacherModeHelp, TeacherPresenceBox, TeacherStatus, cleanTeacherName, startTicker } from '../teacherPresence.js';
+import { TeacherModeHelp, TeacherPresenceBox, TeacherStatus, cleanTeacherName, startTicker, teachWorldPath } from '../teacherPresence.js';
 import type { LessonApi } from '../lessonApi.js';
 
 const T0 = Date.parse('2026-11-16T15:00:00+09:00');
@@ -34,6 +34,15 @@ describe('teacher presence on the director console', () => {
     expect(html).toContain('data-testid="teacher-mode-help"');
     // Server rendering runs no effects: no beat leaves without a browser.
     expect(api.presence).not.toHaveBeenCalled();
+  });
+
+  it('「🧭 월드에서 1인칭으로」 sits next to 선생님 나가기 and goes to this lesson world as the teacher', () => {
+    const api = { presence: vi.fn(), leave: vi.fn(), setPanelPin: vi.fn(), panelPinState: vi.fn(() => new Promise(() => undefined)), panelUnlock: vi.fn() } as unknown as LessonApi;
+    const html = renderToStaticMarkup(<TeacherPresenceBox api={api} token="op" lessonId="les-20261116-ab12" ended={false} />);
+    expect(html).toContain('data-testid="teacher-world"');
+    expect(html.indexOf('data-testid="teacher-leave"')).toBeLessThan(html.indexOf('data-testid="teacher-world"'));
+    expect(html).toContain(P.consoleWorld);
+    expect(teachWorldPath('les-20261116-ab12')).toBe('/world/?teach=les-20261116-ab12');
   });
 
   it('teacher name: the console box has the field; only names the server accepts are sent', () => {

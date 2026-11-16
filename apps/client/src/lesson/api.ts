@@ -57,6 +57,8 @@ export interface StudentLessonState {
   lesson_id: string;
   stage_id: string | null;
   stage_goal_ko: string;
+  /** The goal in the language the child learns (older servers leave it out: the Korean shows). */
+  stage_goal_en?: string;
   mode: LessonUtteranceMode;
   scene_id: LessonSceneId;
   npc_id: string;

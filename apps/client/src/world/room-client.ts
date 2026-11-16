@@ -38,6 +38,8 @@ interface SocketLike {
 export interface RoomClientOptions {
   /** Bearer tokens to try in order (lesson student token first, then the child's device token); empty = none yet. */
   token: () => string | null | ReadonlyArray<string | null>;
+  /** Ticket request body: only an operator names a room (a teacher walking into the lesson room, docs/02 §11). */
+  ticketBody?: () => Record<string, unknown>;
   source: RoomPoseSource;
   sink: RoomSink;
   /** same origin by default ('' → relative /v1/...) */
@@ -144,7 +146,7 @@ export class RoomClient {
         const res = await (this.o.fetchImpl ?? fetch)(`${base}/v1/room/ticket`, {
           method: 'POST',
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: '{}'
+          body: JSON.stringify(this.o.ticketBody?.() ?? {})
         });
         // {room:null} (or 401 from an older server): this token has no room (an expired lesson) — try the next one
         if (res.status === 401) {

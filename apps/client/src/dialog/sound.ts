@@ -1,7 +1,8 @@
 import { LEVEL_DEFINITIONS, type LangLevel, type NpcVoice } from '@lcw/content';
 import { PROCEDURAL_SFX_PRESETS, synthesizeProceduralPcm, type AudioBusName } from '@lcw/audio';
 import { getAudioRuntime, NPC_VOICE_CUT_EVENT } from '../audio/runtime.js';
-import { loadLine, loudnessGain, NEURAL_VOICE, neuralVoiceStatus, neuralVoiceStatusKnown, within } from './neural-voice.js';
+import { loadLine, loudnessGain, NEURAL_VOICE, neuralVoiceOn, neuralVoiceStatus, neuralVoiceStatusKnown, within } from './neural-voice.js';
+import { frameSettings, pickEnglishVoice } from '../frame/settings.js';
 
 /**
  * Dialog sounds (docs/12 6.2 `dlg.*`, temporary procedural sounds of 6.4) and the NPC/offer voice (4.8), on the
@@ -92,7 +93,8 @@ function stopNeural(): void {
 if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener(NPC_VOICE_CUT_EVENT, stopNeural);
 
 export function speakEnglish(text: string, level: LangLevel, voice?: NpcVoice): Promise<void> {
-  if (voice && typeof Audio !== 'undefined' && neuralVoiceStatusKnown() !== false) {
+  // G14 "자연스러운 목소리" off keeps every line on the device voice even while the server voice is on.
+  if (voice && frameSettings().neuralVoice && typeof Audio !== 'undefined' && neuralVoiceStatusKnown() !== false) {
     const gen = ++speechGen;
     // The first line of a page may come before the status answer: wait for it inside the same budget.
     const t0 = Date.now();
@@ -124,9 +126,12 @@ async function playNeural(bytes: ArrayBuffer, gen: number): Promise<boolean> {
   } catch {
     /* ignore */
   }
-  if (c && c.state !== 'running') await within(c.resume().then(() => true).catch(() => null), 300);
+  // The player's voice speed (G14, slower for young children): a buffer source can only change speed with the pitch,
+  // so a changed speed plays through the media element below, which keeps the pitch (no level stretch either way).
+  const rate = frameSettings().voiceRate;
+  if (c && c.state !== 'running' && rate === 1) await within(c.resume().then(() => true).catch(() => null), 300);
   if (gen !== speechGen) return true;
-  if (c && c.state === 'running') {
+  if (c && c.state === 'running' && rate === 1) {
     let decoded: AudioBuffer | null = null;
     try {
       decoded = await c.decodeAudioData(bytes.slice(0));
@@ -172,6 +177,10 @@ async function playNeural(bytes: ArrayBuffer, gen: number): Promise<boolean> {
   const a = new Audio();
   a.preload = 'auto';
   a.src = url;
+  if (rate !== 1) {
+    a.preservesPitch = true;
+    a.playbackRate = rate;
+  }
   return new Promise<boolean>((resolve) => {
     let started = false;
     let finished = false;
@@ -221,7 +230,10 @@ function speakDevice(text: string, level: LangLevel): Promise<void> {
     // The NPC voice ducks music/ambience/effects (docs/12 3장 "NPC가 말하는 중") until it ends.
     const rt = getAudioRuntime();
     const gen = ++speechGen;
-    rt.npcVoiceStarted(400 + text.length * 90);
+    // Player settings (G14): voice speed (slower for young children) and natural voice preference.
+    const pref = frameSettings();
+    const estMs = (400 + text.length * 90) / pref.voiceRate;
+    rt.npcVoiceStarted(estMs);
     let ended = false;
     const resolve = () => {
       if (ended) return;
@@ -234,14 +246,17 @@ function speakDevice(text: string, level: LangLevel): Promise<void> {
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'en-US';
-      u.rate = LEVEL_DEFINITIONS[level].speechRate * 0.95;
-      const voice = synth.getVoices().find((v) => v.lang === 'en-US') ?? synth.getVoices().find((v) => v.lang.startsWith('en'));
+      u.rate = LEVEL_DEFINITIONS[level].speechRate * 0.95 * pref.voiceRate;
+      // The device voice is not on the WebAudio graph: the player's voice volume (G14) reaches it here.
+      u.volume = Math.min(1, Math.max(0, rt.engine.getSnapshot().busVolumes.voice_npc));
+      // the server voice covers "natural" when it is on; its fallback then takes a quick on-device voice
+      const voice = pickEnglishVoice(synth.getVoices(), pref.neuralVoice && !neuralVoiceOn());
       if (voice) u.voice = voice;
       u.onend = () => resolve();
       u.onerror = () => resolve();
       synth.speak(u);
       // Some browsers never fire onend; never block the dialog on a voice.
-      setTimeout(resolve, 400 + text.length * 90);
+      setTimeout(resolve, estMs);
     } catch {
       resolve();
     }

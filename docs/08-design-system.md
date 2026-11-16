@@ -548,6 +548,8 @@ LCW의 블록은 "칠한 나무 장난감 블록"입니다. 다른 복셀 게임
 | 화면 낭독기 | 대시보드와 소개 사이트는 표준 마크업과 대체 문구. 그래프마다 표 보기 제공 |
 | 초점 | 키보드 초점 테두리 3px `sky-d`, 탭 순서는 시각 순서와 일치 |
 
+구현(G14 설정, 2026-11-16, `apps/client/src/frame/settings.ts` · `frame/menu/SettingsPanel.tsx`): 기기 `localStorage['lcw.settings']`(JSON 하나)에 저장하고, 연결된 아이 기기·수업 학생은 `GET/PUT /v1/settings`(평평한 객체, 새 쪽이 이김, `frame/settings-sync.ts`)로 기기 사이를 잇습니다. 반영 지점: 볼륨 4종은 오디오 런타임 버스(`AudioRuntime.setBusVolume`, 기본 음량 × 묶음 × 전체)와 기기 음성(`dialog/sound.ts` 의 utterance 음량), 주민 목소리 빠르기·자연스러운 목소리는 `speakEnglish`, 글자 크기는 `<html>` 의 `--lcw-fs`(메뉴와 대화창 `--fs`), 움직임 줄이기·읽기 쉬운 글자(OpenDyslexic, SIL OFL 1.1, 켤 때만 jsDelivr `@fontsource/opendyslexic@5.3.0` 에서 불러옴)·색각 보정 팔레트(`COLOR_ASSIST_TOKENS`: 성공 청록 · 경고 주황, 2.2 대비 규칙 시험)·초점 테두리 크게는 `<html>` 속성과 전역 스타일, 시점 감도(마우스·터치)·상하 반전·움직임·FPS 는 `WorldHandle.setLookSettings / setReduceMotion / setShowFps`, 화질은 다음 시작의 등급(`savedTier()` → `pickTier`)과 `WorldHandle.setGraphics?`(성능 레인), 키 바꾸기는 창 캡처 단계에서 바꾼 키를 월드의 원래 키로 바꿔 보내는 방식(대화창이 열려 있으면 끔), 마이크 버튼 누르고 있기는 대화창 마이크 버튼과 Space, 마이크 점검은 첫 방문 카드(`MicCheckCard`)를 다시 씁니다. 목표 문장 음절 구분은 `syllableHints()` 값만 두었고 대화창 표시는 대화 도메인이 붙입니다.
+
 ## 12. 산출물 목록
 
 | 산출물 | 수량 | 형식 | 만드는 방법 |

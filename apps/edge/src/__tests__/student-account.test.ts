@@ -173,16 +173,41 @@ describe('student sign-up on the guardian account (student-account.ts)', () => {
     expect(demo.body.teacher_match).toBe(false);
     expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups[0].match).toBeNull();
     expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'SMOKE' }, bearer(g))).body.teacher_match).toBe(false);
-    // A match recorded on a smoke row (before this fix) is not shown either.
-    const sid = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'SMOKE').id;
-    p.sql.run("update student_signups set match_player_id = 'smoke-live-1' where id = ?", [sid]);
-    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.id === sid).match).toBeNull();
+    // The row's own guardian signs in while the sign-up waits: no pick any more, and the console is told why.
+    await teacherRow(p, 'stu-kiki', 'Kiki');
+    // (another family: one family sends at most 5 sign-ups a day)
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'kiki' }, bearer(await adultSignsIn(p, 'fam-k')))).status).toBe(201);
+    const kiki = () => call(p, 'GET', '/v1/admin/student-signups').then((r) => r.body.signups.find((s: any) => s.nickname === 'kiki'));
+    expect(await kiki()).toMatchObject({ match: { player_id: 'stu-kiki' }, match_ambiguous: false, name_taken: false });
+    const kinv = await call(p, 'POST', '/v1/admin/family-invites', { player_id: 'stu-kiki' });
+    expect((await call(p, 'POST', '/v1/family/session', { invite: kinv.body.invite_path.split('#k=')[1] }, anon)).status).toBe(200);
+    expect(await kiki()).toMatchObject({ match: null, match_ambiguous: false, name_taken: true });
     // Two teacher-made rows called Mina: the sign-up waits for the teacher, who picks (no row guessed).
     await teacherRow(p, 'stu-mina-1', 'Mina');
     await teacherRow(p, 'stu-mina-2', 'Mina');
     const mina = await call(p, 'POST', '/v1/student/signup', { nickname: 'mina' }, bearer(g));
     expect(mina.body.teacher_match).toBe(true);
-    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'mina').match).toBeNull();
+    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'mina')).toMatchObject({
+      match: null,
+      match_ambiguous: true
+    });
+    // The match is counted again on every listing: a second 'Juno' row made after the sign-up stops the pick.
+    await teacherRow(p, 'stu-juno-1', 'Juno');
+    const juno = await call(p, 'POST', '/v1/student/signup', { nickname: 'juno' }, bearer(g));
+    const list1 = (await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'juno');
+    expect(list1).toMatchObject({ match: { player_id: 'stu-juno-1', nickname: 'Juno' }, match_ambiguous: false });
+    await teacherRow(p, 'stu-juno-2', 'JUNO');
+    expect((await call(p, 'GET', '/v1/admin/student-signups')).body.signups.find((s: any) => s.nickname === 'juno')).toMatchObject({
+      match: null,
+      match_ambiguous: true
+    });
+    // Smoke and demo rows cannot be a sign-up's target even by id (any case for 'smoke-').
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-smk', guardian_id: 'g-smk', player_id: 'SMOKE-upper', nickname: 'Upper' });
+    for (const pid of ['player-demo', 'smoke-live-1', 'SMOKE-upper'])
+      expect((await call(p, 'POST', `/v1/admin/student-signups/${list1.id}/approve`, { player_id: pid, check: juno.body.check, confirm: true })).body).toEqual({
+        error: 'player_not_found'
+      });
+    expect((await call(p, 'POST', '/v1/student/signup', { nickname: 'upper' }, bearer(g))).body.teacher_match).toBe(false);
   });
 
   it('a pending nickname is not kept: cleared on reject or after 3 hours; bad nicknames refused', async () => {

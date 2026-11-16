@@ -11,6 +11,7 @@ import {
   type UtteranceMetricInput
 } from '@lcw/metrics';
 import { LessonDO, type DirectorEventKind, type EdgePlatformDb, type SqliteExecutor } from './storage.js';
+import { markSeatUse } from './seats.js';
 import { buildLessonParentFacts } from './parent-report.js';
 import { createMemoryCard } from './review.js';
 
@@ -835,6 +836,8 @@ export function buildLessonModeApp(d: LessonModeDeps): Hono {
     const s = await student(c.req.raw);
     if (!s) return c.json({ error: 'student_only' }, 401);
     const now = d.nowMs();
+    // A tutoring seat is in use once its child is in a lesson (seats.ts markSeatUse; refund ends at first use).
+    markSeatUse(d.sql, s.player_id, now, 'lesson');
     const st = stateOf(s.lesson_id);
     const l = lessonRow(s.lesson_id);
     const plan = getLessonPlan(st?.plan_id);

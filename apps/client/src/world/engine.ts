@@ -15,6 +15,10 @@ import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
+import { Storefronts } from './storefront.js';
+import { MINIMAP_AREA, Wayfinder, minimapPixels } from './wayfinding.js';
+import { TILE_LAYER, BLOCK_LOOKS } from './blocks.js';
+import { tileAverageColor } from './atlas.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
@@ -366,6 +370,25 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     [163, 1, 129]
   ]);
   scene.add(butterflies.root);
+  // Store fronts, signs and landmark badges (storefront.ts) and the way-finding minimap / goal arrow (wayfinding.ts), R2627.
+  const storefronts = new Storefronts(world, opts.tier === 'high' ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1);
+  scene.add(storefronts.root);
+  const wayfinder = new Wayfinder(hud.root);
+  scene.add(wayfinder.beam);
+  {
+    const topColor = new Map<number, readonly [number, number, number] | null>();
+    const colorOf = (id: number): readonly [number, number, number] | null => {
+      let c = topColor.get(id);
+      if (c === undefined) {
+        const look = BLOCK_LOOKS[id];
+        c = !look || look.shape === 'plant' || look.shape === 'none' ? null : (tileAverageColor(atlasPixels, TILE_LAYER[look.top] ?? 0).map((v) => v * 255) as [number, number, number]);
+        topColor.set(id, c);
+      }
+      return c;
+    };
+    wayfinder.setGround(minimapPixels((x, y, z) => world.getBlock(x, y, z), colorOf), MINIMAP_AREA.x1 - MINIMAP_AREA.x0, MINIMAP_AREA.z1 - MINIMAP_AREA.z0);
+  }
+  await yieldToMain();
 
   // ---- State.
   let currentScene: SceneId = startScene.id;
@@ -1482,6 +1505,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
     windmill.update(dt);
     butterflies.update(dt);
+    storefronts.update(dt, sky.hour);
     if (player.root.position.distanceTo(fountain) < viewDistance) effects.spray(fountain.x, fountain.y, fountain.z, dt);
     effects.update(dt);
     sky.update(dt, player.root.position);
@@ -1514,6 +1538,18 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       const p = project(nearNpc.pos.x, nearNpc.pos.y + CHAR_HEIGHT + 0.35, nearNpc.pos.z);
       hud.showPrompt(p.vis, p.sx, p.sy, touch);
     } else hud.showPrompt(false, 0, 0, touch);
+    wayfinder.update(
+      dt,
+      camera,
+      body,
+      viewYaw(),
+      null,
+      () => [...npcs.values()].filter((n) => n.char.root.visible && n.def.id !== TEACHER_NPC_ID).map((n) => ({ id: n.def.id, x: n.pos.x, z: n.pos.z })),
+      viewW,
+      viewH,
+      paused || attract,
+      nowMs
+    );
 
     renderer.render(scene, camera);
     lastStats = { draw: renderer.info.render.calls, tris: renderer.info.render.triangles };
@@ -1744,6 +1780,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       builder.dispose();
       buildHud?.dispose();
       buildView.dispose();
+      storefronts.dispose();
+      wayfinder.dispose();
       chunks.dispose();
       VoxelCharacter.shadows = null;
       sfx.dispose();

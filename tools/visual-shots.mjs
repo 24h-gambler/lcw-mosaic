@@ -23,14 +23,13 @@ const browser = await chromium.launch({
   args: ['--mute-audio', '--ignore-gpu-blocklist', ...(gpu ? ['--enable-gpu'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])]
 });
 
-const H = Math.PI / 2;
 /** yaw: facing (sin yaw, 0, cos yaw); first-person pitch 0.3 looks level, more looks down. */
 export const POSES = [
-  { id: 'market-street', x: 136.5, z: 143.5, yaw: -H, pitch: 0.36, hour: 10.5 },
-  { id: 'shop-front', x: 130.5, z: 134.5, yaw: -H, pitch: 0.2, hour: 10.5 },
-  { id: 'cafe-front', x: 157.5, z: 136.5, yaw: H, pitch: 0.2, hour: 10.5 },
-  { id: 'cafe-inside', x: 168.5, z: 138.2, yaw: H + 0.5, pitch: 0.32, hour: 10.5 },
-  { id: 'shop-inside', x: 119.5, z: 131.5, yaw: -H - 0.6, pitch: 0.32, hour: 10.5 },
+  { id: 'market-street', x: 150.5, z: 150.5, yaw: 2.32, pitch: 0.3, hour: 10.5 },
+  { id: 'shop-front', x: 130.5, z: 146.5, yaw: -2.54, pitch: 0.28, hour: 10.5 },
+  { id: 'cafe-front', x: 156.5, z: 140.5, yaw: 2.17, pitch: 0.28, hour: 10.5 },
+  { id: 'cafe-inside', x: 167.5, z: 138.5, yaw: 2.17, pitch: 0.34, hour: 10.5 },
+  { id: 'shop-inside', x: 120.5, z: 130.5, yaw: -1.05, pitch: 0.34, hour: 10.5 },
   { id: 'plaza-night', x: 144.5, z: 157.5, yaw: Math.PI, pitch: 0.26, hour: 21.5 }
 ];
 const VIEWPORTS = [
@@ -42,6 +41,12 @@ const report = [];
 for (const vp of VIEWPORTS) {
   for (const tier of tiers) {
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, hasTouch: vp.touch, isMobile: vp.touch });
+    // a returning child: the first-visit welcome card is not in the picture
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.setItem('lcw.firstVisitSeen', '1');
+      } catch {}
+    });
     const page = await ctx.newPage();
     const errs = [];
     page.on('console', (m) => {

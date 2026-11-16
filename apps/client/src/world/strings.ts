@@ -322,7 +322,7 @@ const SCENE_TITLES_KO_SRC = {
 const SCENE_TITLES_KO_EN: Record<keyof typeof SCENE_TITLES_KO_SRC, string> = {
   plaza: 'Town Square',
   honey_cafe: 'Honey Cafe',
-  trade_shop: 'Trading Shop',
+  trade_shop: 'Trade Shop',
   build_plot: 'My Plot',
   open_hill: 'Windy Hill'
 };

@@ -6,6 +6,7 @@ import worker from '../worker.js';
 import type { LcwEnv } from '../platform.js';
 import { legacyWorldLocation, WORLD_PATH } from '../world-path.js';
 import { codeFromSearch } from '../../../client/src/lesson/api.js';
+import { studentJoinLinks } from '../../../web/src/lessonFlow.js';
 
 const env = () => {
   const hits: string[] = [];
@@ -26,6 +27,16 @@ describe('/game/ redirects to /world/ with the query intact', () => {
     expect(at('https://lcw/game')).toBe('/world/');
     expect(at('https://lcw/game/?pass=ab-12&scene=honey_cafe&tier=high')).toBe('/world/?pass=ab-12&scene=honey_cafe&tier=high');
     expect(at('https://lcw/game/?q=%ED%95%9C%EA%B8%80')).toBe('/world/?q=%ED%95%9C%EA%B8%80');
+  });
+
+  it('keeps the console links from #63 working: lite=1 survives the redirect, /join is never redirected', () => {
+    const at = (u: string) => legacyWorldLocation(new URL(u));
+    // an old 3D link someone added lite=1 to, and the /world/ hand-off of a 3D-capable device
+    expect(at('https://lcw/game/?code=482913&lite=1')).toBe('/world/?code=482913&lite=1');
+    expect(at('https://lcw/game?lite=1&code=482913')).toBe('/world/?lite=1&code=482913');
+    // the teacher's fallback link and the 3D link the console prints today are not under /game at all
+    for (const l of studentJoinLinks('https://lcw', '482913', true)) expect(at(l.url), l.url).toBeNull();
+    expect(studentJoinLinks('https://lcw', '482913', true).map((l) => l.url)).toEqual(['https://lcw/world/?code=482913', 'https://lcw/join?code=482913&lite=1']);
   });
 
   it('leaves the old build chunks under /game/assets/ to the asset folder (a tab opened before a deploy still needs them)', () => {

@@ -1025,6 +1025,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         sfx.play('wld.door');
         await hud.fadeTo(sceneTitle(target), arriveBehindFade(target));
       }
+      // a new visit: the talk prompt shows again for NPCs met on an earlier one (R2625 ⑤ "not met yet in this visit")
+      if (target !== currentScene) talkedTo.clear();
       currentScene = target;
     })();
     try {

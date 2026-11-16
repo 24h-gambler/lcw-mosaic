@@ -422,8 +422,8 @@ describe('DialogPanel render (WP-109)', () => {
     const text = textOf(html);
     expect(html).toContain('Welcome to the honey cafe!');
     expect(text).toContain('Can I have some cold water, please?');
-    expect(html).toContain('단어 카드');
-    expect(html).toContain('글자로 쓰기');
+    expect(html).toContain('Word cards');
+    expect(html).toContain('Type it');
     expect(html).toContain('lcw-mic');
     expect(DIALOG_CSS).toContain('width:72px;height:72px');
     for (const bad of FORBIDDEN_PLAYER_UI_PATTERNS) expect(html).not.toContain(bad);
@@ -433,9 +433,9 @@ describe('DialogPanel render (WP-109)', () => {
   it('a phone without speech recognition opens on the word cards with a warm notice', () => {
     const noMic: SpeechEngine = { source: 'browser', availability: () => ({ ok: false, issue: 'in_app' }), start: () => ({ stop() {}, abort() {} }) };
     const html = renderToStaticMarkup(<DialogPanel {...base} speech={noMic} />);
-    expect(html).toContain('카카오톡 안에서는 마이크가 안 될 수 있어요.');
+    expect(html).toContain('The mic may not work inside KakaoTalk.');
     expect(html).toContain('lcw-card');
-    expect(html).toContain('단어 카드를 순서대로 눌러요');
+    expect(html).toContain('Tap the word cards in order');
   });
 
   it('keeps sizes in the font-scale variable so 150% scales everything (docs/08: one screen at 150%)', () => {
@@ -451,7 +451,7 @@ describe('DialogPanel render (WP-109)', () => {
       <DialogPanel {...base} mode="free" offers={[{ stars: 1, text: 'I would build a cafe.', hintTags: ['i would'] }]} />
     );
     expect(textOf(html)).toContain('I would build a cafe.');
-    expect(html).toContain('이런 말도 할 수 있어요');
+    expect(html).toContain('You can also say');
     expect(textOf(html)).not.toContain('Can I have cold water');
   });
 });

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { FURNITURE_SHOP_GOODS, PHRASE_BANK, UI_STRINGS_KO, starPrice } from '@lcw/content';
+import { FURNITURE_SHOP_GOODS, PHRASE_BANK, UI_STRINGS_EN, starPrice } from '@lcw/content';
 import { ROOM_MISSING_SENTENCES, applyReadAloudDiscount } from '@lcw/sim-core';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
@@ -19,8 +19,8 @@ describe('ReadAloudPrompt', () => {
       <ReadAloudPrompt kind="light" sentence={ROOM_MISSING_SENTENCES.light} speech={createScriptedSpeechEngine([])} />
     );
     expect(html).toContain('This room needs a light source.');
-    expect(html).toContain(UI_STRINGS_KO.readAloud.cta);
-    expect(html).toContain('조명 가구 10% 할인');
+    expect(html).toContain(UI_STRINGS_EN.readAloud.cta);
+    expect(html).toContain('10% off light furniture');
     expect(html).toMatch(/font-size:2[2-9]px/);
   });
 

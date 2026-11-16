@@ -8,4 +8,5 @@ export * from './world-setup.js';
 export * from './try-order.js';
 export * from './tts-lines.js';
 export * from './collection.js';
+export * from './ui-strings-en.js';
 export * from './teacher-name.js';

@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { UI_STRINGS_KO } from '@lcw/content';
+import { UI_STRINGS_EN } from '@lcw/content';
 import { MIC_STATUS_KEY, MicCheckGate, micCheckAudience, readMicStatus } from '../dialog/FirstVisitGuide.js';
 import { createScriptedSpeechEngine } from '../dialog/speech.js';
 
@@ -24,7 +24,7 @@ function memoryStorage(): Storage {
 const g = globalThis as unknown as { sessionStorage?: Storage; localStorage?: Storage };
 const saved = { s: g.sessionStorage, l: g.localStorage };
 const speech = createScriptedSpeechEngine([]);
-const F = UI_STRINGS_KO.firstVisit;
+const F = UI_STRINGS_EN.firstVisit;
 
 describe('mic check gate (lesson students, guests)', () => {
   beforeEach(() => {

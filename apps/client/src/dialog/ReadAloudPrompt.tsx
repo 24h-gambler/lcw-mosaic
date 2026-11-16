@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { UI_STRINGS_KO } from '@lcw/content';
+import { feedbackLine, live } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { MicController, type MicView } from './mic-controller.js';
 import { cancelMicCue, micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
@@ -18,7 +18,8 @@ export { furnitureOffersFor } from './hints.js';
  * but nothing is granted (no server record for them).
  */
 
-const R = UI_STRINGS_KO.readAloud;
+const R = live('readAloud');
+const D = live('dialog');
 
 export type FurnitureKind = 'light' | 'rest' | 'flat';
 
@@ -100,13 +101,13 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
       onFinal: (r, durMs) => {
         playSfx('dlg.mic_off');
         if (!r) {
-          setNote(UI_STRINGS_KO.dialog.noSpeech);
+          setNote(D.noSpeech);
           return;
         }
         const { player, baseUrl, fetchImpl, onResult } = latest.current;
         const token = readStudentToken() || player?.deviceToken || '';
         if (!token) {
-          setNote(UI_STRINGS_KO.dialog.practiceNote);
+          setNote(D.practiceNote);
           return;
         }
         setBusy(true);
@@ -118,10 +119,10 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
             else if (!res.pass) playSfx('ui.click');
             onResult?.(res);
           })
-          .catch(() => setNote(UI_STRINGS_KO.dialog.networkError))
+          .catch(() => setNote(D.networkError))
           .finally(() => setBusy(false));
       },
-      onIssue: (issue) => setNote(issue === 'no_speech' ? UI_STRINGS_KO.dialog.noSpeech : UI_STRINGS_KO.dialog.micUnsupported)
+      onIssue: (issue) => setNote(issue === 'no_speech' ? D.noSpeech : D.micUnsupported)
     });
     ctrl.current = c;
     return () => {
@@ -182,7 +183,8 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
           “{sentence}”
         </div>
         <div style={{ fontSize: T.scale.small.sizePx, color: C['ink-700'], marginTop: 4 }} aria-live="polite">
-          {mic.recording ? R.listening : result ? result.feedback_ko : note ?? R.hint.replace('{kind}', kindKo)}
+          {mic.recording ? R.listening : result ? feedbackLine(result.feedback_ko).text : note ?? R.hint.replace('{kind}', kindKo)}
+          {result && !mic.recording && feedbackLine(result.feedback_ko).help ? <div lang="ko">{feedbackLine(result.feedback_ko).help}</div> : null}
           {result && result.discount_pct > 0 ? <div style={{ fontWeight: 700, color: C['leaf-d'] }}>{R.where}</div> : null}
         </div>
       </div>
@@ -204,7 +206,7 @@ export function ReadAloudPrompt(props: ReadAloudPromptProps): React.ReactElement
           cursor: 'pointer'
         }}
       >
-        {mic.recording ? `⏹ ${UI_STRINGS_KO.dialog.micStop}` : `🎤 ${R.cta}`}
+        {mic.recording ? `⏹ ${D.micStop}` : `🎤 ${R.cta}`}
       </button>
     </div>
   );

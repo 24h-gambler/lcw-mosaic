@@ -4,6 +4,7 @@ import { filterSpeechBubble } from '@lcw/converse';
 import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
 import { DEVICE_CODE_TTL_MS, DEVICE_TOKEN_TTL_MS, GUARDIAN_CONSENT_SCOPES } from './family.js';
 import { closeListeners, type RealtimeClient } from './lesson-audio.js';
+import { familyHasGuardian as sharedFamilyHasGuardian, nameIdeas as sharedNameIdeas, nameOwner as sharedNameOwner, isTestPlayerId, nicknameKey } from './nickname.js';
 import { drainVoicePurge, type VoiceBlobStore } from './voice.js';
 import { JOIN_CODE_TTL_MS as LESSON_JOIN_WINDOW_MS, STUDENT_TOKEN_TTL_MS as LESSON_STUDENT_TOKEN_TTL_MS } from './lesson-mode.js';
 
@@ -94,11 +95,8 @@ const Nickname = z
   .regex(/^[\p{L}\p{N} _.-]+$/u)
   .refine((s) => !/\d{6,}/.test(s), 'no_long_numbers');
 const SignupSchema = z.object({ nickname: Nickname, label: z.string().trim().max(40).default('') }).strict();
-/**
- * The same name for people (Dan 11-16 14:3x: no two students share a nickname): case, full/half width and spaces,
- * dots, dashes, underscores are ignored, so 'Oreo', ' oreo', 'ＯＲＥＯ' and 'O-reo' are one name.
- */
-export const nicknameKey = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[\s._-]+/g, '');
+/** Re-exported for callers that imported it from here (#104). */
+export { nicknameKey };
 /**
  * The 4 digits the waiting student screen shows. The console never lists them: the teacher types what the student's
  * screen says, so a stranger's sign-up named 'Oreo' cannot be approved by its name alone.
@@ -133,39 +131,9 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
   };
   const familyConsented = (familyId: string) =>
     Boolean(d.sql.get("select v from family_flags where family_id = ? and k = 'service' and v = 1", [familyId]));
-  /** A family a real guardian holds: signed in at least once, or gave consent. Teacher-made placeholder families do not. */
-  const familyHasGuardian = (familyId: string) =>
-    familyConsented(familyId) ||
-    Boolean(d.sql.get('select 1 from guardian_sessions where family_id = ? limit 1', [familyId])) ||
-    Boolean(d.sql.get('select 1 from guardians where family_id = ? and oauth_sub is not null limit 1', [familyId]));
-  /**
-   * Who already has this name: a waiting sign-up or a student with a real guardian → taken; only a teacher-made row
-   * (no guardian yet, like Oreo before the sign-up) → that row, the sign-up waits for the teacher's 4-digit check to
-   * join it. `exceptSignup`: the sign-up being approved does not block itself.
-   */
-  const nameOwner = (nickname: string, exceptSignup = ''): { kind: 'free' } | { kind: 'taken' } | { kind: 'teacher_row'; player_id: string } => {
-    const key = nicknameKey(nickname);
-    const waiting = d.sql
-      .all<{ id: string; nickname: string }>("select id, nickname from student_signups where state = 'pending' and nickname != ''", [])
-      .some((s) => s.id !== exceptSignup && nicknameKey(s.nickname) === key);
-    if (waiting) return { kind: 'taken' };
-    const same = d.sql
-      .all<{ id: string; family_id: string; nickname: string }>("select id, family_id, nickname from players where kind = 'child'", [])
-      .filter((k) => nicknameKey(k.nickname) === key);
-    if (!same.length) return { kind: 'free' };
-    if (same.some((k) => familyHasGuardian(k.family_id))) return { kind: 'taken' };
-    return { kind: 'teacher_row', player_id: same[0]!.id };
-  };
-  /** Up to three free names close to the one asked for ('Oreo' → 'Oreo2', 'Oreo3', …), within the 16-letter limit. */
-  const nameIdeas = (nickname: string): string[] => {
-    const out: string[] = [];
-    const base = nickname.trim();
-    for (let n = 2; n < 100 && out.length < 3; n++) {
-      const idea = `${base.slice(0, 16 - String(n).length)}${n}`;
-      if (nameOwner(idea).kind === 'free') out.push(idea);
-    }
-    return out;
-  };
+  const familyHasGuardian = (familyId: string) => sharedFamilyHasGuardian(d.sql, familyId);
+  const nameOwner = (nickname: string, exceptSignup = '') => sharedNameOwner(d.sql, nickname, { exceptSignup });
+  const nameIdeas = (nickname: string) => sharedNameIdeas(d.sql, nickname);
   const guardianOf = async (req: Request) => {
     const t = bearer(req);
     if (t.length < 32) return null;
@@ -316,7 +284,7 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     /** The teacher-made row this name matched, while it is still one (no guardian took it meanwhile). */
     const matchOf = (pid: string | null) => {
       const k = pid ? d.sql.get<{ id: string; family_id: string; nickname: string }>('select id, family_id, nickname from players where id = ?', [pid]) : null;
-      return k && !familyHasGuardian(k.family_id) ? { player_id: k.id, nickname: k.nickname } : null;
+      return k && !isTestPlayerId(k.id) && !familyHasGuardian(k.family_id) ? { player_id: k.id, nickname: k.nickname } : null;
     };
     // Who signed (provider, masked hint, age statement) so a stranger typing 'Oreo' is not linked by the name alone;
     // students already in the signing family (e.g. a sibling) with their signed-in devices.

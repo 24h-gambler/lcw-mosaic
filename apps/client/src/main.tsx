@@ -1,4 +1,4 @@
-/** Entry of /game/ (world domain owns the shell, docs/19 1장). */
+/** Entry of /world/ (world domain owns the shell, docs/19 1장). */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';

@@ -1,6 +1,6 @@
 /**
  * Student side of the lesson API (docs/18 §2, docs/19 §4). The token lives in sessionStorage under the same keys the
- * /join fallback screen uses (apps/web/src/lessonApi.ts), so a child moved between /game/ and /join keeps one session.
+ * /join fallback screen uses (apps/web/src/lessonApi.ts), so a child moved between /world/ and /join keeps one session.
  * Scores, stars and coins are always the server's (AGENTS 4.7).
  */
 import { UTTERANCE_CLIENT_ID_RE, type LessonDirectorEventKind, type LessonHintLevel, type LessonSceneId, type LessonUtteranceMode } from '@lcw/content';
@@ -218,7 +218,7 @@ export function getStudentToken(store: KeyValue | null = sessionStore()): string
   return loadStudentSession(store)?.token ?? null;
 }
 
-/** `?code=123456` in the /game/ URL (link from the director console). */
+/** `?code=123456` in the /world/ URL (link from the director console). */
 export function codeFromSearch(search: string): string | null {
   const m = /[?&]code=(\d{6})(?:&|$)/.exec(search);
   return m ? m[1]! : null;

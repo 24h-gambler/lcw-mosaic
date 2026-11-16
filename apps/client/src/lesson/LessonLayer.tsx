@@ -83,7 +83,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   onActive.current = props.onLessonActive;
   const search = props.search ?? (typeof location === 'undefined' ? '' : location.search);
   const code = codeFromSearch(search);
-  // A bare /game/ (no code in the address, no session in this tab) is solo play with a "수업 코드 넣기" button: the code
+  // A bare /world/ (no code in the address, no session in this tab) is solo play with a "수업 코드 넣기" button: the code
   // typed there joins the lesson in the 3D world, and "돌아가기" goes back to solo play.
   const [active, setActive] = useState(() => Boolean(code ?? loadStudentSession()));
   const [typedCode, setTypedCode] = useState<string | null>(null);
@@ -193,7 +193,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     return () => ctl.stop();
   }, [active, lowTier, ctl, startCode]);
 
-  // Back to solo play on a bare /game/ (no code in the address): a wrong code, the child changed their mind, or a
+  // Back to solo play on a bare /world/ (no code in the address): a wrong code, the child changed their mind, or a
   // session kept in this tab that has expired. The view starts over so the "수업 코드 넣기" button shows again.
   const backToSolo = !code ? () => {
     ctl.stop();

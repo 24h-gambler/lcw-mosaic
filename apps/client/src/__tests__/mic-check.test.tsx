@@ -64,7 +64,7 @@ describe('mic check gate (lesson students, guests)', () => {
     expect(readMicStatus()).toBeNull();
   });
 
-  it('a student session from /join on a bare /game/ is a lesson student, keyed by the lesson id (lesson lane 11-16)', () => {
+  it('a student session from /join on a bare /world/ is a lesson student, keyed by the lesson id (lesson lane 11-16)', () => {
     g.sessionStorage!.setItem('lcw.studentToken', 't'.repeat(40));
     g.sessionStorage!.setItem('lcw.studentLessonId', 'les_abc');
     expect(micCheckAudience('guest')).toEqual({ audience: 'lesson', keys: ['lcw.lessonMicChecked:les_abc'] });

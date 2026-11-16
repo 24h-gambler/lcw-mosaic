@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
 import { playAllowed, sweepSeatNotices } from './seats.js';
+import { legacyWorldRedirect } from './world-path.js';
 import {
   VOICE_PUBLIC_ROUTES,
   buildVoiceApp,
@@ -14,6 +15,8 @@ import {
 import { DEVICE_TOKEN_TTL_MS, FAMILY_PUBLIC_ROUTES, buildFamilyApp, openPublicReport } from './family.js';
 import { buildPushAdminApp, deliverPush, enqueueGuardianNotices, enqueueReportNotices, vapidKeys, webPushSender, type PushSender } from './push.js';
 import { buildGuardianViewAdminApp } from './guardian-view.js';
+import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, oauthConfigFrom } from './oauth.js';
+import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandler } from './guardian-oauth.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
@@ -41,7 +44,7 @@ import { EdgePlatformDb, LessonDO, WorldDO, type SqliteExecutor } from './storag
 /**
  * Production platform (entry module: worker.ts). One SQLite Durable Object ("platform") holds the relational
  * data that docs/02 §9.1 puts in D1 plus every world (table-prefixed). The synchronous DO SQL API
- * lets the tested storage code run unchanged. Static pages (apps/web at /, apps/client at /game/)
+ * lets the tested storage code run unchanged. Static pages (apps/web at /, apps/client at /world/)
  * are served by Workers static assets; only /v1/* and /health reach this code.
  */
 
@@ -75,6 +78,15 @@ export interface LcwEnv {
   REALTIME_TURN_KEY_TOKEN?: string;
   /** Local real-path rig only: a stand-in SFU. Never set in production. */
   REALTIME_API_BASE?: string;
+  /** Sign-in with Google / Kakao (oauth.ts). A provider without its settings is hidden. */
+  LCW_GOOGLE_CLIENT_ID?: string;
+  LCW_GOOGLE_CLIENT_SECRET?: string;
+  LCW_KAKAO_REST_KEY?: string;
+  LCW_KAKAO_CLIENT_SECRET?: string;
+  /** Local real-path rig only: a stand-in Google / Kakao (oauth.ts devProviderSpecs). Never set in production. */
+  LCW_OAUTH_DEV_PROVIDER?: string;
+  /** Site origin the sign-in providers know for their callback; unset → the request's own origin (https). */
+  LCW_PUBLIC_ORIGIN?: string;
 }
 interface DoState {
   storage: DurableStorageLike;
@@ -88,7 +100,7 @@ export const MAX_RESIDENT_WORLDS = 16;
 /** Share tokens shorter than this are never served (guessable). Server-made tokens are 32+ chars. */
 export const MIN_SHARE_TOKEN_CHARS = 16;
 
-/** Routes anyone may call. Everything else under /v1 needs the operator token until guardian OAuth (WP-301) exists. */
+/** Routes anyone may call. Everything else under /v1 needs the operator token. */
 export function isPublicRoute(method: string, path: string): boolean {
   if (path === '/health' || path === '/v1/health') return true;
   if (method === 'GET' && path === '/v1/trades/scenarios') return true;
@@ -99,6 +111,10 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (path.startsWith('/v1/lesson/')) return true;
   // Guardian (WP-301): /v1/family/* checks its own guardian session token, /v1/device/* the child device token.
   if (FAMILY_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Sign-in with Google / Kakao (oauth.ts): state, ticket or ID token checked by the module; /family sign-in links
+  // check the guardian session (guardian-oauth.ts).
+  if (OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  if (GUARDIAN_OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Public site (docs/14): cookie-free counters and the tutoring consult form, see site.ts.
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
@@ -780,6 +796,20 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildFamilyApp(familyDeps));
   app.route('/', buildPushAdminApp(familyDeps));
   app.route('/', buildGuardianViewAdminApp(familyDeps));
+  const oauthConfig = oauthConfigFrom(env as unknown as Record<string, unknown>);
+  const guardianOAuth = { ...familyDeps, config: oauthConfig };
+  app.route('/', buildGuardianOAuthApp(guardianOAuth));
+  // Roles plug in here: the teacher handler (operator-login.ts, lesson lane) joins `roles` next to the guardian one.
+  app.route(
+    '/',
+    buildOAuthApp({
+      ...familyDeps,
+      config: oauthConfig,
+      roles: { guardian: guardianOAuthHandler(guardianOAuth) },
+      specs: env.LCW_OAUTH_DEV_PROVIDER ? devProviderSpecs(env.LCW_OAUTH_DEV_PROVIDER) : undefined,
+      publicOrigin: env.LCW_PUBLIC_ORIGIN
+    })
+  );
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
@@ -828,6 +858,9 @@ function platformStub(env: LcwEnv): DoStub {
 
 async function routeWorkerRequest(request: Request, env: LcwEnv): Promise<Response> {
   const url = new URL(request.url);
+  // The world moved from /game/ to /world/ (world-path.ts): old lesson and pass links keep their query.
+  const moved = legacyWorldRedirect(url);
+  if (moved) return moved;
   if (url.pathname === '/health' || url.pathname.startsWith('/v1/')) {
     return platformStub(env).fetch(request);
   }

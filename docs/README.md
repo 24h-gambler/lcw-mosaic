@@ -29,6 +29,8 @@
 | `15-reference-games.md` | 참조 게임에서 빌린 것과 빌리지 않은 것 |
 | `16-safety-privacy-legal.md` | 아동 안전 설계, 규제 점검표, 동의 화면 |
 | `17-reference-destruction-code.md` | 파괴 커널 참조 코드와 시험 코드 전문 |
+| `20-language-markets.md` | 학습 언어(target_lang)와 화면 언어(l1) 구분, 학구열 지표로 정한 시장 순서, 언어별 준비물, 사이트 지역 경로 설계 |
+| `21-glossary.md` | 제품 용어집: 쓰지 않는 낱말('게임' 등)과 대신 쓰는 말, 대표 문구 |
 
 문서 안에서 다른 문서를 가리킬 때는 `06`, `13`처럼 번호만 씁니다.
 

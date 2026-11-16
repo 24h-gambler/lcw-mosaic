@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_WORLD_CHOICE, WORLD_BUDDIES, WORLD_SEASONS, WORLD_TIMES, cleanWorldName, randomWorldChoice, readWorldChoice, readWorldSetup } from '@lcw/content';
 import { startFlowFor } from '../App.js';
-import { GUEST_WORLD_KEY, cleanLessonCode, joinDeviceLesson, lessonLive, liveLessonId, loadMyWorld, makeMyWorld, titleActions, type FetchLike, type KeyStore } from '../start/api.js';
-import { revealCards } from '../start/StartFlow.js';
-import { BIOME_NAMES_KO, START_STRINGS, ro } from '../start/strings.js';
+import { SIGN_IN_PATH, SIGN_UP_PATH, TRY_PATH, cleanLessonCode, joinDeviceLesson, lessonLive, liveLessonId, loadMyWorld, makeMyWorld, saveLearnLang, titleActions, type FetchLike, type KeyStore } from '../start/api.js';
+import { revealCards, syncLearnLang } from '../start/StartFlow.js';
+import { BIOME_NAMES, START_STRINGS, ro } from '../start/strings.js';
 import { buddyTarget } from '../world/buddy.js';
 import { mod } from '../world/season.js';
 import { TEACHER_NPC_ID, cleanTeacherName, pickableNpc, plateText, teacherDef, teacherTarget } from '../world/visitor.js';
@@ -62,15 +62,37 @@ describe('start flow data (docs/08 §8.4 G07, Dan 11-16 R2555)', () => {
     expect(startFlowFor('?scene=cafe', false)).toBe(false);
   });
 
-  it('a guest keeps the world on this device; a second visit finds it', async () => {
+  it('a guest makes no world (Dan 11-16 14:3x): the title offers sign-up, sign-in and the trial only', async () => {
     const store = memStore();
     const f = fakeFetch({});
-    expect(await loadMyWorld(guest, store, f)).toEqual({ made: false });
-    const w = await makeMyWorld(guest, { name: '마을', season: 'spring', time: 'noon', buddy: 'chick' }, store, f, '', () => 'abcdef0123456789');
-    expect(w).toEqual({ name: '마을', season: 'spring', time: 'noon', buddy: 'chick', seed: 'abcdef0123456789' });
-    expect(JSON.parse(store.m.get(GUEST_WORLD_KEY)!)).toEqual(w);
-    expect(await loadMyWorld(guest, store, f)).toEqual({ made: true, world: w });
+    expect(await loadMyWorld(guest, store, f)).toEqual({ made: 'unknown' });
+    expect(await makeMyWorld(guest, { name: '마을', season: 'spring', time: 'noon', buddy: 'chick' }, store, f)).toBeNull();
+    expect(store.m.size).toBe(0);
     expect(f.calls).toHaveLength(0);
+    expect(titleActions(guest, null, false)).toEqual(['signup']);
+    expect(titleActions(guest, { made: true, world }, true)).toEqual(['signup']);
+    expect([SIGN_UP_PATH, SIGN_IN_PATH, TRY_PATH]).toEqual(['/signup', '/signup?mode=signin', '/try']);
+  });
+
+  it('the language to learn: kept with the child on the server, the server wins on a new device', async () => {
+    const f = fakeFetch({
+      'GET /v1/my-world': () => [200, { made: false, learn_lang: 'en' }],
+      'POST /v1/my-world/lang': (init) => [200, JSON.parse(String(init?.body))]
+    });
+    expect(await loadMyWorld(child, null, f)).toEqual({ made: false, learnLang: 'en' });
+    expect(await saveLearnLang(child, 'en', f)).toBe(true);
+    expect(JSON.parse(String(f.calls[1]!.init?.body))).toEqual({ learn_lang: 'en' });
+    expect(await saveLearnLang(guest, 'en', f)).toBe(false);
+    expect(await saveLearnLang(child, 'en', fakeFetch({}))).toBe(false);
+    // server has it, device not: take it; same: nothing
+    expect(syncLearnLang('en', null)).toEqual({ set: 'en', push: null, ask: false });
+    expect(syncLearnLang('en', 'en')).toEqual({ set: null, push: null, ask: false });
+    // device chose offline, server lacks it: push quietly
+    expect(syncLearnLang(null, 'en')).toEqual({ set: null, push: 'en', ask: false });
+    // neither: ask the child once
+    expect(syncLearnLang(null, null)).toEqual({ set: null, push: null, ask: true });
+    // an old server without the field: never ask (the device speaks English anyway)
+    expect(syncLearnLang(undefined, null)).toEqual({ set: null, push: null, ask: false });
   });
 
   it('a signed-in child asks the server with the device token; the server seed wins, 409 opens the made world', async () => {
@@ -78,7 +100,7 @@ describe('start flow data (docs/08 §8.4 G07, Dan 11-16 R2555)', () => {
       'GET /v1/my-world': () => [200, { made: false }],
       'POST /v1/my-world': () => [409, { error: 'world_already_made', world }]
     });
-    expect(await loadMyWorld(child, null, f)).toEqual({ made: false });
+    expect(await loadMyWorld(child, null, f)).toEqual({ made: false, learnLang: null });
     expect(f.calls[0]!.init?.headers).toMatchObject({ authorization: `Bearer ${(child as { token: string }).token}` });
     expect(await makeMyWorld(child, { name: '다른 이름', season: 'spring', time: 'noon', buddy: 'puppy' }, null, f)).toEqual(world);
     const down = fakeFetch({ 'POST /v1/my-world': () => [500, { error: 'x' }] });
@@ -90,7 +112,7 @@ describe('start flow data (docs/08 §8.4 G07, Dan 11-16 R2555)', () => {
     expect(titleActions(null, null, false)).toEqual(['wait']);
     expect(titleActions(child, { made: false }, true)).toEqual(['lesson', 'make']);
     expect(titleActions(child, { made: true, world }, false)).toEqual(['continue']);
-    expect(titleActions(guest, { made: false }, true)).toEqual(['make']);
+    expect(titleActions(guest, { made: false }, true)).toEqual(['signup']);
     // offline: never a dead end
     expect(titleActions(child, { made: 'unknown' }, false)).toEqual(['continue']);
     const live = fakeFetch({ 'GET /v1/device/lesson': () => [200, { live: true, lesson_id: 'l1', started_at: 1 }] });
@@ -122,22 +144,40 @@ describe('start flow data (docs/08 §8.4 G07, Dan 11-16 R2555)', () => {
     expect(cards.filter((c) => c.home)).toHaveLength(1);
     expect(cards[4]!.home).toBe(true);
     expect(cards[4]!.name).toBe('지우의 마을');
-    for (const c of cards.filter((x) => !x.home)) expect(Object.values(BIOME_NAMES_KO).map((b) => b.name)).toContain(c.name);
+    for (const c of cards.filter((x) => !x.home)) expect(Object.values(BIOME_NAMES).map((b) => b.name.en)).toContain(c.name);
     // the same seed always draws the same world; another seed another world
     expect(revealCards(world)).toEqual(cards);
     const others = ['00000001', 'deadbeef', 'cafe0123', '13572468'].map((seed) => revealCards({ ...world, seed }).map((c) => c.key).join());
     expect(new Set([cards.map((c) => c.key).join(), ...others]).size).toBeGreaterThan(1);
   });
 
-  it('Korean particles follow the world name, and no start word says the forbidden word', () => {
-    expect(START_STRINGS.continueWorld('지우의 마을')).toBe('지우의 마을로 가기');
-    expect(START_STRINGS.continueWorld('하늘섬')).toBe('하늘섬으로 가기');
-    expect(START_STRINGS.continueWorld('Mia Town')).toBe('Mia Town 열기');
-    expect(START_STRINGS.reveal.title('하늘섬')).toBe('하늘섬 완성!');
+  it('English on the screen, Korean help with the right particles, and no start word says the forbidden word', () => {
+    expect(START_STRINGS.continueWorld('Mia Town')).toEqual({ en: 'Go to Mia Town', ko: 'Mia Town 열기' });
+    expect(START_STRINGS.continueWorld('지우의 마을').ko).toBe('지우의 마을로 가기');
+    expect(START_STRINGS.continueWorld('하늘섬').ko).toBe('하늘섬으로 가기');
+    expect(START_STRINGS.reveal.title('하늘섬')).toEqual({ en: '하늘섬 is ready!', ko: '하늘섬 완성!' });
+    // every screen line has both languages; the English one has no Hangul
+    const lines: Array<{ en: string; ko: string }> = [];
+    const walk = (v: unknown) => {
+      if (typeof v === 'function') return walk((v as (a: string) => unknown)('Mia'));
+      if (v && typeof v === 'object') {
+        const o = v as Record<string, unknown>;
+        if (typeof o.en === 'string' && typeof o.ko === 'string') return void lines.push(o as { en: string; ko: string });
+        for (const x of Object.values(o)) walk(x);
+      }
+    };
+    walk(START_STRINGS);
+    walk(BIOME_NAMES);
+    expect(lines.length).toBeGreaterThan(50);
+    for (const l of lines) {
+      expect(l.en).not.toMatch(/[가-힣]/);
+      expect(l.ko.length).toBeGreaterThan(0);
+    }
+    for (const o of [...WORLD_SEASONS, ...WORLD_TIMES, ...WORLD_BUDDIES]) expect(o.labelEn).toMatch(/^[A-Z][a-z]+$/);
     expect(ro('바다')).toBe('로');
     expect(ro('Town')).toBeNull();
-    const all = JSON.stringify(START_STRINGS) + JSON.stringify(BIOME_NAMES_KO);
-    expect(all).not.toMatch(/게임|원|₩|\$/);
+    const all = JSON.stringify(lines);
+    expect(all).not.toMatch(/게임|원|₩|\$|game|price/i);
     expect(DEFAULT_WORLD_CHOICE.season).toBe('spring');
   });
 });
@@ -162,12 +202,16 @@ describe('the teacher in my world (Dan 11-16 12:10)', () => {
     const d = teacherDef('  Ms.   Kim ');
     expect(d.id).toBe(TEACHER_NPC_ID);
     expect(d.nameEn).toBe('Ms. Kim');
-    expect(plateText('Ms. Kim')).toBe('Ms. Kim 선생님');
-    expect(plateText('')).toBe('선생님');
-    expect(plateText('선생님')).toBe('선생님');
-    expect(plateText('김 선생님')).toBe('김 선생님');
-    expect(teacherDef('선생님').nameKo).toBe('선생님');
-    expect(teacherDef('').nameKo).toBe('선생님');
+    // English plate (the language the child learns); the Korean title only in the help line
+    expect(plateText('Ms. Kim', false)).toBe('Ms. Kim');
+    expect(plateText('', false)).toBe('Teacher');
+    expect(plateText('선생님', false)).toBe('Teacher');
+    expect(plateText('김 선생님', false)).toBe('Teacher 김');
+    expect(teacherDef('김 선생님').nameKo).toBe('김 선생님');
+    expect(teacherDef('선생님')).toMatchObject({ nameEn: 'Teacher', nameKo: '선생님' });
+    expect(plateText('Ms. Kim', true)).toBe('Ms. Kim · Ms. Kim 선생님');
+    expect(plateText('', true)).toBe('Teacher · 선생님');
+    expect(teacherDef('').nameEn).toBe('Teacher');
     expect([...cleanTeacherName('가'.repeat(30))]).toHaveLength(16);
     const t = teacherTarget(10, 20, 0, 10, 20)!;
     expect(Math.hypot(t[0] - 10, t[1] - 20)).toBeCloseTo(2.4, 5);

@@ -36,7 +36,8 @@ interface SocketLike {
 }
 
 export interface RoomClientOptions {
-  token: () => string | null;
+  /** Bearer tokens to try in order (lesson student token first, then the child's device token); empty = none yet. */
+  token: () => string | null | ReadonlyArray<string | null>;
   source: RoomPoseSource;
   sink: RoomSink;
   /** same origin by default ('' → relative /v1/...) */
@@ -127,29 +128,47 @@ export class RoomClient {
 
   private async connect(): Promise<void> {
     if (this.stopped || this.ws) return;
-    const token = this.o.token();
-    if (!token) {
+    const raw = this.o.token();
+    const tokens = [...new Set((Array.isArray(raw) ? raw : [raw]).filter((t): t is string => typeof t === 'string' && t.length > 0))];
+    if (!tokens.length) {
       this.status = 'none';
       return this.schedule(NO_TOKEN_RETRY_MS);
     }
     this.status = 'connecting';
     const base = this.o.base ?? '';
-    type Ticket = { ticket: string; room: string; connect: string };
+    type Ticket = { ticket?: string; room: string | null; connect: string };
     let ticket = null as Ticket | null;
-    try {
-      const res = await (this.o.fetchImpl ?? fetch)(`${base}/v1/room/ticket`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: '{}'
-      });
-      // 401: this token has no room (expired lesson) — wait long, do not hammer the server
-      if (res.status === 401) {
-        this.status = 'none';
-        return this.schedule(NO_ROOM_RETRY_MS);
+    let noRoom = 0;
+    for (const token of tokens) {
+      try {
+        const res = await (this.o.fetchImpl ?? fetch)(`${base}/v1/room/ticket`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: '{}'
+        });
+        // {room:null} (or 401 from an older server): this token has no room (an expired lesson) — try the next one
+        if (res.status === 401) {
+          noRoom++;
+          continue;
+        }
+        if (!res.ok) break;
+        const body = (await res.json()) as Ticket;
+        if (!body.room) {
+          noRoom++;
+          continue;
+        }
+        ticket = body;
+        break;
+      } catch {
+        break;
       }
-      if (res.ok) ticket = (await res.json()) as Ticket;
-    } catch {
-      ticket = null;
+      if (this.stopped) return;
+    }
+    if (this.stopped) return;
+    if (!ticket && noRoom === tokens.length) {
+      // no token has a room: wait long, do not hammer the server
+      this.status = 'none';
+      return this.schedule(NO_ROOM_RETRY_MS);
     }
     if (this.stopped) return;
     if (!ticket?.ticket) return this.schedule(this.backoff());

@@ -25,7 +25,23 @@ import { inspectSpecG1ToG5 } from '@lcw/guard';
 import type { ConsentScope, EdgePlatformDb, LessonDO, WorldDO } from './storage.js';
 import { indexedPrice } from './economy.js';
 import { claimReadAloud, isFurnitureKind, priceWithReadAloud, readAloudStatus } from './furniture.js';
-import { attemptReview, createMemoryCard, listMemoryCards, listReviewSigns, memoryCardId } from './review.js';
+import {
+  ITEM_PLACES,
+  attemptReview,
+  createMemoryCard,
+  holdThing,
+  landingPlace,
+  listItems,
+  listMemoryCards,
+  listRepairGear,
+  listReviewSigns,
+  memoryCardId,
+  pickRepairCard,
+  placeItem,
+  recordUseOfThing
+} from './review.js';
+import { listCollection } from './collection.js';
+import { readSettings, validateSettings, writeSettings } from './settings.js';
 import { applyErrandStep, getErrand } from './errand.js';
 import { plotStoreFor } from './plot.js';
 import { OPS_PER_REQUEST_MAX } from '@lcw/sim-core';
@@ -170,6 +186,16 @@ const ReadAloudBodySchema = z
   })
   .strict();
 
+const RepairPickBodySchema = z
+  .object({ player_id: z.string().min(1), world_id: z.string().min(1), item_id: z.string().min(1).max(200) })
+  .strict();
+const ItemEquipBodySchema = z
+  .object({ player_id: z.string().min(1), world_id: z.string().min(1), item_id: z.string().min(1).max(200), to: z.enum(ITEM_PLACES) })
+  .strict();
+const ItemUseBodySchema = z
+  .object({ player_id: z.string().min(1), world_id: z.string().min(1), item_key: z.string().min(1).max(80) })
+  .strict();
+
 const ReviewAttemptBodySchema = z
   .object({
     player_id: z.string().min(1),
@@ -278,6 +304,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     // Sentences with price 0 (barter, asking the way) sell nothing: the swap is the /trades settlement.
     let coinsDelta = 0;
     let grantedItem: string | null = null;
+    let grantedLocation: 'bag' | 'chest' | undefined;
     let askedKey: string | undefined;
     let shortOfCoins = false;
     let readAloudPct = 0;
@@ -328,11 +355,15 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
           grantedItem = itemKey;
         }
         if (grantedItem) {
+          // A new thing lands in the bag while it has a free slot, else in the home chest (docs/03 D13); saying the
+          // same purchase again keeps it where the child put it.
+          const place = landingPlace(worldDo, req.player_id, `buy-${ref}`);
+          grantedLocation = place === 'chest' ? 'chest' : 'bag';
           worldDo.grantOrSetItem(
             req.player_id,
             `buy-${ref}`,
             JSON.stringify({ kind: 'converse_purchase', item: itemKey, ctx: req.npc_ctx, stars: decision.stars }),
-            'bag'
+            place
           );
         }
       }
@@ -388,6 +419,12 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       deps.db.recordSoloExpressionReuse(req.player_id, req.transcript, nowMs);
     }
 
+    // docs/09 P4: a passed sentence that names a thing again is a use of every card about that thing.
+    if (decision.pass) {
+      const usedKey = grantedItem ?? askedKey;
+      if (usedKey) recordUseOfThing(deps.db, req.player_id, usedKey, nowMs);
+    }
+
     // docs/03 D8: a 2+ star sentence becomes a memory card bound to what it got (the bought item, or for price-0
     // sentences the thing it named). Nothing bought (short of coins) → nothing to wear out → no card.
     const cardItemId = grantedItem
@@ -417,7 +454,8 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
         ? {
             item_id: grantedItem,
             slot_or_socket: decision.bank?.entry.socket ?? 'slot_0',
-            coins_delta: coinsDelta
+            coins_delta: coinsDelta,
+            location: grantedLocation
           }
         : null,
       stars: decision.stars,
@@ -442,6 +480,69 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const worldId = c.req.query('world_id') ?? '';
     if (!playerId) return c.json({ error: 'player_id_required' }, 400);
     return c.json(listReviewSigns(deps.db, deps.worlds.get(worldId), playerId, deps.nowMs()));
+  });
+
+  // Repair NPC (docs/09 P4): stored gear with a card, and picking one opens its review (scored by /v1/review/attempt).
+  app.get('/v1/review/repair', (c) => {
+    const playerId = c.req.query('player_id') ?? '';
+    if (!playerId) return c.json({ error: 'player_id_required' }, 400);
+    return c.json(listRepairGear(deps.db, deps.worlds.get(c.req.query('world_id') ?? ''), playerId, deps.nowMs()));
+  });
+  app.post('/v1/review/repair/pick', async (c) => {
+    const parsed = RepairPickBodySchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: 'invalid_repair_pick', issues: parsed.error.issues }, 400);
+    const b = parsed.data;
+    const r = pickRepairCard(deps.db, deps.worlds.get(b.world_id), b.player_id, b.item_id, deps.nowMs());
+    if (!r.ok) return c.json({ error: r.error }, r.status);
+    return c.json(r);
+  });
+
+  // The child's things (G03 bag/chest, G04 mirror): list, carry/store, hold in hand. Server records only.
+  app.get('/v1/items', (c) => {
+    const playerId = c.req.query('player_id') ?? '';
+    if (!playerId) return c.json({ error: 'player_id_required' }, 400);
+    return c.json(listItems(deps.db, deps.worlds.get(c.req.query('world_id') ?? ''), playerId, deps.nowMs()));
+  });
+  app.post('/v1/items/equip', async (c) => {
+    const parsed = ItemEquipBodySchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: 'invalid_equip_request', issues: parsed.error.issues }, 400);
+    const b = parsed.data;
+    const world = deps.worlds.get(b.world_id);
+    if (!world) return c.json({ error: 'item_not_found' }, 404);
+    const r = placeItem(deps.db, world, b.player_id, b.item_id, b.to, deps.nowMs());
+    if (!r.ok) {
+      const { ok: _ok, status, ...err } = r;
+      return c.json(err, status);
+    }
+    return c.json(r);
+  });
+  app.post('/v1/items/use', async (c) => {
+    const parsed = ItemUseBodySchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: 'invalid_use_request', issues: parsed.error.issues }, 400);
+    const b = parsed.data;
+    return c.json({ ok: true, uses: holdThing(deps.db, deps.worlds.get(b.world_id), b.player_id, b.item_key, deps.nowMs()) });
+  });
+
+  // Collection books (docs/03 D12, G10): what exists from content, what was found from server records.
+  app.get('/v1/collection', (c) => {
+    const playerId = c.req.query('player_id') ?? '';
+    if (!playerId) return c.json({ error: 'player_id_required' }, 400);
+    return c.json(listCollection(deps.db, deps.worlds.get(c.req.query('world_id') ?? ''), playerId));
+  });
+
+  // Settings carried between the child's devices: checked for shape, stored as given (settings.ts).
+  app.get('/v1/settings', (c) => {
+    const playerId = c.req.query('player_id') ?? '';
+    if (!playerId) return c.json({ error: 'player_id_required' }, 400);
+    return c.json(readSettings(deps.db, playerId));
+  });
+  app.put('/v1/settings', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { player_id?: unknown; settings?: unknown } | null;
+    const playerId = typeof body?.player_id === 'string' ? body.player_id : '';
+    if (!playerId) return c.json({ error: 'player_id_required' }, 400);
+    const v = validateSettings(body?.settings);
+    if (!v.ok) return c.json({ error: 'invalid_settings', reason: v.error }, 400);
+    return c.json(writeSettings(deps.db, playerId, v.settings, deps.nowMs()));
   });
 
   // Read-aloud furniture discount (docs/03 D13): the build screen sends what the child read for one missing kind.

@@ -16,8 +16,9 @@ import { WorldHud } from './hud.js';
 import { makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
+import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, welcomeBackEn, buildHelpDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
 import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
@@ -417,7 +418,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     greetPending = false;
     const guide = npcs.get('guide');
     if (!playerName || !guide || Math.hypot(guide.pos.x - body.x, guide.pos.z - body.z) >= 14) return;
-    hud.bubble('guide', guide.def.nameKo, welcomeBackEn(playerName), {}, performance.now());
+    hud.bubble('guide', npcName(guide.def), welcomeBackEn(playerName), {}, performance.now());
     guide.char.wave();
     sfx.play('mp.bubble');
   };
@@ -773,6 +774,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     sfx.startAmbient();
   };
   hud.root.addEventListener('pointerdown', unlockOnce);
+  // Touch screens: the first pointerdown is not an activation yet, so open audio on the first pointerup/click too.
+  const stopAudioTap = onPageActivation(unlockOnce);
 
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -818,7 +821,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   function say(npcId: string, text: string, possessed: boolean): void {
     const n = npcs.get(npcId);
     if (!n) return;
-    hud.bubble(npcId, n.def.nameKo, text, { possessed }, performance.now());
+    hud.bubble(npcId, npcName(n.def), text, { possessed }, performance.now());
     n.char.speak(Math.min(6, 0.6 + text.length * 0.05));
     sfx.play('mp.bubble');
   }
@@ -1709,6 +1712,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       window.removeEventListener('resize', resize);
       resizeObs?.disconnect();
       canvas.removeEventListener('pointerdown', pointerDown);
+      stopAudioTap();
       canvas.removeEventListener('wheel', wheel);
       canvas.removeEventListener('contextmenu', contextMenu);
       plotSync?.stop();

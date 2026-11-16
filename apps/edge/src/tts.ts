@@ -59,11 +59,15 @@ export function parseVoice(id: string | null | undefined): NpcVoice | null {
 /** Every Aura speaker Workers AI offers (operator try only: picking the cast's voices). */
 export const AURA_SPEAKERS = ['angus', 'asteria', 'arcas', 'orion', 'orpheus', 'athena', 'luna', 'zeus', 'perseus', 'helios', 'hera', 'stella'] as const;
 
-/** A voice the operator may try: any Aura speaker or MeloTTS ("melo-en"). */
+/** Aura-2 English speakers (Deepgram aura-2-en on Workers AI). */
+export const AURA2_SPEAKERS = ['amalthea', 'andromeda', 'apollo', 'arcas', 'aries', 'asteria', 'athena', 'atlas', 'aurora', 'callista', 'cora', 'cordelia', 'delia', 'draco', 'electra', 'harmonia', 'helena', 'hera', 'hermes', 'hyperion', 'iris', 'janus', 'juno', 'jupiter', 'luna', 'mars', 'minerva', 'neptune', 'odysseus', 'ophelia', 'orion', 'orpheus', 'pandora', 'phoebe', 'pluto', 'saturn', 'selene', 'thalia', 'theia', 'vesta', 'zeus'] as const;
+
+/** A voice the operator may try: any Aura / Aura-2 speaker or MeloTTS ("melo-en"). */
 export function parseTryVoice(id: string | null | undefined): NpcVoice | null {
-  const m = /^(aura|melo)-([a-z]+)$/.exec(id ?? '');
+  const m = /^(aura2|aura|melo)-([a-z]+)$/.exec(id ?? '');
   if (!m) return null;
   if (m[1] === 'aura' && !(AURA_SPEAKERS as readonly string[]).includes(m[2]!)) return null;
+  if (m[1] === 'aura2' && !(AURA2_SPEAKERS as readonly string[]).includes(m[2]!)) return null;
   return { engine: m[1] as NpcVoice['engine'], speaker: m[2]! };
 }
 
@@ -92,7 +96,7 @@ export async function audioBytes(out: unknown): Promise<Uint8Array | null> {
 /** One synthesis call (no cache, no meter): the operator's try route and `makeLine` share it. */
 export async function synthesize(ai: TtsAi, voice: NpcVoice, text: string): Promise<Uint8Array | null> {
   const engine = voice.engine as TtsEngine;
-  const input = engine === 'aura' ? { text, speaker: voice.speaker, encoding: 'mp3' } : { prompt: text, lang: 'en' };
+  const input = engine === 'melo' ? { prompt: text, lang: 'en' } : { text, speaker: voice.speaker, encoding: 'mp3' };
   const bytes = await audioBytes(await ai.run(NEURAL_TTS.models[engine], input));
   return bytes && bytes.length > 64 ? bytes : null;
 }

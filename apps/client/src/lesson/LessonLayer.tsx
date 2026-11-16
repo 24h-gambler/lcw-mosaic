@@ -19,7 +19,7 @@ import { TOKENS } from '@lcw/ui';
 import { codeFromSearch, createStudentLessonApi, loadStudentSession, type DialogResult, type LessonOffer, type StudentLessonApi, type UtteranceSubmit } from './api.js';
 import { LessonController, goalTargetEn, initialLessonView, type LessonView, type LessonWorld } from './controller.js';
 import { MIC_BLOCKING_ERRORS, maskTarget, micUnreliable, pickHeard, type HeardAlternative } from './hint.js';
-import { LESSON_STRINGS as S, helpLine, lessonGoal } from './strings.js';
+import { LESSON_STRINGS as S, childNpcName, helpLine, lessonGoal } from './strings.js';
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
 import { SubmitError } from '../dialog/submit.js';
 import { TeacherPanel } from './TeacherPanel.js';
@@ -258,7 +258,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   }
 
   const npc = getLessonNpc(view.npcId);
-  const npcRef: LessonNpcRef = { id: view.npcId, ctx: npc?.ctx ?? 'guide', nameKo: npc?.nameKo ?? view.npcId, nameEn: npc?.nameEn ?? view.npcId };
+  const npcRef: LessonNpcRef = { id: view.npcId, ctx: npc?.ctx ?? 'guide', ...childNpcName(view.npcId) };
   const cfg: LessonDialogConfig = {
     level: view.level,
     mode: view.mode,

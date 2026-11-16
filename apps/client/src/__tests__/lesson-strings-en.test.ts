@@ -67,6 +67,17 @@ describe('the lesson layer reads the language the child learns, Korean only as t
     expect(Object.keys(PANEL_STRINGS_EN)).not.toContain('answers');
   });
 
+  it("an NPC has one name on every surface: the cast name the world's name plate shows, the role name as fallback", async () => {
+    const { childNpcName } = await import('../lesson/strings.js');
+    const { npcPersona } = await import('@lcw/content');
+    for (const id of ['guide', 'cafe_owner', 'shop_owner']) {
+      const p = npcPersona(id);
+      expect(childNpcName(id)).toEqual({ nameEn: p?.nameEn, nameKo: p?.nameKo });
+    }
+    expect(childNpcName('cafe_owner').nameEn).toBe('Hannah');
+    expect(childNpcName('nobody')).toEqual({ nameEn: 'nobody', nameKo: 'nobody' });
+  });
+
   it('every stage of every lesson plan has a short English goal with no Korean', async () => {
     const { LESSON_PLANS } = await import('@lcw/content');
     const stages = LESSON_PLANS.flatMap((p) => p.stages);

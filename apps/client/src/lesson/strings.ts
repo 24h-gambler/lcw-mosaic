@@ -1,5 +1,5 @@
 /** Korean copy for the lesson layer (the help line under the English, LESSON_STRINGS below) of the 3D client (AGENTS 6). No prices, payments or deadlines (AGENTS 4.9). */
-import { teacherLabel } from '@lcw/content';
+import { getLessonNpc, npcPersona, teacherLabel } from '@lcw/content';
 import { helpKoOn } from '../world/lang.js';
 export const LESSON_STRINGS_KO = {
   code: {
@@ -175,4 +175,14 @@ export function lessonGoal(en: string | undefined, ko: string): string {
 /** One line in the language the child learns, the Korean after a dot when the help is on (for tables outside this file). */
 export function helpLine(en: string, ko: string): string {
   return joinHelp(en, ko);
+}
+
+/**
+ * The name the child knows an NPC by: the cast name the world's name plate shows ("Hannah" · "카페 주인 해나"), the lesson
+ * role name ("Cafe owner") only when the cast has no entry. One name for one character on every surface.
+ */
+export function childNpcName(id: string): { nameEn: string; nameKo: string } {
+  const cast = npcPersona(id);
+  const npc = getLessonNpc(id);
+  return { nameEn: cast?.nameEn ?? npc?.nameEn ?? id, nameKo: cast?.nameKo ?? npc?.nameKo ?? id };
 }

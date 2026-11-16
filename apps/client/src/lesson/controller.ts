@@ -6,7 +6,6 @@
 import {
   LESSON_DIRECTOR_EVENTS,
   flushOutbox,
-  getLessonNpc,
   isRetryableStatus,
   newUtteranceClientId,
   outboxSessionStore,
@@ -32,7 +31,7 @@ import {
   type StudentSession,
   type UtteranceSubmit
 } from './api.js';
-import { lessonGoal } from './strings.js';
+import { childNpcName, lessonGoal } from './strings.js';
 
 export const LESSON_POLL_MS = 3_000;
 export const LESSON_RETRY_MAX_MS = 15_000;
@@ -446,8 +445,8 @@ export class LessonController {
       fresh.push({
         id: line.id,
         npcId: line.npc_id,
-        npcNameKo: getLessonNpc(line.npc_id)?.nameKo ?? line.npc_id,
-        npcNameEn: getLessonNpc(line.npc_id)?.nameEn ?? line.npc_id,
+        npcNameKo: childNpcName(line.npc_id).nameKo,
+        npcNameEn: childNpcName(line.npc_id).nameEn,
         text: line.text,
         possessed,
         at: line.at

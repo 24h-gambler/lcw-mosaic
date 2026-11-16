@@ -17,9 +17,9 @@ export interface ClipRecorder {
   abort(): void;
 }
 
-/** One turn is at most 12 s (docs/04 4.1); the recorder stops itself a little after that. */
-export const CLIP_MAX_MS = 12_500;
-/** Opus at 24 kbps: ~36 KB for 12 s — speech stays clear for a parent's ear, uploads stay small. */
+/** One turn is at most 60 s (client mic-controller HARD_TURN_MS, 11-16); the recorder stops itself a little after. */
+export const CLIP_MAX_MS = 60_500;
+/** Opus at 24 kbps: ~180 KB for 60 s (voice.ts VOICE_MAX_BYTES 256 KB) — clear for a parent's ear, small uploads. */
 export const CLIP_BITS_PER_SECOND = 24_000;
 /** Waiting longer than this for the recorder's last chunk gives up (the turn is never held up by the clip). */
 export const CLIP_STOP_WAIT_MS = 1_500;

@@ -532,7 +532,7 @@ function LessonPlay({
       const start = a.speechStart ?? a.tapAt;
       void send({
         target_text: target.text.slice(0, TARGET_TEXT_MAX),
-        transcript: pick.transcript.trim().slice(0, 400),
+        transcript: pick.transcript.trim().slice(0, 1000),
         chosen_stars: target.stars,
         hint_level: hintLevelFor(mode),
         latency_ms: clampMs(start - shownAt.current),
@@ -562,7 +562,7 @@ function LessonPlay({
     const typedAt = firstKeyAt.current ?? now();
     void send({
       target_text: card.text.slice(0, TARGET_TEXT_MAX),
-      transcript: text.slice(0, 400),
+      transcript: text.slice(0, 1000),
       chosen_stars: card.stars,
       hint_level: hintLevelFor(mode),
       latency_ms: clampMs(typedAt - shownAt.current),
@@ -799,7 +799,7 @@ function SpeakArea({
             aria-label={S.typeLabel}
             placeholder={S.typePlaceholder}
             value={typed}
-            maxLength={400}
+            maxLength={1000}
             autoCapitalize="sentences"
             autoCorrect="off"
             spellCheck={false}

@@ -164,3 +164,46 @@ P4와 P13은 크론 없이 돌아갑니다. 복습은 접속할 때 "지금 시�
 - 초대 링크 만들기: `node tools/family-invite.mjs --player <pid>` — 한 번 쓰는 7일짜리 `/family#k=…` 링크를 한 줄 찍기만 합니다. 보내는 일은 사람이 합니다(링크를 먼저 연 브라우저가 그 가족의 보호자 세션이 되므로 비밀번호처럼 다룹니다). 여러 개를 만들어도 되고, 쓰거나 지난 링크는 "invalid"일 뿐입니다.
 - 수업 뒤: `node tools/guardian-check.mjs --player <pid> [--lesson <id>]` — 수업이 끝났는지, 대시보드 줄(발화·통과·학생/선생님 분·학생 비율)과 리포트 숫자가 같은지, 우리 가족 첫 화면이 리포트를 보여 주는지, 전달 행·선생님 한마디·다음 수업 시각, 공개 리포트가 열리고 id·닉네임이 없는지, `/r/…` 페이지, `lesson_report` 알림이 큐에 있는지(스위치가 꺼져 있으면 `held`). 공개 리포트는 선생님 미리 보기(운영자 토큰)로 열어 보호자 "열람"을 쓰지 않습니다. 찍는 링크는 `/r/abcdef…`로 가립니다. FAIL이 있으면 종료 코드 1.
 - 학생별 CSV(수업 레인)와 보호자 화면은 같은 정의를 씁니다: 수업 한 줄 = `DashboardLesson`(`id`·`started_at`·`ended_at`·`duration_min`·`student_min`·`teacher_min`·`student_share`·`utterances`·`passes`·`report_path`, `apps/edge/src/dashboard.ts`). 아이 실명은 어디에도 없습니다(닉네임만, 공개 리포트는 닉네임도 가림).
+
+## 14. 운영 카드 (교사 허브 카드: 수업 뒤 요약 · 학생 하루 기록)
+
+Dan 11-16 결정: 수업 중 실시간 경보는 디렉터 콘솔이 이미 보여 주므로 허브 카드로 보내지 않습니다. 허브(척추)에는 카드 두 가지만 갑니다. 카드는 서버가 만듭니다(`apps/edge/src/ops-cards.ts`).
+
+| 카드 | 언제 | ref | 중요도 |
+|---|---|---|---|
+| 수업 뒤 요약 | 수업 종료(`POST /v1/admin/lessons/:id/end`)가 보고서를 만든 직후 | `outsourcing:lcw:lesson:<lesson_id>:summary` | 2 (수업이 끝났으니 폰이 울려도 됨) |
+| 학생 하루 기록 | 같은 때. 학생·날짜(한국 시간)마다 한 장이고, 그날 다음 수업이 끝나면 같은 ref 로 고쳐 씀 | `outsourcing:lcw:student:<player_id>:<YYYY-MM-DD>` | 1 (허브에만 보이고 울리지 않음) |
+
+카드에는 숫자·닉네임·id 만 담습니다. 시간·말한 횟수·통과·별·단어·말한 시간·단계·핀 수, 보고서 유무가 들어갑니다. 아이가 한 말 원문과 보호자 공유 링크(`/r/…`)는 넣지 않습니다. 버튼은 디렉터 콘솔 열기와 넘기기 두 개입니다.
+
+### 왜 서버가 척추로 바로 보내지 않는가 (11-16 실측)
+
+- 척추 `home-pc-vm.tail0c44c8.ts.net` 은 tailnet 전용입니다. 공개 DNS(1.1.1.1·8.8.8.8)에서 NXDOMAIN 이라 Cloudflare Worker 에서는 닿지 않습니다.
+- 척추를 Funnel 로 바깥에 여는 것은 Dan 지시로 막혀 있습니다(automation `docs/handbook/06-pipelines/weave.md`, `tools/weave_public.py` 가 '척추가 바깥에서 닿음' 을 이상으로 잽니다). 공개 Funnel 은 weave(소통방 서버) `:10000` 하나뿐이고 카드 입구가 아닙니다.
+- 그래서 **가져가기(pull)** 로 합니다. 서버는 카드를 '보낼 카드 함'(`ops_card_outbox`, 운영 플랫폼 SQLite)에 넣고, 척추 쪽이 운영자 열쇠로 가져가 올린 뒤 받았다고(ack) 알립니다. Cloudflare 쪽에 척추 비밀이 없고, 실패하면 함에 남아 다음에 다시 갑니다.
+
+### 함 경로 (운영자 열쇠)
+
+- `GET /v1/admin/outbox/cards?limit=50` → `{ cards: [{ ref, updated_at, card }], server_now }`. 아직 받았다고 하지 않은 카드만, 오래된 것부터 줍니다. 받은 지 30일 지난 줄은 이때 지웁니다.
+- `POST /v1/admin/outbox/cards/ack` `{ items: [{ ref, updated_at, spine_id? }] }` → `{ acked }`. 가져간 판(`updated_at`)만 받음으로 칩니다. 가져간 뒤 카드가 고쳐졌으면 함에 남아 다시 갑니다.
+- 같은 카드를 다시 넣어도 내용이 같으면 그대로 둡니다(받은 카드가 다시 가지 않음). 수업 종료를 두 번 눌러도(다른 기기·두 번 탭) 새 카드가 생기지 않습니다.
+
+### 지금 중계 (오늘부터): 집 PC 작업 `LCW-LessonWatch`
+
+`node tools/lesson-watch.mjs --relay --from 15:00 --to 17:30 --every 5` 를 씁니다. 수업 창 동안 5분마다, 그리고 창이 끝난 뒤 한 번 더 함을 가져가 척추에 올립니다.
+
+- 출처 보정과 천장은 수업 감시와 같은 규칙을 씁니다(`readAdjust`·`planSettle`·`settleImportance`). 올리기 전에 척추가 이 출처에 더할 보정의 위 한계를 읽고, 그만큼 낮춰 요청한 뒤 위로만 올립니다. 카드 중요도를 넘지 않고, 함 카드는 어떤 경우에도 2를 넘지 않습니다(`RELAY_MAX_IMPORTANCE`).
+- 2 이상에만 앉을 수 있는 중요도 1 카드는 그 차례에 올리지 않고(`card_skipped_high`) 함에 남깁니다.
+- 받았다고 알리는 데 실패하면 다음 차례에 다시 올립니다. 척추는 같은 (source, ref) 의 열린 카드를 고쳐 쓰므로 두 장이 되지 않습니다.
+- 기록 파일:
+  - `<out>/lesson-watch-relay-YYYYMMDD.jsonl` — 차례마다 가져옴·올림·받음·건너뜀·실패 수와 읽은 보정
+  - `<out>/lesson-watch-alerts.jsonl` — 카드 단위 문제
+
+**두 번 가지 않게**: 함을 올리는 쪽은 언제나 하나입니다. 11-16 사본 갱신 때 `run-lesson-watch.cmd` 를 `--relay` 로 바꿉니다. 그 뒤 이 작업은 예전 실시간 경보 카드와 창 끝 요약 카드를 더 만들지 않습니다(그 코드는 `--relay` 없이 돌릴 때만 씁니다). 예전 실행이 남긴 카드(`outsourcing:lcw:watch:…`)와 새 카드는 ref 가 달라 서로 덮지 않습니다.
+
+### 다음 (척추 #986 배포 뒤): 척추가 직접 가져가기
+
+- 척추 수집기 하나가 같은 두 경로를 몇 분마다 부르고, `add(..., ceiling=card.importance)` 로 올립니다. 이렇게 하면 출처 보정·mute 를 척추 안에서 정확히 지키고, 비밀은 VM 의 LCW 운영자 열쇠 하나입니다.
+- 그다음 집 PC 작업 `LCW-LessonWatch` 를 내립니다. 그러면 부품은 서버(카드 만들기)와 척추(가져가기) 둘만 남습니다.
+- 바꾸는 순서: 척추 수집기를 켬 → 하루 동안 두 쪽이 같은 ref 로 올리는지 확인(척추가 고쳐 써서 한 장) → 작업 내리기.
+- 수업 창 밖에 끝난 수업이나 혼자 놀이도 그날 안에 카드가 되게 하려면 매시 크론(`0 * * * *`)이 그날 말한 학생의 하루 기록을 다시 넣게 합니다. 이건 척추가 직접 가져가게 된 뒤에 붙입니다(집 PC 중계는 수업 창에만 돕니다).

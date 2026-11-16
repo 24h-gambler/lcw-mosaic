@@ -543,6 +543,14 @@ export function buildHelpDesktopFor(k: Readonly<KeyHintLabels>): string {
   );
 }
 
+/** A friend's plot (main #123) with the player's undo key. */
+export function buildHelpGuestDesktopFor(k: Readonly<KeyHintLabels>): string {
+  return joinHelp(
+    `Your friend's plot! Right-click place · Hold left-click to break what you placed · 1-5 pick · ${k.undo} undo`,
+    `친구 부지예요! 오른쪽 클릭 놓기 · 내가 놓은 것만 왼쪽 길게 눌러 부수기 · 1~5 고르기 · ${k.undo} 되돌리기`
+  );
+}
+
 /** A townsperson's name over their speech bubble: the English name, the Korean one after it with the help on. */
 export function npcName(def: { nameEn: string; nameKo: string }): string {
   return joinHelp(def.nameEn || def.nameKo, def.nameKo);
@@ -573,6 +581,8 @@ const NAME_PAIRS: ReadonlyMap<string, Bi> = (() => {
   add(SCENE_TITLES_KO_EN, SCENE_TITLES_KO_SRC);
   add(SECTOR_NAMES_KO_EN, SECTOR_NAMES_KO_SRC);
   add(BAND_NAMES_KO_EN, BAND_NAMES_KO_SRC);
+  // a friend's plot is a scene title too (engine sceneTitle, main #123)
+  add({ friendPlot: WORLD_STRINGS_EN.friendPlot }, { friendPlot: WORLD_STRINGS_KO.friendPlot });
   return m;
 })();
 export function nameBi(name: string | null | undefined): Bi | null {

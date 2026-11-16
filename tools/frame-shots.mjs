@@ -41,11 +41,19 @@ async function passTitle(page) {
     await start.first().click({ timeout: 3000 }).catch(() => {});
     await page.waitForTimeout(2500);
   }
-  for (const label of ['건너뛰기', '좋아요, 출발!']) {
-    const b = page.getByRole('button', { name: label });
-    if (await b.count()) await b.first().click({ timeout: 2000 }).catch(() => {});
-  }
+  await dismissCards(page);
   await page.waitForTimeout(600);
+}
+/** The first-visit / mic card (dialog domain, English since #111) can come up a little later: close it like a child. */
+async function dismissCards(page) {
+  let hit = false;
+  for (const name of [/^(건너뛰기|Skip)$/, /^(좋아요, 출발!|OK, let's go!)$/]) {
+    const b = page.getByRole('button', { name });
+    if (await b.count()) {
+      await b.first().click({ timeout: 2000 }).then(() => (hit = true)).catch(() => {});
+    }
+  }
+  if (hit) await page.waitForTimeout(500);
 }
 const fails = [];
 const report = [];
@@ -55,6 +63,7 @@ const check = (vp, ok, what) => {
 const overlap = (a, b) => a && b && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
 async function boxes(page) {
+  await dismissCards(page);
   return page.evaluate(() => {
     const r = (e) => {
       if (!e) return null;
@@ -120,6 +129,7 @@ for (const vp of VIEWPORTS) {
   // 1. start: status line, coins, explained empty bar
   // the empty-bar line shows for 6 s after loading; a busy machine can get here later, so pick slot 1 to bring it back
   const capOn = () => page.evaluate(() => document.querySelector('.lw-cap')?.classList.contains('on') ?? false);
+  await dismissCards(page);
   if (!(await capOn())) {
     await page.keyboard.press('Digit1');
     await page.waitForTimeout(400);

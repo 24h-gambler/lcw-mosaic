@@ -268,3 +268,15 @@ describe('every thing the server names has an English title (apps/edge/src/revie
     expect(itemTitleBi('water')).toEqual({ en: 'Water', ko: '물' });
   });
 });
+
+describe("a friend's plot and the build help follow the language and the keys (main #123, #126)", () => {
+  it("splits the friend's plot title like any scene and puts the player's undo key in the guest help", async () => {
+    const { buildHelpGuestDesktopFor, DEFAULT_KEY_HINTS } = await import('../world/strings.js');
+    expect(placeBi(WORLD_STRINGS.friendPlot, 'surface')).toEqual({ en: "Friend's Plot · Ground", ko: null });
+    expect(buildHelpGuestDesktopFor({ ...DEFAULT_KEY_HINTS, undo: 'U' })).toContain('U undo');
+    expect(HANGUL.test(buildHelpGuestDesktopFor(DEFAULT_KEY_HINTS))).toBe(false);
+    setHelpKo(true);
+    expect(placeBi(WORLD_STRINGS.friendPlot, 'surface')).toEqual({ en: "Friend's Plot · Ground", ko: '친구 부지 · 지상' });
+    expect(buildHelpGuestDesktopFor({ ...DEFAULT_KEY_HINTS, undo: 'U' })).toContain('U 되돌리기');
+  });
+});

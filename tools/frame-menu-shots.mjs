@@ -132,7 +132,7 @@ for (const vp of VIEWPORTS) {
     await start.first().click({ timeout: 3000 }).catch(() => {});
     await page.waitForTimeout(2500);
   }
-  for (const label of ['건너뛰기', '좋아요, 출발!', 'Skip']) {
+  for (const label of ['건너뛰기', '좋아요, 출발!', 'Skip', "OK, let's go!"]) {
     const b = page.getByRole('button', { name: label });
     if (await b.count()) await b.first().click({ timeout: 2000 }).catch(() => {});
   }

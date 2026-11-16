@@ -18,7 +18,7 @@ import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
 import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
@@ -1173,7 +1173,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (want !== buildActive) {
       buildActive = want;
       const guest = !!builder.guestCells;
-      buildHud?.setActive(want, guest ? (touch ? W.buildHelpGuestTouch : W.buildHelpGuestDesktop) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
+      buildHud?.setActive(want, guest ? (touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints)) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
       buildHud?.setSync(buildAccess === 'saved' ? (plotSync?.status === 'offline' ? 'offline' : plotSync && plotSync.pending > 0 ? 'saving' : 'saved') : buildAccess === 'loading' ? 'loading' : buildAccess === 'local' ? 'local' : 'idle');
       if (want) refreshBuildSlots();
       else {
@@ -1236,7 +1236,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     builder.guestCells = a.kind === 'saved' && 'pass' in a && a.pass ? new Set() : null;
     if (currentScene === 'build_plot') hud.setScene(sceneTitle(currentScene));
     // the help line follows who owns the plot (shown again on the next entry)
-    if (buildActive) buildHud?.setActive(true, builder.guestCells ? (touch ? W.buildHelpGuestTouch : W.buildHelpGuestDesktop) : touch ? W.buildHelpTouch : W.buildHelpDesktop);
+    if (buildActive) buildHud?.setActive(true, builder.guestCells ? (touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints)) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
     buildToken = own ? { token: a.token, base: a.base } : null;
     // the showroom is the plot owner's (a lesson student's and a guest's never)
     buildHud?.setShowroomVisible(own);

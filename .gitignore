@@ -9,3 +9,4 @@ coverage/
 .DS_Store
 Thumbs.db
 apps/edge/public/
+shots/nightly/

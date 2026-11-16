@@ -155,6 +155,21 @@ describe('director console: 승인 대기 (DirectorSignups.tsx)', () => {
     expect(html).toContain('<option value="" selected="">');
   });
 
+  it('two students with the sign-up name: no pick, one line asking the teacher to choose', () => {
+    const now = Date.parse('2026-11-16T06:00:00Z');
+    const html = renderToStaticMarkup(
+      React.createElement(SignupQueue, {
+        token: 'op',
+        now: () => now,
+        pollMs: 1e9,
+        initialSignups: [{ id: 'sg-4', nickname: 'mina', created_at: now - 60_000, expires_at: now + 1e7, family_students: [], match: null, match_ambiguous: true }],
+        initialStudents: [{ player_id: 'stu-mina-1', nickname: 'Mina', level: 'L1' } as never, { player_id: 'stu-mina-2', nickname: 'Mina', level: 'L1' } as never]
+      })
+    );
+    expect(html).toContain(Q.ambiguous('mina').replace(/'/g, '&#x27;'));
+    expect(html).toContain('<option value="" selected="">');
+  });
+
   it('empty queue says where sign-ups come from', () => {
     const html = renderToStaticMarkup(React.createElement(SignupQueue, { token: 'op', pollMs: 1e9 }));
     expect(html).toContain(Q.empty);

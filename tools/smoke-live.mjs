@@ -57,7 +57,7 @@ if (token) {
   });
 }
 const BROWSER_UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
-for (const page of ['/', '/try', '/parents', '/game/']) {
+for (const page of ['/', '/try', '/parents', '/world/']) {
   await check(`page ${page}`, async () => {
     const r = await req(page, { headers: { accept: 'text/html', 'user-agent': BROWSER_UA, 'accept-encoding': 'gzip, br' } });
     expect(r.status === 200, `status ${r.status}`);

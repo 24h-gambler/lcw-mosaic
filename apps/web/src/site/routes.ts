@@ -82,7 +82,7 @@ export function prerenderPaths(): string[] {
 }
 
 /**
- * Share picture per page (docs/14 §11 "페이지별 대표 그림"): 1200×630 JPEGs captured from the real /game
+ * Share picture per page (docs/14 §11 "페이지별 대표 그림"): 1200×630 JPEGs captured from the real /world
  * (tools/site-captures.mjs). Stable names under /og/ so KakaoTalk and search keep their cached copies valid.
  */
 export type ShareImage = 'home' | 'parents' | 'play' | 'try' | 'tutoring' | 'learn-cafe' | 'learn-trade' | 'learn-build' | 'showroom';

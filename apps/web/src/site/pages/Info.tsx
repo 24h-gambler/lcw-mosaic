@@ -85,7 +85,7 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }): React.ReactE
   );
 }
 
-/** Guest pass code: 6 digits or the invite token format used by /game (letters, digits, dashes). */
+/** Guest pass code: 6 digits or the invite token format used by /world (letters, digits, dashes). */
 export function normalizePassCode(raw: string): string | null {
   const c = raw.trim().replace(/\s+/g, '');
   return /^[A-Za-z0-9-]{4,32}$/.test(c) ? c : null;
@@ -101,7 +101,7 @@ export function PassPage(): React.ReactElement {
       setBad(true);
       return;
     }
-    window.location.assign(`/game/?pass=${encodeURIComponent(c)}`);
+    window.location.assign(`/world/?pass=${encodeURIComponent(c)}`);
   };
   return (
     <section className="s-hero">

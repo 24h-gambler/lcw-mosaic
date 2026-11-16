@@ -108,7 +108,7 @@ export const PARENT_STRINGS_KO = {
     reportCloseConfirm: '이 리포트 링크를 닫을까요? 링크를 받은 누구도 더 이상 열 수 없습니다.',
     reportState: { opened: '열어 봄', unopened: '아직 안 열어 봄', expired: '30일 지남', revoked: '링크 닫음' },
     addTitle: '아이 추가',
-    addNickname: '게임 안에서 쓸 별명',
+    addNickname: '월드 안에서 쓸 별명',
     addNicknameNote: '실명 대신 별명을 써 주세요. 다른 사람에게 보일 수 있습니다.',
     addBirthYear: '태어난 해',
     addSubmit: '아이 추가하기',
@@ -269,7 +269,7 @@ export const PARENT_STRINGS_KO = {
     tooMany: '시도가 너무 많아요. 잠시 뒤에 다시 해 주세요.',
     network: '인터넷 연결을 확인하고 다시 해 주세요.',
     defaultLabel: '아이 기기',
-    goGame: '게임 시작하기',
+    goGame: '월드 들어가기',
     relink: '다른 코드로 다시 연결하기'
   },
   /** Guardian seat section on /family (WP-704, docs/01 §4, docs/09 P6). Amounts appear only to the payer. */

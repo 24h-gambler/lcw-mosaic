@@ -749,12 +749,12 @@ describe('/director live console', () => {
 /* ---------- 10. docs/19: 3D default, /join fallback ---------- */
 
 describe('join links (docs/19 §4)', () => {
-  it('lists /game/?code= and /join?code=, fallback first until the 3D lesson join is ready', () => {
+  it('lists /world/?code= and /join?code=, fallback first until the 3D lesson join is ready', () => {
     expect(studentJoinLinks('https://x', '482913', false).map((l) => l.url)).toEqual([
       'https://x/join?code=482913',
-      'https://x/game/?code=482913'
+      'https://x/world/?code=482913'
     ]);
-    expect(studentJoinLinks('https://x', '482913', true)[0]).toEqual({ kind: '3d', url: 'https://x/game/?code=482913' });
+    expect(studentJoinLinks('https://x', '482913', true)[0]).toEqual({ kind: '3d', url: 'https://x/world/?code=482913' });
   });
 
   it('reads ?code= on /join and the screen says it is the fallback', () => {
@@ -768,7 +768,7 @@ describe('join links (docs/19 §4)', () => {
       React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: LESSON_REC, initialFeed: FEED })
     );
     expect(dir).toContain('/join?code=482913');
-    expect(dir).toContain('/game/?code=482913');
+    expect(dir).toContain('/world/?code=482913');
   });
 
   it('the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines', () => {

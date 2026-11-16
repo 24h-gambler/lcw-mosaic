@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { buildLessonModeApp, studentFromRequest } from './lesson-mode.js';
 import { playAllowed, sweepSeatNotices } from './seats.js';
+import { legacyWorldRedirect } from './world-path.js';
 import {
   VOICE_PUBLIC_ROUTES,
   buildVoiceApp,
@@ -40,7 +41,7 @@ import { EdgePlatformDb, LessonDO, WorldDO, type SqliteExecutor } from './storag
 /**
  * Production platform (entry module: worker.ts). One SQLite Durable Object ("platform") holds the relational
  * data that docs/02 §9.1 puts in D1 plus every world (table-prefixed). The synchronous DO SQL API
- * lets the tested storage code run unchanged. Static pages (apps/web at /, apps/client at /game/)
+ * lets the tested storage code run unchanged. Static pages (apps/web at /, apps/client at /world/)
  * are served by Workers static assets; only /v1/* and /health reach this code.
  */
 
@@ -814,6 +815,9 @@ function platformStub(env: LcwEnv): DoStub {
 
 async function routeWorkerRequest(request: Request, env: LcwEnv): Promise<Response> {
   const url = new URL(request.url);
+  // The world moved from /game/ to /world/ (world-path.ts): old lesson and pass links keep their query.
+  const moved = legacyWorldRedirect(url);
+  if (moved) return moved;
   if (url.pathname === '/health' || url.pathname.startsWith('/v1/')) {
     return platformStub(env).fetch(request);
   }

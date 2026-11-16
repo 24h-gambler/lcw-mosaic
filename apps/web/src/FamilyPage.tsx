@@ -449,7 +449,7 @@ export function DeviceLinkPage({ api }: { api?: FamilyApi }): React.ReactElement
         <Box title={LK.title} testId="device-linked">
           <Notice kind="ok">{msg?.kind === 'ok' ? msg.text : LK.already(linked)}</Notice>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), marginTop: sp(3) }}>
-            <Button type="button" variant="brand" onClick={() => window.location.assign('/game/')}>
+            <Button type="button" variant="brand" onClick={() => window.location.assign('/world/')}>
               {LK.goGame}
             </Button>
             <Button

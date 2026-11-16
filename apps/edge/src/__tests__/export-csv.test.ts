@@ -128,7 +128,7 @@ describe('operator CSV exports (GET /v1/admin/export/*)', () => {
       lesson_id: a.lessonId,
       player_id: 'kid-1',
       session_kind: 'lesson',
-      mode: '',
+      mode: 'guided',
       stage_id: 'cafe_order',
       target_text: 'Can I have a warm honey tea?',
       heard_text: 'can I have a warm honey tea',

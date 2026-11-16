@@ -62,7 +62,7 @@ function injectStyle(): void {
 .lcw-make h1{margin:0;font-size:${T.scale.h2.sizePx}px;line-height:${T.scale.h2.lineHeightPx}px}
 .lcw-make p{margin:0}
 .lcw-make__name{height:52px;border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;font-size:${T.scale.h3.sizePx}px;padding:0 12px;font-family:${T.fonts.ui};width:100%;box-sizing:border-box}
-.lcw-make__row{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:8px}
+.lcw-make__row{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:8px}
 .lcw-make__label{font-weight:800;font-size:${T.scale.body.sizePx}px;margin-bottom:6px}
 .lcw-opt{min-height:88px;border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusCardPx}px;background:${C['paper-0']};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;font-family:${T.fonts.ui};color:${C['ink-900']};padding:6px 4px}
 .lcw-opt b{font-size:${T.scale['body-l'].sizePx}px}

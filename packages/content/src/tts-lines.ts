@@ -1,6 +1,7 @@
 import { ECHO_TRANSITION_LINE, FIRST_ERRAND, NPC_GENERIC_REACTIONS, NPC_OPENING_LINES, OPEN_ENDED_PROMPTS, PHRASE_BANK } from './lang-en-ko.js';
 import { npcCast, voiceForCtx, type NpcVoice } from './npc-cast.js';
 import { TRY_CAFE_OFFERS } from './try-order.js';
+import { adventureFixedLines } from './adventure.js';
 
 /**
  * English the public site speaks (apps/web: /try cafe owner, 🔊 buttons on the pages). Kept here so the server can
@@ -79,5 +80,7 @@ export function fixedTtsLines(lang: string = 'en'): TtsLine[] {
   const cafe = voiceForCtx('cafe', lang);
   for (const line of SITE_SPOKEN_LINES.npc) add(line, cafe);
   for (const line of SITE_SPOKEN_LINES.model) add(line, model);
+  // The /adventure/ islanders and its built-in sentences (docs/22 3장), last so the prebuild reaches the world first.
+  for (const l of adventureFixedLines(lang)) add(l.text, l.voice);
   return out;
 }

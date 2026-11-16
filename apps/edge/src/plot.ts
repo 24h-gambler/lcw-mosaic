@@ -33,7 +33,8 @@ export const PLOT_SCHEMA_SQL = `
 create table if not exists plot_cells (x integer not null, y integer not null, z integer not null, id integer not null, primary key (x, y, z));
 create table if not exists plot_furniture (x integer not null, y integer not null, z integer not null, k text not null, rot integer not null, primary key (x, y, z));
 create table if not exists plot_inv (player text primary key, data text not null, rev integer not null);
-create table if not exists plot_journal (seq integer primary key autoincrement, at integer not null, actor text not null, batch text, ops text not null, results text not null)
+create table if not exists plot_journal (seq integer primary key autoincrement, at integer not null, actor text not null, batch text, ops text not null, results text not null);
+create table if not exists plot_guest_cells (grant_id text not null, x integer not null, y integer not null, z integer not null, primary key (grant_id, x, y, z))
 `;
 
 let basePlot: VoxelWorld | null = null;
@@ -72,6 +73,8 @@ export class PlotStore {
   private state: PlotState;
   private rev = 0;
   private readonly bucket: EditBucket;
+  /** each guest pass builds at its own pace, so a friend never spends the host's (docs/19 §8) */
+  private readonly guestBuckets = new Map<string, EditBucket>();
 
   constructor(
     private readonly sql: SqliteExecutor,
@@ -134,12 +137,17 @@ export class PlotStore {
   /**
    * Run a batch of raw ops from the child's device. Each op is judged on its own (a refused op does not undo the
    * ones before it); the whole batch's effect is saved in one transaction.
+   *
+   * `guestGrant`: the ops come from a friend on a guest pass in this child's world (docs/19 §8). The friend builds with
+   * the host's carried blocks and may break only what they placed under this pass: the host's own build, the chest
+   * and the slots are never theirs to change ('not_yours'). Their cells are remembered per pass.
    */
-  applyOps(rawOps: unknown[], nowMs: number, opts: { simulateCrashMidTx?: boolean; batch?: string } = {}): PlotOpsResult {
+  applyOps(rawOps: unknown[], nowMs: number, opts: { simulateCrashMidTx?: boolean; batch?: string; guestGrant?: string } = {}): PlotOpsResult {
     const batch = typeof opts.batch === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(opts.batch) ? opts.batch : null;
     if (batch) {
       // The same batch sent again (the reply was lost, or the app closed mid-request): answer what it did then.
-      const seen = this.sql.get<{ results: string }>('select results from plot_journal where batch = ? and actor = ?', [batch, this.playerId]);
+      const actor = opts.guestGrant ? `guest:${opts.guestGrant}` : this.playerId;
+      const seen = this.sql.get<{ results: string }>('select results from plot_journal where batch = ? and actor = ?', [batch, actor]);
       if (seen) {
         const results = JSON.parse(seen.results) as PlotOpsResult['results'];
         return { results, processed: results.length, inv: this.state.inv, rev: this.rev };
@@ -149,19 +157,31 @@ export class PlotStore {
     const results: PlotOpsResult['results'] = [];
     const touched = new Set<string>();
     const touchedFurniture = new Set<string>();
+    /** cells this guest placed (true) or broke again (false) in this batch */
+    const guestPlaced = new Map<string, boolean>();
     for (const raw of ops) {
       const op = parsePlotOp(raw);
       if (!op) {
         results.push({ ok: false, reason: 'bad_op' });
         continue;
       }
-      if ((op.op === 'place' || op.op === 'break') && !this.bucket.take(nowMs)) break;
+      const guest = opts.guestGrant;
+      if (guest) {
+        const mine = op.op === 'break' && (guestPlaced.get(cellKey(op.x, op.y, op.z)) ?? this.guestCell(guest, op.x, op.y, op.z));
+        if (op.op !== 'place' && !mine) {
+          results.push({ ok: false, reason: 'not_yours' });
+          continue;
+        }
+      }
+      const pace = guest ? this.guestBucket(guest, nowMs) : this.bucket;
+      if ((op.op === 'place' || op.op === 'break') && !pace.take(nowMs)) break;
       const r = applyPlotOp(this.state, this.playerId, op);
       results.push(r.ok ? { ok: true } : { ok: false, reason: r.reason });
       if (r.ok && (op.op === 'place' || op.op === 'break')) {
         const k = cellKey(op.x, op.y, op.z);
         touched.add(k);
         touchedFurniture.add(k);
+        if (guest) guestPlaced.set(k, op.op === 'place');
       }
     }
     const processed = results.length;
@@ -190,12 +210,24 @@ export class PlotStore {
               [x, y, z, f.key, f.rot]
             );
         }
+        // the host changed a cell a friend had placed: it is the host's again (no friend may break what the host rebuilt)
+        if (!opts.guestGrant) {
+          for (const k of touched) {
+            const [x, y, z] = k.split(',').map(Number) as [number, number, number];
+            this.sql.run('delete from plot_guest_cells where x = ? and y = ? and z = ?', [x, y, z]);
+          }
+        }
+        for (const [k, placed] of guestPlaced) {
+          const [x, y, z] = k.split(',').map(Number) as [number, number, number];
+          if (placed) this.sql.run('insert or ignore into plot_guest_cells (grant_id, x, y, z) values (?, ?, ?, ?)', [opts.guestGrant!, x, y, z]);
+          else this.sql.run('delete from plot_guest_cells where grant_id = ? and x = ? and y = ? and z = ?', [opts.guestGrant!, x, y, z]);
+        }
         if (opts.simulateCrashMidTx) throw new Error('simulated_tx_abort');
         const nextRev = this.rev + 1;
         this.sql.run('insert or replace into plot_inv (player, data, rev) values (?, ?, ?)', [this.playerId, JSON.stringify(this.state.inv), nextRev]);
         this.sql.run('insert into plot_journal (at, actor, batch, ops, results) values (?, ?, ?, ?, ?)', [
           nowMs,
-          this.playerId,
+          opts.guestGrant ? `guest:${opts.guestGrant}` : this.playerId,
           // a resent batch is answered from here (a partial one again says how many ops it took)
           batch,
           JSON.stringify(ops.slice(0, processed)),
@@ -237,6 +269,28 @@ export class PlotStore {
       throw err;
     }
     return true;
+  }
+
+  /** The cells a guest pass placed here and may break again (the snapshot a friend gets carries them). */
+  guestCells(grant: string): Array<[number, number, number]> {
+    return this.sql
+      .all<{ x: number; y: number; z: number }>('select x, y, z from plot_guest_cells where grant_id = ? order by y, z, x', [grant])
+      .map((r) => [Number(r.x), Number(r.y), Number(r.z)]);
+  }
+
+  private guestBucket(grant: string, nowMs: number): EditBucket {
+    let b = this.guestBuckets.get(grant);
+    if (!b) {
+      // a few passes a month per seat: keep only the latest handful
+      if (this.guestBuckets.size >= 8) this.guestBuckets.delete(this.guestBuckets.keys().next().value!);
+      b = new EditBucket(nowMs);
+      this.guestBuckets.set(grant, b);
+    }
+    return b;
+  }
+
+  private guestCell(grant: string, x: number, y: number, z: number): boolean {
+    return !!this.sql.get('select 1 as one from plot_guest_cells where grant_id = ? and x = ? and y = ? and z = ?', [grant, x, y, z]);
   }
 
   /** For tests and the room check on the server. */

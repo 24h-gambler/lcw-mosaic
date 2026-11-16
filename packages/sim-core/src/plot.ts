@@ -122,7 +122,9 @@ export type PlotEditReason =
   | 'no_support'
   | 'bag_full'
   | 'bad_op'
-  | 'rate';
+  | 'rate'
+  /** a guest-pass visitor tried to break what the host built, or to use the host's chest (docs/19 §8) */
+  | 'not_yours';
 
 export function isInPlot(world: VoxelWorld, x: number, z: number): boolean {
   const p = world.plot;

@@ -170,7 +170,7 @@ describe('adventure progress (one island per lesson day)', () => {
     expect(earlierWords(p, 4)).toEqual(['puppy']);
   });
 
-  it('a worse replay keeps the island's best play for the guardian summary', () => {
+  it("a worse replay keeps the island's best play for the guardian summary", () => {
     const play = (outcome: 'spared' | 'fought') => {
       const r = startRecord(1, 1, [], 0);
       r.outcome = outcome;

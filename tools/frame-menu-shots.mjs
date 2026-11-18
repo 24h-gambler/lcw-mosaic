@@ -1,11 +1,14 @@
 // Headless real-screen check of the player menu (docs/08 8.6 G03 G04 G06 G10 G11 G14) at 1440 / 1024 / 390 / 844x390,
 // as a linked child whose server answers are fixtures (page.route): the server bag on the hotbar, the menu button by
 // the hotbar, every tab without sideways overflow, a bag → chest move request, the repair review window.
+// The menu words are in the screen language (English, the learn language); KO_HELP=1 turns Korean help on and checks the Korean lines under
+// the tab labels and titles (expected words: tools/frame-lang-expect.mjs).
 // Fails (exit 1) on a broken rule. Headless only, audio muted, no window.
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/frame-menu-shots.mjs http://127.0.0.1:8982/game/ shots/frame-menu
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { COPY, COPY_KO, FRAME_LANG, KO_HELP, KO_HELP_SHOWN, cacheWebFonts, inScreenLang, langInitScript } from './frame-lang-expect.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8982/game/';
 const out = process.argv[3] ?? 'shots/frame-menu';
@@ -41,13 +44,14 @@ function fixtures() {
     items,
     collection: {
       books: [
-        { id: 'food', total: 6, found: 2, entries: [e('honey_tea', '꿀차', '🍯', true), e('cookie', '쿠키', '🍪', true), e('cake', '케이크', '🍰', false), e('bread', '빵', '🍞', false), e('apple', '사과', '🍎', false), e('banana', '바나나', '🍌', false)] },
+        { id: 'food', total: 6, found: 2, entries: [e('honey_tea', '꿀차', '🍯', true), e('milk', '우유', '🥛', true), e('water', '물', '💧', false), e('tea', '차', '🍵', false), e('juice', '주스', '🧃', false), e('smoothie', '스무디', '🥤', false)] },
         { id: 'expressions', total: 2, found: 1, entries: [e('e1', 'Can I have a honey tea?', '💬', true), e('e2', '-', '💬', false)] },
         { id: 'blocks', total: 3, found: 0, entries: [e('b1', '돌', '🪨', false), e('b2', '나무', '🪵', false), e('b3', '벽돌', '🧱', false)] }
       ],
       achievements: [
-        { id: 'a1', name_ko: '첫 주문', done: true },
-        { id: 'a2', name_ko: '블록 100개 놓기', done: false, progress: 30, goal: 100 }
+        // the server's ids and Korean names (apps/edge/src/collection.ts); the screen shows English by id
+        { id: 'first_order', name_ko: '첫 주문', done: true, progress: 1, goal: 1 },
+        { id: 'blocks_100', name_ko: '블록 100개 설치', done: false, progress: 30, goal: 100 }
       ]
     },
     repair: {
@@ -93,6 +97,8 @@ for (const vp of VIEWPORTS) {
       /* storage blocked */
     }
   });
+  await langInitScript(ctx);
+  await cacheWebFonts(ctx);
   await ctx.route('**/v1/**', async (route) => {
     const req = route.request();
     const p = new URL(req.url()).pathname;
@@ -116,20 +122,28 @@ for (const vp of VIEWPORTS) {
     return json({ error: 'not_in_fixture' }, 404);
   });
   const page = await ctx.newPage();
+  // a busy machine: screenshots wait for fonts, clicks for frames; 30 s was not always enough
+  page.setDefaultTimeout(90000);
   const errs = [];
   page.on('pageerror', (er) => errs.push(`pageerror: ${er.message.slice(0, 200)}`));
   await page.goto(base, { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
   await page.waitForTimeout(1500);
   // the title screen (world lane) and the first-visit / mic cards (dialog domain): step past them like a child would
+  // the title can come up a moment after the load bar, and a click can take seconds on a busy machine: keep stepping
+  // until the menu button is there (up to about a minute)
   const start = page.getByRole('button', { name: /^(시작하기|Start)/ });
-  if (await start.count()) {
-    await start.first().click({ timeout: 3000 }).catch(() => {});
-    await page.waitForTimeout(2500);
-  }
-  for (const label of ['건너뛰기', '좋아요, 출발!']) {
-    const b = page.getByRole('button', { name: label });
-    if (await b.count()) await b.first().click({ timeout: 2000 }).catch(() => {});
+  const menuBtn = page.locator('.lcw-hudbtn--bag');
+  for (let n = 0; n < 6; n++) {
+    if (await start.first().isVisible().catch(() => false)) {
+      await start.first().click({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(2500);
+    }
+    for (const label of ['건너뛰기', '좋아요, 출발!', 'Skip', "OK, let's go!"]) {
+      const b = page.getByRole('button', { name: label });
+      if (await b.count()) await b.first().click({ timeout: 5000 }).catch(() => {});
+    }
+    if (await menuBtn.first().waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false)) break;
   }
   await page.waitForTimeout(800);
 
@@ -149,7 +163,7 @@ for (const vp of VIEWPORTS) {
 
   // 2. bag tab
   await page.click('.lcw-hudbtn--bag');
-  await page.waitForSelector('.lcw-menu__win', { timeout: 5000 });
+  await page.waitForSelector('.lcw-menu__win', { timeout: 15000 });
   await page.waitForFunction(() => document.querySelectorAll('.lcw-chest .lcw-thing').length > 0, null, { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(500);
   const bag = await page.evaluate(() => ({
@@ -162,6 +176,27 @@ for (const vp of VIEWPORTS) {
   check(vp.name, bag.sel === 'lcw-menu-tab-bag', `menu should open on the bag (${bag.sel})`);
   check(vp.name, bag.bag === 2 && bag.sockets === 1 && bag.chest === 3, `bag 2 / socket 1 / chest 3 expected (${bag.bag}/${bag.sockets}/${bag.chest})`);
   check(vp.name, await noSideways(page), 'bag tab scrolls sideways');
+  // menu words in the learn language; with Korean help a Korean line under each tab label and title
+  const words = await page.evaluate(() => {
+    const plain = (el) => {
+      const c = el.cloneNode(true);
+      c.querySelectorAll('.ko, kbd, .ic').forEach((x) => x.remove());
+      return (c.textContent ?? '').trim();
+    };
+    return {
+      lang: document.documentElement.lang,
+      tabs: [...document.querySelectorAll('.lcw-menu__tab')].map(plain),
+      titles: [...document.querySelectorAll('.lcw-menu__body h2, .lcw-menu__body h3')].map(plain),
+      koTabs: [...document.querySelectorAll('.lcw-menu__tab .ko')].map((x) => x.textContent),
+      koAll: document.querySelectorAll('.lcw-menu .ko').length
+    };
+  });
+  report.push({ vp: vp.name, words });
+  check(vp.name, words.lang === FRAME_LANG, `<html lang> should be the screen language (${words.lang})`);
+  check(vp.name, words.tabs.length === 6 && words.tabs.every((t) => t && inScreenLang(t)), `tab labels not in the screen language (${words.tabs.join(',')})`);
+  check(vp.name, words.titles.length >= 3 && words.titles.every((t) => inScreenLang(t)), `bag titles not in the screen language (${words.titles.join(',')})`);
+  if (KO_HELP_SHOWN) check(vp.name, words.koTabs.length === 6 && words.koTabs[0] === COPY_KO.bagTab && words.koAll >= 10, `Korean help lines missing (${words.koTabs.join(',')} / ${words.koAll})`);
+  else check(vp.name, words.koAll === 0, `Korean lines shown while Korean help is off (${words.koAll})`);
   // move the first bag thing to the chest: a server request, then the HUD follows
   await page.locator('.lcw-bagrow .lcw-thing:not(.empty) .btn').first().click();
   await page.waitForTimeout(1500);
@@ -172,6 +207,8 @@ for (const vp of VIEWPORTS) {
   for (const tab of ['mirror', 'map', 'book', 'repair', 'settings']) {
     await page.click(`#lcw-menu-tab-${tab}`);
     await page.waitForTimeout(tab === 'mirror' ? 2500 : 1000);
+    // a busy machine can still show "Loading" here: wait for the server answer to be drawn
+    if (tab === 'book') await page.waitForFunction(() => document.querySelectorAll('.lcw-ach li').length > 0, null, { timeout: 20000 }).catch(() => {});
     await page.screenshot({ path: `${out}/${vp.name}-2${tab}.png` });
     check(vp.name, await noSideways(page), `${tab} tab scrolls sideways`);
     if (tab === 'mirror') {
@@ -179,8 +216,12 @@ for (const vp of VIEWPORTS) {
       check(vp.name, m.canvas && m.worn === 1, `mirror: 3D view ${m.canvas}, worn ${m.worn} (expected 1)`);
     }
     if (tab === 'book') {
-      const b = await page.evaluate(() => ({ books: document.querySelectorAll('.lcw-books button').length, found: document.querySelectorAll('.lcw-entries li:not(.no)').length, ach: document.querySelectorAll('.lcw-ach li').length }));
-      check(vp.name, b.books === 6 && b.found >= 1 && b.ach === 2, `book: 6 books / found / 2 achievements (${b.books}/${b.found}/${b.ach})`);
+      const b = await page.evaluate(() => ({ books: document.querySelectorAll('.lcw-books button').length, found: document.querySelectorAll('.lcw-entries li:not(.no)').length, ach: Array.from(document.querySelectorAll('.lcw-ach li')).map((li) => li.textContent ?? '') }));
+      check(vp.name, b.books === 6 && b.found >= 1 && b.ach.length === 2, `book: 6 books / found / 2 achievements (${b.books}/${b.found}/${b.ach.length})`);
+      const found = await page.evaluate(() => Array.from(document.querySelectorAll('.lcw-entries li:not(.no)')).map((li) => li.textContent ?? ''));
+      check(vp.name, found.length >= 1 && found.every((t) => /[가-힣]/.test(t) === KO_HELP_SHOWN), `found entries in English by key (${found.join(' | ')})`);
+      check(vp.name, b.ach[0]?.includes('First order') && b.ach[1]?.includes('Place 100 blocks'), `achievements in English by id (${b.ach.join(' | ')})`);
+      check(vp.name, b.ach.every((t) => /[가-힣]/.test(t) === KO_HELP_SHOWN), `achievement Korean help ${KO_HELP_SHOWN ? 'missing' : 'shown while off'} (${b.ach.join(' | ')})`);
     }
     if (tab === 'repair') {
       const n = await page.evaluate(() => document.querySelectorAll('.lcw-repair li').length);
@@ -233,11 +274,20 @@ for (const vp of VIEWPORTS) {
       await page.click('#lcw-set-tab-sound');
       await page.waitForTimeout(400);
       const sound = await page.evaluate(() => ({ text: document.querySelector('.lcw-set__main')?.textContent ?? '', ranges: document.querySelectorAll('.lcw-set input[type="range"]').length, switches: document.querySelectorAll('.lcw-set [role="switch"]').length }));
-      check(vp.name, /자연스러운 목소리/.test(sound.text) && sound.ranges >= 4 && sound.switches >= 1, `sound: volumes, voice speed, natural voice (${sound.ranges} sliders)`);
+      check(vp.name, COPY.naturalVoice.test(sound.text) && sound.ranges >= 4 && sound.switches >= 1, `sound: volumes, voice speed, natural voice (${sound.ranges} sliders)`);
       await page.click('#lcw-set-tab-screen');
       await page.waitForTimeout(400);
       const scr = await page.evaluate(() => document.querySelector('.lcw-set__main')?.textContent ?? '');
-      check(vp.name, ['시야 거리', '그림자', '해상도 배율', '자동'].every((w) => scr.includes(w)), 'screen: 시야 거리 / 그림자 / 해상도 배율 / 자동');
+      check(vp.name, COPY.screenWords.every((w) => scr.includes(w)), `screen: ${COPY.screenWords.join(' / ')}`);
+      // the Korean help switch: first in the access section, named in Korean too, matching the setting
+      await page.click('#lcw-set-tab-access');
+      await page.waitForTimeout(400);
+      const kh = await page.evaluate(() => {
+        const row = document.querySelector('.lcw-set__main .lcw-set__row');
+        return { text: row?.textContent ?? '', on: row?.querySelector('[role="switch"]')?.getAttribute('aria-checked') ?? null };
+      });
+      check(vp.name, kh.text.includes(COPY.helpKoTitle) && kh.text.includes(COPY_KO.helpKoTitle) && kh.on === String(KO_HELP), `Korean help switch (${kh.text.slice(0, 60)} / ${kh.on})`);
+      await page.screenshot({ path: `${out}/${vp.name}-4settings-access-top.png` });
     }
   }
   // Esc closes the menu

@@ -22,7 +22,7 @@ import { tileAverageColor } from './atlas.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn } from './strings.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
 import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
@@ -276,6 +276,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const roomCbs = new Set<(r: RoomCheckInfo) => void>();
   let lastRoom: RoomCheckInfo | null = null;
   let buildHud: BuildHud | null = null;
+  // the player's own key names for the help lines (frame G14 키 바꾸기)
+  let keyHints: Readonly<KeyHintLabels> = DEFAULT_KEY_HINTS;
   const builder = new PlotBuilder(
     world,
     {
@@ -468,10 +470,20 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const hotbar: Array<string | null> = [null, null, null, null, null];
   // the child picked a slot holding a thing: a use of that thing (frame domain records it on the server, docs/09 P4)
   const holdListeners = new Set<(itemKey: string) => void>();
+  // picking the slot that is already in hand uses the thing (eat, drink: G01 gauges, frame/gauges.ts)
+  const useListeners = new Set<(itemKey: string) => void>();
+  let lastPicked = -1;
   const slotPicked = (i: number): void => {
     const k = hotbar[i];
-    if (k) for (const cb of holdListeners) cb(k);
+    const again = i === lastPicked;
+    lastPicked = i;
+    if (!k) return;
+    for (const cb of holdListeners) cb(k);
+    if (again) for (const cb of useListeners) cb(k);
   };
+  // G01 gauges: walking speed and running follow hunger/thirst (docs/03 D1); the frame sets them
+  let moveMult = 1;
+  let canRun = true;
   let possessedId: string | null = null;
   /** a lesson is live (setLessonBadge): solo-only NPCs (the errand giver) step out of it */
   let lessonMode = false;
@@ -1184,7 +1196,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     if (want !== buildActive) {
       buildActive = want;
       const guest = !!builder.guestCells;
-      buildHud?.setActive(want, guest ? (touch ? W.buildHelpGuestTouch : W.buildHelpGuestDesktop) : touch ? W.buildHelpTouch : W.buildHelpDesktop);
+      buildHud?.setActive(want, guest ? (touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints)) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
       buildHud?.setSync(buildAccess === 'saved' ? (plotSync?.status === 'offline' ? 'offline' : plotSync && plotSync.pending > 0 ? 'saving' : 'saved') : buildAccess === 'loading' ? 'loading' : buildAccess === 'local' ? 'local' : 'idle');
       if (want) refreshBuildSlots();
       else {
@@ -1247,7 +1259,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     builder.guestCells = a.kind === 'saved' && 'pass' in a && a.pass ? new Set() : null;
     if (currentScene === 'build_plot') hud.setScene(sceneTitle(currentScene));
     // the help line follows who owns the plot (shown again on the next entry)
-    if (buildActive) buildHud?.setActive(true, builder.guestCells ? (touch ? W.buildHelpGuestTouch : W.buildHelpGuestDesktop) : touch ? W.buildHelpTouch : W.buildHelpDesktop);
+    if (buildActive) buildHud?.setActive(true, builder.guestCells ? (touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints)) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
     buildToken = own ? { token: a.token, base: a.base } : null;
     // the showroom is the plot owner's (a lesson student's and a guest's never)
     buildHud?.setShowroomVisible(own);
@@ -1389,6 +1401,15 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       intent.dz = fz * f + fx * s;
       intent.run = k.has('ShiftLeft') || k.has('ShiftRight') || (input.stick && Math.hypot(input.stickX, input.stickZ) > 0.92);
       intent.jump = k.has('Space') || input.jump;
+      if (moveMult < 1) {
+        // cap the length at 1 first (physics clamps it there): a diagonal (about 1.41) times 0.85 stayed over 1 and the
+        // hungry child walked at full speed
+        const len = Math.hypot(intent.dx, intent.dz);
+        const k2 = (len > 1 ? 1 / len : 1) * moveMult;
+        intent.dx *= k2;
+        intent.dz *= k2;
+      }
+      if (!canRun) intent.run = false;
     }
     const wasGround = body.onGround;
     // In first person the eye is the body: a wider ring keeps a bumped-into face from filling the screen.
@@ -1855,6 +1876,20 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     },
     setReduceMotion: (on) => {
       reduceMotion = on;
+    },
+    onUse: (cb) => {
+      useListeners.add(cb);
+      return () => useListeners.delete(cb);
+    },
+    setGauges: (g) => hud.setGauges(g),
+    setMove: (mult, run) => {
+      moveMult = Math.min(1, Math.max(0.3, Number.isFinite(mult) ? mult : 1));
+      canRun = run;
+    },
+    notice: (text) => hud.notice(text),
+    setKeyHints: (k) => {
+      keyHints = { ...k };
+      hud.setKeyHints(keyHints);
     },
     setShowFps: (on) => {
       showFps = on || new URLSearchParams(location.search).has('fps');

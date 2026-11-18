@@ -82,7 +82,12 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
     expect(L.expressions).toEqual(['so that I can fly to school', 'Can I have a warm honey tea?']);
     expect(L.coaching_moments).toBe(1);
     expect(L.stages.map((s: any) => s.id)).toEqual(['warmup_anchor', 'cafe_order', 'open_question']);
-    expect(L.stages.map((s: any) => s.title_ko)).toEqual(['인사와 고정 과제', '카페 주문', '열린 질문']);
+    // Parent wording from the plan (parentKo), and only the practice scene counts as one (parentMain).
+    expect(L.stages.map((s: any) => [s.title_ko, s.main])).toEqual([
+      ['선생님과 인사하고 내 이야기 하기', false],
+      ['카페에서 음료 주문하기', true],
+      ['질문에 자유롭게 대답하기', false]
+    ]);
     expect(L.lesson_number).toBe(1);
     expect(L.summary_ko).toBe(lessonSummaryKo(L));
     for (const n of L.summary_ko.match(/\d+/g) ?? []) {
@@ -98,6 +103,32 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
     expect(r.body.teacher_comment).toBe('카페 주문을 끝까지 영어로 했습니다.');
     expect(r.body.next_lesson_at).toBe('11월 19일 수요일 17:30');
     expect(r.body.expires_at - r.body.created_at).toBe(REPORT_SHARE_TTL_MS);
+  });
+
+  it("the next lesson carries the one before (an empty lesson in between is skipped) and up to two sentences for home", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-16T08:00:00Z'));
+    const p = platform();
+    const first = await runLesson(p);
+    const L1 = (await call(p, 'GET', `/v1/reports/${first.token}`, undefined, {})).body.facts.lesson;
+    expect(L1.previous).toBeNull();
+    // the teacher's target the child passed first (well-formed), then a different expression; the same sentence once
+    expect(L1.home_practice).toEqual(['Can I have a warm honey tea?', 'so that I can fly to school']);
+    // an abandoned lesson with nothing said
+    vi.setSystemTime(new Date('2026-11-18T08:00:00Z'));
+    const empty = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1' });
+    await call(p, 'POST', `/v1/admin/lessons/${empty.body.lesson_id}/end`, { teacher_comment: '' });
+    vi.setSystemTime(new Date('2026-11-20T08:00:00Z'));
+    const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1' });
+    const st = bearer((await call(p, 'POST', '/v1/join', { code: s.body.join_code }, anon)).body.student_token);
+    await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a cold tea, please?'] });
+    await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a cold tea, please?', transcript: 'can I have a cold tea please', chosen_stars: 3, dur_ms: 2600 }, st);
+    const end = await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/end`, { teacher_comment: '' });
+    const L3 = (await call(p, 'GET', `/v1/reports/${end.body.share_token}`, undefined, {})).body.facts.lesson;
+    expect(L3.lesson_number).toBe(3);
+    // compared with the first lesson (the one with English in it), by the same counting
+    expect(L3.previous).toEqual({ utterances: L1.utterances, passes: L1.passes, speaking_sec: L1.speaking_sec, free_words: L1.free_words });
+    expect(L3.home_practice).toEqual(['Can I have a cold tea, please?']);
   });
 
   it('public report never carries ids or the child name, and is private/no-referrer/noindex', async () => {

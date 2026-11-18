@@ -599,7 +599,7 @@ describe('/r/<token> parent report', () => {
     expect(html).toContain('7.5분');
     expect(html).toContain('60%');
     expect(html).toContain('5.3단어');
-    expect(html).toContain('기준선 수집 중');
+    expect(html).toContain('출발점 만드는 중');
     expect(html).toContain(report.body);
     expect(reportFactRows({ active_speaking_minutes: 0.04 })[0]!.value).toBe('2초');
     expect(reportFactRows({ active_speaking_minutes: 0 })[0]!.value).toBe('0분');

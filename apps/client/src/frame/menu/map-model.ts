@@ -6,9 +6,9 @@
 import { TUNING } from '@lcw/sim-core';
 import { COLOR_TOKENS, SEMANTIC_TOKENS, type ColorTokenName } from '@lcw/ui';
 import type { WorldMapInfo } from '../../world/api.js';
-import { BAND_NAMES_KO } from '../../world/strings.js';
+import { BAND_NAMES_KO, joinHelp, nameBi } from '../../world/strings.js';
 import { bandOf, type BandId } from '../status.js';
-import { FRAME_STRINGS as F, withDirection } from '../strings.js';
+import { FRAME_STRINGS as F, FRAME_STRINGS_EN, FRAME_STRINGS_KO, type FrameStrings } from '../strings.js';
 
 /** Map drawings use a 0..MAP_UNITS square viewBox; HTML labels over it use the same numbers as percentages. */
 export const MAP_UNITS = 100;
@@ -183,9 +183,41 @@ export function arrowDeg(yaw: number): number {
   return ((d % 360) + 360) % 360;
 }
 
-/** Eight-way compass word for the facing ("북", "남동", ...). */
+/** Eight-way compass word for the facing in the screen language ("north", "southeast", ...). */
 export function compassKo(yaw: number): string {
-  return F.compass[Math.round(arrowDeg(yaw) / 45) % 8]!;
+  return FRAME_STRINGS_EN.compass[compassIndex(yaw)]!;
+}
+function compassIndex(yaw: number): number {
+  return Math.round(arrowDeg(yaw) / 45) % 8;
+}
+
+/** A place name as the screen shows it: the English of a known name (a world table may hand it with its Korean). */
+export function placeEn(name: string): string {
+  return nameBi(name)?.en ?? name;
+}
+/** The Korean of a known place name (for the help line), or null. */
+export function placeKo(name: string): string | null {
+  return nameBi(name)?.ko ?? null;
+}
+
+/**
+ * Builds one frame sentence on each side with that side's own names: English from `FRAME_STRINGS_EN`, Korean from
+ * `FRAME_STRINGS_KO` with the Korean names. The Korean side is null when a name has no Korean (an English name never
+ * gets a Korean particle).
+ */
+function bothSides(build: (t: FrameStrings, name: (n: string) => string | null, side: 'en' | 'ko') => string | null): { en: string; ko: string | null } {
+  const en = build(FRAME_STRINGS_EN, (n) => placeEn(n), 'en') ?? '';
+  const ko = build(FRAME_STRINGS_KO as FrameStrings, (n) => placeKo(n), 'ko');
+  return { en, ko: ko && ko !== en ? ko : null };
+}
+
+/** The line over the map: "Town Square · Ground · facing north", and its Korean for the help line. */
+export function mapNowLine(place: string | null, band: BandId, yaw: number): { en: string; ko: string | null } {
+  return bothSides((t, name) => {
+    const p = place === null ? t.unexplored : name(place);
+    const b = name(BAND_NAMES_KO[band]);
+    return p === null || b === null ? null : t.mapNow(p, b, t.compass[compassIndex(yaw)]!);
+  });
 }
 
 export type BandState = 'here' | 'open' | 'locked';
@@ -235,17 +267,25 @@ export interface MapSummaryInput {
 /** One paragraph for screen readers: how much is explored, where I am and face, and where I can go. */
 export function mapSummary(p: MapSummaryInput): string {
   const explored = p.cells.filter((c) => c.explored).length;
-  const cell = p.cells[p.playerCell];
-  const where = cell?.nameKo ?? F.unexplored;
-  const parts = [F.mapSummaryIntro(p.cells.length, explored)];
-  const near = p.near ? F.mapSummaryNear(p.near.nameKo) : '';
-  parts.push(F.mapSummaryHere(where, near, BAND_NAMES_KO[p.band], compassKo(p.yaw)));
-  if (p.lessonOn) parts.push(F.mapLessonNote);
-  else if (p.places.length > 0) parts.push(F.mapSummaryPlaces(p.places.map((s) => s.nameKo)));
-  return parts.join(' ');
+  const s = bothSides((t, name) => {
+    const cell = p.cells[p.playerCell];
+    const where = cell?.nameKo ? name(cell.nameKo) : t.unexplored;
+    const near = p.near ? name(p.near.nameKo) : '';
+    const band = name(BAND_NAMES_KO[p.band]);
+    if (where === null || near === null || band === null) return null;
+    const parts = [t.mapSummaryIntro(p.cells.length, explored), t.mapSummaryHere(where, near ? t.mapSummaryNear(near) : '', band, t.compass[compassIndex(p.yaw)]!)];
+    if (p.lessonOn) parts.push(t.mapLessonNote);
+    else if (p.places.length > 0) {
+      const names = p.places.map((x) => name(x.nameKo));
+      if (names.some((n) => n === null)) return null;
+      parts.push(t.mapSummaryPlaces(names as string[]));
+    }
+    return parts.join(' ');
+  });
+  return joinHelp(s.en, s.ko ?? undefined);
 }
 
-/** "중앙 광장으로 가기" — the accessible name of a place button. */
-export function goLabel(nameKo: string): string {
-  return `${withDirection(nameKo)} ${F.goVerb}`;
+/** "Go to Town Square" (with "중앙 광장으로 가기" after it while the help is on): the accessible name of a place button. */
+export function goLabel(name: string): string {
+  return F.goTo(nameBi(name) ?? placeEn(name));
 }

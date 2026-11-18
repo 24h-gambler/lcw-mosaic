@@ -4,6 +4,7 @@
  */
 import type { NpcContext } from '@lcw/schemas';
 import type { NpcLook } from './town.js';
+import type { KeyHintLabels } from './strings.js';
 
 export type SceneId = 'plaza' | 'honey_cafe' | 'trade_shop' | 'build_plot' | 'open_hill';
 
@@ -122,6 +123,16 @@ export interface WorldHandle {
   setReduceMotion?(on: boolean): void;
   /** G14: the frame counter in the HUD corner (also on with ?fps). */
   setShowFps?(on: boolean): void;
+  /** key names in the HUD help lines and the talk prompt (the player's remapped keys) */
+  setKeyHints?(k: KeyHintLabels): void;
+  /** the child picked the slot already in hand again: use that thing (G01 eat / drink) */
+  onUse?(cb: (itemKey: string) => void): () => void;
+  /** G01 gauges on the status chip; null hides them */
+  setGauges?(g: { hunger: number; thirst: number; lowHunger: boolean; lowThirst: boolean; slow: boolean } | null): void;
+  /** walking speed multiplier (0.3..1) and whether running is allowed (G01 low gauges, docs/03 D1) */
+  setMove?(mult: number, canRun: boolean): void;
+  /** a one-off line over the hotbar (same place as the slot caption) */
+  notice?(text: string): void;
   /**
    * Map read-out for the map screen (docs/08 G06): sectors (one town sector until world generation lands, then the
    * 3 x 3 sectors), the walkable places, and where the player stands. World coordinates in metres.

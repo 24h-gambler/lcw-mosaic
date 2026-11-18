@@ -5,11 +5,11 @@
  * The export names keep their old `_KO` suffix so the frame and lesson lanes keep compiling; the words are English.
  * English target sentences of the lesson come from content.
  */
-import { teacherLabel } from '@lcw/content';
-import { helpKoOn } from './lang.js';
+import { CAFE_MENU, FURNITURE_SHOP_GOODS, GUIDE_PLACES, TRADE_SHOP_GOODS, teacherLabel } from '@lcw/content';
+import { helpKoOn, say, type Bi } from './lang.js';
 
-/** "en · ko" when the Korean help is on and the two differ, else the English. */
-function joinHelp(en: string, ko: string | undefined): string {
+/** "en · ko" when the Korean help is on and the two differ, else the English. Shared with the frame (frame/strings.ts). */
+export function joinHelp(en: string, ko: string | undefined): string {
   return helpKoOn() && ko && ko !== en ? `${en} · ${ko}` : en;
 }
 
@@ -70,7 +70,17 @@ const WORLD_STRINGS_KO = {
   seatPausedBody: '마을은 둘러볼 수 있어요. 다시 같이 놀고 싶으면 보호자에게 말해 주세요.',
   seatPausedOk: '알겠어요',
   seatPausedChip: '둘러보기만',
-  controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기',
+  hunger: '배고픔',
+  thirst: '목마름',
+  slowed: '느려짐',
+  useAgainFood: '한 번 더 누르면 먹어요',
+  useAgainDrink: '한 번 더 누르면 마셔요',
+  ate: '냠냠! 배고픔이 채워졌어요',
+  drank: '꿀꺽! 목마름이 채워졌어요',
+  restLater: '조금 있다가 다시 먹을 수 있어요',
+  lowHunger: '배가 고파서 느려졌어요 · 카페에서 영어로 주문해 봐요',
+  lowThirst: '목이 말라서 느려졌어요 · 카페에서 음료를 주문해 봐요',
+  controlsDesktop: 'WASD 이동 · 마우스 끌기 시점 · Space 점프 · E 말 걸기', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
   controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기',
   // Building on my plot (docs/03 D13).
   buildHelpDesktop: '내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · Z 되돌리기 · R 돌리기',
@@ -149,6 +159,16 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   seatPausedBody: 'You can still look around the town. Tell your grown-up if you want to play again.',
   seatPausedOk: 'OK',
   seatPausedChip: 'Look only',
+  hunger: 'Hunger',
+  thirst: 'Thirst',
+  slowed: 'Slow',
+  useAgainFood: 'Press again to eat',
+  useAgainDrink: 'Press again to drink',
+  ate: 'Yum! Not hungry now',
+  drank: 'Gulp! Not thirsty now',
+  restLater: 'You can have it again a little later',
+  lowHunger: 'Hungry, so you are slow · Order food at the cafe in English',
+  lowThirst: 'Thirsty, so you are slow · Order a drink at the cafe',
   controlsDesktop: 'WASD move · Drag mouse to look · Space jump · E talk',
   controlsTouch: 'Drag left to move · Drag right to look',
   buildHelpDesktop: 'Your plot! Right-click place · Hold left-click break · 1-5 pick · Z undo · R rotate',
@@ -434,6 +454,36 @@ export function itemNameKo(key: string): string {
   return ITEM_NAMES_KO[key] ?? ITEM_NAMES_KO.gift!;
 }
 
+/** A thing's name as a title (hotbar caption, slot): "Honey latte" (no article), the Korean after it with the help on. */
+export function itemTitle(key: string): string {
+  const t = itemTitleBi(key, true);
+  return joinHelp(t.en, t.ko ?? undefined);
+}
+
+/**
+ * Every other thing the server names (apps/edge/src/review.ts NAME_KO: cafe menu, furniture, trade goods, guide places),
+ * from the content's own English labels, so the bag, mirror and repair lists and the hotbar never fall back to Korean.
+ */
+const CONTENT_TITLES: ReadonlyMap<string, { en: string; ko: string }> = new Map([
+  ...CAFE_MENU.map((d) => [d.key, { en: d.label, ko: d.nameKo }] as const),
+  ...FURNITURE_SHOP_GOODS.map((g) => [g.key, { en: `${g.adj} ${g.label}`, ko: g.nameKo }] as const),
+  ...TRADE_SHOP_GOODS.map((g) => [g.key, { en: `${g.adj} ${g.label}`, ko: g.nameKo }] as const),
+  ...GUIDE_PLACES.map((g) => [g.key, { en: g.label, ko: g.nameKo }] as const)
+]);
+
+/** The English title of a thing the world or the content knows ("Honey latte"), or null for a key nobody knows. */
+export function itemTitleEnKnown(key: string): string | null {
+  return ITEM_NAMES_KO_EN[key] || CONTENT_TITLES.has(key) ? itemTitleBi(key, false).en : null;
+}
+
+/** The title as English plus the Korean (null while the help is off), for the caption's own two lines. */
+export function itemTitleBi(key: string, help = helpKoOn()): { en: string; ko: string | null } {
+  const c = ITEM_NAMES_KO_EN[key] ? null : CONTENT_TITLES.get(key);
+  const en = (c?.en ?? ITEM_NAMES_KO_EN[key] ?? ITEM_NAMES_KO_EN.gift!).replace(/^(a|an) /, '');
+  const ko = c?.ko ?? ITEM_NAMES_KO_SRC[key] ?? ITEM_NAMES_KO_SRC.gift!;
+  return { en: en.charAt(0).toUpperCase() + en.slice(1), ko: help ? ko : null };
+}
+
 /** "You got honey tea!" (and "· 꿀차를 받았어요" with the help on): each side gets the item name in its own language. */
 export function itemGotText(key: string): string {
   const en = ITEM_NAMES_KO_EN[key] ?? ITEM_NAMES_KO_EN.gift!;
@@ -461,11 +511,80 @@ export function objectParticle(word: string): string {
 }
 
 /** Sector names on the map (docs/08 G06). The central sector is the hand-built town; generated sectors bring their own. */
-export const SECTOR_NAMES_KO = {
-  town: '중앙 마을'
-} as const;
+const SECTOR_NAMES_KO_EN = { town: 'Middle Town' };
+const SECTOR_NAMES_KO_SRC = { town: '중앙 마을' };
+export const SECTOR_NAMES_KO: { town: string } = biTable(SECTOR_NAMES_KO_EN, SECTOR_NAMES_KO_SRC);
+
+/** Key names shown in the HUD help lines; the frame passes the player's own keys (G14 키 바꾸기). */
+export interface KeyHintLabels {
+  /** forward, left, back, right in one word when they are single letters ("WASD"), else joined with "/" */
+  move: string;
+  jump: string;
+  talk: string;
+  undo: string;
+  rotate: string;
+}
+export const DEFAULT_KEY_HINTS: Readonly<KeyHintLabels> = Object.freeze({ move: 'WASD', jump: 'Space', talk: 'E', undo: 'Z', rotate: 'R' });
+/** The desktop controls line with the player's keys, in the learn language (Korean after it with the help on). */
+export function controlsDesktopFor(k: Readonly<KeyHintLabels>): string {
+  return joinHelp(`${k.move} move · Drag mouse to look · ${k.jump} jump · ${k.talk} talk`, `${k.move} 이동 · 마우스 끌기 시점 · ${k.jump} 점프 · ${k.talk} 말 걸기`);
+}
+/** The same line as English plus its Korean help line (null while the help is off), for the HUD's own two lines. */
+export function controlsDesktopBi(k: Readonly<KeyHintLabels>): { en: string; ko: string | null } {
+  return {
+    en: `${k.move} move · Drag mouse to look · ${k.jump} jump · ${k.talk} talk`,
+    ko: helpKoOn() ? `${k.move} 이동 · 마우스 끌기 시점 · ${k.jump} 점프 · ${k.talk} 말 걸기` : null
+  };
+}
+export function buildHelpDesktopFor(k: Readonly<KeyHintLabels>): string {
+  return joinHelp(
+    `Your plot! Right-click place · Hold left-click break · 1-5 pick · ${k.undo} undo · ${k.rotate} rotate`,
+    `내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · ${k.undo} 되돌리기 · ${k.rotate} 돌리기`
+  );
+}
+
+/** A friend's plot (main #123) with the player's undo key. */
+export function buildHelpGuestDesktopFor(k: Readonly<KeyHintLabels>): string {
+  return joinHelp(
+    `Your friend's plot! Right-click place · Hold left-click to break what you placed · 1-5 pick · ${k.undo} undo`,
+    `친구 부지예요! 오른쪽 클릭 놓기 · 내가 놓은 것만 왼쪽 길게 눌러 부수기 · 1~5 고르기 · ${k.undo} 되돌리기`
+  );
+}
 
 /** A townsperson's name over their speech bubble: the English name, the Korean one after it with the help on. */
 export function npcName(def: { nameEn: string; nameKo: string }): string {
   return joinHelp(def.nameEn || def.nameKo, def.nameKo);
+}
+
+type WorldLineKey = { [K in keyof typeof WORLD_STRINGS_EN]: (typeof WORLD_STRINGS_EN)[K] extends string ? K : never }[keyof typeof WORLD_STRINGS_EN];
+/**
+ * One HUD line as English plus its Korean help line (world/lang.ts `say`), for the spots that put the Korean on a line
+ * of its own instead of after a dot (the frame's connection band and low-gauge notices: long lines that must not be cut).
+ */
+export function worldSay(key: WorldLineKey, help = helpKoOn()): { text: string; help: string | null } {
+  return say({ en: WORLD_STRINGS_EN[key] as string, ko: WORLD_STRINGS_KO[key] as string }, help);
+}
+
+/**
+ * The English and Korean of a place, sector or band name, from the name as a world table gave it (English, Korean, or
+ * "English · Korean" with the help on), or null for a name no table knows. The frame puts each side in its own sentence
+ * ("Go to Town Square" / "중앙 광장으로 가기"), so a Korean particle never lands on an English name.
+ */
+const NAME_PAIRS: ReadonlyMap<string, Bi> = (() => {
+  const m = new Map<string, Bi>();
+  const add = (en: Record<string, string>, ko: Record<string, string>): void => {
+    for (const k of Object.keys(en)) {
+      const bi = { en: en[k]!, ko: ko[k] ?? en[k]! };
+      for (const name of [bi.en, bi.ko, `${bi.en} · ${bi.ko}`]) if (!m.has(name)) m.set(name, bi);
+    }
+  };
+  add(SCENE_TITLES_KO_EN, SCENE_TITLES_KO_SRC);
+  add(SECTOR_NAMES_KO_EN, SECTOR_NAMES_KO_SRC);
+  add(BAND_NAMES_KO_EN, BAND_NAMES_KO_SRC);
+  // a friend's plot is a scene title too (engine sceneTitle, main #123)
+  add({ friendPlot: WORLD_STRINGS_EN.friendPlot }, { friendPlot: WORLD_STRINGS_KO.friendPlot });
+  return m;
+})();
+export function nameBi(name: string | null | undefined): Bi | null {
+  return name ? (NAME_PAIRS.get(name) ?? null) : null;
 }

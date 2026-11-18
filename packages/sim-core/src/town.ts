@@ -604,6 +604,21 @@ function openHill(world: VoxelWorld, set: Setter): void {
       set(x, h, z, BK.path);
     }
   }
+  // The path is a ramp of half steps, half a block a cell, cut into the slope or raised over it (Dan 11-16 R2625: no
+  // automatic hop onto a whole block any more), so a child walks to the top by keys without pressing jump.
+  const topStand = terrainHeight(HILL.x, HILL.z) + 1;
+  for (let z = 109; z <= 126; z++) {
+    const want = Math.min(topStand, 1 + (127 - z) * 0.5);
+    const n = Math.floor(want);
+    for (let x = 143; x <= 145; x++) {
+      const h = terrainHeight(x, z);
+      for (let y = h + 1; y <= n - 1; y++) set(x, y, z, BK.dirt);
+      for (let y = n; y <= h; y++) set(x, y, z, BK.air);
+      set(x, n - 1, z, BK.path);
+      if (want > n) set(x, n, z, BK.stoneSlab);
+      for (let y = want > n ? n + 1 : n; y <= Math.max(h, n) + 3; y++) if (world.getBlock(x, y, z) !== BK.air) set(x, y, z, BK.air);
+    }
+  }
   const top = terrainHeight(HILL.x, HILL.z);
   // Flat top with a picnic blanket and benches.
   for (let z = HILL.z - 4; z <= HILL.z + 4; z++) {

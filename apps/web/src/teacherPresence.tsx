@@ -4,6 +4,7 @@ import { Button } from '@lcw/ui';
 import type { LessonApi, TeacherPresence } from './lessonApi.js';
 import { Box, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { P } from './presenceStrings.js';
+import { M } from './directorMoreStrings.js';
 
 /**
  * Teacher presence on the console side (edge lesson-mode.ts): while a lesson runs and this console shows it, beat
@@ -224,19 +225,6 @@ export function TeacherPresenceBox({
     <Box title={P.boxTitle} testId="teacher-presence-box">
       <div style={{ display: 'grid', gap: sp(2) }}>
         {ended ? null : <TeacherStatus teacher={teacher} failing={failing} left={left} />}
-        <label style={{ ...labelStyle, maxWidth: 320 }}>
-          {P.nameLabel}
-          <input
-            data-testid="teacher-name-input"
-            type="text"
-            autoComplete="off"
-            maxLength={TEACHER_NAME_MAX}
-            placeholder={P.namePlaceholder}
-            value={name}
-            onChange={(e) => saveName(e.target.value)}
-            style={inputStyle}
-          />
-        </label>
         {ended ? null : left && !teacher?.present ? (
           <div>
             <Button type="button" variant="brand" data-testid="teacher-resume" onClick={() => void resume()}>
@@ -254,6 +242,23 @@ export function TeacherPresenceBox({
             </Button>
           </div>
         )}
+        {/* R2625 console trim: the name and the 1PC lock number are set once, so they fold away (docs/18 §8). */}
+        <details data-testid="teacher-more">
+          <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.teacherMore}</summary>
+          <div style={{ display: 'grid', gap: sp(2), marginTop: sp(2) }}>
+        <label style={{ ...labelStyle, maxWidth: 320 }}>
+          {P.nameLabel}
+          <input
+            data-testid="teacher-name-input"
+            type="text"
+            autoComplete="off"
+            maxLength={TEACHER_NAME_MAX}
+            placeholder={P.namePlaceholder}
+            value={name}
+            onChange={(e) => saveName(e.target.value)}
+            style={inputStyle}
+          />
+        </label>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -282,6 +287,8 @@ export function TeacherPresenceBox({
           </span>
         </form>
         <TeacherModeHelp />
+          </div>
+        </details>
       </div>
     </Box>
   );

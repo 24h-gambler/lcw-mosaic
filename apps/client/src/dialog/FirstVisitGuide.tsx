@@ -1,15 +1,15 @@
 import { MIC_STATUS_KEY as LIVE_MIC_STATUS_KEY } from './mic-status.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { live } from './strings.js';
+import { biLine, live, npcShortName } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
-import { errandGiverNameKo, errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
+import { errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
 import { MicController, type MicView } from './mic-controller.js';
 import { micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
 import type { SpeechEngine } from './speech.js';
 import { createDialogSpeechEngine } from './server-stt.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
-import { currentGoal, goalLine, goalWalkLabel, onGoalChange, type GoalDef } from './goals.js';
+import { currentGoal, goalLine, goalToast, goalWalkLabel, onGoalChange, type GoalDef } from './goals.js';
 
 /**
  * docs/08 G15 첫 접속 안내: mic check -> move -> first order within 3 minutes (docs/01 활성화, docs/09 첫 문장까지
@@ -105,7 +105,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
           return undefined;
         }
         rewardAt.current = Date.now();
-        setToast(F.rewardToast.replace('{coins}', String(errand.reward_coins || 50)));
+        setToast(biLine((_lang, t) => t.firstVisit.rewardToast.replace('{coins}', String(errand.reward_coins || 50))));
         playSfx('coin.drop');
       }
       // The refetch after the hand-over brings a new errand object and runs this again: the reward line keeps its
@@ -139,9 +139,13 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
   // over, to the counter to order. A world without walkToNpc walks to the scene.
   const walk =
     errand.state === 'accepted'
-      ? { label: `☕ ${F.walkCafe}`, scene: 'honey_cafe' as const, npcId: null }
+      ? { label: `☕ ${biLine((_lang, t) => t.firstVisit.walkCafe)}`, scene: 'honey_cafe' as const, npcId: null }
       : errand.state === 'offered' || errand.state === 'carrying'
-        ? { label: `🙋 ${F.walkGiver.replace('{giver}', errandGiverNameKo())}`, scene: 'honey_cafe' as const, npcId: ERRAND_GIVER_NPC_ID }
+        ? {
+            label: `🙋 ${biLine((lang, t) => t.firstVisit.walkGiver.replace('{giver}', npcShortName('errand_neighbor', lang)))}`,
+            scene: 'honey_cafe' as const,
+            npcId: ERRAND_GIVER_NPC_ID
+          }
         : null;
   return (
     <>
@@ -230,7 +234,7 @@ export function TownGoals(props: { world: WorldHandle | null; hidden?: boolean }
       onGoalChange((next, finished) => {
         setGoalState(next);
         if (!finished) return;
-        setToast(next ? F.goalStepToast : F.goalTourDone);
+        setToast(goalToast(next ? 'goalStepToast' : 'goalTourDone'));
         if (!next) setTourDone(true);
         playSfx('coin.drop');
       }),
@@ -253,7 +257,7 @@ export function TownGoals(props: { world: WorldHandle | null; hidden?: boolean }
       world.setGoal(goalLine(goal));
       setGoalNpc(world, goal.npcId);
     } else if (tourDone) {
-      world.setGoal(F.goalTourDone);
+      world.setGoal(goalToast('goalTourDone'));
       setGoalNpc(world, null);
     }
   }, [world, goal, hidden, tourDone]);

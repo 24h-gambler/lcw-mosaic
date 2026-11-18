@@ -5,8 +5,8 @@
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/adventure-play.mjs http://127.0.0.1:8994/adventure/ shots/adventure [viewport]
 //
-// Live smoke (after the document site is deployed): ADV_LIVE_SECRET=<english-day.secret file> runs the 1440 viewport
-// against the real https://engday.pages.dev as the smoke student `smoke-adv` (reports and teacher screens skip smoke-
+// Live smoke (after the document site is deployed): ADV_LIVE_SECRET=<english-day.secret file> runs any viewport
+// (every viewport carries the document link in this mode, 390 touch included) against the real https://engday.pages.dev as the smoke student `smoke-adv` (reports and teacher screens skip smoke-
 // students). The write key is HMAC-SHA256(secret, "w:smoke-adv")[:24], made here and never printed. The day file is
 // read from the document's own student page named by ADV_LIVE_DAY_FROM (read only; smoke-adv has no page), and only
 // the result POST goes out, as smoke-adv. Real Oreo data is never written.
@@ -112,7 +112,7 @@ async function run(vp) {
   await page.route('**/v1/**', (route) => route.fulfill({ status: 404, body: '' }));
 
   const q = new URLSearchParams({ unlock: 'all', autopilot: '1' });
-  if (vp.ed) {
+  if (vp.ed || LIVE) {
     q.set('ed', 'smoke-adv');
     q.set('edd', '2026-11-16');
     q.set('edk', LIVE ? LIVE.key : 'smoke-key');
@@ -439,7 +439,7 @@ async function run(vp) {
   if (fpsMin !== null && fpsMin < 30) fails.push(`${vp.name}: fps min ${fpsMin.toFixed(1)}`);
   if (errors.length) fails.push(`${vp.name}: ${errors.length} page errors: ${errors.slice(0, 3).join(' | ')}`);
   let envelope = null;
-  if (vp.ed) {
+  if (vp.ed || LIVE) {
     const last = beacons.at(-1);
     envelope = last ? JSON.parse(last.body) : null;
     if (!envelope) fails.push(`${vp.name}: no result sent`);

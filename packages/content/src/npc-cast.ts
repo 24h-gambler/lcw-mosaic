@@ -9,11 +9,31 @@
 
 export type CastLang = 'en';
 
-/** Workers AI neural voice (edge tts.ts): Deepgram Aura speakers, or MeloTTS as the cheap fallback engine. */
+/** Workers AI neural engines (edge tts.ts makes their lines through the quota meter). */
+export type WorkersAiTtsEngine = 'aura' | 'aura2' | 'melo';
+
+/**
+ * Open-weights engines run on the operator's own GPU (tools/tts-local, R2625): their lines are made ahead and uploaded
+ * by the operator (edge `PUT /v1/admin/tts/line`), never made at the edge, and cost no neurons.
+ */
+export type LocalTtsEngine = 'kokoro';
+export const LOCAL_TTS_ENGINES: readonly LocalTtsEngine[] = ['kokoro'];
+
+export function isLocalTtsEngine(engine: string): engine is LocalTtsEngine {
+  return (LOCAL_TTS_ENGINES as readonly string[]).includes(engine);
+}
+
+/** A neural voice (edge tts.ts): a Workers AI speaker (Aura, MeloTTS) or a local open-weights speaker (Kokoro). */
 export interface NpcVoice {
-  engine: 'aura' | 'aura2' | 'melo';
-  /** Aura speaker id (asteria, luna, stella, athena, hera, orion, arcas, perseus, angus, orpheus, helios, zeus). */
+  engine: WorkersAiTtsEngine | LocalTtsEngine;
+  /** Speaker id: Aura (athena, hera, luna...) or Kokoro (af_sarah...). */
   speaker: string;
+  /**
+   * Local engines only: the Workers AI voice that reads a line the local engine has not made yet (a sentence added
+   * during the day, before the nightly upload). The edge stores and labels that audio under the stand-in's own key, so
+   * a file is always named by the engine that spoke it; the uploaded local line wins from then on.
+   */
+  standIn?: NpcVoice;
 }
 
 export interface NpcPersona {
@@ -53,7 +73,7 @@ const EN: NpcCastPack = {
     shop_owner: { nameEn: 'Toby', nameKo: '상점 주인 토비', nameKoShort: '토비', age: 'adult', voice: { engine: 'aura2', speaker: 'apollo' } },
     errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura2', speaker: 'delia' } }
   },
-  modelVoice: { engine: 'aura2', speaker: 'luna' },
+  modelVoice: { engine: 'kokoro', speaker: 'af_sarah', standIn: { engine: 'aura2', speaker: 'luna' } },
   ctxNpc: { cafe: 'cafe_owner', trade_shop: 'shop_owner', guide: 'guide', errand: 'errand_neighbor' }
 };
 
@@ -70,10 +90,11 @@ export function voiceForCtx(ctx: string, lang: string = 'en'): NpcVoice {
   return (pack.npcs[pack.ctxNpc[ctx] ?? 'guide'] ?? pack.npcs.guide!).voice;
 }
 
-/** Every voice a pack may speak with (the edge refuses others). */
+/** Every voice a pack may speak with, stand-ins included (the edge refuses others). */
 export function castVoices(lang: string = 'en'): NpcVoice[] {
   const pack = npcCast(lang);
-  const all = [...Object.values(pack.npcs).map((p) => p.voice), pack.modelVoice];
+  const base = [...Object.values(pack.npcs).map((p) => p.voice), pack.modelVoice];
+  const all = base.flatMap((v) => (v.standIn ? [v, v.standIn] : [v]));
   return all.filter((v, i) => all.findIndex((w) => w.engine === v.engine && w.speaker === v.speaker) === i);
 }
 

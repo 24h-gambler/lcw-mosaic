@@ -1,5 +1,5 @@
 import { NEURAL_TTS, ttsNeurons, type QuotaMeter, type TtsEngine } from '@lcw/quota';
-import { castVoices, fixedTtsLines, normalizeTtsText, ttsVoiceId, type NpcVoice } from '@lcw/content';
+import { castVoices, fixedTtsLines, isLocalTtsEngine, localTtsLines, normalizeTtsText, ttsVoiceId, type NpcVoice } from '@lcw/content';
 
 /**
  * Neural NPC voice (docs/04 4.8, Dan 11-16 "목소리 자연스러움"): `GET /v1/tts?v=<engine-speaker>&t=<text>` answers
@@ -14,6 +14,11 @@ import { castVoices, fixedTtsLines, normalizeTtsText, ttsVoiceId, type NpcVoice 
  * - Off unless `TTS_NEURAL=on` (the operator can still try and prebuild): the client asks `GET /v1/tts/status` once
  *   and keeps the device voice while it is off, and whenever a line fails or takes too long.
  * - The text never names who asked; nothing about the child goes to the model (AGENTS 4.6).
+ * - Local open-weights voices (npc-cast.ts LOCAL_TTS_ENGINES, R2625: the model voice reads ~1,400 fixed lines, a week
+ *   of free neurons on Aura-2) are never made here: the operator's GPU makes them and uploads each fixed line
+ *   (`handleTtsUpload`), stored under its own engine's key and served like any cached line. A local line not uploaded
+ *   yet is read by the voice's Workers AI stand-in, stored under the stand-in's key and answered with a short cache and
+ *   `x-lcw-tts-voice` naming who spoke, so the upload is heard as soon as it lands.
  */
 
 export interface TtsAi {
@@ -48,6 +53,12 @@ export interface TtsCaller {
 
 export const TTS_CACHE_PREFIX = 'tts/v1/';
 const AUDIO_TYPE = 'audio/mpeg';
+
+/**
+ * Operator upload of a local engine's line: an mp3 of one fixed line. The longest fixed line (300 chars max) is about
+ * 20 s, 160 kB at 64 kbps; anything bigger is not one line. Smaller than `minBytes` is not audio.
+ */
+export const TTS_UPLOAD = { maxBytes: 256 * 1024, minBytes: 512 } as const;
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
 
@@ -101,19 +112,25 @@ export async function audioBytes(out: unknown): Promise<Uint8Array | null> {
 
 /** One synthesis call (no cache, no meter): the operator's try route and `makeLine` share it. */
 export async function synthesize(ai: TtsAi, voice: NpcVoice, text: string): Promise<Uint8Array | null> {
+  if (isLocalTtsEngine(voice.engine)) return null; // made on the operator's GPU and uploaded, never here
   const engine = voice.engine as TtsEngine;
   const input = engine === 'melo' ? { prompt: text, lang: 'en' } : { text, speaker: voice.speaker, encoding: 'mp3' };
   const bytes = await audioBytes(await ai.run(NEURAL_TTS.models[engine], input));
   return bytes && bytes.length > 64 ? bytes : null;
 }
 
-function audio(bytes: Uint8Array, hit: 'hit' | 'miss', ms: number): Response {
+/**
+ * `spoke`: the voice that made the audio. When a stand-in read a local line, the answer is cached for minutes only:
+ * the same URL plays the local engine's line once it is uploaded.
+ */
+function audio(bytes: Uint8Array, hit: 'hit' | 'miss', ms: number, spoke: string, standIn: boolean): Response {
   return new Response(bytes as unknown as BodyInit, {
     status: 200,
     headers: {
       'content-type': AUDIO_TYPE,
-      'cache-control': 'public, max-age=31536000, immutable',
+      'cache-control': standIn ? 'public, max-age=600' : 'public, max-age=31536000, immutable',
       'x-lcw-tts': hit,
+      'x-lcw-tts-voice': spoke,
       'x-lcw-tts-ms': String(ms)
     }
   });
@@ -132,15 +149,23 @@ export async function makeLine(
   text: string,
   who: TtsCaller,
   deps: TtsDeps,
-  known?: { key: string; cachedChecked: boolean }
-): Promise<{ bytes: Uint8Array; hit: 'hit' | 'miss'; ms: number } | { error: string; status: number }> {
+  known?: { key?: string; cachedChecked?: boolean; fixed?: boolean }
+): Promise<{ bytes: Uint8Array; hit: 'hit' | 'miss'; ms: number; spoke: string; standIn: boolean } | { error: string; status: number }> {
   const t0 = deps.nowMs();
   const key = known?.key ?? (await ttsCacheKey(voice, text, deps.sha256Hex));
   const cached = deps.store && !known?.cachedChecked ? await deps.store.get(key).catch(() => null) : null;
-  if (cached) return { bytes: new Uint8Array(await cached.arrayBuffer()), hit: 'hit', ms: deps.nowMs() - t0 };
+  const spoke = ttsVoiceId(voice);
+  if (cached) return { bytes: new Uint8Array(await cached.arrayBuffer()), hit: 'hit', ms: deps.nowMs() - t0, spoke, standIn: false };
+  const fixed = known?.fixed ?? isFixedLine(voice, text);
+  if (isLocalTtsEngine(voice.engine)) {
+    // not uploaded yet: the stand-in reads it under its own key (same rules: a fixed line for anyone), else the device
+    if (!voice.standIn || isLocalTtsEngine(voice.standIn.engine)) return { error: 'tts_not_made', status: 404 };
+    const r = await makeLine(voice.standIn, text, who, deps, { fixed });
+    return 'error' in r ? r : { ...r, ms: deps.nowMs() - t0, standIn: true };
+  }
   if (!deps.ai) return { error: 'tts_unavailable', status: 503 };
   if (who.cachedOnly && !who.operator) return { error: 'tts_not_cached', status: 404 };
-  if (!who.operator && !who.player_id && !isFixedLine(voice, text)) return { error: 'child_token_required', status: 401 };
+  if (!who.operator && !who.player_id && !fixed) return { error: 'child_token_required', status: 401 };
   const meter = deps.quota();
   if (!who.operator && !meter.canUseTts({ isLesson: who.lesson, nowMs: t0 })) return { error: 'tts_quota', status: 429 };
   if (!meter.consumeNeurons(who.player_id ?? (who.operator ? 'operator' : 'anon'), ttsNeurons(voice.engine as TtsEngine, text.length), 'tts')) {
@@ -154,7 +179,7 @@ export async function makeLine(
   }
   if (!bytes) return { error: 'tts_failed', status: 502 };
   if (deps.store) await deps.store.put(key, bytes, { httpMetadata: { contentType: AUDIO_TYPE } }).catch(() => undefined);
-  return { bytes, hit: 'miss', ms: deps.nowMs() - t0 };
+  return { bytes, hit: 'miss', ms: deps.nowMs() - t0, spoke, standIn: false };
 }
 
 export async function handleTts(url: URL, who: TtsCaller, deps: TtsDeps): Promise<Response> {
@@ -167,7 +192,40 @@ export async function handleTts(url: URL, who: TtsCaller, deps: TtsDeps): Promis
   const cachedOnly = who.cachedOnly || url.searchParams.get('c') === '1';
   const r = await makeLine(voice, text, cachedOnly ? { ...who, cachedOnly } : who, deps);
   if ('error' in r) return json({ error: r.error, fallback: 'device' }, r.status);
-  return audio(r.bytes, r.hit, r.ms);
+  return audio(r.bytes, r.hit, r.ms, r.spoke, r.standIn);
+}
+
+/** An mp3 file: an ID3 tag or an MPEG audio frame sync at the start. */
+export function isMp3(b: Uint8Array): boolean {
+  if (b.length >= 3 && b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return true;
+  return b.length >= 2 && b[0] === 0xff && (b[1]! & 0xe0) === 0xe0;
+}
+
+/**
+ * Operator upload of one local-engine line (`PUT /v1/admin/tts/line?v=<engine-speaker>&t=<text>`, body = mp3; the
+ * route checks the operator token). Only a cast voice of a local engine (a Workers AI key always holds that engine's
+ * own audio), only a fixed line of that voice (`localTtsLines`), only an mp3 within `TTS_UPLOAD`. Stored under the
+ * same key `/v1/tts` reads, so it is served like any cached line; the quota meter is not touched. Uploading the same
+ * line again replaces it (a better take).
+ */
+export async function handleTtsUpload(url: URL, body: Uint8Array, deps: Pick<TtsDeps, 'store' | 'sha256Hex'>): Promise<Response> {
+  const voice = parseVoice(url.searchParams.get('v'));
+  if (!voice) return json({ error: 'unknown_voice' }, 400);
+  if (!isLocalTtsEngine(voice.engine)) return json({ error: 'not_local_engine' }, 400);
+  const text = normalizeTtsText(url.searchParams.get('t') ?? '');
+  if (!text) return json({ error: 'text_required' }, 400);
+  if (!isFixedLine(voice, text)) return json({ error: 'not_fixed_line' }, 422);
+  if (body.length > TTS_UPLOAD.maxBytes) return json({ error: 'too_large', max_bytes: TTS_UPLOAD.maxBytes }, 413);
+  if (body.length < TTS_UPLOAD.minBytes || !isMp3(body)) return json({ error: 'not_mp3' }, 415);
+  if (!deps.store) return json({ error: 'store_unavailable' }, 503);
+  const key = await ttsCacheKey(voice, text, deps.sha256Hex);
+  await deps.store.put(key, body, { httpMetadata: { contentType: AUDIO_TYPE } });
+  return json({ ok: true, key, bytes: body.length });
+}
+
+/** The lines a local engine speaks, for the operator's nightly generator (`GET /v1/admin/tts/local-lines`). */
+export function localLinesList(): { lines: Array<{ v: string; t: string }> } {
+  return { lines: localTtsLines().map((l) => ({ v: ttsVoiceId(l.voice), t: l.text })) };
 }
 
 /**
@@ -177,7 +235,10 @@ export async function handleTts(url: URL, who: TtsCaller, deps: TtsDeps): Promis
  */
 export async function prebuildFixedLines(deps: TtsDeps, opts: { budgetNeurons?: number; voice?: string; priorityOnly?: boolean } = {}) {
   const budget = Math.max(0, opts.budgetNeurons ?? NEURAL_TTS.prebuildBudgetNeurons);
-  const lines = fixedTtsLines('en', { priorityOnly: opts.priorityOnly }).filter((l) => !opts.voice || ttsVoiceId(l.voice) === opts.voice);
+  // local-engine lines come from the operator's upload, never from the day's neurons
+  const lines = fixedTtsLines('en', { priorityOnly: opts.priorityOnly }).filter(
+    (l) => !isLocalTtsEngine(l.voice.engine) && (!opts.voice || ttsVoiceId(l.voice) === opts.voice)
+  );
   let spent = 0;
   let made = 0;
   let cached = 0;

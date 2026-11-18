@@ -1,7 +1,5 @@
-import { npcPersona } from '@lcw/content';
 import type { SceneId } from '../world/api.js';
-import { learnLang } from '../world/lang.js';
-import { ui } from './strings.js';
+import { biLine, npcShortName } from './strings.js';
 
 /**
  * The town goals after the first-visit errand (R2625, Dan 11-16: "게임 자체가 진행이 아예 안됐고요"). The errand
@@ -103,21 +101,25 @@ export function resetGoalsForTest(): void {
   }
 }
 
-function nameOf(npcId: string): string {
-  const p = npcPersona(npcId);
-  return (learnLang() === 'en' ? p?.nameEn : p?.nameKoShort) ?? '';
-}
-
 /** The goal line on top of the screen, in the language the child learns. */
 export function goalLine(g: GoalDef): string {
-  const F = ui().firstVisit;
-  const t = g.id === 'ask_way' ? F.goalAskWay : g.id === 'trade' ? F.goalTrade : F.goalCafeStars;
-  return t.replace('{guide}', nameOf('guide')).replace('{shop}', nameOf('shop_owner')).replace('{cafe}', nameOf('cafe_owner'));
+  return biLine((lang, t) => {
+    const F = t.firstVisit;
+    const s = g.id === 'ask_way' ? F.goalAskWay : g.id === 'trade' ? F.goalTrade : F.goalCafeStars;
+    return s
+      .replace('{guide}', npcShortName('guide', lang))
+      .replace('{shop}', npcShortName('shop_owner', lang))
+      .replace('{cafe}', npcShortName('cafe_owner', lang));
+  });
 }
 
 /** The walk button's label for a step. */
 export function goalWalkLabel(g: GoalDef): string {
-  const F = ui().firstVisit;
   const emoji = g.id === 'ask_way' ? '🦊' : g.id === 'trade' ? '🏪' : '☕';
-  return `${emoji} ${F.walkGiver.replace('{giver}', nameOf(g.npcId))}`;
+  return `${emoji} ${biLine((lang, t) => t.firstVisit.walkGiver.replace('{giver}', npcShortName(g.npcId, lang)))}`;
+}
+
+/** A town-goal toast line (step done / tour done), with the Korean help when on. */
+export function goalToast(key: 'goalStepToast' | 'goalTourDone'): string {
+  return biLine((_lang, t) => t.firstVisit[key]);
 }

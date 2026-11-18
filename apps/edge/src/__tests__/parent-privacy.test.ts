@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { COMMON_WORDS_EN, NAME_LIKE_WORDS } from '@lcw/content';
 import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
 import { FAMILY_FAILS_PER_HOUR } from '../family.js';
 import { maskNickname, pickQuotes, publicFacts, publicSafeText } from '../parent-report.js';
@@ -41,7 +42,17 @@ describe('public text filter (quotes, expressions)', () => {
     // A name at the start of the sentence (#131 review: the capital check skipped the first word).
     'Jiwoo, can I have a warm tea?',
     'Minseo likes cookies',
-    'Hannuri is my favorite place'
+    'Hannuri is my favorite place',
+    // Lowercase from the recognizer: the first-word check runs in any case (#131 review 2).
+    'minji likes cookies',
+    'seojun and I played soccer',
+    // English names and given names that are also words.
+    'Emma likes pizza',
+    'Joy is my best friend',
+    'Grace, can you help me?',
+    // Someone being called: a word before the comma that is not a greeting or a family word.
+    'Doyun, look at this',
+    'Hannah, can I have a tea?'
   ])('blocks %s', (t) => {
     expect(publicSafeText(t, names)).toBe(false);
   });
@@ -55,9 +66,70 @@ describe('public text filter (quotes, expressions)', () => {
     'Thank you so much',
     "Let's trade my apple",
     'Here you are',
-    'Warm milk please'
+    'Warm milk please',
+    'Okay, let me try',
+    'Mom, can I have a cookie?'
   ])('allows %s', (t) => {
     expect(publicSafeText(t, names)).toBe(true);
+  });
+
+  // #131 review 1: a lesson-only starter list dropped 11 of 25 ordinary sentences, so a lesson without a script often
+  // had nothing to quote. Everyday sentences a child says must reach the report.
+  const ORDINARY = [
+    'Yesterday I played soccer with my friends',
+    'Okay let me try',
+    'Pizza is my favorite food',
+    'Dogs are cute',
+    'Sometimes I eat ramen for lunch',
+    'Tomorrow we go to the zoo',
+    'My mom likes coffee',
+    'Cats are so soft',
+    'Today I am very happy',
+    'After school I go to the park',
+    'Last weekend we went to the beach',
+    'Chocolate is very sweet',
+    'Basketball is fun',
+    'Ice cream is cold and yummy',
+    'Every morning I eat cereal',
+    'Before dinner I do my homework',
+    'Lunch was delicious',
+    'Red is my favorite color',
+    'Elephants are big',
+    'Can you help me please',
+    'Do you like dinosaurs',
+    'We played a game together',
+    'They are my friends',
+    'Snow is white and cold',
+    'Maybe I want a cookie',
+    'Wow that is so cool',
+    'Sorry I am late',
+    'Look at the big dog',
+    'Grandma made kimchi for us',
+    'Piano is hard but fun',
+    'Summer is very hot',
+    'Monkeys like bananas',
+    'Usually I sleep at ten',
+    'Strawberries are my favorite fruit',
+    'Swimming is my favorite sport',
+    'Teacher, can I go to the bathroom',
+    'Breakfast was eggs and toast',
+    'Penguins are so cute',
+    'Taekwondo is so fun',
+    'Never give up'
+  ];
+  it('keeps ordinary children\'s sentences (at most 1 in 40 over-blocked)', () => {
+    const dropped = ORDINARY.filter((t) => !publicSafeText(t, names));
+    expect(dropped.length, `dropped: ${dropped.join(' | ')}`).toBeLessThanOrEqual(1);
+  });
+
+  it('the everyday word list holds no given names and only plain lowercase words', () => {
+    expect(COMMON_WORDS_EN.length).toBeGreaterThan(500);
+    expect(COMMON_WORDS_EN.filter((w) => !/^[a-z]+$/.test(w))).toEqual([]);
+    const listed = new Set(COMMON_WORDS_EN);
+    expect(NAME_LIKE_WORDS.filter((w) => listed.has(w))).toEqual([]);
+    // Romanised Korean given names children in our lessons have.
+    for (const n of ['minji', 'jiwoo', 'seojun', 'doyun', 'hayun', 'yuna', 'juno', 'siwoo', 'jihoo', 'seoyeon', 'jimin', 'minho'])
+      expect(listed.has(n), n).toBe(false);
   });
 
   it('pickQuotes skips self-introductions even when the name is not the nickname', () => {
@@ -83,6 +155,8 @@ describe('public facts are an allow-list', () => {
           utterances: 5,
           quotes: [{ text: 'Juno likes cars', stars: 2 }, { text: 'Can I have a warm honey tea', stars: 2, stage_title_ko: '카페 주문' }],
           expressions: ['so that', 'call me Juno'],
+          // A lowercase name in a lesson target is filtered on the public path too (#131 review 2).
+          home_practice: ['minji likes cookies', 'Can I have a warm honey tea, please?'],
           stages: [{ id: 'cafe_order', title_ko: '카페 주문', utterances: 2, passes: 1, transcript: 'x' }],
           raw: 'anything'
         }
@@ -93,6 +167,7 @@ describe('public facts are an allow-list', () => {
     expect(out.progress).toEqual({ student_ms: 1000, exchanges: 4, mode_breakdown: { free: 2, guided: 1 } });
     expect(out.lesson.quotes.map((q: any) => q.text)).toEqual(['Can I have a warm honey tea']);
     expect(out.lesson.expressions).toEqual(['so that']);
+    expect(out.lesson.home_practice).toEqual(['Can I have a warm honey tea, please?']);
     // A report stored before parentKo/parentMain: the plan's parent wording and its scene flag come back by stage id.
     expect(out.lesson.stages[0]).toEqual({ id: 'cafe_order', title_ko: '카페에서 음료 주문하기', main: true, utterances: 2, passes: 1 });
     expect(out.lesson.raw).toBeUndefined();

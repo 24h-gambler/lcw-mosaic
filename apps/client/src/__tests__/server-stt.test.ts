@@ -82,6 +82,7 @@ async function harness(opts: { level: () => number; running?: () => boolean; ai?
     {
       PLATFORM: undefined as never,
       LCW_OPERATOR_TOKEN: TOKEN,
+      BUILD_SHA: 'test', // a deployed Worker: without it there is no AI (platform.ts workersAi)
       AI: opts.ai ?? ({ run: async (_m: string, input: unknown) => { aiCalls.push(input); return { text: 'Cold water, please.', segments: [{ avg_logprob: -0.1 }] }; } } as LcwEnv['AI'])
     } as LcwEnv
   );

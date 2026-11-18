@@ -4,7 +4,6 @@
  */
 import { FREE_PLAY_LIMITS } from '@lcw/schemas';
 
-/** 'L2' → '레벨 2' (the teacher's console keeps the L codes; a parent reads the number). */
 /** '을' after a final consonant, '를' after a vowel; '을(를)' when the last letter is not Hangul. */
 export function eulReul(word: string): string {
   const c = word.trim().charCodeAt(word.trim().length - 1);
@@ -12,6 +11,7 @@ export function eulReul(word: string): string {
   return (c - 0xac00) % 28 === 0 ? '를' : '을';
 }
 
+/** 'L2' → '레벨 2' (the teacher's console keeps the L codes; a parent reads the number). */
 export const levelName = (lv: string): string => (/^L\d+$/.test(lv) ? `레벨 ${lv.slice(1)}` : lv);
 
 export const PARENT_STRINGS_KO = {

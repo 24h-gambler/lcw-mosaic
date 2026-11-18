@@ -4,9 +4,10 @@
  * and Esc closes; the HUD "메뉴" button opens the last tab. Focus moves into the window and back out (docs/08 11장).
  */
 import React, { useCallback, useEffect, useRef } from 'react';
-import { FRAME_STRINGS as F } from '../strings.js';
+import { FRAME_STRINGS as F, FRAME_STRINGS_EN as E } from '../strings.js';
 import { MENU_TABS, otherModalOpen, type MenuPanelProps, type MenuTab } from './types.js';
 import { ensureMenuStyle } from './styles.js';
+import { KoHelp } from './ko-help.js';
 import { BagPanel } from './BagPanel.js';
 import { MirrorPanel } from './MirrorPanel.js';
 import { MapPanel } from './MapPanel.js';
@@ -134,7 +135,10 @@ export function PlayerMenu(props: PlayerMenuProps): React.ReactElement {
                 <span className="ic" aria-hidden="true">
                   {TAB_ICONS[t]}
                 </span>
-                <span>{F.tabs[t]}</span>
+                <span>
+                  {E.tabs[t]}
+                  <KoHelp get={(k) => k.tabs[t]} />
+                </span>
                 {F.keys[t] ? <kbd aria-hidden="true">{F.keys[t]}</kbd> : null}
               </button>
             ))}

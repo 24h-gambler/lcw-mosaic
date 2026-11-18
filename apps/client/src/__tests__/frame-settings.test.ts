@@ -22,6 +22,7 @@ import {
   saveSettings,
   updateFrameSettings,
   keyScopeOf,
+  lookSettingsOf,
   type SettingsStore
 } from '../frame/settings.js';
 import { fitsServer, fromServerSettings, pickNewer, startSettingsSync, toMs, toServerSettings } from '../frame/settings-sync.js';
@@ -40,9 +41,9 @@ afterEach(() => resetFrameSettingsForTest());
 describe('settings record', () => {
   it('saves to the device and comes back the same', () => {
     const st = memStore();
-    const s = normalizeSettings({ ...DEFAULT_SETTINGS, textScale: 1.3, lookMouse: 1.5, invertY: true, volume: { master: 0.5, music: 0, effects: 1, voice: 0.8 } });
+    const s = normalizeSettings({ ...DEFAULT_SETTINGS, textScale: 1.3, lookMouse: 1.5, invertY: true, autoJump: true, volume: { master: 0.5, music: 0, effects: 1, voice: 0.8 } });
     expect(saveSettings(s, st)).toBe(true);
-    expect(JSON.parse(st.data[SETTINGS_KEY]!)).toMatchObject({ textScale: 1.3, lookMouse: 1.5, invertY: true });
+    expect(JSON.parse(st.data[SETTINGS_KEY]!)).toMatchObject({ textScale: 1.3, lookMouse: 1.5, invertY: true, autoJump: true });
     expect(loadSettings(st)).toEqual(s);
   });
 
@@ -87,6 +88,16 @@ describe('settings record', () => {
     updateFrameSettings({ quality: 'high' }, { store: st, audio: null, doc: null });
     expect(savedTier()).toBe('high');
     expect(frameSettings().quality).toBe('high');
+  });
+});
+
+describe('auto jump (Dan 11-16 R2625)', () => {
+  it('is off by default, reaches the world with the look settings and the server copy', () => {
+    expect(DEFAULT_SETTINGS.autoJump).toBe(false);
+    expect(normalizeSettings({ autoJump: 'yes' }).autoJump).toBe(false);
+    expect(lookSettingsOf(normalizeSettings({ autoJump: true }))).toMatchObject({ autoJump: true });
+    const back = fromServerSettings(toServerSettings(normalizeSettings({ autoJump: true })), null);
+    expect(back.autoJump).toBe(true);
   });
 });
 

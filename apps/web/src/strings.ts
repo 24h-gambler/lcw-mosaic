@@ -364,8 +364,8 @@ export const LESSON_STRINGS_KO = {
     bodyTitle: '요약',
     teacherTitle: '선생님의 한마디',
     nextTitle: '다음 수업',
-    factNote: '숫자는 수업 중 인식된 아이의 발화에서 바로 계산했습니다.',
-    baselinePending: '기준선 수집 중',
+    factNote: '숫자는 수업 중 인식된 아이의 영어 말에서 바로 계산했습니다.',
+    baselinePending: '출발점 만드는 중',
     factLabels: {
       active_speaking_minutes: '직접 말한 시간',
       total_valid_utterances: '인식된 문장',

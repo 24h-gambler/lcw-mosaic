@@ -10,6 +10,7 @@ import { buildMapInfo } from '../world/map-info.js';
 import { SCENES } from '../world/town.js';
 import { BAND_NAMES_KO, SCENE_TITLES_KO, SECTOR_NAMES_KO } from '../world/strings.js';
 import { FRAME_STRINGS as F, withCopula, withDirection } from '../frame/strings.js';
+import { resetLangForTest, setHelpKo } from '../world/lang.js';
 import {
   areasIn,
   arrowDeg,
@@ -97,7 +98,7 @@ describe('sector grid (3 x 3, docs/03 3.1)', () => {
     const cells = sectorCells(townInfo());
     expect(cells).toHaveLength(9);
     expect(cells.map((c) => [c.col, c.row])).toEqual([0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => [c, r])));
-    expect(cells[4]).toMatchObject({ rect: [96, 96, 192, 192], id: 'town', nameKo: '중앙 마을', explored: true, zone: 'core' });
+    expect(cells[4]).toMatchObject({ rect: [96, 96, 192, 192], id: 'town', nameKo: SECTOR_NAMES_KO.town, explored: true, zone: 'core' });
     for (const c of cells.filter((q) => q.index !== 4)) expect(c).toMatchObject({ id: null, nameKo: null, explored: false });
   });
 
@@ -148,7 +149,7 @@ describe('player arrow and labels', () => {
     expect(arrowDeg(Math.PI / 2)).toBe(90);
     expect(arrowDeg(Math.PI)).toBe(0);
     expect(arrowDeg(-Math.PI / 2)).toBe(270);
-    expect([0, Math.PI / 2, Math.PI, -Math.PI / 2, Math.PI * 0.75].map(compassKo)).toEqual(['남', '동', '북', '서', '북동']);
+    expect([0, Math.PI / 2, Math.PI, -Math.PI / 2, Math.PI * 0.75].map(compassKo)).toEqual(['south', 'east', 'north', 'west', 'northeast']);
   });
   it('keeps labels inside the map near the edges', () => {
     expect(labelPlace(50, 50)).toEqual({ above: false, align: 'center' });
@@ -186,20 +187,30 @@ describe('screen-reader summary and particles', () => {
   const places = knownScenes(info, cells);
   it('says how much is explored, where I am and face, and where I can go', () => {
     const s = mapSummary({ cells, playerCell: 4, near: places.find((p) => p.id === 'plaza')!, band: 'surface', yaw: Math.PI, places, lessonOn: false });
-    // place and band names come from the world domain in the learn language; the sentence around them is the frame's
+    // the screen speaks the learn language: names from the world tables, the sentence around them from the frame's
     expect(s).toBe(
       [
-        '지도예요. 온 세상 9칸 중 1칸을 가 봤어요.',
-        F.mapSummaryHere(SECTOR_NAMES_KO.town, F.mapSummaryNear(SCENE_TITLES_KO.plaza), BAND_NAMES_KO.surface, '북'),
+        'This is the map. You have been to 1 of all 9 squares.',
+        F.mapSummaryHere(SECTOR_NAMES_KO.town, F.mapSummaryNear(SCENE_TITLES_KO.plaza), BAND_NAMES_KO.surface, 'north'),
         F.mapSummaryPlaces(places.map((p) => p.nameKo))
       ].join(' ')
     );
+    // with the Korean help on, the Korean paragraph follows with its own Korean names (no particle on English names)
+    setHelpKo(true);
+    try {
+      const both = mapSummary({ cells, playerCell: 4, near: places.find((p) => p.id === 'plaza')!, band: 'surface', yaw: Math.PI, places, lessonOn: false });
+      expect(both).toBe(
+        `${s} · 지도예요. 온 세상 9칸 중 1칸을 가 봤어요. 나는 중앙 마을 중앙 광장 근처, 지상에서 북쪽을 보고 있어요. 갈 수 있는 곳은 중앙 광장, 꿀 카페, 물물교환 상점, 내 부지, 바람 언덕이에요.`
+      );
+    } finally {
+      resetLangForTest();
+    }
     expect(places.map((p) => p.id)).toEqual(['plaza', 'honey_cafe', 'trade_shop', 'build_plot', 'open_hill']);
   });
   it('in a lesson says the teacher picks the place instead of listing places', () => {
     const s = mapSummary({ cells, playerCell: 4, near: null, band: 'surface', yaw: 0, places, lessonOn: true });
     expect(s).toContain(F.mapLessonNote);
-    expect(s).not.toContain('갈 수 있는 곳은');
+    expect(s).not.toContain('You can go to');
   });
   it('picks 로/으로 and 예요/이에요 by the last syllable', () => {
     expect(['중앙 광장', '꿀 카페', '바람 언덕', '내 부지', '물물교환 상점', '골목길'].map(withDirection)).toEqual([
@@ -212,7 +223,15 @@ describe('screen-reader summary and particles', () => {
     ]);
     expect(withCopula('바람 언덕')).toBe('바람 언덕이에요');
     expect(withCopula('꿀 카페')).toBe('꿀 카페예요');
-    expect(goLabel('꿀 카페')).toBe('꿀 카페로 가기');
+    // the place button speaks English; the Korean sentence (with its own Korean name) comes with the help
+    expect(goLabel('꿀 카페')).toBe('Go to Honey Cafe');
+    expect(goLabel(SCENE_TITLES_KO.honey_cafe)).toBe('Go to Honey Cafe');
+    setHelpKo(true);
+    try {
+      expect(goLabel(SCENE_TITLES_KO.honey_cafe)).toBe('Go to Honey Cafe · 꿀 카페로 가기');
+    } finally {
+      resetLangForTest();
+    }
   });
 });
 
@@ -246,7 +265,7 @@ describe('MapPanel render', () => {
     // eight silhouettes, each saying it is not visited yet
     expect(html.match(/lcw-map__cell is-fog/g)).toHaveLength(8);
     expect(html).toContain(F.unexplored);
-    expect(html).toContain('지도예요. 온 세상 9칸 중 1칸을 가 봤어요.');
+    expect(html).toContain('This is the map. You have been to 1 of all 9 squares.');
     // the player arrow and "나" are drawn when the town (the player's sector) is open
     expect(html).toContain('lcw-map__you');
   });
@@ -261,7 +280,7 @@ describe('MapPanel render', () => {
 
   it('marks the elevator stop for the band I am in', () => {
     const html = render({ world: fakeWorld(townInfo(), -40) });
-    expect(html).toMatch(new RegExp(`lcw-map__stop is-here[^>]*><span class="lcw-map__car"[^>]*>나</span><span><b>${BAND_NAMES_KO.mine}</b>`));
+    expect(html).toMatch(new RegExp(`lcw-map__stop is-here[^>]*><span class="lcw-map__car"[^>]*>${F.youAreHere}</span><span><b>${BAND_NAMES_KO.mine}</b>`));
   });
 
   it('says the map comes with the world when there is none', () => {

@@ -6,7 +6,7 @@ import { checkCoverage, parseTestRef, runCheck, specWordsLost, testExists } from
 // @ts-expect-error plain .mjs tools without types
 import { brokenRefs, specIds } from '../spec-ids.mjs';
 // @ts-expect-error plain .mjs tools without types
-import { auditPlan, frameOutliers, PAGE_FUNCTIONS, summarize } from '../nightly-audit.mjs';
+import { auditPlan, browserPool, frameOutliers, PAGE_FUNCTIONS, runPlan, summarize, withRouteLimit } from '../nightly-audit.mjs';
 import { readFileSync } from 'node:fs';
 import { FEATURE_IDS } from '../../apps/web/src/site/featureStatus';
 import coverageFile from '../../docs/spec-coverage.json';
@@ -276,5 +276,109 @@ describe('nightly audit joins production screens with the list', () => {
     expect(ok.regressions).toEqual([]);
     const bad = summarize({ base: 'x', sha: 's', plan, coverage: cov, check, results: [anon, { route: '/director', size: 'key', signedIn: true, status: 200, marks: { 'testid:director-plan': false }, pageErrors: [] }] });
     expect(bad.regressions.map((r: { id: string; sizes: string[] }) => `${r.id}:${r.sizes.join('')}`)).toEqual(['T01:key']);
+  });
+});
+
+describe('nightly audit: one route never holds the whole night (first run 11-16 hit the one-hour task limit)', () => {
+  it('a route past its limit is recorded as a timeout and its browser context is closed; a quick one passes through', async () => {
+    let closed = 0;
+    const lines: string[] = [];
+    const stuck = (hold: { ctx?: unknown }) => {
+      hold.ctx = { close: async () => void closed++ };
+      return new Promise(() => {}); // an evaluate on a starved 3D page that never answers
+    };
+    const r = await withRouteLimit(stuck, { route: '/world/', tag: 'm', limitMs: 50, graceMs: 20, log: (l: string) => lines.push(l) });
+    expect(r.error).toMatch(/^route_timeout/);
+    expect(r.status).toBe(0);
+    expect(closed).toBe(1);
+    expect(lines[0]).toContain('/world/ m timeout');
+    const ok = await withRouteLimit(async () => ({ route: '/', size: 'd', status: 200 }), { route: '/', tag: 'd', limitMs: 1000 });
+    expect(ok).toEqual({ route: '/', size: 'd', status: 200 });
+    const thrown = await withRouteLimit(async () => { throw new Error('net::ERR_CONNECTION_RESET'); }, { route: '/x', tag: 'd', limitMs: 1000 });
+    expect(thrown.error).toContain('ERR_CONNECTION_RESET');
+  });
+
+  it('a close that never answers still returns within the grace, and the browser is marked to be dropped', async () => {
+    const hung = (hold: { ctx?: unknown }) => {
+      hold.ctx = { close: () => new Promise(() => {}) }; // a starved renderer does not answer the close either
+      return new Promise(() => {});
+    };
+    const t0 = Date.now();
+    const r = await withRouteLimit(hung, { route: '/world/', tag: 'd', limitMs: 30, graceMs: 30 });
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(r.timedOut).toBe(true);
+    expect(r.browserBroken).toBe(true);
+    // stuck in newContext: nothing to close - the browser has to go too
+    const noCtx = await withRouteLimit(() => new Promise(() => {}), { route: '/x', tag: 'd', limitMs: 20, graceMs: 20 });
+    expect(noCtx.browserBroken).toBe(true);
+    // the context closed and the opener ended: the browser stays
+    const clean = await withRouteLimit(
+      (hold: { ctx?: unknown }) =>
+        new Promise((_, reject) => {
+          hold.ctx = { close: async () => reject(new Error('Target closed')) };
+        }),
+      { route: '/y', tag: 'd', limitMs: 20, graceMs: 50 }
+    );
+    expect(clean.timedOut).toBe(true);
+    expect(clean.browserBroken).toBe(false);
+  });
+
+  it('a dead or dropped browser is started again before the next route; a failed start is that route only', async () => {
+    let n = 0;
+    const made: { connected: boolean; closed: boolean }[] = [];
+    const launch = async () => {
+      n++;
+      if (n === 3) throw new Error('spawn chrome ENOMEM');
+      const b = { connected: true, closed: false, isConnected: () => b.connected, close: async () => void (b.closed = true) };
+      made.push(b);
+      return b;
+    };
+    const pool = browserPool({ launch, graceMs: 20 });
+    const a = await pool.get();
+    expect(await pool.get()).toBe(a); // healthy: reused
+    made[0]!.connected = false; // died (out of memory)
+    const b = await pool.get();
+    expect(b).not.toBe(a);
+    expect(made[0]!.closed).toBe(true);
+    pool.drop(); // a timed-out route left it stuck
+    await expect(pool.get()).rejects.toThrow('ENOMEM'); // third start fails: only this route
+    const c = await pool.get(); // the next route starts one again
+    expect(made[1]!.closed).toBe(true);
+    expect(c).toBe(made[2]);
+    // a close that hangs does not hold the next start
+    made[2]!.close = () => new Promise(() => {});
+    pool.drop();
+    const t0 = Date.now();
+    await pool.get();
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+
+  it('the whole audit has a limit: what is left is not opened and is reported as not checked, never as a regression', async () => {
+    const plan = [
+      { route: '/a', who: [{ id: 'A.1', owner: 'world', status: 'done', expect: [], authExpect: [] }], expect: [], authExpect: [], auth: null },
+      { route: '/b', who: [{ id: 'B.1', owner: 'talk', status: 'done', expect: [], authExpect: [] }], expect: [], authExpect: [], auth: null }
+    ];
+    const viewports = [{ name: 'd' }, { name: 'm' }];
+    let clock = 0;
+    const opened: string[] = [];
+    const open = async (p: { route: string }, vp: { name: string }) => {
+      opened.push(`${p.route} ${vp.name}`);
+      clock += 60; // every open uses a minute of a 2.5-minute limit
+      return { route: p.route, size: vp.name, status: 0, error: 'route_timeout 90000ms', timedOut: true };
+    };
+    const results = await runPlan({ plan, viewports, open, limitMs: 150, now: () => clock });
+    expect(opened).toEqual(['/a d', '/a m', '/b d']); // a route_timeout gets no second look
+    expect(results.map((r: { skipped?: string }) => r.skipped ?? null)).toEqual([null, null, null, 'audit_deadline']);
+    const rep = summarize({ base: 'x', sha: null, plan, results, coverage: { ids: {}, features: [] }, check: { counts: {}, byKind: {}, features: {}, errors: [], gaps: {} } });
+    expect(rep.skippedScreens).toBe(1);
+    expect(rep.screens).toBe(3);
+    expect(rep.regressions.map((r: { id: string }) => r.id)).toEqual(['A.1', 'B.1']); // both opened and timed out
+    expect(rep.regressions[1].sizes).toEqual(['d']); // the skipped size is not part of the regression
+    // a route never opened at all is not checked, not a regression
+    clock = 0;
+    const none = await runPlan({ plan, viewports, open, limitMs: 0, now: () => clock });
+    const rep2 = summarize({ base: 'x', sha: null, plan, results: none, coverage: { ids: {}, features: [] }, check: { counts: {}, byKind: {}, features: {}, errors: [], gaps: {} } });
+    expect(rep2.regressions).toEqual([]);
+    expect(rep2.notChecked.map((x: { id: string }) => x.id)).toEqual(['A.1', 'B.1']);
   });
 });

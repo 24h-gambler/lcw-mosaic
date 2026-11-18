@@ -5,11 +5,13 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { COLOR_TOKENS as C } from '@lcw/ui';
-import { FRAME_STRINGS as F } from '../strings.js';
+import { FRAME_STRINGS as F, FRAME_STRINGS_EN as E } from '../strings.js';
 import { SOCKET_NAMES, fetchItems, type ItemsView } from '../api.js';
 import { socketThings } from './BagPanel.js';
 import { motionReduced } from '../settings.js';
 import type { MenuPanelProps } from './types.js';
+import { KoHelp } from './ko-help.js';
+import { thingName } from './collection-names.js';
 import type { NpcLook } from '../../world/town.js';
 
 /** Next yaw after a turn step (radians, kept in -PI..PI). */
@@ -165,7 +167,8 @@ function MirrorView({ look, reduceMotion }: { look: NpcLook; reduceMotion: boole
           ⟲
         </button>
         <span className="muted" style={{ alignSelf: 'center' }}>
-          {F.mirrorHint}
+          {E.mirrorHint}
+          <KoHelp of={E.mirrorHint} />
         </span>
         <button type="button" className="btn" onClick={() => turn(Math.PI / 4)} aria-label={F.turnRight}>
           ⟳
@@ -197,11 +200,11 @@ export function MirrorPanel(props: MenuPanelProps): React.ReactElement {
   return (
     <section>
       <style>{MIRROR_CSS}</style>
-      <h2>{F.mirrorTitle}</h2>
+      <h2>{E.mirrorTitle}<KoHelp of={E.mirrorTitle} /></h2>
       <div className="lcw-mirror">
         {look ? <MirrorView look={look} reduceMotion={reduceMotion} /> : <div />}
         <div>
-          <h3 style={{ marginTop: 0 }}>{F.wearing}</h3>
+          <h3 style={{ marginTop: 0 }}>{E.wearing}<KoHelp of={E.wearing} /></h3>
           <ul className="lcw-mirror__list">
             {SOCKET_NAMES.map((s) => {
               const t = worn?.[s] ?? null;
@@ -211,12 +214,12 @@ export function MirrorPanel(props: MenuPanelProps): React.ReactElement {
                   <span className="e" aria-hidden="true">
                     {t?.emoji ?? ''}
                   </span>
-                  <span>{t ? t.item_name_ko : F.socketEmpty}</span>
+                  <span>{t ? thingName(t.item_key, t.item_name_ko) : F.socketEmpty}</span>
                 </li>
               );
             })}
           </ul>
-          {!auth.token ? <p className="note" style={{ marginTop: 8 }}>{F.guestNote}</p> : null}
+          {!auth.token ? <p className="note" style={{ marginTop: 8 }}>{E.guestNote}<KoHelp of={E.guestNote} /></p> : null}
         </div>
       </div>
     </section>

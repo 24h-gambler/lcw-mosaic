@@ -4,6 +4,7 @@
  */
 import type { NpcContext } from '@lcw/schemas';
 import type { NpcLook } from './town.js';
+import type { KeyHintLabels } from './strings.js';
 
 export type SceneId = 'plaza' | 'honey_cafe' | 'trade_shop' | 'build_plot' | 'open_hill';
 
@@ -56,6 +57,15 @@ export interface WorldStats {
   arrival?: { scene: SceneId; groundMs: number };
   /** building on my plot (headless checks): mode, carried stacks, sync queue, current aim, last room check */
   build?: Record<string, unknown>;
+  /**
+   * Talking to NPCs (R2625 real-play check): the NPC E would talk to, the goal NPC (errand step), whether the talk prompt
+   * shows, NPCs talked to in this visit, talks opened by E / the talk button and by a click or tap.
+   */
+  interact?: { near: string | null; goal: string | null; prompt: boolean; promptWhy: string; paused: boolean; walking: boolean; talked: string[]; byKey: number; byTap: number };
+  /** Talkable NPCs drawn now: where their body centre lands on screen (CSS px) and how far they stand (m). */
+  npcView?: Array<{ id: string; sx: number; sy: number; vis: boolean; dist: number }>;
+  /** Jumps pressed, jumps nobody pressed, whole-block climbs without a jump, the eye height of body and camera. */
+  motion?: { jumps: number; unpressedJumps: number; autoClimbs: number; autoJump: boolean; bodyY: number; camY: number };
 }
 
 export interface WorldHandle {
@@ -117,11 +127,26 @@ export interface WorldHandle {
   /** Server reachable? false shows the HUD band "혼자 모드로 계속 중" (docs/08 G01); the world keeps running. */
   setOnline?(on: boolean): void;
   /** Player settings G14 (frame/settings.ts): drag-to-look speed for mouse and touch (1 = default), up/down inverted. */
-  setLookSettings?(o: { mouse: number; touch: number; invertY: boolean }): void;
+  setLookSettings?(o: { mouse: number; touch: number; invertY: boolean; autoJump?: boolean }): void;
+  /**
+   * The NPC the child should talk to next (the errand step, docs/03 D1), or null. It gets a marker over its head and
+   * keeps its talk prompt; an NPC already talked to in this visit stops showing the prompt (E and taps still work).
+   */
+  setGoalNpc?(npcId: string | null): void;
   /** G14 움직임 줄이기 (docs/08 5장): burst and star effects off. Starts from the device's prefers-reduced-motion. */
   setReduceMotion?(on: boolean): void;
   /** G14: the frame counter in the HUD corner (also on with ?fps). */
   setShowFps?(on: boolean): void;
+  /** key names in the HUD help lines and the talk prompt (the player's remapped keys) */
+  setKeyHints?(k: KeyHintLabels): void;
+  /** the child picked the slot already in hand again: use that thing (G01 eat / drink) */
+  onUse?(cb: (itemKey: string) => void): () => void;
+  /** G01 gauges on the status chip; null hides them */
+  setGauges?(g: { hunger: number; thirst: number; lowHunger: boolean; lowThirst: boolean; slow: boolean } | null): void;
+  /** walking speed multiplier (0.3..1) and whether running is allowed (G01 low gauges, docs/03 D1) */
+  setMove?(mult: number, canRun: boolean): void;
+  /** a one-off line over the hotbar (same place as the slot caption) */
+  notice?(text: string): void;
   /**
    * Map read-out for the map screen (docs/08 G06): sectors (one town sector until world generation lands, then the
    * 3 x 3 sectors), the walkable places, and where the player stands. World coordinates in metres.

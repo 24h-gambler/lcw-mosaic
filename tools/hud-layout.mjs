@@ -48,7 +48,7 @@ for (const vp of VIEWPORTS) {
       if (b.width < 4 || b.height < 4) continue;
       // full-screen layers (canvas, touch layer, HUD root) are not things the minimap can cover
       if (b.width >= innerWidth * 0.9 && b.height >= innerHeight * 0.9) continue;
-      const interactive = el.matches('button, a, [role="button"], [role="region"], input, .lw-btn, .lb-btn, .lb-tools, .lcw-review-dock, .lw-card, .lw-stars, .lw-chip, .lw-goal, .lw-slot, .lw-hotbar');
+      const interactive = el.matches('button, a, [role="button"], [role="region"], input, .lw-btn, .lb-btn, .lb-tools, .lb-sync, .lcw-review-dock, .lw-card, .lw-stars, .lw-chip, .lw-goal, .lw-slot, .lw-hotbar');
       if (!interactive) continue;
       const ix = Math.min(b.right, m.right) - Math.max(b.left, m.left);
       const iy = Math.min(b.bottom, m.bottom) - Math.max(b.top, m.top);

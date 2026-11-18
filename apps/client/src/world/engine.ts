@@ -836,7 +836,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         hold = null;
         buildView.showBreak(null, 0);
       }
-      counts.talkTap++;
+      if (!isPasser(npc)) counts.talkTap++;
       interact(npc);
       return;
     }
@@ -862,7 +862,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   function tapPick(cx: number, cy: number): boolean {
     const n = npcAt(cx, cy);
     if (!n) return false;
-    counts.talkTap++;
+    if (!isPasser(n)) counts.talkTap++;
     interact(n);
     return true;
   }
@@ -892,11 +892,16 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     return d <= TALK_RANGE + 2.5 ? best : null;
   }
 
+  /** a lesson is live and this is not its NPC: taps and E on it stay quiet, and talk counts leave it out */
+  function isPasser(n: NpcRt): boolean {
+    return lessonMode && !!goalNpcId && n.def.id !== goalNpcId;
+  }
+
   function interact(n: NpcRt): void {
     if (paused) return;
     // In a lesson only the lesson's NPC talks: a tap on a passer-by is quiet (no open sound, no turn, no wave), as the
     // lesson window does not open for it either (review of #139).
-    if (lessonMode && goalNpcId && n.def.id !== goalNpcId) {
+    if (isPasser(n)) {
       counts.passerTaps++;
       return;
     }
@@ -917,7 +922,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   tryTalk = () => {
     const n = nearNpc ?? npcAt(viewW / 2, viewH / 2);
     if (!n) return;
-    counts.talkE++;
+    if (!isPasser(n)) counts.talkE++;
     interact(n);
   };
 
@@ -1571,8 +1576,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       const off = Math.abs(wrapAngle(Math.atan2(n.pos.x - body.x, n.pos.z - body.z) - viewYaw()));
       const score = pd + (off > 1.2 ? 2.5 : off * 0.6);
       // in a lesson only the lesson's NPC is "near": no talk prompt or E on a passer-by that would then do nothing
-      const passer = lessonMode && !!goalNpcId && n.def.id !== goalNpcId;
-      if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode) && !passer) {
+      if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode) && !isPasser(n)) {
         nearD = score;
         nearNpc = n;
       }

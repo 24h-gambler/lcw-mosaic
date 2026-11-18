@@ -147,6 +147,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   // App decides WebGL once (canRunWorld) and never mounts the layer without it; no probing here on every render.
   const lowTier = props.canRender3d === false;
   const live = view.phase === 'live';
+  const hasStage = view.stageId !== null;
   // Again when the world arrives: App's callback reaches the world's "수업 중" badge only once the world exists.
   const ended = view.phase === 'ended';
   // The lesson's NPC is the one to talk to: the world marks it while the lesson runs (R2625 ⑤), and lets go after.
@@ -154,7 +155,9 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   useEffect(() => {
     const w = props.world;
     if (!w?.setGoalNpc) return;
-    if (live) {
+    // only once the first stage has come: before it npcId is the default 'guide', and the world would keep the real
+    // lesson NPC quiet for one poll (review of #152)
+    if (live && hasStage) {
       w.setGoalNpc(view.npcId);
       goalSet.current = true;
     } else if (goalSet.current) {
@@ -162,7 +165,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
       w.setGoalNpc(null);
       goalSet.current = false;
     }
-  }, [props.world, live, view.npcId]);
+  }, [props.world, live, hasStage, view.npcId]);
   useEffect(() => {
     onActive.current?.(live);
     // In a lesson the chip shows this lesson's stars from the start (0 before the first). When it ends the chip keeps

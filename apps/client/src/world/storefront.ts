@@ -57,8 +57,9 @@ export const STORES: readonly StoreDef[] = [
     box: { x0: 166, x1: 178, z0: 128, z1: 140, y1: 6 },
     front: { x: 166, facing: -1 },
     fascia: { z0: 129.6, z1: 139.4, y0: 5.08, y1: 6.95 },
-    // board over the cafe's front yard, post on the curb (walker.3 cuts the corner by the building)
-    post: { x: 165.3, z: 140.0, end: 1 },
+    // board over the cafe's front yard (its arm stops short of the awning at z 139), post on the curb (walker.3 cuts
+    // the corner by the building)
+    post: { x: 165.3, z: 140.4, end: 1 },
     badge: { x: 172.5, y: 17.2, z: 134.5 },
     door: { x: 165.2, z: 134.5 }
   },
@@ -88,6 +89,8 @@ export function signPost(def: Pick<StoreDef, 'post'>): { x: number; z: number } 
 /** The road sign's board: bottom and top (block y; the ground's top is y 1), so its underside is 2 m above the ground. */
 export const SIGN_Y0 = 3.0;
 export const SIGN_Y1 = 3.95;
+/** The top of the sign's post and arm. */
+export const SIGN_TOP = SIGN_Y1 + 0.32;
 
 /**
  * Name painted on a store's signs: its scene's title in the learning language only. The Korean help never goes on
@@ -374,7 +377,7 @@ export class Storefronts {
       const fv = 0.25;
       // the post at the building end and the arm the board hangs from (the text is never crossed by the post)
       const pp = signPost(def);
-      pushBox(pos, uv, nrm, idx, pp.x, pp.z, 1, sy1 + 0.32, 0.09, 0.09, fu, fv);
+      pushBox(pos, uv, nrm, idx, pp.x, pp.z, 1, SIGN_TOP, 0.09, 0.09, fu, fv);
       const far = p.z - p.end * sw;
       pushBox(pos, uv, nrm, idx, p.x, (pp.z + far) / 2, sy1 + 0.18, sy1 + 0.3, 0.07, Math.abs(far - pp.z) / 2 + 0.05, fu, fv);
       for (const hz of [p.z - sw + 0.25, p.z + sw - 0.25]) pushBox(pos, uv, nrm, idx, p.x, hz, sy1, sy1 + 0.18, 0.02, 0.02, fu, fv);

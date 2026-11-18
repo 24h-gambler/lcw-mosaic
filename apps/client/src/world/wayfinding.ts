@@ -9,13 +9,16 @@
  * most 12 times a second and only while it is on screen and something on it moved. The beam is one mesh with one
  * additive material.
  *
- * Place on screen (docs/08 7.2): a mouse screen has it in the bottom-right corner (148 px); a touch screen in the right
- * column under the view button (72 px, 96 px on a tablet), clear of the talk / jump thumb zone, the goal card and
- * the star chip.
+ * Place on screen (docs/08 7.3, minimap-place.ts): a mouse screen has it in the bottom-right corner (148 px); a touch
+ * screen in the right column under the view button (72 px, 96 px on a tablet), a landscape phone top-left under the
+ * status chip; clear of the talk / jump thumb zone, the build tools, the review dock, the goal card and the star chip.
  */
 import * as THREE from 'three';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { STORES, drawStoreIcon, type StoreDef } from './storefront.js';
+import { MINIMAP_PLACE } from './minimap-place.js';
+
+export { MINIMAP_PLACE };
 
 export interface GoalTarget {
   x: number;
@@ -112,12 +115,6 @@ export function storeOfNpc(npcId: string | null, stores: readonly StoreDef[] = S
 
 const INK = C['ink-900'];
 const CREAM = C['paper-50'];
-/** where the minimap sits (CSS px), per kind of screen; the layout check in tools/hud-layout.mjs measures the result */
-export const MINIMAP_PLACE = {
-  mouse: { bottom: 24, right: 12, size: 148 },
-  touch: { top: 124, right: 12, size: 72 },
-  tablet: { top: 124, right: 12, size: 96 }
-} as const;
 
 const STYLE_ID = 'lcw-wayfinding-style';
 function css(): string {
@@ -135,7 +132,9 @@ function css(): string {
 .lw-edge .a{animation:lwedge 1.2s ease-in-out infinite}
 @media (pointer:coarse){.lw-mini{bottom:auto;top:${m.tablet.top}px;right:${m.tablet.right}px;width:${m.tablet.size}px;height:${m.tablet.size}px}}
 @media (pointer:coarse) and (max-width:600px),(pointer:coarse) and (max-height:500px){.lw-mini{width:${m.touch.size}px;height:${m.touch.size}px;top:${m.touch.top}px;right:${m.touch.right}px}}
+@media (pointer:coarse) and (max-height:500px){.lw-mini{top:calc(var(--lw-chip-b,74px) + ${m.landscape.gapBelowChip}px);right:auto;left:${m.landscape.left}px;width:${m.landscape.size}px;height:${m.landscape.size}px}}
 @media (pointer:coarse){.lw-hud.off .lw-mini{top:calc(${m.touch.top}px + var(--lw-net-h,30px) + 2px)}}
+@media (pointer:coarse) and (max-height:500px){.lw-hud.off .lw-mini{top:calc(var(--lw-chip-b,74px) + var(--lw-net-h,30px) + ${m.landscape.gapBelowChip + 2}px)}}
 @media (prefers-reduced-motion:reduce){.lw-edge .a{animation:none}}
 .lw-edge.rm .a{animation:none}
 `;
@@ -159,6 +158,9 @@ export class Wayfinder {
   private drawnKey = '';
   private readonly v = new THREE.Vector3();
   private t = 0;
+  /** the minimap's box in the HUD's CSS px (re-read once a second: resize, rotation, the offline strip) */
+  private miniBox = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  private miniBoxAt = -1e9;
 
   constructor(hudRoot: HTMLElement) {
     if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
@@ -295,6 +297,18 @@ void main() {
         // clear of the goal card and the touch minimap at the top, the hotbar / jump at the bottom, the mouse minimap
         const narrow = w < 600;
         const p = edgePoint(sx * w, sy * h, w, h, { top: narrow ? 214 : 120, right: narrow ? 40 : 56, bottom: narrow ? 170 : 190, left: 40 });
+        // never on the minimap: the arrow (r 30) and its distance label below (to +56) step off its box
+        if (nowMs - this.miniBoxAt > 1000) {
+          this.miniBoxAt = nowMs;
+          const r = this.mini.getBoundingClientRect();
+          const root = this.mini.parentElement?.getBoundingClientRect();
+          if (root) this.miniBox = { x0: r.left - root.left, y0: r.top - root.top, x1: r.right - root.left, y1: r.bottom - root.top };
+        }
+        const b = this.miniBox;
+        if (b.x1 > b.x0 && p.x + 30 > b.x0 && p.x - 30 < b.x1 && p.y + 56 > b.y0 && p.y - 30 < b.y1) {
+          if ((b.y0 + b.y1) / 2 < h / 2) p.y = b.y1 + 34;
+          else p.y = b.y0 - 60;
+        }
         this.edge.style.transform = `translate(${p.x.toFixed(1)}px,${p.y.toFixed(1)}px)`;
         this.arrow.style.transform = `rotate(${p.angle.toFixed(3)}rad)`;
         const txt = `${Math.round(d)} m`;

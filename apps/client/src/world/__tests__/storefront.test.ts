@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { VoxelWorld } from '@lcw/sim-core';
 import { UI_STRINGS_EN } from '@lcw/content';
-import { POST_HALF_W, SIGN_Y0, SIGN_Y1, STORES, nightAmount, signPost, storeName, storeWindows } from '../storefront.js';
+import { POST_HALF_W, SIGN_TOP, SIGN_Y0, STORES, nightAmount, signPost, storeName, storeWindows } from '../storefront.js';
 import { MINIMAP_AREA, edgePoint, minimapPixels, minimapSteps, storeOfNpc } from '../wayfinding.js';
 import { SCENES, WANDERERS, buildTown, sceneRoute } from '../town.js';
 import { setHelpKo } from '../lang.js';
@@ -61,16 +61,17 @@ describe('store fronts (R2627: a store reads as a store at a glance)', () => {
       // the post stands on the ground with open air around it up to the arm
       const pp = signPost(s);
       expect(world.getBlock(Math.floor(pp.x), 0, Math.floor(pp.z))).not.toBe(0);
-      for (let y = 1; y <= Math.floor(SIGN_Y1); y++) expect(world.getBlock(Math.floor(pp.x), y, Math.floor(pp.z)), `${s.id} post at y ${y}`).toBe(0);
+      for (let y = 1; y <= Math.floor(SIGN_TOP); y++) expect(world.getBlock(Math.floor(pp.x), y, Math.floor(pp.z)), `${s.id} post at y ${y}`).toBe(0);
     }
   });
 
-  it('the road sign board hangs over head height and runs through no block', () => {
+  it('the road sign board and its arm hang over head height and run through no block', () => {
     // ground top is y 1; the collision box is 1.8 m: the board's underside is 2 m up
     expect(SIGN_Y0 - 1).toBeGreaterThanOrEqual(2);
     for (const s of STORES) {
-      for (let z = Math.floor(s.post.z - POST_HALF_W); z <= Math.floor(s.post.z + POST_HALF_W); z++) {
-        for (let y = Math.floor(SIGN_Y0); y <= Math.floor(SIGN_Y1); y++) {
+      // the board and the arm over it reach 0.05 m past the board's ends
+      for (let z = Math.floor(s.post.z - POST_HALF_W - 0.06); z <= Math.floor(s.post.z + POST_HALF_W + 0.06); z++) {
+        for (let y = Math.floor(SIGN_Y0); y <= Math.floor(SIGN_TOP); y++) {
           expect(world.getBlock(Math.floor(s.post.x), y, z), `${s.id} board at ${Math.floor(s.post.x)},${y},${z}`).toBe(0);
         }
       }

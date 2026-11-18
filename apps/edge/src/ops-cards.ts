@@ -20,7 +20,7 @@ create table if not exists ops_card_outbox (ref text primary key, card text not 
 create index if not exists ops_card_outbox_pending on ops_card_outbox (acked_at, updated_at);
 create index if not exists utterances_by_time on utterances (created_at)
 `;
-// utterances_by_time: the hourly enqueueRecentStudentDays reads the last two hours of every student; without it each
+// utterances_by_time: the hourly enqueueRecentStudentDays reads today and yesterday (KST) of every student; without it each
 // hour scans the whole table. utterances exists by then (storage.ts schema, lesson-mode.ts indexes it before mounting).
 
 /** The spine source the watch has always used for LCW cards (tools/lesson-watch.mjs CARD_SOURCE). */
@@ -192,16 +192,20 @@ export function enqueueLessonEnd(sql: SqliteExecutor, lessonId: string, nowMs: n
 export const OPS_CARD_ORIGIN = 'https://lcw.worldwidesomething.com';
 
 /**
- * Hourly (docs/09-ops.md 15): the daily record of every student who spoke in the last two hours - in a lesson or in
+ * Hourly (docs/09-ops.md 15): the daily record of every student who spoke today or yesterday (KST) - in a lesson or in
  * solo play. A lesson that closed itself (no teacher pressed end) or play outside a lesson still reaches the hub that
- * day; two hours so the last minutes before midnight (KST) are still written to that day's card. An unchanged card
- * stays as it is (enqueueCard), so an acked card goes again only when its numbers moved. Test students never.
+ * day. The look back is the two KST days, not the last hours: a day whose speech was before the hours looked at never got
+ * its card - 11-16 Oreo's lesson ended 17:30, the job was deployed at 22:00 and its two-hour window saw nobody; a Worker
+ * outage of a few hours would lose the same way. Yesterday too, so the last minutes before midnight still reach their
+ * card. Each hour re-checks those days: an unchanged card stays as it is (enqueueCard), so an acked card goes again only
+ * when its numbers moved. Test students never.
  */
+export const STUDENT_DAYS_LOOKBACK_DAYS = 2;
 export function enqueueRecentStudentDays(sql: SqliteExecutor, nowMs: number, origin: string): string[] {
   const rows = sql.all<{ player_id: string; d: number }>(
     `select player_id, (created_at + 32400000) / 86400000 as d from utterances
      where created_at >= ? and player_id is not null group by player_id, d`,
-    [nowMs - 2 * 3_600_000]
+    [kstDayStartMs(kstDay(nowMs)) - (STUDENT_DAYS_LOOKBACK_DAYS - 1) * 86_400_000]
   );
   const out: string[] = [];
   for (const r of rows) {

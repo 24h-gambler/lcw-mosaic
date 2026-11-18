@@ -280,9 +280,13 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         const auth = err instanceof SubmitError && err.kind === 'auth';
         const queued = err instanceof SubmitError && err.kind === 'queued';
         // Kept in the lesson outbox, it reaches the server later; anything else lost this turn (a resend is a new try).
-        if (spoken && lostSend.current !== u) {
-          if (queued) noteTurnSent();
-          else {
+        if (spoken) {
+          if (queued) {
+            // in the outbox: sent (a resend of a turn counted lost moves it back from lost)
+            if (lostSend.current === u) noteTurnRecovered();
+            else noteTurnSent();
+            lostSend.current = null;
+          } else if (lostSend.current !== u) {
             noteTurnLost('submit_failed');
             lostSend.current = u;
           }

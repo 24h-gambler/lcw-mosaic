@@ -1612,7 +1612,8 @@ export function buildLessonModeApp(
         COINS_PER_STAR;
     // WP-310: a lesson line passed with 2+ stars becomes a memory card (one per lesson and sentence), reviewed later
     // in solo play like any other card (dialog domain, review.ts).
-    if (pass && u.target_text) {
+    // a repeat adds nothing: the card keeps the utterance that earned it
+    if (pass && u.target_text && !once.repeat) {
       createMemoryCard(d.db, {
         cardId: `mc-${s.lesson_id}-${bankTextKey(u.target_text).replace(/[^a-z0-9]+/g, '-').slice(0, 60)}`,
         playerId: s.player_id,

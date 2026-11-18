@@ -291,6 +291,29 @@ describe('local open-weights model voice (R2625: the bank in a natural voice for
     expect(calls).toHaveLength(1);
   });
 
+  it('checks of a local line (c=1, smoke students) never make a new line, not even through the stand-in', async () => {
+    const { deps, calls, meter } = rig();
+    const smoke: TtsCaller = { operator: false, player_id: 'smoke-kid', lesson: true, cachedOnly: true };
+    const c1 = new URL(`${url(modelId, bankLine).href}&c=1`);
+    for (const [u, who] of [[c1, guest], [c1, child], [url(modelId, bankLine), smoke]] as const) {
+      const r = await handleTts(u, who, deps);
+      expect(r.status).toBe(404);
+      expect(await r.json()).toMatchObject({ error: 'tts_not_cached', fallback: 'device' });
+    }
+    expect(calls).toHaveLength(0);
+    expect(meter.getStatus(deps.nowMs()).neuronsUsed).toBe(0);
+    // once the stand-in has it (a child's tap), checks hear it from cache, still for 0 neurons, labeled as the stand-in
+    expect((await handleTts(url(modelId, bankLine), child, deps)).status).toBe(200);
+    const used = meter.getStatus(deps.nowMs()).neuronsUsed;
+    for (const [u, who] of [[c1, guest], [url(modelId, bankLine), smoke]] as const) {
+      const r = await handleTts(u, who, deps);
+      expect(r.headers.get('x-lcw-tts')).toBe('hit');
+      expect(r.headers.get('x-lcw-tts-voice')).toBe(standInId);
+    }
+    expect(calls).toHaveLength(1);
+    expect(meter.getStatus(deps.nowMs()).neuronsUsed).toBe(used);
+  });
+
   it('prebuild and the cron never spend neurons on local lines', async () => {
     const { deps, calls } = rig({ limit: 10_000_000 });
     const r = await prebuildFixedLines(deps, { budgetNeurons: 10_000_000 });

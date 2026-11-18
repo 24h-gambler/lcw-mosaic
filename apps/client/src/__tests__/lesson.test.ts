@@ -2,6 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
+import { FIRST_LESSON_PLAN } from '@lcw/content';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
@@ -176,7 +177,8 @@ describe('client lesson module (docs/19 §4)', () => {
     const ctl2 = new LessonController({ api: createStudentLessonApi({ fetch }), world: w2, store, timers: fakeTimers(clock) });
     await ctl2.start(null);
     expect(ctl2.state.phase).toBe('live');
-    expect(c2).toContain('scene:honey_cafe');
+    // the cafe's one sentence on screen passed, so the server moved on by itself (docs/18 §9): the reload opens the next stage
+    expect(c2).toContain(`scene:${FIRST_LESSON_PLAN.stages[2]!.sceneId}`);
     expect(c2.filter((c) => c.startsWith('event:'))).toEqual([]);
     ctl2.stop();
 

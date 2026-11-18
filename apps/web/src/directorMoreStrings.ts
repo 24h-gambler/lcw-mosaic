@@ -13,5 +13,12 @@ export const M = {
   stepsMore: '분 단위 진행 방법 보기',
   feedTitle: (said: number, passed: number, stars: number) => `아이가 한 말 · 말 ${said}번 · 통과 ${passed} · 별 ${stars}`,
   pushThis: '이 단계로 바꾸기',
-  pushNext: '다음 단계로 ▶'
+  pushNext: '다음 단계로 ▶',
+  /** Auto-advance (docs/18 §9): the rule under the running stage, and the line after it moved by itself. */
+  autoRule: (need: number, minutes: number, last: boolean) =>
+    last
+      ? '마지막 단계예요. 「수업 끝」을 누르면 끝나요.'
+      : `자동 진행: 목표 문장 ${need}개를 통과하거나, 후속 질문을 다 하거나, ${minutes}분이 지나면 다음 단계로 넘어가요. 지금 넘기려면 아래 버튼.`,
+  autoMoved: (why: 'passes' | 'followups' | 'time' | string, at: string) =>
+    `${at} 에 자동으로 넘어왔어요 · ${why === 'passes' ? '목표 문장 통과' : why === 'followups' ? '후속 질문 끝' : why === 'time' ? '계획한 시간이 다 됨' : '자동'}`
 } as const;

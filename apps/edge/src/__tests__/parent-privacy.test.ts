@@ -122,6 +122,35 @@ describe('public text filter (quotes, expressions)', () => {
     expect(dropped.length, `dropped: ${dropped.join(' | ')}`).toBeLessThanOrEqual(1);
   });
 
+  // #154 review: 9 of 15 new sentences were dropped (words not on the list); and a comma rule dropped the child's café
+  // orders ('Water, please.'). Neither set was used to build the list.
+  it.each([
+    'Unicorns are my favorite',
+    'Spaghetti is yummy',
+    'Minecraft is so fun',
+    'Roblox is my favorite game',
+    'Lego is fun to build',
+    'Kimbap is my favorite lunch',
+    'Jellyfish are so soft',
+    'Octopus has eight legs',
+    'Bubble tea please',
+    'Water, please.',
+    'Milk, please.',
+    'Lemonade, please.',
+    'Great, thank you',
+    'Awesome, I did it',
+    'Sounds like a great plan',
+    'Tap the word cards',
+    'Table lamp please'
+  ])('allows %s', (t) => {
+    expect(publicSafeText(t, names)).toBe(true);
+  });
+
+  it('names in our own content never become sentence starters (NPCs, voices)', () => {
+    for (const n of ['Hannah', 'Luna', 'Mia', 'Toby', 'Athena', 'Hera', 'Apollo', 'Delia'])
+      expect(publicSafeText(`${n} likes cookies`, names), n).toBe(false);
+  });
+
   it('the everyday word list holds no given names and only plain lowercase words', () => {
     expect(COMMON_WORDS_EN.length).toBeGreaterThan(500);
     expect(COMMON_WORDS_EN.filter((w) => !/^[a-z]+$/.test(w))).toEqual([]);

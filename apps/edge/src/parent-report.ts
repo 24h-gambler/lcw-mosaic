@@ -7,6 +7,7 @@ import {
   LEXICON_L1_KO_EN,
   NAME_LIKE_WORDS
 } from '@lcw/content';
+import * as CONTENT from '@lcw/content';
 import { filterSpeechBubble } from '@lcw/converse';
 import { meaningfulExpression } from '@lcw/metrics';
 import type { SqliteExecutor } from './storage.js';
@@ -146,6 +147,39 @@ const COMMON_CAPITALISED = new Set(
  * a script has no sentence to quote (#131 review: 11 of 25 ordinary sentences were dropped by a lesson-only list).
  */
 const NAME_LIKE = new Set(NAME_LIKE_WORDS);
+
+/**
+ * Words our own English content writes in lowercase inside a phrase (menus, shop goods, NPC lines, UI: "table lamp",
+ * "Tap the word cards", "Sounds like a great plan"): ordinary words of the world the child plays in. A name is never
+ * written in lowercase there, and a word that also appears capitalised mid-phrase is left out (it may be a name).
+ * Single-token strings are skipped (ids and voice names such as 'athena').
+ */
+function contentWords(root: unknown): string[] {
+  const lower = new Set<string>();
+  const capitalised = new Set<string>();
+  const seen = new Set<unknown>();
+  const walk = (v: unknown, depth: number) => {
+    if (depth > 10 || v == null || seen.has(v)) return;
+    if (typeof v === 'string') {
+      const words = v.trim().split(/\s+/);
+      if (words.length < 2 || !/^[A-Za-z][A-Za-z' ,.!?-]*$/.test(v.trim())) return;
+      words.forEach((raw, i) => {
+        const w = raw.replace(/[^A-Za-z']/g, '').replace(/'/g, '');
+        if (!w) return;
+        if (/^[a-z]+$/.test(w)) lower.add(w);
+        else if (i > 0 && /^[A-Z]/.test(w)) capitalised.add(w.toLowerCase());
+      });
+      return;
+    }
+    if (typeof v !== 'object') return;
+    seen.add(v);
+    const vals = v instanceof Map || v instanceof Set ? [...v.values()] : Array.isArray(v) ? v : Object.values(v as object);
+    for (const x of vals) walk(x, depth + 1);
+  };
+  walk(root, 0);
+  return [...lower].filter((w) => !capitalised.has(w));
+}
+
 const SENTENCE_STARTERS = new Set(
   [
     ...COMMON_WORDS_EN,
@@ -155,7 +189,8 @@ const SENTENCE_STARTERS = new Set(
     ...CAFE_MENU.map((d) => d.label),
     ...LESSON_PLANS.flatMap((pl) =>
       pl.stages.flatMap((st) => [st.teacherScriptEn, st.studentGoalEn, ...(st.followUpsEn ?? []), ...st.targets.map((t) => t.text)])
-    )
+    ),
+    ...contentWords(CONTENT)
   ]
     .flatMap((x) => x.toLowerCase().split(/[^a-z']+/).map((w) => w.replace(/'/g, '')).filter(Boolean))
     .filter((w) => !NAME_LIKE.has(w))
@@ -168,18 +203,6 @@ function isSentenceStarter(w: string): boolean {
   return singular.some((s) => SENTENCE_STARTERS.has(s) && !NAME_LIKE.has(s));
 }
 
-/**
- * "Minji, can I …" / "Joy, look!": a first word followed by a comma is usually someone being called. Only these may
- * come before that comma.
- */
-const VOCATIVE_SAFE = new Set(
-  (
-    'yes yeah yep no nope okay ok alright well so oh ah um uh hmm wow oops yay hi hello hey bye goodbye please thanks ' +
-    'sorry wait look listen teacher mom mommy dad daddy first then now and but also actually maybe today tonight ' +
-    'yesterday tomorrow sometimes right fine sure cool great good nice really excuse here there'
-  ).split(' ')
-);
-
 /** Text that may appear on the public report: English, no PII/profanity, no names, no self-introduction. */
 export function publicSafeText(text: string, names: string[]): boolean {
   const t = text.trim();
@@ -190,10 +213,10 @@ export function publicSafeText(text: string, names: string[]): boolean {
   if (SELF_IDENTIFYING_PATTERN.test(n)) return false;
   for (const m of n.matchAll(INTRO_OPENER)) if (!INTRO_SAFE_NEXT.has(m[1]!)) return false;
   if (names.some((x) => x.length >= 2 && n.includes(` ${x} `))) return false;
-  const firstToken = t.split(/\s+/)[0] ?? '';
-  const first = norm(firstToken).replace(/ /g, '');
+  // "Minji, can I …" is stopped here too: a name is not a starter. (A comma rule on top of this only blocked the
+  // child's café orders — "Water, please." — so there is none; registered names are blocked anywhere, name-keys.ts.)
+  const first = norm(t.split(/\s+/)[0] ?? '').replace(/ /g, '');
   if (first && !isSentenceStarter(first)) return false;
-  if (/,$/.test(firstToken) && !VOCATIVE_SAFE.has(first)) return false;
   const words = t.split(/\s+/).slice(1);
   if (words.some((w) => /^[A-Z]/.test(w) && !COMMON_CAPITALISED.has(norm(w).replace(/ /g, '')))) return false;
   const f = filterSpeechBubble(t);

@@ -5,7 +5,7 @@ import { buildChapterPlan, cleanSentence, cleanWord, misspellings, talkChoices }
 import { createRng } from '../core/rng.js';
 import { gradeExact, gradePick, gradeSpelling, gradeSpoken } from '../core/grade.js';
 import { earlierWords, emptyProgress, isUnlocked, kstDate, lockReason, mergeSettings, nextChapter, parseProgress, recordFinish, toSettings } from '../core/progress.js';
-import { addLine, betterPlay, buildEnvelope, chapterStars, startRecord, summaryKo, toActivity, wordHit } from '../core/record.js';
+import { addLine, betterPlay, buildEnvelope, envelopeDate, chapterStars, startRecord, summaryKo, toActivity, wordHit } from '../core/record.js';
 import { dayFileUrls, parseEdLink, readEdLink, resultUrl, safeBack } from '../core/edlink.js';
 import { arenaRect, autopilotDir, cookiesReadable, startPattern, stepPattern } from '../core/bullets.js';
 import { spellTiles } from '../core/plan.js';
@@ -250,6 +250,14 @@ describe('adventure record and the english-day envelope', () => {
     const act = toActivity(r, 1000);
     expect(act.extra.level).toBe('L5');
     expect(toActivity(startRecord(1, 2, [], 0, 'nope'), 1000).extra.level).toBe('L2');
+  });
+
+  it('the envelope keeps the lesson day unless the document would refuse it', () => {
+    expect(envelopeDate('2026-11-16', '2026-11-18')).toBe('2026-11-16');
+    expect(envelopeDate('2026-11-08', '2026-11-18')).toBe('2026-11-08');
+    expect(envelopeDate('2026-11-07', '2026-11-18')).toBe('2026-11-18');
+    expect(envelopeDate('2026-11-21', '2026-11-18')).toBe('2026-11-18');
+    expect(envelopeDate(null, '2026-11-18')).toBe('2026-11-18');
   });
 
   it('a replay replaces the sent play only when it is as good or better', () => {

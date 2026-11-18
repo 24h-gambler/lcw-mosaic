@@ -108,6 +108,16 @@ export function betterPlay(a: AdventureActivity, b: AdventureActivity): boolean 
   return ra !== rb ? ra > rb : a.stars >= b.stars;
 }
 
+/**
+ * The envelope's day: the lesson day, unless the document would refuse it (the receiver takes KST today -10 … +2 days
+ * with a student key, english-day contract v1); then today, so a result from an old link is not lost.
+ */
+export function envelopeDate(lessonDay: string | null | undefined, today: string): string {
+  if (!lessonDay || !/^\d{4}-\d{2}-\d{2}$/.test(lessonDay)) return today;
+  const d = (Date.parse(`${lessonDay}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000;
+  return d >= -ADV.envelopeDays.before && d <= ADV.envelopeDays.after ? lessonDay : today;
+}
+
 const OUTCOME_KO: Record<AdventureOutcome, string> = { spared: '말로 친구가 되어 끝냄', fought: '콕 찌르기로 끝냄', quit: '중간에 멈춤' };
 
 /** One Korean line for the guardian (contract `summaryKo`). */

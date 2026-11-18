@@ -47,6 +47,8 @@ export const ADV = {
   resultRetryMs: [0, 1500, 4000],
   /** Longest wait for the day file and the server progress before the islands open anyway. */
   bootWaitMs: 4000,
+  /** Days around today (KST) the document takes an envelope for. */
+  envelopeDays: { before: 10, after: 2 },
   /** What one play may hold (english-day contract v1 limits). */
   recordMax: { lines: 60, words: 60, text: 300, activities: 50 },
   /** Solid boxes on the island (pixels): critters fill their three-tile gate, the guardian is big, the rest small. */

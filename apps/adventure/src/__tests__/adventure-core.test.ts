@@ -170,6 +170,19 @@ describe('adventure progress (one island per lesson day)', () => {
     expect(earlierWords(p, 4)).toEqual(['puppy']);
   });
 
+  it('a worse replay keeps the island's best play for the guardian summary', () => {
+    const play = (outcome: 'spared' | 'fought') => {
+      const r = startRecord(1, 1, [], 0);
+      r.outcome = outcome;
+      if (outcome === 'spared') r.befriended.push('a', 'b', 'c');
+      return toActivity(r, 1000);
+    };
+    let p = recordFinish(emptyProgress(), 1, '2026-11-19', { stars: 2, outcome: 'spared', words: ['puppy'], activity: play('spared') });
+    p = recordFinish(p, 1, '2026-11-19', { stars: 1, outcome: 'fought', words: ['puppy'], activity: play('fought') });
+    expect(p.chapters[1]!.last!.extra.outcome).toBe('spared');
+    expect(p.chapters[1]!.outcome).toBe('spared');
+  });
+
   it('Korea time decides the day (23:30 UTC is the next morning in Seoul)', () => {
     expect(kstDate(Date.UTC(2026, 10, 18, 23, 30))).toBe('2026-11-19');
     expect(kstDate(Date.UTC(2026, 10, 18, 14, 59))).toBe('2026-11-18');

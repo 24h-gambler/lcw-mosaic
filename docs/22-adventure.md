@@ -40,7 +40,7 @@
 | 낱말 돌 | 섬 길 | 그날 낱말 셋이 길가 돌에 새겨져 있습니다. 다가가면 읽어 주고 따라 말할 수 있습니다 |
 | 4장 복습 | 별다락 탑 | 1~3장에 쓴 낱말·문장이 다시 나옵니다(문서 자료의 `review_words` 포함) |
 
-문장은 학생 단계(L1~L3, L4 이상은 L3 문장 + 긴 문장)에 맞춥니다. 단계는 ① 문서 자료 `level` ② 주소 `?level=L2` ③ 연결된 기기 `GET /v1/device/me` 의 `level` ④ L1 순서로, 둘 다 읽은 뒤 한 번에 정합니다. 봉투의 `extra.level` 에는 아이의 원래 단계(L1~L6)를 그대로 적습니다. 한 장의 문장 묶음(`buildChapterPlan`, `apps/adventure/src/core/plan.ts`):
+문장은 학생 단계(L1~L3, L4 이상은 L3 문장)에 맞춥니다. 단계는 ① 문서 자료 `level` ② 주소 `?level=L2` ③ 연결된 기기 `GET /v1/device/me` 의 `level` ④ L1 순서로, 둘 다 읽은 뒤 한 번에 정합니다. 봉투의 `extra.level` 에는 아이의 원래 단계(L1~L6)를 그대로 적습니다. 한 장의 문장 묶음(`buildChapterPlan`, `apps/adventure/src/core/plan.ts`):
 
 1. 그날 문장: 문서 자료의 `sentence`·`typing[]`(그날 단계 맞춤 문장). 없으면 낱말마다 품사 틀(`ADVENTURE_WORD_FRAMES`) — 명사 "I see a puppy." / 형용사 "It is so sweet!" / 동사 "Let's bake together!".
 2. 기분 문장: 문서 오프너의 기분 틀과 같은 모양(L1 "I am happy." · L2 "I feel happy today because …" · L3 "Actually, I feel …").
@@ -88,5 +88,5 @@
 
 - 자동 시험: `pnpm test` 의 `apps/adventure/src/__tests__/` — 핵심 규칙(`adventure-core.test.ts`: 계획·채점·하루 한 장·봉투·탄막·만남·섬·길찾기), 화면(`adventure-screens.test.tsx`: A01~A06 과 빈·오류 상태), 독창성(`adventure-originality.test.ts`: 빌려 온 이름·장소·용어, 유명한 네 명령어, 하트 표지가 없음).
 - 실화면: `pnpm --filter @lcw/adventure build` 뒤 `npx vite preview --port 8994`(apps/adventure) 를 띄우고 `PLAYWRIGHT_CORE=<playwright-core/index.mjs> node tools/adventure-play.mjs http://127.0.0.1:8994/adventure/ shots/adventure` 를 돌립니다. 헤드리스·소리 끔으로 1440(키보드)·390(터치)·844×390(터치·키보드)에서 네 장을 끝까지 하고, 말하기 네 방식(say·build·spell·pick)을 모두 쓰며, 페이지가 스스로 센 프레임으로 30fps 이상, 페이지 오류 0, 보호자 요약, 그리고 문서 링크를 붙인 1440 실행에서 그날 파일 읽기와 계약 v1 봉투(활동 4개)를 확인합니다. english-day 와 `/v1/*` 는 브라우저 안에서 대신 답하므로 실제 학생·문서에는 아무것도 가지 않습니다. 하나라도 어긋나면 종료 코드 1.
-- 운영 학생 문서 실측(문서 사이트 배포 뒤): `ADV_LIVE_SECRET=<english-day.secret 경로> MAXCH=1 … adventure-play.mjs <주소> <출력> d1440-keys` 는 진짜 `https://engday.pages.dev` 에 smoke 학생 `smoke-adv` 로만 결과를 보냅니다. 쓰기 키는 도구 안에서 HMAC 으로 만들고 출력하지 않습니다. 그날 파일은 `ADV_LIVE_DAY_FROM`(기본 oreo) 학생 페이지의 것을 읽기만 합니다. smoke- 학생은 보고와 교사 화면에서 빠집니다. 2026-11-18 실측: POST 200, ACAO `*`, 활동 1개.
+- 운영 학생 문서 실측(문서 사이트 배포 뒤): `ADV_LIVE_SECRET=<english-day.secret 경로> MAXCH=1 … adventure-play.mjs <주소> <출력> d1440-keys` 는 진짜 `https://engday.pages.dev` 에 smoke 학생 `smoke-adv` 로만 결과를 보냅니다. 쓰기 키는 도구 안에서 HMAC 으로 만들고 출력하지 않습니다. 그날 파일은 `ADV_LIVE_DAY_FROM`(꼭 적어야 함) 학생 페이지의 것을 읽기만 합니다. smoke- 학생은 보고와 교사 화면에서 빠집니다. 2026-11-18 실측: POST 200, ACAO `*`, 활동 1개.
 - 운영 확인은 `smoke-` 로 시작하는 학생 키로만 합니다(학생 문서 쪽이 보고서·누적·선생님 화면에서 뺍니다).

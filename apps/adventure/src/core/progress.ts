@@ -1,5 +1,6 @@
 import type { AdventureChapterId } from '@lcw/content';
 import type { AdventureActivity, AdventureOutcome } from '@lcw/schemas';
+import { betterPlay } from './record.js';
 
 /**
  * Progress across lesson days (docs/22 1.2): chapter 1 is always open; chapter k opens on a lesson day after the one
@@ -69,7 +70,8 @@ export function recordFinish(
     stars: Math.max(prev?.stars ?? 0, finished ? r.stars : 0) as ChapterProgress['stars'],
     outcome: finished ? (prev?.outcome === 'spared' ? 'spared' : r.outcome) : (prev?.outcome ?? null),
     words: prev?.words?.length ? prev.words : r.words,
-    last: r.activity
+    // a worse replay (in any tab) does not replace the island's best play in the guardian summary
+    last: !prev?.last || betterPlay(r.activity, prev.last) ? r.activity : prev.last
   };
   return { v: 1, chapters: { ...p.chapters, [ch]: next } };
 }

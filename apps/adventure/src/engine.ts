@@ -271,8 +271,20 @@ export class Engine {
   // ---------- boot ----------
   async boot(): Promise<void> {
     // both loads finish (or time out) before the islands can be started: the level and the open island depend on them
-    const timeout = new Promise<[null, null]>((r) => setTimeout(() => r([null, null]), ADV.bootWaitMs));
-    const [docLevel, deviceLevel] = await Promise.race([Promise.all([this.loadDay(), this.loadServerProgress()]), timeout]);
+    const loads = Promise.all([this.loadDay(), this.loadServerProgress()]);
+    const timeout = new Promise<null>((r) => setTimeout(() => r(null), ADV.bootWaitMs));
+    const first = await Promise.race([loads, timeout]);
+    if (first) this.applyBoot(first[0], first[1]);
+    else {
+      this.applyBoot(null, null);
+      // a slow document or server still counts while the child is on the island map
+      void loads.then(([doc, device]) => {
+        if (this.scene === 'title' && !this.plan) this.applyBoot(doc, device);
+      });
+    }
+  }
+
+  private applyBoot(docLevel: string | number | null, deviceLevel: string | null) {
     const urlLevel = this.params.get('level');
     const chosen = docLevel ?? (urlLevel && /^L?[1-6]$/i.test(urlLevel) ? urlLevel : null) ?? deviceLevel;
     if (chosen != null) {

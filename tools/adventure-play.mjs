@@ -18,7 +18,7 @@ const LIVE = process.env.ADV_LIVE_SECRET
   ? {
       key: createHmac('sha256', readFileSync(process.env.ADV_LIVE_SECRET, 'utf8').trim()).update('w:smoke-adv').digest('hex').slice(0, 24),
       origin: 'https://engday.pages.dev',
-      dayFrom: (process.env.ADV_LIVE_DAY_FROM ?? 'oreo').replace(/[^a-z0-9_-]/g, '')
+      dayFrom: (process.env.ADV_LIVE_DAY_FROM ?? '').replace(/[^a-z0-9_-]/g, '')
     }
   : null;
 
@@ -53,6 +53,11 @@ const DAY = {
   review_words: [],
   typing: ['The owl can fly.']
 };
+
+if (LIVE && !LIVE.dayFrom) {
+  console.error('ADV_LIVE_DAY_FROM: name the student page whose day file is read (read only)');
+  process.exit(2);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const report = [];

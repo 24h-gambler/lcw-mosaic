@@ -2,6 +2,7 @@ import { ECHO_TRANSITION_LINE, FIRST_ERRAND, NPC_GENERIC_REACTIONS, NPC_OPENING_
 import { isLocalTtsEngine, npcCast, voiceForCtx, type NpcVoice } from './npc-cast.js';
 import { chunkPhrases } from './echo-chunks.js';
 import { TRY_CAFE_OFFERS } from './try-order.js';
+import { adventureFixedLines } from './adventure.js';
 import { LESSON_PLANS, getLessonNpc } from './lesson-plans.js';
 
 /**
@@ -101,6 +102,8 @@ export function fixedTtsLines(lang: string = 'en', opts: { priorityOnly?: boolea
   // The echo step's pieces (DialogPanel 🔊 on each piece, chunkPhrases) of every sentence the model voice reads.
   const modelLines = out.filter((l) => l.voice === model).map((l) => l.text);
   for (const text of modelLines) for (const piece of chunkPhrases(text)) add(piece, model);
+  // The /adventure/ islanders and its built-in sentences (docs/22 3장), last so the prebuild reaches the world first.
+  for (const l of adventureFixedLines(lang)) add(l.text, l.voice);
   return out;
 }
 

@@ -279,7 +279,7 @@ export class Engine {
       this.applyBoot(null, null);
       // a slow document or server still counts while the child is on the island map
       void loads.then(([doc, device]) => {
-        if (this.scene === 'title' && !this.plan) this.applyBoot(doc, device);
+        if (!this.plan) this.applyBoot(doc, device);
       });
     }
   }

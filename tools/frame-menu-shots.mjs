@@ -9,6 +9,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { COPY, COPY_KO, FRAME_LANG, KO_HELP, KO_HELP_SHOWN, cacheWebFonts, inScreenLang, langInitScript } from './frame-lang-expect.mjs';
+import { layoutIssues } from './frame-layout.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8982/game/';
 const out = process.argv[3] ?? 'shots/frame-menu';
@@ -68,6 +69,11 @@ const fails = [];
 const report = [];
 const check = (vp, ok, what) => {
   if (!ok) fails.push(`${vp}: ${what}`);
+};
+/** Every kid-screen part against every other one, and against the screen edge (tools/frame-layout.mjs). */
+const layoutStep = async (page, vp, step) => {
+  const r = await layoutIssues(page);
+  for (const problem of r.problems) check(vp.name, false, `${step}: ${problem}`);
 };
 const overlap = (a, b) => a && b && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 const rect = (page, sel) =>
@@ -159,6 +165,7 @@ for (const vp of VIEWPORTS) {
   const help = await rect(page, '.lw-help');
   check(vp.name, !!btn, 'menu button missing');
   check(vp.name, !!btn && btn.x >= 0 && !overlap(btn, bar) && !overlap(btn, help), 'menu button off-screen or covering the hotbar/help');
+  await layoutStep(page, vp, '0hud');
   await page.screenshot({ path: `${out}/${vp.name}-0hud.png` });
 
   // 2. bag tab
@@ -199,7 +206,9 @@ for (const vp of VIEWPORTS) {
   else check(vp.name, words.koAll === 0, `Korean lines shown while Korean help is off (${words.koAll})`);
   // move the first bag thing to the chest: a server request, then the HUD follows
   await page.locator('.lcw-bagrow .lcw-thing:not(.empty) .btn').first().click();
-  await page.waitForTimeout(1500);
+  // wait for the request itself (a busy machine sent it after a fixed 1.5 s), then for the HUD to redraw
+  for (let t = 0; t < 30 && !posts.some((x) => x.p === '/v1/items/equip'); t++) await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
   check(vp.name, posts.some((x) => x.p === '/v1/items/equip' && /"to":"chest"/.test(x.body)), 'bag → chest did not ask the server');
   const empties2 = await page.evaluate(() => document.querySelectorAll('.lw-slot.empty').length);
   check(vp.name, empties2 === 4, `hotbar should follow the server bag after the move (empty slots ${empties2})`);

@@ -11,6 +11,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { COPY, COPY_KO, FRAME_LANG, KO_HELP_SHOWN, cacheWebFonts, inScreenLang, langInitScript } from './frame-lang-expect.mjs';
+import { layoutIssues } from './frame-layout.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8981/game/';
 const out = process.argv[3] ?? 'shots/frame';
@@ -60,6 +61,11 @@ const fails = [];
 const report = [];
 const check = (vp, ok, what) => {
   if (!ok) fails.push(`${vp}: ${what}`);
+};
+/** Every kid-screen part against every other one, and against the screen edge (tools/frame-layout.mjs). */
+const layoutStep = async (page, vp, step) => {
+  const r = await layoutIssues(page);
+  for (const problem of r.problems) check(vp.name, false, `${step}: ${problem}`);
 };
 const overlap = (a, b) => a && b && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
@@ -164,6 +170,7 @@ for (const vp of VIEWPORTS) {
     }, n > 0);
     if (!a.cap) await dismissCards(page);
   }
+  await layoutStep(page, vp, '1start');
   await page.screenshot({ path: `${out}/${vp.name}-1start.png` });
   check(vp.name, /·/.test(a.scene?.text ?? ''), `place · band missing (${a.scene?.text})`);
   check(vp.name, /\d\d:\d\d/.test(a.clock?.text ?? ''), `weather · clock missing (${a.clock?.text})`);
@@ -204,6 +211,7 @@ for (const vp of VIEWPORTS) {
   // a software-rendered 1440 frame can take a while: wait for the fade-in instead of a fixed sleep
   await page.waitForFunction(() => Number(getComputedStyle(document.querySelector('.lw-cap')).opacity) > 0.9, null, { timeout: 3000 }).catch(() => {});
   const b = await boxes(page);
+  await layoutStep(page, vp, '2items');
   await page.screenshot({ path: `${out}/${vp.name}-2items.png` });
   check(vp.name, b.empties === 3, `expected 3 empty slots after two items, got ${b.empties}`);
   // the thing's name as a title (world/strings itemTitle); a food in hand adds how to eat it (G01)
@@ -216,6 +224,7 @@ for (const vp of VIEWPORTS) {
   }
   await page.waitForTimeout(700);
   const dr = await page.evaluate(() => ({ cap: document.querySelector('.lw-cap')?.textContent ?? '', thirst: Number(document.querySelectorAll('.lw-chip .gz [role="meter"]')[1]?.getAttribute('aria-valuenow')) }));
+  await layoutStep(page, vp, '2drink');
   await page.screenshot({ path: `${out}/${vp.name}-2drink.png` });
   check(vp.name, COPY.drank.test(dr.cap) && dr.thirst >= 70, `drinking the honey tea should fill thirst (${dr.cap} / ${dr.thirst})`);
 
@@ -227,6 +236,7 @@ for (const vp of VIEWPORTS) {
   });
   await page.waitForTimeout(800);
   const l = await boxes(page);
+  await layoutStep(page, vp, '3lesson');
   await page.screenshot({ path: `${out}/${vp.name}-3lesson.png` });
   const inView = (r) => r && r.x >= 0 && r.y >= 0 && r.x + r.w <= l.vw + 0.5 && r.y + r.h <= l.vh + 0.5;
   check(vp.name, !!l.badge, 'lesson tag not shown');
@@ -241,6 +251,7 @@ for (const vp of VIEWPORTS) {
   const c = await boxes(page);
   check(vp.name, inView(c.goal), 'goal card leaves the screen while offline');
   check(vp.name, !overlap(c.goal, c.net) && !overlap(c.badge, c.stars) && !overlap(c.scene, c.goal), 'offline: band, chips and goal card overlap');
+  await layoutStep(page, vp, '3offline');
   await page.screenshot({ path: `${out}/${vp.name}-3offline.png` });
   check(vp.name, !!c.net && COPY.offlineBand.test(c.net.text), `connection band missing (${c.net?.text})`);
   check(vp.name, !!c.net && COPY_KO.offlineBand.test(c.net.text) === KO_HELP_SHOWN, `connection band Korean help ${KO_HELP_SHOWN ? 'missing' : 'shown while off'} (${c.net?.text})`);
@@ -264,6 +275,7 @@ for (const vp of VIEWPORTS) {
   });
   await page.waitForTimeout(300);
   const d = await boxes(page);
+  await layoutStep(page, vp, '4aim');
   await page.screenshot({ path: `${out}/${vp.name}-4aim.png` });
   check(vp.name, !d.net, 'connection band stays after coming back');
   check(vp.name, !!d.aim && Math.abs(d.aim.x + d.aim.w / 2 - d.vw / 2) < 2 && Math.abs(d.aim.y + d.aim.h / 2 - d.vh / 2) < 2, 'crosshair not centred');
@@ -277,11 +289,13 @@ for (const vp of VIEWPORTS) {
         /* storage blocked */
       }
     });
-    await page.reload({ waitUntil: 'load', timeout: 90000 });
+    // the world's own ready check below decides; 'load' waited on slow side requests past 90 s on a busy machine
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
     await page.waitForTimeout(1500);
     await passTitle(page);
     const lo = await page.evaluate(() => ({ slow: !!document.querySelector('.lw-chip .gz.slow'), low: !!document.querySelector('.lw-chip .gz .t.low'), cap: document.querySelector('.lw-cap')?.textContent ?? '' }));
+    await layoutStep(page, vp, '5low');
     await page.screenshot({ path: `${out}/${vp.name}-5low.png` });
     check(vp.name, lo.slow && lo.low && COPY.lowThirst.test(lo.cap), `low thirst: slow ${lo.slow}, low ${lo.low}, said "${lo.cap}"`);
     check(vp.name, COPY_KO.lowThirst.test(lo.cap) === KO_HELP_SHOWN, `low thirst Korean help ${KO_HELP_SHOWN ? 'missing' : 'shown while off'} ("${lo.cap}")`);

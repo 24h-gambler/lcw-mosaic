@@ -17,8 +17,8 @@ function css(): string {
 .lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.25);position:absolute;inset:0;pointer-events:none;font-family:${T.fonts.ui};color:${C['ink-900']};user-select:none;-webkit-user-select:none;overflow:hidden;touch-action:none}
 .lw-hud *{box-sizing:border-box}
 .lw-card{background:${C['paper-50']};border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusCardPx}px;box-shadow:${S.shadowDefault}}
-.lw-goal{position:absolute;top:12px;left:50%;transform:translate(-50%,-140%);max-width:min(720px,calc(100% - 32px));padding:8px 16px;display:flex;flex-direction:column;align-items:center;gap:2px;transition:transform ${M.slowMs}ms ease-out;text-align:center}
-.lw-goal.on{transform:translate(-50%,0)}
+.lw-goal{position:absolute;top:12px;left:50%;transform:translate(-50%,-140%);max-width:min(720px,calc(100% - 32px));padding:8px 16px;display:flex;flex-direction:column;align-items:center;gap:2px;visibility:hidden;transition:transform ${M.slowMs}ms ease-out,visibility 0s linear ${M.slowMs}ms;text-align:center}
+.lw-goal.on{transform:translate(-50%,0);visibility:visible;transition:transform ${M.slowMs}ms ease-out,visibility 0s}
 .lw-hud.dlg .lw-goal{opacity:0;transition:opacity ${M.slowMs}ms ease-out}
 /* a dialog window covers the bottom (or the right on a landscape phone): the hotbar and help hide under it */
 .lw-hud.dlg .lw-hotbar,.lw-hud.dlg .lw-help{opacity:0;visibility:hidden;transition:opacity ${M.slowMs}ms ease-out,visibility 0s linear ${M.slowMs}ms}
@@ -155,13 +155,14 @@ function css(): string {
 /* the lesson tag wraps under the status box on a phone (the chip leaves room for the stars): the goal card starts below it */
 /* phones: the goal card starts under the status chip's real height (gauges, a wrapped lesson tag, the Korean help line) */
 
+@media (max-width:600px) and (max-height:500px){.lw-hud .lw-goal{max-width:none}}
 @media (max-width:600px){.lw-hud .lw-goal{top:calc(var(--lw-chip-b,74px) + 10px)}.lw-hud:has(.lw-touch.on) .lw-cap{left:12px;transform:none;max-width:calc(100% - 12px - var(--lw-jump,140px))}}
 /* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
 @media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}}
 /* short landscape: the goal card sits between the status chip and the stars, with a smaller line so it stays short */
 @media (max-height:500px){.lw-hud .lw-goal{max-width:calc(100% - 2 * var(--lw-side,200px));padding:6px 10px}.lw-hud .lw-goal .t{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1))}.lw-hud .lw-goal .g{font-size:calc(${T.scale.body.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.body.lineHeightPx}px * var(--lcw-hs,1))}}
 @media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
-.lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,calc(var(--lw-net-h,30px) + 2px))}}
+.lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:var(--lw-view-r,84px);max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,calc(var(--lw-net-h,30px) + 2px))}}
 @media (prefers-reduced-motion:reduce){.lw-chip .gz .low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
 }
@@ -320,6 +321,8 @@ export class WorldHud {
   private touchOn = false;
   private measureSides: (() => void) | null = null;
   private jumpBtn: HTMLElement | null = null;
+  private viewBtn: HTMLElement | null = null;
+  private chipBox: HTMLElement | null = null;
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -356,6 +359,7 @@ export class WorldHud {
     this.goalT.lang = 'en';
 
     const chip = el('div', 'lw-chip', this.root);
+    this.chipBox = chip;
     // one compact chip, two lines: "중앙 광장 · 지상" over "맑음 10:30" (the lesson tag keeps its place next to it)
     const sc = el('span', 's', chip);
     this.sceneChip = el('span', 'p', sc);
@@ -383,12 +387,16 @@ export class WorldHud {
       const measure = (): void => {
         this.root.style.setProperty('--lw-chip-b', `${Math.ceil(12 + chip.offsetHeight)}px`);
         // on touch the talk button (right 96px, it comes and goes by the NPC) keeps its column free too
-        const talk = this.touchOn ? 96 + Math.max(this.talkBtn?.offsetWidth ?? 0, S.micButtonPx * 1.6) : 0;
+        const viewR = this.touchOn && this.viewBtn && this.viewBtn.offsetWidth > 0 ? 12 + this.viewBtn.offsetWidth + 8 : 12;
+        const talk = this.touchOn ? Math.max(96, viewR) + Math.max(this.talkBtn?.offsetWidth ?? 0, S.micButtonPx * 1.6) : 0;
         const side = Math.max(chip.offsetLeft + chip.offsetWidth, this.root.clientWidth - stars.offsetLeft, talk);
         if (stars.offsetWidth > 0) this.root.style.setProperty('--lw-side', `${Math.ceil(side + 8)}px`);
         // on a phone the hotbar line (two lines with the Korean help, or wrapped) reaches the jump button's height: it
         // sits left and keeps the jump column free (right 24px + its measured width)
         if (this.jumpBtn && this.jumpBtn.offsetWidth > 0) this.root.style.setProperty('--lw-jump', `${Math.ceil(24 + this.jumpBtn.offsetWidth + 8)}px`);
+        // the view button (touch, top right under the stars) keeps its column free of the phone goal card
+        this.root.style.setProperty('--lw-view-r', `${Math.ceil(viewR)}px`);
+        this.measureStacks();
       };
       this.measureSides = measure;
       this.chipObs = new ResizeObserver(measure);
@@ -437,6 +445,7 @@ export class WorldHud {
     this.toast = el('div', 'lw-toast lw-card', this.root);
     this.cele = el('div', 'lw-cele', this.root);
     this.help = el('div', 'lw-help', this.root);
+    for (const e of [this.goal, this.cap, this.help]) this.chipObs?.observe(e);
     this.offLang = onLearnLang(() => this.redrawFrameText());
     window.addEventListener('resize', this.onResizeNet);
 
@@ -462,6 +471,8 @@ export class WorldHud {
     jump.addEventListener('pointerup', up);
     jump.addEventListener('pointercancel', up);
     const view = el('div', 'lw-btn', this.touch);
+    this.viewBtn = view;
+    this.chipObs?.observe(view);
     view.textContent = W.view;
     view.style.right = '12px';
     view.style.top = '60px';
@@ -471,7 +482,9 @@ export class WorldHud {
     });
     this.talkBtn = el('div', 'lw-btn talk', this.touch);
     this.talkBtn.textContent = W.talk;
-    this.talkBtn.style.right = '96px';
+    // left of the view button's column (measured, it widens with the Korean help): they met on a short landscape screen
+    // once the connection band pushed the view button down (frame, 11-18)
+    this.talkBtn.style.right = 'max(96px, var(--lw-view-r, 96px))';
     this.talkBtn.style.bottom = '160px';
     tapOnly(this.talkBtn, () => this.h.onTalk(), (dx, dy) => this.h.onLook(dx, dy));
     this.bindTouch();
@@ -725,12 +738,32 @@ export class WorldHud {
     this.root.classList.toggle('dlg', on);
   }
 
+  /**
+   * Two page-wide values other layers place by (frame domain owns the layout of the child screen, docs/08 8.6):
+   * --lcw-hud-stack = how far up from the bottom the bottom-left stack reaches (controls help, hotbar line), so a walk
+   * button sits above it; --lcw-hud-top-b = where the top stack ends (the goal card when it shows, else the status
+   * chip and the stars), so a toast sits under it. Measured on resize, text changes and goal changes.
+   */
+  private measureStacks(): void {
+    const h = this.root.clientHeight;
+    if (!h) return;
+    let stack = 0;
+    for (const e of [this.help, this.cap]) {
+      if (e && e.offsetHeight > 0 && getComputedStyle(e).display !== 'none') stack = Math.max(stack, h - e.offsetTop);
+    }
+    const top = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null].reduce((m, e) => (e && e.offsetHeight > 0 ? Math.max(m, e.offsetTop + e.offsetHeight) : m), 0);
+    const doc = document.documentElement.style;
+    doc.setProperty('--lcw-hud-stack', `${Math.ceil(stack)}px`);
+    doc.setProperty('--lcw-hud-top-b', `${Math.ceil(top)}px`);
+  }
+
   setGoal(goalKo: string, targetEn?: string): void {
     const on = goalKo.trim().length > 0 || !!targetEn;
     this.goalG.textContent = goalKo;
     this.goalT.textContent = targetEn ?? '';
     this.goalT.style.display = targetEn ? 'block' : 'none';
     this.goal.classList.toggle('on', on);
+    this.measureStacks();
   }
 
   setScene(titleKo: string): void {

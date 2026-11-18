@@ -187,9 +187,9 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
 const WALK_STYLE: React.CSSProperties = {
   position: 'absolute',
   left: 12,
-  // above the world's controls line (hud .lw-help: bottom 80px on a desktop, 96px under 600px, ~26px tall),
-  // which it covered at bottom 96 on a 1440 screen (frame lane, 11-16)
-  bottom: 132,
+  // above the HUD's bottom-left stack (controls help and the hotbar line), measured by the HUD (world/hud.ts
+  // --lcw-hud-stack): a fixed 132 ran under a two-line Korean-help hotbar line on a phone and the 150% help (frame, 11-18)
+  bottom: 'calc(var(--lcw-hud-stack, 120px) + 12px)',
   minHeight: S.touchTargetMinPx,
   padding: '8px 14px',
   background: C['paper-0'],
@@ -207,8 +207,9 @@ const WALK_STYLE: React.CSSProperties = {
 const TOAST_STYLE: React.CSSProperties = {
   position: 'absolute',
   left: '50%',
-  // under the goal line, which wraps to two lines on a phone (about 125px tall there)
-  top: 150,
+  // under the HUD's top stack (the goal card when it shows, else the status chip), measured by the HUD (--lcw-hud-top-b):
+  // a fixed 150 ran over a three-line goal card with the Korean help on a phone (frame, 11-18)
+  top: 'calc(var(--lcw-hud-top-b, 140px) + 10px)',
   transform: 'translateX(-50%)',
   background: C.sun,
   color: C['ink-900'],

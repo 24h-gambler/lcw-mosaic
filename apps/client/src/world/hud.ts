@@ -582,7 +582,10 @@ export class WorldHud {
     this.touch.style.pointerEvents = on ? 'auto' : 'none';
     this.help.textContent = this.helpText();
     this.help.classList.remove('off');
-    window.setTimeout(() => this.help.classList.add('off'), 9000);
+    window.setTimeout(() => {
+      this.help.classList.add('off');
+      this.measureStacks();
+    }, 9000);
   }
 
   setTouchPaused(paused: boolean): void {
@@ -840,7 +843,8 @@ export class WorldHud {
     if (!h) return;
     let stack = 0;
     // the caption only while it shows (a faded one keeps its last text and height)
-    for (const e of [this.help, this.cap.classList.contains('on') ? this.cap : null]) {
+    // the controls help only until it fades (.off, 9 s after touch starts)
+    for (const e of [this.help.classList.contains('off') ? null : this.help, this.cap.classList.contains('on') ? this.cap : null]) {
       if (e && e.offsetHeight > 0 && getComputedStyle(e).display !== 'none') stack = Math.max(stack, h - e.offsetTop);
     }
     const top = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null].reduce((m, e) => (e && e.offsetHeight > 0 ? Math.max(m, e.offsetTop + e.offsetHeight) : m), 0);

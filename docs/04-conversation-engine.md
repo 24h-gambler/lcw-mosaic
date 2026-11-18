@@ -215,6 +215,7 @@ POST /v1/converse/score
   - 출처 확인: `kokoro-js@1.2.1` 웹 빌드는 jsDelivr 에서 받아 SHA-256(`BROWSER_VOICE.libSha256`, npm tarball 과 같은 값)을 맞춘 뒤 blob URL 로 불러옵니다(no-referrer, 쿠키 없음). 모델 파일 리비전은 kokoro-js API 가 고정을 받지 않아 Hugging Face main 을 따릅니다(바뀌면 예열 무음 검사가 잡아 WASM·기기 목소리로 내려감). 외부 받기는 `16-safety-privacy-legal.md` 21행.
   - 사이트(`apps/web/src/site/sound.ts`)는 모델을 새로 받지 않고, 같은 기기에서 이미 준비됐거나 캐시에 있을 때만 브라우저 목소리를 씁니다.
   - 실측(11-16, 집 PC 헤드리스 Chrome 157 `--mute-audio`, RTX 3080, 다른 작업으로 CPU 100% 상태, `tools/browser-voice-probe.mjs`): WebGPU fp32 첫 방문 모델 326 MB·로딩 20초(예열 포함), 두 번째 방문 Hugging Face 요청 0(Cache Storage)·로딩 2.9초, 줄당 0.24~0.4초(2~3초 문장, 실시간의 0.1~0.14배). WASM q8 첫 방문 92 MB·로딩 31초, 두 번째 5.2초, 줄당 4.9~7.5초(단일 스레드 — 페이지가 cross-origin isolated 가 아니라 다중 스레드 불가; 바쁜 CPU 에선 실시간보다 느려 예열 판정으로 꺼짐).
+  - 재실측(11-18, 해시 확인 blob 불러오기 + 두 번 예열, 같은 장비, CPU 100%): WebGPU fp32 첫 방문 Hugging Face 326.6 MB + jsDelivr 5.0 MB, 로딩 26.5초, 예열 판정 줄 563 ms(배율 0.22), 줄당 0.34~1.07초(배율 0.13~0.31). 재방문 Hugging Face 0바이트, 로딩 9.2초, 예열 471 ms(0.18), 줄당 0.22~1.06초(0.10~0.36). WASM q8 첫 방문 93.4 MB, 로딩 46.8초, 예열 배율 3.9, 줄당 7.5~13.3초(2.9~5.5) — 이 PC 에선 두 번 느리면 꺼지는 쪽(실제로 재방문에서도 13.8).
 - 실측(로컬 엣지 + 실제 Workers AI, 11-16): 새 문장 0.4~1.3초(서버), 캐시된 문장 대화창 열림 뒤 86 ms에 재생 시작, 미리 받은 🔊 탭 11 ms. 페이지 출력 녹음에서 NPC(hera) −20.7 LUFS, 모범(luna) −20.2 LUFS로 두 목소리 차이 0.5 dB.
 
 

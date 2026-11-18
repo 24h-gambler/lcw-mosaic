@@ -22,7 +22,8 @@ const fake = vi.hoisted(() => ({
   ready: true,
   cachedModel: true,
   loads: 0,
-  calls: [] as Array<{ text: string; voice: unknown; speed: number }>
+  calls: [] as Array<{ text: string; voice: unknown; speed: number }>,
+  background: [] as string[]
 }));
 
 vi.mock('@lcw/audio', async (orig) => {
@@ -36,8 +37,9 @@ vi.mock('@lcw/audio', async (orig) => {
     },
     modelCached: () => fake.cachedModel,
     cached: () => null,
-    speak: (text: string, voice: unknown, speed = 1) => {
-      fake.calls.push({ text, voice, speed });
+    speak: (text: string, voice: unknown, speed = 1, _waitMs?: number, opts?: { background?: boolean }) => {
+      if (opts?.background) fake.background.push(text);
+      else fake.calls.push({ text, voice, speed });
       if (!fake.available) return Promise.resolve(null);
       return new Promise((r) => setTimeout(() => r(fake.line), fake.delayMs));
     },
@@ -47,7 +49,7 @@ vi.mock('@lcw/audio', async (orig) => {
 });
 
 import { micCue, resetBrowserSticky, speakEnglish, stopSpeaking } from '../dialog/sound.js';
-import { resetNeuralVoice } from '../dialog/neural-voice.js';
+import { neuralVoiceStatus, prefetchLines, resetNeuralVoice } from '../dialog/neural-voice.js';
 import { NPC_VOICE_CUT_EVENT } from '../audio/runtime.js';
 
 const played: string[] = [];
@@ -90,6 +92,7 @@ beforeEach(() => {
   fake.available = true;
   fake.delayMs = 0;
   fake.calls.length = 0;
+  fake.background.length = 0;
   fake.ready = true;
   fake.cachedModel = true;
   fake.loads = 0;
@@ -128,7 +131,7 @@ describe('browser voice replaces the device voice when the server voice cannot r
     expect(spoken).toEqual([]);
   });
 
-  it('server voice off: the model sentence is read by the browser voice (af_heart, the prebuilt speaker)', async () => {
+  it('server voice off: the model sentence is read by the browser voice (the cast pack Kokoro speaker, as prebuilt)', async () => {
     serve('off');
     await speakEnglish('I want a red jetpack.', 'L1', npcCast().modelVoice);
     expect(fake.calls[0]?.voice).toEqual(npcCast().modelVoice);
@@ -226,5 +229,47 @@ describe('browser voice replaces the device voice when the server voice cannot r
     await speakEnglish('Hi there! Where do you want to go?', 'L1', voiceForCtx('guide'));
     expect(fake.calls).toHaveLength(2);
     expect(spoken).toEqual([]);
+  });
+});
+
+describe('prefetch (🔊 and suggestions) warms the browser voice only for lines the server voice cannot make', () => {
+  const lines = [
+    { voice: hera, text: 'Welcome to the honey cafe!' },
+    { voice: npcCast().modelVoice, text: 'I want a red jetpack.' }
+  ];
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+
+  it('server voice off: every line is made in the background (behind the line being spoken)', async () => {
+    serve('off');
+    await neuralVoiceStatus();
+    prefetchLines(lines);
+    await settle();
+    expect(fake.background).toEqual(lines.map((l) => l.text));
+    expect(fake.calls).toEqual([]);
+  });
+
+  it('server voice on and the lines arrive: the browser voice is not asked', async () => {
+    serve('ok');
+    await neuralVoiceStatus();
+    prefetchLines(lines);
+    await settle();
+    expect(fake.background).toEqual([]);
+  });
+
+  it('server voice on but the meter refuses (429): the refused lines are made in the background', async () => {
+    serve(429);
+    await neuralVoiceStatus();
+    prefetchLines(lines);
+    await settle();
+    expect(fake.background.sort()).toEqual(lines.map((l) => l.text).sort());
+  });
+
+  it('a device that cannot run the browser voice asks nothing', async () => {
+    serve('off');
+    fake.available = false;
+    await neuralVoiceStatus();
+    prefetchLines(lines);
+    await settle();
+    expect(fake.background).toEqual([]);
   });
 });

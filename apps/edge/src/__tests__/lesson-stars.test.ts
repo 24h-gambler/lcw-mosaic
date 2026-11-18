@@ -61,7 +61,8 @@ describe('stars once per goal (R2627)', () => {
   it('guided: the same target again tops up to its best only; the stage change starts the goals over', async () => {
     const p = platform();
     const { lessonId, st } = await startLesson(p);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    // two sentences on screen: one passed sentence does not move the stage on yet (docs/18 §9), so saying it again is a repeat
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?', 'Honey tea, please.'] });
     const say = (stars: 1 | 2 | 3) =>
       call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: stars, dur_ms: 2000 }, st);
     const one = await say(1);

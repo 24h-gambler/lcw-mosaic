@@ -380,9 +380,10 @@ describe('the same student back the same day continues the auto-closed lesson', 
 
     const end = await call(p, 'POST', `/v1/admin/lessons/${second.lessonId}/end`, { teacher_comment: '이어서 잘했어요' });
     expect(end.status).toBe(200);
-    // both parts' answers, both parts' minutes (5 + 4), not the gap between them; the first part's second telling of
-    // the same sentence is a repeat (R2627: stars once per goal), so two new passes
-    expect(end.body.facts.lesson).toMatchObject({ utterances: 3, passes: 2, duration_min: 9 });
+    // both parts' answers, both parts' minutes (5 + 4), not the gap between them. The first pass moved the stage on
+    // (one sentence on screen), so the second telling is in the next stage, where the goals start over (R2627 stars
+    // once per goal counts per stage): three passes
+    expect(end.body.facts.lesson).toMatchObject({ utterances: 3, passes: 3, duration_min: 9 });
     expect(count(p, 'select count(*) as n from report_deliveries')).toBe(1);
     // the first part shows the one report it went out in; ending it again hands that report back
     const day = await call(p, 'GET', '/v1/admin/lessons?day=2026-11-16');

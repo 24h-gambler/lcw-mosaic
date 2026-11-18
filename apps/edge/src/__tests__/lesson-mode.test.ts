@@ -46,7 +46,8 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
   it('lesson stars go into the ledger once per utterance; lesson, solo dialog and /join all read the same balance', async () => {
     const p = platform();
     const { lessonId, st } = await startLesson(p);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    // two sentences on screen: one passed sentence does not move the stage on yet (docs/18 §9), so saying it again is a repeat
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?', 'Honey tea, please.'] });
     const say = (stars: 1 | 2 | 3, transcript = 'can I have a warm honey tea') =>
       call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript, chosen_stars: stars, dur_ms: 2000 }, st);
 

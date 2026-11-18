@@ -35,7 +35,8 @@ describe('lesson answers through a disconnect (client_id, stage_id)', () => {
   it('a resend with the same client_id is the same answer: one utterance, one credit, the same stars', async () => {
     const p = platform();
     const { lessonId, st, join } = await startLesson(p);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    // two sentences on screen: one passed sentence does not move the stage on yet (docs/18 §9), so saying it again is a repeat
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?', 'Honey tea, please.'] });
     const first = await call(p, 'POST', '/v1/lesson/utterance', answer({ client_id: 'uabc12345' }), st);
     expect(first.status).toBe(200);
     expect(first.body.coins_total).toBe(220);

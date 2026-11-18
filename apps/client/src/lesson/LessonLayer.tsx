@@ -23,6 +23,7 @@ import { LESSON_STRINGS as S, childNpcName, helpLine, lessonGoal } from './strin
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
 import { SubmitError } from '../dialog/submit.js';
 import { TeacherPanel } from './TeacherPanel.js';
+import { LESSON_TALK_EVENT } from '../world/events.js';
 
 const C = TOKENS.colors;
 const T = TOKENS.typography;
@@ -121,6 +122,18 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
 
   const [foldedKey, setFoldedKey] = useState<string | null>(null);
   const [doneSeq, setDoneSeq] = useState(0);
+  // A click, tap or E on an NPC in the world during the lesson opens the folded dialog window again (Dan 11-16 R2625).
+  // Only the lesson's own NPC: a tap on a passer-by must not reopen the lesson window framed on someone else (review).
+  const lessonNpc = useRef(view.npcId);
+  lessonNpc.current = view.npcId;
+  useEffect(() => {
+    const open = (e: Event): void => {
+      const id = (e as CustomEvent<{ npcId?: string }>).detail?.npcId;
+      if (!id || id === lessonNpc.current) setFoldedKey(null);
+    };
+    window.addEventListener(LESSON_TALK_EVENT, open);
+    return () => window.removeEventListener(LESSON_TALK_EVENT, open);
+  }, []);
   // New stage or new sentences from the teacher: the panel starts fresh (selection, heard text, open microphone),
   // and a folded dialog window opens again.
   const panelKey = `${view.stageSeq}:${view.offers.map((o) => o.text).join('|')}`;
@@ -136,6 +149,20 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   const live = view.phase === 'live';
   // Again when the world arrives: App's callback reaches the world's "수업 중" badge only once the world exists.
   const ended = view.phase === 'ended';
+  // The lesson's NPC is the one to talk to: the world marks it while the lesson runs (R2625 ⑤), and lets go after.
+  const goalSet = useRef(false);
+  useEffect(() => {
+    const w = props.world;
+    if (!w?.setGoalNpc) return;
+    if (live) {
+      w.setGoalNpc(view.npcId);
+      goalSet.current = true;
+    } else if (goalSet.current) {
+      // once, when the lesson stops: App's errand mark (or the town goal chain) takes over on its next render
+      w.setGoalNpc(null);
+      goalSet.current = false;
+    }
+  }, [props.world, live, view.npcId]);
   useEffect(() => {
     onActive.current?.(live);
     // In a lesson the chip shows this lesson's stars from the start (0 before the first). When it ends the chip keeps

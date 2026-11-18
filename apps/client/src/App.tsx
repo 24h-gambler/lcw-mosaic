@@ -3,7 +3,7 @@
  * the dialog panel (`dialog/DialogPanel.tsx`, docs/19 3장) and the lesson layer (`lesson/LessonLayer.tsx`, docs/19 4장).
  * A slot whose module is not in the build yet stays empty; when it lands, Vite picks it up with no edit here.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Level } from '@lcw/schemas';
 import { canRunWorld, createWorld, SCENE_IDS, type NpcRef, type SceneId, type WorldHandle, type WorldTier } from './world/api.js';
 import { WORLD_STRINGS as W } from './world/strings.js';
@@ -23,6 +23,7 @@ import { GuestPassLayer } from './start/PassLayer.js';
 import { passFromSearch } from './start/guestPass.js';
 import type { DeviceLessonSession } from './start/api.js';
 import { TeacherBar, teachFrom, teachTicketBody } from './world/TeacherBar.js';
+import { LESSON_TALK_EVENT, errandGoalNpc } from './world/events.js';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
 export interface DialogConfig {
@@ -616,7 +617,12 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (!world) return;
     return world.onNpcInteract((npc) => {
-      if (lessonActive.current) return;
+      // In a lesson the talk is the lesson's dialog window: a click, tap or E on an NPC opens it again (it was a dead
+      // tap, Dan 11-16 R2625).
+      if (lessonActive.current) {
+        window.dispatchEvent(new CustomEvent(LESSON_TALK_EVENT, { detail: { npcId: npc.id } }));
+        return;
+      }
       if (soloBlocked) {
         setSeatCard(true);
         return;
@@ -624,6 +630,19 @@ export function App(): React.ReactElement {
       if (dialogMod?.DialogPanel && dialogMod.createSoloSubmit) setSoloNpc(npc);
     });
   }, [world, dialogMod, soloBlocked]);
+
+  // R2625 ⑤: the world marks the NPC the errand needs next (the giver to start and to hand over, the cafe to order); the
+  // lesson layer marks its own NPC while a lesson runs. After the errand the town goal chain (dialog lane, goals.ts)
+  // owns the mark: this lets go once, when the errand turns done, in a layout effect so the chain's own (passive)
+  // effect of the same render lands after it.
+  const errandGoalWas = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!world?.setGoalNpc || lessonOn) return;
+    const want = errandGoalNpc(errand?.state ?? null);
+    if (want === null && errandGoalWas.current === null) return;
+    errandGoalWas.current = want;
+    world.setGoalNpc(want);
+  }, [world, errand?.state, lessonOn]);
 
   const renderDialog = useCallback(
     (npc: NpcRef, cfg: DialogConfig): React.ReactNode => {

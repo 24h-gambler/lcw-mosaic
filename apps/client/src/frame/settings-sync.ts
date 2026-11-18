@@ -28,6 +28,7 @@ export function toServerSettings(s: Readonly<FrameSettings>): FlatSettings {
   out.lookMouse = s.lookMouse;
   out.lookTouch = s.lookTouch;
   out.invertY = s.invertY;
+  out.autoJump = s.autoJump;
   out.micMode = s.micMode;
   out.volMaster = s.volume.master;
   out.volMusic = s.volume.music;

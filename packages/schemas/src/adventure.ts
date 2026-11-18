@@ -53,7 +53,15 @@ export const AdventureActivitySchema = z
     lines: z
       .array(z.object({ en: short, ko: short, mode: AdventureLineModeSchema, ok: z.boolean(), tries: z.number().int().min(1) }).strict())
       .max(60),
-    extra: z.object({ outcome: AdventureOutcomeSchema, hp_lost: z.number().int().min(0), level: z.string().regex(/^L[1-6]$/) }).strict()
+    extra: z
+      .object({
+        outcome: AdventureOutcomeSchema,
+        hp_lost: z.number().int().min(0),
+        level: z.string().regex(/^L[1-6]$/),
+        /** The lesson day it was played for, when the envelope went under today's date (an old link, contract v1). */
+        lessonDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+      })
+      .strict()
   })
   .strict();
 export type AdventureActivity = z.infer<typeof AdventureActivitySchema>;

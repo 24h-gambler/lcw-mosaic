@@ -32,7 +32,7 @@ import {
   toSettings,
   type Progress
 } from './core/progress.js';
-import { addLine, betterPlay, buildEnvelope, envelopeDate, chapterStars, startRecord, toActivity, wordHit, type ChapterRecord } from './core/record.js';
+import { addLine, betterPlay, buildEnvelope, datedPlays, chapterStars, startRecord, toActivity, wordHit, type ChapterRecord } from './core/record.js';
 import { dayFileUrls, readEdLink, resultUrl, type EdLink } from './core/edlink.js';
 import { Sound, type SfxName } from './audio/sound.js';
 import type { TrackId } from './audio/tracks.js';
@@ -937,7 +937,8 @@ export class Engine {
       // never overwrite a finished play of today with a half one
       if (!this.sessionActs.has(open.id) && !(prev && prev.extra.outcome !== 'quit' && prev.endedAt.slice(0, 10) === this.today())) acts.push(open);
     }
-    const env = buildEnvelope(this.ed.student, envelopeDate(this.ed.date ?? this.day?.date, this.today()), acts);
+    const dated = datedPlays(this.ed.date ?? this.day?.date, this.today(), acts);
+    const env = buildEnvelope(this.ed.student, dated.date, dated.acts);
     return env ? JSON.stringify(env) : null;
   }
 

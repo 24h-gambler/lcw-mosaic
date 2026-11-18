@@ -5,7 +5,7 @@ import { buildChapterPlan, cleanSentence, cleanWord, misspellings, talkChoices }
 import { createRng } from '../core/rng.js';
 import { gradeExact, gradePick, gradeSpelling, gradeSpoken } from '../core/grade.js';
 import { earlierWords, emptyProgress, isUnlocked, kstDate, lockReason, mergeSettings, nextChapter, parseProgress, recordFinish, toSettings } from '../core/progress.js';
-import { addLine, betterPlay, buildEnvelope, envelopeDate, chapterStars, startRecord, summaryKo, toActivity, wordHit } from '../core/record.js';
+import { addLine, betterPlay, buildEnvelope, datedPlays, envelopeDate, chapterStars, startRecord, summaryKo, toActivity, wordHit } from '../core/record.js';
 import { dayFileUrls, parseEdLink, readEdLink, resultUrl, safeBack } from '../core/edlink.js';
 import { arenaRect, autopilotDir, cookiesReadable, startPattern, stepPattern } from '../core/bullets.js';
 import { spellTiles } from '../core/plan.js';
@@ -271,6 +271,14 @@ describe('adventure record and the english-day envelope', () => {
     expect(envelopeDate('2026-11-07', '2026-11-18')).toBe('2026-11-18');
     expect(envelopeDate('2026-11-21', '2026-11-18')).toBe('2026-11-18');
     expect(envelopeDate(null, '2026-11-18')).toBe('2026-11-18');
+    // an old link: today's date, the lesson day kept on each play, and the receiver's schema takes it
+    const r = startRecord(1, 1, ['puppy'], Date.UTC(2026, 10, 18, 8));
+    r.outcome = 'spared';
+    const old = datedPlays('2026-11-01', '2026-11-18', [toActivity(r, Date.UTC(2026, 10, 18, 8, 5))]);
+    expect(old.date).toBe('2026-11-18');
+    expect(old.acts[0]!.extra.lessonDate).toBe('2026-11-01');
+    expect(buildEnvelope('smoke-adv', old.date, old.acts)).not.toBeNull();
+    expect(datedPlays('2026-11-16', '2026-11-18', old.acts.map((a) => ({ ...a, extra: { ...a.extra, lessonDate: undefined } }))).acts[0]!.extra.lessonDate).toBeUndefined();
   });
 
   it('a replay replaces the sent play only when it is as good or better', () => {

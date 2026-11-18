@@ -118,6 +118,13 @@ export function envelopeDate(lessonDay: string | null | undefined, today: string
   return d >= -ADV.envelopeDays.before && d <= ADV.envelopeDays.after ? lessonDay : today;
 }
 
+/** The envelope's date and its plays: a play for a lesson day outside the window goes under today with `extra.lessonDate`. */
+export function datedPlays(lessonDay: string | null | undefined, today: string, acts: readonly AdventureActivity[]): { date: string; acts: AdventureActivity[] } {
+  const date = envelopeDate(lessonDay, today);
+  if (!lessonDay || date === lessonDay || !/^\d{4}-\d{2}-\d{2}$/.test(lessonDay)) return { date, acts: [...acts] };
+  return { date, acts: acts.map((a) => ({ ...a, extra: { ...a.extra, lessonDate: lessonDay } })) };
+}
+
 const OUTCOME_KO: Record<AdventureOutcome, string> = { spared: '말로 친구가 되어 끝냄', fought: '콕 찌르기로 끝냄', quit: '중간에 멈춤' };
 
 /** One Korean line for the guardian (contract `summaryKo`). */

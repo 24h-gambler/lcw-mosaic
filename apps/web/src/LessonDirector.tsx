@@ -29,19 +29,14 @@ import {
   type LessonFeed,
   type LiveLessonRow,
   type OperatorSessions,
-  type PinInput,
-  type PinKind,
   worldPresence
 } from './lessonApi.js';
 import {
   EMPTY_FEED_VIEW,
   LESSON_POLL_MS,
   NEXT_LESSON_MAX,
-  PIN_NOTE_MAX,
   TEACHER_COMMENT_MAX,
-  TARGET_TEXT_MAX,
   applyStagePush,
-  buildPin,
   buildStagePush,
   cryptoRand,
   directorErrorText,
@@ -61,16 +56,16 @@ import {
   type FeedView,
   type NewStudentForm
 } from './lessonFlow.js';
-import { handleDirectorKeydown } from './director.js';
 import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView } from './directorLiveState.js';
-import { EventsBox, HelpsStrip, NextLessonBox, PossessBox, ProgressBox, StudentScreenBox } from './DirectorLive.js';
+import { StudentScreenBox } from './DirectorLive.js';
 import { LessonAudioBox } from './LessonAudioBox.js';
 import { ConsoleSeatBadge, SeatManager, useConsoleSeats } from './DirectorSeats.js';
 import { SignupQueue, type SignupQueueProps } from './DirectorSignups.js';
-import { Box, LessonStyle, Notice, Stat, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
+import { Box, LessonStyle, Notice, border, copyText, currentOrigin, inputStyle, labelStyle, sp } from './lessonUi.js';
 import { LESSON_STRINGS_KO } from './strings.js';
 import { TeacherModeHelp, TeacherPresenceBox } from './teacherPresence.js';
 import { A } from './autoCloseStrings.js';
+import { M } from './directorMoreStrings.js';
 
 const S = LESSON_STRINGS_KO.director;
 
@@ -188,22 +183,26 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
     } else setKeyError(S.errOperator);
   }, []);
 
+  const keyBox = (
+    <KeyBox
+      api={api}
+      token={token}
+      error={keyError}
+      onSave={(t) => {
+        setToken(t);
+        setKeyError(null);
+      }}
+      onForget={() => {
+        saveOperatorToken(null);
+        setToken(null);
+      }}
+    />
+  );
   return (
     <div className="lcw-lesson" data-testid="lesson-director" style={{ display: 'grid', gap: sp(4) }}>
       <LessonStyle />
-      <KeyBox
-        api={api}
-        token={token}
-        error={keyError}
-        onSave={(t) => {
-          setToken(t);
-          setKeyError(null);
-        }}
-        onForget={() => {
-          saveOperatorToken(null);
-          setToken(null);
-        }}
-      />
+      {/* Signed in: the key box folds to the bottom (R2625 console trim); signing in or a key error keeps it on top. */}
+      {!token || keyError ? keyBox : null}
       {!token ? null : lesson ? (
         <>
           <LiveLesson
@@ -234,6 +233,12 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
           {props.signupQueue !== false ? <SignupQueue token={token} {...(props.signupQueue ?? {})} /> : null}
         </>
       )}
+      {token && !keyError ? (
+        <details data-testid="director-key-more">
+          <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.keyMore}</summary>
+          <div style={{ marginTop: sp(2) }}>{keyBox}</div>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -617,7 +622,6 @@ function StudentPicker({
           </Button>
         }
       >
-        <CsvExportRow api={api} token={token} onAuthError={onAuthError} />
         <div role="radiogroup" aria-label={S.planTitle} data-testid="director-plan" style={{ marginBottom: sp(3) }}>
           <div style={{ fontWeight: 700, marginBottom: sp(1) }}>{S.planTitle}</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
@@ -722,8 +726,19 @@ function StudentPicker({
           </div>
         ) : null}
       </Box>
-      <Box title="1PC · 2PC" testId="director-teacher-mode"><TeacherModeHelp /></Box>
-      <NewStudentBox api={api} token={token} onAuthError={onAuthError} onCreated={() => void load()} />
+      <details data-testid="director-new-student-more">
+        <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.newStudentMore}</summary>
+        <div style={{ marginTop: sp(2) }}>
+          <NewStudentBox api={api} token={token} onAuthError={onAuthError} onCreated={() => void load()} />
+        </div>
+      </details>
+      <details data-testid="director-csv-more">
+        <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.csvMore}</summary>
+        <div style={{ marginTop: sp(2) }}>
+          <CsvExportRow api={api} token={token} onAuthError={onAuthError} />
+        </div>
+      </details>
+      <TeacherModeHelp />
     </div>
   );
 }
@@ -917,68 +932,14 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
     return () => clearInterval(id);
   }, [poll, ended]);
 
-  /* ----- pins (F1/F2 + buttons) ----- */
-  const [pinNote, setPinNote] = useState('');
-  const [pinFlash, setPinFlash] = useState<string | null>(null);
-  const [failedPins, setFailedPins] = useState<PinInput[]>([]);
-  const pinCtx = useRef({ note: '', lastTranscript: null as string | null, stageTitle: null as string | null });
-  pinCtx.current = {
-    note: pinNote,
-    lastTranscript: feed.utterances[feed.utterances.length - 1]?.transcript ?? null,
-    stageTitle: stageById(plan, lesson.stage_id)?.titleKo ?? null
-  };
-  const startedRef = useRef(startedAt);
-  startedRef.current = startedAt;
-
-  const sendPin = useCallback(
-    async (pin: PinInput) => {
-      try {
-        await api.addPin(token, lessonRef.current.lesson_id, pin);
-        setPinFlash(`${S.pinSaved} · ${S.pinKinds[pin.kind]} ${formatClock(pin.at_ms)}`);
-        setPinNote('');
-        void poll();
-        return true;
-      } catch (e) {
-        onAuthError(errorCodeOf(e));
-        setFailedPins((prev) => [...prev, pin]);
-        return false;
-      }
-    },
-    [api, token, poll, onAuthError]
-  );
-
-  const addPin = useCallback(
-    (kind: PinKind) => {
-      void sendPin(buildPin(kind, now(), startedRef.current, pinCtx.current));
-    },
-    [sendPin, now]
-  );
-
-  useEffect(() => {
-    if (ended) return undefined;
-    const onKey = (e: KeyboardEvent) => {
-      handleDirectorKeydown(e, 0, (b) => addPin(b.kind));
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [addPin, ended]);
-
-  const retryPins = async () => {
-    const pending = failedPins;
-    setFailedPins([]);
-    for (const p of pending) await sendPin(p);
-  };
-
+  // R2625 console trim (docs/18 §8): no pin buttons, F1/F2 or event hotkeys on the console any more.
   const elapsed = clock - startedAt;
   const lastUtterances = [...feed.utterances].reverse();
-  const currentStage = stageById(plan, lesson.stage_id ?? serverLesson?.stage_id ?? undefined) ?? undefined;
-  const runningMinute = ended ? null : Math.max(0, Math.floor(elapsed / 60_000));
 
   return (
     <div style={{ display: 'grid', gap: sp(4) }} data-testid="director-live">
       <JoinCodeBar api={api} token={token} lesson={lesson} elapsedMs={elapsed} totalMinutes={plan.totalMinutes} />
       <TeacherPresenceBox api={api} token={token} lessonId={lesson.lesson_id} ended={ended} />
-      <HelpsStrip utterances={live.utterances} pins={feed.pins.length} minutes={liveX.minutes.length} />
       {feedError ? (
         <Notice onRetry={() => void poll()} retryLabel={S.retry} testId="feed-error">
           {`${feedError} ${S.feedStale(feedFails)}`}
@@ -1023,80 +984,10 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
               void poll();
             }}
           />
-          <PossessBox
-            api={api}
-            token={token}
-            lessonId={lesson.lesson_id}
-            stage={currentStage}
-            live={liveX}
-            disabled={ended}
-            onSent={() => void poll()}
-            onAuthError={onAuthError}
-          />
-          <EventsBox
-            api={api}
-            token={token}
-            lessonId={lesson.lesson_id}
-            stage={currentStage}
-            disabled={ended}
-            onSent={() => void poll()}
-            onAuthError={onAuthError}
-          />
         </div>
         <div style={{ display: 'grid', gap: sp(4), minWidth: 0 }}>
           <StudentScreenBox live={liveX} localNow={clock} startedAt={serverStartedAt} />
-          <LessonAudioBox token={token} lessonId={lesson.lesson_id} disabled={ended} />
-          <Box title={S.liveTitle} testId="director-counters">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2) }}>
-              <Stat label={S.countSaid} value={live.utterances} testId="count-said" />
-              <Stat label={S.countPass} value={live.passes} testId="count-pass" />
-              <Stat label={S.countStars} value={live.stars_total} testId="count-stars" />
-              <Stat label={S.countWords} value={live.words_total} testId="count-words" />
-              <Stat label={S.countSpeaking} value={formatClock(live.student_speaking_ms)} />
-            </div>
-          </Box>
-          <ProgressBox minutes={liveX.minutes} live={liveX} plan={plan} runningMinute={runningMinute} />
-          <Box title={S.pinsTitle} testId="director-pins">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), marginBottom: sp(2) }}>
-              <Button type="button" variant="sky" disabled={ended} onClick={() => addPin('coaching')}>
-                {S.pinCoaching}
-              </Button>
-              <Button type="button" variant="leaf" disabled={ended} onClick={() => addPin('expression')}>
-                {S.pinExpression}
-              </Button>
-            </div>
-            <input
-              value={pinNote}
-              maxLength={PIN_NOTE_MAX}
-              placeholder={S.pinNotePlaceholder}
-              aria-label={S.pinNotePlaceholder}
-              onChange={(e) => setPinNote(e.target.value)}
-              style={inputStyle}
-            />
-            {pinFlash ? (
-              <p role="status" style={{ margin: `${sp(2)} 0 0`, fontWeight: 700, color: C['leaf-d'] }}>
-                {pinFlash}
-              </p>
-            ) : null}
-            {failedPins.length > 0 ? (
-              <div style={{ marginTop: sp(2) }}>
-                <Notice onRetry={() => void retryPins()} retryLabel={S.pinRetry} testId="pins-failed">
-                  {S.pinFailed(failedPins.length)}
-                </Notice>
-              </div>
-            ) : null}
-            {feed.pins.length > 0 ? (
-              <ul style={{ margin: `${sp(2)} 0 0`, paddingLeft: sp(4) }}>
-                {feed.pins.map((p) => (
-                  <li key={p.id}>
-                    <strong>{formatClock(p.at_ms)}</strong> {S.pinKinds[p.kind] ?? p.kind}
-                    {p.note ? ` · ${p.note}` : ''}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </Box>
-          <Box title={S.feedTitle} testId="director-feed">
+          <Box title={M.feedTitle(live.utterances, live.passes, live.stars_total)} testId="director-feed">
             {lastUtterances.length === 0 ? <p style={{ margin: 0 }}>{S.feedEmpty}</p> : null}
             <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: sp(2), maxHeight: '560px', overflowY: 'auto' }}>
               {lastUtterances.map((u) => (
@@ -1149,7 +1040,13 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
             autoPending={Boolean(serverLesson?.report_pending)}
             draftSummary={serverLesson?.draft_summary_ko ?? null}
           />
-          <NextLessonBox plan={plan} />
+          {/* The guardians' live lesson window (WP-307): kept, folded (no real lesson used it, R2625). */}
+          <details data-testid="director-audio-more">
+            <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.audioMore}</summary>
+            <div style={{ marginTop: sp(2) }}>
+              <LessonAudioBox token={token} lessonId={lesson.lesson_id} disabled={ended} />
+            </div>
+          </details>
         </div>
       </div>
     </div>
@@ -1424,9 +1321,7 @@ function StagePanel({
   startedAt: number;
 }): React.ReactElement {
   const plan = planById(lesson.plan_id);
-  const [chosen, setChosen] = useState<Set<string>>(() => new Set(stage.targets.map((t) => t.text)));
-  const [custom, setCustom] = useState<string[]>([]);
-  const [draft, setDraft] = useState('');
+  const allTargets = new Set(stage.targets.map((t) => t.text));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pushedAt, setPushedAt] = useState<number | null>(null);
@@ -1457,14 +1352,6 @@ function StagePanel({
     }
   };
 
-  const toggle = (text: string) =>
-    setChosen((prev) => {
-      const n = new Set(prev);
-      if (n.has(text)) n.delete(text);
-      else n.add(text);
-      return n;
-    });
-
   return (
     <Box
       title={stage.titleKo}
@@ -1483,13 +1370,16 @@ function StagePanel({
             {stage.teacherGuideKo}
           </p>
           {stage.stepsKo?.length ? (
-            <ol data-testid="stage-steps" style={{ margin: `${sp(2)} 0 0`, paddingLeft: sp(4), display: 'grid', gap: sp(1) }}>
-              {stage.stepsKo.map((step) => (
-                <li key={step} style={{ fontSize: `${T.scale.body.sizePx}px`, lineHeight: `${T.scale.body.lineHeightPx}px` }}>
-                  {step}
-                </li>
-              ))}
-            </ol>
+            <details style={{ marginTop: sp(2) }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.stepsMore}</summary>
+              <ol data-testid="stage-steps" style={{ margin: `${sp(2)} 0 0`, paddingLeft: sp(4), display: 'grid', gap: sp(1) }}>
+                {stage.stepsKo.map((step) => (
+                  <li key={step} style={{ fontSize: `${T.scale.body.sizePx}px`, lineHeight: `${T.scale.body.lineHeightPx}px` }}>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            </details>
           ) : null}
         </div>
         <div>
@@ -1511,82 +1401,46 @@ function StagePanel({
         <p style={{ margin: 0 }}>
           <strong>{S.studentGoalLabel}:</strong> {stage.studentGoalKo}
         </p>
-        <fieldset style={{ border, borderRadius: `${TOKENS.shape.radiusButtonPx}px`, padding: sp(2), margin: 0 }}>
-          <legend style={{ fontWeight: 700, padding: `0 ${sp(1)}` }}>{S.targetsLabel}</legend>
-          <div style={{ display: 'grid', gap: sp(1) }}>
+        <div>
+          <strong style={{ display: 'block', marginBottom: sp(1) }}>{S.targetsLabel}</strong>
+          <ul data-testid="stage-targets" style={{ margin: 0, paddingLeft: sp(4), display: 'grid', gap: sp(1) }}>
             {stage.targets.map((t) => (
-              <label
-                key={t.text}
-                style={{ display: 'flex', gap: sp(2), alignItems: 'center', minHeight: `${TOKENS.shape.touchTargetMinPx}px`, cursor: 'pointer' }}
-              >
-                <input
-                  type="checkbox"
-                  checked={chosen.has(t.text)}
-                  onChange={() => toggle(t.text)}
-                  style={{ width: '22px', height: '22px' }}
-                />
-                <span style={{ color: C['sun-d'], fontWeight: 700, minWidth: '44px' }}>{starsText(t.stars)}</span>
+              <li key={t.text}>
+                <span style={{ color: C['sun-d'], fontWeight: 700, marginRight: sp(2) }}>{starsText(t.stars)}</span>
                 <span lang="en" style={{ fontFamily: T.fonts.target, fontSize: `${T.scale['body-l'].sizePx}px` }}>
                   {t.text}
                 </span>
-              </label>
+              </li>
             ))}
-            {custom.map((c, i) => (
-              <div key={`${c}-${i}`} style={{ display: 'flex', gap: sp(2), alignItems: 'center' }}>
-                <span style={{ minWidth: '44px', fontWeight: 700 }}>+</span>
-                <span lang="en" style={{ flex: 1, fontFamily: T.fonts.target, fontSize: `${T.scale['body-l'].sizePx}px` }}>
-                  {c}
-                </span>
-                <Button type="button" variant="paper" onClick={() => setCustom(custom.filter((_, j) => j !== i))}>
-                  {S.removeCustom}
-                </Button>
-              </div>
-            ))}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const v = draft.trim();
-                if (v) setCustom([...custom, v]);
-                setDraft('');
-              }}
-              style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap' }}
-            >
-              <input
-                lang="en"
-                value={draft}
-                maxLength={TARGET_TEXT_MAX}
-                placeholder={S.customPlaceholder}
-                aria-label={S.customPlaceholder}
-                onChange={(e) => setDraft(e.target.value)}
-                style={{ ...inputStyle, flex: '1 1 220px', width: 'auto' }}
-              />
-              <Button type="submit" variant="paper">
-                {S.addCustom}
-              </Button>
-            </form>
-          </div>
-        </fieldset>
+          </ul>
+        </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
-          <Button
-            type="button"
-            variant="brand"
-            size="game"
-            disabled={busy || disabled}
-            data-testid="push-stage"
-            onClick={() => void push(stage, chosen, custom)}
-          >
-            {busy ? S.pushing : S.pushStage}
-          </Button>
-          {isCurrent && next ? (
+          {/* One button: on the running stage it moves on, on another stage it goes there (all the plan's sentences). */}
+          {isCurrent ? (
+            next ? (
+              <Button
+                type="button"
+                variant="brand"
+                size="game"
+                disabled={busy || disabled}
+                data-testid="push-next"
+                onClick={() => void push(next, new Set(next.targets.map((t) => t.text)), [])}
+              >
+                {busy ? S.pushing : M.pushNext}
+              </Button>
+            ) : null
+          ) : (
             <Button
               type="button"
-              variant="sky"
+              variant="brand"
+              size="game"
               disabled={busy || disabled}
-              onClick={() => void push(next, new Set(next.targets.map((t) => t.text)), [])}
+              data-testid="push-stage"
+              onClick={() => void push(stage, allTargets, [])}
             >
-              {S.pushNext}
+              {busy ? S.pushing : M.pushThis}
             </Button>
-          ) : null}
+          )}
           {pushedAt ? (
             <span role="status" style={{ fontWeight: 700, color: C['leaf-d'] }}>
               {S.pushedAt(formatClock(pushedAt - startedAt))}
@@ -1597,27 +1451,13 @@ function StagePanel({
           <Notice
             onRetry={() => {
               const a = lastAttempt.current;
-              void (a ? push(a.st, a.chosen, a.custom) : push(stage, chosen, custom));
+              void (a ? push(a.st, a.chosen, a.custom) : push(stage, allTargets, []));
             }}
             retryLabel={S.retry}
           >
             {error}
           </Notice>
         ) : null}
-        <div style={{ borderTop: `1px solid ${C['line-200']}`, paddingTop: sp(2) }}>
-          <strong style={{ display: 'block', marginBottom: sp(1) }}>{S.onStudentScreen}</strong>
-          {onScreen && onScreen.length > 0 ? (
-            <ul style={{ margin: 0, paddingLeft: sp(4) }} data-testid="on-screen">
-              {onScreen.map((t) => (
-                <li key={t} lang="en">
-                  {t}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p style={{ margin: 0, color: C['ink-500'] }}>{S.nothingOnScreen}</p>
-          )}
-        </div>
       </div>
     </Box>
   );

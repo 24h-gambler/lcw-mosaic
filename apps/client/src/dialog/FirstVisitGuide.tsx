@@ -10,6 +10,14 @@ import type { SpeechEngine } from './speech.js';
 import { createDialogSpeechEngine } from './server-stt.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 import { currentGoal, goalLine, goalToast, goalWalkLabel, onGoalChange, type GoalDef } from './goals.js';
+import { onLearnLang } from '../world/lang.js';
+
+/** Re-render on a change of the learning language or the Korean help (settings), so the goal line and walk button follow at once. */
+function useLangTick(): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => onLearnLang(() => setTick((n) => n + 1)), []);
+  return tick;
+}
 
 /**
  * docs/08 G15 첫 접속 안내: mic check -> move -> first order within 3 minutes (docs/01 활성화, docs/09 첫 문장까지
@@ -66,6 +74,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
   const onErrandRef = useRef(onErrand);
   onErrandRef.current = onErrand;
   const state = errand?.state ?? null;
+  const langTick = useLangTick();
 
   // Fetch the errand (the first call starts the activation clock on the server), and again when a dialog moved it.
   useEffect(() => {
@@ -117,7 +126,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
       return () => clearTimeout(id);
     }
     return undefined;
-  }, [errand, world, hidden, errandOver]);
+  }, [errand, world, hidden, errandOver, langTick]);
 
   // Guests have no errand (it needs a linked device): they start on the town goals at once.
   if (!token || errandOver) return <TownGoals world={world} hidden={hidden} />;
@@ -207,7 +216,12 @@ const TOAST_STYLE: React.CSSProperties = {
   borderRadius: S.radiusCardPx,
   boxShadow: S.shadowDefault,
   padding: '8px 16px',
-  whiteSpace: 'nowrap',
+  // 'English · 한국어' with the help on is ~90 characters: wrap inside the phone width instead of running off it
+  width: 'max-content',
+  maxWidth: 'calc(100vw - 32px)',
+  boxSizing: 'border-box',
+  whiteSpace: 'normal',
+  textAlign: 'center',
   fontFamily: T.fonts.ui,
   fontWeight: 800,
   fontSize: T.scale.body.sizePx
@@ -229,6 +243,7 @@ export function TownGoals(props: { world: WorldHandle | null; hidden?: boolean }
   const [toast, setToast] = useState<string | null>(null);
   /** The tour ended in this visit: its "seen the whole town" line stays up with the toast. */
   const [tourDone, setTourDone] = useState(false);
+  const langTick = useLangTick();
   useEffect(
     () =>
       onGoalChange((next, finished) => {
@@ -260,7 +275,7 @@ export function TownGoals(props: { world: WorldHandle | null; hidden?: boolean }
       world.setGoal(goalToast('goalTourDone'));
       setGoalNpc(world, null);
     }
-  }, [world, goal, hidden, tourDone]);
+  }, [world, goal, hidden, tourDone, langTick]);
   if (hidden) return null;
   return (
     <>

@@ -1,7 +1,6 @@
 import { FIRST_ERRAND, type LangLevel } from '@lcw/content';
 import { nextOpeningLine, openingLineFor } from './npc-lines.js';
 import { guideAskPlace } from './goals.js';
-import { learnLang } from '../world/lang.js';
 import { biLine, npcShortName } from './strings.js';
 import { bankOffersFor } from './hints.js';
 import { SubmitError } from './submit.js';
@@ -94,9 +93,4 @@ export function errandGoalKo(errand: ErrandView): string {
     if (errand.state === 'carrying') return names(F.goalDeliver).replace('{item}', item);
     return F.goalDone;
   });
-}
-
-/** The errand giver's short name from the cast pack (npc-cast.ts): English name when the child learns English. */
-export function errandGiverNameKo(): string {
-  return npcShortName('errand_neighbor', learnLang() === 'en' ? 'en' : 'ko');
 }

@@ -370,6 +370,10 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     const a = sqlOf(p).get<{ draft: string; last_activity_at: number }>('select draft, last_activity_at from lesson_auto_close where lesson_id = ?', [lessonId])!;
     expect(a.last_activity_at).toBe(lastReal);
     expect(JSON.parse(a.draft).facts.duration_min).toBe(25);
+    // the hub card that went out with the old minutes goes out again with the corrected ones
+    const card = sqlOf(p).get<{ card: string; acked_at: number | null }>("select card, acked_at from ops_card_outbox where ref like ?", [`%:lcw:lesson:${lessonId}:summary`])!;
+    expect(JSON.parse(card.card).title).toContain('· 25분 ·');
+    expect(card.acked_at).toBeNull();
     // the next sweep leaves it alone; the teacher's send reports 25 minutes
     expect((await cron(p)).body.lessons.reclamped).toEqual([]);
     const sent = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { send: true });

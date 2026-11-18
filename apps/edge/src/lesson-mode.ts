@@ -23,7 +23,7 @@ import { LessonDO, type DirectorEventKind, type EdgePlatformDb, type SqliteExecu
 import { markSeatUse } from './seats.js';
 import { buildLessonParentFacts, mergeLessonParentFacts } from './parent-report.js';
 import { createMemoryCard } from './review.js';
-import { enqueueLessonEnd, mountOpsCardRoutes } from './ops-cards.js';
+import { enqueueLessonEnd, mountOpsCardRoutes, OPS_CARD_SOURCE } from './ops-cards.js';
 import { isTestPlayerId } from './nickname.js';
 
 /**
@@ -861,7 +861,7 @@ export function buildLessonModeApp(
    * last activity and draft move back to the last real activity (lastActivityOf). Runs on every sweep; a row already
    * right is left alone, so it is safe to repeat.
    */
-  const reclampAutoClosed = (dryRun: boolean): Array<{ lesson_id: string; ended_at: number; was: number }> => {
+  const reclampAutoClosed = (dryRun: boolean, now: number, fallbackOrigin: string | null): Array<{ lesson_id: string; ended_at: number; was: number }> => {
     const rows = d.sql.all<{ lesson_id: string; last_activity_at: number; started_at: number; ended_at: number }>(
       `select a.lesson_id, a.last_activity_at, l.started_at, l.ended_at from lesson_auto_close a join lessons l on l.id = a.lesson_id
        where a.sent_at is null and a.folded_into is null and l.ended_at is not null`
@@ -876,13 +876,24 @@ export function buildLessonModeApp(
       d.sql.run('update lessons set ended_at = ? where id = ?', [endAt, row.lesson_id]);
       const draft = { facts: buildLessonParentFacts(d.sql, row.lesson_id, endAt), progress: progressOf(row.lesson_id, minutesOf(row.lesson_id, endAt)) };
       d.sql.run('update lesson_auto_close set last_activity_at = ?, draft = ? where lesson_id = ?', [last, JSON.stringify(draft), row.lesson_id]);
+      // The hub card already sent says the old minutes ("422분"): send it again with the corrected end. Only a card that
+      // went out before (test, empty and stale lessons never had one, and do not get one now).
+      if (d.sql.get('select 1 from ops_card_outbox where ref = ?', [`${OPS_CARD_SOURCE}:lcw:lesson:${row.lesson_id}:summary`])) {
+        const origin =
+          fallbackOrigin ?? d.sql.get<{ origin: string }>('select origin from lesson_origins where lesson_id = ?', [row.lesson_id])?.origin ?? LCW_SITE_ORIGIN;
+        try {
+          enqueueLessonEnd(d.sql, row.lesson_id, now, origin);
+        } catch {
+          /* the box and the draft are right; the card is written again on the teacher's send */
+        }
+      }
     }
     return out;
   };
 
   /** The cron sweep (platform.ts /internal/cron) and the operator's on-demand run share this. */
   const sweepIdleLessons = (now: number, origin: string | null, dryRun = false) => {
-    const reclamped = reclampAutoClosed(dryRun);
+    const reclamped = reclampAutoClosed(dryRun, now, origin);
     const open = d.sql.all<{ id: string; player_id: string; started_at: number }>(
       'select id, player_id, started_at from lessons where ended_at is null order by started_at limit 200'
     );

@@ -55,6 +55,13 @@ export interface LessonEventRow {
   detail: string;
 }
 
+/** The server moved the stage on by itself (docs/18 §9): enough passes, the follow-ups done, or the planned minutes. */
+export interface LessonAutoAdvance {
+  from: string;
+  to: string;
+  why: 'passes' | 'followups' | 'time';
+}
+
 export interface StudentLessonState {
   lesson_id: string;
   stage_id: string | null;
@@ -83,6 +90,10 @@ export interface StudentLessonState {
   stage_started_at?: number | null;
   /** The teacher's newest line as the stage NPC in this stage (any age), or null. */
   stage_last_line_en?: string | null;
+  /** The stage NPC's follow-up questions in order (dialog followUps, talk lane); absent on an older server. */
+  follow_ups_en?: string[];
+  /** The stage moved on by itself on this poll (docs/18 §9), else null; absent on an older server. */
+  auto_advanced?: LessonAutoAdvance | null;
   /** With the teacher now (console heartbeat), or alone ("혼자 놀기"). Absent on an older server = with the teacher. */
   teacher?: { present: boolean; name: string | null; since: number | null };
   /** The lesson's plan (the 1PC teacher panel shows that plan's stages); absent on an older server. */
@@ -316,7 +327,12 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
     },
     // Whatever the caller hands in, only the strict lesson body goes out (no echo/attempt/dialogId).
     utterance: (token: string, u: UtteranceSubmit | LessonUtteranceBody) =>
-      request<UtteranceResult>('POST', '/v1/lesson/utterance', token, readUtteranceSubmit(u))
+      request<UtteranceResult & { auto_advanced?: LessonAutoAdvance }>('POST', '/v1/lesson/utterance', token, readUtteranceSubmit(u)),
+    // The dialog asked all the stage NPC's follow-up questions: the server moves the stage on (if it is still that one).
+    stageDone: (token: string, stageId: string) =>
+      request<{ ok: true; auto_advanced: LessonAutoAdvance | null; stage_id: string | null }>('POST', '/v1/lesson/stage-done', token, {
+        stage_id: stageId
+      })
   };
 }
 

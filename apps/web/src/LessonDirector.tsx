@@ -919,8 +919,12 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
       setFeedError(null);
       const rec = lessonRef.current;
       if (f.lesson.stage_id && f.lesson.stage_id !== rec.stage_id) {
-        // Another tab (or a reload before the push answered) moved the stage: follow the server.
-        setLesson(applyStagePush(rec, f.lesson.stage_id, now()));
+        // The server moved the stage (by itself, docs/18 §9, or another tab): follow it. The panel follows too when the
+        // teacher was looking at the running stage, so its button stays "next stage" (not "back to the old one").
+        const was = rec.stage_id ?? planById(rec.plan_id).stages[0]!.id;
+        const to = f.lesson.stage_id;
+        setLesson(applyStagePush(rec, to, now()));
+        setViewStageId((v) => followStageView(v, was, to));
       }
     } catch (e) {
       const code = errorCodeOf(e);
@@ -1304,6 +1308,14 @@ function StageRail({
 }
 
 /** The newest stage move if the server made it by itself (docs/18 §9), on this console's clock. */
+/**
+ * The stage panel after the server moved the stage from `was` to `to`: a teacher looking at the running stage follows it
+ * (its button stays "next stage"); a teacher reading another stage's panel keeps it (PR 146 review).
+ */
+export function followStageView(view: string, was: string, to: string): string {
+  return view === was ? to : view;
+}
+
 function autoMoveOf(log: FeedLiveExtra['stage_log'], skewMs: number): { stageId: string; why: string; at: number } | null {
   const last = log?.[log.length - 1];
   return last?.source?.startsWith('auto:') ? { stageId: last.stage_id, why: last.source.slice(5), at: last.at - skewMs } : null;

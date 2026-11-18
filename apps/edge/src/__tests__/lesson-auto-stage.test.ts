@@ -118,11 +118,19 @@ describe('stages move on by themselves (R2625, R2627)', () => {
     expect((await stay(p, st, 9000)).body.stage_id).toBe(STAGES[1]!.id);
   });
 
-  it('the dialog says the follow-ups are done: the stage moves on; a stale or wrong stage changes nothing', async () => {
+  it('the dialog says the follow-ups are done: the stage moves on once the child answered one; a stale or wrong stage changes nothing', async () => {
     now = T0;
     const p = platform();
     const { st } = await lesson(p);
+    const free = (t: string) => call(p, 'POST', '/v1/lesson/utterance', { transcript: t, chosen_stars: 1, dur_ms: 3000 }, st);
     expect((await call(p, 'POST', '/v1/lesson/stage-done', { stage_id: STAGES[2]!.id }, st)).body).toMatchObject({ auto_advanced: null, stage_id: STAGES[0]!.id });
+    // the opening line answered, every follow-up skipped: the dialog ends with "done", the stage stays
+    now += 30_000;
+    expect((await free('my name is oreo and i like dogs')).body.pass).toBe(true);
+    expect((await call(p, 'POST', '/v1/lesson/stage-done', { stage_id: STAGES[0]!.id }, st)).body).toMatchObject({ auto_advanced: null, stage_id: STAGES[0]!.id });
+    // one follow-up answered too: "done" moves it on
+    now += 30_000;
+    expect((await free('after school i play soccer with my dad')).body.pass).toBe(true);
     const r = await call(p, 'POST', '/v1/lesson/stage-done', { stage_id: STAGES[0]!.id }, st);
     expect(r.body).toMatchObject({ ok: true, auto_advanced: { from: STAGES[0]!.id, to: STAGES[1]!.id, why: 'followups' }, stage_id: STAGES[1]!.id });
     // a resend of the same 'done' for the stage that is over does not skip the next one

@@ -47,11 +47,16 @@ function fakeTimers(clock: { now: number }) {
   };
   return t;
 }
-async function setup() {
+async function setup(opts: { holdState?: { gate: Promise<void> | null } } = {}) {
   const clock = { now: Date.parse('2026-11-16T15:00:00+09:00') };
   vi.spyOn(Date, 'now').mockImplementation(() => clock.now);
   const p = new PlatformDO({ storage: fakeDurableStorage() }, { PLATFORM: undefined as never, LCW_OPERATOR_TOKEN: TOKEN } as LcwEnv);
-  const fetch = (input: string, init?: RequestInit) => p.fetch(new Request(`https://x${input}`, init));
+  const fetch = async (input: string, init?: RequestInit) => {
+    const res = await p.fetch(new Request(`https://x${input}`, init));
+    // a state poll whose answer is held back (the poll stays in flight while an answer comes in)
+    if (input.includes('/v1/lesson/state') && opts.holdState?.gate) await opts.holdState.gate;
+    return res;
+  };
   const admin = async (method: string, path: string, body?: unknown) =>
     (await (await p.fetch(new Request(`https://x${path}`, { method, headers: op, body: body === undefined ? undefined : JSON.stringify(body) }))).json()) as any;
   await admin('POST', '/v1/admin/players', { family_id: 'fam-1', guardian_id: 'g-1', player_id: 'kid-1', nickname: 'Oreo', level: 'L1' });
@@ -83,8 +88,26 @@ describe('the child screen follows auto-advance (docs/18 §9)', () => {
     expect(scenes.at(-1)).toBe(STAGES[1]!.sceneId);
   });
 
-  it("the dialog's follow-ups done moves the stage on and the next stage shows at once", async () => {
+  it('a stage move that comes in while a poll is in flight still shows within LESSON_ADVANCE_POLL_MS', async () => {
+    const hold: { gate: Promise<void> | null } = { gate: null };
+    const { ctl, timers } = await setup({ holdState: hold });
+    await ctl.submit({ target_text: STAGES[0]!.targets[0]!.text, transcript: 'my name is oreo', chosen_stars: 1, dur_ms: 1500 });
+    let release!: () => void;
+    hold.gate = new Promise<void>((r) => (release = r));
+    const inFlight = ctl.poll();
+    await ctl.submit({ target_text: STAGES[0]!.targets[1]!.text, transcript: STAGES[0]!.targets[1]!.text, chosen_stars: 1, dur_ms: 1500 });
+    hold.gate = null;
+    release();
+    await inFlight;
+    await timers.run(LESSON_ADVANCE_POLL_MS);
+    expect(ctl.state.stageId).toBe(STAGES[1]!.id);
+  });
+
+  it("the dialog's follow-ups done moves the stage on (one follow-up answered) and the next stage shows at once", async () => {
     const { ctl, timers, lessonId, admin } = await setup();
+    // the child answered the opening line and one follow-up (free talk: no sentence on screen)
+    await ctl.submit({ target_text: '', transcript: 'my name is oreo and i like dogs', chosen_stars: 1, dur_ms: 1500 });
+    await ctl.submit({ target_text: '', transcript: 'after school i play soccer with my dad', chosen_stars: 1, dur_ms: 1500 });
     await ctl.stageDone();
     await timers.run(1);
     expect(ctl.state.stageId).toBe(STAGES[1]!.id);

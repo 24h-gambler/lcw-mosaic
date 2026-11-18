@@ -116,7 +116,8 @@ export const LESSON_END_AUTO_IDLE = 'auto_idle';
  * the whole lesson). The running stage goes to the next one when the first of these happens (docs/18 §9):
  *  - the child passed LESSON_AUTO_ADVANCE_PASSES of the sentences on screen (fewer if it shows fewer); free talk with
  *    no sentence does not count (a free stage moves on by its follow-ups or its minutes),
- *  - the stage NPC finished its follow-up questions (the child's dialog says so: POST /v1/lesson/stage-done),
+ *  - the stage NPC finished its follow-up questions and the child answered at least one of them (the child's dialog
+ *    says so: POST /v1/lesson/stage-done; LESSON_FOLLOWUPS_MIN_ANSWERS passed answers in the stage),
  *  - the stage's planned minutes are over (checked on the child's poll, so only while the child is there).
  * The teacher's own move (console) always wins: the clock and the count start again from the stage the teacher chose.
  * The last stage never moves on (the lesson ends with the teacher's '수업 끝').
@@ -129,6 +130,8 @@ export const LESSON_AUTO_ADVANCE_PASSES = 2;
  */
 export const LESSON_CHILD_GAP_MS = 30_000;
 export type StageAdvanceWhy = 'passes' | 'followups' | 'time';
+/** The dialog's follow-ups "done" moves the stage only after this many passed answers in it (opening + one follow-up). */
+export const LESSON_FOLLOWUPS_MIN_ANSWERS = 2;
 
 /** The site the hub card links to when neither the lesson's start nor the deploy (LCW_PUBLIC_ORIGIN) gave one. */
 export const LCW_SITE_ORIGIN = 'https://lcw.worldwidesomething.com';
@@ -527,7 +530,17 @@ export function buildLessonModeApp(
     if (!stage || !next) return null;
     const entered = stageEnteredAt(id, stage.id, l.started_at);
     let why: StageAdvanceWhy | null = null;
-    if (done && done.stageId === stage.id) why = 'followups';
+    // The dialog's "done" counts only when the child answered at least one follow-up: the opening line and one more
+    // passed answer in this stage (skipping every follow-up also ends the dialog, PR 146 review).
+    const answered = () =>
+      Number(
+        d.sql.get<{ n: number }>('select count(*) as n from utterances where session_id = ? and ctx = ? and stars > 0 and created_at >= ?', [
+          id,
+          stage.id,
+          entered
+        ])?.n ?? 0
+      );
+    if (done && done.stageId === stage.id && answered() >= LESSON_FOLLOWUPS_MIN_ANSWERS) why = 'followups';
     else {
       // what the child can say now (the teacher may have pushed fewer sentences than the plan has)
       const offered = st.targets.length || stage.targets.length;

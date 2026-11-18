@@ -198,6 +198,8 @@ export class LessonController {
   private readonly seenEvents = new Set<string>();
   private stopped = false;
   private polling = false;
+  /** The stage moved (an answer or the dialog's done): the poll after the one in flight comes in LESSON_ADVANCE_POLL_MS. */
+  private soon = false;
   /** Bumps on start/stop/leave; a poll that began in an older run drops its answer (StrictMode, HMR, re-mount). */
   private run = 0;
   private readonly timers: LessonTimers;
@@ -282,7 +284,10 @@ export class LessonController {
     if (typeof r.lesson_stars === 'number') this.showStars(r.lesson_stars);
     else if (r.pass && r.stars > 0) this.showStars(this.view.lessonStars + r.stars);
     // This answer finished the stage (docs/18 §9): the next poll brings the next stage; ask for it now, not in 3 s.
-    if (r.auto_advanced) this.schedulePoll(LESSON_ADVANCE_POLL_MS);
+    if (r.auto_advanced) {
+      this.soon = true;
+      this.schedulePoll(LESSON_ADVANCE_POLL_MS);
+    }
     return result;
   };
 
@@ -295,7 +300,10 @@ export class LessonController {
     if (!s || !stageId || this.stopped) return;
     try {
       const r = await this.opts.api.stageDone(s.token, stageId);
-      if (r.auto_advanced && this.session === s) this.schedulePoll(0);
+      if (r.auto_advanced && this.session === s) {
+        this.soon = true;
+        this.schedulePoll(0);
+      }
     } catch {
       /* the server's own rules (passes, minutes) still move the stage */
     }
@@ -331,6 +339,7 @@ export class LessonController {
     if (!s || this.stopped || this.polling) return;
     const run = this.run;
     this.polling = true;
+    this.soon = false;
     try {
       const st = await this.opts.api.state(s.token, {
         cursor: this.cursor,
@@ -360,7 +369,9 @@ export class LessonController {
       if (run === this.run) this.polling = false;
     }
     if (run !== this.run || this.view.phase === 'ended' || this.stopped || !this.session) return;
-    this.schedulePoll(this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+    // A stage move that came in while this poll was in flight still gets its quick poll (not the 3 s one).
+    this.schedulePoll(this.soon ? LESSON_ADVANCE_POLL_MS : this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+    this.soon = false;
   }
 
   private schedulePoll(ms: number): void {

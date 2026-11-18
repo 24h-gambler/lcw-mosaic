@@ -1,9 +1,11 @@
 import { normalizeTtsText, npcCast, ttsVoiceId, voiceForCtx } from '@lcw/content';
+import { browserVoice } from '@lcw/audio';
 
 /**
  * Voice and blips for the site and /try. English lines play in the same neural voices as the world (edge `/v1/tts`,
  * Workers AI Aura-2, R2-cached; the site's sentences are fixed lines in @lcw/content SITE_SPOKEN_LINES, so visitors
- * need no token). Only when that fails or is off does the device voice (speechSynthesis) read it. Nothing is recorded.
+ * need no token). When that fails or is off the browser voice (Kokoro on the visitor's device, @lcw/audio
+ * browser-voice.ts) reads it, and only where that cannot run does the device voice (speechSynthesis). Nothing is recorded.
  * Small UI sounds are synthesised with WebAudio so no audio file (and no licence question) is involved (12 §5.3).
  */
 
@@ -169,9 +171,51 @@ export function sayEnglish(text: string, opts: { force?: boolean; rate?: number;
   stopNeural();
   if (canSpeak()) window.speechSynthesis.cancel();
   const gen = ++voiceGen;
-  void playNeural(text, opts.who ?? 'model', gen, opts.onEnd).then((ok) => {
-    if (!ok && gen === voiceGen) sayDevice(text, opts);
-  });
+  void playNeural(text, opts.who ?? 'model', gen, opts.onEnd)
+    .then((ok) => (ok || gen !== voiceGen ? true : playBrowser(text, opts.who ?? 'model', gen, opts.onEnd)))
+    .then((ok) => {
+      if (!ok && gen === voiceGen) sayDevice(text, opts);
+    });
+}
+
+/** The server line did not come: the visitor's browser makes it (Kokoro); false when it cannot, so the device voice reads it. */
+async function playBrowser(text: string, who: 'npc' | 'model', gen: number, onEnd?: () => void): Promise<boolean> {
+  const bv = browserVoice();
+  if (!bv.available()) return false;
+  const line = await bv.speak(text, who === 'npc' ? voiceForCtx('cafe') : npcCast().modelVoice);
+  if (gen !== voiceGen) return true;
+  const c = ensureCtx();
+  if (!line || !c) return false;
+  if (c.state !== 'running') await Promise.race([c.resume().catch(() => undefined), new Promise((r) => setTimeout(r, 300))]);
+  if (c.state !== 'running') return false;
+  try {
+    const buf = c.createBuffer(1, line.samples.length, line.sampleRate);
+    buf.getChannelData(0).set(line.samples);
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.connect(c.destination);
+    let done = false;
+    const handle = {
+      stop() {
+        try {
+          src.stop();
+        } catch {
+          /* not started */
+        }
+      }
+    };
+    src.onended = () => {
+      if (done) return;
+      done = true;
+      if (playing === handle) playing = null;
+      onEnd?.();
+    };
+    playing = handle;
+    src.start();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sayDevice(text: string, opts: { rate?: number; onEnd?: () => void }): void {

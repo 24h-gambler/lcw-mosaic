@@ -2,12 +2,14 @@ import { normalizeTtsText, ttsVoiceId, type NpcVoice } from '@lcw/content';
 import { BUS_LUFS_TARGETS } from '@lcw/audio';
 import { readStudentToken } from './submit.js';
 import { frameSettings } from '../frame/settings.js';
+import { browserVoice } from '@lcw/audio';
 
 /**
  * The neural NPC voice on the client (edge tts.ts, docs/04 4.8): asks `/v1/tts/status` once; while the server says
  * it is on, NPC lines and model sentences come as mp3 from `/v1/tts` (R2-cached, the same sentence is made once) and
- * play on the NPC voice bus, loudness-matched to the bus target. Anything that is off, slow or failing falls back to
- * the device voice (sound.ts), so a dialog never waits on it.
+ * play on the NPC voice bus, loudness-matched to the bus target. Anything that is off, slow or failing is read by the
+ * browser voice (Kokoro on the device, @lcw/audio browser-voice.ts) and only where that cannot run by the device voice
+ * (sound.ts), so a dialog never waits on it.
  */
 
 export const NEURAL_VOICE = {
@@ -137,10 +139,23 @@ export function loadLine(voice: NpcVoice, text: string, base = '', fetchImpl: ty
   return p;
 }
 
-/** Warm the lines a dialog is about to speak (its NPC line, the offers' model sentences). */
+/**
+ * Warm the lines a dialog is about to speak (its NPC line, the offers' model sentences). A line the server will not
+ * make (off, refused by the meter, failed) is made by the browser voice in the background instead, so its 🔊 tap
+ * plays at once.
+ */
 export function prefetchLines(lines: Array<{ voice: NpcVoice; text: string }>): void {
-  if (!neuralVoiceOn()) return;
-  for (const l of lines) if (l.text.trim()) void loadLine(l.voice, l.text);
+  const pref = frameSettings();
+  if (!pref.neuralVoice) return;
+  const warm = (l: { voice: NpcVoice; text: string }) => {
+    const bv = browserVoice();
+    if (bv.available()) void bv.speak(l.text, l.voice, pref.voiceRate, 60_000);
+  };
+  if (!neuralVoiceOn()) {
+    if (neuralVoiceStatusKnown() === false) for (const l of lines) if (l.text.trim()) warm(l);
+    return;
+  }
+  for (const l of lines) if (l.text.trim()) void loadLine(l.voice, l.text).then((b) => (b ? undefined : warm(l)));
 }
 
 /** Resolves the bytes if they arrive within `ms`, else null (the caller reads with the device voice). */

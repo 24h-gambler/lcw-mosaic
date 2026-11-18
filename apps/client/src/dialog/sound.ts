@@ -1,7 +1,7 @@
 import { LEVEL_DEFINITIONS, type LangLevel, type NpcVoice } from '@lcw/content';
-import { PROCEDURAL_SFX_PRESETS, synthesizeProceduralPcm, type AudioBusName } from '@lcw/audio';
+import { browserVoice, encodeWavBytes, preloadBrowserVoiceWhenIdle, PROCEDURAL_SFX_PRESETS, synthesizeProceduralPcm, type AudioBusName, type BrowserVoiceLine } from '@lcw/audio';
 import { getAudioRuntime, NPC_VOICE_CUT_EVENT } from '../audio/runtime.js';
-import { loadLine, loudnessGain, NEURAL_VOICE, neuralVoiceOn, neuralVoiceStatus, neuralVoiceStatusKnown, within } from './neural-voice.js';
+import { loadLine, loudnessGain, NEURAL_RETRY_METER_MS, NEURAL_VOICE, neuralVoiceOn, neuralVoiceStatus, neuralVoiceStatusKnown, within } from './neural-voice.js';
 import { frameSettings, pickEnglishVoice } from '../frame/settings.js';
 
 /**
@@ -72,9 +72,10 @@ export function playAgain(): void {
 
 /**
  * Speaks an English line (docs/04 4.8). With the neural voice on (neural-voice.ts) and a `voice` given, the line comes
- * from the server in that NPC's voice (R2-cached) on the NPC voice bus; when it is off, slower than
- * NEURAL_VOICE.waitMs or failing, the device voice (speechSynthesis, on-device, no upload) reads it at the level's
- * speech rate.
+ * from the server in that NPC's voice (R2-cached) on the NPC voice bus; when it is off, refused (quota meter), slower
+ * than NEURAL_VOICE.waitMs or failing, the browser voice (Kokoro in a worker, @lcw/audio browser-voice.ts, on-device,
+ * no upload) reads it in the NPC's nearest Kokoro speaker. Only a device that cannot run that (too little memory,
+ * slower than real time), or the player's "자연스러운 목소리" off, hears the device voice (speechSynthesis).
  */
 let speechGen = 0;
 /** The neural line now playing (an AudioBufferSource on the voice bus, or a plain <audio> when Web Audio is locked). */
@@ -90,7 +91,31 @@ function stopNeural(): void {
   }
 }
 
-if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener(NPC_VOICE_CUT_EVENT, stopNeural);
+// The mic tap cuts the voice now playing and any line still being made (a late browser line must not start over the mic).
+if (typeof globalThis.addEventListener === 'function')
+  globalThis.addEventListener(NPC_VOICE_CUT_EVENT, () => {
+    speechGen++;
+    stopNeural();
+  });
+
+/**
+ * Warm the browser voice: a desktop, or a browser that already has the model, loads it once the page is idle; when
+ * the server voice is off every device that can run it loads it at once (it is then the only natural voice).
+ */
+export function warmBrowserVoice(): void {
+  if (typeof window === 'undefined' || !frameSettings().neuralVoice) return;
+  void neuralVoiceStatus().then((on) => preloadBrowserVoiceWhenIdle({ eager: !on }));
+}
+if (typeof window !== 'undefined') warmBrowserVoice();
+
+/**
+ * After the server missed a line in this voice, the browser voice keeps reading that voice for the meter's retry window
+ * (NEURAL_RETRY_METER_MS), cached lines included: a Kokoro stand-in sounds as far from its Aura-2 NPC as another NPC
+ * does (11-16, log-mel DTW 6.5-7.7 dB against 5.8-7.5 between two Aura-2 NPCs), so flipping between the two engines
+ * line by line would sound like two people taking turns. One switch, then one voice.
+ */
+const browserStickyUntil = new Map<string, number>();
+const stickyKey = (v: NpcVoice) => `${v.engine}-${v.speaker}`;
 
 export function speakEnglish(text: string, level: LangLevel, voice?: NpcVoice): Promise<void> {
   // G14 "자연스러운 목소리" off keeps every line on the device voice even while the server voice is on.
@@ -100,15 +125,39 @@ export function speakEnglish(text: string, level: LangLevel, voice?: NpcVoice): 
     const t0 = Date.now();
     return within(neuralVoiceStatus(), NEURAL_VOICE.waitMs).then((on) => {
       if (gen !== speechGen) return;
-      if (!on) return speakDevice(text, level);
+      if (!on) return speakBrowser(text, level, voice, gen);
+      const sticky = browserStickyUntil.get(stickyKey(voice)) ?? 0;
+      if (Date.now() < sticky && browserVoice().state() === 'ready') return speakBrowser(text, level, voice, gen);
       return within(loadLine(voice, text), Math.max(0, NEURAL_VOICE.waitMs - (Date.now() - t0))).then((bytes) => {
         if (gen !== speechGen) return; // a newer line (or stop) took over while this one loaded
-        if (!bytes) return speakDevice(text, level);
-        return playNeural(bytes, gen).then((ok) => (ok || gen !== speechGen ? undefined : speakDevice(text, level)));
+        if (!bytes) {
+          if (browserVoice().available()) browserStickyUntil.set(stickyKey(voice), Date.now() + NEURAL_RETRY_METER_MS);
+          return speakBrowser(text, level, voice, gen);
+        }
+        return playNeural(bytes, gen).then((ok) => (ok || gen !== speechGen ? undefined : speakBrowser(text, level, voice, gen)));
       });
     });
   }
+  // A line without a cast voice (the settings' volume try) is read by the browser voice's model speaker.
+  if (frameSettings().neuralVoice && typeof Audio !== 'undefined' && browserVoice().available()) return speakBrowser(text, level, voice, ++speechGen);
   return speakDevice(text, level);
+}
+
+/**
+ * The server voice could not read this line: the browser voice makes it (from memory when it was made before), and
+ * only when that is off, fails or takes longer than BROWSER_VOICE.lineWaitMs does the device voice read it.
+ */
+function speakBrowser(text: string, level: LangLevel, voice: NpcVoice | undefined, gen: number): Promise<void> {
+  const bv = browserVoice();
+  if (!frameSettings().neuralVoice || !bv.available()) return speakDevice(text, level);
+  // Kokoro speaks at the player's speed itself (no stretch, no pitch change), so its line always plays at rate 1.
+  const rate = frameSettings().voiceRate;
+  const hit = bv.cached(text, voice, rate);
+  return (hit ? Promise.resolve(hit) : bv.speak(text, voice, rate)).then((line) => {
+    if (gen !== speechGen) return;
+    if (!line) return speakDevice(text, level);
+    return playNeural(line, gen).then((ok) => (ok || gen !== speechGen ? undefined : speakDevice(text, level)));
+  });
 }
 
 /**
@@ -117,7 +166,8 @@ export function speakEnglish(text: string, level: LangLevel, voice?: NpcVoice): 
  * the media autoplay rules that block a late `<audio>.play()` on phones. If the context cannot run, a plain `<audio>`
  * plays it; false when neither could start, so the caller reads it with the device voice.
  */
-async function playNeural(bytes: ArrayBuffer, gen: number): Promise<boolean> {
+async function playNeural(audio: ArrayBuffer | BrowserVoiceLine, gen: number): Promise<boolean> {
+  const pcm = audio instanceof ArrayBuffer ? null : audio;
   const rt = getAudioRuntime();
   const c = rt.unlock();
   stopNeural();
@@ -128,13 +178,16 @@ async function playNeural(bytes: ArrayBuffer, gen: number): Promise<boolean> {
   }
   // The player's voice speed (G14, slower for young children): a buffer source can only change speed with the pitch,
   // so a changed speed plays through the media element below, which keeps the pitch (no level stretch either way).
-  const rate = frameSettings().voiceRate;
+  const rate = pcm ? 1 : frameSettings().voiceRate;
   if (c && c.state !== 'running' && rate === 1) await within(c.resume().then(() => true).catch(() => null), 300);
   if (gen !== speechGen) return true;
   if (c && c.state === 'running' && rate === 1) {
     let decoded: AudioBuffer | null = null;
     try {
-      decoded = await c.decodeAudioData(bytes.slice(0));
+      if (pcm) {
+        decoded = c.createBuffer(1, pcm.samples.length, pcm.sampleRate);
+        decoded.getChannelData(0).set(pcm.samples);
+      } else decoded = await c.decodeAudioData((audio as ArrayBuffer).slice(0));
     } catch {
       decoded = null;
     }
@@ -173,7 +226,9 @@ async function playNeural(bytes: ArrayBuffer, gen: number): Promise<boolean> {
     }
   }
   // Web Audio locked or the bytes would not decode there: a plain media element at its own level.
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
+  const url = URL.createObjectURL(
+    pcm ? new Blob([encodeWavBytes(pcm.samples, pcm.sampleRate) as Uint8Array<ArrayBuffer>], { type: 'audio/wav' }) : new Blob([audio as ArrayBuffer], { type: 'audio/mpeg' })
+  );
   const a = new Audio();
   a.preload = 'auto';
   a.src = url;
@@ -261,6 +316,11 @@ function speakDevice(text: string, level: LangLevel): Promise<void> {
       resolve();
     }
   });
+}
+
+/** Test seam. */
+export function resetBrowserSticky(): void {
+  browserStickyUntil.clear();
 }
 
 export function stopSpeaking(): void {

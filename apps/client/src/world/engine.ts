@@ -453,7 +453,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   /** the scene spot the child is at (within VISIT_R), however they got there: a new one starts a new visit */
   let visitScene: SceneId | null = null;
   /** For the real-play check (getStats().interact / motion): talks opened by E, by a click or tap, jumps and climbs */
-  const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0 };
+  const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0, passerTaps: 0 };
   let promptOn = false;
   /** when the child last turned the view by hand (ms): the walk's view pull and arrival turn wait for it */
   let lookAt = -Infinity;
@@ -894,6 +894,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
   function interact(n: NpcRt): void {
     if (paused) return;
+    // In a lesson only the lesson's NPC talks: a tap on a passer-by is quiet (no open sound, no turn, no wave), as the
+    // lesson window does not open for it either (review of #139).
+    if (lessonMode && goalNpcId && n.def.id !== goalNpcId) {
+      counts.passerTaps++;
+      return;
+    }
     talkedTo.add(n.def.id);
     sfx.play('ui.open');
     focusNpc = n;
@@ -2112,7 +2118,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
           walking: autopilot.length > 0 || travel !== null,
           talked: [...talkedTo],
           byKey: counts.talkE,
-          byTap: counts.talkTap
+          byTap: counts.talkTap,
+          passerTaps: counts.passerTaps
         },
         npcView: [...npcs.values()]
           .filter((n) => n.char.root.visible && pickableNpc(n.def, lessonMode))

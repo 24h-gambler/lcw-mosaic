@@ -162,7 +162,8 @@ describe('client lesson module (docs/19 §4)', () => {
       attempt: 2,
       dialogId: 'dlg_lesson_1'
     });
-    expect(viaPanel).toMatchObject({ pass: true, coinsTotal: 240 });
+    // the same sentence again is a repeat (R2627 stars once per goal): passed, no stars, the balance unchanged
+    expect(viaPanel).toMatchObject({ pass: true, stars: 0, repeat: true, coinsTotal: 220 });
     // the panel that shows the result celebrates (App's DialogHost or the layer's own), not the controller: no double stars
     expect(calls.filter((c) => c.startsWith('celebrate:'))).toEqual([]);
     expect(ctl.state.lastResult?.utterancesToday).toBe(2);

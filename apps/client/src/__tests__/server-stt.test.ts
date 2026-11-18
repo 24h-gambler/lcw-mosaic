@@ -163,6 +163,32 @@ describe('server Whisper engine through the mic controller and the real route', 
     expect(h.finals).toEqual([{ transcript: 'Cold water, please.', confidence: expect.any(Number) }]);
   });
 
+  it('a meter that starts suspended and then runs decides from its running frames: a quiet child is not uploaded', async () => {
+    let running = false;
+    const h = await harness({ level: () => 0.001, running: () => running });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(300); // the first frames before resume() landed
+    running = true;
+    h.clock.advance(2000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.requests).toHaveLength(0);
+    expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'vad_quiet' });
+  });
+
+  it("a turn sent without a working meter that Whisper fills with its silence line is not words", async () => {
+    const h = await harness({ level: () => 0, running: () => false, ai: { run: async () => ({ text: 'Thank you.', segments: [] }) } as unknown as LcwEnv['AI'] });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(2000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.requests).toHaveLength(1);
+    expect(h.finals).toEqual([]);
+    expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'stt_empty' });
+  });
+
   it('Whisper hears no words in a voiced turn: no_speech with its own cause, not a silent null', async () => {
     const h = await harness({ level: () => 0.1, ai: { run: async () => ({ text: '  ', segments: [] }) } as unknown as LcwEnv['AI'] });
     h.ctrl.tap();

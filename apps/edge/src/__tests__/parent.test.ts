@@ -69,7 +69,9 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
     expect(r.status).toBe(200);
     const L = r.body.facts.lesson;
     expect(L.utterances).toBe(10);
-    expect(L.passes).toBe(7); // two self-intro lines, soccer, honey tea ×2, jetpack, phone line (free talk passes by length)
+    // two self-intro lines, soccer, honey tea, jetpack, phone line (free talk passes by length); the duplicate honey tea is
+    // a repeat (R2627 stars once per goal), not a new pass
+    expect(L.passes).toBe(6);
     expect(L.speaking_sec).toBe(18); // 4.2+0.6+2.5+2.4+0.9+1.5+3.9+2.0 = 18.0 s
     // Three different sentences, in lesson order, none Korean, none with PII, duplicate collapsed
     expect(L.quotes.map((q: any) => q.text)).toEqual([

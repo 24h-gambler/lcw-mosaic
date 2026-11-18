@@ -111,6 +111,12 @@ export function noteTurnLost(cause: string, now = Date.now()): void {
   writeTurns({ ...t, lost: t.lost + 1, lastLost: { cause: c, at: now } });
 }
 
+/** A turn counted lost (its send failed) went through on a resend: it is sent, not lost. */
+export function noteTurnRecovered(): void {
+  const t = readMicTurns();
+  writeTurns({ ...t, sent: t.sent + 1, lost: Math.max(0, t.lost - 1) });
+}
+
 /** A new lesson starts its own count. */
 export function resetMicTurns(): void {
   try {

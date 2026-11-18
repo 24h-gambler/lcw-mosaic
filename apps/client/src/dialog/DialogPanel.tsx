@@ -20,7 +20,7 @@ import {
 } from './hints.js';
 import { createMediaClipRecorder } from '@lcw/audio';
 import { MicController, type MicView } from './mic-controller.js';
-import { noteTurnLost, noteTurnSent } from './mic-status.js';
+import { noteTurnLost, noteTurnRecovered, noteTurnSent } from './mic-status.js';
 import { isKakaoInApp, kakaoOpenExternalUrl, type MicIssue, type SpeechEngine } from './speech.js';
 import { createDialogSpeechEngine } from './server-stt.js';
 import { cancelMicCue, micClosed, micCue, playAgain, playPass, playSfx, speakEnglish, stopSpeaking, unlockDialogAudio } from './sound.js';
@@ -186,6 +186,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   // world the item the server already granted and charged for.
   const bestPass = useRef<DialogResult | null>(null);
   const noSpeechRun = useRef(0);
+  /** The spoken answer whose send failed (counted lost); its "try again" resend is the same turn (R2627). */
+  const lostSend = useRef<UtteranceSubmit | null>(null);
   const readyAt = useRef(Date.now());
   const micStartAt = useRef(0);
   const ctrl = useRef<MicController | null>(null);
@@ -225,7 +227,11 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       const spoken = u.stt_source !== 'board' && u.stt_source !== 'keyboard';
       try {
         const r = await (followTurn ? followSubmit : submit)({ ...u, dialogId: dialogId.current });
-        if (spoken) noteTurnSent();
+        if (spoken) {
+          if (lostSend.current === u) noteTurnRecovered();
+          else noteTurnSent();
+          lostSend.current = null;
+        }
         setResult(r);
         onResultRef.current?.(r);
         setLastTarget(r.matchedText ?? u.target_text);
@@ -274,9 +280,12 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         const auth = err instanceof SubmitError && err.kind === 'auth';
         const queued = err instanceof SubmitError && err.kind === 'queued';
         // Kept in the lesson outbox, it reaches the server later; anything else lost this turn (a resend is a new try).
-        if (spoken) {
+        if (spoken && lostSend.current !== u) {
           if (queued) noteTurnSent();
-          else noteTurnLost('submit_failed');
+          else {
+            noteTurnLost('submit_failed');
+            lostSend.current = u;
+          }
         }
         setAuthLost(auth);
         // Kept on the device (lesson outbox): no "try again" — a second send would be a second answer.
@@ -670,7 +679,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                   ))}
                 </div>
               ) : null}
-              <div className="lcw-res__fb">{feedbackLine(result.feedbackKo, result.feedbackEn).text}</div>              {feedbackLine(result.feedbackKo, result.feedbackEn).help ? <div className="lcw-dlg__name">{feedbackLine(result.feedbackKo, result.feedbackEn).help}</div> : null}
+              <div className="lcw-res__fb">{feedbackLine(result.feedbackKo, result.feedbackEn).text}</div>
+              {feedbackLine(result.feedbackKo, result.feedbackEn).help ? <div className="lcw-dlg__name">{feedbackLine(result.feedbackKo, result.feedbackEn).help}</div> : null}
               {!result.pass && missedWords.size > 0 ? <div className="lcw-dlg__name">{S.missedHint}</div> : null}
               {result.practice ? <div className="lcw-dlg__name">{S.practiceNote}</div> : null}
               {typeof result.coinsTotal === 'number' ? <div className="lcw-res__coins">🪙 {result.coinsTotal} {S.coins}</div> : null}

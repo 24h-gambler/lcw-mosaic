@@ -1570,6 +1570,8 @@ export function buildLessonModeApp(
     );
     const once = starsOnce(passedBefore, { pass, stars, targetText: u.target_text, transcript: u.transcript });
     const shownStars = once.repeat ? 0 : stars;
+    // the sentence's own quality (a memory card is graded by how well it was said, not by what it added)
+    const earnedStars = stars;
     stars = once.stars;
     const uttId = `utt-${s.lesson_id}-${now}-${hex(d.randomBytes(3))}`;
     d.db.logUtterance({
@@ -1601,7 +1603,7 @@ export function buildLessonModeApp(
     });
     recordMinuteAt(s.lesson_id, now);
     if (once.repeat) {
-      d.sql.run('insert or replace into lesson_repeats (utterance_id, lesson_id, best) values (?, ?, ?)', [uttId, s.lesson_id, shownStars || 0]);
+      d.sql.run('insert or replace into lesson_repeats (utterance_id, lesson_id, best) values (?, ?, ?)', [uttId, s.lesson_id, earnedStars]);
     }
     // One balance everywhere (coordinator 11-16): the ledger, credited once per utterance id.
     const coinsTotal = d.coins
@@ -1617,7 +1619,7 @@ export function buildLessonModeApp(
         utteranceId: uttId,
         itemId: `lesson-${uttId}|${stage?.id ?? 'lesson'}`,
         origin: 'lesson',
-        stars,
+        stars: earnedStars,
         nowMs: now
       });
     }

@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MicController } from '../dialog/mic-controller.js';
-import { MIC_ISSUE_KEY, MIC_STATUS_KEY, MIC_TURNS_KEY, noteMicIssue, noteMicTurn, noteTurnLost, noteTurnSent, readMicIssue, readMicTurns, resetMicStatusForTest } from '../dialog/mic-status.js';
+import {
+  MIC_ISSUE_KEY,
+  MIC_STATUS_KEY,
+  MIC_TURNS_KEY,
+  noteMicIssue,
+  noteMicTurn,
+  noteTurnLost,
+  noteTurnRecovered,
+  noteTurnSent,
+  noteTurnStart as noteTurnStartForTest,
+  readMicIssue,
+  readMicTurns,
+  resetMicStatusForTest
+} from '../dialog/mic-status.js';
 import { MIC_TURNS_RE, readLessonMicTurns } from '../lesson/api.js';
 import type { SpeechCallbacks, SpeechEngine } from '../dialog/speech.js';
 
@@ -119,6 +132,13 @@ describe('mic turn count (lcw.micTurns)', () => {
     const t = readMicTurns();
     expect(t).toMatchObject({ started: 4, sent: 1, lost: 3, lastLost: { cause: 'closed' } });
     expect(t.started).toBe(t.sent + t.lost);
+  });
+
+  it('a send that failed and went through on "try again" is one sent turn (started = sent + lost holds)', () => {
+    noteTurnStartForTest();
+    noteTurnLost('submit_failed', 1794816185609);
+    noteTurnRecovered();
+    expect(readMicTurns()).toMatchObject({ started: 1, sent: 1, lost: 0 });
   });
 
   it('same key and format on both sides (the lesson poll sends it as is)', () => {

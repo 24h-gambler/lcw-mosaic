@@ -334,6 +334,33 @@ describe('server row shared with other parts (the adventure keeps adv there)', (
     stop();
   });
 
+  it('a newer row holding only the adventure key is no settings record: the device copy is not reset to defaults', async () => {
+    const puts: Array<Record<string, unknown>> = [];
+    let applied = 0;
+    const fetchImpl = async (_u: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        puts.push(JSON.parse(init.body as string).settings);
+        return new Response('{"ok":true}', { status: 200 });
+      }
+      // the adventure wrote a moment ago: the row's time is newer than the device copy
+      return new Response(JSON.stringify({ settings: { adv: 'd1s3' }, updated_at: Date.now() + 60_000 }), { status: 200 });
+    };
+    updateFrameSettings({ textScale: 1.3 }, { store: null, audio: null, doc: null });
+    const stop = startSettingsSync({ token: tok, fetchImpl, apply: () => (applied += 1), timers: { set: () => 0, clear: () => undefined } });
+    for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(applied).toBe(0);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]).toMatchObject({ adv: 'd1s3', textScale: 1.3 });
+    stop();
+  });
+
+  it('the size limit counts UTF-8 bytes like the server', () => {
+    const flat: Record<string, string> = {};
+    for (let i = 0; i < 40; i++) flat[`k${i}`] = '가'.repeat(32); // 40 keys of 96 bytes each: over 4 KB in bytes, under 4096 characters
+    expect(JSON.stringify(flat).length).toBeLessThan(4096);
+    expect(fitsServer(flat)).toBe(false);
+  });
+
   it('nothing is sent when the row cannot be read, or when the merged row would not fit the server', async () => {
     const methods: string[] = [];
     const down = await putServerSettings(normalizeSettings({}), {

@@ -98,7 +98,8 @@ export function fitsServer(flat: FlatSettings): boolean {
     if (typeof v === 'string' && v.length > SERVER_SETTINGS_LIMITS.maxString) return false;
     if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') return false;
   }
-  return JSON.stringify({ settings: flat }).length <= SERVER_SETTINGS_LIMITS.maxBytes;
+  // UTF-8 bytes like the server (apps/edge/src/settings.ts): another part's Korean value counts double or triple
+  return new TextEncoder().encode(JSON.stringify(flat)).length <= SERVER_SETTINGS_LIMITS.maxBytes;
 }
 
 /** Which copy to keep: 'server' when it is newer, 'device' when the device is newer (send it), 'same' otherwise. */

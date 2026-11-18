@@ -331,6 +331,9 @@ function ControlsSection({ s }: { s: Readonly<FrameSettings> }): React.ReactElem
       <Row title={E.invertYTitle} hint={E.invertYHint}>
         <Switch on={s.invertY} label={F.invertYTitle} onChange={(on) => updateFrameSettings({ invertY: on })} />
       </Row>
+      <Row title={E.autoJumpTitle} hint={E.autoJumpHint}>
+        <Switch on={s.autoJump} label={F.autoJumpTitle} onChange={(on) => updateFrameSettings({ autoJump: on })} />
+      </Row>
       <Row title={E.micModeTitle} hint={E.micModeHint}>
         <Seg
           value={s.micMode}

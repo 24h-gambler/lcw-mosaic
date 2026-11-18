@@ -10,3 +10,4 @@ export * from './tts-lines.js';
 export * from './collection.js';
 export * from './ui-strings-en.js';
 export * from './teacher-name.js';
+export * from './echo-chunks.js';

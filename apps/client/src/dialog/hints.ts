@@ -145,39 +145,8 @@ export function furnitureOffersFor(kind: 'light' | 'rest' | 'flat', level: LangL
   return bankOffersFor({ id: 'shop_owner', ctx: 'trade_shop', nameKo: '토비', nameEn: 'Toby' }, level, good.key, good.adj);
 }
 
-const CHUNK_BREAKERS = new Set(['because', 'so', 'for', 'with', 'to', 'if', 'when', 'and']);
-
-/**
- * ECHO (docs/04 4.1, docs/08 8.2 "구 단위로 끊어 따라 말하기"): phrases of 2~4 words, broken at commas and before
- * connectors so a child repeats meaningful pieces.
- */
-export function chunkPhrases(text: string, maxWords = 3): string[] {
-  const words = splitWords(text);
-  const chunks: string[][] = [];
-  let cur: string[] = [];
-  for (const w of words) {
-    const n = normWord(w);
-    if (cur.length >= 2 && CHUNK_BREAKERS.has(n)) {
-      chunks.push(cur);
-      cur = [];
-    }
-    cur.push(w);
-    if ((/[,.?!]$/.test(w) && cur.length >= 2) || cur.length >= maxWords) {
-      chunks.push(cur);
-      cur = [];
-    }
-  }
-  if (cur.length > 0) chunks.push(cur);
-  // A lone word is not a phrase: glue it to its neighbour.
-  for (let i = chunks.length - 1; i >= 0 && chunks.length > 1; i--) {
-    if (chunks[i]!.length === 1) {
-      if (i > 0) chunks[i - 1]!.push(...chunks[i]!);
-      else chunks[1]!.unshift(...chunks[0]!);
-      chunks.splice(i, 1);
-    }
-  }
-  return chunks.map((c) => c.join(' '));
-}
+/** ECHO phrases (docs/04 4.1): in @lcw/content since the model voice prebuilds every echo piece (tts-lines.ts). */
+export { chunkPhrases } from '@lcw/content';
 
 /** Small deterministic PRNG so the word-card order is stable for one sentence (no Math.random in render). */
 function seededRandom(seed: string): () => number {

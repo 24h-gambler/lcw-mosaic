@@ -4,18 +4,22 @@
  * here as client meshes on top of them:
  *
  *  - a fascia board over the awning with the store's name in the learning language and its icon;
- *  - a double-sided standing sign at the road, readable from the plaza walking toward it;
+ *  - a double-sided sign hanging from an arm over the curb, its board over head height (2 m), its one post at the
+ *    building's end, readable from the plaza walking toward it and never in the way of a walking child;
  *  - a round landmark badge over the roof (always turned to the camera), the icon seen from anywhere in town;
  *  - warm light behind every window of the store, brighter at dusk and night.
  *
  * Every store is ONE draw call for its boards (one merged geometry, one canvas texture), the badges share one
  * material each, the window light of all stores is one merged mesh. Text is painted once into a canvas (again when
- * the web font arrives or the learning language changes), never per frame.
+ * the web font arrives or the learning language / help switch changes), never per frame. Low tier boards are half
+ * the canvas size.
  */
 import * as THREE from 'three';
 import type { VoxelWorld } from '@lcw/sim-core';
+import { COLOR_TOKENS as C, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { SceneId } from './api.js';
-import { SCENE_TITLES_KO } from './strings.js';
+import { onLearnLang } from './lang.js';
+import { SCENE_TITLES_EN } from './strings.js';
 
 export type StoreIcon = 'cafe' | 'trade';
 
@@ -34,8 +38,8 @@ export interface StoreDef {
   front: { x: number; facing: 1 | -1 };
   /** fascia board over the awning: z span and y span */
   fascia: { z0: number; z1: number; y0: number; y1: number };
-  /** standing sign at the road */
-  post: { x: number; z: number };
+  /** the road sign: the centre of its board, and which end its post stands at (-1 = the -z end, +1 = the +z end) */
+  post: { x: number; z: number; end: 1 | -1 };
   /** landmark badge over the roof ridge */
   badge: { x: number; y: number; z: number };
   /** where the door is (the minimap pin and the way-finding target) */
@@ -53,7 +57,8 @@ export const STORES: readonly StoreDef[] = [
     box: { x0: 166, x1: 178, z0: 128, z1: 140, y1: 6 },
     front: { x: 166, facing: -1 },
     fascia: { z0: 129.6, z1: 139.4, y0: 5.08, y1: 6.95 },
-    post: { x: 165.3, z: 142.4 },
+    // board over the cafe's front yard, post on the curb (walker.3 cuts the corner by the building)
+    post: { x: 165.3, z: 140.0, end: 1 },
     badge: { x: 172.5, y: 17.2, z: 134.5 },
     door: { x: 165.2, z: 134.5 }
   },
@@ -66,21 +71,35 @@ export const STORES: readonly StoreDef[] = [
     box: { x0: 110, x1: 122, z0: 128, z1: 140, y1: 6 },
     front: { x: 123, facing: 1 },
     fascia: { z0: 129.6, z1: 139.4, y0: 5.08, y1: 6.95 },
-    post: { x: 122.7, z: 142.4 },
+    // board over the curb, post in the shop's yard
+    post: { x: 123.3, z: 141.5, end: -1 },
     badge: { x: 116.5, y: 17.2, z: 134.5 },
     door: { x: 123.8, z: 135.5 }
   }
 ];
 
-/** Half the road sign's width (m); its two posts stand 0.12 m inside the ends. */
+/** Half the road sign's board width (m). */
 export const POST_HALF_W = 1.25;
 
-/** Name painted on a store's signs: the learning language's title of its scene (SCENE_TITLES_KO resolves it). */
+/** Where the road sign's post stands: just past the board's end (post.end), so the post never crosses the name. */
+export function signPost(def: Pick<StoreDef, 'post'>): { x: number; z: number } {
+  return { x: def.post.x, z: def.post.z + def.post.end * (POST_HALF_W + 0.12) };
+}
+/** The road sign's board: bottom and top (block y; the ground's top is y 1), so its underside is 2 m above the ground. */
+export const SIGN_Y0 = 3.0;
+export const SIGN_Y1 = 3.95;
+
+/**
+ * Name painted on a store's signs: its scene's title in the learning language only. The Korean help never goes on
+ * a sign (it would halve the letters, and the sign is a word the child reads).
+ */
 export function storeName(def: Pick<StoreDef, 'scene'>): string {
-  return SCENE_TITLES_KO[def.scene as keyof typeof SCENE_TITLES_KO] ?? def.scene;
+  return SCENE_TITLES_EN[def.scene as keyof typeof SCENE_TITLES_EN] ?? def.scene;
 }
 
-const SIGN_FONT = '"Atkinson Hyperlegible", "Pretendard", system-ui, sans-serif';
+const SIGN_FONT = T.fonts.target;
+const INK = C['ink-900'];
+const CREAM = C['paper-50'];
 
 function css(c: number): string {
   return `#${c.toString(16).padStart(6, '0')}`;
@@ -138,7 +157,7 @@ export function drawStoreIcon(g: CanvasRenderingContext2D, icon: StoreIcon, cx: 
       g.stroke();
     };
     arrow(-20, 1);
-    g.fillStyle = '#fff9ee';
+    g.fillStyle = CREAM;
     arrow(22, -1);
   }
   g.restore();
@@ -181,11 +200,11 @@ export function paintBoard(g: CanvasRenderingContext2D, def: StoreDef, name: str
   }
   const iconS = h * 0.62;
   const iconX = frame + h * 0.12 + iconS / 2;
-  g.fillStyle = '#fff9ee';
+  g.fillStyle = CREAM;
   g.beginPath();
   g.arc(iconX, h / 2, iconS * 0.62, 0, Math.PI * 2);
   g.fill();
-  drawStoreIcon(g, def.icon, iconX, h / 2 + iconS * 0.04, iconS * 0.86, '#1b1f2a', css(def.color));
+  drawStoreIcon(g, def.icon, iconX, h / 2 + iconS * 0.04, iconS * 0.86, INK, css(def.color));
   const left = iconX + iconS * 0.75;
   const room = w - left - frame * 2.2;
   let size = h * 0.5;
@@ -200,7 +219,7 @@ export function paintBoard(g: CanvasRenderingContext2D, def: StoreDef, name: str
   g.lineWidth = size * 0.16;
   g.strokeStyle = 'rgba(27,31,42,0.85)';
   g.strokeText(text, cx, h / 2 + size * 0.04);
-  g.fillStyle = '#fff9ee';
+  g.fillStyle = CREAM;
   g.fillText(text, cx, h / 2 + size * 0.04);
 }
 
@@ -216,11 +235,11 @@ export function paintBadge(g: CanvasRenderingContext2D, def: StoreDef, s: number
   g.beginPath();
   g.arc(r, r, r * 0.94, 0, Math.PI * 2);
   g.fill();
-  g.fillStyle = '#fff9ee';
+  g.fillStyle = CREAM;
   g.beginPath();
   g.arc(r, r, r * 0.76, 0, Math.PI * 2);
   g.fill();
-  drawStoreIcon(g, def.icon, r, r + s * 0.03, s * 0.56, '#1b1f2a', css(def.color));
+  drawStoreIcon(g, def.icon, r, r + s * 0.03, s * 0.56, INK, css(def.color));
 }
 
 function canvas(w: number, h: number): HTMLCanvasElement | OffscreenCanvas {
@@ -321,10 +340,13 @@ export class Storefronts {
   private readonly glowMat: THREE.MeshBasicMaterial;
   private night = -1;
   private t = 0;
+  private readonly offLang: () => void;
 
-  constructor(world: Pick<VoxelWorld, 'getBlock'>, anisotropy = 1) {
-    const BW = 1024;
-    const BH = 192;
+  /** `small`: the low tier's half-size canvases (about 1.2 MB of texture instead of 4.7 MB). */
+  constructor(world: Pick<VoxelWorld, 'getBlock'>, anisotropy = 1, small = false) {
+    const BW = small ? 512 : 1024;
+    const BH = small ? 96 : 192;
+    const BADGE = small ? 128 : 256;
     for (const def of STORES) {
       const c = canvas(BW, BH * 2);
       const tex = new THREE.CanvasTexture(c as HTMLCanvasElement);
@@ -332,7 +354,7 @@ export class Storefronts {
       tex.anisotropy = anisotropy;
       const mat = new THREE.MeshLambertMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.18 });
       this.boards.push({ def, mat, tex, c });
-      // one merged geometry: fascia (top half of the canvas), the road sign's two faces and its posts
+      // one merged geometry: fascia (top half of the canvas), the road sign's two faces, its post and edges
       const pos: number[] = [];
       const uv: number[] = [];
       const nrm: number[] = [];
@@ -340,18 +362,22 @@ export class Storefronts {
       const f = def.fascia;
       const fx = def.front.x + (def.front.facing === 1 ? 0.04 : -0.04);
       pushQuad(pos, uv, nrm, idx, fx, def.front.facing, f.z0, f.z1, f.y0, f.y1, 0, 1, 0.5, 1);
-      // the road sign: a board 2.5 x 0.95 m on two posts, both faces painted (bottom half of the canvas)
+      // the road sign: a board 2.5 x 0.95 m over head height on one post, both faces painted (bottom half of the canvas)
       const p = def.post;
       const sw = POST_HALF_W;
-      const sy0 = 2.15;
-      const sy1 = 3.1;
+      const sy0 = SIGN_Y0;
+      const sy1 = SIGN_Y1;
       pushQuad(pos, uv, nrm, idx, p.x + 0.06, 1, p.z - sw, p.z + sw, sy0, sy1, 0, 1, 0, 0.5);
       pushQuad(pos, uv, nrm, idx, p.x - 0.06, -1, p.z - sw, p.z + sw, sy0, sy1, 0, 1, 0, 0.5);
       // posts and the board's edge: frame colour (a texel at the canvas's coloured rim)
       const fu = 0.004;
       const fv = 0.25;
-      pushBox(pos, uv, nrm, idx, p.x, p.z - sw + 0.12, 1, sy1 + 0.18, 0.08, 0.08, fu, fv);
-      pushBox(pos, uv, nrm, idx, p.x, p.z + sw - 0.12, 1, sy1 + 0.18, 0.08, 0.08, fu, fv);
+      // the post at the building end and the arm the board hangs from (the text is never crossed by the post)
+      const pp = signPost(def);
+      pushBox(pos, uv, nrm, idx, pp.x, pp.z, 1, sy1 + 0.32, 0.09, 0.09, fu, fv);
+      const far = p.z - p.end * sw;
+      pushBox(pos, uv, nrm, idx, p.x, (pp.z + far) / 2, sy1 + 0.18, sy1 + 0.3, 0.07, Math.abs(far - pp.z) / 2 + 0.05, fu, fv);
+      for (const hz of [p.z - sw + 0.25, p.z + sw - 0.25]) pushBox(pos, uv, nrm, idx, p.x, hz, sy1, sy1 + 0.18, 0.02, 0.02, fu, fv);
       pushBox(pos, uv, nrm, idx, p.x, p.z, sy1, sy1 + 0.06, 0.055, sw, fu, fv);
       pushBox(pos, uv, nrm, idx, p.x, p.z, sy0 - 0.06, sy0, 0.055, sw, fu, fv);
       const geo = new THREE.BufferGeometry();
@@ -365,8 +391,8 @@ export class Storefronts {
       this.root.add(mesh);
 
       // landmark badge over the roof
-      const bc = canvas(256, 256);
-      paintBadge(bc.getContext('2d') as CanvasRenderingContext2D, def, 256);
+      const bc = canvas(BADGE, BADGE);
+      paintBadge(bc.getContext('2d') as CanvasRenderingContext2D, def, BADGE);
       const btex = new THREE.CanvasTexture(bc as HTMLCanvasElement);
       btex.colorSpace = THREE.SRGBColorSpace;
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: btex, transparent: true, depthWrite: false, fog: false }));
@@ -401,7 +427,7 @@ export class Storefronts {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
-    this.glowMat = new THREE.MeshBasicMaterial({ color: 0xffc27a, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    this.glowMat = new THREE.MeshBasicMaterial({ color: C.sun, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
     const glow = new THREE.Mesh(geo, this.glowMat);
     glow.name = 'storefront.windowLight';
     glow.renderOrder = 2;
@@ -415,6 +441,8 @@ export class Storefronts {
         .then(() => this.paint())
         .catch(() => undefined);
     }
+    // the learning language or the help switch changed: the names follow
+    this.offLang = onLearnLang(() => this.paint());
   }
 
   /** (Re)paint every board: fascia on the top half of its canvas, the road sign on the bottom half. */
@@ -434,10 +462,10 @@ export class Storefronts {
     }
   }
 
-  /** Per frame: the badges bob a little; the back-light and window glow follow the hour. */
-  update(dt: number, hour: number): void {
+  /** Per frame: the badges bob a little (not with reduced motion); the back-light and window glow follow the hour. */
+  update(dt: number, hour: number, reduceMotion = false): void {
     this.t += dt;
-    for (const b of this.badges) b.sprite.position.y = b.baseY + Math.sin(this.t * 1.4 + b.phase) * 0.18;
+    for (const b of this.badges) b.sprite.position.y = reduceMotion ? b.baseY : b.baseY + Math.sin(this.t * 1.4 + b.phase) * 0.18;
     const n = nightAmount(hour);
     if (Math.abs(n - this.night) < 0.01) return;
     this.night = n;
@@ -446,9 +474,11 @@ export class Storefronts {
   }
 
   dispose(): void {
+    this.offLang();
     this.root.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.geometry) m.geometry.dispose();
+      // sprites share one geometry inside three.js: only meshes own theirs
+      if (m.geometry && !(o instanceof THREE.Sprite)) m.geometry.dispose();
       const mat = m.material as THREE.Material | undefined;
       if (mat) {
         const map = (mat as THREE.MeshBasicMaterial).map;

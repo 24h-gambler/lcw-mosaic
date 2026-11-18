@@ -274,7 +274,7 @@
         ]
       },
       "tests": [
-        "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does",
+        "apps/web/src/__tests__/directorLive.test.ts::R2625 trim: the student screen and what the child said stay; possession, events, chart, helps, pins and the next-lesson box are gone",
         "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
       ],
       "evidence": [
@@ -282,7 +282,8 @@
         "apps/web/src/DirectorLive.tsx:35",
         "docs/18-lesson-mode.md:1"
       ],
-      "note": "디렉터 콘솔(빙의·사건 6종·진행표·핀). 근거 문서는 18(08 이 가리키는 06 은 끊긴 참조 목록에 있음). 감사: 있음"
+      "note": "디렉터 콘솔: 학생 화면·아이가 한 말·단계 패널(수업안 문장, 버튼 하나)·수업 끝·리포트. 빙의·사건 6종·진행표·핀 버튼은 첫 실제 수업에서 0번 쓰여 R2625(Dan \"별도로 조종 안해도 됩니다\")로 콘솔에서 뺐고 서버 API 는 그대로(docs/18 §8). 근거 문서는 18(08 이 가리키는 06 은 끊긴 참조 목록에 있음). 감사: 있음",
+      "decision": "R2625"
     },
     "T02": {
       "kind": "screen",
@@ -1375,7 +1376,7 @@
     "F10.2.08": {
       "kind": "flow",
       "title": "T→G: 카페 주인에 빙의",
-      "status": "done",
+      "status": "partial",
       "owner": "lesson",
       "route": "/director",
       "e2e": {
@@ -1389,14 +1390,14 @@
         ]
       },
       "tests": [
-        "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API",
-        "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does"
+        "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API"
       ],
       "evidence": [
         "apps/edge/src/lesson-mode.ts:478",
         "apps/web/src/DirectorLive.tsx:120"
       ],
-      "note": "카페 주인 빙의와 대사 전달 이어짐"
+      "note": "서버 빙의 API 와 학생 3D 의 빙의 대사 반영은 이어짐(클라이언트 시험). 콘솔의 빙의·대사 버튼은 R2625 로 뺐고, 카페 주인은 단계 대본(npc_line_en)과 후속 질문으로 스스로 말함(docs/18 §8)",
+      "decision": "R2625"
     },
     "F10.2.09": {
       "kind": "flow",
@@ -1415,13 +1416,14 @@
         ]
       },
       "tests": [
-        "apps/web/src/__tests__/lesson.test.ts::the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines"
+        "apps/web/src/__tests__/lesson.test.ts::the stage panel walks the teacher through the stage: timed steps (folded), the plan sentences, one move button"
       ],
       "evidence": [
         "packages/content/src/lesson-plans.ts:159",
         "apps/edge/src/lesson-mode.ts:463"
       ],
-      "note": "열린 질문 단계와 후속 질문 한 번 누르기 있음"
+      "note": "열린 질문 단계 있음. 후속 질문은 콘솔 한 번 누르기 대신 대화창의 단계 NPC 가 차례로 물음(R2625, 대화 레인 followUps)",
+      "decision": "R2625"
     },
     "F10.2.10": {
       "kind": "flow",
@@ -2128,7 +2130,7 @@
       "owner": "lesson",
       "route": "/director",
       "tests": [
-        "apps/web/src/__tests__/lesson.test.ts::the stage panel walks the teacher through the stage: timed steps and one-tap follow-up lines"
+        "apps/web/src/__tests__/lesson.test.ts::the stage panel walks the teacher through the stage: timed steps (folded), the plan sentences, one move button"
       ],
       "evidence": [
         "apps/web/src/LessonDirector.tsx:750"
@@ -3832,14 +3834,14 @@
         ]
       },
       "tests": [
-        "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does",
         "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API"
       ],
       "evidence": [
         "apps/edge/src/lesson-mode.ts:478",
         "apps/web/src/DirectorLive.tsx:63"
       ],
-      "note": "NPC 빙의·사건 버튼은 동작, 함께 던전은 이벤트 효과음뿐이고 학생 자기 월드가 아닌 수업 마을"
+      "note": "서버 NPC 빙의·사건 API 와 학생 3D 반영은 동작(클라이언트 시험). 콘솔의 빙의·사건 버튼은 첫 실제 수업에서 0번 쓰여 R2625 로 뺌(docs/18 §8). 함께 던전은 이벤트 효과음뿐이고 학생 자기 월드가 아닌 수업 마을",
+      "decision": "R2625"
     },
     "C01.1.s5": {
       "kind": "promise",
@@ -5475,14 +5477,14 @@
       "owner": "lesson",
       "route": "/director",
       "tests": [
-        "apps/web/src/__tests__/directorLive.test.ts::the console shows the student screen, possession, six event buttons, the progress chart and what the platform does",
         "apps/client/src/__tests__/lesson.test.ts::joins with the code, follows the teacher through stages, possession lines and events against the real API"
       ],
       "evidence": [
         "apps/web/src/DirectorLive.tsx:3",
         "apps/client/src/world/engine.ts:341"
       ],
-      "note": "디렉터 콘솔 빙의·이벤트 6종·진행표가 학생 3D 월드에 반영, 빙의 NPC 반짝임 있음. 교사 아바타(벤치에서 지도 읽기)는 미연결 프로토타입(WebUx resolvePossessionLook)뿐, 교사가 월드에 같이 있는 2인 동행 없음"
+      "note": "빙의·이벤트 6종의 서버 API 와 학생 3D 반영, 빙의 NPC 반짝임 있음. 콘솔의 빙의·이벤트·진행표 화면은 R2625 로 뺌(docs/18 §8). 교사 아바타(벤치에서 지도 읽기)는 미연결 프로토타입(WebUx resolvePossessionLook)뿐, 교사가 월드에 같이 있는 2인 동행 없음",
+      "decision": "R2625"
     },
     "WP-306": {
       "kind": "wp",

@@ -307,7 +307,8 @@ describe('platform: the child reviews with the device or lesson token, own cards
     const join = await call('/v1/join', { code: start.body.join_code }, { 'content-type': 'application/json' });
     const st = { authorization: `Bearer ${join.body.student_token}`, 'content-type': 'application/json' };
     const line = 'Can I have a warm honey tea?';
-    await call(`/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: [line] }, op);
+    // two sentences on screen: the same one passed three times does not move the stage on (docs/18 §9)
+    await call(`/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: [line, 'Can I have a cookie?'] }, op);
     for (const stars of [1, 2, 2]) {
       const r = await call('/v1/lesson/utterance', { target_text: line, transcript: line, chosen_stars: stars }, st);
       expect(r.body.pass).toBe(true);

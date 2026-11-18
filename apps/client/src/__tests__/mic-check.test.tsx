@@ -1,8 +1,9 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { UI_STRINGS_EN, UI_STRINGS_KO } from '@lcw/content';
-import { MIC_STATUS_KEY, MicCheckGate, closeMicCheckOnStageMove, micCheckAudience, micChipText, micGateView, readMicStatus } from '../dialog/FirstVisitGuide.js';
+import { MIC_CHIP_HOST, MIC_STATUS_KEY, MicCheckGate, closeMicCheckOnStageMove, micCheckAudience, micChipHost, micChipText, micGateView, readMicStatus } from '../dialog/FirstVisitGuide.js';
 import { createScriptedSpeechEngine } from '../dialog/speech.js';
 
 /** Audit G15 (11-16): lesson students and guests also get the "Hello!" mic check before their first dialog. */
@@ -127,6 +128,23 @@ describe('mic check gate (lesson students, guests)', () => {
     const html = renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="K7Q2" speech={speech} />);
     expect(html).toContain(F.micChipNone);
     expect(html).toContain('data-status="none"');
+  });
+
+  it("the chip sits in the HUD's top-left status chip, not fixed over the touch view / 1PC teacher buttons (review of PR 161)", () => {
+    expect(MIC_CHIP_HOST).toBe('.lw-chip');
+    // the world HUD names that box .lw-chip (it measures it for the goal card and moves it down when offline)
+    const hud = readFileSync(new URL('../world/hud.ts', import.meta.url), 'utf8');
+    expect(hud).toContain("el('div', 'lw-chip', this.root)");
+    const box = { tag: 'lw-chip' } as unknown as Element;
+    expect(micChipHost({ querySelector: (s) => (s === MIC_CHIP_HOST ? box : null) })).toBe(box);
+    expect(micChipHost({ querySelector: () => null })).toBeNull();
+    expect(micChipHost(null)).toBeNull();
+    g.sessionStorage!.setItem('lcw.lessonMicChecked:K7Q2', '1');
+    const html = renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="K7Q2" speech={speech} />);
+    // flows with the status chip: no position of its own
+    expect(html).toContain('lcw-mic-chip');
+    expect(html).not.toMatch(/position:\s*(absolute|fixed)/);
+    expect(html).not.toMatch(/(top|right):\s*\d/);
   });
 
   it('a child with a device gets the check inside the first-visit intro, not here', () => {

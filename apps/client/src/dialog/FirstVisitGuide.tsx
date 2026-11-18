@@ -1,5 +1,6 @@
 import { MIC_STATUS_KEY as LIVE_MIC_STATUS_KEY } from './mic-status.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { live } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
@@ -425,10 +426,21 @@ export function micChipText(status: MicCheckStatus | null): string {
   return F.micChipSkipped;
 }
 
-/** The small HUD mic status for a lesson student after the check (top right, under the stars and coins). */
-function MicChip(props: { status: MicCheckStatus | null; onTap: () => void }): React.ReactElement {
+/**
+ * Where the mic chip lives: inside the world HUD's top-left status chip (`.lw-chip`, world/hud.ts), next to the lesson
+ * tag. It flows and wraps with it, so it never covers the touch view button or the 1PC teacher button (top right), it
+ * moves down with the status chip when offline, and the goal card keeps clear of it (the HUD measures `.lw-chip`).
+ * Review of PR 161: a fixed top-right chip covered all three.
+ */
+export const MIC_CHIP_HOST = '.lw-chip';
+export function micChipHost(doc: { querySelector(sel: string): Element | null } | null = typeof document === 'undefined' ? null : document): Element | null {
+  return doc?.querySelector(MIC_CHIP_HOST) ?? null;
+}
+
+/** The small HUD mic status for a lesson student after the check, in the top-left status chip. */
+function MicChip(props: { status: MicCheckStatus | null; onTap: () => void }): React.ReactElement | null {
   const good = props.status === 'ok';
-  return (
+  const chip = (
     <button
       type="button"
       className="lcw-mic-chip"
@@ -437,31 +449,32 @@ function MicChip(props: { status: MicCheckStatus | null; onTap: () => void }): R
       aria-label={`${micChipText(props.status)} · ${F.micChipHint}`}
       onClick={props.onTap}
       style={{
-        position: 'absolute',
-        top: 64,
-        right: 12,
-        zIndex: 20,
         pointerEvents: 'auto',
         display: 'inline-flex',
         alignItems: 'center',
+        alignSelf: 'flex-start',
         gap: 4,
-        padding: '4px 10px',
-        minHeight: 32,
+        padding: '2px 10px',
+        minHeight: 30,
         background: C['paper-0'],
         color: good ? C['leaf-d'] : C['ink-700'],
         border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
         borderRadius: 999,
         fontFamily: T.fonts.ui,
-        fontSize: T.scale.small.sizePx,
+        fontSize: T.scale.micro.sizePx,
         fontWeight: 700,
-        cursor: 'pointer',
-        opacity: 0.92
+        whiteSpace: 'nowrap',
+        cursor: 'pointer'
       }}
     >
       <span aria-hidden>🎤</span>
       {micChipText(props.status)}
     </button>
   );
+  // server render (tests): the chip itself; in the page only inside the HUD's status chip, never floating over others
+  if (typeof document === 'undefined') return chip;
+  const host = micChipHost();
+  return host ? createPortal(chip, host) : null;
 }
 
 /** Student session keys the lesson client writes (lesson/api.ts STUDENT_TOKEN_KEY / STUDENT_LESSON_KEY). */

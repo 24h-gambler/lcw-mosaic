@@ -16,6 +16,10 @@ import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
 import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, makeJumpView, pickVoxel, raycastDistance, stepBody, stepJumpView, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
+import { Storefronts } from './storefront.js';
+import { MINIMAP_AREA, Wayfinder, minimapSteps, type MapPerson } from './wayfinding.js';
+import { TILE_LAYER, BLOCK_LOOKS } from './blocks.js';
+import { tileAverageColor } from './atlas.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
@@ -156,6 +160,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const hudParent = opts.hudRoot ?? canvas.parentElement ?? document.body;
   const touch = isTouchDevice();
   let reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** headless picture runs (?shots=1) and dev builds get the debugPose hook */
+  const shotsMode = import.meta.env.DEV || (typeof location !== 'undefined' && /[?&]shots=1(?:&|$)/.test(location.search));
   // G14 look settings (setLookSettings): mouse and touch drag speed, up/down inversion (-1).
   let lookMouse = 1;
   let lookTouch = 1;
@@ -376,6 +382,30 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     [163, 1, 129]
   ]);
   scene.add(butterflies.root);
+  // Store fronts, signs and landmark badges (storefront.ts) and the way-finding minimap / goal arrow (wayfinding.ts), R2627.
+  const storefronts = new Storefronts(world, opts.tier === 'high' ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1, opts.tier === 'low');
+  scene.add(storefronts.root);
+  const wayfinder = new Wayfinder(hud.root);
+  scene.add(wayfinder.beam);
+  {
+    const topColor = new Map<number, readonly [number, number, number] | null>();
+    const colorOf = (id: number): readonly [number, number, number] | null => {
+      let c = topColor.get(id);
+      if (c === undefined) {
+        const look = BLOCK_LOOKS[id];
+        c = !look || look.shape === 'plant' || look.shape === 'none' ? null : (tileAverageColor(atlasPixels, TILE_LAYER[look.top] ?? 0).map((v) => v * 255) as [number, number, number]);
+        topColor.set(id, c);
+      }
+      return c;
+    };
+    // ~300k block reads: sliced so the start-up has no long task on a slow phone
+    const ground = await runSliced(minimapSteps((x, y, z) => world.getBlock(x, y, z), colorOf));
+    wayfinder.setGround(ground, MINIMAP_AREA.x1 - MINIMAP_AREA.x0, MINIMAP_AREA.z1 - MINIMAP_AREA.z0);
+  }
+  /** people to talk to on the minimap (read by the wayfinder at its own pace, not per frame) */
+  const mapPeople = (): MapPerson[] =>
+    [...npcs.values()].filter((n) => n.char.root.visible && n.def.id !== TEACHER_NPC_ID).map((n) => ({ id: n.def.id, x: n.pos.x, z: n.pos.z }));
+  await yieldToMain();
 
   // ---- State.
   let currentScene: SceneId = startScene.id;
@@ -1610,6 +1640,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
     windmill.update(dt);
     butterflies.update(dt);
+    storefronts.update(dt, sky.hour, reduceMotion);
     if (player.root.position.distanceTo(fountain) < viewDistance) effects.spray(fountain.x, fountain.y, fountain.z, dt);
     effects.update(dt);
     sky.update(dt, player.root.position);
@@ -1675,10 +1706,26 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       hud.showPrompt(p.vis, p.sx, p.sy, touch);
     } else hud.showPrompt(false, 0, 0, touch);
     const goal = goalNpcId && !paused ? npcs.get(goalNpcId) : undefined;
-    if (goal && goal.char.root.visible && !(promptOn && nearNpc === goal)) {
+    const goalShown = !!goal && goal.char.root.visible;
+    if (goal && goalShown && !(promptOn && nearNpc === goal)) {
       const g = project(goal.pos.x, goal.pos.y + CHAR_HEIGHT + 0.55, goal.pos.z);
       hud.showGoalMark(g.vis, g.sx, g.sy);
     } else hud.showGoalMark(false);
+    // the way to the goal NPC (wayfinding.ts, R2627): its store's pin, an arrow at the screen edge while it is out of
+    // view, a beam over it that fades out up close where the mark above takes over
+    wayfinder.update(
+      dt,
+      camera,
+      body,
+      viewYaw(),
+      goal && goalShown ? { x: goal.pos.x, y: goal.pos.y, z: goal.pos.z, npcId: goal.def.id } : null,
+      mapPeople,
+      viewW,
+      viewH,
+      paused || attract,
+      nowMs,
+      reduceMotion
+    );
 
     renderer.render(scene, camera);
     lastStats = { draw: renderer.info.render.calls, tris: renderer.info.render.triangles };
@@ -1914,6 +1961,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       builder.dispose();
       buildHud?.dispose();
       buildView.dispose();
+      storefronts.dispose();
+      wayfinder.dispose();
       chunks.dispose();
       VoxelCharacter.shadows = null;
       sfx.dispose();
@@ -2095,6 +2144,24 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         }
       });
       return true;
+    },
+    // headless pictures only (tools/visual-shots.mjs with ?shots=1, or a dev build): the same spot, view and hour
+    // before and after a change. Not on the handle of a normal visit (no jumping around from the console).
+    debugPose: !shotsMode
+      ? undefined
+      : (p) => {
+      autopilot = [];
+      body.x = p.x;
+      body.z = p.z;
+      body.y = standHeight(world, p.x, p.z, Math.ceil(p.y ?? 40));
+      body.vx = body.vy = body.vz = 0;
+      playerYaw = camYaw = p.yaw;
+      camPitch = p.pitch ?? 0.3;
+      camInit = false;
+      if (p.hour !== undefined) {
+        sky.hour = p.hour;
+        sky.apply();
+      }
     },
     getStats(): WorldStats {
       return {

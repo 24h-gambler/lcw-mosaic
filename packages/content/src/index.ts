@@ -12,3 +12,4 @@ export * from './ui-strings-en.js';
 export * from './teacher-name.js';
 export * from './adventure.js';
 export * from './echo-chunks.js';
+export * from './common-words-en.js';

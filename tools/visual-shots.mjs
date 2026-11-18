@@ -53,7 +53,7 @@ for (const vp of VIEWPORTS) {
       if (m.type() === 'error') errs.push(m.text().slice(0, 300));
     });
     page.on('pageerror', (e) => errs.push(`pageerror: ${String(e.message).slice(0, 300)}`));
-    await page.goto(`${base}?tier=${tier}&fps=1&scene=plaza`, { waitUntil: 'load', timeout: 90000 });
+    await page.goto(`${base}?tier=${tier}&fps=1&scene=plaza&shots=1`, { waitUntil: 'load', timeout: 90000 });
     await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 120000 });
     await page.waitForTimeout(2500);
     for (const pose of POSES) {

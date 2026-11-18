@@ -339,14 +339,15 @@ const SCENE_TITLES_KO_SRC = {
   build_plot: '내 부지',
   open_hill: '바람 언덕'
 };
-const SCENE_TITLES_KO_EN: Record<keyof typeof SCENE_TITLES_KO_SRC, string> = {
+/** Scene titles in the learning language alone (store signs: words the child reads, no help line). */
+export const SCENE_TITLES_EN: Record<keyof typeof SCENE_TITLES_KO_SRC, string> = {
   plaza: 'Town Square',
   honey_cafe: 'Honey Cafe',
   trade_shop: 'Trade Shop',
   build_plot: 'My Plot',
   open_hill: 'Windy Hill'
 };
-export const SCENE_TITLES_KO: Record<keyof typeof SCENE_TITLES_KO_SRC, string> = biTable(SCENE_TITLES_KO_EN, SCENE_TITLES_KO_SRC);
+export const SCENE_TITLES_KO: Record<keyof typeof SCENE_TITLES_KO_SRC, string> = biTable(SCENE_TITLES_EN, SCENE_TITLES_KO_SRC);
 
 /** Vertical band names (docs/03 3.2) next to the scene title on the HUD. Keys are TUNING.verticalBands ids. */
 const BAND_NAMES_KO_SRC = {
@@ -578,7 +579,7 @@ const NAME_PAIRS: ReadonlyMap<string, Bi> = (() => {
       for (const name of [bi.en, bi.ko, `${bi.en} · ${bi.ko}`]) if (!m.has(name)) m.set(name, bi);
     }
   };
-  add(SCENE_TITLES_KO_EN, SCENE_TITLES_KO_SRC);
+  add(SCENE_TITLES_EN, SCENE_TITLES_KO_SRC);
   add(SECTOR_NAMES_KO_EN, SECTOR_NAMES_KO_SRC);
   add(BAND_NAMES_KO_EN, BAND_NAMES_KO_SRC);
   // a friend's plot is a scene title too (engine sceneTitle, main #123)

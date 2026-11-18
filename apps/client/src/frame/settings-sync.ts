@@ -3,6 +3,9 @@
  * lesson student's own token. `GET /v1/settings` -> `{ settings, updated_at }`, `PUT /v1/settings` `{ settings }`.
  * The server stores a flat object as is (<= 40 keys, number / boolean / string <= 32 chars, 4 KB). The newest copy
  * wins at start; later changes are sent after a short pause. No token, no route (404) or offline: the device copy only.
+ * The row is shared: PUT replaces it whole, so keys this record does not write (the adventure's progress 'adv', ...)
+ * are read again just before each PUT and sent back as they are; when that read fails nothing is sent (the next change
+ * tries again) rather than drop or roll back someone else's key.
  */
 import {
   DEFAULT_KEYS,
@@ -67,6 +70,20 @@ export function fromServerSettings(flat: unknown, updatedAt: number | null): Fra
   });
 }
 
+/** Keys this record writes; the rest of the server row belongs to other parts of the app. */
+const OWN_KEYS: ReadonlySet<string> = new Set(Object.keys(toServerSettings(normalizeSettings({}))));
+
+/** The keys of a server row this record does not write (plain values only), kept as they are on every PUT. */
+export function otherKeys(flat: unknown): FlatSettings {
+  const out: FlatSettings = {};
+  if (typeof flat !== 'object' || flat === null) return out;
+  for (const [k, v] of Object.entries(flat as Record<string, unknown>)) {
+    if (OWN_KEYS.has(k)) continue;
+    if (typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) out[k] = v;
+  }
+  return out;
+}
+
 /** The server may answer in seconds or milliseconds. */
 export function toMs(t: number | null | undefined): number {
   if (typeof t !== 'number' || !Number.isFinite(t) || t <= 0) return 0;
@@ -81,7 +98,8 @@ export function fitsServer(flat: FlatSettings): boolean {
     if (typeof v === 'string' && v.length > SERVER_SETTINGS_LIMITS.maxString) return false;
     if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') return false;
   }
-  return JSON.stringify({ settings: flat }).length <= SERVER_SETTINGS_LIMITS.maxBytes;
+  // UTF-8 bytes like the server (apps/edge/src/settings.ts): another part's Korean value counts double or triple
+  return new TextEncoder().encode(JSON.stringify(flat)).length <= SERVER_SETTINGS_LIMITS.maxBytes;
 }
 
 /** Which copy to keep: 'server' when it is newer, 'device' when the device is newer (send it), 'same' otherwise. */
@@ -100,21 +118,25 @@ export interface SyncOptions {
   base?: string;
 }
 
-async function getServer(o: SyncOptions): Promise<FrameSettings | null | 'none'> {
+type Row = { settings: Record<string, unknown> | null; updatedAt: number | null };
+
+/** The server row as it is now; 'none' = no route, not allowed or offline. */
+async function getRow(o: SyncOptions): Promise<Row | 'none'> {
   const f = o.fetchImpl ?? ((i: string, init?: RequestInit) => globalThis.fetch(i, init));
   try {
     const res = await f(`${o.base ?? ''}${SETTINGS_PATH}`, { headers: { authorization: `Bearer ${o.token}` } });
     if (!res.ok) return 'none';
     const j = (await res.json()) as { settings?: unknown; updated_at?: number | null };
-    if (!j || typeof j.settings !== 'object' || j.settings === null || Object.keys(j.settings).length === 0) return null;
-    return fromServerSettings(j.settings, j.updated_at ?? null);
+    const settings = j && typeof j.settings === 'object' && j.settings !== null ? (j.settings as Record<string, unknown>) : null;
+    return { settings, updatedAt: j?.updated_at ?? null };
   } catch {
     return 'none';
   }
 }
 
-export async function putServerSettings(s: Readonly<FrameSettings>, o: SyncOptions): Promise<boolean> {
-  const flat = toServerSettings(s);
+/** This record on top of the row's other keys; false when it would not fit the server limits or the PUT failed. */
+async function putOnRow(s: Readonly<FrameSettings>, row: Row, o: SyncOptions): Promise<boolean> {
+  const flat = { ...otherKeys(row.settings), ...toServerSettings(s) };
   if (!fitsServer(flat)) return false;
   const f = o.fetchImpl ?? ((i: string, init?: RequestInit) => globalThis.fetch(i, init));
   try {
@@ -127,6 +149,13 @@ export async function putServerSettings(s: Readonly<FrameSettings>, o: SyncOptio
   } catch {
     return false;
   }
+}
+
+/** Read the row again (its other keys may have changed since the start), then PUT; nothing is sent when the read fails. */
+export async function putServerSettings(s: Readonly<FrameSettings>, o: SyncOptions): Promise<boolean> {
+  const row = await getRow(o);
+  if (row === 'none') return false;
+  return putOnRow(s, row, o);
 }
 
 /**
@@ -142,19 +171,21 @@ export function startSettingsSync(
   let serverAlive = true;
   let timer: unknown = null;
   let applying = false;
-  void getServer(o).then((srv) => {
+  void getRow(o).then((row) => {
     if (stopped) return;
-    if (srv === 'none') {
+    if (row === 'none') {
       serverAlive = false; // no route yet or offline: the device copy only, quietly
       return;
     }
+    // a row with only other parts' keys (say the adventure's) holds no settings record yet
+    const srv = row.settings && Object.keys(row.settings).some((k) => OWN_KEYS.has(k)) ? fromServerSettings(row.settings, row.updatedAt) : null;
     const dev = frameSettings();
     const pick = pickNewer(dev, srv);
     if (pick === 'server' && srv) {
       applying = true;
       apply(srv);
       applying = false;
-    } else if (pick === 'device') void putServerSettings(dev, o);
+    } else if (pick === 'device') void putOnRow(dev, row, o);
   });
   const off = onFrameSettings((s) => {
     if (applying || !serverAlive || stopped) return;

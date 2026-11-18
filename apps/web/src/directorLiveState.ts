@@ -59,7 +59,8 @@ export interface FeedLiveExtra {
   minutes?: FeedMinute[];
   progress?: FeedProgress;
   student_view?: FeedStudentView;
-  stage_log?: Array<{ at: number; stage_id: string }>;
+  /** source: null = the teacher (or the start), 'auto:passes' | 'auto:followups' | 'auto:time' = moved by itself. */
+  stage_log?: Array<{ at: number; stage_id: string; source?: string | null }>;
   server_now?: number;
   lesson?: { possessed_npc_id?: string | null; [k: string]: unknown };
 }

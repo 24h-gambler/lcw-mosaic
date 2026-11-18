@@ -35,7 +35,8 @@ async function runLesson(p: PlatformDO) {
   await say({ transcript: 'my name is juno and i am nine years old', dur_ms: 0 }); // names the child → never quoted
   await say({ transcript: 'juno loves big red fire trucks and cars', dur_ms: 0 }); // nickname inside → never quoted
   await say({ transcript: 'hi', dur_ms: 600 }); // too short → not passed
-  await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+  // two sentences on screen: one passed sentence does not move the stage on by itself (docs/18 §9)
+  await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?', 'Can I have a cookie?'] });
   await say({ target_text: 'Can I have a warm honey tea?', transcript: 'can i have a warm honey tea', chosen_stars: 2, dur_ms: 2500 });
   await say({ target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 1, dur_ms: 2400 }); // duplicate sentence
   await say({ target_text: 'Can I have a warm honey tea?', transcript: 'banana', chosen_stars: 1, dur_ms: 900 });
@@ -193,12 +194,12 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
       final_text: t, stars, mode, ctx, words: t.split(' ').length, dur_ms: 1000, confidence: 0.9, hint_level: 'full', created_at: at
     });
     const q = pickQuotes(
-      [row('a b c d e f g h', 3, 'x', 1), row('a b c d e f g h!', 3, 'x', 2), row('one two', 1, 'y', 3), row('zz top go', 2, 'x', 4), row('low conf here', 3, 'z', 5)].map((r, i) =>
+      [row('a b c d e f g h', 3, 'x', 1), row('a b c d e f g h!', 3, 'x', 2), row('one two', 1, 'y', 3), row('dogs go fast', 2, 'x', 4), row('low conf here', 3, 'z', 5)].map((r, i) =>
         i === 4 ? { ...r, confidence: 0.3 } : r
       ),
       () => 'T'
     );
-    expect(q.map((x) => x.text)).toEqual(['A b c d e f g h', 'One two', 'Zz top go']);
+    expect(q.map((x) => x.text)).toEqual(['A b c d e f g h', 'One two', 'Dogs go fast']);
     expect(tidyQuote(" i think i'm ok ")).toBe("I think I'm ok");
   });
 });

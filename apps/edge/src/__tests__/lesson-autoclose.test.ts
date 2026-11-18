@@ -366,9 +366,10 @@ describe('the same student back the same day continues the auto-closed lesson', 
 
     now += 30 * 60_000;
     const second = await startLesson(p, 'kid-1', first.start.plan.id);
-    expect(second.start).toMatchObject({ continues_from: first.lessonId, stage_id: 'cafe_order' });
+    // the one cafe sentence passed moved the first part on by itself (docs/18 §9): the child left off at the trade
+    expect(second.start).toMatchObject({ continues_from: first.lessonId, stage_id: 'trade_roleplay' });
     const st2 = await call(p, 'GET', '/v1/lesson/state', undefined, second.st);
-    expect(st2.body.stage_id).toBe('cafe_order');
+    expect(st2.body.stage_id).toBe('trade_roleplay');
     // while the continuation runs, the first part leaves the auto box (it is being picked up)
     expect((await call(p, 'GET', '/v1/admin/lessons/live')).body.auto_closed).toEqual([]);
     const feed = await call(p, 'GET', `/v1/admin/lessons/${second.lessonId}/feed`);

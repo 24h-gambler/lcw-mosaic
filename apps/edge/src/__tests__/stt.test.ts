@@ -22,6 +22,7 @@ async function setup(ai?: LcwEnv['AI']) {
     {
       PLATFORM: undefined as never,
       LCW_OPERATOR_TOKEN: TOKEN,
+      BUILD_SHA: 'test',
       AI:
         ai ??
         ({

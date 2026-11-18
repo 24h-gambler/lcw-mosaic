@@ -25,7 +25,7 @@ import {
   lookSettingsOf,
   type SettingsStore
 } from '../frame/settings.js';
-import { fitsServer, fromServerSettings, pickNewer, startSettingsSync, toMs, toServerSettings } from '../frame/settings-sync.js';
+import { fitsServer, fromServerSettings, otherKeys, pickNewer, putServerSettings, startSettingsSync, toMs, toServerSettings } from '../frame/settings-sync.js';
 import { createAudioRuntime } from '../audio/runtime.js';
 import { pickTier } from '../App.js';
 
@@ -282,6 +282,109 @@ describe('server copy (GET/PUT /v1/settings, newest wins)', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(quiet).toEqual(['GET']); // no route yet: device only, no PUT storm
     stop2();
+  });
+});
+
+describe('server row shared with other parts (the adventure keeps adv there)', () => {
+  const tok = 'k'.repeat(40);
+  const own = () => toServerSettings(normalizeSettings({ textScale: 1.2, updatedAt: 7_000 }));
+
+  it('otherKeys keeps only the keys this record does not write, plain values only', () => {
+    expect(otherKeys({ ...own(), adv: 'd3s12', extra: 2, bad: { x: 1 }, nan: Number.NaN })).toEqual({ adv: 'd3s12', extra: 2 });
+    expect(otherKeys(null)).toEqual({});
+  });
+
+  it('a PUT reads the row again and sends its other keys back as they are now', async () => {
+    let adv = 'd1s3';
+    const puts: Array<Record<string, unknown>> = [];
+    const fetchImpl = async (_u: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        puts.push(JSON.parse(init.body as string).settings);
+        return new Response('{"ok":true}', { status: 200 });
+      }
+      return new Response(JSON.stringify({ settings: { ...own(), adv }, updated_at: 7 }), { status: 200 });
+    };
+    const timers: Array<() => void> = [];
+    const stop = startSettingsSync({ token: tok, fetchImpl, apply: () => undefined, timers: { set: (fn) => timers.push(fn), clear: () => undefined } });
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    adv = 'd2s9'; // the adventure wrote after the start
+    updateFrameSettings({ showFps: true }, { store: null, audio: null, doc: null });
+    timers.at(-1)!();
+    for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(puts).toHaveLength(1);
+    expect(puts[0]).toMatchObject({ adv: 'd2s9', showFps: true });
+    stop();
+  });
+
+  it('the start PUT of a newer device copy keeps the other keys of the row it just read', async () => {
+    const puts: Array<Record<string, unknown>> = [];
+    const fetchImpl = async (_u: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        puts.push(JSON.parse(init.body as string).settings);
+        return new Response('{"ok":true}', { status: 200 });
+      }
+      return new Response(JSON.stringify({ settings: { adv: 'd1s3' }, updated_at: 1 }), { status: 200 }); // only the adventure's key
+    };
+    updateFrameSettings({ textScale: 1.3 }, { store: null, audio: null, doc: null }); // the device copy has a time
+    const stop = startSettingsSync({ token: tok, fetchImpl, apply: () => undefined, timers: { set: () => 0, clear: () => undefined } });
+    for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(puts).toHaveLength(1);
+    expect(puts[0]).toMatchObject({ adv: 'd1s3', textScale: 1.3 });
+    stop();
+  });
+
+  it('a newer row holding only the adventure key is no settings record: the device copy is not reset to defaults', async () => {
+    const puts: Array<Record<string, unknown>> = [];
+    let applied = 0;
+    const fetchImpl = async (_u: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        puts.push(JSON.parse(init.body as string).settings);
+        return new Response('{"ok":true}', { status: 200 });
+      }
+      // the adventure wrote a moment ago: the row's time is newer than the device copy
+      return new Response(JSON.stringify({ settings: { adv: 'd1s3' }, updated_at: Date.now() + 60_000 }), { status: 200 });
+    };
+    updateFrameSettings({ textScale: 1.3 }, { store: null, audio: null, doc: null });
+    const stop = startSettingsSync({ token: tok, fetchImpl, apply: () => (applied += 1), timers: { set: () => 0, clear: () => undefined } });
+    for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(applied).toBe(0);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]).toMatchObject({ adv: 'd1s3', textScale: 1.3 });
+    stop();
+  });
+
+  it('the size limit counts UTF-8 bytes like the server', () => {
+    const flat: Record<string, string> = {};
+    for (let i = 0; i < 40; i++) flat[`k${i}`] = '가'.repeat(32); // 40 keys of 96 bytes each: over 4 KB in bytes, under 4096 characters
+    expect(JSON.stringify(flat).length).toBeLessThan(4096);
+    expect(fitsServer(flat)).toBe(false);
+  });
+
+  it('nothing is sent when the row cannot be read, or when the merged row would not fit the server', async () => {
+    const methods: string[] = [];
+    const down = await putServerSettings(normalizeSettings({}), {
+      token: tok,
+      fetchImpl: async (_u, init) => {
+        methods.push(init?.method ?? 'GET');
+        return new Response('', { status: 503 });
+      }
+    });
+    expect(down).toBe(false);
+    expect(methods).toEqual(['GET']);
+
+    const full: Record<string, string> = {};
+    for (let i = 0; i < 30; i++) full[`x${i}`] = 'v';
+    const sent: string[] = [];
+    const over = await putServerSettings(normalizeSettings({}), {
+      token: tok,
+      fetchImpl: async (_u, init) => {
+        sent.push(init?.method ?? 'GET');
+        return new Response(JSON.stringify({ settings: full, updated_at: 1 }), { status: 200 });
+      }
+    });
+    expect(over).toBe(false);
+    expect(sent).toEqual(['GET']);
   });
 });
 

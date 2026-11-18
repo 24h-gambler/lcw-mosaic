@@ -190,6 +190,10 @@ const WALK_STYLE: React.CSSProperties = {
   // above the HUD's bottom-left stack (controls help and the hotbar line), measured by the HUD (world/hud.ts
   // --lcw-hud-stack): a fixed 132 ran under a two-line Korean-help hotbar line on a phone and the 150% help (frame, 11-18)
   bottom: 'calc(var(--lcw-hud-stack, 120px) + 12px)',
+  // on a phone the talk button shares this row on the right (world/hud.ts --lcw-hud-talk-w): a longer label wraps
+  maxWidth: 'calc(100vw - 12px - var(--lcw-hud-talk-w, 12px))',
+  overflowWrap: 'anywhere',
+  textAlign: 'left',
   minHeight: S.touchTargetMinPx,
   padding: '8px 14px',
   background: C['paper-0'],

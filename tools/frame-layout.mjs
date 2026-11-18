@@ -11,11 +11,16 @@
 export const LAYOUT_SNAPSHOT = () => {
   const vw = innerWidth;
   const vh = innerHeight;
+  // a part shows when nothing up the tree hides it and it is not faded down to see-through (a world name plate under a
+  // HUD card fades to .12 on purpose: it no longer covers anything)
   const shown = (e) => {
+    let alpha = 1;
     for (let n = e; n && n !== document.documentElement; n = n.parentElement) {
       const cs = getComputedStyle(n);
-      if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.05) return false;
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      alpha *= Number(cs.opacity);
     }
+    if (alpha < 0.3) return false;
     const b = e.getBoundingClientRect();
     return b.width > 1 && b.height > 1;
   };
@@ -73,7 +78,18 @@ export const LAYOUT_SNAPSHOT = () => {
       }
     }
   }
-  return { parts: boxes.map(({ e, ...r }) => ({ ...r, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) })), problems };
+  // labels drawn inside the 3D view (the teacher's name plate, world handle screenLabels): one that still shows over a
+  // screen part is a problem (prod 11-18: 'Teacher' through the status chip)
+  const labels = window.__lcwWorld?.screenLabels?.() ?? [];
+  for (const l of labels) {
+    if (l.opacity < 0.5) continue;
+    for (const b of boxes) {
+      const ox = Math.min(l.x + l.w, b.x + b.w) - Math.max(l.x, b.x);
+      const oy = Math.min(l.y + l.h, b.y + b.h) - Math.max(l.y, b.y);
+      if (ox >= 4 && oy >= 4) problems.push(`world label over a screen part: "${l.name}" / ${b.name}`);
+    }
+  }
+  return { labels, parts: boxes.map(({ e, ...r }) => ({ ...r, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) })), problems };
 };
 
 /** Problems on the page now (dedented labels), plus the parts for a report. */

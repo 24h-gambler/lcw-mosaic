@@ -66,6 +66,11 @@ export interface WorldHandle {
 // 틀 문구(HUD 틀·메뉴·지도·설정·도감, frame/strings.ts)는 배울 언어로 보입니다(world/lang.ts learnLang, 지금은 영어). 한국어 도움(helpKoOn)을
 // 켜면 메뉴 낱말은 'English · 한국어', HUD 띠·알림은 한국어를 둘째 줄에 둡니다. 장소 이름에 한국어 조사가 붙는 문장은 만들지 않습니다(nameBi).
 // 도감 항목·성취는 서버가 name_ko 만 주므로 frame/menu/collection-names.ts 가 id 로 영어 이름을 찾고, 모르는 id 는 name_ko 를 그대로 씁니다.
+// 아이 화면 배치(틀 도메인, docs/08 §8.6): HUD 가 잰 값을 :root 에 둡니다 — --lcw-hud-stack(아래 왼쪽 묶음이 바닥에서 올라온 높이),
+// --lcw-hud-top-b(맨 위 묶음이 끝나는 y, 목표 카드가 보이면 그 아래), --lcw-hud-talk-w(폰에서 말 걸기 버튼이 그 줄 오른쪽에서 차지하는 폭).
+// 다른 층(대화의 걷기 버튼·토스트 등)은 고정 px 대신 이 값으로 놓고, HUD 부품으로 셀 것은 [data-hud-part] 를 붙입니다. 3D 안에 그리는
+// 글자(선생님 이름표)는 HUD 부품 뒤에 오면 흐려지고(HTML 이름표도 같음), 위치는 screenLabels?() 로 읽습니다. tools/frame-layout.mjs 가
+// 모든 부품 쌍의 겹침·화면 밖 잘림·글자 잘림과 3D 글자 vs 부품을 실화면에서 봅니다(frame-shots·frame-menu-shots 가 단계마다 부름).
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
 export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
 ```

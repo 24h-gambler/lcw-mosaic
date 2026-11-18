@@ -7,6 +7,7 @@ import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TO
 import { WORLD_STRINGS as W, itemGotText, itemTitle, itemTitleBi, controlsDesktopBi, controlsDesktopFor, DEFAULT_KEY_HINTS, worldSay, type KeyHintLabels } from './strings.js';
 import { onLearnLang } from './lang.js';
 import { bandOf, clockLabel, isNight, placeBi, type BandId } from '../frame/status.js';
+import { coverHits } from './cover.js';
 import { refillOf } from '../frame/gauges.js';
 
 const STYLE_ID = 'lcw-world-hud-style';
@@ -17,7 +18,7 @@ function css(): string {
 .lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.25);position:absolute;inset:0;pointer-events:none;font-family:${T.fonts.ui};color:${C['ink-900']};user-select:none;-webkit-user-select:none;overflow:hidden;touch-action:none}
 .lw-hud *{box-sizing:border-box}
 .lw-card{background:${C['paper-50']};border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusCardPx}px;box-shadow:${S.shadowDefault}}
-.lw-goal{position:absolute;top:12px;left:50%;transform:translate(-50%,-140%);max-width:min(720px,calc(100% - 32px));padding:8px 16px;display:flex;flex-direction:column;align-items:center;gap:2px;visibility:hidden;transition:transform ${M.slowMs}ms ease-out,visibility 0s linear ${M.slowMs}ms;text-align:center}
+.lw-goal{position:absolute;top:12px;left:50%;transform:translate(-50%,-140%);max-width:min(720px,calc(100% - 2 * var(--lw-side,16px)));padding:8px 16px;display:flex;flex-direction:column;align-items:center;gap:2px;visibility:hidden;transition:transform ${M.slowMs}ms ease-out,visibility 0s linear ${M.slowMs}ms;text-align:center}
 .lw-goal.on{transform:translate(-50%,0);visibility:visible;transition:transform ${M.slowMs}ms ease-out,visibility 0s}
 .lw-hud.dlg .lw-goal{opacity:0;transition:opacity ${M.slowMs}ms ease-out}
 /* a dialog window covers the bottom (or the right on a landscape phone): the hotbar and help hide under it */
@@ -86,6 +87,7 @@ function css(): string {
 @media (prefers-reduced-motion:reduce){.lw-goalmark i{animation:none}}
 .lw-plate{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;background:${C['ink-900']};color:${C['paper-0']};border-radius:${S.radiusButtonPx}px;padding:2px 8px;font-family:${T.fonts.ui};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;opacity:.85;white-space:nowrap}
 .lw-plate.on{display:block}
+.lw-plate{transition:opacity 120ms linear}.lw-plate.under{opacity:.12}
 .lw-prompt kbd{font-family:${T.fonts.pixel};background:${C['paper-0']};color:${C['ink-900']};border-radius:2px;padding:0 6px;font-size:12px}
 .lw-prompt:active{box-shadow:${S.shadowPressed};transform:translate(-50%,-100%) translate(3px,3px)}
 .lw-hotbar{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:4px;align-items:center}
@@ -323,6 +325,7 @@ export class WorldHud {
   private jumpBtn: HTMLElement | null = null;
   private viewBtn: HTMLElement | null = null;
   private chipBox: HTMLElement | null = null;
+  private hotbarEl: HTMLElement | null = null;
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -386,9 +389,10 @@ export class WorldHud {
       const stars = this.starsEl;
       const measure = (): void => {
         this.root.style.setProperty('--lw-chip-b', `${Math.ceil(12 + chip.offsetHeight)}px`);
-        // on touch the talk button (right 96px, it comes and goes by the NPC) keeps its column free too
+        // on touch the talk button (it comes and goes by the NPC) keeps its column free too
         const viewR = this.touchOn && this.viewBtn && this.viewBtn.offsetWidth > 0 ? 12 + this.viewBtn.offsetWidth + 8 : 12;
-        const talk = this.touchOn ? Math.max(96, viewR) + Math.max(this.talkBtn?.offsetWidth ?? 0, S.micButtonPx * 1.6) : 0;
+        const talkR = this.placeTalk();
+        const talk = this.touchOn ? talkR + Math.max(this.talkBtn?.offsetWidth ?? 0, S.micButtonPx * 1.6) : 0;
         const side = Math.max(chip.offsetLeft + chip.offsetWidth, this.root.clientWidth - stars.offsetLeft, talk);
         if (stars.offsetWidth > 0) this.root.style.setProperty('--lw-side', `${Math.ceil(side + 8)}px`);
         // on a phone the hotbar line (two lines with the Korean help, or wrapped) reaches the jump button's height: it
@@ -404,6 +408,7 @@ export class WorldHud {
       this.chipObs.observe(stars);
       this.chipObs.observe(this.root);
     }
+
     const si = el('span', '', this.starsEl);
     si.textContent = '★';
     this.starsN = el('span', '', this.starsEl);
@@ -428,6 +433,7 @@ export class WorldHud {
     tapOnly(this.prompt, () => this.h.onTalk(), (dx, dy) => this.h.onLook(dx, dy));
 
     const bar = el('div', 'lw-hotbar', this.root);
+    this.hotbarEl = bar;
     for (let i = 0; i < 5; i++) {
       const s = el('div', 'lw-slot empty', bar);
       s.style.pointerEvents = 'auto';
@@ -482,9 +488,9 @@ export class WorldHud {
     });
     this.talkBtn = el('div', 'lw-btn talk', this.touch);
     this.talkBtn.textContent = W.talk;
-    // left of the view button's column (measured, it widens with the Korean help): they met on a short landscape screen
-    // once the connection band pushed the view button down (frame, 11-18)
-    this.talkBtn.style.right = 'max(96px, var(--lw-view-r, 96px))';
+    this.talkBtn.style.right = '96px'; // placeTalk() moves it off the view / jump column where they meet
+    // the touch layer starts under the connection band while offline: its size changes, the talk button is placed again
+    this.chipObs?.observe(this.touch);
     this.talkBtn.style.bottom = '160px';
     tapOnly(this.talkBtn, () => this.h.onTalk(), (dx, dy) => this.h.onLook(dx, dy));
     this.bindTouch();
@@ -571,8 +577,8 @@ export class WorldHud {
 
   setTouch(on: boolean): void {
     this.touchOn = on;
-    this.measureSides?.();
     this.touch.classList.toggle('on', on);
+    this.measureSides?.();
     this.touch.style.pointerEvents = on ? 'auto' : 'none';
     this.help.textContent = this.helpText();
     this.help.classList.remove('off');
@@ -681,10 +687,26 @@ export class WorldHud {
       this.cap.classList.remove('on');
       return;
     }
-    this.cap.textContent = ko ? `${en}\n${ko}` : en;
-    this.cap.classList.toggle('two', !!ko);
+    this.putCap(ko ? `${en}\n${ko}` : en, ms);
+  }
+
+  /**
+   * The line over the bar: Korean help on a line of its own, and a line too long for the width (150% text, a long
+   * notice on a phone) wraps instead of being cut with an ellipsis. Either way the controls help under it steps aside
+   * (.two), and the stacks other layers place by are measured again while it shows and after it fades.
+   */
+  private putCap(text: string, ms: number): void {
+    window.clearTimeout(this.capTimer);
+    this.cap.textContent = text;
+    const two = text.includes('\n');
+    this.cap.classList.toggle('two', two);
+    if (!two && this.cap.scrollWidth > this.cap.clientWidth + 1) this.cap.classList.add('two');
     this.cap.classList.add('on');
-    this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
+    this.measureStacks();
+    this.capTimer = window.setTimeout(() => {
+      this.cap.classList.remove('on');
+      this.measureStacks();
+    }, ms);
   }
 
   /**
@@ -725,12 +747,81 @@ export class WorldHud {
   /** A one-off line over the bar (ate, drank, "a bit later"): same place and fade as the slot caption. */
   notice(text: string, ms = 2400): void {
     this.noticeUntil = performance.now() + ms;
-    window.clearTimeout(this.capTimer);
-    this.cap.textContent = text;
     // a notice with its Korean help line under it (frame useGauges, world/strings worldSay) keeps both lines
-    this.cap.classList.toggle('two', text.includes('\n'));
-    this.cap.classList.add('on');
-    this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
+    this.putCap(text, ms);
+  }
+
+  /**
+   * The talk button (touch; it comes and goes by the NPC) sits 96px from the right, 160px up. Where that spot meets the
+   * view button (pushed down by the connection band on a short landscape screen) or the jump button, it steps left of
+   * that column. Returns its right offset; the width it takes from the right on its row is published on :root
+   * (--lcw-hud-talk-w) for the dialog walk button on the same row.
+   */
+  private placeTalk(): number {
+    const doc = document.documentElement.style;
+    const btn = this.talkBtn;
+    if (!this.touchOn || !btn) {
+      doc.setProperty('--lcw-hud-talk-w', '12px');
+      return 96;
+    }
+    const rr = this.root.getBoundingClientRect();
+    const width = rr.width;
+    const w = Math.max(btn.offsetWidth, S.micButtonPx * 1.6);
+    const h = btn.offsetHeight || S.micButtonPx;
+    const top = this.touch.getBoundingClientRect().bottom - rr.top - 160 - h;
+    let right = 96;
+    for (let pass = 0; pass < 2; pass++) {
+      for (const col of [this.viewBtn, this.jumpBtn]) {
+        if (!col || col.offsetWidth === 0) continue;
+        const b = col.getBoundingClientRect();
+        const l = width - right - w;
+        const meets = top < b.bottom - rr.top + 8 && top + h + 8 > b.top - rr.top && l < b.right - rr.left + 8 && width - right + 8 > b.left - rr.left;
+        if (meets) right = width - (b.left - rr.left) + 8;
+      }
+    }
+    btn.style.right = `${Math.ceil(right)}px`;
+    doc.setProperty('--lcw-hud-talk-w', `${Math.ceil(right + w + 8)}px`);
+    return right;
+  }
+
+  private cover: Array<readonly [number, number, number, number]> = [];
+  private coverAt = -1e9;
+  private plateSizes = new WeakMap<HTMLElement, { t: string; w: number; h: number }>();
+
+  /** Boxes of the screen parts (root coordinates), read at most four times a second for the world labels under them. */
+  private hudCover(): ReadonlyArray<readonly [number, number, number, number]> {
+    const now = performance.now();
+    if (now - this.coverAt < 250) return this.cover;
+    this.coverAt = now;
+    const rr = this.root.getBoundingClientRect();
+    const parts: Array<Element | null> = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null, this.help, this.cap.classList.contains('on') ? this.cap : null, this.net, this.hotbarEl];
+    if (this.touchOn) parts.push(this.viewBtn, this.jumpBtn, this.talkBtn);
+    // the frame's own buttons on the HUD layer (menu), and anything another layer marks as a screen part
+    parts.push(...Array.from(document.querySelectorAll('.lcw-hudbtn, [data-hud-part]')));
+    this.cover = [];
+    for (const e of parts) {
+      if (!e) continue;
+      const b = e.getBoundingClientRect();
+      if (b.width < 2 || b.height < 2 || Number(getComputedStyle(e).opacity) < 0.05) continue;
+      this.cover.push([b.left - rr.left, b.top - rr.top, b.right - rr.left, b.bottom - rr.top]);
+    }
+    return this.cover;
+  }
+
+  /** Whether a screen box (root coordinates) runs under a HUD part: a world label there fades instead of showing through. */
+  underHud(x0: number, y0: number, x1: number, y1: number): boolean {
+    return coverHits(this.hudCover(), x0, y0, x1, y1);
+  }
+
+  /** A world name plate (mine, other people's) at its anchor: fades under a screen part (frame, 11-18 prod shot). */
+  fadePlate(el: HTMLElement, sx: number, sy: number): void {
+    const t = el.textContent ?? '';
+    let s = this.plateSizes.get(el);
+    if (!s || s.t !== t || s.w === 0) {
+      s = { t, w: el.offsetWidth, h: el.offsetHeight };
+      this.plateSizes.set(el, s);
+    }
+    el.classList.toggle('under', this.underHud(sx - s.w / 2, sy - s.h, sx + s.w / 2, sy));
   }
 
   /** A panel covers the bottom (dialog window): the goal card steps aside so the NPC's face shows in the strip. */
@@ -748,7 +839,8 @@ export class WorldHud {
     const h = this.root.clientHeight;
     if (!h) return;
     let stack = 0;
-    for (const e of [this.help, this.cap]) {
+    // the caption only while it shows (a faded one keeps its last text and height)
+    for (const e of [this.help, this.cap.classList.contains('on') ? this.cap : null]) {
       if (e && e.offsetHeight > 0 && getComputedStyle(e).display !== 'none') stack = Math.max(stack, h - e.offsetTop);
     }
     const top = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null].reduce((m, e) => (e && e.offsetHeight > 0 ? Math.max(m, e.offsetTop + e.offsetHeight) : m), 0);
@@ -1053,6 +1145,7 @@ export class WorldHud {
     if (!this.plate.textContent) return;
     this.plate.style.visibility = visible ? 'visible' : 'hidden';
     this.plate.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%)`;
+    if (visible) this.fadePlate(this.plate, sx, sy);
   }
 
   private promptKey = '';

@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { LESSON_DIRECTOR_EVENTS } from '@lcw/content';
-import { LessonDirectorConsole } from '../LessonDirector.js';
+import { LessonDirectorConsole, followStageView } from '../LessonDirector.js';
 import type { DirectorLessonRecord, LessonFeed } from '../lessonApi.js';
 import {
   EMPTY_DIRECTOR_LIVE,
@@ -108,22 +108,41 @@ describe('director live layer (WP-305)', () => {
     expect(currentSilenceMinutes(FEED.minutes!, null)).toBe(3);
   });
 
-  it('the console shows the student screen, possession, six event buttons, the progress chart and what the platform does', () => {
+  it('auto-advance (docs/18 §9): the running stage shows its rule, and the line when the server moved it by itself', () => {
+    const feed = { ...FEED, stage_log: [{ at: T0, stage_id: 'warmup_anchor', source: null }, { at: T0 + 15 * 60_000, stage_id: 'cafe_order', source: 'auto:passes' }] };
+    const html = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: REC, initialFeed: feed, now: () => T0 + 17 * 60_000 - 500 })
+    );
+    expect(html).toContain('data-testid="stage-auto-moved"');
+    expect(html).toContain('15:00 에 자동으로 넘어왔어요 · 목표 문장 통과');
+    expect(html).toContain('data-testid="stage-auto-rule"');
+    // one sentence on screen: one pass moves on
+    expect(html).toContain('자동 진행: 목표 문장 1개를 통과하거나');
+    const byTeacher = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: REC, initialFeed: { ...FEED, stage_log: [{ at: T0 + 15 * 60_000, stage_id: 'cafe_order', source: null }] }, now: () => T0 + 17 * 60_000 })
+    );
+    expect(byTeacher).not.toContain('data-testid="stage-auto-moved"');
+    // the poll that sees the server's move takes the panel along when the teacher was on the running stage, so its
+    // one button stays "next stage" and never sends the child back; another stage's panel the teacher reads stays
+    expect(followStageView('warmup_anchor', 'warmup_anchor', 'cafe_order')).toBe('cafe_order');
+    expect(followStageView('recall_today', 'warmup_anchor', 'cafe_order')).toBe('recall_today');
+  });
+
+  it('R2625 trim: the student screen and what the child said stay; possession, events, chart, helps, pins and the next-lesson box are gone', () => {
     const html = renderToStaticMarkup(
       React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: REC, initialFeed: FEED, now: () => T0 + 17 * 60_000 - 500 })
     );
     expect(html).toContain('data-testid="director-student-screen"');
     expect(html).toContain(L.sceneNames.honey_cafe);
     expect(html).toContain('can I have a warm honey tea');
-    expect(html).toContain(L.possessing('카페 주인'));
-    expect(html).toContain('data-testid="npc-say-script"');
-    expect(html).toContain('Welcome to the honey cafe! What would you like today?');
-    for (const ev of LESSON_DIRECTOR_EVENTS) expect(html).toContain(`data-testid="event-${ev.kind}"`);
-    expect(html).toContain('data-testid="director-progress"');
-    expect(html).toContain('<svg');
-    expect(html).toContain('data-testid="silence-nudge"');
-    expect(html).toContain('data-testid="director-helps"');
-    expect(html).toContain(L.helps.record(4));
-    expect(html).toContain('data-testid="director-next-lesson"');
+    expect(html).toContain('data-testid="director-feed"');
+    expect(html).toContain('아이가 한 말 · 말 4번 · 통과 3 · 별 7');
+    for (const gone of ['director-possess', 'npc-say-script', 'director-events', 'director-progress', 'director-helps', 'director-pins', 'director-next-lesson', 'director-counters']) {
+      expect(html).not.toContain(`data-testid="${gone}"`);
+    }
+    for (const ev of LESSON_DIRECTOR_EVENTS) expect(html).not.toContain(`data-testid="event-${ev.kind}"`);
+    // the guardians' lesson sound is kept, folded; the key box folds to the bottom once signed in
+    expect(html).toContain('data-testid="director-audio-more"');
+    expect(html).toContain('data-testid="director-key-more"');
   });
 });

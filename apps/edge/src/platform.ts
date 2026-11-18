@@ -36,7 +36,7 @@ import { createEdgeApp } from './app.js';
 import { priceIndexOf, runWeeklyPriceIndexes } from './economy.js';
 import { handleServerStt } from './stt.js';
 import { isTestPlayerId } from './nickname.js';
-import { handleTts, parseTryVoice, prebuildFixedLines, runTtsCron, synthesize, ttsStatus, type TtsDeps } from './tts.js';
+import { TTS_UPLOAD, handleTts, handleTtsUpload, localLinesList, parseTryVoice, prebuildFixedLines, runTtsCron, synthesize, ttsStatus, type TtsDeps } from './tts.js';
 import { normalizeTtsText } from '@lcw/content';
 import { activeLessonStarts, buildQuotaAdminApp, createDayMeter, ensureQuotaSchema, quotaHealth, readQuotaSettings, rollupQuota } from './quota.js';
 import {
@@ -871,6 +871,19 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const bytes = await synthesize(env.AI, voice, text).catch(() => null);
     if (!bytes) return c.json({ error: 'tts_failed' }, 502);
     return new Response(bytes as unknown as BodyInit, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'no-store', 'x-lcw-tts-ms': String(Date.now() - t0) } });
+  });
+  // Local open-weights voice (R2625): the operator's GPU makes the model voice's fixed lines and uploads them here
+  // (tools/tts-local in the automation repo, nightly); the list it makes comes from the deployed code.
+  app.get('/v1/admin/tts/local-lines', (c) => {
+    if (!isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return c.json({ error: 'operator_only' }, 401);
+    return c.json(localLinesList(), 200, { 'cache-control': 'no-store' });
+  });
+  app.put('/v1/admin/tts/line', async (c) => {
+    if (!isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return c.json({ error: 'operator_only' }, 401);
+    const declared = Number(c.req.header('content-length') ?? '0');
+    if (declared > TTS_UPLOAD.maxBytes) return c.json({ error: 'too_large', max_bytes: TTS_UPLOAD.maxBytes }, 413);
+    const body = new Uint8Array(await c.req.arrayBuffer());
+    return handleTtsUpload(new URL(c.req.url), body, ttsDeps());
   });
   app.post('/v1/admin/tts/prebuild', async (c) => {
     if (!isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return c.json({ error: 'operator_only' }, 401);

@@ -35,6 +35,8 @@ import {
 import { childNpcName, lessonGoal } from './strings.js';
 
 export const LESSON_POLL_MS = 3_000;
+/** After an answer that finished the stage, the next poll comes this soon (the next stage shows at once, docs/18 §9). */
+export const LESSON_ADVANCE_POLL_MS = 300;
 export const LESSON_RETRY_MAX_MS = 15_000;
 export const LESSON_BANNER_MS = 6_000;
 export const LESSON_BUBBLES_KEPT = 3;
@@ -53,6 +55,8 @@ export interface LessonWorld {
   setStars?(n: number | null): void;
   /** Teacher name tag (WorldHandle.setTeacher): with the teacher, or "혼자 놀기"; null = no lesson. */
   setTeacher?(t: { present: boolean; name: string | null } | null): void;
+  /** Marks the NPC to talk to over its head (WorldHandle.setGoalNpc): the lesson's NPC while it runs, null after. */
+  setGoalNpc?(npcId: string | null): void;
 }
 
 export type LessonPhase = 'needs_code' | 'joining' | 'live' | 'ended';
@@ -107,6 +111,8 @@ export interface LessonView {
   stageStartedAt: number;
   /** The teacher's newest line as the stage NPC in this stage, from the server (older than the bubbles kept). */
   stageLastLineEn: string;
+  /** The stage NPC's follow-up questions (the dialog asks them after its first line; talk lane followUps). */
+  followUpsEn: string[];
   /** Answers kept on this device while the connection was down, sent after the next good poll. */
   outbox: number;
   /** With the teacher now (console heartbeat) or alone; an older server without the field = with the teacher. */
@@ -164,6 +170,7 @@ export function initialLessonView(): LessonView {
     npcLineEn: '',
     stageStartedAt: 0,
     stageLastLineEn: '',
+    followUpsEn: [],
     outbox: 0,
     teacher: { present: true, name: null },
     planId: null,
@@ -193,6 +200,8 @@ export class LessonController {
   private readonly seenEvents = new Set<string>();
   private stopped = false;
   private polling = false;
+  /** The stage moved (an answer or the dialog's done): the poll after the one in flight comes in LESSON_ADVANCE_POLL_MS. */
+  private soon = false;
   /** Bumps on start/stop/leave; a poll that began in an older run drops its answer (StrictMode, HMR, re-mount). */
   private run = 0;
   private readonly timers: LessonTimers;
@@ -276,7 +285,30 @@ export class LessonController {
     // The star chip moves with the answer, not when the child taps "done": the server's sum after this answer, as is.
     if (typeof r.lesson_stars === 'number') this.showStars(r.lesson_stars);
     else if (r.pass && r.stars > 0) this.showStars(this.view.lessonStars + r.stars);
+    // This answer finished the stage (docs/18 §9): the next poll brings the next stage; ask for it now, not in 3 s.
+    if (r.auto_advanced) {
+      this.soon = true;
+      this.schedulePoll(LESSON_ADVANCE_POLL_MS);
+    }
     return result;
+  };
+
+  /**
+   * The dialog asked every follow-up question of this stage (talk lane onDone info.followUpsDone): the server moves
+   * the stage on, and the next stage shows at once. A failure is quiet: the passes and the planned minutes still move it.
+   */
+  readonly stageDone = async (stageId: string | null = this.view.stageId): Promise<void> => {
+    const s = this.session;
+    if (!s || !stageId || this.stopped) return;
+    try {
+      const r = await this.opts.api.stageDone(s.token, stageId);
+      if (r.auto_advanced && this.session === s) {
+        this.soon = true;
+        this.schedulePoll(0);
+      }
+    } catch {
+      /* the server's own rules (passes, minutes) still move the stage */
+    }
   };
 
   stop(): void {
@@ -309,6 +341,7 @@ export class LessonController {
     if (!s || this.stopped || this.polling) return;
     const run = this.run;
     this.polling = true;
+    this.soon = false;
     try {
       const st = await this.opts.api.state(s.token, {
         cursor: this.cursor,
@@ -338,7 +371,9 @@ export class LessonController {
       if (run === this.run) this.polling = false;
     }
     if (run !== this.run || this.view.phase === 'ended' || this.stopped || !this.session) return;
-    this.schedulePoll(this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+    // A stage move that came in while this poll was in flight still gets its quick poll (not the 3 s one).
+    this.schedulePoll(this.soon ? LESSON_ADVANCE_POLL_MS : this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+    this.soon = false;
   }
 
   private schedulePoll(ms: number): void {
@@ -405,6 +440,8 @@ export class LessonController {
     if (typeof st.npc_line_en === 'string' && st.npc_line_en !== this.view.npcLineEn) this.set({ npcLineEn: st.npc_line_en });
     const lastLine = st.stage_last_line_en ?? '';
     if (lastLine !== this.view.stageLastLineEn) this.set({ stageLastLineEn: lastLine });
+    const followUps = Array.isArray(st.follow_ups_en) ? st.follow_ups_en.filter((x) => typeof x === 'string') : [];
+    if (JSON.stringify(followUps) !== JSON.stringify(this.view.followUpsEn)) this.set({ followUpsEn: followUps });
     const patch: Partial<LessonView> = {};
     // A → B → A between two polls is a new stage start too (the stage log's time moved), not "nothing changed".
     const stageChanged =

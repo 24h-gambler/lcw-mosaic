@@ -25,7 +25,8 @@ describe('neural NPC voice (client)', () => {
 
   it('builds the cached line URL from the cast voice and the normalized text', () => {
     expect(ttsUrl('', voiceForCtx('cafe'), '  Welcome  to the honey cafe! ')).toBe('/v1/tts?v=aura2-hera&t=Welcome%20to%20the%20honey%20cafe!');
-    expect(ttsUrl('', npcCast().modelVoice, 'Hi')).toContain('v=aura2-luna');
+    // the model voice is the local open-weights speaker (R2625); the edge serves its uploaded lines under this id
+    expect(ttsUrl('', npcCast().modelVoice, 'Hi')).toContain('v=kokoro-af_sarah');
   });
 
   it('downloads a line once, and a refused line is tried again later', async () => {

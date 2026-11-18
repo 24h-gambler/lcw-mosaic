@@ -1,11 +1,29 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { UI_STRINGS_EN, UI_STRINGS_KO } from '@lcw/content';
-import { feedbackLine, helpKo, live, ui } from '../dialog/strings.js';
+import { biLine, feedbackLine, helpKo, live, ui } from '../dialog/strings.js';
+import { GOALS, goalLine, goalToast, goalWalkLabel } from '../dialog/goals.js';
+import { errandGoalKo, type ErrandView } from '../dialog/errand.js';
 import { resetLangForTest, setHelpKo } from '../world/lang.js';
 
 /** Dan 11-16: the dialog speaks the language the child learns; Korean only as the help line when it is on. */
 describe('dialog strings in the learning language', () => {
   afterEach(() => resetLangForTest());
+
+  it('goal line, walk button and goal toasts: English, and "English · 한국어" with the help on (R2627 frame audit)', () => {
+    expect(goalLine(GOALS.ask_way)).toBe('Ask Luna in the plaza the way to the trade shop');
+    expect(goalWalkLabel(GOALS.ask_way)).toBe('🦊 Go to Luna');
+    expect(goalToast('goalStepToast')).toBe(UI_STRINGS_EN.firstVisit.goalStepToast);
+    setHelpKo(true);
+    expect(goalLine(GOALS.ask_way)).toBe('Ask Luna in the plaza the way to the trade shop · 광장의 루나에게 교환 상점 가는 길을 물어봐요');
+    expect(goalWalkLabel(GOALS.ask_way)).toBe('🦊 Go to Luna · 루나에게 가기');
+    expect(goalToast('goalTourDone')).toBe(`${UI_STRINGS_EN.firstVisit.goalTourDone} · ${UI_STRINGS_KO.firstVisit.goalTourDone}`);
+    const offered = errandGoalKo({ state: 'offered', item_ko: '꿀차' } as ErrandView);
+    expect(offered.startsWith('Go talk to your neighbor Mia in front of the cafe · ')).toBe(true);
+    expect(offered).toContain('미아');
+    expect(biLine((_l, t) => t.firstVisit.walkCafe)).toBe(`${UI_STRINGS_EN.firstVisit.walkCafe} · ${UI_STRINGS_KO.firstVisit.walkCafe}`);
+    setHelpKo(false);
+    expect(goalWalkLabel(GOALS.ask_way)).toBe('🦊 Go to Luna');
+  });
 
   it('English tables by default, with the same keys as the Korean ones', () => {
     expect(ui()).toBe(UI_STRINGS_EN);

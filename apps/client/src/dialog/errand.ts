@@ -1,8 +1,7 @@
-import { FIRST_ERRAND, npcPersona, type LangLevel } from '@lcw/content';
+import { FIRST_ERRAND, type LangLevel } from '@lcw/content';
 import { nextOpeningLine, openingLineFor } from './npc-lines.js';
 import { guideAskPlace } from './goals.js';
-import { learnLang } from '../world/lang.js';
-import { ui } from './strings.js';
+import { biLine, npcShortName } from './strings.js';
 import { bankOffersFor } from './hints.js';
 import { SubmitError } from './submit.js';
 import type { DialogOffer, NpcRef } from './types.js';
@@ -85,19 +84,13 @@ export function errandDialogFor(npc: NpcRef, errand: ErrandView | null, level: L
 
 /** The goal line on top of the screen for each errand step (docs/08 8.1), in the language the child learns. */
 export function errandGoalKo(errand: ErrandView): string {
-  const F = ui().firstVisit;
-  const en = learnLang() === 'en';
-  const cafe = en ? (npcPersona('cafe_owner')?.nameEn ?? '') : (npcPersona('cafe_owner')?.nameKoShort ?? '');
-  const item = en ? `${FIRST_ERRAND.mod ? `${FIRST_ERRAND.mod} ` : ''}${FIRST_ERRAND.item}` : errand.item_ko;
-  const names = (t: string) => t.replace('{giver}', errandGiverNameKo()).replace('{cafe}', cafe);
-  if (errand.state === 'offered') return names(F.goalErrand);
-  if (errand.state === 'accepted') return names(F.goalOrder).replace('{item}', item);
-  if (errand.state === 'carrying') return names(F.goalDeliver).replace('{item}', item);
-  return F.goalDone;
-}
-
-/** The errand giver's short name from the cast pack (npc-cast.ts): English name when the child learns English. */
-export function errandGiverNameKo(): string {
-  const p = npcPersona('errand_neighbor');
-  return (learnLang() === 'en' ? p?.nameEn : p?.nameKoShort) ?? '';
+  return biLine((lang, t) => {
+    const F = t.firstVisit;
+    const item = lang === 'en' ? `${FIRST_ERRAND.mod ? `${FIRST_ERRAND.mod} ` : ''}${FIRST_ERRAND.item}` : errand.item_ko;
+    const names = (s: string) => s.replace('{giver}', npcShortName('errand_neighbor', lang)).replace('{cafe}', npcShortName('cafe_owner', lang));
+    if (errand.state === 'offered') return names(F.goalErrand);
+    if (errand.state === 'accepted') return names(F.goalOrder).replace('{item}', item);
+    if (errand.state === 'carrying') return names(F.goalDeliver).replace('{item}', item);
+    return F.goalDone;
+  });
 }

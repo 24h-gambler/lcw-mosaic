@@ -2,9 +2,9 @@
 // promise gives one entry in the nightly-audit regression shape, and cached-only voice 404s are not errors.
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs tools without types
-import { judgeView, playLines, playRegressions } from '../real-play-judge.mjs';
+import { judgeView, playLines, playNotRun, playRegressions } from '../real-play-judge.mjs';
 // @ts-expect-error plain .mjs tools without types
-import { mergePlay } from '../nightly-audit.mjs';
+import { mergePlay, playBudget } from '../nightly-audit.mjs';
 
 /** The shape of a clean 11-18 production run (0cc5ffa, pc). */
 const clean = () => ({
@@ -58,18 +58,35 @@ describe('real-play judgement for the nightly audit', () => {
     }
   });
 
-  it('a run that did not finish, or never tried a talk, is a regression and not a pass', () => {
-    expect(playRegressions({ pc: null })).toEqual([{ id: 'play:not-run', owner: 'world', route: '/world/', sizes: ['1440x900'], why: ['pc: 실플레이 보고서 없음'] }]);
+  it('a run that did not finish is "not checked", never a regression; a run that never tried a talk is a regression', () => {
+    expect(playRegressions({ pc: null })).toEqual([]);
+    expect(playNotRun({ pc: null, touch: clean() }, { pc: { killed: true, code: null } })).toEqual([{ view: 'pc', why: '시간 한도에 멈춤' }]);
+    expect(playNotRun({ touch: null }, { touch: { killed: false, code: 1 } })).toEqual([{ view: 'touch', why: '보고서 없음(종료 코드 1)' }]);
+    expect(playLines({ pc: null })[0]).toContain('확인 안 됨');
     const none = { ...clean(), clickSuccess: '0/0' };
     expect(judgeView(none).map((x: { id: string }) => x.id)).toEqual(['play:click-talk']);
+  });
+
+  it('a passer-by the bot could not get on screen is not checked, not a failure', () => {
+    const r = clean();
+    r.lesson.passer = { ...r.lesson.passer, faced: false, ok: null };
+    expect(judgeView(r)).toEqual([]);
+    expect(playLines({ pc: r })[0]).toContain('확인 안 됨(화면에 못 잡음)');
+  });
+
+  it('a short night skips the play so the screens keep their time', () => {
+    expect(playBudget(10 * 60000)).toBe(0);
+    expect(playBudget(40 * 60000)).toBe(24 * 60000);
+    expect(playBudget(20 * 60000)).toBe(12 * 60000);
   });
 
   it('merges into the audit report: regressions, the play section and the summary lines', () => {
     const rep = { regressions: [{ id: 'X1', owner: 'site', route: '/', sizes: ['d'], why: ['HTTP 500'] }] };
     const bad = { ...clean(), wrongNpc: 1 };
-    const merged = mergePlay(rep, { pc: bad, touch: clean() }, { seconds: 600 });
+    const merged = mergePlay(rep, { pc: bad, touch: null }, { seconds: 600 }, { touch: { killed: true, code: null } });
     expect(merged.regressions.map((r: { id: string }) => r.id)).toEqual(['X1', 'play:wrong-npc']);
     expect(merged.play.lines).toHaveLength(2);
     expect(merged.play.seconds).toBe(600);
+    expect(merged.play.notRun).toEqual([{ view: 'touch', why: '시간 한도에 멈춤' }]);
   });
 });

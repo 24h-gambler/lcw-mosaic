@@ -21,11 +21,15 @@ const ratio = (s) => {
   return m ? { ok: Number(m[1]), tried: Number(m[2]) } : null;
 };
 
-/** Findings of one view's report: [{ id, owner, why }] (empty = all good). */
+/**
+ * Findings of one view's report: [{ id, owner, why }] (empty = all good). A run with no report (stopped at the night's
+ * limit, or the bot stopped) is not judged here: like a screen the audit had no time for, it is "not checked", never a
+ * regression (playNotRun).
+ */
 export function judgeView(r) {
   const f = [];
   const add = (id, why, owner = 'world') => f.push({ id: `play:${id}`, owner, why });
-  if (!r) return [{ id: 'play:not-run', owner: 'world', why: '실플레이 보고서 없음' }];
+  if (!r) return f;
   if ((r.unwantedJumps ?? 0) > 0) add('unwanted-jumps', `누르지 않은 점프·자동 오르기 ${r.unwantedJumps}번`);
   const click = ratio(r.clickSuccess);
   if (!click || click.tried === 0) add('click-talk', `클릭·탭 대화를 한 번도 못 해 봄 (${r.clickSuccess ?? '없음'})`);
@@ -50,7 +54,7 @@ export function judgeView(r) {
     else {
       if (l.reopenByClick === false) add('lesson-reopen', '수업 NPC 클릭·탭으로 접은 창이 다시 안 열림');
       if (l.reopenByKey === false) add('lesson-reopen', '수업 NPC E·말하기 버튼으로 접은 창이 다시 안 열림');
-      if (l.passer && !l.passer.ok) {
+      if (l.passer && l.passer.ok === false) {
         const p = l.passer;
         add('lesson-passer', `수업 중 지나가는 NPC(${p.id}): 표시 ${p.prompt ? '뜸' : '없음'}${p.talkButton ? ' · 말하기 버튼 뜸' : ''} · 대화창 ${p.dialogOpened ? '열림' : '안 열림'} · 조용한 탭 ${p.quietTaps ?? 0} · 접힘 ${p.stillFolded ? '유지' : '풀림'}${p.faced ? '' : ' · NPC를 화면에 못 잡음'}`);
       }
@@ -78,13 +82,20 @@ export function playRegressions(reports, sizes = { pc: '1440x900', touch: '390x8
   return [...by.values()];
 }
 
+/** Views that left no report, with why (`runs` from runPlay: { killed, code }): "not checked", not regressions. */
+export function playNotRun(reports, runs = {}) {
+  return Object.entries(reports)
+    .filter(([, r]) => !r)
+    .map(([view]) => ({ view, why: runs[view]?.killed ? '시간 한도에 멈춤' : `보고서 없음(종료 코드 ${runs[view]?.code ?? '?'})` }));
+}
+
 /** One line per view for the summary (Korean, what the night run measured). */
 export function playLines(reports) {
   return Object.entries(reports).map(([view, r]) => {
-    if (!r) return `- ${view}: 실행 못 함`;
+    if (!r) return `- ${view}: 실행 못 함 — 확인 안 됨(회귀 아님)`;
     const cam = (r.jumpView ?? []).map((j) => j.camRise).join('/');
     const h = r.hill?.ran ? `언덕 ${r.hill.reachedTop ? `오름(높이 ${r.hill.topY})` : '못 오름'}` : '언덕 안 봄';
-    const p = r.lesson?.passer ? `지나가는 NPC ${r.lesson.passer.ok ? '조용' : '문제'}` : '';
+    const p = r.lesson?.passer ? `지나가는 NPC ${r.lesson.passer.ok === null ? '확인 안 됨(화면에 못 잡음)' : r.lesson.passer.ok ? '조용' : '문제'}` : '';
     const les = r.lesson?.started ? `수업 다시 열기 클릭 ${r.lesson.reopenByClick ? '됨' : '안 됨'}·E ${r.lesson.reopenByKey ? '됨' : '안 됨'}` : '수업 안 봄';
     return `- ${view} ${r.size ?? ''}: 클릭 ${r.clickSuccess} · E ${r.keySuccess} · 다른 NPC ${r.wrongNpc ?? 0} · 원치 않은 점프 ${r.unwantedJumps ?? 0} · 점프 시점 ${cam}m · 심부름 ${r.errand?.state ?? '?'} · ${h} · ${les}${p ? ` · ${p}` : ''} · 오류 ${(r.errs ?? []).length} (캐시 전용 음성 404 ${r.ttsCacheMiss ?? 0}, 설계대로) · ${r.seconds ?? '?'}초`;
   });

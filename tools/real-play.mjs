@@ -106,12 +106,18 @@ page.on('response', (r) => {
   } catch {
     return;
   }
+  const fail = (why = '') => {
+    httpFails.push(`${st} ${u.host}${u.pathname}${why}`);
+    errs.push(`http ${st} ${u.host}${u.pathname}${why}`);
+  };
+  // only `tts_not_cached` is the by-design miss: `tts_not_made` / `tts_off` would reach a child too (review of #158)
   if (st === 404 && u.pathname === '/v1/tts' && u.searchParams.get('c') === '1') {
-    ttsCacheMiss++;
+    r.json()
+      .then((b) => (b?.error === 'tts_not_cached' ? ttsCacheMiss++ : fail(` ${b?.error ?? ''}`)))
+      .catch(() => fail());
     return;
   }
-  httpFails.push(`${st} ${u.host}${u.pathname}`);
-  errs.push(`http ${st} ${u.host}${u.pathname}`);
+  fail();
 });
 const T0 = Date.now();
 const log = [];
@@ -279,8 +285,9 @@ async function tryClick(id) {
 
 /** One talk opened by the E key (PC) or the talk button (touch), facing the NPC in reach. */
 async function tryKey(id) {
-  await face(id);
-  counts.keyTry++;
+  // like tryClick: a try counts once the NPC is on screen, or when the dialog opens anyway (E reads the NPC in reach),
+  // so the bot missing the NPC on screen is not a failed talk (review of #158)
+  const faced = await face(id);
   const s = await stats();
   let button = null;
   if (touch) {
@@ -293,12 +300,13 @@ async function tryKey(id) {
   } else await page.keyboard.press('KeyE');
   await page.waitForSelector('.lcw-dlg', { timeout: 1500 }).catch(() => {});
   const ok = (await dlgOpen()) && (await rightNpc(id));
+  if (faced || ok) counts.keyTry++;
   if (ok) counts.keyOk++;
   else if (await dlgOpen()) {
     counts.wrongNpc++;
     await closeDlg();
   }
-  return { ok, near: s?.interact?.near ?? null, goal: s?.interact?.goal ?? null, prompt: s?.interact?.prompt ?? null, why: s?.interact?.promptWhy, paused: s?.interact?.paused, walking: s?.interact?.walking, ...(touch ? { button } : {}) };
+  return { ok, faced: !!faced, near: s?.interact?.near ?? null, goal: s?.interact?.goal ?? null, prompt: s?.interact?.prompt ?? null, why: s?.interact?.promptWhy, paused: s?.interact?.paused, walking: s?.interact?.walking, ...(touch ? { button } : {}) };
 }
 
 async function answer(stars) {
@@ -452,8 +460,12 @@ mark('quiet', { quiet });
 
 // The hill (R2625: no automatic hop onto a whole block any more): from the top down the half-step ramp and back up by
 // keys or the stick only, never pressing jump. The scene walk takes the child to the top (the walk button's own path).
-/** Walk by keys/stick toward (tx, tz), steering every step from the heading the last steps measured. */
-async function walkTo(tx, tz, done) {
+/**
+ * Walk by keys/stick along the line x = lineX toward z = endZ, steering every step from the heading the last steps
+ * measured. It aims at the line a few metres ahead, not at the far end: the ramp is 3 cells wide, and aiming at the top
+ * from the side walked the bot onto the whole-block slope next to it (11-18 runs: stuck at x 151..157).
+ */
+async function walkTo(lineX, endZ, done) {
   let minY = Infinity;
   let maxY = -Infinity;
   let stuck = 0;
@@ -469,6 +481,9 @@ async function walkTo(tx, tz, done) {
     if (done(b)) break;
     if (moved > 0.15) {
       stuck = 0;
+      const dir = Math.sign(endZ - b.z) || 1;
+      const tx = lineX;
+      const tz = Math.abs(endZ - b.z) < 3 ? endZ : b.z + dir * 3;
       let err = Math.atan2(tx - b.x, tz - b.z) - Math.atan2(b.x - a.x, b.z - a.z);
       while (err > Math.PI) err -= 2 * Math.PI;
       while (err < -Math.PI) err += 2 * Math.PI;
@@ -480,7 +495,8 @@ async function walkTo(tx, tz, done) {
       if (++stuck > 5) break;
       await turn(0.6 / RAD_PER_PX);
     }
-    await forward(900);
+    // shorter steps while off the line, so a correction lands before the bot leaves the ramp
+    await forward(Math.abs(b.x - lineX) > 0.8 ? 450 : 900);
     const c = (await stats()).player;
     minY = Math.min(minY, c.y);
     maxY = Math.max(maxY, c.y);
@@ -575,7 +591,8 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
       passer.quietTaps = (s1?.interact?.passerTaps ?? 0) - t0;
       passer.dialogOpened = await dlgOpen();
       passer.stillFolded = (await page.$('[data-testid="lesson-reopen"]')) !== null;
-      passer.ok = passer.faced && passer.near !== passerId && !passer.prompt && !passer.talkButton && passer.quietTaps >= 1 && !passer.dialogOpened && passer.stillFolded;
+      // null when the bot could not get the passer-by on screen: not checked, not a failure (review of #158)
+      passer.ok = !passer.faced ? null : passer.near !== passerId && !passer.prompt && !passer.talkButton && passer.quietTaps >= 1 && !passer.dialogOpened && passer.stillFolded;
       lesson.passer = passer;
       await shot('80b-lesson-passer');
       if (passer.dialogOpened) await fold();

@@ -23,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { bannedIn } from './forbidden-words.mjs';
 import { loadCoverage, runCheck } from './spec-coverage.mjs';
 import { spawn } from 'node:child_process';
-import { playLines, playRegressions } from './real-play-judge.mjs';
+import { playLines, playNotRun, playRegressions } from './real-play-judge.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const VIEWPORTS = [
@@ -61,26 +61,31 @@ export const PLAY_SHARE = 0.6;
 /** the touch run starts a little after the PC one: two device links at the same instant collided once (11-18, 404) */
 const PLAY_STAGGER_MS = 20_000;
 
-/** How long the play may take out of the night's `limitMs`. */
+/** below this night (a slow install ate it) the play is skipped: the screens keep their time and the task its hour */
+export const PLAY_MIN_NIGHT_MS = 15 * 60_000;
+
+/** How long the play may take out of the night's `limitMs` (0 = skip it). */
 export function playBudget(limitMs) {
+  if (limitMs < PLAY_MIN_NIGHT_MS) return 0;
   return Math.min(PLAY_LIMIT_MS, Math.round(limitMs * PLAY_SHARE));
 }
 
 /** Adds the play reports to an audit report: their regressions join the list, `play` keeps the lines and paths. */
-export function mergePlay(rep, reports, extra = {}) {
+export function mergePlay(rep, reports, extra = {}, runs = {}) {
   return {
     ...rep,
     regressions: [...(rep.regressions ?? []), ...playRegressions(reports)],
-    play: { ...extra, lines: playLines(reports), views: Object.fromEntries(Object.entries(reports).map(([v, r]) => [v, r ? { ok: true } : { ok: false }])) }
+    play: { ...extra, lines: playLines(reports), notRun: playNotRun(reports, runs) }
   };
 }
 
 /**
  * Runs tools/real-play.mjs for pc and touch on `base` into `<out>/play-<view>`, both within `limitMs` (a run past it
- * is killed and reported as not run). Resolves to { reports: { pc, touch }, seconds }.
+ * is killed and reported as not run). Resolves to { reports: { pc, touch }, runs: { pc: { killed, code } }, seconds }.
  */
 export async function runPlay({ base, out, limitMs, env = process.env, log = () => {} }) {
   const t0 = Date.now();
+  const runs = {};
   const one = (view, delay) =>
     new Promise((resolve) => {
       setTimeout(() => {
@@ -93,13 +98,21 @@ export async function runPlay({ base, out, limitMs, env = process.env, log = () 
           stdio: ['ignore', logFile, logFile],
           windowsHide: true
         });
+        runs[view] = { killed: false, code: null };
+        child.on('error', (e) => {
+          log(`play ${view}: could not start - ${e.message}`);
+          runs[view].code = 'spawn';
+          resolve(null);
+        });
         const kill = setTimeout(() => {
+          runs[view].killed = true;
           log(`play ${view}: past ${Math.round(limitMs / 60000)} min - stopped`);
           if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
           else child.kill('SIGKILL');
         }, Math.max(60_000, limitMs - delay));
         child.on('exit', (code) => {
           clearTimeout(kill);
+          runs[view].code = code;
           fs.closeSync(logFile);
           const file = path.join(dir, `real-play-${view}.json`);
           let r = null;
@@ -114,7 +127,7 @@ export async function runPlay({ base, out, limitMs, env = process.env, log = () 
       }, delay);
     });
   const [pc, touch] = await Promise.all([one('pc', 0), one('touch', PLAY_STAGGER_MS)]);
-  return { reports: { pc, touch }, seconds: Math.round((Date.now() - t0) / 1000) };
+  return { reports: { pc, touch }, runs, seconds: Math.round((Date.now() - t0) / 1000) };
 }
 
 function arg(name, fallback) {
@@ -511,7 +524,7 @@ export function summaryMarkdown(rep) {
   lines.push(`- 회귀(done 인데 운영에서 안 열림): ${rep.regressions.length} · 열쇠 화면만 확인: ${rep.unverified.length}`);
   if (rep.skippedScreens) lines.push(`- 감사 시간 ${rep.limitMin ?? Math.round(AUDIT_LIMIT_MS / 60000)}분이 넘어 열지 못한 화면 ${rep.skippedScreens}개 — 이번에는 확인 안 됨(done ${rep.notChecked.length}개): ${rep.notChecked.slice(0, 8).map((x) => x.id).join(', ')}${rep.notChecked.length > 8 ? ' …' : ''}`);
   lines.push(`- 디자인: 넘침 ${rep.design.overflow.length} · 금지어 ${rep.design.banned.length} · 내부 번호 노출 ${rep.design.internalIds.length} · keep-all 빠짐 ${rep.design.keepAll.length} · 공통 틀 벗어남 ${rep.design.frame.length}`);
-  if (rep.play) lines.push(`- 아이 실플레이(운영, smoke 학생): ${rep.play.lines.length}개 화면 크기 · 회귀 ${rep.regressions.filter((r) => r.id.startsWith('play:')).length}${rep.play.skipped ? ` · ${rep.play.skipped}` : ''}`);
+  if (rep.play) lines.push(`- 아이 실플레이(운영, smoke 학생): 회귀 ${rep.regressions.filter((r) => r.id.startsWith('play:')).length}${rep.play.notRun?.length ? ` · 확인 안 됨 ${rep.play.notRun.map((x) => `${x.view}(${x.why})`).join(', ')}` : ''}${rep.play.skipped ? ` · ${rep.play.skipped}` : ''}`);
   if (rep.coverageErrors.length) lines.push(`- 목록 오류 ${rep.coverageErrors.length}: ${rep.coverageErrors.slice(0, 3).join(' / ')}`);
   if (rep.regressions.length) {
     lines.push('', '## 회귀');
@@ -558,10 +571,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const t0 = Date.now();
     if (arg('--play', 'on') === 'off') playSkipped = '실플레이 끔(--play off)';
     else if (!process.env.LCW_OPERATOR_TOKEN) playSkipped = '운영자 열쇠 없음 - 실플레이 안 함';
+    else if (!playBudget(limitMs)) playSkipped = `밤 시간 ${Math.round(limitMs / 60000)}분 - 실플레이 건너뜀(15분 미만)`;
     else play = await runPlay({ base, out, limitMs: playBudget(limitMs), log: (m) => console.log(m) });
     const left = Math.max(5 * 60000, limitMs - (Date.now() - t0));
     let rep = await audit({ base, out, chromium, limitMs: left });
-    if (play) rep = mergePlay(rep, play.reports, { seconds: play.seconds });
+    if (play) rep = mergePlay(rep, play.reports, { seconds: play.seconds }, play.runs);
     else rep = { ...rep, play: { lines: [], skipped: playSkipped } };
     fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(rep, null, 2));
     fs.writeFileSync(path.join(out, 'summary.md'), summaryMarkdown(rep));

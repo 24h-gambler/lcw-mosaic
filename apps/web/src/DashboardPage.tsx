@@ -10,6 +10,7 @@ import { Button, TOKENS } from '@lcw/ui';
 import { createFamilyApi, loadGuardianToken, type DashboardPayload, type DashboardWeek, type FamilyApi } from './familyApi.js';
 import { errorCodeOf } from './lessonApi.js';
 import { Box, LessonStyle, Notice, border, sp } from './lessonUi.js';
+import { lessonDayLabel } from './ParentReportPage.js';
 import { PARENT_STRINGS_KO } from './parentStrings.js';
 
 const D = PARENT_STRINGS_KO.dashboard;
@@ -32,11 +33,13 @@ export function weekLabel(ms: number): string {
 const fmt = (n: number) => (Number.isInteger(n) ? n.toLocaleString('ko-KR') : n.toFixed(1));
 
 /** 4-week change of a card value: this week vs the week four weeks earlier (docs/07 §5). */
-export type Change = { kind: 'up' | 'down' | 'flat'; from: number; to: number } | { kind: 'new' } | { kind: 'short' };
+export type Change = { kind: 'up' | 'down' | 'flat'; from: number; to: number } | { kind: 'new' } | { kind: 'none' } | { kind: 'short' };
 
 export function fourWeekChange(now: number | null, before: number | null, flatBand = 0.05): Change {
   if (now === null) return { kind: 'short' };
-  if (before === null || before === 0) return before === 0 && now === 0 ? { kind: 'flat', from: 0, to: 0 } : { kind: 'new' };
+  // Nothing either week: not 'the same as 4 weeks ago', there is simply nothing yet.
+  if (now === 0 && (before === null || before === 0)) return { kind: 'none' };
+  if (before === null || before === 0) return { kind: 'new' };
   const rel = (now - before) / Math.abs(before);
   if (Math.abs(rel) <= flatBand) return { kind: 'flat', from: before, to: now };
   return { kind: rel > 0 ? 'up' : 'down', from: before, to: now };
@@ -52,6 +55,8 @@ export function changeLine(c: Change, unit: string): string {
       return D.lineFlat(`${fmt(c.from)}${unit}`);
     case 'new':
       return D.lineNew;
+    case 'none':
+      return D.lineNone;
     default:
       return D.thinkShort;
   }
@@ -443,7 +448,7 @@ function Ladder({ level }: { level: string }): React.ReactElement {
             color: C['ink-900']
           }}
         >
-          {l}
+          {l.replace(/^L/, '')}
         </li>
       ))}
     </ol>
@@ -669,8 +674,8 @@ export function DashboardView({ data, initialTables = false }: { data: Dashboard
         <Card4
           testId="card-time"
           label={D.cards.time}
-          value={fmt(now.speaking_min)}
-          unit={D.units.min}
+          value={now.speaking_min > 0 && now.speaking_min < 1 ? fmt(Math.round(now.speaking_min * 60)) : fmt(now.speaking_min)}
+          unit={now.speaking_min > 0 && now.speaking_min < 1 ? D.units.sec : D.units.min}
           badge={changeBadge(timeC, D.units.min)}
           line={changeLine(timeC, D.units.min)}
         />
@@ -761,7 +766,7 @@ export function DashboardView({ data, initialTables = false }: { data: Dashboard
         note={D.charts.cumulative.note}
         legend={
           <>
-            <span><Swatch color={C['sky-d']} dashed={false} />실측</span>
+            <span><Swatch color={C['sky-d']} dashed={false} />{D.measured}</span>
             <span><Swatch color={C['sky-d']} dashed />{D.estimate}</span>
           </>
         }
@@ -881,7 +886,9 @@ export function DashboardView({ data, initialTables = false }: { data: Dashboard
             {data.lessons.map((l) => (
               <li key={l.id} style={{ border, borderRadius: px(TOKENS.shape.radiusCardPx), padding: sp(2), display: 'grid', gap: sp(1) }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: sp(2), flexWrap: 'wrap', alignItems: 'baseline' }}>
-                  <strong>{new Date(l.started_at + KST).toISOString().slice(0, 10)}</strong>
+                  <strong>
+                    {lessonDayLabel(new Date(l.started_at + KST).toISOString().slice(0, 10))} {new Date(l.started_at + KST).toISOString().slice(11, 16)}
+                  </strong>
                   {l.ended_at === null ? (
                     <span style={{ ...small, fontWeight: 700, color: C['leaf-d'] }}>{D.lessonLive}</span>
                   ) : l.report_path ? (

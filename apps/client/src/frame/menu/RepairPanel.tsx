@@ -6,9 +6,12 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { UI_STRINGS_KO } from '@lcw/content';
-import { FRAME_STRINGS as F } from '../strings.js';
+import { helpKoOn } from '../../world/lang.js';
+import { thingName } from './collection-names.js';
+import { FRAME_STRINGS as F, FRAME_STRINGS_EN as E } from '../strings.js';
 import { fetchRepairGear, pickRepair, type RepairGearView } from '../api.js';
 import type { MenuPanelProps } from './types.js';
+import { KoHelp } from './ko-help.js';
 import { DialogPanel } from '../../dialog/DialogPanel.js';
 import { createReviewSubmit, type ReviewSignView } from '../../dialog/review.js';
 import { npcForReview } from '../../dialog/ReviewDock.js';
@@ -63,7 +66,7 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
     const r = await pickRepair(auth, it.item_id, fetchImpl);
     setBusy(false);
     if (r.ok) setOpen(r.data);
-    else if (r.error === 'not_due') setResult({ pass: false, text: R.notDue });
+    else if (r.error === 'not_due') setResult({ pass: false, text: F.repairLater });
     else if (r.error === 'mastered') setResult({ pass: false, text: F.repairMastered });
     else setResult({ pass: false, text: F.offline });
   };
@@ -76,7 +79,9 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
         playSfx('mem.fix');
         world?.celebrate(Math.max(0, Math.min(3, Math.round(r.stars))) as 0 | 1 | 2 | 3);
       }
-      setResult({ pass: r.pass, text: r.feedbackKo || (r.pass ? F.repairDone : F.repairAgain) });
+      // the screen line in the learn language; the server's Korean feedback only as the help
+      const fb = helpKoOn() && r.feedbackKo ? ` · ${r.feedbackKo}` : '';
+      setResult({ pass: r.pass, text: `${r.pass ? F.repairDone : F.repairAgain}${fb}` });
     }
     void load();
   };
@@ -103,18 +108,18 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
   return (
     <section>
       <style>{REPAIR_CSS}</style>
-      <h2>{F.repairTitle}</h2>
-      <p className="muted">{F.repairIntro}</p>
-      {props.lessonOn ? <p className="note">{F.repairInLesson}</p> : null}
+      <h2>{E.repairTitle}<KoHelp of={E.repairTitle} /></h2>
+      <p className="muted">{E.repairIntro}<KoHelp of={E.repairIntro} /></p>
+      {props.lessonOn ? <p className="note">{E.repairInLesson}<KoHelp of={E.repairInLesson} /></p> : null}
       {result ? (
         <p className={`lcw-res${result.pass ? '' : ' again'}`} role="status">
           {result.text}
         </p>
       ) : null}
-      {state === 'guest' ? <p className="note">{F.guestNote}</p> : null}
-      {state === 'loading' ? <p className="muted">{F.loading}</p> : null}
-      {state === 'offline' ? <p className="note">{F.offline}</p> : null}
-      {state === 'ready' && items && items.length === 0 ? <p className="note">{F.repairEmpty}</p> : null}
+      {state === 'guest' ? <p className="note">{E.guestNote}<KoHelp of={E.guestNote} /></p> : null}
+      {state === 'loading' ? <p className="muted">{E.loading}<KoHelp of={E.loading} /></p> : null}
+      {state === 'offline' ? <p className="note">{E.offline}<KoHelp of={E.offline} /></p> : null}
+      {state === 'ready' && items && items.length === 0 ? <p className="note">{E.repairEmpty}<KoHelp of={E.repairEmpty} /></p> : null}
       {state === 'ready' && items && items.length > 0 ? (
         <ul className="lcw-repair">
           {items.map((it) => (
@@ -123,7 +128,7 @@ export function RepairPanel(props: MenuPanelProps): React.ReactElement {
                 <span className="e" aria-hidden="true">
                   {it.emoji}
                 </span>
-                <span className="nm">{it.item_name_ko}</span>
+                <span className="nm">{thingName(it.item_key, it.item_name_ko)}</span>
               </div>
               <span className={`st ${it.due ? 'due' : 'later'}`}>{it.due ? `🔧 ${F.repairDue}` : F.repairLater}</span>
               <button type="button" className="btn pri" disabled={!it.due || busy || props.lessonOn} onClick={() => void pick(it)}>

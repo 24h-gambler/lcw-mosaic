@@ -1,9 +1,22 @@
 /**
- * Player-facing Korean strings of the frame domain (docs/08 8.6 G03 G04 G06 G10 G11 G14; AGENTS 6 "문자열").
- * Tone: short 해요체, never blaming (docs/08 10장). No prices, payment or deadlines on a child screen (AGENTS 4.9).
+ * Player-facing strings of the frame domain (docs/08 8.6 G03 G04 G06 G10 G11 G14; AGENTS 6 "문자열"). The screens speak
+ * the language the child learns (Dan 11-16, world/lang.ts; English is the only one open): `FRAME_STRINGS_EN` is what
+ * the screen shows, `FRAME_STRINGS_KO` (same keys) is the Korean help the player can turn on (world/lang.ts helpKoOn).
+ * Tone: short 해요체 / short warm English (A1-A2), never blaming (docs/08 10장). No prices, payment or deadlines on a
+ * child screen (AGENTS 4.9). Never "게임" / "game" (docs/21-glossary.md).
+ *
+ * Two ways to read them, the same as the world HUD (world/strings.ts biTable / joinHelp):
+ * - `FRAME_STRINGS` (F): the English, with the Korean after a dot when the help is on ("Close · 닫기"). Buttons, chips,
+ *   notes in one line, accessible names. Read at the moment of use, never into a module-level constant.
+ * - `FRAME_STRINGS_EN` (E) plus `<KoHelp>` (menu/ko-help.tsx): the English with the Korean on a small line of its own
+ *   under it, for tab labels, titles and hint paragraphs (world/lang.ts `say`).
+ * A function's Korean side is used only when its names come in both languages (`Bi` arguments, e.g. world/strings.ts
+ * nameBi): an English name never gets a Korean particle ("Town Square으로" is never written).
  */
+import { joinHelp } from '../world/strings.js';
+import type { Bi } from '../world/lang.js';
 
-export const FRAME_STRINGS = {
+export const FRAME_STRINGS_KO = {
   menu: '메뉴',
   close: '닫기',
   tabs: {
@@ -70,6 +83,8 @@ export const FRAME_STRINGS = {
   bandLocked: '아직 못 가 본 높이',
   goThere: '여기로 가기',
   goVerb: '가기',
+  /** "중앙 광장으로 가기" — the accessible name of a place button (map-model goLabel). */
+  goTo: (place: string): string => `${withDirection(place)} 가기`,
   mapWorldTitle: '온 세상 9칸',
   mapWorldHint: '칸을 누르면 크게 보여요.',
   mapPlaces: '갈 수 있는 곳',
@@ -237,6 +252,7 @@ export const FRAME_STRINGS = {
   viewChunksTitle: '시야 거리',
   viewChunksHint: '멀리까지 보이면 더 무거워져요.',
   shadowsTitle: '그림자',
+  shadowsHint: '화질 "높음"으로 시작했을 때만 그려져요.',
   renderScaleTitle: '해상도 배율',
   renderScaleHint: '낮추면 조금 흐려지지만 더 부드러워져요.',
   tierDefault: '등급 기본',
@@ -258,6 +274,8 @@ export const FRAME_STRINGS = {
   focusHint: '키보드로 고른 버튼에 굵은 테두리를 늘 보여 줘요.',
   noMicTitle: '마이크 없이 놀기',
   noMicHint: '말하기가 어려운 날엔 대화창의 🧩 단어 카드나 ⌨️ 글자로도 할 수 있어요.',
+  helpKoTitle: '한국어 도움말',
+  helpKoHint: '영어 낱말과 함께 한국어를 보여 줘요.',
   // G14 마이크 점검
   micCheckIntro: '"Hello!" 하고 말해서 마이크가 잘 들리는지 봐요. 언제든 다시 할 수 있어요.',
   micCheckLast: '지난 점검',
@@ -283,4 +301,353 @@ export function withDirection(word: string): string {
   const code = word.trim().slice(-1).charCodeAt(0) - 0xac00;
   const rieul = code >= 0 && code <= 11171 && code % 28 === 8;
   return `${word}${hasBatchim(word) && !rieul ? '으로' : '로'}`;
+}
+
+/** Literal types of the Korean table widened to plain strings (and string arrays), functions kept as they are. */
+type Widen<T> = T extends (...args: infer A) => infer R
+  ? (...args: A) => R
+  : T extends string
+    ? string
+    : T extends object
+      ? { [K in keyof T]: Widen<T[K]> }
+      : T;
+
+/** The shape every screen-language table has (the Korean table is the reference). */
+export type FrameStrings = Widen<typeof FRAME_STRINGS_KO>;
+
+/** English screens (the learn language is English). Short, warm, A1-A2; about as long as the Korean so layouts hold. */
+export const FRAME_STRINGS_EN: FrameStrings = {
+  menu: 'Menu',
+  close: 'Close',
+  tabs: {
+    bag: 'Bag',
+    mirror: 'Mirror',
+    map: 'Map',
+    book: 'Book',
+    repair: 'Repair',
+    settings: 'Settings'
+  },
+  keys: {
+    bag: 'I',
+    map: 'M',
+    book: 'K'
+  },
+  loading: 'Loading…',
+  offline: "The server is away right now. We'll show this when it's back.",
+  guestNote: "You're a guest, so this shows on this device only.",
+  // G03
+  bagTitle: 'Things I carry',
+  bagHint: 'You can carry 5 things. Keep the rest in your home chest.',
+  bagEmpty: 'Nothing here yet. Try ordering in English at a shop!',
+  socketsTitle: 'What I wear',
+  chestTitle: 'Home chest',
+  chestHint: 'The chest has no limit. Things in it can be practised again at the repair shop.',
+  chestEmpty: 'The chest is empty.',
+  toChest: 'Put in chest',
+  toBag: 'Take out',
+  bagFull: 'Your bag is full. Put one thing in the chest and try again.',
+  hold: 'Hold it',
+  needsRepair: 'Needs fixing',
+  mastered: 'Mastered',
+  socketEmpty: 'Empty',
+  sockets: {
+    Head_Socket: 'Head',
+    Body_Socket: 'Body',
+    Back_Socket: 'Back',
+    Feet_Socket: 'Feet',
+    RightHand_Socket: 'Right hand',
+    Mount_Socket: 'Ride'
+  },
+  // G04
+  mirrorTitle: 'Mirror',
+  mirrorHint: 'Drag to turn around.',
+  turnLeft: 'Turn left',
+  turnRight: 'Turn right',
+  wearing: 'Wearing now',
+  // G06
+  mapTitle: 'Map',
+  youAreHere: 'Me',
+  unexplored: 'Not visited yet',
+  unexploredLines: ['Not', 'visited yet'],
+  legend: 'Areas',
+  zoneKinds: {
+    town: 'Town',
+    biome: 'Nature',
+    ruin: 'Ruins',
+    plot: 'My plot'
+  },
+  bandsTitle: 'Height',
+  bandHere: 'You are here',
+  bandLocked: 'A height not visited yet',
+  goThere: 'Go here',
+  goVerb: 'Go',
+  goTo: (place: string): string => `Go to ${place}`,
+  mapWorldTitle: 'All 9 squares',
+  mapWorldHint: 'Tap a square to see it big.',
+  mapPlaces: 'Places to go',
+  mapLessonNote: 'In a lesson, your teacher picks where to go.',
+  mapNorth: 'N',
+  mapBackToMe: 'Show where I am',
+  mapUnexploredDetail: 'Not visited yet. Go there and the map fills in.',
+  mapNoWorld: 'The map shows when the world opens.',
+  mapHereScene: 'You are here',
+  mapNoPlaces: 'No places to go in this square yet.',
+  zones: {
+    core: 'Safe zone',
+    city: 'City',
+    plot: 'My plot',
+    wild: 'Free zone'
+  },
+  legendPlace: 'Places to go',
+  legendYou: 'Me and where I look',
+  bandsAria: 'Height elevator',
+  bandLockedShort: 'Locked',
+  bandsHint: 'For now you can walk on the ground only. Reach a new height once and the plaza elevator stops there.',
+  compass: ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'],
+  mapNow: (place: string, band: string, facing: string): string => `${place} · ${band} · facing ${facing}`,
+  mapSummaryIntro: (total: number, explored: number): string => `This is the map. You have been to ${explored} of all ${total} squares.`,
+  mapSummaryNear: (scene: string): string => `near ${scene}`,
+  mapSummaryHere: (sector: string, near: string, band: string, facing: string): string =>
+    `I am in ${sector}${near ? `, ${near}` : ''}, at ${band}, facing ${facing}.`,
+  mapSummaryPlaces: (names: readonly string[]): string => `You can go to ${names.join(', ')}.`,
+  // G10
+  bookTitle: 'Book',
+  books: {
+    blocks: 'Blocks',
+    minerals: 'Gems',
+    enemies: 'Monsters',
+    food: 'Food',
+    outfits: 'Clothes',
+    expressions: 'Phrases'
+  },
+  bookProgress: (found: number, total: number): string => `${found} / ${total}`,
+  bookNotFound: '?',
+  bookEmptyBook: 'You can fill this book soon.',
+  achievementsTitle: 'Badges',
+  // G11
+  repairTitle: 'Repair shop',
+  repairIntro: 'Pick a thing from your chest and say its sentence again to fix it.',
+  repairEmpty: 'Nothing to fix. When a thing in your chest needs fixing, it shows up here.',
+  repairDue: 'Ready to fix',
+  repairLater: 'Still fine',
+  repairPick: 'Fix this one',
+  repairDone: 'Fixed it!',
+  repairMastered: 'You know this one really well. Pick another thing.',
+  repairAgain: "Let's try again next time",
+  repairInLesson: 'A lesson is on. The repair shop opens again after it.',
+  hintStep: (n: number): string => `Hint ${n}`,
+  // G14
+  settingsTitle: 'Settings',
+  sControls: 'Controls',
+  sSound: 'Sound',
+  sScreen: 'Screen',
+  sAccess: 'Easy use',
+  sMic: 'Mic check',
+  settingsSavedHere: 'Changes work at once and stay on this device.',
+  settingsNotSaved: "This device can't keep them, so they work for this visit only.",
+  on: 'On',
+  off: 'Off',
+  // G14 controls
+  keysTitle: 'Keyboard',
+  keysHint: 'Press "Change", then press the key you want.',
+  keyGroups: { move: 'Move', act: 'Do', menu: 'Menu', build: 'Build' },
+  keyActions: {
+    forward: 'Forward',
+    back: 'Back',
+    left: 'Left',
+    right: 'Right',
+    jump: 'Jump',
+    run: 'Run (hold it)',
+    talk: 'Talk',
+    view: '1st ↔ 3rd person',
+    mirror: 'See me in the mirror',
+    bag: 'Open bag',
+    map: 'Open map',
+    book: 'Open book',
+    rotate: 'Turn block',
+    undo: 'Undo last block',
+    chest: 'Open block chest'
+  },
+  keyFixedTitle: 'Keys that stay',
+  keyFixed: [
+    ['Arrow keys', 'Move'],
+    ['Mouse drag', 'Look around'],
+    ['Mouse wheel', 'Camera distance'],
+    ['1 ~ 5', 'Pick a slot to hold'],
+    ['Esc', 'Close a window']
+  ],
+  rebind: 'Change',
+  rebindWait: 'Press the key you want',
+  rebindCancel: 'Cancel',
+  rebindReserved: (k: string): string => `${k} already has a job. Pick another key.`,
+  rebindSwapped: (k: string, other: string): string => `${k} was for '${other}', so the two keys swapped.`,
+  rebindDone: (k: string, action: string): string => `Now ${k} does '${action}'.`,
+  keysReset: 'Reset keys',
+  keyNames: {
+    Space: 'Space',
+    ShiftLeft: 'Left Shift',
+    ShiftRight: 'Right Shift',
+    ControlLeft: 'Left Ctrl',
+    ControlRight: 'Right Ctrl',
+    AltLeft: 'Left Alt',
+    AltRight: 'Right Alt',
+    Tab: 'Tab',
+    CapsLock: 'Caps Lock',
+    Backspace: 'Backspace',
+    Backquote: '`',
+    Minus: '-',
+    Equal: '=',
+    BracketLeft: '[',
+    BracketRight: ']',
+    Backslash: '\\',
+    Semicolon: ';',
+    Quote: "'",
+    Comma: ',',
+    Period: '.',
+    Slash: '/'
+  },
+  touchTitle: 'Touch screen',
+  touchGuide: ['Drag the left half to move.', 'Drag an empty spot on the right to look around.', 'Talk and Jump are at the bottom right.'],
+  lookTitle: 'Looking around',
+  lookMouseTitle: 'Mouse drag speed',
+  lookTouchTitle: 'Finger drag speed',
+  invertYTitle: 'Flip up and down',
+  invertYHint: 'Drag up to look down.',
+  slow: 'Slow',
+  fast: 'Fast',
+  micModeTitle: 'Mic button when talking',
+  micModeToggle: 'Press once to start, press again when done',
+  micModeHold: 'Listens only while you hold it',
+  micModeHint: 'Works for the mic button and the Space key.',
+  micHoldRelease: 'Let go to finish',
+  // G14 sound
+  volTitles: { master: 'All sounds', music: 'Music and nature', effects: 'Sound effects', voice: 'Voices' },
+  volHint: 'In lessons, friends and teachers follow "Voices".',
+  volTry: 'Listen',
+  npcVoiceTitle: 'Town voices',
+  voiceRateTitle: 'Talking speed',
+  voiceRateNames: { '0.6': 'Very slow', '0.7': 'Slow', '0.8': 'A bit slow', '0.9': 'A bit slow', '1': 'Normal', '1.1': 'A bit fast', '1.2': 'Fast' },
+  neuralTitle: 'Natural voices',
+  neuralHint: "On: each person talks in a human-like voice. Off: this device's own voice talks.",
+  volTryLine: 'Hello! Nice to meet you.',
+  volMuted: 'Off',
+  // G14 screen
+  textSizeTitle: 'Text size',
+  textSizeHint: 'Menu and talk window text grow together.',
+  textSizeSample: 'Hi! Can I have a cookie, please?',
+  motionTitle: 'Less motion',
+  motionHint: 'Fewer shakes, sparkles and pop-up effects.',
+  motionDevice: 'Same as this device',
+  qualityTitle: 'Picture quality',
+  qualityHint: 'Changes next time you start. If the screen gets choppy, set it lower.',
+  qualityHintLive: 'Changes right away. If the screen gets choppy, set it lower.',
+  qualities: { auto: 'Auto', low: 'Low', mid: 'Medium', high: 'High' },
+  qualityNow: (q: string): string => `Now: ${q}`,
+  qualityAutoNow: (q: string): string => `Auto (now: ${q})`,
+  viewChunksTitle: 'How far you see',
+  viewChunksHint: 'Seeing farther makes it heavier.',
+  shadowsTitle: 'Shadows',
+  shadowsHint: 'Drawn only when you start on "High".',
+  renderScaleTitle: 'Sharpness',
+  renderScaleHint: 'Lower is a little blurry but smoother.',
+  tierDefault: 'Default',
+  qualityRestart: 'Start again now',
+  fpsTitle: 'Show frames per second (FPS)',
+  fpsHint: 'A number shows at the bottom right.',
+  // G14 easy use
+  readableTitle: 'Easy-to-read letters',
+  readableHint: 'Changes to a clearer letter shape.',
+  readableSample: 'b d p q · I l 1 · O 0',
+  assistTitle: 'Colour help',
+  assistHint: 'If red and green look alike, the OK and careful colours change.',
+  assistOk: 'OK',
+  assistWarn: 'Careful',
+  syllableTitle: 'Show English syllables',
+  syllableHint: 'Puts a dot between the syllables of the sentence to say.',
+  syllableSample: 'ba·na·na',
+  focusTitle: 'Big outline on the picked button',
+  focusHint: 'Always shows a thick outline on the button picked with the keyboard.',
+  noMicTitle: 'Play without a mic',
+  noMicHint: 'On days when talking is hard, use the 🧩 word cards or ⌨️ typing in the talk window.',
+  helpKoTitle: 'Korean help',
+  helpKoHint: 'Shows Korean under the menu words.',
+  // G14 mic check
+  micCheckIntro: 'Say "Hello!" to see if the mic hears you well. You can do it again any time.',
+  micCheckLast: 'Last check',
+  micCheckNever: 'Not yet',
+  micCheckStatus: { ok: 'Heard you well', quiet: 'It was a bit quiet', none: "Couldn't use the mic", skipped: 'Skipped' },
+  micCheckStart: 'Check the mic',
+  micCheckTips: ['Talk close to the mic in a quiet place.', 'If the browser asks about the mic, press "Allow".', 'A headset helps it hear you better.']
+};
+
+/** Words that go into other lines or tiny spots (compass words, key names, the two-line cell): English only. */
+const NO_HELP: ReadonlySet<string> = new Set(['compass', 'unexploredLines', 'keyNames', 'keys']);
+
+function isBi(v: unknown): v is Bi {
+  return typeof v === 'object' && v !== null && typeof (v as Bi).en === 'string' && typeof (v as Bi).ko === 'string';
+}
+const LATIN = /[A-Za-z]/;
+
+/**
+ * The live table: every string answers the English, joined with its Korean while the help is on (world/strings.ts
+ * joinHelp); nested tables and string lists the same way. A function gets each side its own arguments: a `Bi` gives
+ * `.en` to the English and `.ko` to the Korean; while any plain argument holds Latin letters (an English name or key)
+ * the Korean side is left out, so a Korean particle never lands on an English word.
+ */
+/** A string list (or a list of string pairs) with each item joined to the Korean at the same place. */
+function joinList(en: readonly unknown[], ko: unknown): unknown[] {
+  const k = Array.isArray(ko) ? ko : [];
+  return en.map((x, i) => (typeof x === 'string' ? joinHelp(x, typeof k[i] === 'string' ? (k[i] as string) : undefined) : Array.isArray(x) ? joinList(x, k[i]) : x));
+}
+
+/** True for an English-only name: a Latin string, or a list holding one (a `Bi` brings its own Korean). */
+function latinArg(x: unknown): boolean {
+  if (typeof x === 'string') return LATIN.test(x);
+  if (Array.isArray(x)) return x.some(latinArg);
+  return x === undefined;
+}
+
+function frameTable<T extends object>(en: T, ko: unknown): T {
+  const k = (ko ?? {}) as Record<PropertyKey, unknown>;
+  return new Proxy(en, {
+    get(target, key) {
+      const e = (target as Record<PropertyKey, unknown>)[key];
+      // only the table's own entries are words (not toString, constructor, symbols)
+      if (typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(target, key) || NO_HELP.has(key)) return e;
+      const kv = k[key];
+      if (typeof e === 'string') return joinHelp(e, typeof kv === 'string' ? kv : undefined);
+      if (typeof e === 'function') {
+        const fn = (...a: unknown[]): string => {
+          const text = String((e as (...x: unknown[]) => unknown)(...a.map((x) => (isBi(x) ? x.en : x))));
+          // an English-only name (also inside a list) or a missing argument keeps the Korean sentence out
+          if (typeof kv !== 'function' || a.length < (e as (...x: unknown[]) => unknown).length || a.some(latinArg)) return text;
+          return joinHelp(text, String((kv as (...x: unknown[]) => unknown)(...a.map((x) => (isBi(x) ? x.ko : x)))));
+        };
+        Object.defineProperty(fn, 'length', { value: (e as (...x: unknown[]) => unknown).length });
+        return fn;
+      }
+      if (Array.isArray(e)) return joinList(e, kv);
+      if (e && typeof e === 'object') return frameTable(e as object, kv);
+      return e;
+    }
+  }) as T;
+}
+
+/** A function of the live table takes each name as one string or as both sides (`Bi`). */
+type BiArgs<A> = { [I in keyof A]: A[I] extends string ? string | Bi : A[I] };
+export type LiveFrameStrings<T = FrameStrings> = T extends (...a: infer A) => infer R
+  ? (...a: BiArgs<A>) => R
+  : T extends readonly unknown[]
+    ? T
+    : T extends object
+      ? { [K in keyof T]: LiveFrameStrings<T[K]> }
+      : T;
+
+/** The live strings (see the header): English, the Korean help joined after a dot while it is on. */
+export const FRAME_STRINGS: LiveFrameStrings = frameTable(FRAME_STRINGS_EN, FRAME_STRINGS_KO) as LiveFrameStrings;
+
+/** Both sides of one frame string: `bi((t) => t.keyActions.jump)` -> { en: 'Jump', ko: '점프' }. */
+export function frameBi(get: (t: FrameStrings) => string | undefined): Bi {
+  const en = get(FRAME_STRINGS_EN) ?? '';
+  return { en, ko: get(FRAME_STRINGS_KO as FrameStrings) ?? en };
 }

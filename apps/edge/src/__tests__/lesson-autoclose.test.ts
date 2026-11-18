@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformDO, workerHandler, type LcwEnv } from '../platform.js';
-import { FEEDBACK_EN, FEEDBACK_KO, LCW_SITE_ORIGIN, LESSON_IDLE_CLOSE_MS, LESSON_SWEEP_CRON, TEACHER_PRESENT_MS } from '../lesson-mode.js';
+import {
+  FEEDBACK_EN,
+  FEEDBACK_KO,
+  LCW_SITE_ORIGIN,
+  LESSON_EMPTY_GRACE_MS,
+  LESSON_IDLE_CLOSE_MS,
+  LESSON_SWEEP_CRON,
+  TEACHER_PRESENT_MS
+} from '../lesson-mode.js';
 import { mergeLessonParentFacts, type LessonParentFacts } from '../parent-report.js';
 import { fakeDurableStorage } from './fake-do.js';
 
@@ -181,7 +189,8 @@ describe('abandoned lessons close by themselves (cron sweep)', () => {
     now = T0;
     const p = platform();
     await addStudent(p);
-    const { lessonId } = await startLesson(p);
+    const { lessonId, st } = await startLesson(p);
+    await say(p, st);
     now += LESSON_IDLE_CLOSE_MS + TEACHER_PRESENT_MS;
     const dry = await call(p, 'POST', '/v1/admin/lessons/sweep-idle', { dry_run: true });
     expect(dry.body).toMatchObject({ open: 1, closed: [], dry_run: true, idle: [{ lesson_id: lessonId, test: false }] });
@@ -237,19 +246,76 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     expect((await call(p, 'GET', '/v1/admin/lessons/live')).body.auto_closed).toEqual([]);
   });
 
-  it('the child never came: closed as empty, no card, no box row, and the next start is a fresh lesson', async () => {
+  it('the child never came: open for the grace hour while the code works, then closed as empty, no card, no box row', async () => {
     now = T0;
     const p = platform();
     await addStudent(p);
     const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1', presence: true });
     const lessonId = s.body.lesson_id as string;
-    now += LESSON_IDLE_CLOSE_MS + TEACHER_PRESENT_MS;
+    // the teacher closed the console right away; the child is late
+    now = T0 + LESSON_EMPTY_GRACE_MS - 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([]);
+    now = T0 + LESSON_EMPTY_GRACE_MS + 60_000;
     const r = await cron(p);
     expect(r.body.lessons.cards).toEqual([{ lesson_id: lessonId, card: 'empty' }]);
     expect(await cardActions(p, lessonId)).toBeNull();
     expect((await call(p, 'GET', '/v1/admin/lessons/live')).body.auto_closed).toEqual([]);
     const again = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1', presence: true });
     expect(again.body.continues_from).toBeNull();
+  });
+
+  it('a late child within the grace hour joins and the lesson runs (the code was never closed)', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1', presence: true });
+    now = T0 + 40 * 60_000;
+    await cron(p);
+    const j = await call(p, 'POST', '/v1/join', { code: s.body.join_code }, { 'content-type': 'application/json' });
+    expect(j.status).toBe(200);
+    const st = { authorization: `Bearer ${j.body.student_token}`, 'content-type': 'application/json' };
+    expect((await say(p, st)).status).toBe(200);
+    now += LESSON_IDLE_CLOSE_MS - 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([]);
+  });
+
+  it("1PC '선생님 나가기': the child's screen and answers keep the lesson open; it closes 15 min after the last of them", async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await say(p, st);
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {})).status).toBe(200);
+    // 40 minutes alone: the child keeps talking and the screen keeps polling
+    for (let m = 1; m <= 40; m++) {
+      now = T0 + m * 60_000;
+      await call(p, 'GET', '/v1/lesson/state', undefined, st);
+      if (m % 5 === 0) await say(p, st);
+      if (m % 5 === 0) expect((await cron(p)).body.lessons.closed).toEqual([]);
+    }
+    const last = now;
+    now = last + LESSON_IDLE_CLOSE_MS - 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([]);
+    now = last + LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(last);
+  });
+
+  it("1PC '선생님 나가기': a console still open on the lesson keeps it open even with the child's screen gone", async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await say(p, st);
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {});
+    for (let m = 1; m <= 30; m++) {
+      now = T0 + m * 60_000;
+      const b = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { source: 'console' });
+      expect(b.body.left).toBe(true); // still not 'present' for the child's screen
+    }
+    expect((await cron(p)).body.lessons.closed).toEqual([]);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
   });
 
   it('a possession is a sign of life', async () => {
@@ -262,6 +328,25 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     sqlOf(p).all('insert or replace into lesson_director (lesson_id, possessed_npc_id, updated_at) values (?, ?, ?)', [lessonId, 'cafe_owner', now]);
     now += 2 * 60_000;
     expect((await cron(p)).body.lessons.closed).toEqual([]);
+  });
+});
+
+describe('SQL that runs on Cloudflare', () => {
+  it('no compound SELECT has more than five terms (workerd refuses it; the test SQLite does not)', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const dir = fileURLToPath(new URL('..', import.meta.url));
+    const offenders: string[] = [];
+    for (const f of readdirSync(dir).filter((x) => x.endsWith('.ts'))) {
+      const src = readFileSync(join(dir, f), 'utf8');
+      // each SQL literal (backtick or quote) on its own: count the UNION / INTERSECT / EXCEPT joints inside it
+      for (const m of src.matchAll(/`[^`]*`|'[^'\n]*'|"[^"\n]*"/g)) {
+        const joints = (m[0].match(/\b(union(\s+all)?|intersect|except)\s+select\b/gi) ?? []).length;
+        if (joints + 1 > 5) offenders.push(`${f}: ${joints + 1} terms`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -384,18 +469,35 @@ describe('mergeLessonParentFacts', () => {
     coaching_moments: 0,
     stages: [],
     summary_ko: '',
+    previous: null,
+    home_practice: [],
     ...o
   });
   it('adds counts, spans first start to last end, keeps limits and rebuilds the one-liner', () => {
-    const a = part({ started_at: 1000, ended_at: 2000, duration_min: 5, utterances: 2, passes: 2, speaking_sec: 4, longest_words: 6, expressions: ['Can I have'], stages: [{ id: 's1', title_ko: '카페', utterances: 2, passes: 2 }], quotes: [{ text: 'A b', stars: 1, mode: 'echo', stage_title_ko: '', hintless: false }] });
-    const b = part({ started_at: 9000, ended_at: 9900, duration_min: 4, utterances: 1, passes: 1, speaking_sec: 2, longest_words: 4, expressions: ['can I have.', 'Thank you'], stages: [{ id: 's1', title_ko: '카페', utterances: 1, passes: 1 }], quotes: [{ text: 'C d', stars: 3, mode: 'echo', stage_title_ko: '', hintless: true }] });
+    const a = part({ started_at: 1000, ended_at: 2000, duration_min: 5, utterances: 2, passes: 2, speaking_sec: 4, longest_words: 6, expressions: ['Can I have'], stages: [{ id: 's1', title_ko: '카페', main: true, utterances: 2, passes: 2 }], quotes: [{ text: 'A b', stars: 1, mode: 'echo', stage_title_ko: '', hintless: false }] });
+    const b = part({ started_at: 9000, ended_at: 9900, duration_min: 4, utterances: 1, passes: 1, speaking_sec: 2, longest_words: 4, expressions: ['can I have.', 'Thank you'], stages: [{ id: 's1', title_ko: '카페', main: true, utterances: 1, passes: 1 }], quotes: [{ text: 'C d', stars: 3, mode: 'echo', stage_title_ko: '', hintless: true }] });
     const m = mergeLessonParentFacts([b, a])!;
     expect(m).toMatchObject({ started_at: 1000, ended_at: 9900, duration_min: 9, utterances: 3, passes: 3, speaking_sec: 6, longest_words: 6, lesson_number: 3 });
     expect(m.expressions).toEqual(['Can I have', 'Thank you']);
-    expect(m.stages).toEqual([{ id: 's1', title_ko: '카페', utterances: 3, passes: 3 }]);
+    expect(m.stages).toEqual([{ id: 's1', title_ko: '카페', main: true, utterances: 3, passes: 3 }]);
     expect(m.quotes.map((q) => q.text)).toEqual(['A b', 'C d']);
     expect(m.summary_ko).toBe('이번 수업에서 영어로 3번 말했고 그중 3번 통과했습니다. 직접 말한 시간은 6초입니다.');
     expect(mergeLessonParentFacts([])).toBeNull();
+  });
+  it('compares with the lesson before the first part and picks home sentences from every part', () => {
+    const before = { utterances: 4, passes: 3, speaking_sec: 10, free_words: 0 };
+    // The second part's 'previous' is the first part (same day): the merged report must not compare with itself.
+    const a = part({ started_at: 1000, previous: before, home_practice: ['Can I have a warm honey tea?'] });
+    const b = part({
+      started_at: 9000,
+      previous: { utterances: 2, passes: 2, speaking_sec: 4, free_words: 0 },
+      home_practice: ['Can I have a warm honey tea, please?', 'I want to trade my apple.']
+    });
+    const m = mergeLessonParentFacts([b, a])!;
+    expect(m.previous).toEqual(before);
+    // One sentence inside another counts once; at most two.
+    expect(m.home_practice).toEqual(['Can I have a warm honey tea?', 'I want to trade my apple.']);
+    expect(mergeLessonParentFacts([part({ started_at: 5, previous: null })])!.previous).toBeNull();
   });
 });
 

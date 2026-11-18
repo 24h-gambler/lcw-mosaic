@@ -43,6 +43,13 @@ export interface LessonStage {
   id: string;
   order: number;
   titleKo: string;
+  /** The stage as a parent reads it on the report (no step number, no teacher terms like 고정 과제·회상). */
+  parentKo?: string;
+  /**
+   * The practice scene itself (cafe, shop), not warm-up, recall or wrap-up: the report names only these under
+   * '오늘 한 것' and builds '집에서 해 볼 것' from the busiest one (R2625 review: warm-up was shown as the home scene).
+   */
+  parentMain?: boolean;
   minutes: number;
   mode: LessonUtteranceMode;
   /** What the teacher does now and how the platform helps — shown on the director console. */
@@ -79,6 +86,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       id: 'warmup_anchor',
       order: 1,
       titleKo: '① 인사와 고정 과제',
+      parentKo: '선생님과 인사하고 내 이야기 하기',
       minutes: 15,
       mode: 'free',
       teacherGuideKo:
@@ -106,6 +114,8 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       id: 'cafe_order',
       order: 2,
       titleKo: '② 카페 주문 (1성 → 3성)',
+      parentKo: '카페에서 음료 주문하기',
+      parentMain: true,
       minutes: 25,
       mode: 'guided',
       teacherGuideKo:
@@ -133,6 +143,8 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       id: 'trade_roleplay',
       order: 3,
       titleKo: '③ 선생님과 물물교환 역할극',
+      parentKo: '선생님과 물건 바꾸기 놀이',
+      parentMain: true,
       minutes: 25,
       mode: 'guided',
       teacherGuideKo:
@@ -164,6 +176,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       id: 'open_question',
       order: 4,
       titleKo: '④ 열린 질문',
+      parentKo: '질문에 자유롭게 대답하기',
       minutes: 20,
       mode: 'free',
       teacherGuideKo:
@@ -191,6 +204,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       id: 'recall_today',
       order: 5,
       titleKo: '⑤ 오늘 표현 회상 (힌트 없이)',
+      parentKo: '오늘 배운 문장 떠올리기',
       minutes: 20,
       mode: 'recall',
       teacherGuideKo:
@@ -217,6 +231,7 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       id: 'wrap_up',
       order: 6,
       titleKo: '⑥ 마무리와 다음 수업 예고',
+      parentKo: '마무리',
       minutes: 15,
       mode: 'free',
       teacherGuideKo:
@@ -252,6 +267,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       id: 'recall_last',
       order: 1,
       titleKo: '① 지난 수업 문장 떠올리기',
+      parentKo: '지난 수업 문장 떠올리기',
       minutes: 15,
       mode: 'recall',
       teacherGuideKo:
@@ -279,6 +295,8 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       id: 'shop_idea',
       order: 2,
       titleKo: '② 빈 땅에 지을 가게 정하기',
+      parentKo: '내 가게 정하기',
+      parentMain: true,
       minutes: 20,
       mode: 'guided',
       teacherGuideKo:
@@ -306,6 +324,8 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       id: 'buy_materials',
       order: 3,
       titleKo: '③ 상점에서 재료 사기',
+      parentKo: '상점에서 재료 사기',
+      parentMain: true,
       minutes: 25,
       mode: 'guided',
       teacherGuideKo:
@@ -333,6 +353,8 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       id: 'open_shop',
       order: 4,
       titleKo: '④ 가게 문 열기 (아이가 주인)',
+      parentKo: '내 가게에서 손님 맞기',
+      parentMain: true,
       minutes: 25,
       mode: 'guided',
       teacherGuideKo:
@@ -360,6 +382,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       id: 'open_question',
       order: 5,
       titleKo: '⑤ 열린 질문',
+      parentKo: '질문에 자유롭게 대답하기',
       minutes: 15,
       mode: 'free',
       teacherGuideKo:
@@ -386,6 +409,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       id: 'recall_today',
       order: 6,
       titleKo: '⑥ 오늘 표현 회상 (힌트 없이)',
+      parentKo: '오늘 배운 문장 떠올리기',
       minutes: 12,
       mode: 'recall',
       teacherGuideKo:
@@ -410,6 +434,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       id: 'wrap_up',
       order: 7,
       titleKo: '⑦ 마무리와 다음 수업 예고',
+      parentKo: '마무리',
       minutes: 8,
       mode: 'free',
       teacherGuideKo:

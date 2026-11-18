@@ -37,7 +37,11 @@ describe('public text filter (quotes, expressions)', () => {
     'call me at home please',
     'I am nine years old',
     'my phone is 010-1234-5678',
-    '꿀차 please'
+    '꿀차 please',
+    // A name at the start of the sentence (#131 review: the capital check skipped the first word).
+    'Jiwoo, can I have a warm tea?',
+    'Minseo likes cookies',
+    'Hannuri is my favorite place'
   ])('blocks %s', (t) => {
     expect(publicSafeText(t, names)).toBe(false);
   });
@@ -46,7 +50,12 @@ describe('public text filter (quotes, expressions)', () => {
     'I want a jetpack so that I can fly to school',
     "I'm hungry so I want a sandwich",
     'I like playing soccer on Sunday',
-    'I am happy because it is warm'
+    'I am happy because it is warm',
+    'Hello, can I have a cookie?',
+    'Thank you so much',
+    "Let's trade my apple",
+    'Here you are',
+    'Warm milk please'
   ])('allows %s', (t) => {
     expect(publicSafeText(t, names)).toBe(true);
   });
@@ -84,7 +93,8 @@ describe('public facts are an allow-list', () => {
     expect(out.progress).toEqual({ student_ms: 1000, exchanges: 4, mode_breakdown: { free: 2, guided: 1 } });
     expect(out.lesson.quotes.map((q: any) => q.text)).toEqual(['Can I have a warm honey tea']);
     expect(out.lesson.expressions).toEqual(['so that']);
-    expect(out.lesson.stages[0]).toEqual({ id: 'cafe_order', title_ko: '카페 주문', utterances: 2, passes: 1 });
+    // A report stored before parentKo/parentMain: the plan's parent wording and its scene flag come back by stage id.
+    expect(out.lesson.stages[0]).toEqual({ id: 'cafe_order', title_ko: '카페에서 음료 주문하기', main: true, utterances: 2, passes: 1 });
     expect(out.lesson.raw).toBeUndefined();
   });
 

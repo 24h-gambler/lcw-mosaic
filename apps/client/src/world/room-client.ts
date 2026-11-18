@@ -7,7 +7,8 @@
  * child plays alone, and the connection retries with a growing pause. A full room says "방이 가득 찼어요" once and
  * stops trying for a while.
  */
-import { TUNING } from '@lcw/sim-core';
+import { MAX_TURN_RATE, TUNING, predictPose } from '@lcw/sim-core';
+import { peerMotionOf } from './peer-motion.js';
 
 export interface RoomPoseSource {
   /** x, y, z, yaw, anim of the local player (null while the world is not ready) */
@@ -18,7 +19,8 @@ export interface RoomSink {
   hello(you: string, peers: ReadonlyArray<{ id: string; name: string; role: string; pose: readonly number[] }>): void;
   join(id: string, name: string, role: string): void;
   leave(id: string): void;
-  pose(id: string, x: number, y: number, z: number, yaw: number, anim: number): void;
+  /** vx, vz: ground velocity (m/s) to carry the figure along until the next pose (0 when standing or an old client) */
+  pose(id: string, x: number, y: number, z: number, yaw: number, anim: number, vx?: number, vz?: number, w?: number): void;
   emote(id: string, e: string): void;
   full(cap: number): void;
   /** this person opened the world in another tab, which now holds the seat (close 4009): this tab stays alone */
@@ -53,8 +55,16 @@ export interface RoomClientOptions {
   clearTimer?: (h: unknown) => void;
 }
 
-const MIN_MOVE = 0.03;
-const MIN_TURN = 0.03;
+/** under this ground speed (m/s) the sender counts as standing (no velocity sent) */
+const STILL_SPEED = 0.2;
+/** a walking direction this far (rad) from the predicted one, or a pace change this large (m/s), goes out at once */
+const SWERVE_RAD = 0.6;
+/** the steady rate older pages were drawn for (until everyone has the pose budget) */
+const LEGACY_POSE_HZ = 5;
+const SWERVE_SPEED = 1.5;
+/** height change (m) that goes out even when the ground prediction holds (steps, a jump) */
+const ERR_Y = 0.6;
+const wrapAngle = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 /** after "full": try again in 60 s (someone may have left) */
 const FULL_RETRY_MS = 60_000;
 /** no token yet (a lesson joined after the world opened): look again locally, no request */
@@ -76,6 +86,17 @@ export class RoomClient {
   private timer: unknown = null;
   private poseTimer: unknown = null;
   private lastSent: readonly number[] | null = null;
+  /** velocity sent with lastSent (the receivers move the figure along it) */
+  private lastV: readonly [number, number, number] = [0, 0, 0];
+  /** smoothed turn rate of the walking direction (rad/s) */
+  private turn = 0;
+  private tokens: number = TUNING.multi.poseBurst;
+  private tokensAt = 0;
+  private prevSample: { x: number; z: number; t: number; h: number | null } | null = null;
+  /** where the others are (last pose + velocity), to send less often to a room where nobody is near */
+  /** others on a page from before the pose budget (proto 1): while any is here, poses go at the old steady rate */
+  private legacy = new Set<string>();
+  private otherPos = new Map<string, { x: number; z: number; vx: number; vz: number; w: number; t: number }>();
   private lastSentAt = 0;
   private seq = 0;
   private toldFull = false;
@@ -188,7 +209,7 @@ export class RoomClient {
     this.room = ticket.room;
     const loc = typeof location !== 'undefined' ? location : null;
     const origin = base || (loc ? `${loc.protocol}//${loc.host}` : '');
-    const url = `${origin.replace(/^http/, 'ws')}${ticket.connect}?t=${encodeURIComponent(ticket.ticket)}`;
+    const url = `${origin.replace(/^http/, 'ws')}${ticket.connect}?t=${encodeURIComponent(ticket.ticket)}&v=2`;
     let ws: SocketLike;
     try {
       ws = this.o.socket ? this.o.socket(url) : (new WebSocket(url) as unknown as SocketLike);
@@ -238,6 +259,14 @@ export class RoomClient {
         this.toldFull = false;
         const peers = ((f.peers as unknown[][]) ?? []).map((p) => ({ id: String(p[0]), name: String(p[1]), role: String(p[2]), pose: p.slice(3) as number[] }));
         this.others = new Set(peers.map((p) => p.id));
+        this.legacy = new Set(peers.filter((p) => p.pose[5] !== 2).map((p) => p.id));
+        this.prevSample = null;
+        this.otherPos.clear();
+        for (const p of peers) {
+          const [x, , z] = p.pose as number[];
+          const v = peerMotionOf(p.pose);
+          if (typeof x === 'number' && typeof z === 'number') this.otherPos.set(p.id, { x, z, vx: v.vx, vz: v.vz, w: v.w, t: this.now - v.ageMs });
+        }
         sink.hello(String(f.you), peers);
         this.lastSent = null;
         this.tickPose();
@@ -245,6 +274,7 @@ export class RoomClient {
       }
       case 'join':
         this.others.add(String(f.id));
+        if (f.v !== 2) this.legacy.add(String(f.id));
         sink.join(String(f.id), String(f.name), String(f.role));
         // the newcomer only knows where I stood when I last moved (nothing is sent while alone): tell them now
         this.lastSent = null;
@@ -252,10 +282,19 @@ export class RoomClient {
         break;
       case 'leave':
         this.others.delete(String(f.id));
+        this.legacy.delete(String(f.id));
+        this.otherPos.delete(String(f.id));
         sink.leave(String(f.id));
         break;
       case 'poses':
-        for (const p of (f.p as unknown[][]) ?? []) sink.pose(String(p[0]), p[1] as number, p[2] as number, p[3] as number, p[4] as number, p[5] as number);
+        for (const p of (f.p as unknown[][]) ?? []) {
+          const id = String(p[0]);
+          const vx = typeof p[7] === 'number' ? p[7] : 0;
+          const vz = typeof p[8] === 'number' ? p[8] : 0;
+          const w = typeof p[9] === 'number' ? p[9] : 0;
+          this.otherPos.set(id, { x: p[1] as number, z: p[3] as number, vx, vz, w, t: this.now });
+          sink.pose(id, p[1] as number, p[2] as number, p[3] as number, p[4] as number, p[5] as number, vx, vz, w);
+        }
         break;
       case 'e':
         sink.emote(String(f.id), String(f.e));
@@ -271,28 +310,92 @@ export class RoomClient {
   }
 
   /**
-   * Pose loop, checked poseTickHz times a second: a pose goes out when moved or turned, at most poseHz a second,
-   * except a change of animation (start, stop, jump) which goes at once. Alone in the room nothing is sent; a plain
-   * "ping" keep-alive every idleKeepaliveMs keeps the socket.
+   * Pose loop, checked poseTickHz times a second (docs/02 §11.3 request budget). The receivers carry a figure along
+   * its last velocity, so a pose goes out only when that prediction is off: the position by more than poseErrM (or
+   * poseErrFarM when nobody is within poseNearM), the yaw by poseYawRad (far: poseYawFarRad), the height by 0.6 m, the
+   * animation changed (start, stop, jump), or poseRefreshMs passed while moving. A token bucket (poseBurst, refilled
+   * poseBudgetHz a second) caps the average whatever the walking, and poseHz the burst. Standing still or alone in
+   * the room nothing is sent; a plain "ping" keep-alive every idleKeepaliveMs keeps the socket.
    */
   private tickPose(): void {
     this.cancel(this.poseTimer);
     this.poseTimer = this.later(() => this.tickPose(), 1000 / TUNING.multi.poseTickHz);
     const ws = this.ws;
     if (!ws || ws.readyState !== 1 || this.status !== 'in') return;
+    const T = TUNING.multi;
     const p = this.others.size > 0 ? this.o.source.pose() : null;
     const now = this.now;
+    this.tokens = Math.min(T.poseBurst, this.tokens + (Math.max(0, now - this.tokensAt) / 1000) * T.poseBudgetHz);
+    this.tokensAt = now;
     if (p) {
+      // velocity from what the player actually did since the last tick (a frozen tab reads 0, not its last speed)
+      const prev = this.prevSample;
+      let vx = 0;
+      let vz = 0;
+      let h: number | null = null;
+      if (prev && now > prev.t) {
+        const dt = (now - prev.t) / 1000;
+        vx = (p[0] - prev.x) / dt;
+        vz = (p[2] - prev.z) / dt;
+        const sp = Math.hypot(vx, vz);
+        if (sp < STILL_SPEED || sp > T.maxPoseSpeed) vx = vz = 0;
+        else {
+          h = Math.atan2(vx, vz);
+          // how fast the walking direction turns, smoothed over a few ticks (a circle, a curve along a path)
+          const w = prev.h === null ? 0 : wrapAngle(h - prev.h) / dt;
+          this.turn += (Math.max(-MAX_TURN_RATE, Math.min(MAX_TURN_RATE, w)) - this.turn) * 0.5;
+        }
+      }
+      if (h === null) this.turn = 0;
+      this.prevSample = { x: p[0], z: p[2], t: now, h };
       const l = this.lastSent;
-      const animChanged = !l || p[4] !== l[4];
-      const moved =
-        animChanged || Math.abs(p[0] - l![0]!) > MIN_MOVE || Math.abs(p[1] - l![1]!) > MIN_MOVE || Math.abs(p[2] - l![2]!) > MIN_MOVE || Math.abs(p[3] - l![3]!) > MIN_TURN;
-      const due = animChanged || now - this.lastPoseAt >= 1000 / TUNING.multi.poseHz - 1;
-      if (moved && due) {
+      let send = !l; // nothing sent yet, or a newcomer who must see me
+      let free = send;
+      // tokens needed: 1 for a drift, 0 for a sharp turn (borrows one), -1 for a start, stop or jump (borrows two);
+      // the average stays within the budget, the debt is paid back first
+      let need = 1;
+      if (l) {
+        const age = Math.min(now - this.lastPoseAt, T.poseHorizonMs) / 1000;
+        const [px, pz] = predictPose(l[0]!, l[2]!, this.lastV[0], this.lastV[1], this.lastV[2], age);
+        const ex = p[0] - px;
+        const ez = p[2] - pz;
+        const far = this.nearestOther(p[0], p[2], now) > T.poseNearM;
+        const moving = vx !== 0 || vz !== 0 || p[4] !== 0;
+        const stopped = !moving && (this.lastV[0] !== 0 || this.lastV[1] !== 0);
+        // a sharp turn or a change of pace: the others would keep drawing the old line
+        const lsp = Math.hypot(this.lastV[0], this.lastV[1]);
+        const sp = Math.hypot(vx, vz);
+        const swerve =
+          sp > 0 && lsp > 0 && (Math.abs(wrapAngle(Math.atan2(vx, vz) - Math.atan2(this.lastV[0], this.lastV[1]) - this.lastV[2] * age)) > SWERVE_RAD || Math.abs(sp - lsp) > SWERVE_SPEED);
+        const started = (vx !== 0 || vz !== 0) && this.lastV[0] === 0 && this.lastV[1] === 0;
+        const err = Math.hypot(ex, ez);
+        const errM = far ? T.poseErrFarM : T.poseErrM;
+        need = p[4] !== l[4] || stopped || started ? -1 : swerve || err > errM * 3 ? 0 : 1;
+        send =
+          need < 1 ||
+          err > errM ||
+          Math.abs(p[1] - l[1]!) > ERR_Y ||
+          // facing is predicted too (it turns with the walking direction on the receivers)
+          Math.abs(wrapAngle(p[3] - (l[3]! + this.lastV[2] * age))) > (far ? T.poseYawFarRad : T.poseYawRad) ||
+          (moving && now - this.lastPoseAt >= T.poseRefreshMs);
+        free = false;
+        // someone on an older page eases toward the last pose only: keep the old steady 5 Hz for them
+        if (this.legacy.size > 0) {
+          const movedAtAll = p[4] !== l[4] || Math.hypot(p[0] - l[0]!, p[2] - l[2]!) > 0.03 || Math.abs(p[1] - l[1]!) > 0.03 || Math.abs(wrapAngle(p[3] - l[3]!)) > 0.03;
+          send = movedAtAll && (p[4] !== l[4] || now - this.lastPoseAt >= 1000 / LEGACY_POSE_HZ - 1);
+          free = send;
+        }
+      }
+      const due = now - this.lastPoseAt >= 1000 / T.poseHz - 1;
+      if (send && (free || (due && this.tokens >= need))) {
+        if (!free) this.tokens -= 1;
         this.seq++;
-        ws.send(JSON.stringify({ t: 'p', p: [p[0], p[1], p[2], p[3], p[4], this.seq] }));
+        const r2 = (n: number): number => Math.round(n * 100) / 100;
+        const w = vx === 0 && vz === 0 ? 0 : Math.round(this.turn * 1000) / 1000;
+        ws.send(JSON.stringify({ t: 'p', p: [p[0], p[1], p[2], p[3], p[4], this.seq, r2(vx), r2(vz), w] }));
         this.posesSent++;
         this.lastSent = p;
+        this.lastV = [r2(vx), r2(vz), w];
         this.lastSentAt = now;
         this.lastPoseAt = now;
         return;
@@ -302,6 +405,18 @@ export class RoomClient {
       ws.send('ping');
       this.lastSentAt = now;
     }
+  }
+
+  /** Distance to the nearest other person (their last pose carried along its velocity); Infinity when unknown. */
+  private nearestOther(x: number, z: number, now: number): number {
+    let best = Infinity;
+    for (const id of this.others) {
+      const o = this.otherPos.get(id);
+      if (!o) return 0; // someone not placed yet: treat as near
+      const [ox, oz] = predictPose(o.x, o.z, o.vx, o.vz, o.w, Math.min(now - o.t, TUNING.multi.poseHorizonMs) / 1000);
+      best = Math.min(best, Math.hypot(ox - x, oz - z));
+    }
+    return best;
   }
 
   emote(e: string): void {

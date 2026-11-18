@@ -413,8 +413,7 @@ export function buildLessonModeApp(
   const teacherCols = d.sql.all<{ name: string }>('pragma table_info(lesson_teacher)').map((col) => col.name);
   if (!teacherCols.includes('left_at')) d.sql.exec('alter table lesson_teacher add column left_at integer');
   if (!teacherCols.includes('account_name')) d.sql.exec('alter table lesson_teacher add column account_name text');
-  // A console's beat after the teacher left on purpose (1PC "선생님 나가기"): not presence, but a sign of life for the
-  // idle sweep (the console is still open on the lesson).
+  // Kept from PR 140 (a console's beat after the 1PC leave); no longer written: a console only open is not activity.
   if (!teacherCols.includes('console_seen_at')) d.sql.exec('alter table lesson_teacher add column console_seen_at integer');
   const presenceCols = d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').map((col) => col.name);
   if (!presenceCols.includes('mic_issue')) d.sql.exec('alter table lesson_presence add column mic_issue text');
@@ -754,7 +753,11 @@ export function buildLessonModeApp(
   };
 
   /**
-   * The last sign of life of a running lesson: its start, the child's poll or answer, the console, a director act.
+   * The last real activity of a running lesson: its start, the child's screen (poll) or answer, and the teacher's own
+   * acts — a line or an event (lesson_live), a possession, a stage move, a pin. A console that is only open is not
+   * activity: its beat (lesson_teacher) does not count (coordinator 11-18 — Oreo's console tab beat until 23:25 and
+   * kept a 25-minute lesson "running" for 7 hours, its draft saying 422 minutes). The child's side after the 1PC
+   * '선생님 나가기' still counts, as the child's.
    * One row of scalar subqueries, not a UNION: Cloudflare's SQLite refuses a compound SELECT of more than five terms
    * ("too many terms in compound SELECT", measured on workerd 11-16; the test SQLite allows it — see the invariant
    * test in lesson-autoclose.test.ts).
@@ -762,14 +765,16 @@ export function buildLessonModeApp(
   const lastActivityOf = (id: string, startedAt: number): number => {
     const r = d.sql.get<Record<string, number | null>>(
       `select (select max(last_seen_at) from lesson_presence where lesson_id = ?) as presence,
-              (select max(max(last_beat_at, coalesce(left_at, 0), coalesce(console_seen_at, 0))) from lesson_teacher where lesson_id = ?) as teacher,
               (select max(at) from lesson_live where lesson_id = ?) as live,
               (select max(at) from lesson_stage_log where lesson_id = ?) as stage,
               (select max(updated_at) from lesson_director where lesson_id = ?) as director,
-              (select max(created_at) from utterances where session_id = ?) as utterance`,
+              (select max(created_at) from utterances where session_id = ?) as utterance,
+              (select max(at_ms) from pins where lesson_id = ?) as pin_ms`,
       [id, id, id, id, id, id]
     );
-    return Math.max(startedAt, ...Object.values(r ?? {}).map((v) => Number(v ?? 0)));
+    const { pin_ms: pinMs, ...at } = r ?? {};
+    // a pin's at_ms counts from the lesson's start
+    return Math.max(startedAt, ...Object.values(at).map((v) => Number(v ?? 0)), pinMs == null ? 0 : startedAt + Number(pinMs));
   };
 
   type AutoRow = { lesson_id: string; closed_at: number; last_activity_at: number; draft: string; sent_at: number | null; folded_into: string | null; empty: number };
@@ -851,8 +856,33 @@ export function buildLessonModeApp(
     return { lesson_id: id, card };
   };
 
+  /**
+   * Auto-closed lessons whose report is not sent yet, closed while a console beat still counted as activity: their end,
+   * last activity and draft move back to the last real activity (lastActivityOf). Runs on every sweep; a row already
+   * right is left alone, so it is safe to repeat.
+   */
+  const reclampAutoClosed = (dryRun: boolean): Array<{ lesson_id: string; ended_at: number; was: number }> => {
+    const rows = d.sql.all<{ lesson_id: string; last_activity_at: number; started_at: number; ended_at: number }>(
+      `select a.lesson_id, a.last_activity_at, l.started_at, l.ended_at from lesson_auto_close a join lessons l on l.id = a.lesson_id
+       where a.sent_at is null and a.folded_into is null and l.ended_at is not null`
+    );
+    const out: Array<{ lesson_id: string; ended_at: number; was: number }> = [];
+    for (const row of rows) {
+      const last = lastActivityOf(row.lesson_id, row.started_at);
+      const endAt = Math.max(row.started_at, Math.min(last, row.ended_at));
+      if (endAt >= row.ended_at) continue;
+      out.push({ lesson_id: row.lesson_id, ended_at: endAt, was: row.ended_at });
+      if (dryRun) continue;
+      d.sql.run('update lessons set ended_at = ? where id = ?', [endAt, row.lesson_id]);
+      const draft = { facts: buildLessonParentFacts(d.sql, row.lesson_id, endAt), progress: progressOf(row.lesson_id, minutesOf(row.lesson_id, endAt)) };
+      d.sql.run('update lesson_auto_close set last_activity_at = ?, draft = ? where lesson_id = ?', [last, JSON.stringify(draft), row.lesson_id]);
+    }
+    return out;
+  };
+
   /** The cron sweep (platform.ts /internal/cron) and the operator's on-demand run share this. */
   const sweepIdleLessons = (now: number, origin: string | null, dryRun = false) => {
+    const reclamped = reclampAutoClosed(dryRun);
     const open = d.sql.all<{ id: string; player_id: string; started_at: number }>(
       'select id, player_id, started_at from lessons where ended_at is null order by started_at limit 200'
     );
@@ -867,7 +897,7 @@ export function buildLessonModeApp(
       idle.push({ lesson_id: l.id, test: isTestPlayerId(l.player_id), last_activity_at: last, idle_min: Math.floor((now - last) / 60_000) });
     }
     const outcomes = dryRun ? [] : idle.map((x) => autoCloseLesson(x.lesson_id, x.last_activity_at, now, origin)).filter((x) => x !== null);
-    return { open: open.length, idle, closed: outcomes.map((x) => x.lesson_id), cards: outcomes, dry_run: dryRun };
+    return { open: open.length, idle, closed: outcomes.map((x) => x.lesson_id), cards: outcomes, reclamped, dry_run: dryRun };
   };
 
   app.post('/v1/admin/lessons/sweep-idle', async (c) => {
@@ -1027,7 +1057,6 @@ export function buildLessonModeApp(
     const left = d.sql.get<{ left_at: number | null }>('select left_at from lesson_teacher where lesson_id = ?', [id])?.left_at ?? null;
     // The teacher left on purpose: a console or an unlocked panel still beating does not bring them back.
     if (left !== null && !p.data.resume) {
-      d.sql.run('update lesson_teacher set console_seen_at = ? where lesson_id = ?', [now, id]);
       return c.json({ teacher: teacherOf(id, now), left: true, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
     }
     beat(id, now, fromPanel ? p.data.panel : p.data.resume ? 'open' : null, c.req.header('x-lcw-op-session') ?? null, p.data.name);

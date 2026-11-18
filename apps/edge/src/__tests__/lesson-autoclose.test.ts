@@ -301,21 +301,80 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(last);
   });
 
-  it("1PC '선생님 나가기': a console still open on the lesson keeps it open even with the child's screen gone", async () => {
+  it('a console that is only open is not activity: it closes 15 min after the last real activity and ends there (Oreo 11-16)', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    now = T0 + 2 * 60_000;
+    await say(p, st);
+    now = T0 + 25 * 60_000; // the child's last poll (17:03 KST)
+    await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    const lastReal = now;
+    // the console tab stays open all evening and beats every minute (before and after a 1PC leave)
+    for (let m = 26; m <= 60; m++) {
+      now = T0 + m * 60_000;
+      if (m === 40) await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {});
+      await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { source: 'console' });
+      if (m === 39) expect((await cron(p)).body.lessons.closed).toEqual([]);
+      if (m === 41) expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+    }
+    const l = sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!;
+    expect(l.ended_at).toBe(lastReal);
+    const draft = JSON.parse(sqlOf(p).get<{ draft: string }>('select draft from lesson_auto_close where lesson_id = ?', [lessonId])!.draft);
+    expect(draft.facts.duration_min).toBe(25);
+  });
+
+  it("the teacher's own acts are activity: a line to the child, a pin", async () => {
     now = T0;
     const p = platform();
     await addStudent(p);
     const { lessonId, st } = await startLesson(p);
     await say(p, st);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {});
-    for (let m = 1; m <= 30; m++) {
-      now = T0 + m * 60_000;
-      const b = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { source: 'console' });
-      expect(b.body.left).toBe(true); // still not 'present' for the child's screen
-    }
+    now += LESSON_IDLE_CLOSE_MS - 60_000;
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/npc-say`, { npc_id: 'cafe_owner', text: 'Are you still there?' })).status).toBeLessThan(300);
+    now += 2 * 60_000;
     expect((await cron(p)).body.lessons.closed).toEqual([]);
-    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    now += LESSON_IDLE_CLOSE_MS - 60_000;
+    const atMs = now - T0;
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'coaching', at_ms: atMs, note: 'slow down' })).status).toBe(201);
+    now += 2 * 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([]);
+    now += LESSON_IDLE_CLOSE_MS;
     expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+  });
+
+  it('an unsent auto-closed lesson closed while console beats counted is pulled back to its last real activity', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    now = T0 + 3 * 60_000;
+    await say(p, st);
+    now = T0 + 25 * 60_000;
+    await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    const lastReal = now;
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    await cron(p);
+    // what the old rule wrote: the console's beat dragged the end to 23:40 KST (422 minutes after the start)
+    const late = T0 + 422 * 60_000;
+    sqlOf(p).all('update lessons set ended_at = ? where id = ?', [late, lessonId]);
+    sqlOf(p).all('update lesson_auto_close set last_activity_at = ? where lesson_id = ?', [late, lessonId]);
+    now = late + 30 * 60_000;
+    const dry = await call(p, 'POST', '/v1/admin/lessons/sweep-idle', { dry_run: true });
+    expect(dry.body.reclamped).toEqual([{ lesson_id: lessonId, ended_at: lastReal, was: late }]);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(late);
+    const r = await cron(p);
+    expect(r.body.lessons.reclamped).toEqual([{ lesson_id: lessonId, ended_at: lastReal, was: late }]);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(lastReal);
+    const a = sqlOf(p).get<{ draft: string; last_activity_at: number }>('select draft, last_activity_at from lesson_auto_close where lesson_id = ?', [lessonId])!;
+    expect(a.last_activity_at).toBe(lastReal);
+    expect(JSON.parse(a.draft).facts.duration_min).toBe(25);
+    // the next sweep leaves it alone; the teacher's send reports 25 minutes
+    expect((await cron(p)).body.lessons.reclamped).toEqual([]);
+    const sent = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { send: true });
+    expect(sent.status).toBe(200);
+    expect(sent.body.facts.lesson.duration_min).toBe(25);
   });
 
   it('a possession is a sign of life', async () => {

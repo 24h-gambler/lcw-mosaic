@@ -438,7 +438,7 @@ async function run(vp) {
     const last = beacons.at(-1);
     envelope = last ? JSON.parse(last.body) : null;
     if (!envelope) fails.push(`${vp.name}: no result sent`);
-    else if (envelope.activities.length !== 4) fails.push(`${vp.name}: envelope has ${envelope.activities.length} activities`);
+    else if (envelope.activities.length !== Number(process.env.MAXCH || 4)) fails.push(`${vp.name}: envelope has ${envelope.activities.length} activities`);
     if (!LIVE && !dayFetches.some((u) => /days\/2026-11-16/.test(u))) fails.push(`${vp.name}: day file not fetched`);
     if (LIVE && !results.some((r) => r.status === 200)) fails.push(`${vp.name}: live result POST not answered 200 (${results.map((r) => r.status).join(',')})`);
   }

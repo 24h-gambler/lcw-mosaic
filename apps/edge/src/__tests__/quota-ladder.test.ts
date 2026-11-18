@@ -35,7 +35,7 @@ const setQuota = (call: (path: string, init?: RequestInit) => Promise<Response>,
 describe('WP-112: limit 0 still completes the order from the bank', () => {
   it('bank only at limit 0: the solo order is scored, charged and granted; understand answers from the bank; no AI call', async () => {
     let aiCalls = 0;
-    const { p, call } = await setup({ AI: { run: async () => { aiCalls++; return {}; } } });
+    const { p, call } = await setup({ BUILD_SHA: 'test', AI: { run: async () => { aiCalls++; return {}; } } });
     const tok = await linkChild(p, call);
 
     const set = await setQuota(call, { daily_neurons: 0 });
@@ -95,7 +95,7 @@ describe('the degrade ladder on the platform object (docs/02 5장)', () => {
 
   it('stage 1 keeps creative AI for lessons only; stage 3 stops it for everyone; the meter counts before calling', async () => {
     let calls = 0;
-    const { p } = await setup({ AI: { run: async () => { calls++; return {}; } } });
+    const { p } = await setup({ BUILD_SHA: 'test', AI: { run: async () => { calls++; return {}; } } });
     p.quota.consumeNeurons('x', 7_000, 'llm'); // 70%
     expect(await p.runAiCapped('m', {} as never)).toBeNull();
     expect(await p.runAiCapped('m', {} as never, { isLesson: true })).not.toBeNull();
@@ -108,7 +108,7 @@ describe('the degrade ladder on the platform object (docs/02 5장)', () => {
 
   it('a running lesson holds the last 3,000 neurons: solo AI stops at the reserve, the lesson keeps it', async () => {
     let calls = 0;
-    const { p, call } = await setup({ AI: { run: async () => { calls++; return {}; } } });
+    const { p, call } = await setup({ BUILD_SHA: 'test', AI: { run: async () => { calls++; return {}; } } });
     // limit 5,000 with 2,500 used: stage 0 (50%), but only 2,500 remain, under the 3,000 lesson share
     await setQuota(call, { daily_neurons: 5_000 });
     p.quota.consumeNeurons('x', 2_500, 'llm');

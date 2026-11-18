@@ -87,8 +87,9 @@ export interface LcwEnv {
   /** Neural NPC voice (tts.ts): "on" serves /v1/tts to players; anything else keeps the device voice (default off). */
   TTS_NEURAL?: string;
   /**
-   * "on" lets a local `wrangler dev` origin call Workers AI (aiForRequest). Off by default: the binding is the real
-   * account's even in local dev. Pass `--var LCW_LOCAL_AI:on` only for a check that needs a real model answer.
+   * "on" lets a Worker without `BUILD_SHA` (a local `wrangler dev`) call Workers AI (workersAi). Off by default: the
+   * binding is the real account's even in local dev. Pass `--var LCW_LOCAL_AI:on` only for a check that needs a real
+   * model answer.
    */
   LCW_LOCAL_AI?: string;
   /** Cloudflare Realtime SFU app for live lesson listening (lesson-audio.ts). Both unset → the window is text only. */
@@ -326,7 +327,8 @@ export class PlatformDO {
       "select used from quota_daily where day = ? and k = 'ai_calls'",
       [day]
     )?.used ?? 0;
-    if (used >= AI_DAILY_CALL_CAP || !this.env.AI) return null;
+    const ai = workersAi(this.env);
+    if (used >= AI_DAILY_CALL_CAP || !ai) return null;
     const now = Date.now();
     this.quota.setScheduledLessons(activeLessonStarts(this.sql, now));
     const seatId = opts.seatId ?? 'server';
@@ -336,7 +338,7 @@ export class PlatformDO {
       "insert into quota_daily (day, k, used) values (?, 'ai_calls', 1) on conflict(day, k) do update set used = used + 1",
       [day]
     );
-    return this.env.AI.run(model, input);
+    return ai.run(model, input);
   }
 
   private ensureDemo(): void {
@@ -646,27 +648,18 @@ function utcDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-/** A request to a local `wrangler dev` (localhost, 127.0.0.1, ::1, 0.0.0.0, *.localhost). */
-export function isLocalOrigin(url: string): boolean {
-  let host: string;
-  try {
-    host = new URL(url).hostname.toLowerCase();
-  } catch {
-    return false;
-  }
-  return host === 'localhost' || host.endsWith('.localhost') || host === '0.0.0.0' || host === '[::1]' || host === '::1' || /^127\./.test(host);
-}
-
 /**
- * The Workers AI binding for one request. Under `wrangler dev` the AI binding is always the real Cloudflare account
- * while the meter is the local object's, so a lane's local checks spent the production day unseen (R2627, 11-16:
- * 38 Aura lines, 2,287 neurons, at 02 UTC with no production voice request; the account counted 18,327 neurons
- * against the meter's 8,555). A local origin gets no AI, so the client keeps the device voice and the board, unless
- * `LCW_LOCAL_AI=on`.
+ * The Workers AI binding, or none outside a deploy. Under `wrangler dev` the AI binding is always the real Cloudflare
+ * account while the meter is the local object's, so a lane's local checks spent the production day unseen (R2627,
+ * 11-16: the talk lane's prebuild on 127.0.0.1:8954 at 05:59 UTC, and 38 Aura lines at 02 UTC with no production
+ * voice request; the account counted 18,327 neurons against the meter's 8,555). The request URL cannot tell: with the
+ * custom-domain route wrangler dev rewrites url and Host to the production host. Only a deploy sets `BUILD_SHA`
+ * (`pnpm deploy:edge`), so without it there is no AI unless `LCW_LOCAL_AI=on`; the clients then keep the device voice
+ * and the board. Every AI call in this file takes the binding from here (a test keeps it that way).
  */
-export function aiForRequest(env: Pick<LcwEnv, 'AI' | 'LCW_LOCAL_AI'>, req: Request): AiBinding | undefined {
+export function workersAi(env: Pick<LcwEnv, 'AI' | 'BUILD_SHA' | 'LCW_LOCAL_AI'>): AiBinding | undefined {
   if (!env.AI) return undefined;
-  if (isLocalOrigin(req.url) && env.LCW_LOCAL_AI !== 'on') return undefined;
+  if (!env.BUILD_SHA && env.LCW_LOCAL_AI !== 'on') return undefined;
   return env.AI;
 }
 
@@ -869,21 +862,21 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     }
     // smoke-check and demo students spend only the operator and test share (OPS_SHARE)
     const quota = () => (isTestPlayerId(playerId) ? platform.quota.opsView() : platform.quota);
-    return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota, ai: aiForRequest(env, c.req.raw), nowMs: () => Date.now() });
+    return handleServerStt(c.req.raw, { player_id: playerId, lesson: Boolean(student) }, { quota, ai: workersAi(env), nowMs: () => Date.now() });
   });
   // Neural NPC voice (tts.ts): cached lines for anyone, new fixed lines through the meter, other text only for a
   // child's own token; off unless TTS_NEURAL=on (the operator may always try and prebuild).
   // `ops`: operator and smoke/demo traffic spends only the operator and test share (OPS_SHARE, R2627); the cron's
-  // prebuild is the service's own and stays on the day. `req`: a local `wrangler dev` origin gets no AI (aiForRequest).
-  const ttsDeps = (req?: Request, ops = false): TtsDeps => ({
+  // prebuild is the service's own and stays on the day. No deploy (local `wrangler dev`): no AI (workersAi).
+  const ttsDeps = (ops = false): TtsDeps => ({
     enabled: env.TTS_NEURAL === 'on',
     quota: () => (ops ? platform.quota.opsView() : platform.quota),
-    ai: req ? aiForRequest(env, req) : env.AI,
+    ai: workersAi(env),
     store: env.VOICE as TtsDeps['store'],
     nowMs: () => Date.now(),
     sha256Hex
   });
-  app.get('/v1/tts/status', (c) => ttsStatus(ttsDeps(c.req.raw)));
+  app.get('/v1/tts/status', (c) => ttsStatus(ttsDeps()));
   app.get('/v1/tts', async (c) => {
     const operator = isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN);
     const student = operator ? null : await platform.studentFromRequest(c.req.raw);
@@ -891,7 +884,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const playerId = student?.player_id ?? device?.player_id ?? null;
     // smoke-check and demo students hear cached lines only (they never spend the day's neurons)
     const cachedOnly = !!playerId && isTestPlayerId(playerId);
-    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student), cachedOnly }, ttsDeps(c.req.raw, operator));
+    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student), cachedOnly }, ttsDeps(operator));
   });
   // Operator measurement: one uncached synthesis with its time (engine/voice choice, docs/04 4.8).
   app.post('/v1/admin/tts/try', async (c) => {
@@ -899,7 +892,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const body = (await c.req.json().catch(() => null)) as { voice?: string; text?: string } | null;
     const voice = parseTryVoice(body?.voice);
     const text = normalizeTtsText(body?.text ?? '');
-    const ai = aiForRequest(env, c.req.raw);
+    const ai = workersAi(env);
     if (!voice || !text || !ai) return c.json({ error: 'voice_text_ai_required' }, 400);
     // through the meter like every AI call (AGENTS 4.8), from the operator and test share only (11-16: two tries
     // spent 289 neurons the meter never saw)
@@ -916,7 +909,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const body = (await c.req.json().catch(() => ({}))) as { budget_neurons?: number; voice?: string };
     // the operator and test share only (R2627: one call here took the day from 2,957 to 8,122); the full set is the
     // hourly cron's (00 UTC and the 23 UTC leftovers)
-    const r = await prebuildFixedLines(ttsDeps(c.req.raw, true), { budgetNeurons: body.budget_neurons, voice: body.voice });
+    const r = await prebuildFixedLines(ttsDeps(true), { budgetNeurons: body.budget_neurons, voice: body.voice });
     return c.json({ ...r, ops: platform.quota.opsStatus() });
   });
   // My plot (WP-207): the child's own home world, from the same tokens. Building alone is solo play, so a linked

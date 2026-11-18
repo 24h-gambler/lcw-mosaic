@@ -72,13 +72,22 @@ describe('operator and test share (OPS_SHARE, R2627)', () => {
     expect(m.opsStatus()).toEqual({ used: OPS_SHARE.dailyNeurons, limit: OPS_SHARE.dailyNeurons, left: 0 });
   });
 
-  it('never takes the day past stage 1, nor spends in an outage or a bank-only day', () => {
+  it('never takes the day to stage 1 nor into the lesson reserve, nor spends in an outage or a bank-only day', () => {
     const m = new QuotaMeter('2026-11-16', 10_000);
     m.consumeNeurons('child', 6_900, 'tts');
-    expect(m.opsStatus().left).toBe(100);
-    expect(m.opsView().consumeNeurons(OPS_SHARE.seat, 101, 'tts')).toBe(false);
-    expect(m.opsView().consumeNeurons(OPS_SHARE.seat, 100, 'tts')).toBe(true);
-    expect(m.getStatus(0).neuronsUsed).toBe(7_000);
+    expect(m.opsStatus().left).toBe(99);
+    expect(m.opsView().consumeNeurons(OPS_SHARE.seat, 100, 'tts')).toBe(false); // would make exactly 70%
+    expect(m.opsView().consumeNeurons(OPS_SHARE.seat, 99, 'tts')).toBe(true);
+    expect(m.getStatus(0).neuronsUsed).toBe(6_999);
+    expect(m.getStatus(0).stage).toBe(0);
+    expect(m.opsStatus().left).toBe(0);
+    // a lowered daily limit: the lesson reserve (3,000) is the tighter line, not 70%
+    const low = new QuotaMeter('2026-11-16', 5_000);
+    low.consumeNeurons('child', 1_900, 'tts');
+    expect(low.opsStatus().left).toBe(99);
+    expect(low.opsView().consumeNeurons(OPS_SHARE.seat, 100, 'tts')).toBe(false);
+    expect(low.opsView().consumeNeurons(OPS_SHARE.seat, 99, 'tts')).toBe(true);
+    expect(5_000 - low.getStatus(0).neuronsUsed).toBeGreaterThan(FREE_TIER_LIMITS.lessonReserveNeurons);
     const out = new QuotaMeter('2026-11-16', 10_000);
     out.setProviderOutage(true);
     expect(out.opsView().consumeNeurons(OPS_SHARE.seat, 1, 'stt', 1)).toBe(false);

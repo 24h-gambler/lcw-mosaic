@@ -2,26 +2,28 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { OPS_SHARE, ttsNeurons } from '@lcw/quota';
 import { FIRST_ERRAND, NPC_OPENING_LINES, ttsVoiceId, voiceForCtx } from '@lcw/content';
-import { PlatformDO, aiForRequest, isLocalOrigin, type LcwEnv } from '../platform.js';
+import { readFileSync, readdirSync } from 'node:fs';
+import { PlatformDO, workersAi, type LcwEnv } from '../platform.js';
 import { fakeDurableStorage } from './fake-do.js';
 
 /**
  * R2627 (11-16): one operator prebuild at 16:02 KST made 48 Aura-2 lines (5,100 neurons) and took the day from 2,957
  * to 8,122, so the children's new lines went back to the device voice. Operator and smoke/demo traffic now spends a
- * small share of its own (OPS_SHARE), the operator try goes through the meter, and a local `wrangler dev` origin
- * (whose AI binding is the real account) gets no AI.
+ * small share of its own (OPS_SHARE), the operator try goes through the meter, and a Worker without a deploy's
+ * BUILD_SHA (a local `wrangler dev`, whose AI binding is the real account) gets no AI.
  */
 
 const TOKEN = 'op-token-0123456789abcdef';
 const op = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
 
-function setup(opts: { origin?: string; localAi?: string } = {}) {
+function setup(opts: { deployed?: boolean; localAi?: string } = {}) {
   const calls: Array<{ model: string; input: Record<string, unknown> }> = [];
   const store = new Map<string, Uint8Array>();
   const env = {
     PLATFORM: undefined as never,
     LCW_OPERATOR_TOKEN: TOKEN,
     TTS_NEURAL: 'on',
+    BUILD_SHA: opts.deployed === false ? undefined : 'eb975ed',
     LCW_LOCAL_AI: opts.localAi,
     AI: {
       run: async (model: string, input: unknown) => {
@@ -42,8 +44,8 @@ function setup(opts: { origin?: string; localAi?: string } = {}) {
     }
   } as unknown as LcwEnv;
   const p = new PlatformDO({ storage: fakeDurableStorage() }, env);
-  const origin = opts.origin ?? 'https://lcw.test';
-  const call = (path: string, init: RequestInit = {}) => p.fetch(new Request(`${origin}${path}`, init));
+  // wrangler dev rewrites the URL to the route's host, so a local run looks like this too
+  const call = (path: string, init: RequestInit = {}) => p.fetch(new Request(`https://lcw.worldwidesomething.com${path}`, init));
   const device = async (playerId: string) => {
     await call('/v1/admin/players', { method: 'POST', headers: op, body: JSON.stringify({ family_id: `fam-${playerId}`, guardian_id: 'g', player_id: playerId, nickname: playerId, level: 'L1' }) });
     const tok = `${playerId}-`.padEnd(48, 't');
@@ -135,17 +137,14 @@ describe('operator and test share (R2627)', () => {
     expect(p.quota.opsStatus().used).toBe(0);
   });
 
-  it('a local wrangler dev origin gets no AI unless LCW_LOCAL_AI=on (the binding is the real account)', async () => {
-    for (const u of ['http://localhost:8787/v1/tts', 'http://127.0.0.1:8787/x', 'http://[::1]:8787/x', 'http://lcw.localhost/x', 'http://0.0.0.0:8787/x']) {
-      expect(isLocalOrigin(u)).toBe(true);
-    }
-    for (const u of ['https://lcw.worldwidesomething.com/v1/tts', 'https://platform/internal/cron', 'https://lcw.test/x']) expect(isLocalOrigin(u)).toBe(false);
+  it('without a deploy (local wrangler dev: no BUILD_SHA) there is no AI unless LCW_LOCAL_AI=on', async () => {
     const ai = { run: async () => null };
-    expect(aiForRequest({ AI: ai }, new Request('http://localhost:8787/v1/tts'))).toBeUndefined();
-    expect(aiForRequest({ AI: ai, LCW_LOCAL_AI: 'on' }, new Request('http://localhost:8787/v1/tts'))).toBe(ai);
-    expect(aiForRequest({ AI: ai }, new Request('https://lcw.worldwidesomething.com/v1/tts'))).toBe(ai);
+    expect(workersAi({ AI: ai })).toBeUndefined();
+    expect(workersAi({ AI: ai, LCW_LOCAL_AI: 'on' })).toBe(ai);
+    expect(workersAi({ AI: ai, BUILD_SHA: 'eb975ed' })).toBe(ai);
+    expect(workersAi({ BUILD_SHA: 'eb975ed' })).toBeUndefined();
 
-    const local = setup({ origin: 'http://localhost:8787' });
+    const local = setup({ deployed: false });
     expect(await (await local.call('/v1/tts/status')).json()).toMatchObject({ enabled: false });
     const kid = await local.device('kid');
     const miss = await local.tts(hera, NPC_OPENING_LINES.cafe!, kid);
@@ -155,12 +154,25 @@ describe('operator and test share (R2627)', () => {
     expect(prebuild.made).toBe(0);
     const tried = await local.call('/v1/admin/tts/try', { method: 'POST', headers: op, body: JSON.stringify({ voice: 'aura2-luna', text: 'Hi' }) });
     expect(tried.status).toBe(400);
+    const cron = await local.call('/internal/cron', { method: 'POST', headers: { 'x-lcw-internal': 'cron', 'content-type': 'application/json' }, body: JSON.stringify({ cron: '0 * * * *' }) });
+    expect(cron.status).toBe(200);
+    expect(((await cron.json()) as { tts: unknown }).tts).toBeNull();
     expect(local.calls).toHaveLength(0);
 
-    const allowed = setup({ origin: 'http://localhost:8787', localAi: 'on' });
+    const allowed = setup({ deployed: false, localAi: 'on' });
     expect(await (await allowed.call('/v1/tts/status')).json()).toMatchObject({ enabled: true });
     const made = await allowed.tts(hera, NPC_OPENING_LINES.cafe!, await allowed.device('kid'));
     expect(made.status).toBe(200);
     expect(allowed.calls).toHaveLength(1);
+  });
+
+  it('every Workers AI call in the edge takes the binding from workersAi (no env.AI.run elsewhere)', () => {
+    const dir = new URL('../', import.meta.url);
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.ts'))) {
+      const src = readFileSync(new URL(f, dir), 'utf8');
+      const uses = src.split('\n').filter((l) => /\benv\.AI\b/.test(l) && !/Boolean\(this\.env\.AI\)/.test(l));
+      const allowed = f === 'platform.ts' ? uses.filter((l) => !/^\s*(if \(!env\.AI\)|return env\.AI;)/.test(l)) : uses;
+      expect(allowed, f).toEqual([]);
+    }
   });
 });

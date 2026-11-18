@@ -243,7 +243,7 @@ describe('production worker (Durable Object SQLite wiring)', () => {
 
   it('caps Workers AI calls per day durably', async () => {
     let calls = 0;
-    const { platform } = makePlatform({ AI: { run: async () => { calls++; return {}; } } });
+    const { platform } = makePlatform({ BUILD_SHA: 'test', AI: { run: async () => { calls++; return {}; } } });
     // the public understand route must not spend AI while its answer is unused
     await platform.fetch(new Request('https://x/v1/converse/understand', { method: 'POST', body: JSON.stringify({ dialog_id: 'd', npc_ctx: 'cafe', level: 'L1', transcript: 'zzz qqq unknown words', stt: { source: 'keyboard', confidence: 1 } }) }));
     expect(calls).toBe(0);

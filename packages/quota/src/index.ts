@@ -56,7 +56,8 @@ export const NEURAL_TTS = {
  * 48 Aura-2 lines in two minutes, 5,100 neurons on the Cloudflare account, and the day went from 2,957 to 8,122 on
  * the meter (stage 2: the children's new lines went back to the device voice). Operator calls (try, prebuild, an
  * operator's own `/v1/tts`) and smoke/demo students spend from this share only: at most `dailyNeurons` a day, and
- * nothing that would take the day past `stopAtRatio` (stage 1), so the rest of the day stays the children's. It is
+ * nothing that would take the day to `stopAtRatio` (stage 1) or into the lesson reserve, so the rest of the day stays the
+ * children's. It is
  * counted inside the day's neurons too (one Workers AI free tier). The scheduled prebuild (hourly cron) is the
  * service's own and stays on the day.
  */
@@ -147,11 +148,20 @@ export class QuotaMeter {
     return view;
   }
 
+  /**
+   * The day's total the operator and test share must stay below: stage 1 (`stopAtRatio`), and never into the lesson
+   * reserve (a lowered daily limit makes the reserve the tighter one).
+   */
+  private opsCeiling(): number {
+    return Math.min(this.neuronsLimit * OPS_SHARE.stopAtRatio, this.neuronsLimit - FREE_TIER_LIMITS.lessonReserveNeurons);
+  }
+
   /** What the operator and test share spent today and may still spend (for the operator's quota view). */
   opsStatus(): { used: number; limit: number; left: number } {
     const used = this.store.get(QUOTA_KEYS.opsNeurons);
-    const byDay = Math.max(0, Math.floor(this.neuronsLimit * OPS_SHARE.stopAtRatio) - this.neuronsUsed);
-    return { used, limit: OPS_SHARE.dailyNeurons, left: this.providerOutage ? 0 : Math.max(0, Math.min(OPS_SHARE.dailyNeurons - used, byDay)) };
+    const byDay = Math.ceil(this.opsCeiling()) - 1 - this.neuronsUsed;
+    const left = this.providerOutage || this.neuronsLimit <= 0 ? 0 : Math.max(0, Math.min(OPS_SHARE.dailyNeurons - used, byDay));
+    return { used, limit: OPS_SHARE.dailyNeurons, left };
   }
 
   setProviderOutage(outage: boolean): void {
@@ -301,7 +311,7 @@ export class QuotaMeter {
     if (this.opsShare) {
       if (this.providerOutage || this.neuronsLimit <= 0) return false;
       if (this.store.get(QUOTA_KEYS.opsNeurons) + neurons > OPS_SHARE.dailyNeurons) return false;
-      if (this.neuronsUsed + neurons > this.neuronsLimit * OPS_SHARE.stopAtRatio) return false;
+      if (this.neuronsUsed + neurons >= this.opsCeiling()) return false;
       this.store.add(QUOTA_KEYS.opsNeurons, neurons);
     }
     this.store.add(QUOTA_KEYS.neurons, neurons);

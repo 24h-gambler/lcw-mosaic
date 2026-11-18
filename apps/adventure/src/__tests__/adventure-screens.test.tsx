@@ -92,7 +92,7 @@ describe('adventure screens (A01–A06)', () => {
     expect(html(<Panel engine={engine} snap={base({ linked: false })} />)).toContain(S.stateTomorrow.en);
     // until the day file and the server progress are in, start waits
     const loading = html(<Panel engine={engine} snap={base({ booted: false })} />);
-    expect(loading).toMatch(/data-testid="adv-start"[^>]*disabled/);
+    expect(loading.match(/<button[^>]*data-testid="adv-start"[^>]*>/)?.[0]).toContain('disabled');
     expect(loading).toContain(S.loading.en);
   });
 
@@ -100,7 +100,7 @@ describe('adventure screens (A01–A06)', () => {
     const s = html(<Panel engine={engine} snap={base({ dayNote: 'document-failed' })} />);
     expect(s).toContain(S.dayFailed.en);
     expect(s).toContain('data-testid="adv-start"');
-    expect(s).not.toMatch(/data-testid="adv-start"[^>]*disabled/);
+    expect(s.match(/<button[^>]*data-testid="adv-start"[^>]*>/)?.[0]).not.toContain('disabled');
   });
 
   it('A02 island walk: hint, keys or touch pad, the talk button; a word stone offers listening and typing', () => {

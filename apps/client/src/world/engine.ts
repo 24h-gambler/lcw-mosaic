@@ -1570,7 +1570,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       // R2625 ④: among NPCs in reach, the one in front of the view wins over one just behind the child's back
       const off = Math.abs(wrapAngle(Math.atan2(n.pos.x - body.x, n.pos.z - body.z) - viewYaw()));
       const score = pd + (off > 1.2 ? 2.5 : off * 0.6);
-      if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode)) {
+      // in a lesson only the lesson's NPC is "near": no talk prompt or E on a passer-by that would then do nothing
+      const passer = lessonMode && !!goalNpcId && n.def.id !== goalNpcId;
+      if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode) && !passer) {
         nearD = score;
         nearNpc = n;
       }

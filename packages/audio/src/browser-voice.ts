@@ -27,6 +27,8 @@ export const BROWSER_VOICE = {
   modelId: 'onnx-community/Kokoro-82M-v1.0-ONNX',
   /** kokoro-js web build (Apache-2.0, 2.1 MB, transformers.js + phonemizer inside), pinned; loaded by the worker only. */
   libUrl: 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js',
+  /** SHA-256 of that file (identical to dist/kokoro.web.js in the npm 1.2.1 tarball, checked 11-18); anything else never runs. */
+  libSha256: '6067712fe4c43cdb36c762f860a5ab8d96ea1d9c8882466438eb9f3d0d20be8f',
   /**
    * Weights per backend (measured 11-16 in headless Chrome 157 on an RTX 3080, tools/browser-voice-probe.mjs): WASM
    * runs the 8-bit model (92 MB; log-mel distance to fp32 1.2-1.3 dB, the same speech). WebGPU runs fp32 (326 MB):
@@ -106,7 +108,12 @@ export interface BrowserVoiceVerdict {
   atMs: number;
   /** The model is in Cache Storage (a later visit loads it from disk). */
   cached?: boolean;
+  /** Slow warm-ups in a row: one busy moment (the world booting, another tab) does not switch a PC off for a week. */
+  slowRuns?: number;
 }
+
+/** Slow warm-ups in a row before the device is remembered as too slow. */
+export const SLOW_RUNS_TO_REMEMBER = 2;
 
 /** Pure policy: which backend to try, or off with the reason. */
 export function chooseTier(f: DeviceFacts, verdict: BrowserVoiceVerdict | null, nowMs: number): { tier: BrowserVoiceTier; reason: string } {
@@ -130,8 +137,9 @@ export { audible } from './browser-voice-check.js';
 // ---- worker protocol ----
 
 export type BrowserVoiceRequest =
-  | { type: 'load'; tier: Exclude<BrowserVoiceTier, 'off'>; dtype: Readonly<Record<Exclude<BrowserVoiceTier, 'off'>, BrowserVoiceDtype>>; modelId: string; libUrl: string }
-  | { type: 'speak'; id: number; text: string; speaker: string; speed: number };
+  | { type: 'load'; tier: Exclude<BrowserVoiceTier, 'off'>; dtype: Readonly<Record<Exclude<BrowserVoiceTier, 'off'>, BrowserVoiceDtype>>; modelId: string; libUrl: string; libSha256: string }
+  /** `background`: a prefetch; a line the child is waiting for goes ahead of it in the worker. */
+  | { type: 'speak'; id: number; text: string; speaker: string; speed: number; background?: boolean };
 
 export type BrowserVoiceReply =
   | { type: 'progress'; loaded: number; total: number }
@@ -161,6 +169,9 @@ export interface BrowserVoiceStats {
   ran?: Exclude<BrowserVoiceTier, 'off'>;
   loadMs?: number;
   fetchedBytes?: number;
+  /** The judged warm-up line (synthesis ms, its real-time factor). */
+  warmMs?: number;
+  warmRtf?: number;
   firstLineMs?: number;
   rtf?: number;
   lines: number;
@@ -184,7 +195,9 @@ export interface BrowserVoiceEngine {
   /** Starts loading (once); resolves true when ready, false when off or failed. */
   load(): Promise<boolean>;
   /** Synthesises a line (loads first if needed); null when off, failed or slower than `waitMs`. */
-  speak(text: string, voice: VoiceRef | undefined, speed?: number, waitMs?: number): Promise<BrowserVoiceLine | null>;
+  speak(text: string, voice: VoiceRef | undefined, speed?: number, waitMs?: number, opts?: { background?: boolean }): Promise<BrowserVoiceLine | null>;
+  /** The model is already in this browser's Cache Storage (a load is a disk read, seconds rather than a download). */
+  modelCached(): boolean;
   /** Already synthesised (memory cache) — no work. */
   cached(text: string, voice: VoiceRef | undefined, speed?: number): BrowserVoiceLine | null;
   stats(): BrowserVoiceStats;
@@ -200,14 +213,14 @@ export function createBrowserVoice(deps: BrowserVoiceDeps): BrowserVoiceEngine {
   const pending = new Map<number, { resolve: (l: BrowserVoiceLine | null) => void; t0: number }>();
   const lines = new Map<string, Promise<BrowserVoiceLine | null>>();
   const done = new Map<string, BrowserVoiceLine>();
-  let firstJudged = false;
   const choice = (() => {
     let c: { tier: BrowserVoiceTier; reason: string } | null = null;
     return () => (c ??= chooseTier(deps.facts(), deps.storage.get(), deps.nowMs()));
   })();
   const stats: BrowserVoiceStats = { state: 'idle', tier: 'off', reason: '', lines: 0 };
 
-  function off(reason: string, extra: Partial<BrowserVoiceVerdict> = {}): void {
+  /** `remember`: store the verdict (a measured slow device); a failed download or worker is off for this page only. */
+  function off(reason: string, extra: Partial<BrowserVoiceVerdict> = {}, remember = false): void {
     st = 'off';
     stats.reason = reason;
     for (const [, p] of pending) p.resolve(null);
@@ -218,7 +231,7 @@ export function createBrowserVoice(deps: BrowserVoiceDeps): BrowserVoiceEngine {
       /* ignore */
     }
     worker = null;
-    deps.storage.set({ tier: 'off', reason, atMs: deps.nowMs(), ...extra });
+    if (remember) deps.storage.set({ tier: 'off', reason, atMs: deps.nowMs(), ...extra });
   }
 
   function load(): Promise<boolean> {
@@ -248,37 +261,34 @@ export function createBrowserVoice(deps: BrowserVoiceDeps): BrowserVoiceEngine {
           // The worker's warm-up line is the speed test: a backend slower than real time is off before any real
           // line burns the device's CPU next to the 3D world.
           const warm = judgeFirstLine(m.warmMs, m.warmAudioMs);
+          stats.ran = m.ran;
+          stats.loadMs = m.loadMs;
+          stats.fetchedBytes = m.fetchedBytes;
+          stats.warmMs = m.warmMs;
+          stats.warmRtf = warm.rtf;
+          const prev = deps.storage.get();
           if (deps.judge !== false && !warm.ok) {
-            stats.ran = m.ran;
-            stats.rtf = warm.rtf;
-            off('slow', { rtf: warm.rtf, ran: m.ran });
+            // Off for this page; remembered only after SLOW_RUNS_TO_REMEMBER slow warm-ups in a row.
+            const slowRuns = (prev?.slowRuns ?? 0) + 1;
+            if (slowRuns >= SLOW_RUNS_TO_REMEMBER) off('slow', { rtf: warm.rtf, ran: m.ran, slowRuns, cached: true }, true);
+            else {
+              off('slow');
+              deps.storage.set({ ...(prev?.tier === 'off' ? {} : prev), tier: m.ran, ran: m.ran, atMs: deps.nowMs(), cached: true, slowRuns, rtf: warm.rtf });
+            }
             resolve(false);
             return;
           }
           st = 'ready';
-          stats.ran = m.ran;
-          stats.loadMs = m.loadMs;
-          stats.fetchedBytes = m.fetchedBytes;
-          const prev = deps.storage.get();
-          deps.storage.set({ ...(prev?.tier === 'off' ? {} : prev), tier: m.ran, ran: m.ran, atMs: deps.nowMs(), cached: true });
+          deps.storage.set({ tier: m.ran, ran: m.ran, rtf: warm.rtf, atMs: deps.nowMs(), cached: true, slowRuns: 0 });
           resolve(true);
         } else if (m.type === 'audio') {
           const p = pending.get(m.id);
           pending.delete(m.id);
           if (!p) return;
-          const audioMs = (m.samples.length / m.sampleRate) * 1000;
-          if (!firstJudged && deps.judge !== false) {
-            firstJudged = true;
-            const j = judgeFirstLine(m.ms, audioMs);
+          if (stats.firstLineMs === undefined) {
+            // Recorded for measurement; the speed verdict comes from the warm-up line (no compile cost, no contention).
             stats.firstLineMs = m.ms;
-            stats.rtf = j.rtf;
-            if (!j.ok) {
-              // Too slow for this device: this line still plays (it is made), the next ones use the device voice.
-              off('slow', { rtf: j.rtf, ran: stats.ran });
-              p.resolve({ samples: m.samples, sampleRate: m.sampleRate });
-              return;
-            }
-            deps.storage.set({ tier: stats.ran ?? tier, ran: stats.ran, rtf: j.rtf, atMs: deps.nowMs(), cached: true });
+            stats.rtf = judgeFirstLine(m.ms, (m.samples.length / m.sampleRate) * 1000).rtf;
           }
           stats.lines += 1;
           p.resolve({ samples: m.samples, sampleRate: m.sampleRate });
@@ -296,19 +306,19 @@ export function createBrowserVoice(deps: BrowserVoiceDeps): BrowserVoiceEngine {
         off('worker_error');
         resolve(false);
       };
-      w.postMessage({ type: 'load', tier, dtype: deps.dtype ?? BROWSER_VOICE.dtype, modelId: BROWSER_VOICE.modelId, libUrl: BROWSER_VOICE.libUrl });
+      w.postMessage({ type: 'load', tier, dtype: deps.dtype ?? BROWSER_VOICE.dtype, modelId: BROWSER_VOICE.modelId, libUrl: BROWSER_VOICE.libUrl, libSha256: BROWSER_VOICE.libSha256 });
     });
     stats.state = st;
     return loadP;
   }
 
-  function synth(text: string, speaker: string, speed: number): Promise<BrowserVoiceLine | null> {
+  function synth(text: string, speaker: string, speed: number, background: boolean): Promise<BrowserVoiceLine | null> {
     return load().then((ok) => {
       if (!ok || !worker || st !== 'ready') return null;
       const id = nextId++;
       return new Promise<BrowserVoiceLine | null>((resolve) => {
         pending.set(id, { resolve, t0: deps.nowMs() });
-        worker!.postMessage({ type: 'speak', id, text, speaker, speed });
+        worker!.postMessage({ type: 'speak', id, text, speaker, speed, ...(background ? { background } : {}) });
       });
     });
   }
@@ -320,7 +330,8 @@ export function createBrowserVoice(deps: BrowserVoiceDeps): BrowserVoiceEngine {
     cached(text, voice, speed = 1) {
       return done.get(lineKey(text, browserSpeakerFor(voice), speed)) ?? null;
     },
-    speak(text, voice, speed = 1, waitMs = BROWSER_VOICE.lineWaitMs) {
+    modelCached: () => deps.storage.get()?.cached === true,
+    speak(text, voice, speed = 1, waitMs = BROWSER_VOICE.lineWaitMs, opts = {}) {
       if (!text.trim() || st === 'off' || choice().tier === 'off') return Promise.resolve(null);
       const speaker = browserSpeakerFor(voice);
       const key = lineKey(text, speaker, speed);
@@ -328,7 +339,7 @@ export function createBrowserVoice(deps: BrowserVoiceDeps): BrowserVoiceEngine {
       if (have) return Promise.resolve(have);
       let p = lines.get(key);
       if (!p) {
-        p = synth(text, speaker, speed).then((l) => {
+        p = synth(text, speaker, speed, opts.background === true).then((l) => {
           if (l) {
             done.set(key, l);
             while (done.size > BROWSER_VOICE.cacheLines) done.delete(done.keys().next().value!);
@@ -441,8 +452,10 @@ export function browserVoice(): BrowserVoiceEngine {
 }
 
 /**
- * Idle preload: a browser that already has the model (a verdict says cached) or a desktop-class one loads the engine
- * after the page settles, so the first failed line is read at once; a phone downloads it only when a line needs it.
+ * Idle preload: a browser that already has the model (a verdict says cached) loads it after the page settles (a disk
+ * read). `eager` (the server voice is off on this page): load now, download included unless the line is metered.
+ * Otherwise the first download starts only when a line actually needs it (sound.ts), so a classroom whose server
+ * voice works never pulls 30 x 326 MB through the school network.
  */
 export function preloadBrowserVoiceWhenIdle(opts: { eager?: boolean } = {}): void {
   if (typeof window === 'undefined') return;
@@ -453,7 +466,7 @@ export function preloadBrowserVoiceWhenIdle(opts: { eager?: boolean } = {}): voi
   const conn = (navigator as Navigator & { connection?: { saveData?: boolean; type?: string; effectiveType?: string } }).connection;
   // A metered or slow line never downloads the model ahead (a failed line still loads it when it is needed).
   const metered = Boolean(conn?.saveData) || conn?.type === 'cellular' || /(^|-)2g|3g/.test(conn?.effectiveType ?? '');
-  if (!v?.cached && (metered || (!opts.eager && coarse))) return;
+  if (!v?.cached && (metered || coarse || !opts.eager)) return;
   const start = () => void e.load();
   setTimeout(() => {
     const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;

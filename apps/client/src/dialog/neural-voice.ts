@@ -149,7 +149,7 @@ export function prefetchLines(lines: Array<{ voice: NpcVoice; text: string }>): 
   if (!pref.neuralVoice) return;
   const warm = (l: { voice: NpcVoice; text: string }) => {
     const bv = browserVoice();
-    if (bv.available()) void bv.speak(l.text, l.voice, pref.voiceRate, 60_000);
+    if (bv.available()) void bv.speak(l.text, l.voice, pref.voiceRate, 60_000, { background: true });
   };
   if (!neuralVoiceOn()) {
     if (neuralVoiceStatusKnown() === false) for (const l of lines) if (l.text.trim()) warm(l);

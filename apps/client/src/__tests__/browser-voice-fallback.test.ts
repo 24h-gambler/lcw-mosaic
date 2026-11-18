@@ -19,6 +19,9 @@ const fake = vi.hoisted(() => ({
   available: true,
   line: { samples: new Float32Array(2400).fill(0.05), sampleRate: 24_000 } as { samples: Float32Array; sampleRate: number } | null,
   delayMs: 0,
+  ready: true,
+  cachedModel: true,
+  loads: 0,
   calls: [] as Array<{ text: string; voice: unknown; speed: number }>
 }));
 
@@ -26,8 +29,12 @@ vi.mock('@lcw/audio', async (orig) => {
   const real = await orig<typeof import('@lcw/audio')>();
   const engine = {
     available: () => fake.available,
-    state: () => (fake.available ? 'ready' : 'off'),
-    load: async () => fake.available,
+    state: () => (!fake.available ? 'off' : fake.ready ? 'ready' : 'loading'),
+    load: async () => {
+      fake.loads += 1;
+      return fake.available;
+    },
+    modelCached: () => fake.cachedModel,
     cached: () => null,
     speak: (text: string, voice: unknown, speed = 1) => {
       fake.calls.push({ text, voice, speed });
@@ -39,7 +46,7 @@ vi.mock('@lcw/audio', async (orig) => {
   return { ...real, browserVoice: () => engine, preloadBrowserVoiceWhenIdle: () => undefined };
 });
 
-import { resetBrowserSticky, speakEnglish, stopSpeaking } from '../dialog/sound.js';
+import { micCue, resetBrowserSticky, speakEnglish, stopSpeaking } from '../dialog/sound.js';
 import { resetNeuralVoice } from '../dialog/neural-voice.js';
 import { NPC_VOICE_CUT_EVENT } from '../audio/runtime.js';
 
@@ -83,6 +90,9 @@ beforeEach(() => {
   fake.available = true;
   fake.delayMs = 0;
   fake.calls.length = 0;
+  fake.ready = true;
+  fake.cachedModel = true;
+  fake.loads = 0;
   fake.line = { samples: new Float32Array(2400).fill(0.05), sampleRate: 24_000 };
   const synth = { speak: (u: { text: string; onend?: () => void }) => (spoken.push(u.text), setTimeout(() => u.onend?.(), 0)), cancel: () => undefined, getVoices: () => [] };
   vi.stubGlobal('window', { speechSynthesis: synth, addEventListener: () => undefined });
@@ -155,7 +165,30 @@ describe('browser voice replaces the device voice when the server voice cannot r
     expect(spoken).toEqual(['Another new line.']);
   });
 
-  it('a mic tap while the browser line is still being made drops it (nothing starts over the mic)', async () => {
+  it('a mic tap (micCue, no voice playing yet) while the browser line is still being made drops it', async () => {
+    serve(429);
+    fake.delayMs = 30;
+    const p = speakEnglish('A slow new line.', 'L1', hera);
+    await new Promise((r) => setTimeout(r, 10));
+    void micCue();
+    await p;
+    expect(played).toEqual([]);
+    expect(spoken).toEqual([]);
+  });
+
+  it('a mic tap before the browser voice gives up keeps the device voice from reading over the recording', async () => {
+    serve(429);
+    fake.line = null;
+    fake.delayMs = 30;
+    const p = speakEnglish('Another slow line.', 'L1', hera);
+    await new Promise((r) => setTimeout(r, 10));
+    void micCue();
+    await p;
+    expect(spoken).toEqual([]);
+    expect(played).toEqual([]);
+  });
+
+  it('the voice cut event (a playing NPC cut by the mic) also drops a line being made', async () => {
     serve(429);
     fake.delayMs = 30;
     const p = speakEnglish('A slow new line.', 'L1', hera);
@@ -163,6 +196,24 @@ describe('browser voice replaces the device voice when the server voice cannot r
     globalThis.dispatchEvent?.(new Event(NPC_VOICE_CUT_EVENT));
     await p;
     expect(played).toEqual([]);
+  });
+
+  it('during the first model download the line does not wait: device voice now, the download goes on', async () => {
+    serve(429);
+    fake.ready = false;
+    fake.cachedModel = false;
+    await speakEnglish('A line while downloading.', 'L1', hera);
+    expect(spoken).toEqual(['A line while downloading.']);
+    expect(fake.calls).toEqual([]);
+    expect(fake.loads).toBe(1);
+  });
+
+  it('with the model already on disk a loading engine is waited for (seconds), not skipped', async () => {
+    serve(429);
+    fake.ready = false;
+    fake.cachedModel = true;
+    await speakEnglish('A line while loading from disk.', 'L1', hera);
+    expect(fake.calls).toHaveLength(1);
     expect(spoken).toEqual([]);
   });
 

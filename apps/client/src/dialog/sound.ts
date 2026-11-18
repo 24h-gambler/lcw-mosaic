@@ -48,6 +48,10 @@ export function playSfx(id: keyof typeof PROCEDURAL_SFX_PRESETS | string, step =
  * may start (after the cue, so it never lands in recognition). A second call or `cancelMicCue` resolves false.
  */
 export function micCue(): Promise<boolean> {
+  // A line still being made (server wait, browser synthesis) is dropped here too: the runtime only cuts a voice that
+  // is already playing, and a late line must never start over the child's recording.
+  speechGen++;
+  stopNeural();
   return getAudioRuntime().micCue();
 }
 
@@ -104,6 +108,8 @@ if (typeof globalThis.addEventListener === 'function')
  */
 export function warmBrowserVoice(): void {
   if (typeof window === 'undefined' || !frameSettings().neuralVoice) return;
+  // Server on: only a browser that already has the model warms it (a disk read). A first download (326 MB on a PC)
+  // starts when the server first misses a line on this device, not on every visit of every classroom PC.
   void neuralVoiceStatus().then((on) => preloadBrowserVoiceWhenIdle({ eager: !on }));
 }
 if (typeof window !== 'undefined') warmBrowserVoice();
@@ -150,6 +156,12 @@ export function speakEnglish(text: string, level: LangLevel, voice?: NpcVoice): 
 function speakBrowser(text: string, level: LangLevel, voice: NpcVoice | undefined, gen: number): Promise<void> {
   const bv = browserVoice();
   if (!frameSettings().neuralVoice || !bv.available()) return speakDevice(text, level);
+  // While the model is still being downloaded for the first time (20-56 s) a line cannot wait for it: the device voice
+  // reads it now and the download goes on (from a disk cache the load takes seconds and the line waits).
+  if (bv.state() !== 'ready' && !bv.modelCached()) {
+    void bv.load();
+    return speakDevice(text, level);
+  }
   // Kokoro speaks at the player's speed itself (no stretch, no pitch change), so its line always plays at rate 1.
   const rate = frameSettings().voiceRate;
   const hit = bv.cached(text, voice, rate);

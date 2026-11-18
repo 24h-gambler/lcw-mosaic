@@ -178,10 +178,12 @@ export function sayEnglish(text: string, opts: { force?: boolean; rate?: number;
     });
 }
 
-/** The server line did not come: the visitor's browser makes it (Kokoro); false when it cannot, so the device voice reads it. */
+/** The server line did not come: the visitor's browser makes it (Kokoro, when it already has the model); false when it cannot, so the device voice reads it. */
 async function playBrowser(text: string, who: 'npc' | 'model', gen: number, onEnd?: () => void): Promise<boolean> {
   const bv = browserVoice();
-  if (!bv.available()) return false;
+  // The site never starts the 92-326 MB download for a visitor: only a browser that already has the model (it played
+  // in the world) uses it here.
+  if (!bv.available() || (bv.state() !== 'ready' && !bv.modelCached())) return false;
   const line = await bv.speak(text, who === 'npc' ? voiceForCtx('cafe') : npcCast().modelVoice);
   if (gen !== voiceGen) return true;
   const c = ensureCtx();

@@ -50,7 +50,8 @@ async function visit(userDir, tier) {
   if (process.env.PROBE_DTYPE) q.set('bdtype', process.env.PROBE_DTYPE);
   if (wavDir) q.set('wav', '1');
   const t0 = Date.now();
-  await page.goto(`${base}?${q}`);
+  // a cold dev server (dependency pre-bundling on a busy disk) can take over 30 s for the first page
+  await page.goto(`${base}?${q}`, { waitUntil: 'commit', timeout: 300_000 });
   await page.waitForFunction(() => window.__probe?.done, null, { timeout: 600_000, polling: 500 });
   const res = await page.evaluate(() => window.__probe);
   const wallMs = Date.now() - t0;

@@ -129,33 +129,47 @@ describe('browser voice engine', () => {
     const speak = w.sent.find((m) => m.type === 'speak');
     expect(speak && 'speaker' in speak ? speak.speaker : '').toBe(browserSpeakerFor({ engine: 'aura2', speaker: 'hera' }));
     expect(e.cached('Hello there.', { engine: 'aura2', speaker: 'hera' })).toBe(a);
-    expect(store.peek()).toMatchObject({ tier: 'webgpu', ran: 'webgpu', cached: true });
-    expect(e.stats()).toMatchObject({ state: 'ready', ran: 'webgpu', rtf: 0.2, lines: 1 });
+    expect(store.peek()).toMatchObject({ tier: 'webgpu', ran: 'webgpu', cached: true, slowRuns: 0 });
+    expect(e.stats()).toMatchObject({ state: 'ready', ran: 'webgpu', warmMs: 300, warmRtf: 0.2, firstLineMs: 400, rtf: 0.2, lines: 1 });
+    expect(e.modelCached()).toBe(true);
+    const load = w.sent.find((m) => m.type === 'load');
+    expect(load && 'libSha256' in load ? load.libSha256 : '').toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('a first line slower than real time still plays, then the device is off (device voice) and remembered', async () => {
-    const w = new FakeWorker({ synthMs: 5000, audioSamples: 48_000 });
-    const { e, store } = engine({ ...PC, webgpu: false }, w);
-    const first = await e.speak('One two three.', undefined);
-    expect(first).not.toBeNull();
-    expect(e.state()).toBe('off');
-    expect(w.terminated).toBe(true);
-    expect(store.peek()).toMatchObject({ tier: 'off', reason: 'slow' });
-    expect(await e.speak('Four five.', undefined)).toBeNull();
+  it('a prefetch is marked background so a line the child waits for goes first in the worker', async () => {
+    const w = new FakeWorker();
+    const { e } = engine(PC, w);
+    await Promise.all([e.speak('Prefetched.', undefined, 1, 1000, { background: true }), e.speak('Tapped.', undefined)]);
+    const speaks = w.sent.filter((m) => m.type === 'speak');
+    expect(speaks.map((m) => ('background' in m ? m.background === true : false))).toEqual([true, false]);
   });
 
-  it('a warm-up line slower than real time turns it off before any real line is made', async () => {
-    const w = new FakeWorker({ warmMs: 20_000 });
-    const { e, store } = engine({ ...PC, webgpu: false }, w);
+  it('a slow warm-up turns it off for the page; only two slow visits in a row are remembered for a week', async () => {
+    const store = memStore();
+    const w1 = new FakeWorker({ warmMs: 20_000 });
+    const one = engine({ ...PC, webgpu: false }, w1, store);
+    expect(await one.e.speak('Hi.', undefined)).toBeNull();
+    expect(w1.sent.filter((m) => m.type === 'speak')).toHaveLength(0); // no real line burns the CPU
+    expect(one.e.state()).toBe('off');
+    expect(store.peek()).toMatchObject({ tier: 'wasm', slowRuns: 1 });
+    expect(chooseTier({ ...PC, webgpu: false }, store.peek(), 1_000_001).tier).toBe('wasm'); // tried again next visit
+    const two = engine({ ...PC, webgpu: false }, new FakeWorker({ warmMs: 20_000 }), store);
+    expect(await two.e.speak('Hi.', undefined)).toBeNull();
+    expect(store.peek()).toMatchObject({ tier: 'off', reason: 'slow', slowRuns: 2 });
+    // a fast visit in between resets the count
+    const s2 = memStore({ tier: 'wasm', ran: 'wasm', slowRuns: 1, atMs: 0 });
+    const fast = engine({ ...PC, webgpu: false }, new FakeWorker(), s2);
+    expect(await fast.e.speak('Hi.', undefined)).not.toBeNull();
+    expect(s2.peek()).toMatchObject({ slowRuns: 0 });
+  });
+
+  it('a failed download or worker is off for this page only (a dropped Wi-Fi does not cost a week)', async () => {
+    const store = memStore();
+    const { e } = engine(PC, new FakeWorker({ failLoad: true }), store);
     expect(await e.speak('Hi.', undefined)).toBeNull();
-    expect(w.sent.filter((m) => m.type === 'speak')).toHaveLength(0);
-    expect(store.peek()).toMatchObject({ tier: 'off', reason: 'slow', ran: 'wasm' });
-  });
-
-  it('a failed load turns it off without hanging the caller', async () => {
-    const { e } = engine(PC, new FakeWorker({ failLoad: true }));
-    expect(await e.speak('Hi.', undefined)).toBeNull();
     expect(e.state()).toBe('off');
+    expect(store.peek()).toBeNull();
+    expect(chooseTier(PC, store.peek(), 0).tier).toBe('webgpu');
   });
 
   it('stops waiting after waitMs but keeps making the line for the next tap', async () => {

@@ -106,6 +106,11 @@ const TYPED_INPUT_SOURCES: ReadonlySet<string> = new Set(['keyboard', 'board']);
  * (lesson_continuations) and its report covers both parts.
  */
 export const LESSON_IDLE_CLOSE_MS = 15 * 60_000;
+/**
+ * A lesson the child has not come to yet (no screen poll, no answer) stays open this long after its start while its
+ * join code is still open: the teacher may start it and close the console before the child arrives (coordinator 11-16).
+ */
+export const LESSON_EMPTY_GRACE_MS = 60 * 60_000;
 /** An auto-closed lesson whose last sign of life is older than this closes without hub cards (a stale card is noise). */
 export const LESSON_AUTO_CARD_MAX_AGE_MS = 24 * 3_600_000;
 /** The cron that runs the idle sweep (wrangler.toml); the hourly tasks keep '0 * * * *' (platform.ts scheduled). */
@@ -385,6 +390,9 @@ export function buildLessonModeApp(
   const teacherCols = d.sql.all<{ name: string }>('pragma table_info(lesson_teacher)').map((col) => col.name);
   if (!teacherCols.includes('left_at')) d.sql.exec('alter table lesson_teacher add column left_at integer');
   if (!teacherCols.includes('account_name')) d.sql.exec('alter table lesson_teacher add column account_name text');
+  // A console's beat after the teacher left on purpose (1PC "선생님 나가기"): not presence, but a sign of life for the
+  // idle sweep (the console is still open on the lesson).
+  if (!teacherCols.includes('console_seen_at')) d.sql.exec('alter table lesson_teacher add column console_seen_at integer');
   const presenceCols = d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').map((col) => col.name);
   if (!presenceCols.includes('mic_issue')) d.sql.exec('alter table lesson_presence add column mic_issue text');
   if (!d.sql.all<{ name: string }>('pragma table_info(lesson_auto_close)').some((col) => col.name === 'empty')) {
@@ -650,22 +658,24 @@ export function buildLessonModeApp(
     }
   };
 
-  /** The last sign of life of a running lesson: its start, the child's poll or answer, the console, a director act. */
-  const lastActivityOf = (id: string, startedAt: number): number =>
-    Math.max(
-      startedAt,
-      ...d.sql
-        .all<{ at: number | null }>(
-          `select max(last_seen_at) as at from lesson_presence where lesson_id = ?
-           union all select max(max(last_beat_at, coalesce(left_at, 0))) from lesson_teacher where lesson_id = ?
-           union all select max(at) from lesson_live where lesson_id = ?
-           union all select max(at) from lesson_stage_log where lesson_id = ?
-           union all select max(updated_at) from lesson_director where lesson_id = ?
-           union all select max(created_at) from utterances where session_id = ?`,
-          [id, id, id, id, id, id]
-        )
-        .map((r) => Number(r.at ?? 0))
+  /**
+   * The last sign of life of a running lesson: its start, the child's poll or answer, the console, a director act.
+   * One row of scalar subqueries, not a UNION: Cloudflare's SQLite refuses a compound SELECT of more than five terms
+   * ("too many terms in compound SELECT", measured on workerd 11-16; the test SQLite allows it — see the invariant
+   * test in lesson-autoclose.test.ts).
+   */
+  const lastActivityOf = (id: string, startedAt: number): number => {
+    const r = d.sql.get<Record<string, number | null>>(
+      `select (select max(last_seen_at) from lesson_presence where lesson_id = ?) as presence,
+              (select max(max(last_beat_at, coalesce(left_at, 0), coalesce(console_seen_at, 0))) from lesson_teacher where lesson_id = ?) as teacher,
+              (select max(at) from lesson_live where lesson_id = ?) as live,
+              (select max(at) from lesson_stage_log where lesson_id = ?) as stage,
+              (select max(updated_at) from lesson_director where lesson_id = ?) as director,
+              (select max(created_at) from utterances where session_id = ?) as utterance`,
+      [id, id, id, id, id, id]
     );
+    return Math.max(startedAt, ...Object.values(r ?? {}).map((v) => Number(v ?? 0)));
+  };
 
   type AutoRow = { lesson_id: string; closed_at: number; last_activity_at: number; draft: string; sent_at: number | null; folded_into: string | null; empty: number };
   const autoOf = (id: string) => d.sql.get<AutoRow>('select * from lesson_auto_close where lesson_id = ?', [id]) ?? null;
@@ -709,12 +719,13 @@ export function buildLessonModeApp(
    * Close one abandoned lesson. Synchronous on purpose: the Durable Object runs it without a break, so a console's end
    * or a child's answer never lands halfway. Makes no report row and no delivery (nothing reaches the guardian).
    */
+  const childCame = (id: string) =>
+    Boolean(d.sql.get('select 1 from lesson_presence where lesson_id = ?', [id]) || d.sql.get('select 1 from utterances where session_id = ? limit 1', [id]));
   const autoCloseLesson = (id: string, lastActivity: number, now: number, fallbackOrigin: string | null): AutoCloseOutcome | null => {
     const l = lessonRow(id);
     if (!l || l.ended_at) return null;
     // The child never came (no screen poll, no answer): nothing to report, so no card and no box row (N2).
-    const empty =
-      !d.sql.get('select 1 from lesson_presence where lesson_id = ?', [id]) && !d.sql.get('select 1 from utterances where session_id = ? limit 1', [id]);
+    const empty = !childCame(id);
     const endAt = Math.max(l.started_at, Math.min(lastActivity, now));
     d.sql.run('update lessons set ended_at = ? where id = ? and ended_at is null', [endAt, id]);
     registerPinExpressions(id, l.player_id, pinWindowsOf(id));
@@ -754,6 +765,10 @@ export function buildLessonModeApp(
     for (const l of open) {
       const last = lastActivityOf(l.id, l.started_at);
       if (now - last < LESSON_IDLE_CLOSE_MS) continue;
+      // The child has not come yet and can still join: wait LESSON_EMPTY_GRACE_MS from the start.
+      if (now - l.started_at < LESSON_EMPTY_GRACE_MS && !childCame(l.id) && d.sql.get('select 1 from lesson_joins where lesson_id = ? and expires_at > ?', [l.id, now])) {
+        continue;
+      }
       idle.push({ lesson_id: l.id, test: isTestPlayerId(l.player_id), last_activity_at: last, idle_min: Math.floor((now - last) / 60_000) });
     }
     const outcomes = dryRun ? [] : idle.map((x) => autoCloseLesson(x.lesson_id, x.last_activity_at, now, origin)).filter((x) => x !== null);
@@ -917,6 +932,7 @@ export function buildLessonModeApp(
     const left = d.sql.get<{ left_at: number | null }>('select left_at from lesson_teacher where lesson_id = ?', [id])?.left_at ?? null;
     // The teacher left on purpose: a console or an unlocked panel still beating does not bring them back.
     if (left !== null && !p.data.resume) {
+      d.sql.run('update lesson_teacher set console_seen_at = ? where lesson_id = ?', [now, id]);
       return c.json({ teacher: teacherOf(id, now), left: true, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
     }
     beat(id, now, fromPanel ? p.data.panel : p.data.resume ? 'open' : null, c.req.header('x-lcw-op-session') ?? null, p.data.name);

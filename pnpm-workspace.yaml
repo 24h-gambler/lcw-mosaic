@@ -5,3 +5,5 @@ packages:
 
 allowBuilds:
   esbuild: true
+  # miniflare (tools/workerd-sql.mjs) runs the platform binary package directly; its postinstall is not needed
+  workerd: false

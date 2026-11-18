@@ -28,8 +28,8 @@ export const POSES = [
   { id: 'market-street', x: 150.5, z: 150.5, yaw: 2.32, pitch: 0.3, hour: 10.5 },
   { id: 'shop-front', x: 130.5, z: 146.5, yaw: -2.54, pitch: 0.28, hour: 10.5 },
   { id: 'cafe-front', x: 156.5, z: 140.5, yaw: 2.17, pitch: 0.28, hour: 10.5 },
-  { id: 'cafe-inside', x: 167.5, z: 138.5, yaw: 2.17, pitch: 0.34, hour: 10.5 },
-  { id: 'shop-inside', x: 120.5, z: 130.5, yaw: -1.05, pitch: 0.34, hour: 10.5 },
+  { id: 'cafe-inside', x: 167.5, z: 138.5, y: 3, yaw: 2.06, pitch: 0.34, hour: 10.5 },
+  { id: 'shop-inside', x: 120.5, z: 131.5, y: 3, yaw: -1.08, pitch: 0.34, hour: 10.5 },
   { id: 'plaza-night', x: 144.5, z: 157.5, yaw: Math.PI, pitch: 0.26, hour: 21.5 }
 ];
 const VIEWPORTS = [

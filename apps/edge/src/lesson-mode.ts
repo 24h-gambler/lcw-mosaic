@@ -769,12 +769,17 @@ export function buildLessonModeApp(
               (select max(at) from lesson_stage_log where lesson_id = ?) as stage,
               (select max(updated_at) from lesson_director where lesson_id = ?) as director,
               (select max(created_at) from utterances where session_id = ?) as utterance,
-              (select max(at_ms) from pins where lesson_id = ?) as pin_ms`,
-      [id, id, id, id, id, id]
+              (select max(updated_at) from lesson_state where lesson_id = ?) as state,
+              (select max(at_ms) from pins where lesson_id = ? and at_ms <= ?) as pin_ms`,
+      [id, id, id, id, id, id, id, d.nowMs() - startedAt]
     );
     const { pin_ms: pinMs, ...at } = r ?? {};
-    // a pin's at_ms counts from the lesson's start
-    return Math.max(startedAt, ...Object.values(at).map((v) => Number(v ?? 0)), pinMs == null ? 0 : startedAt + Number(pinMs));
+    // lesson_state.updated_at: the start, the teacher's "show on the child's screen" for the same stage (no stage log row)
+    // and the server's auto move; the child's poll never writes it (childTick keeps its own column).
+    // A pin's at_ms counts from the lesson's start. A time past now cannot be real (an old row before the route cut it):
+    // left out, so it never keeps a lesson open.
+    const pinAt = pinMs == null ? 0 : startedAt + Number(pinMs);
+    return Math.max(startedAt, ...Object.values(at).map((v) => Number(v ?? 0)), pinAt);
   };
 
   type AutoRow = { lesson_id: string; closed_at: number; last_activity_at: number; draft: string; sent_at: number | null; folded_into: string | null; empty: number };
@@ -861,10 +866,13 @@ export function buildLessonModeApp(
    * last activity and draft move back to the last real activity (lastActivityOf). Runs on every sweep; a row already
    * right is left alone, so it is safe to repeat.
    */
+  /** Unsent auto-closes older than this are left as they are (the sweep runs every 5 minutes; the box shows a week). */
+  const LESSON_RECLAMP_WINDOW_MS = 14 * 86_400_000;
   const reclampAutoClosed = (dryRun: boolean, now: number, fallbackOrigin: string | null): Array<{ lesson_id: string; ended_at: number; was: number }> => {
     const rows = d.sql.all<{ lesson_id: string; last_activity_at: number; started_at: number; ended_at: number }>(
       `select a.lesson_id, a.last_activity_at, l.started_at, l.ended_at from lesson_auto_close a join lessons l on l.id = a.lesson_id
-       where a.sent_at is null and a.folded_into is null and l.ended_at is not null`
+       where a.sent_at is null and a.folded_into is null and l.ended_at is not null and a.closed_at >= ?`,
+      [now - LESSON_RECLAMP_WINDOW_MS]
     );
     const out: Array<{ lesson_id: string; ended_at: number; was: number }> = [];
     for (const row of rows) {
@@ -1239,14 +1247,17 @@ export function buildLessonModeApp(
 
   app.post('/v1/admin/lessons/:id/pins', async (c) => {
     const id = c.req.param('id');
-    if (!lessonRow(id)) return c.json({ error: 'lesson_not_found' }, 404);
+    const lesson = lessonRow(id);
+    if (!lesson) return c.json({ error: 'lesson_not_found' }, 404);
     const p = PinSchema.safeParse(await c.req.json());
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     const pinId = `pin-${hex(d.randomBytes(6))}`;
+    // The console sends the time since the start (lessonFlow.ts); a later time cannot have happened yet: cut at now, so
+    // a wrong value never keeps the lesson open as 'activity' (review of PR 159).
     d.sql.run('insert into pins (id, lesson_id, at_ms, kind, note) values (?, ?, ?, ?, ?)', [
       pinId,
       id,
-      p.data.at_ms,
+      Math.min(p.data.at_ms, Math.max(0, d.nowMs() - lesson.started_at)),
       p.data.kind,
       p.data.note
     ]);

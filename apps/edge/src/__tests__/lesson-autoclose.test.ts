@@ -344,6 +344,45 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
   });
 
+  it("the teacher's 'show on the child's screen' for the same stage is activity (review of PR 159)", async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await say(p, st);
+    const stage = sqlOf(p).get<{ stage_id: string }>('select stage_id from lesson_state where lesson_id = ?', [lessonId])!.stage_id;
+    now += LESSON_IDLE_CLOSE_MS - 60_000;
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: stage, targets: ['Can I have a warm honey tea?'] })).status).toBeLessThan(300);
+    expect(sqlOf(p).get<{ n: number }>('select count(*) as n from lesson_stage_log where lesson_id = ?', [lessonId])!.n).toBe(1);
+    now += 2 * 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([]);
+    now += LESSON_IDLE_CLOSE_MS;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+  });
+
+  it('a pin with a wrong or future time never keeps a lesson open (review of PR 159)', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await say(p, st);
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'coaching', at_ms: 30 * 86_400_000, note: 'typo' })).status).toBe(201);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+    // the pin was cut to the time it was put (the start here), and the lesson ends at the child's answer, not 30 days ahead
+    expect(sqlOf(p).get<{ at_ms: number }>('select at_ms from pins where lesson_id = ?', [lessonId])!.at_ms).toBe(0);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(T0);
+    // an old row with an impossible time (before the route cut it) is left out too
+    const q = platform();
+    await addStudent(q);
+    now = T0;
+    const second = await startLesson(q);
+    await say(q, second.st);
+    sqlOf(q).all("insert into pins (id, lesson_id, at_ms, kind, note) values ('pin-old', ?, ?, 'coaching', 'x')", [second.lessonId, 30 * 86_400_000]);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(q)).body.lessons.closed).toEqual([second.lessonId]);
+  });
+
   it('an unsent auto-closed lesson closed while console beats counted is pulled back to its last real activity', async () => {
     now = T0;
     const p = platform();

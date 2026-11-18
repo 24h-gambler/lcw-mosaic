@@ -194,12 +194,12 @@ describe('lesson report facts for parents (WP-308, docs/07 §5)', () => {
       final_text: t, stars, mode, ctx, words: t.split(' ').length, dur_ms: 1000, confidence: 0.9, hint_level: 'full', created_at: at
     });
     const q = pickQuotes(
-      [row('a b c d e f g h', 3, 'x', 1), row('a b c d e f g h!', 3, 'x', 2), row('one two', 1, 'y', 3), row('zz top go', 2, 'x', 4), row('low conf here', 3, 'z', 5)].map((r, i) =>
+      [row('a b c d e f g h', 3, 'x', 1), row('a b c d e f g h!', 3, 'x', 2), row('one two', 1, 'y', 3), row('dogs go fast', 2, 'x', 4), row('low conf here', 3, 'z', 5)].map((r, i) =>
         i === 4 ? { ...r, confidence: 0.3 } : r
       ),
       () => 'T'
     );
-    expect(q.map((x) => x.text)).toEqual(['A b c d e f g h', 'One two', 'Zz top go']);
+    expect(q.map((x) => x.text)).toEqual(['A b c d e f g h', 'One two', 'Dogs go fast']);
     expect(tidyQuote(" i think i'm ok ")).toBe("I think I'm ok");
   });
 });

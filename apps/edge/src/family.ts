@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { filterSpeechBubble } from '@lcw/converse';
 import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
+import { reportNameKeys } from './name-keys.js';
 import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicReportView } from './parent-report.js';
 import { buildLessonWindow } from './lesson-window.js';
 import { answerListening, closeListeners, lessonAudioState, listenerOf, startListening, touchListener, type RealtimeClient } from './lesson-audio.js';
@@ -196,8 +197,8 @@ export function openPublicReport(
   /** Teacher preview (operator token): show the page without recording a parent open. */
   preview = false
 ): { status: 200; view: PublicReportView } | { status: 404 | 410; error: string } {
-  const row = sql.get<{ created_at: number; nickname: string | null }>(
-    'select r.created_at, p.nickname from reports r left join players p on p.id = r.player_id where r.share_token = ?',
+  const row = sql.get<{ created_at: number; nickname: string | null; player_id: string; ref_id: string }>(
+    'select r.created_at, p.nickname, r.player_id, r.ref_id from reports r left join players p on p.id = r.player_id where r.share_token = ?',
     [token]
   );
   if (!row) return { status: 404, error: 'report_not_found' };
@@ -223,7 +224,8 @@ export function openPublicReport(
     view: {
       kind: String(r.kind),
       ref_id: String(r.ref_id),
-      facts: publicFacts(parse(r.facts), nick ? [nick, ...nick.split(/\s+/)] : []),
+      // Every name tied to the child, checked again on the public path (a report stored before a name was added).
+      facts: publicFacts(parse(r.facts), reportNameKeys(sql, row.player_id, row.ref_id)),
       body: String(r.body),
       clips: Array.isArray(clips) ? clips : [],
       created_at: Number(r.created_at),

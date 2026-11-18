@@ -8,6 +8,7 @@ import {
   NAME_LIKE_WORDS
 } from '@lcw/content';
 import { filterSpeechBubble } from '@lcw/converse';
+import { reportNameKeys } from './name-keys.js';
 import { meaningfulExpression } from '@lcw/metrics';
 import type { SqliteExecutor } from './storage.js';
 
@@ -257,12 +258,6 @@ export function lessonSummaryKo(f: Pick<LessonParentFacts, 'utterances' | 'passe
   return `이번 수업에서 영어로 ${f.utterances}번 말했고 그중 ${f.passes}번 통과했습니다. 직접 말한 시간은 ${time}입니다.${free}`;
 }
 
-/** The child's nickname and each of its words: none of them may appear in a public quote. */
-function childNames(sql: SqliteExecutor, playerId: string): string[] {
-  const nick = sql.get<{ nickname: string }>('select nickname from players where id = ?', [playerId])?.nickname ?? '';
-  return [nick, ...nick.split(/\s+/)].filter((x) => x.trim().length >= 2);
-}
-
 /** The first MAX_HOME_PRACTICE candidates, in order, with a sentence inside another counted once. */
 function pickHomePractice(candidates: readonly string[]): string[] {
   const out: string[] = [];
@@ -319,7 +314,8 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
   );
   const ended = lesson.ended_at ?? nowMs;
 
-  const names = childNames(sql, lesson.player_id).map(norm).filter(Boolean);
+  // Every name tied to this child (family, class, sign-up, guardian, teacher), any case, anywhere in a sentence.
+  const names = reportNameKeys(sql, lesson.player_id, lessonId);
   const exprSeen = new Set<string>();
   const expressions: string[] = [];
   const targets = plan.stages.flatMap((s) => s.targets);

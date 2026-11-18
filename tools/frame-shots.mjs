@@ -30,7 +30,16 @@ const VIEWPORTS = [
   { name: 'p390', width: 390, height: 844, touch: true },
   { name: 'l844', width: 844, height: 390, touch: true },
   // EXTRA_SMALL=1: the smallest landscape phone too (gauges, a long goal and the Korean help squeeze the top row)
-  ...(process.env.EXTRA_SMALL === '1' ? [{ name: 'l667', width: 667, height: 375, touch: true }] : [])
+  ...(process.env.EXTRA_SMALL === '1' ? [{ name: 'l667', width: 667, height: 375, touch: true }] : []),
+  // EXTRA_MID=1: mid widths where the chip with the lesson and teacher tags and the stars leave the goal card little room
+  // (portrait tablets, a half-width desktop window)
+  ...(process.env.EXTRA_MID === '1'
+    ? [
+        { name: 't768', width: 768, height: 1024, touch: true },
+        { name: 't820', width: 820, height: 1180, touch: true },
+        { name: 'd900', width: 900, height: 700 }
+      ]
+    : [])
 ];
 
 const SETTINGS = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;
@@ -231,6 +240,8 @@ for (const vp of VIEWPORTS) {
   // 3. a lesson screen (tag, goal card, four-digit coins), then the connection band and snow: nothing covers anything
   await page.evaluate(() => {
     window.__lcwWorld.setLessonBadge?.(true);
+    // the teacher with the child: their tag widens the status chip and their name plate stands in the 3D view
+    window.__lcwWorld.setTeacher?.({ present: true, name: 'Ms. Teacher' });
     window.__lcwWorld.setCoins?.(1450);
     window.__lcwWorld.setGoal('꿀 카페에서 꿀차를 주문해요', 'Can I have a honey tea, please?');
   });

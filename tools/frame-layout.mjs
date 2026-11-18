@@ -55,9 +55,12 @@ export const LAYOUT_SNAPSHOT = () => {
     for (const c of e.children) visit(c, depth + 1);
   };
   visit(document.body, 0);
+  // world-anchored labels (name plates, talk prompt, speech bubbles) follow people in the 3D view: two of them meeting is
+  // the world, not the frame's layout; they are still held against every HUD part
+  const WORLD = '.lw-plate,.lw-prompt,.lw-bub';
   const boxes = parts.map((e) => {
     const b = e.getBoundingClientRect();
-    return { e, x: b.x, y: b.y, w: b.width, h: b.height, name: label(e) };
+    return { e, x: b.x, y: b.y, w: b.width, h: b.height, name: label(e), world: e.matches(WORLD) };
   });
   const problems = [];
   const inter = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
@@ -70,7 +73,7 @@ export const LAYOUT_SNAPSHOT = () => {
     if ((cs.overflow === 'hidden' || cs.overflowX === 'hidden' || cs.textOverflow === 'ellipsis') && a.e.scrollWidth > a.e.clientWidth + 1) problems.push(`text cut inside: ${a.name}`);
     for (let j = i + 1; j < boxes.length; j++) {
       const b = boxes[j];
-      if (a.e.contains(b.e) || b.e.contains(a.e)) continue;
+      if (a.e.contains(b.e) || b.e.contains(a.e) || (a.world && b.world)) continue;
       const area = inter(a, b);
       // a sliver under 4 px (shadows, rounding) is not an overlap a child sees
       if (area > 0 && Math.min(Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)) >= 4) {
@@ -84,12 +87,13 @@ export const LAYOUT_SNAPSHOT = () => {
   for (const l of labels) {
     if (l.opacity < 0.5) continue;
     for (const b of boxes) {
+      if (b.world) continue;
       const ox = Math.min(l.x + l.w, b.x + b.w) - Math.max(l.x, b.x);
       const oy = Math.min(l.y + l.h, b.y + b.h) - Math.max(l.y, b.y);
       if (ox >= 4 && oy >= 4) problems.push(`world label over a screen part: "${l.name}" / ${b.name}`);
     }
   }
-  return { labels, parts: boxes.map(({ e, ...r }) => ({ ...r, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) })), problems };
+  return { labels, parts: boxes.map(({ e, world, ...r }) => ({ ...r, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) })), problems };
 };
 
 /** Problems on the page now (dedented labels), plus the parts for a report. */

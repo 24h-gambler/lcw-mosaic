@@ -176,7 +176,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
         </button>
       ) : null}
       {toast ? (
-        <div role="status" className="lcw-errand-toast" style={TOAST_STYLE}>
+        <div role="status" className="lcw-errand-toast" data-hud-part="" style={TOAST_STYLE}>
           🪙 {toast}
         </div>
       ) : null}

@@ -30,7 +30,8 @@ import { loadLine, neuralVoiceOn, neuralVoiceStatus, prefetchLines } from './neu
 if (typeof window !== 'undefined') void neuralVoiceStatus();
 import { newDialogId, SubmitError } from './submit.js';
 import type { DialogOffer, DialogPanelProps, DialogResult, SttSource, UtteranceSubmit } from './types.js';
-import { micHoldMode } from '../frame/settings.js';
+import { micHoldMode, syllableHints } from '../frame/settings.js';
+import { syllabify } from '../frame/syllables.js';
 import { FRAME_STRINGS } from '../frame/strings.js';
 
 export type { DialogOffer, DialogPanelProps, DialogResult, NpcRef, UtteranceSubmit } from './types.js';
@@ -76,6 +77,8 @@ function OfferText(props: { offer: DialogOffer; hint: DialogPanelProps['hint']; 
   }
   if (hint === 'none') return <span className="lcw-offer__text m">{S.hintLevel.none}</span>;
   const toks = renderHintTokens(offer.text, offer.hintTags, hint);
+  // G14 읽기: whole words shown in full get syllable marks (ta·ble); masked or blanked words stay as they are
+  const syl = syllableHints();
   return (
     <span className="lcw-offer__text">
       {toks.map((t, i) => {
@@ -85,7 +88,7 @@ function OfferText(props: { offer: DialogOffer; hint: DialogPanelProps['hint']; 
           .join(' ');
         return (
           <React.Fragment key={i}>
-            <span className={cls || undefined}>{t.shown}</span>{' '}
+            <span className={cls || undefined}>{syl && t.shown === t.word ? syllabify(t.shown) : t.shown}</span>{' '}
           </React.Fragment>
         );
       })}

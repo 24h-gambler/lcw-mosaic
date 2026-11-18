@@ -1,4 +1,4 @@
-import { getLessonPlan } from '@lcw/content';
+import { CAFE_MENU, FUNCTION_WORDS, getLessonPlan, LESSON_PLANS, LEXICON_L1_KO_EN } from '@lcw/content';
 import { filterSpeechBubble } from '@lcw/converse';
 import { meaningfulExpression } from '@lcw/metrics';
 import type { SqliteExecutor } from './storage.js';
@@ -15,6 +15,8 @@ export const REPORT_SHARE_TTL_MS = 30 * 86_400_000;
 export const MIN_QUOTE_CONFIDENCE = 0.5;
 export const MAX_QUOTES = 3;
 export const MAX_EXPRESSIONS = 8;
+/** 'At home' on the report: a parent can carry one or two sentences into the week, not a list. */
+export const MAX_HOME_PRACTICE = 2;
 
 export interface LessonParentQuote {
   text: string;
@@ -27,6 +29,8 @@ export interface LessonParentQuote {
 export interface LessonParentStage {
   id: string;
   title_ko: string;
+  /** The practice scene itself (plan stage parentMain), not warm-up, recall or wrap-up. */
+  main: boolean;
   utterances: number;
   passes: number;
 }
@@ -52,10 +56,29 @@ export interface LessonParentFacts {
   coaching_moments: number;
   stages: LessonParentStage[];
   summary_ko: string;
+  /**
+   * The child's lesson before this one that has any English in it (an abandoned lesson with nothing said is skipped),
+   * counted by the same rules, so the page can say what changed ('얼마나 늘었는지'); null for the first such lesson.
+   */
+  previous: LessonParentCompare | null;
+  /**
+   * Up to two sentences to say again at home: the lesson's target sentences the child passed (the teacher's own,
+   * well-formed wording; most stars first), then the expressions, then the quotes. A sentence inside another is one.
+   */
+  home_practice: string[];
+}
+
+export interface LessonParentCompare {
+  utterances: number;
+  passes: number;
+  speaking_sec: number;
+  free_words: number;
 }
 
 interface UttRow extends Record<string, unknown> {
   final_text: string;
+  /** The sentence on screen ('' in free talk); older callers of pickQuotes leave it out. */
+  target_text?: string;
   stars: number;
   mode: string;
   ctx: string;
@@ -106,6 +129,25 @@ const COMMON_CAPITALISED = new Set(
   ).split(' ')
 );
 
+/**
+ * Words a sentence may start with: every sentence starts with a capital, so the proper-noun check below skips the first
+ * word — "Jiwoo, can I have tea?" would pass. The first word must be one of these (function words, the words in our
+ * lessons and menus, and greetings); anything else at the start is treated like a name. Over-blocking is fine (above).
+ */
+const SENTENCE_STARTERS = new Set(
+  [
+    ...FUNCTION_WORDS,
+    ...COMMON_CAPITALISED,
+    ...Object.values(LEXICON_L1_KO_EN),
+    ...CAFE_MENU.map((d) => d.label),
+    ...LESSON_PLANS.flatMap((pl) =>
+      pl.stages.flatMap((st) => [st.teacherScriptEn, st.studentGoalEn, ...(st.followUpsEn ?? []), ...st.targets.map((t) => t.text)])
+    ),
+    'hello hi hey bye goodbye thank thanks sorry wow oh ah um uh let lets give look here there what where who why how ' +
+      'which when one two three good great nice excuse yeah yep nope maybe today now then first next one some every all'
+  ].flatMap((x) => x.toLowerCase().split(/[^a-z']+/).map((w) => w.replace(/'/g, '')).filter(Boolean))
+);
+
 /** Text that may appear on the public report: English, no PII/profanity, no names, no self-introduction. */
 export function publicSafeText(text: string, names: string[]): boolean {
   const t = text.trim();
@@ -116,6 +158,8 @@ export function publicSafeText(text: string, names: string[]): boolean {
   if (SELF_IDENTIFYING_PATTERN.test(n)) return false;
   for (const m of n.matchAll(INTRO_OPENER)) if (!INTRO_SAFE_NEXT.has(m[1]!)) return false;
   if (names.some((x) => x.length >= 2 && n.includes(` ${x} `))) return false;
+  const first = norm(t.split(/\s+/)[0] ?? '').replace(/ /g, '');
+  if (/^[A-Z]/.test(t) && first && !SENTENCE_STARTERS.has(first)) return false;
   const words = t.split(/\s+/).slice(1);
   if (words.some((w) => /^[A-Z]/.test(w) && !COMMON_CAPITALISED.has(norm(w).replace(/ /g, '')))) return false;
   const f = filterSpeechBubble(t);
@@ -185,6 +229,19 @@ function childNames(sql: SqliteExecutor, playerId: string): string[] {
   return [nick, ...nick.split(/\s+/)].filter((x) => x.trim().length >= 2);
 }
 
+/** The first MAX_HOME_PRACTICE candidates, in order, with a sentence inside another counted once. */
+function pickHomePractice(candidates: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const s of candidates) {
+    if (out.length >= MAX_HOME_PRACTICE) break;
+    const k = norm(s);
+    // 'Can I have a warm honey tea?' is inside 'Can I have a warm honey tea, please?': one sentence for home.
+    if (!k || out.some((h) => norm(h).includes(k) || k.includes(norm(h)))) continue;
+    out.push(s);
+  }
+  return out;
+}
+
 export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, nowMs: number): LessonParentFacts | null {
   const lesson = sql.get<{ player_id: string; started_at: number; ended_at: number | null; plan: string }>(
     'select player_id, started_at, ended_at, plan from lessons where id = ?',
@@ -192,20 +249,40 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
   );
   if (!lesson) return null;
   const plan = getLessonPlan(lesson.plan || undefined);
-  // Parent wording: drop the step number and the teacher's note in brackets ("② 카페 주문 (1성 → 3성)" → "카페 주문").
-  const titleOf = (id: string) =>
-    plan.stages.find((s) => s.id === id)?.titleKo.replace(/^[①-⑩]\s*/, '').replace(/\s*\([^)]*\)\s*$/, '') ?? '';
-  const rows = sql.all<UttRow>(
-    `select final_text, stars, mode, ctx, words, dur_ms, confidence, hint_level, created_at
-     from utterances where session_id = ? and player_id = ? order by created_at`,
-    [lessonId, lesson.player_id]
-  );
+  // Parent wording: the plan's parentKo, else the title without the step number and the teacher's note in brackets
+  // ("② 카페 주문 (1성 → 3성)" → "카페 주문").
+  const titleOf = (id: string) => {
+    const st = plan.stages.find((s) => s.id === id);
+    return st ? st.parentKo ?? st.titleKo.replace(/^[①-⑩]\s*/, '').replace(/\s*\([^)]*\)\s*$/, '') : '';
+  };
+  const rowsOf = (id: string) =>
+    sql.all<UttRow>(
+      `select final_text, target_text, stars, mode, ctx, words, dur_ms, confidence, hint_level, created_at
+       from utterances where session_id = ? and player_id = ? order by created_at`,
+      [id, lesson.player_id]
+    );
+  const rows = rowsOf(lessonId);
   const pins = sql.all<{ kind: string; note: string; at_ms: number }>(
     'select kind, note, at_ms from pins where lesson_id = ? order by at_ms',
     [lessonId]
   );
   const passes = rows.filter((u) => u.stars > 0);
   const sum = (xs: UttRow[], f: (u: UttRow) => number) => xs.reduce((a, u) => a + f(u), 0);
+  const compare = (xs: UttRow[]): LessonParentCompare => ({
+    utterances: xs.length,
+    passes: xs.filter((u) => u.stars > 0).length,
+    speaking_sec: Math.round(sum(xs, (u) => u.dur_ms) / 1000),
+    free_words: sum(
+      xs.filter((u) => u.mode === 'free'),
+      (u) => u.words
+    )
+  });
+  const prevLesson = sql.get<{ id: string }>(
+    `select l.id from lessons l where l.player_id = ? and l.started_at < ? and l.id <> ?
+       and exists (select 1 from utterances u where u.session_id = l.id and u.player_id = l.player_id)
+     order by l.started_at desc limit 1`,
+    [lesson.player_id, lesson.started_at, lessonId]
+  );
   const ended = lesson.ended_at ?? nowMs;
 
   const names = childNames(sql, lesson.player_id).map(norm).filter(Boolean);
@@ -235,9 +312,22 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
   const stages: LessonParentStage[] = plan.stages
     .map((s) => {
       const mine = rows.filter((u) => u.ctx === s.id);
-      return { id: s.id, title_ko: titleOf(s.id), utterances: mine.length, passes: mine.filter((u) => u.stars > 0).length };
+      return {
+        id: s.id,
+        title_ko: titleOf(s.id),
+        main: s.parentMain === true,
+        utterances: mine.length,
+        passes: mine.filter((u) => u.stars > 0).length
+      };
     })
     .filter((s) => s.utterances > 0);
+
+  const quotes = pickQuotes(rows, titleOf, names);
+  const passedTargets = passes
+    .filter((u) => u.mode !== 'free' && (u.target_text ?? '').trim().split(/\s+/).length >= 2 && publicSafeText(u.target_text ?? '', names))
+    .sort((a, b) => b.stars - a.stars || (b.target_text ?? '').length - (a.target_text ?? '').length || b.created_at - a.created_at)
+    .map((u) => (u.target_text ?? '').trim());
+  const home_practice = pickHomePractice([...passedTargets, ...expressions, ...quotes.map((q) => q.text)]);
 
   const base = {
     lesson_day: kstDayOf(lesson.started_at),
@@ -263,12 +353,12 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
     ),
     speaking_sec: Math.round(sum(rows, (u) => u.dur_ms) / 1000),
     longest_words: rows.reduce((m, u) => Math.max(m, u.stars > 0 ? u.words : 0), 0),
-    quotes: pickQuotes(rows, titleOf, names),
+    quotes,
     expressions,
     coaching_moments: pins.filter((p) => p.kind === 'coaching').length,
     stages
   };
-  return { ...base, summary_ko: lessonSummaryKo(base) };
+  return { ...base, summary_ko: lessonSummaryKo(base), previous: prevLesson ? compare(rowsOf(prevLesson.id)) : null, home_practice };
 }
 
 /**
@@ -324,7 +414,14 @@ export function mergeLessonParentFacts(parts: readonly LessonParentFacts[]): Les
     coaching_moments: sum((p) => p.coaching_moments),
     stages: [...stages.values()]
   };
-  return { ...base, summary_ko: lessonSummaryKo(base) };
+  return {
+    ...base,
+    summary_ko: lessonSummaryKo(base),
+    // The lesson before this one: the first part's (a later part's 'previous' is the same day's earlier part).
+    previous: first.previous,
+    // Each part's picks come in priority order (passed targets, then expressions, then quotes); earlier part first.
+    home_practice: pickHomePractice([...xs.flatMap((p) => p.home_practice), ...expressions, ...base.quotes.map((q) => q.text)])
+  };
 }
 
 /** What the public /v1/reports/:token returns. Explicit allow-list: nothing else from the rows reaches the page. */
@@ -339,6 +436,9 @@ export interface PublicReportView {
   teacher_comment: string;
   next_lesson_at: string;
 }
+
+/** Stage id → plan stage (ids like wrap_up repeat across plans with the same parent wording). */
+const PLAN_STAGES = new Map(LESSON_PLANS.flatMap((pl) => pl.stages).map((st) => [st.id, st] as const));
 
 const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
 
@@ -400,14 +500,26 @@ export function publicFacts(facts: unknown, names: string[]): Record<string, unk
         hintless: q.hintless === true
       }));
     lesson.expressions = arr(l.expressions).filter((e): e is string => typeof e === 'string' && publicSafeText(e, keyNames));
+    lesson.home_practice = arr(l.home_practice).filter((e): e is string => typeof e === 'string' && publicSafeText(e, keyNames));
+    // Numbers only (the lesson before), like facts.progress.
+    // null = no earlier lesson with words (the page says so); left out on a report made before the field existed.
+    if (l.previous && typeof l.previous === 'object' && !Array.isArray(l.previous)) lesson.previous = numbersOnly(l.previous);
+    else if (l.previous === null) lesson.previous = null;
+    else delete lesson.previous;
     lesson.stages = arr(l.stages)
       .map((x) => (x ?? {}) as Record<string, unknown>)
-      .map((x) => ({
-        id: typeof x.id === 'string' ? x.id : '',
-        title_ko: typeof x.title_ko === 'string' ? x.title_ko : '',
-        utterances: isNum(x.utterances) ? x.utterances : 0,
-        passes: isNum(x.passes) ? x.passes : 0
-      }));
+      .map((x) => {
+        const id = typeof x.id === 'string' ? x.id : '';
+        // Reports stored before parentKo/parentMain read the plan's current parent wording ("인사와 고정 과제" → plain).
+        const st = PLAN_STAGES.get(id);
+        return {
+          id,
+          title_ko: st?.parentKo ?? (typeof x.title_ko === 'string' ? x.title_ko : ''),
+          main: typeof x.main === 'boolean' ? x.main : st?.parentMain === true,
+          utterances: isNum(x.utterances) ? x.utterances : 0,
+          passes: isNum(x.passes) ? x.passes : 0
+        };
+      });
     out.lesson = lesson;
   }
   return out;

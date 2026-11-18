@@ -4,15 +4,17 @@
  * Colors, type and motion come from @lcw/ui tokens only (AGENTS 6). No prices or payment on this screen (AGENTS 4.9).
  */
 import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
-import { WORLD_STRINGS as W, itemGotText, itemNameKo } from './strings.js';
-import { bandOf, clockLabel, hotbarCaption, isNight, placeLabel, type BandId } from '../frame/status.js';
+import { WORLD_STRINGS as W, itemGotText, itemTitle, itemTitleBi, controlsDesktopBi, controlsDesktopFor, DEFAULT_KEY_HINTS, worldSay, type KeyHintLabels } from './strings.js';
+import { onLearnLang } from './lang.js';
+import { bandOf, clockLabel, isNight, placeBi, type BandId } from '../frame/status.js';
+import { refillOf } from '../frame/gauges.js';
 
 const STYLE_ID = 'lcw-world-hud-style';
 
 function css(): string {
   const night = `${C['night-900']}D9`; // 85% (docs/08 2.1)
   return `
-.lw-hud{position:absolute;inset:0;pointer-events:none;font-family:${T.fonts.ui};color:${C['ink-900']};user-select:none;-webkit-user-select:none;overflow:hidden;touch-action:none}
+.lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.25);position:absolute;inset:0;pointer-events:none;font-family:${T.fonts.ui};color:${C['ink-900']};user-select:none;-webkit-user-select:none;overflow:hidden;touch-action:none}
 .lw-hud *{box-sizing:border-box}
 .lw-card{background:${C['paper-50']};border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusCardPx}px;box-shadow:${S.shadowDefault}}
 .lw-goal{position:absolute;top:12px;left:50%;transform:translate(-50%,-140%);max-width:min(720px,calc(100% - 32px));padding:8px 16px;display:flex;flex-direction:column;align-items:center;gap:2px;transition:transform ${M.slowMs}ms ease-out;text-align:center}
@@ -20,27 +22,41 @@ function css(): string {
 .lw-hud.dlg .lw-goal{opacity:0;transition:opacity ${M.slowMs}ms ease-out}
 /* a dialog window covers the bottom (or the right on a landscape phone): the hotbar and help hide under it */
 .lw-hud.dlg .lw-hotbar,.lw-hud.dlg .lw-help{opacity:0;visibility:hidden;transition:opacity ${M.slowMs}ms ease-out,visibility 0s linear ${M.slowMs}ms}
-.lw-goal .k{font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px;font-weight:700;color:${C['brand-d']}}
-.lw-goal .g{font-size:${T.scale['body-l'].sizePx}px;line-height:${T.scale['body-l'].lineHeightPx}px;font-weight:700}
-.lw-goal .t{font-family:${T.fonts.target};font-size:${T.scale.h3.sizePx}px;line-height:${T.scale.h3.lineHeightPx}px;font-weight:700;color:${C['sky-d']}}
-.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:calc(100vw - 230px)}
-.lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.small.sizePx}px}
-.lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.micro.sizePx}px;border:2px solid ${C['ink-900']};display:none}
+.lw-goal .k{font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;color:${C['brand-d']}}
+.lw-goal .g{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1));font-weight:700}
+.lw-goal .t{font-family:${T.fonts.target};font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.h3.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;color:${C['sky-d']}}
+.lw-chip{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;max-width:calc(100vw - 230px)}
+.lw-chip .s{background:${night};color:${C['paper-0']};padding:6px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1))}
+.lw-chip .l{background:${C.sky};color:${C['ink-900']};padding:4px 8px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));border:2px solid ${C['ink-900']};display:none}
 .lw-chip .l.on{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lw-chip .p .ko{display:block;font-size:.82em;font-weight:600;opacity:.85}
 .lw-chip .l.solo{background:${C['paper-0']};color:${C['ink-700']};border-style:dashed}
 .lw-chip .s{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px}
-.lw-chip .w{display:inline-flex;align-items:center;gap:6px;font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px;font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9}
+.lw-chip .w{display:inline-flex;align-items:center;gap:6px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1));font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9}
 .lw-chip .w:empty,.lw-chip .w.none{display:none}
 .lw-chip .w i{width:10px;height:10px;border-radius:50%;background:${C.sun};box-shadow:0 0 0 2px ${C['sun-d']};flex:none}
 .lw-chip .w.night i{background:transparent;box-shadow:inset -4px -2px 0 0 ${C.silver}}
 .lw-chip .w.snow i{background:${C['paper-0']};box-shadow:0 0 0 2px ${C.silver}}
 .lw-chip .s{white-space:nowrap}
-.lw-net{position:absolute;top:0;left:0;right:0;display:none;align-items:center;justify-content:center;gap:8px;padding:4px 12px;background:${C.sun};color:${C['ink-900']};border-bottom:${S.borderWidthPx}px solid ${C['ink-900']};font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px}
+.lw-chip .gz{display:none;align-items:center;gap:10px;margin-top:2px}
+.lw-chip .gz.on{display:inline-flex}
+.lw-chip .gz span{display:inline-flex;align-items:center;gap:4px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:1}
+.lw-chip .gz b{display:block;width:calc(40px * var(--lcw-hs,1));height:8px;border-radius:999px;background:${C['night-700']};box-shadow:inset 0 0 0 1px ${C['paper-0']};overflow:hidden}
+.lw-chip .gz b i{display:block;height:100%;width:45%;background:var(--gz);transition:width ${M.slowMs}ms linear}
+.lw-chip .gz .h{--gz:${C.sun}}
+.lw-chip .gz .t{--gz:${C.sky}}
+.lw-chip .gz .low b i{background:var(--c-danger,${C.danger})}
+.lw-chip .gz .low{animation:lwGzLow 1.6s ease-in-out infinite}
+.lw-chip .gz em{display:none;font-style:normal;color:${C.sun};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
+.lw-chip .gz.slow em{display:inline}
+@keyframes lwGzLow{50%{opacity:.55}}
+.lw-net{position:absolute;top:0;left:0;right:0;display:none;overflow:hidden;align-items:center;justify-content:center;gap:8px;padding:4px 12px;background:${C.sun};color:${C['ink-900']};border-bottom:${S.borderWidthPx}px solid ${C['ink-900']};font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px}
 .lw-net i{width:10px;height:10px;border-radius:50%;background:${C['ink-900']};flex:none}
+.lw-net span{min-width:0;text-align:center;overflow-wrap:anywhere;white-space:pre-line}
 .lw-hud.off .lw-net{display:flex}
-.lw-hud.off .lw-chip,.lw-hud.off .lw-stars{top:44px}
-.lw-hud.off .lw-goal.on{transform:translate(-50%,32px)}
-.lw-hud.off .lw-touch{top:32px}
+.lw-hud.off .lw-chip,.lw-hud.off .lw-stars{top:calc(var(--lw-net-h,30px) + 14px)}
+.lw-hud.off .lw-goal.on{transform:translate(-50%,calc(var(--lw-net-h,30px) + 2px))}
+.lw-hud.off .lw-touch{top:calc(var(--lw-net-h,30px) + 2px)}
 .lw-aim{position:absolute;left:50%;top:50%;width:20px;height:20px;transform:translate(-50%,-50%);display:none}
 .lw-aim::before,.lw-aim::after{content:"";position:absolute;background:${C['paper-0']};box-shadow:0 0 0 1px ${C['ink-900']}}
 .lw-aim::before{left:9px;top:2px;width:2px;height:16px}
@@ -54,17 +70,21 @@ function css(): string {
 .lw-stars .cs{width:2px;height:20px;background:${C['paper-0']};opacity:.35;margin:0 4px}
 .lw-stars .ci{width:18px;height:18px;border-radius:50%;background:${C.sun};box-shadow:inset 0 -3px 0 ${C['sun-d']}}
 @keyframes lwpop{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}
-.lw-bub{position:absolute;left:0;top:0;transform:translate(-50%,-100%);max-width:min(360px,70vw);padding:8px 12px;font-family:${T.fonts.target};font-size:${T.scale.h3.sizePx}px;line-height:${T.scale.h3.lineHeightPx}px;font-weight:700;white-space:normal;opacity:0;transition:opacity ${M.baseMs}ms ease-out;will-change:transform}
+.lw-bub{position:absolute;left:0;top:0;transform:translate(-50%,-100%);max-width:min(360px,70vw);padding:8px 12px;font-family:${T.fonts.target};font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.h3.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;white-space:normal;opacity:0;transition:opacity ${M.baseMs}ms ease-out;will-change:transform}
 .lw-bub.on{opacity:1}
 .lw-bub::after{content:"";position:absolute;left:50%;bottom:-12px;width:14px;height:14px;background:${C['paper-50']};border-right:${S.borderWidthPx}px solid ${C['ink-900']};border-bottom:${S.borderWidthPx}px solid ${C['ink-900']};transform:translateX(-50%) rotate(45deg)}
-.lw-bub .n{display:block;font-family:${T.fonts.ui};font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px;color:${C['ink-700']};font-weight:700}
+.lw-bub .n{display:block;font-family:${T.fonts.ui};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1));color:${C['ink-700']};font-weight:700}
 .lw-bub.me{background:${C.brand};}
 .lw-bub.me::after{background:${C.brand}}
 .lw-bub.pos{border-color:${C['sun-d']};box-shadow:4px 4px 0 ${C.sun},0 0 0 3px ${C.sun}}
 .lw-bub.pos .n::before{content:"\\2726 ";color:${C['sun-d']}}
-.lw-prompt{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;pointer-events:auto;cursor:pointer;background:${C['brand-d']};color:${C['paper-0']};border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;box-shadow:${S.shadowDefault};padding:8px 14px;font-weight:700;font-size:${T.scale.body.sizePx}px;min-height:${S.touchTargetMinPx}px;align-items:center;gap:8px}
+.lw-prompt{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;pointer-events:auto;cursor:pointer;background:${C['brand-d']};color:${C['paper-0']};border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;box-shadow:${S.shadowDefault};padding:8px 14px;font-weight:700;font-size:calc(${T.scale.body.sizePx}px * var(--lcw-hs,1));min-height:${S.touchTargetMinPx}px;align-items:center;gap:8px}
 .lw-prompt.on{display:flex}
-.lw-plate{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;background:${C['ink-900']};color:${C['paper-0']};border-radius:${S.radiusButtonPx}px;padding:2px 8px;font-family:${T.fonts.ui};font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px;font-weight:700;opacity:.85;white-space:nowrap}
+.lw-goalmark{position:absolute;left:0;top:0;display:none;pointer-events:none;width:30px;height:30px;border-radius:50%;background:${C.sun};color:${C['ink-900']};border:${S.borderWidthPx}px solid ${C['ink-900']};box-shadow:${S.shadowDefault};font-family:${T.fonts.pixel};font-size:20px;line-height:26px;text-align:center}
+.lw-goalmark.on{display:block}
+.lw-goalmark i{display:block;font-style:normal;animation:lwhop 1.2s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.lw-goalmark i{animation:none}}
+.lw-plate{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;background:${C['ink-900']};color:${C['paper-0']};border-radius:${S.radiusButtonPx}px;padding:2px 8px;font-family:${T.fonts.ui};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1));font-weight:700;opacity:.85;white-space:nowrap}
 .lw-plate.on{display:block}
 .lw-prompt kbd{font-family:${T.fonts.pixel};background:${C['paper-0']};color:${C['ink-900']};border-radius:2px;padding:0 6px;font-size:12px}
 .lw-prompt:active{box-shadow:${S.shadowPressed};transform:translate(-50%,-100%) translate(3px,3px)}
@@ -74,8 +94,10 @@ function css(): string {
 .lw-slot.empty::after{content:"";position:absolute;inset:16px;border:2px dashed ${C.silver}8C;border-radius:${S.radiusHudSlotPx}px}
 .lw-slot.sel{border-color:${C['paper-0']};box-shadow:0 0 0 2px ${C['ink-900']}}
 .lw-slot .i{font-family:${T.fonts.pixel};font-size:12px;position:absolute;left:3px;top:2px;color:${C.silver}}
-.lw-cap{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:${night};color:${C['paper-0']};padding:4px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px;text-align:center;opacity:0;transition:opacity ${M.baseMs}ms ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lw-cap{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:${night};color:${C['paper-0']};padding:4px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));text-align:center;opacity:0;transition:opacity ${M.baseMs}ms ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lw-cap.on{opacity:1}
+.lw-cap.two{white-space:pre-line;overflow-wrap:anywhere}
+.lw-hud:has(.lw-cap.on.two) .lw-help{opacity:0}
 .lw-hud.dlg .lw-cap{opacity:0}
 .lw-slot img{width:36px;height:36px;image-rendering:pixelated}
 .lw-slot.pop{animation:lwpop ${M.popMs}ms ease-out}
@@ -91,7 +113,7 @@ function css(): string {
 .lw-cele .st.s2{color:${C.sky}}
 .lw-cele .st.go{animation:lwstar 520ms cubic-bezier(.2,1.6,.4,1) forwards}
 @keyframes lwstar{0%{transform:scale(0) rotate(-40deg)}60%{transform:scale(1.15) rotate(8deg)}100%{transform:scale(1) rotate(0)}}
-.lw-cele .msg{font-size:${T.scale.h2.sizePx}px;font-weight:800;opacity:0;padding:4px 16px}
+.lw-cele .msg{font-size:calc(${T.scale.h2.sizePx}px * var(--lcw-hs,1));font-weight:800;opacity:0;padding:4px 16px}
 .lw-cele .msg.go{opacity:1;transition:opacity ${M.baseMs}ms}
 .lw-cele.out{opacity:0;transition:opacity 400ms ease-in}
 .lw-fade{position:absolute;inset:0;background:${C['paper-50']};opacity:0;transition:opacity ${M.slowMs}ms ease-in-out;display:flex;align-items:center;justify-content:center}
@@ -100,26 +122,26 @@ function css(): string {
 .lw-load{position:absolute;inset:0;background:${C['paper-50']};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity 500ms ease-out;pointer-events:auto}
 .lw-load.done{opacity:0;pointer-events:none}
 .lw-load .b{width:min(320px,70vw);height:20px;border:2px solid ${C['ink-900']};background:${C['paper-0']};box-shadow:${S.shadowDefault}}
-.lw-load .b i{display:block;height:100%;width:0;background:${C.leaf};transition:width 200ms}
-.lw-load .h{font-size:${T.scale.h2.sizePx}px;font-weight:800}
-.lw-load .p{color:${C['ink-500']};font-size:${T.scale.small.sizePx}px}
+.lw-load .b i{display:block;height:100%;width:0;background:var(--c-leaf,${C.leaf});transition:width 200ms}
+.lw-load .h{font-size:calc(${T.scale.h2.sizePx}px * var(--lcw-hs,1));font-weight:800}
+.lw-load .p{color:${C['ink-500']};font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1))}
 .lw-load .cubes{display:flex;gap:6px}
 .lw-load .cubes span{width:18px;height:18px;border:2px solid ${C['ink-900']};animation:lwhop 900ms ease-in-out infinite}
 .lw-load .cubes span:nth-child(1){background:${C.brand}}
 .lw-load .cubes span:nth-child(2){background:${C.sun};animation-delay:150ms}
-.lw-load .cubes span:nth-child(3){background:${C.leaf};animation-delay:300ms}
+.lw-load .cubes span:nth-child(3){background:var(--c-leaf,${C.leaf});animation-delay:300ms}
 .lw-load .cubes span:nth-child(4){background:${C.sky};animation-delay:450ms}
 @keyframes lwhop{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
-.lw-help{position:absolute;bottom:80px;left:12px;color:${C['paper-0']};background:${night};padding:6px 10px;border-radius:${S.radiusButtonPx}px;font-size:${T.scale.micro.sizePx}px;transition:opacity 600ms}
+.lw-help{position:absolute;bottom:calc(80px + 240px * (var(--lcw-hs,1) - 1));left:12px;white-space:pre-line;color:${C['paper-0']};background:${night};padding:6px 10px;border-radius:${S.radiusButtonPx}px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));transition:opacity 600ms}
 .lw-help.off{opacity:0}
 .lw-touch{position:absolute;inset:0;display:none}
 .lw-touch.on{display:block}
 .lw-stick{position:absolute;width:120px;height:120px;border-radius:50%;border:3px solid ${C['paper-0']};background:${C['night-900']}55;transform:translate(-50%,-50%);display:none}
 .lw-stick.on{display:block}
 .lw-stick i{position:absolute;left:50%;top:50%;width:52px;height:52px;border-radius:50%;background:${C['paper-0']};border:2px solid ${C['ink-900']};transform:translate(-50%,-50%)}
-.lw-btn{position:absolute;pointer-events:auto;min-width:${S.gameButtonMinPx}px;height:${S.gameButtonMinPx}px;border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;box-shadow:${S.shadowDefault};background:${C['paper-50']};font-weight:800;font-size:${T.scale.small.sizePx}px;padding:0 12px;display:flex;align-items:center;justify-content:center;touch-action:none}
+.lw-btn{position:absolute;pointer-events:auto;min-width:${S.gameButtonMinPx}px;height:${S.gameButtonMinPx}px;border:${S.borderWidthPx}px solid ${C['ink-900']};border-radius:${S.radiusButtonPx}px;box-shadow:${S.shadowDefault};background:${C['paper-50']};font-weight:800;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));padding:0 12px;display:flex;align-items:center;justify-content:center;touch-action:none}
 .lw-btn:active,.lw-btn.down{box-shadow:${S.shadowPressed};transform:translate(3px,3px)}
-.lw-btn.talk{height:${S.micButtonPx}px;min-width:${S.micButtonPx * 1.6}px;background:${C['brand-d']};color:${C['paper-0']};font-size:${T.scale['body-l'].sizePx}px;display:none}
+.lw-btn.talk{height:${S.micButtonPx}px;min-width:${S.micButtonPx * 1.6}px;background:${C['brand-d']};color:${C['paper-0']};font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));display:none}
 .lw-btn.talk.on{display:flex}
 .lw-dir{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity 800ms}
 .lw-dir.on{opacity:1}
@@ -128,9 +150,19 @@ function css(): string {
 @keyframes lwsnow{from{background-position:0 0,0 0}to{background-position:-48px 96px,32px 128px}}
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
-@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:${T.scale.micro.sizePx}px;line-height:${T.scale.micro.lineHeightPx}px}.lw-help{bottom:96px}.lw-goal .t{font-size:${T.scale.h3.sizePx}px}.lw-chip .s{font-size:${T.scale.micro.sizePx}px}
-.lw-goal{top:68px;left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,32px)}}
-@media (prefers-reduced-motion:reduce){.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
+@media (max-width:600px),(max-height:500px){.lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.15)}}
+@media (max-width:600px){.lw-chip .gz{gap:6px}.lw-chip .gz b{width:calc(26px * var(--lcw-hs,1))}}
+/* the lesson tag wraps under the status box on a phone (the chip leaves room for the stars): the goal card starts below it */
+/* phones: the goal card starts under the status chip's real height (gauges, a wrapped lesson tag, the Korean help line) */
+
+@media (max-width:600px){.lw-hud .lw-goal{top:calc(var(--lw-chip-b,74px) + 10px)}.lw-hud:has(.lw-touch.on) .lw-cap{left:12px;transform:none;max-width:calc(100% - 12px - var(--lw-jump,140px))}}
+/* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
+@media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}}
+/* short landscape: the goal card sits between the status chip and the stars, with a smaller line so it stays short */
+@media (max-height:500px){.lw-hud .lw-goal{max-width:calc(100% - 2 * var(--lw-side,200px));padding:6px 10px}.lw-hud .lw-goal .t{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1))}.lw-hud .lw-goal .g{font-size:calc(${T.scale.body.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.body.lineHeightPx}px * var(--lcw-hs,1))}}
+@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
+.lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:84px;max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,calc(var(--lw-net-h,30px) + 2px))}}
+@media (prefers-reduced-motion:reduce){.lw-chip .gz .low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
 }
 
@@ -201,6 +233,39 @@ export interface HudHandlers {
   onSlot(i: number): void;
 }
 
+/**
+ * A talk control fires on a still tap (lifted near where it went down), not on the press: a look drag that happens to
+ * start on the button that just appeared turns the view, as it would one finger-width away (review R2625).
+ */
+function tapOnly(b: HTMLElement, fire: () => void, look: (dx: number, dy: number) => void): void {
+  let down: { id: number; x: number; y: number; lx: number; ly: number; far: boolean } | null = null;
+  b.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    down = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, far: false };
+    b.setPointerCapture?.(e.pointerId);
+  });
+  b.addEventListener('pointermove', (e) => {
+    if (!down || down.id !== e.pointerId) return;
+    e.stopPropagation();
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) >= 14) down.far = true;
+    // a finger turns the view at touch speed; a mouse look is the canvas's own (pointer lock), not this button's
+    if (down.far && e.pointerType !== 'mouse') look(e.clientX - down.lx, e.clientY - down.ly);
+    down.lx = e.clientX;
+    down.ly = e.clientY;
+  });
+  // pointerup bubbles on: the window's first-gesture sound unlock hears it, and the HUD root ignores a finger whose
+  // pointerdown it never saw
+  b.addEventListener('pointerup', (e) => {
+    if (!down || down.id !== e.pointerId) return;
+    const d = down;
+    down = null;
+    if (!d.far) fire();
+  });
+  b.addEventListener('pointercancel', (e) => {
+    if (down && down.id === e.pointerId) down = null;
+  });
+}
+
 export class WorldHud {
   readonly root: HTMLDivElement;
   private goal: HTMLDivElement;
@@ -218,15 +283,20 @@ export class WorldHud {
   private cap: HTMLDivElement;
   private capTimer = 0;
   private starsEl: HTMLDivElement;
-  private netText: HTMLElement;
   private starsN: HTMLSpanElement;
   private coinsN: HTMLSpanElement;
   private coinTotal: number | null = null;
   private prompt: HTMLDivElement;
+  private goalMark!: HTMLDivElement;
+  private goalKey = '';
   private plate: HTMLDivElement;
   private slots: HTMLDivElement[] = [];
   /** item slot contents, kept while the hotbar shows build stacks */
   private itemSlots: Array<{ src: string; title: string } | null> = [null, null, null, null, null];
+  private itemKeys: Array<string | null> = [null, null, null, null, null];
+  private gz: HTMLElement | null = null;
+  private gzOn = false;
+  private noticeUntil = 0;
   private buildSlotsOn = false;
   private toast: HTMLDivElement;
   private toastTimer = 0;
@@ -236,6 +306,20 @@ export class WorldHud {
   private load: HTMLDivElement;
   private loadBar: HTMLElement;
   private help: HTMLDivElement;
+  private talkKbd: HTMLElement | null = null;
+  private keys: Readonly<KeyHintLabels> = DEFAULT_KEY_HINTS;
+  private netText!: HTMLSpanElement;
+  private net!: HTMLDivElement;
+  /** Korean help switched (world/lang.ts): redraw the text built once */
+  private offLang: (() => void) | null = null;
+
+  private chipObs: ResizeObserver | null = null;
+  private readonly onResizeNet = (): void => {
+    if (this.root.classList.contains('off')) this.measureNet();
+  };
+  private touchOn = false;
+  private measureSides: (() => void) | null = null;
+  private jumpBtn: HTMLElement | null = null;
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -278,10 +362,12 @@ export class WorldHud {
     this.clockChip = el('span', 'w none', sc);
     el('i', '', this.clockChip);
     this.clockText = el('span', '', this.clockChip);
+    this.gz = el('span', 'gz', sc);
     this.lessonChip = el('span', 'l', chip);
     this.lessonChip.textContent = W.lessonBadge;
     // G01 empty state: the connection dropped, the world keeps going on this device (docs/08 8.6).
     const net = el('div', 'lw-net', this.root);
+    this.net = net;
     net.setAttribute('role', 'status');
     el('i', '', net);
     // the words are written only while offline: hidden text still read as "혼자 모드" to page-text checks
@@ -289,6 +375,27 @@ export class WorldHud {
     el('div', 'lw-aim', this.root);
 
     this.starsEl = el('div', 'lw-stars', this.root);
+    // The goal card keeps clear of the status chip and the stars, both measured (they grow with the gauges, a wrapped
+    // lesson tag and the Korean help line): under the chip on a phone (--lw-chip-b, its top is 12px), between the two on
+    // a short landscape screen (--lw-side).
+    if (typeof ResizeObserver !== 'undefined') {
+      const stars = this.starsEl;
+      const measure = (): void => {
+        this.root.style.setProperty('--lw-chip-b', `${Math.ceil(12 + chip.offsetHeight)}px`);
+        // on touch the talk button (right 96px, it comes and goes by the NPC) keeps its column free too
+        const talk = this.touchOn ? 96 + Math.max(this.talkBtn?.offsetWidth ?? 0, S.micButtonPx * 1.6) : 0;
+        const side = Math.max(chip.offsetLeft + chip.offsetWidth, this.root.clientWidth - stars.offsetLeft, talk);
+        if (stars.offsetWidth > 0) this.root.style.setProperty('--lw-side', `${Math.ceil(side + 8)}px`);
+        // on a phone the hotbar line (two lines with the Korean help, or wrapped) reaches the jump button's height: it
+        // sits left and keeps the jump column free (right 24px + its measured width)
+        if (this.jumpBtn && this.jumpBtn.offsetWidth > 0) this.root.style.setProperty('--lw-jump', `${Math.ceil(24 + this.jumpBtn.offsetWidth + 8)}px`);
+      };
+      this.measureSides = measure;
+      this.chipObs = new ResizeObserver(measure);
+      this.chipObs.observe(chip);
+      this.chipObs.observe(stars);
+      this.chipObs.observe(this.root);
+    }
     const si = el('span', '', this.starsEl);
     si.textContent = '★';
     this.starsN = el('span', '', this.starsEl);
@@ -300,16 +407,17 @@ export class WorldHud {
     this.coinsN = el('span', 'cn', this.starsEl);
 
     this.plate = el('div', 'lw-plate', this.root);
+    this.goalMark = el('div', 'lw-goalmark', this.root);
+    this.goalMark.setAttribute('aria-hidden', 'true');
+    el('i', '', this.goalMark).textContent = '!';
     this.prompt = el('div', 'lw-prompt', this.root);
     this.prompt.innerHTML = '';
     const kbd = el('kbd', '', this.prompt);
     kbd.textContent = W.talkKey;
+    this.talkKbd = kbd;
     const pl = el('span', '', this.prompt);
     pl.textContent = W.talk;
-    this.prompt.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      this.h.onTalk();
-    });
+    tapOnly(this.prompt, () => this.h.onTalk(), (dx, dy) => this.h.onLook(dx, dy));
 
     const bar = el('div', 'lw-hotbar', this.root);
     for (let i = 0; i < 5; i++) {
@@ -329,12 +437,16 @@ export class WorldHud {
     this.toast = el('div', 'lw-toast lw-card', this.root);
     this.cele = el('div', 'lw-cele', this.root);
     this.help = el('div', 'lw-help', this.root);
+    this.offLang = onLearnLang(() => this.redrawFrameText());
+    window.addEventListener('resize', this.onResizeNet);
 
     // Touch layer (docs/08 7.2): left half stick, right half look, buttons on the right.
     this.touch = el('div', 'lw-touch', this.root);
     this.stick = el('div', 'lw-stick', this.touch);
     this.stickKnob = el('i', '', this.stick);
-    const jump = el('div', 'lw-btn', this.touch);
+    const jump = el('div', 'lw-btn jump', this.touch);
+    this.jumpBtn = jump;
+    this.chipObs?.observe(jump);
     jump.textContent = W.jump;
     jump.style.right = '24px';
     jump.style.bottom = '96px';
@@ -361,10 +473,7 @@ export class WorldHud {
     this.talkBtn.textContent = W.talk;
     this.talkBtn.style.right = '96px';
     this.talkBtn.style.bottom = '160px';
-    this.talkBtn.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      this.h.onTalk();
-    });
+    tapOnly(this.talkBtn, () => this.h.onTalk(), (dx, dy) => this.h.onLook(dx, dy));
     this.bindTouch();
 
     this.fade = el('div', 'lw-fade', this.root);
@@ -440,10 +549,19 @@ export class WorldHud {
     this.touch.addEventListener('pointercancel', end);
   }
 
+  /** The player's own keys (G14 키 바꾸기) in the talk prompt and the desktop help line; quiet (no re-show). */
+  setKeyHints(k: Readonly<KeyHintLabels>): void {
+    this.keys = k;
+    if (this.talkKbd) this.talkKbd.textContent = k.talk;
+    if (!this.touchOn) this.help.textContent = this.helpText();
+  }
+
   setTouch(on: boolean): void {
+    this.touchOn = on;
+    this.measureSides?.();
     this.touch.classList.toggle('on', on);
     this.touch.style.pointerEvents = on ? 'auto' : 'none';
-    this.help.textContent = on ? W.controlsTouch : W.controlsDesktop;
+    this.help.textContent = this.helpText();
     this.help.classList.remove('off');
     window.setTimeout(() => this.help.classList.add('off'), 9000);
   }
@@ -457,7 +575,7 @@ export class WorldHud {
     if (done && !this.load.classList.contains('done')) {
       this.load.classList.add('done');
       // an all-empty bar says what it is for once, so five dark boxes never read as unfinished
-      if (this.allEmpty()) this.showCaption(6000);
+      if (this.allEmpty() && performance.now() > this.noticeUntil) this.showCaption(6000);
     }
   }
 
@@ -483,7 +601,29 @@ export class WorldHud {
   /** Connection to the server: false shows the "혼자 모드로 계속 중" band (the world keeps running). */
   setOnline(on: boolean): void {
     this.root.classList.toggle('off', !on);
-    this.netText.textContent = on ? '' : W.offlineBand;
+    this.drawNet(on);
+  }
+
+  /** The band's words only while offline; with the Korean help on, the Korean on a line of its own under the English. */
+  private drawNet(on: boolean): void {
+    if (on) {
+      this.netText.textContent = '';
+      return;
+    }
+    const s = worldSay('offlineBand');
+    this.netText.textContent = s.help ? `${s.text}\n${s.help}` : s.text;
+    this.measureNet();
+  }
+
+  /**
+   * One line where it fits; a longer band (the Korean help line) wraps, and the chips, goal card and touch layer move
+   * down by its real height (--lw-net-h) instead of sliding under it.
+   */
+  private measureNet(): void {
+    requestAnimationFrame(() => {
+      const h = this.net.getBoundingClientRect().height;
+      if (h > 0) this.root.style.setProperty('--lw-net-h', `${Math.ceil(h)}px`);
+    });
   }
 
   /** Camera mode from the world: the centre crosshair shows only in first person (hidden under a dialog). */
@@ -492,7 +632,16 @@ export class WorldHud {
   }
 
   private drawScene(): void {
-    this.sceneChip.textContent = this.bandId ? placeLabel(this.sceneTitle, this.bandId) : this.sceneTitle;
+    const p = this.bandId ? placeBi(this.sceneTitle, this.bandId) : { en: this.sceneTitle, ko: null };
+    this.sceneChip.textContent = p.en;
+    // the Korean help as a small line of its own: a dot join made the chip run into the stars on a phone
+    if (p.ko) el('span', 'ko', this.sceneChip).textContent = p.ko;
+  }
+
+  /** The controls line, its Korean help on a second line (white-space: pre-line). */
+  private helpText(): string {
+    const s = this.touchOn ? { en: worldSay('controlsTouch').text, ko: worldSay('controlsTouch').help } : controlsDesktopBi(this.keys);
+    return s.ko ? `${s.en}\n${s.ko}` : s.en;
   }
 
   private allEmpty(): boolean {
@@ -501,13 +650,72 @@ export class WorldHud {
 
   /** Name of the selected slot over the bar (or what an empty bar is for); fades after `ms`. */
   private showCaption(ms = 2400): void {
-    const text = this.buildSlotsOn ? (this.slots[this.selected]?.title ?? '') : hotbarCaption(this.itemSlots, this.selected);
+    // English on the line, the Korean help on a line of its own (a dot join ran into the controls help)
+    const held = this.buildSlotsOn ? null : this.itemKeys[this.selected];
+    let en: string;
+    let ko: string | null = null;
+    if (this.buildSlotsOn) en = this.slots[this.selected]?.title ?? '';
+    else if (held) ({ en, ko } = itemTitleBi(held));
+    else ({ text: en, help: ko } = worldSay(this.allEmpty() ? 'hotbarAllEmpty' : 'hotbarEmpty'));
+    const r = held && this.gzOn ? refillOf(held) : null;
+    if (r) {
+      const u = worldSay(r.kind === 'food' ? 'useAgainFood' : 'useAgainDrink');
+      en = `${en} · ${u.text}`;
+      if (ko !== null && u.help) ko = `${ko} · ${u.help}`;
+    }
     window.clearTimeout(this.capTimer);
-    if (!text) {
+    if (!en) {
       this.cap.classList.remove('on');
       return;
     }
+    this.cap.textContent = ko ? `${en}\n${ko}` : en;
+    this.cap.classList.toggle('two', !!ko);
+    this.cap.classList.add('on');
+    this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
+  }
+
+  /**
+   * G01 게이지 (docs/03 D1): hunger and thirst bars on the status chip, red and pulsing at 20% or less, "느려짐" while
+   * walking is slower. null hides them (the frame decides when they run).
+   */
+  setGauges(g: { hunger: number; thirst: number; lowHunger: boolean; lowThirst: boolean; slow: boolean } | null): void {
+    const gz = this.gz;
+    if (!gz) return;
+    this.gzOn = g !== null;
+    this.root.classList.toggle('gz', this.gzOn);
+    gz.classList.toggle('on', this.gzOn);
+    if (!g) return;
+    if (!gz.firstChild) {
+      for (const [cls, icon, label] of [['h', '🍞', W.hunger], ['t', '💧', W.thirst]] as const) {
+        const s = el('span', cls, gz);
+        s.setAttribute('role', 'meter');
+        s.setAttribute('aria-label', label);
+        s.setAttribute('aria-valuemin', '0');
+        s.setAttribute('aria-valuemax', '100');
+        el('span', '', s).textContent = icon;
+        el('i', '', el('b', '', s));
+      }
+      el('em', '', gz).textContent = W.slowed;
+    }
+    const [h, t] = [gz.children[0] as HTMLElement, gz.children[1] as HTMLElement];
+    const put = (s: HTMLElement, v: number, low: boolean): void => {
+      const p = Math.round(Math.min(100, Math.max(0, v)));
+      (s.querySelector('b i') as HTMLElement).style.width = `${p}%`;
+      s.setAttribute('aria-valuenow', String(p));
+      s.classList.toggle('low', low);
+    };
+    put(h, g.hunger, g.lowHunger);
+    put(t, g.thirst, g.lowThirst);
+    gz.classList.toggle('slow', g.slow);
+  }
+
+  /** A one-off line over the bar (ate, drank, "a bit later"): same place and fade as the slot caption. */
+  notice(text: string, ms = 2400): void {
+    this.noticeUntil = performance.now() + ms;
+    window.clearTimeout(this.capTimer);
     this.cap.textContent = text;
+    // a notice with its Korean help line under it (frame useGauges, world/strings worldSay) keeps both lines
+    this.cap.classList.toggle('two', text.includes('\n'));
     this.cap.classList.add('on');
     this.capTimer = window.setTimeout(() => this.cap.classList.remove('on'), ms);
   }
@@ -587,7 +795,8 @@ export class WorldHud {
   putItem(slot: number, key: string): void {
     const s = this.slots[slot];
     if (!s) return;
-    this.itemSlots[slot] = { src: itemIconDataUrl(key), title: itemNameKo(key) };
+    this.itemSlots[slot] = { src: itemIconDataUrl(key), title: itemTitle(key) };
+    this.itemKeys[slot] = key;
     if (!this.buildSlotsOn) this.drawSlot(slot, this.itemSlots[slot], null);
     const img = { src: this.itemSlots[slot]!.src };
     s.classList.remove('pop');
@@ -613,7 +822,8 @@ export class WorldHud {
   /** Put the server's bag into a slot quietly (start of play, after a move in the bag screen): no toast, no select. */
   setItem(slot: number, key: string | null): void {
     if (!this.slots[slot]) return;
-    this.itemSlots[slot] = key ? { src: itemIconDataUrl(key), title: itemNameKo(key) } : null;
+    this.itemSlots[slot] = key ? { src: itemIconDataUrl(key), title: itemTitle(key) } : null;
+    this.itemKeys[slot] = key;
     if (!this.buildSlotsOn) this.drawSlot(slot, this.itemSlots[slot] ?? null, null);
     // the "bag is empty" line from the start must not stay over a bag that just filled
     if (key && this.cap.textContent === W.hotbarAllEmpty) this.cap.classList.remove('on');
@@ -623,6 +833,7 @@ export class WorldHud {
   clearItem(slot: number): void {
     if (!this.slots[slot]) return;
     this.itemSlots[slot] = null;
+    this.itemKeys[slot] = null;
     if (!this.buildSlotsOn) this.drawSlot(slot, null, null);
   }
 
@@ -813,6 +1024,15 @@ export class WorldHud {
 
   private promptKey = '';
 
+  /** The "talk to me next" marker over the goal NPC (every frame; DOM only on change). */
+  showGoalMark(on: boolean, sx = 0, sy = 0): void {
+    const key = on ? `${Math.round(sx)}:${Math.round(sy)}` : 'off';
+    if (key === this.goalKey) return;
+    this.goalKey = key;
+    this.goalMark.classList.toggle('on', on);
+    if (on) this.goalMark.style.transform = `translate(${Math.round(sx)}px, ${Math.round(sy)}px) translate(-50%, -100%)`;
+  }
+
   /** Called every frame: touches the DOM only when something changed (whole pixels), so idle frames cost no style work. */
   showPrompt(on: boolean, sx = 0, sy = 0, touch = false): void {
     const x = Math.round(sx);
@@ -836,7 +1056,34 @@ export class WorldHud {
     if (text) this.fpsEl.textContent = text;
   }
 
+  /** Redraw the frame's HUD text that is built once (band, help line, gauge names, place line, clock, caption). */
+  private redrawFrameText(): void {
+    this.drawNet(!this.root.classList.contains('off'));
+    if (this.help.textContent) this.help.textContent = this.helpText();
+    if (this.bandId) this.drawScene();
+    this.clockKey = '';
+    const gz = this.gz;
+    if (gz?.firstChild) {
+      gz.children[0]?.setAttribute('aria-label', W.hunger);
+      gz.children[1]?.setAttribute('aria-label', W.thirst);
+      const em = gz.querySelector('em');
+      if (em) em.textContent = W.slowed;
+    }
+    // the hotbar names follow the help switch too (they were built when the thing arrived)
+    this.itemKeys.forEach((key, i) => {
+      const it = this.itemSlots[i];
+      if (!key || !it) return;
+      it.title = itemTitle(key);
+      if (!this.buildSlotsOn) this.drawSlot(i, it, null);
+    });
+    if (this.cap.classList.contains('on')) this.showCaption();
+  }
+
   dispose(): void {
+    this.offLang?.();
+
+    this.chipObs?.disconnect();
+    window.removeEventListener('resize', this.onResizeNet);
     this.root.remove();
   }
 }

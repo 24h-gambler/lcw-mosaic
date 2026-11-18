@@ -40,6 +40,7 @@ export const MENU_CSS = `
 .lcw-menu h3{margin:16px 0 8px;font-size:${px(t['body-l'].sizePx)};line-height:1.3}
 .lcw-menu p{margin:0 0 8px}
 .lcw-menu .muted{color:var(--c-ink-700);font-size:${px(t.small.sizePx)}}
+.lcw-menu .ko{display:block;margin-top:1px;font-size:max(10px,.78em);font-weight:500;line-height:1.25;color:var(--c-ink-700);letter-spacing:0;white-space:normal}
 .lcw-menu .note{background:var(--c-paper-100);border:${S.borderWidthPx}px dashed var(--c-line-200);border-radius:${S.radiusCardPx}px;padding:10px 12px;color:var(--c-ink-700);font-size:${px(t.small.sizePx)}}
 .lcw-menu .btn{min-height:${S.touchTargetMinPx}px;padding:6px 14px;border:${S.borderWidthPx}px solid var(--c-ink-900);border-radius:${S.radiusButtonPx}px;background:var(--c-paper-0);
   box-shadow:var(--shadow);font-weight:800;font-size:${px(t.small.sizePx)};cursor:pointer}
@@ -75,9 +76,11 @@ export const MENU_CSS = `
   border-radius:${S.radiusButtonPx}px;box-shadow:${S.shadowDefault};background:${COLOR_TOKENS['paper-50']};color:${COLOR_TOKENS['ink-900']};font-family:${TYPOGRAPHY_TOKENS.fonts.ui};
   font-weight:800;font-size:${t.small.sizePx}px;padding:0 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;cursor:pointer;touch-action:none;line-height:1.1}
 .lcw-hudbtn .ic{font-size:20px;line-height:1}
-/* left of the hotbar (5 x 56 + 4 x 4 = 296 wide, centred, 12 from the bottom): the bag and the menu belong together */
-.lcw-hudbtn--bag{left:calc(50% - 148px - 8px - ${S.gameButtonMinPx}px);bottom:12px}
-@media (max-width:600px){.lcw-hudbtn--bag{left:calc(50% - 118px - 6px - 48px);min-width:48px;height:48px;bottom:10px;font-size:${t.micro.sizePx}px;padding:0 4px}.lcw-hudbtn--bag .ic{font-size:18px}}
+.lcw-hudbtn .ko{font-size:10px;font-weight:700;line-height:1;opacity:.8}
+/* left of the hotbar (5 x 56 + 4 x 4 = 296 wide, centred, 12 from the bottom): the bag and the menu belong together;
+   held by its right edge so a wider label grows away from the hotbar */
+.lcw-hudbtn--bag{right:calc(50% + 148px + 8px);bottom:12px}
+@media (max-width:600px){.lcw-hudbtn--bag{right:calc(50% + 118px + 6px);min-width:48px;height:48px;bottom:10px;font-size:${t.micro.sizePx}px;padding:0 4px}.lcw-hudbtn--bag .ic{font-size:18px}}
 .lcw-hudbtn:active{box-shadow:${S.shadowPressed};transform:translate(3px,3px)}
 `;
 

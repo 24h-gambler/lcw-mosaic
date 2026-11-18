@@ -6,8 +6,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { LangLevel } from '@lcw/content';
 import { SHAPE_TOKENS, TYPOGRAPHY_TOKENS } from '@lcw/ui';
-import { FRAME_STRINGS as F } from '../strings.js';
+import { FRAME_STRINGS as F, FRAME_STRINGS_EN as E, FRAME_STRINGS_KO, frameBi } from '../strings.js';
 import type { MenuPanelProps } from './types.js';
+import { KoHelp } from './ko-help.js';
 import {
   KEY_ACTIONS,
   DEFAULT_KEYS,
@@ -23,12 +24,14 @@ import {
   type Quality,
   type VolumeGroup
 } from '../settings.js';
+import { helpKoOn, onLearnLang, setHelpKo } from '../../world/lang.js';
 import { MIC_STATUS_KEY, MicCheckCard, readMicStatus, type MicCheckStatus } from '../../dialog/FirstVisitGuide.js';
 import { playSfx, speakEnglish, unlockDialogAudio } from '../../dialog/sound.js';
 
 type Section = 'controls' | 'sound' | 'screen' | 'access' | 'mic';
 const SECTIONS: readonly Section[] = ['controls', 'sound', 'screen', 'access', 'mic'];
-const SECTION_LABEL: Record<Section, string> = { controls: F.sControls, sound: F.sSound, screen: F.sScreen, access: F.sAccess, mic: F.sMic };
+/** Read at render time: the strings follow the screen language. */
+const sectionLabel = (sec: Section): string => ({ controls: E.sControls, sound: E.sSound, screen: E.sScreen, access: E.sAccess, mic: E.sMic })[sec];
 const SECTION_ICON: Record<Section, string> = { controls: '🎮', sound: '🔊', screen: '🖥️', access: '♿', mic: '🎤' };
 
 const KEY_GROUPS: ReadonlyArray<readonly [string, readonly KeyAction[]]> = [
@@ -38,13 +41,17 @@ const KEY_GROUPS: ReadonlyArray<readonly [string, readonly KeyAction[]]> = [
   ['build', ['rotate', 'undo', 'chest']]
 ];
 
-export function keyLabel(code: string): string {
-  if (F.keyNames[code]) return F.keyNames[code]!;
+/** A key's name on the screen (English: "Left Shift"); `names` picks the table (the Korean one for the help line). */
+export function keyLabel(code: string, names: Readonly<Record<string, string>> = E.keyNames): string {
+  if (names[code]) return names[code]!;
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
   if (code.startsWith('Numpad')) return `Num ${code.slice(6)}`;
   return code;
 }
+
+/** Both sides of a key name, for the rebind notes (each sentence with its own words). */
+const keyBi = (code: string): { en: string; ko: string } => ({ en: keyLabel(code), ko: keyLabel(code, FRAME_STRINGS_KO.keyNames) });
 
 const T = TYPOGRAPHY_TOKENS.scale;
 const px = (n: number): string => `calc(${n}px * var(--fs))`;
@@ -124,12 +131,24 @@ function useSettings(): Readonly<FrameSettings> {
   return s;
 }
 
-function Row(props: { title: string; hint?: string; wide?: boolean; children: React.ReactNode; id?: string }): React.ReactElement {
+function Row(props: { title: string; hint?: string; wide?: boolean; children: React.ReactNode; id?: string; koAlways?: string }): React.ReactElement {
   return (
     <div className="lcw-set__row">
       <div className="lcw-set__lbl">
         <strong id={props.id}>{props.title}</strong>
-        {props.hint ? <span className="muted">{props.hint}</span> : null}
+        {props.koAlways ? (
+          <span className="ko" lang="ko">
+            {props.koAlways}
+          </span>
+        ) : (
+          <KoHelp of={props.title} />
+        )}
+        {props.hint ? (
+          <span className="muted">
+            {props.hint}
+            <KoHelp of={props.hint} />
+          </span>
+        ) : null}
       </div>
       <div className={`lcw-set__ctl${props.wide ? ' wide' : ''}`}>{props.children}</div>
     </div>
@@ -204,11 +223,16 @@ function KeysEditor({ s }: { s: Readonly<FrameSettings> }): React.ReactElement {
     }
     const r = rebindKey(s.keys, action, code);
     if (!r.ok) {
-      setNote(F.rebindReserved(keyLabel(code)));
+      setNote(F.rebindReserved(keyBi(code)));
       return;
     }
     updateFrameSettings({ keys: r.keys });
-    setNote(r.swappedWith ? F.rebindSwapped(keyLabel(code), F.keyActions[r.swappedWith]!) : F.rebindDone(keyLabel(code), F.keyActions[action]!));
+    const swapped = r.swappedWith;
+    setNote(
+      swapped
+        ? F.rebindSwapped(keyBi(code), frameBi((t) => t.keyActions[swapped]))
+        : F.rebindDone(keyBi(code), frameBi((t) => t.keyActions[action]))
+    );
     setWait(null);
     requestAnimationFrame(() => document.getElementById(`lcw-set-key-${action}`)?.focus());
   };
@@ -217,8 +241,12 @@ function KeysEditor({ s }: { s: Readonly<FrameSettings> }): React.ReactElement {
   return (
     <div className="lcw-set__row col">
       <div className="lcw-set__lbl">
-        <strong>{F.keysTitle}</strong>
-        <span className="muted">{F.keysHint}</span>
+        <strong>{E.keysTitle}</strong>
+        <KoHelp of={E.keysTitle} />
+        <span className="muted">
+          {E.keysHint}
+          <KoHelp of={E.keysHint} />
+        </span>
       </div>
       <div className="lcw-set__keys">
         {KEY_GROUPS.map(([g, actions]) => (
@@ -287,23 +315,26 @@ function ControlsSection({ s }: { s: Readonly<FrameSettings> }): React.ReactElem
   return (
     <>
       {/* look speed first (what children change most); the long key list last */}
-      <Row title={F.touchTitle}>
+      <Row title={E.touchTitle}>
         <ul style={{ margin: 0, paddingLeft: 18 }}>
           {F.touchGuide.map((t) => (
             <li key={t}>{t}</li>
           ))}
         </ul>
       </Row>
-      <Row title={F.lookMouseTitle} wide>
+      <Row title={E.lookMouseTitle} wide>
         <Slider value={s.lookMouse} lim={SETTINGS_LIMITS.look} label={F.lookMouseTitle} show={pct} onChange={(v) => updateFrameSettings({ lookMouse: v })} />
       </Row>
-      <Row title={F.lookTouchTitle} wide>
+      <Row title={E.lookTouchTitle} wide>
         <Slider value={s.lookTouch} lim={SETTINGS_LIMITS.look} label={F.lookTouchTitle} show={pct} onChange={(v) => updateFrameSettings({ lookTouch: v })} />
       </Row>
-      <Row title={F.invertYTitle} hint={F.invertYHint}>
+      <Row title={E.invertYTitle} hint={E.invertYHint}>
         <Switch on={s.invertY} label={F.invertYTitle} onChange={(on) => updateFrameSettings({ invertY: on })} />
       </Row>
-      <Row title={F.micModeTitle} hint={F.micModeHint}>
+      <Row title={E.autoJumpTitle} hint={E.autoJumpHint}>
+        <Switch on={s.autoJump} label={F.autoJumpTitle} onChange={(on) => updateFrameSettings({ autoJump: on })} />
+      </Row>
+      <Row title={E.micModeTitle} hint={E.micModeHint}>
         <Seg
           value={s.micMode}
           label={F.micModeTitle}
@@ -334,7 +365,7 @@ function SoundSection({ s, level }: { s: Readonly<FrameSettings>; level: LangLev
   return (
     <>
       {(['master', 'music', 'effects', 'voice'] as const).map((g) => (
-        <Row key={g} title={F.volTitles[g]!} hint={g === 'voice' ? F.volHint : undefined} wide>
+        <Row key={g} title={E.volTitles[g]!} hint={g === 'voice' ? E.volHint : undefined} wide>
           <Slider value={s.volume[g]} lim={SETTINGS_LIMITS.volume} label={F.volTitles[g]!} show={showVol} onChange={(v) => vol(g, v)} />
           {g === 'effects' || g === 'master' ? (
             <button
@@ -355,8 +386,8 @@ function SoundSection({ s, level }: { s: Readonly<FrameSettings>; level: LangLev
           ) : null}
         </Row>
       ))}
-      <h3>{F.npcVoiceTitle}</h3>
-      <Row title={F.voiceRateTitle} wide>
+      <h3>{E.npcVoiceTitle}<KoHelp of={E.npcVoiceTitle} /></h3>
+      <Row title={E.voiceRateTitle} wide>
         <Slider
           value={s.voiceRate}
           lim={SETTINGS_LIMITS.voiceRate}
@@ -368,7 +399,7 @@ function SoundSection({ s, level }: { s: Readonly<FrameSettings>; level: LangLev
           🗣️ {F.volTry}
         </button>
       </Row>
-      <Row title={F.neuralTitle} hint={F.neuralHint}>
+      <Row title={E.neuralTitle} hint={E.neuralHint}>
         <Switch on={s.neuralVoice} label={F.neuralTitle} onChange={(on) => updateFrameSettings({ neuralVoice: on })} />
       </Row>
     </>
@@ -385,7 +416,7 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
   const liveSwitch = typeof (props.world as { setGraphics?: unknown } | null)?.setGraphics === 'function';
   return (
     <>
-      <Row title={F.textSizeTitle} hint={F.textSizeHint} wide>
+      <Row title={E.textSizeTitle} hint={E.textSizeHint} wide>
         <Seg
           value={String(s.textScale)}
           label={F.textSizeTitle}
@@ -396,7 +427,7 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
           {F.textSizeSample}
         </div>
       </Row>
-      <Row title={F.motionTitle} hint={F.motionHint}>
+      <Row title={E.motionTitle} hint={E.motionHint}>
         <Seg
           value={s.reduceMotion === null ? 'auto' : s.reduceMotion ? 'on' : 'off'}
           label={F.motionTitle}
@@ -408,23 +439,23 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
           onChange={(v) => updateFrameSettings({ reduceMotion: v === 'auto' ? null : v === 'on' })}
         />
       </Row>
-      <Row title={F.qualityTitle} hint={liveSwitch ? F.qualityHintLive : F.qualityHint}>
+      <Row title={E.qualityTitle} hint={liveSwitch ? E.qualityHintLive : E.qualityHint}>
         <Seg
           value={s.quality}
           label={F.qualityTitle}
           options={(['auto', 'low', 'mid', 'high'] as const).map(
-            (q) => [q, q === 'auto' && tierNow ? F.qualityAutoNow(F.qualities[tierNow] ?? tierNow) : F.qualities[q]!] as const
+            (q) => [q, q === 'auto' && tierNow ? F.qualityAutoNow(frameBi((t) => t.qualities[tierNow] ?? tierNow)) : F.qualities[q]!] as const
           )}
           onChange={(v: Quality) => updateFrameSettings({ quality: v })}
         />
-        {tierNow && s.quality !== 'auto' ? <span className="muted">{F.qualityNow(F.qualities[tierNow] ?? tierNow)}</span> : null}
+        {tierNow && s.quality !== 'auto' ? <span className="muted">{F.qualityNow(frameBi((t) => t.qualities[tierNow] ?? tierNow))}</span> : null}
         {!liveSwitch && !props.lessonOn && s.quality !== 'auto' && tierNow && s.quality !== tierNow ? (
           <button type="button" className="btn pri" onClick={() => location.reload()}>
             {F.qualityRestart}
           </button>
         ) : null}
       </Row>
-      <Row title={F.viewChunksTitle} hint={F.viewChunksHint}>
+      <Row title={E.viewChunksTitle} hint={E.viewChunksHint}>
         <Seg
           value={s.viewChunks === null ? 'tier' : String(s.viewChunks)}
           label={F.viewChunksTitle}
@@ -432,7 +463,7 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
           onChange={(v) => updateFrameSettings({ viewChunks: v === 'tier' ? null : Number(v) })}
         />
       </Row>
-      <Row title={F.shadowsTitle}>
+      <Row title={E.shadowsTitle} hint={E.shadowsHint}>
         <Seg
           value={s.shadows === null ? 'tier' : s.shadows ? 'on' : 'off'}
           label={F.shadowsTitle}
@@ -444,7 +475,7 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
           onChange={(v) => updateFrameSettings({ shadows: v === 'tier' ? null : v === 'on' })}
         />
       </Row>
-      <Row title={F.renderScaleTitle} hint={F.renderScaleHint}>
+      <Row title={E.renderScaleTitle} hint={E.renderScaleHint}>
         <Seg
           value={s.renderScale === null ? 'tier' : String(s.renderScale)}
           label={F.renderScaleTitle}
@@ -452,7 +483,7 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
           onChange={(v) => updateFrameSettings({ renderScale: v === 'tier' ? null : Number(v) })}
         />
       </Row>
-      <Row title={F.fpsTitle} hint={F.fpsHint}>
+      <Row title={E.fpsTitle} hint={E.fpsHint}>
         <Switch on={s.showFps} label={F.fpsTitle} onChange={(on) => updateFrameSettings({ showFps: on })} />
       </Row>
     </>
@@ -462,28 +493,35 @@ function ScreenSection({ s, props }: { s: Readonly<FrameSettings>; props: MenuPa
 // ---- 접근성
 
 function AccessSection({ s }: { s: Readonly<FrameSettings> }): React.ReactElement {
+  // Korean help is kept by world/lang.ts (one switch with the start screen), not in the settings record
+  const [helpKo, setHelpKoView] = useState(helpKoOn());
+  useEffect(() => onLearnLang((v) => setHelpKoView(v.helpKo)), []);
   return (
     <>
-      <Row title={F.readableTitle} hint={F.readableHint}>
+      {/* first, and always with its Korean name, so a child who reads only Korean can find it */}
+      <Row title={E.helpKoTitle} hint={E.helpKoHint} koAlways={FRAME_STRINGS_KO.helpKoTitle}>
+        <Switch on={helpKo} label={F.helpKoTitle} onChange={(on) => setHelpKo(on)} />
+      </Row>
+      <Row title={E.readableTitle} hint={E.readableHint}>
         <Switch on={s.readableFont} label={F.readableTitle} onChange={(on) => updateFrameSettings({ readableFont: on })} />
         <span className="lcw-set__sample" lang="en" style={{ fontFamily: s.readableFont ? TYPOGRAPHY_TOKENS.fonts.dyslexic : TYPOGRAPHY_TOKENS.fonts.target }}>
           {F.readableSample}
         </span>
       </Row>
-      <Row title={F.assistTitle} hint={F.assistHint}>
+      <Row title={E.assistTitle} hint={E.assistHint}>
         <Switch on={s.colorAssist} label={F.assistTitle} onChange={(on) => updateFrameSettings({ colorAssist: on })} />
         <span className="lcw-set__chips" aria-hidden="true">
           <span style={{ background: 'var(--c-leaf)' }}>✓ {F.assistOk}</span>
           <span style={{ background: 'var(--c-danger)' }}>! {F.assistWarn}</span>
         </span>
       </Row>
-      <Row title={F.syllableTitle} hint={F.syllableHint}>
+      <Row title={E.syllableTitle} hint={E.syllableHint}>
         <Switch on={s.syllables} label={F.syllableTitle} onChange={(on) => updateFrameSettings({ syllables: on })} />
         <span className="lcw-set__sample" lang="en" style={{ fontFamily: TYPOGRAPHY_TOKENS.fonts.target, fontWeight: 700 }}>
           {s.syllables ? F.syllableSample : F.syllableSample.replace(/·/g, '')}
         </span>
       </Row>
-      <Row title={F.focusTitle} hint={F.focusHint}>
+      <Row title={E.focusTitle} hint={E.focusHint}>
         <Switch on={s.strongFocus} label={F.focusTitle} onChange={(on) => updateFrameSettings({ strongFocus: on })} />
       </Row>
       <div className="note">
@@ -514,7 +552,7 @@ function MicSection(): React.ReactElement {
   return (
     <>
       <p>{F.micCheckIntro}</p>
-      <Row title={F.micCheckLast}>
+      <Row title={E.micCheckLast}>
         <strong style={{ color: last === 'ok' ? 'var(--c-leaf-d)' : 'var(--c-ink-700)' }}>
           {last === 'ok' ? '✓ ' : ''}
           {last ? F.micCheckStatus[last] : F.micCheckNever}
@@ -576,13 +614,16 @@ export function SettingsPanel(props: MenuPanelProps): React.ReactElement {
             onClick={() => setSec(x)}
           >
             <span aria-hidden="true">{SECTION_ICON[x]}</span>
-            {SECTION_LABEL[x]}
+            <span>
+              {sectionLabel(x)}
+              <KoHelp of={sectionLabel(x)} />
+            </span>
           </button>
         ))}
       </div>
       <div className="lcw-set__main" id="lcw-set-sec" role="tabpanel" aria-labelledby={`lcw-set-tab-${sec}`}>
-        <h2>{SECTION_LABEL[sec]}</h2>
-        <p className="muted lcw-set__saved">{saved ? F.settingsSavedHere : F.settingsNotSaved}</p>
+        <h2>{sectionLabel(sec)}<KoHelp of={sectionLabel(sec)} /></h2>
+        <p className="muted lcw-set__saved">{saved ? E.settingsSavedHere : E.settingsNotSaved}<KoHelp of={saved ? E.settingsSavedHere : E.settingsNotSaved} /></p>
         {sec === 'controls' ? <ControlsSection s={s} /> : null}
         {sec === 'sound' ? <SoundSection s={s} level={level} /> : null}
         {sec === 'screen' ? <ScreenSection s={s} props={props} /> : null}

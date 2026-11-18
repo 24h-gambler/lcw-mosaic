@@ -33,6 +33,7 @@ import {
   type UtteranceSubmit
 } from './api.js';
 import { childNpcName, lessonGoal } from './strings.js';
+import { LESSON_STAGE_EVENT } from '../world/events.js';
 
 export const LESSON_POLL_MS = 3_000;
 /** After an answer that finished the stage, the next poll comes this soon (the next stage shows at once, docs/18 §9). */
@@ -449,6 +450,8 @@ export class LessonController {
       (typeof st.stage_started_at === 'number' && this.view.stageStartedAt > 0 && st.stage_started_at > this.view.stageStartedAt);
     const targetsChanged = JSON.stringify(st.offers) !== JSON.stringify(this.view.offers);
     if (stageChanged) {
+      // a move (not the first state): the mic check card must not stay over the new stage (world/events.ts)
+      if (this.view.stageId !== null && st.stage_id) announceStageMove(st.stage_id);
       patch.stageId = st.stage_id;
       patch.sceneId = st.scene_id;
       patch.stageSeq = this.view.stageSeq + 1;
@@ -540,5 +543,15 @@ export class LessonController {
 
   private emit(): void {
     this.opts.onChange?.(this.view);
+  }
+}
+
+/** Tells the mic check gate (dialog/FirstVisitGuide.tsx) that the lesson moved on; nothing outside a browser. */
+function announceStageMove(stageId: string): void {
+  try {
+    const w = (globalThis as { window?: { dispatchEvent?: (e: Event) => boolean } }).window;
+    if (w?.dispatchEvent && typeof CustomEvent === 'function') w.dispatchEvent(new CustomEvent(LESSON_STAGE_EVENT, { detail: { stageId } }));
+  } catch {
+    /* a world shell without window events: the card still closes on its own buttons */
   }
 }

@@ -1,8 +1,8 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { UI_STRINGS_EN } from '@lcw/content';
-import { MIC_STATUS_KEY, MicCheckGate, micCheckAudience, readMicStatus } from '../dialog/FirstVisitGuide.js';
+import { UI_STRINGS_EN, UI_STRINGS_KO } from '@lcw/content';
+import { MIC_STATUS_KEY, MicCheckGate, closeMicCheckOnStageMove, micCheckAudience, micChipText, micGateView, readMicStatus } from '../dialog/FirstVisitGuide.js';
 import { createScriptedSpeechEngine } from '../dialog/speech.js';
 
 /** Audit G15 (11-16): lesson students and guests also get the "Hello!" mic check before their first dialog. */
@@ -42,7 +42,10 @@ describe('mic check gate (lesson students, guests)', () => {
     expect(html).toContain('lcw-firstvisit-mic');
     expect(html).not.toContain(F.volume);
     g.sessionStorage!.setItem('lcw.lessonMicChecked:K7Q2', '1');
-    expect(renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="K7Q2" speech={speech} />)).toBe('');
+    // checked: only the small HUD mic chip from now on, never the card again by itself
+    const after = renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="K7Q2" speech={speech} />);
+    expect(after).not.toContain(F.lessonMicTitle);
+    expect(after).toContain('lcw-mic-chip');
     // another lesson code checks again
     expect(renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="Z9X1" speech={speech} />)).toContain(F.lessonMicTitle);
   });
@@ -75,7 +78,55 @@ describe('mic check gate (lesson students, guests)', () => {
     expect(html).not.toContain(F.volume);
     // checked through the ?code= way before the join answered -> still counts once the session holds the lesson id
     g.sessionStorage!.setItem('lcw.lessonMicChecked:123456', '1');
-    expect(renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="123456" speech={speech} />)).toBe('');
+    expect(renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="123456" speech={speech} />)).not.toContain(F.lessonMicTitle);
+  });
+
+  it('once per lesson on this device: a reload or a second tab (new sessionStorage) shows the chip, not the card', () => {
+    g.localStorage!.setItem('lcw.lessonMicChecked:K7Q2', '1');
+    expect(micGateView('lesson', 'K7Q2', {})).toBe('chip');
+    const html = renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="K7Q2" speech={speech} />);
+    expect(html).not.toContain(F.lessonMicTitle);
+    expect(html).toContain(F.micChipSkipped);
+  });
+
+  it('a stage move while the card is still open closes it for good: skipped, then only the chip (production smoke 11-18)', () => {
+    expect(micGateView('lesson', 'K7Q2', {})).toBe('card');
+    expect(closeMicCheckOnStageMove('lesson', 'K7Q2')).toBe(true);
+    expect(readMicStatus()).toBe('skipped');
+    expect(g.sessionStorage!.getItem('lcw.lessonMicChecked:K7Q2')).toBe('1');
+    expect(g.localStorage!.getItem('lcw.lessonMicChecked:K7Q2')).toBe('1');
+    expect(micGateView('lesson', 'K7Q2', {})).toBe('chip');
+    // every later stage move leaves it alone; the card comes back only when the child taps the chip
+    expect(closeMicCheckOnStageMove('lesson', 'K7Q2')).toBe(false);
+    expect(micGateView('lesson', 'K7Q2', {})).toBe('chip');
+    expect(micGateView('lesson', 'K7Q2', { reopen: true })).toBe('card');
+    // hidden (title screen, a solo dialog) hides the chip too
+    expect(micGateView('lesson', 'K7Q2', { hidden: true })).toBeNull();
+  });
+
+  it('closing on a stage move keeps a status a mic turn already found; guests and device children are not touched', () => {
+    g.sessionStorage!.setItem(MIC_STATUS_KEY, 'ok');
+    expect(closeMicCheckOnStageMove('lesson', 'K7Q2')).toBe(true);
+    expect(readMicStatus()).toBe('ok');
+    expect(closeMicCheckOnStageMove('guest')).toBe(false);
+    expect(closeMicCheckOnStageMove('child')).toBe(false);
+    expect(g.localStorage!.getItem('lcw.firstVisitSeen')).toBeNull();
+  });
+
+  it('the chip says the mic status in words, Korean too', () => {
+    expect(micChipText('ok')).toBe(F.micChipOk);
+    expect(micChipText('quiet')).toBe(F.micChipQuiet);
+    expect(micChipText('none')).toBe(F.micChipNone);
+    expect(micChipText('skipped')).toBe(F.micChipSkipped);
+    expect(micChipText(null)).toBe(F.micChipSkipped);
+    for (const k of ['micChipOk', 'micChipQuiet', 'micChipNone', 'micChipSkipped', 'micChipHint'] as const) {
+      expect(UI_STRINGS_KO.firstVisit[k]).toMatch(/[가-힣]/);
+    }
+    g.sessionStorage!.setItem('lcw.lessonMicChecked:K7Q2', '1');
+    g.sessionStorage!.setItem(MIC_STATUS_KEY, 'none');
+    const html = renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="K7Q2" speech={speech} />);
+    expect(html).toContain(F.micChipNone);
+    expect(html).toContain('data-status="none"');
   });
 
   it('a child with a device gets the check inside the first-visit intro, not here', () => {

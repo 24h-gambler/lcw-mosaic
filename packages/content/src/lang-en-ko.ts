@@ -1269,6 +1269,12 @@ export const UI_STRINGS_KO = {
     micOk: '잘 들려요! "{heard}"',
     micQuiet: '조금 더 크게 말해 볼까요?',
     micNone: '이 기기는 마이크를 쓸 수 없어요. 단어 카드와 글자로도 할 수 있어요.',
+    /** The small HUD chip a lesson student sees after the check (once per lesson, lesson lane 11-18). */
+    micChipOk: '마이크 잘 들려요',
+    micChipQuiet: '마이크 소리가 작아요',
+    micChipNone: '마이크 없음',
+    micChipSkipped: '마이크 점검 안 함',
+    micChipHint: '눌러서 마이크 점검하기',
     skip: '건너뛰기',
     next: '좋아요, 출발!',
     /** {giver}/{cafe}: the NPC names from the cast pack (npc-cast.ts nameKoShort), never written here. */

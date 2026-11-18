@@ -10,6 +10,7 @@ import type { SpeechEngine } from './speech.js';
 import { createDialogSpeechEngine } from './server-stt.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 import { currentGoal, goalLine, goalWalkLabel, onGoalChange, type GoalDef } from './goals.js';
+import { LESSON_STAGE_EVENT } from '../world/events.js';
 
 /**
  * docs/08 G15 첫 접속 안내: mic check -> move -> first order within 3 minutes (docs/01 활성화, docs/09 첫 문장까지
@@ -307,6 +308,60 @@ function sessionSet(k: string, v: string): void {
   }
 }
 
+function localGet(k: string): string | null {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+}
+function localSet(k: string, v: string): void {
+  try {
+    localStorage.setItem(k, v);
+  } catch {
+    /* private mode: this tab's sessionStorage still holds it */
+  }
+}
+
+/**
+ * Checked for this lesson: in this tab, or on this device (a reload, a second tab, the link opened again): the card is
+ * once per lesson, not once per tab (lesson lane 11-18).
+ */
+function lessonChecked(keys: readonly string[]): boolean {
+  return keys.some((k) => sessionGet(k) === '1' || localGet(k) === '1');
+}
+function markLessonChecked(keys: readonly string[]): void {
+  for (const k of keys) {
+    sessionSet(k, '1');
+    localSet(k, '1');
+  }
+}
+
+/**
+ * The lesson moved on while the card was still open (nobody touched it): close it for good, as skipped unless a mic
+ * turn already left a status. A new stage's dialog never sits under the card (production smoke 11-18: the card stayed
+ * over the cafe and trade dialogs). Returns whether it closed a pending check.
+ */
+export function closeMicCheckOnStageMove(identityKind: string, lessonCode?: string): boolean {
+  const who = micCheckAudience(identityKind, lessonCode);
+  if (who?.audience !== 'lesson' || lessonChecked(who.keys)) return false;
+  if (readMicStatus() === null) sessionSet(MIC_STATUS_KEY, 'skipped');
+  markLessonChecked(who.keys);
+  return true;
+}
+
+/**
+ * What the gate shows: the card (first time for this lesson / guest, or the child tapped the chip), the small HUD mic
+ * chip (a lesson student after the check: the status only, never the card again by itself), or nothing.
+ */
+export function micGateView(identityKind: string, lessonCode: string | undefined, o: { hidden?: boolean; closed?: boolean; reopen?: boolean }): 'card' | 'chip' | null {
+  const who = micCheckAudience(identityKind, lessonCode);
+  if (!who || o.hidden) return null;
+  if (who.audience === 'guest') return o.closed || seen() ? null : 'card';
+  if (o.reopen) return 'card';
+  return !o.closed && !lessonChecked(who.keys) ? 'card' : 'chip';
+}
+
 /** The mic status of the last check in this tab (null: not checked yet). */
 export function readMicStatus(): MicCheckStatus | null {
   const v = sessionGet(MIC_STATUS_KEY);
@@ -319,31 +374,93 @@ export function readMicStatus(): MicCheckStatus | null {
  * lesson state poll), a guest once on this device. Children with a device see it inside the first-visit intro.
  */
 export function MicCheckGate(props: { identityKind: string; lessonCode?: string; hidden?: boolean; speech?: SpeechEngine }): React.ReactElement | null {
-  // The student session can appear while the page is open ("🎓 수업 코드 넣기" on a bare /world/): look again now and then.
+  // The student session can appear while the page is open ("🎓 수업 코드 넣기" on a bare /world/): look again now and then
+  // (also keeps the chip's status fresh: every mic turn updates it, dialog/mic-status.ts).
   const [, setTick] = useState(0);
   const [closed, setClosed] = useState(false);
+  const [reopen, setReopen] = useState(false);
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1500);
     return () => clearInterval(id);
   }, []);
-  const who = micCheckAudience(props.identityKind, props.lessonCode);
-  if (!who || closed || props.hidden) return null;
-  const pending = who.audience === 'lesson' ? !who.keys.some((k) => sessionGet(k) === '1') : !seen();
-  if (!pending) return null;
+  const { identityKind, lessonCode } = props;
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onStage = () => {
+      closeMicCheckOnStageMove(identityKind, lessonCode);
+      setReopen(false);
+      setTick((t) => t + 1);
+    };
+    window.addEventListener(LESSON_STAGE_EVENT, onStage);
+    return () => window.removeEventListener(LESSON_STAGE_EVENT, onStage);
+  }, [identityKind, lessonCode]);
+  const view = micGateView(identityKind, lessonCode, { hidden: props.hidden, closed, reopen });
+  if (view === 'chip') return <MicChip status={readMicStatus()} onTap={() => setReopen(true)} />;
+  if (view !== 'card') return null;
+  const who = micCheckAudience(identityKind, lessonCode);
   return (
     <IntroCard
       speech={props.speech}
-      title={who.audience === 'lesson' ? F.lessonMicTitle : F.title}
-      tips={who.audience === 'guest'}
+      title={who?.audience === 'lesson' ? F.lessonMicTitle : F.title}
+      tips={who?.audience === 'guest'}
       onDone={(status) => {
-        sessionSet(MIC_STATUS_KEY, status);
+        // checking again from the chip and skipping keeps what the mic turns already found
+        if (!(reopen && status === 'skipped')) sessionSet(MIC_STATUS_KEY, status);
         // a ?code= student joins while the card is open: remember the lesson id too, so both ways in agree
-        const now = micCheckAudience(props.identityKind, props.lessonCode);
-        if (now?.audience === 'lesson') for (const k of now.keys) sessionSet(k, '1');
+        const now = micCheckAudience(identityKind, lessonCode);
+        if (now?.audience === 'lesson') markLessonChecked(now.keys);
         else markSeen();
         setClosed(true);
+        setReopen(false);
       }}
     />
+  );
+}
+
+/** The chip's words for each mic status (null: not checked, same as skipped). */
+export function micChipText(status: MicCheckStatus | null): string {
+  if (status === 'ok') return F.micChipOk;
+  if (status === 'quiet') return F.micChipQuiet;
+  if (status === 'none') return F.micChipNone;
+  return F.micChipSkipped;
+}
+
+/** The small HUD mic status for a lesson student after the check (top right, under the stars and coins). */
+function MicChip(props: { status: MicCheckStatus | null; onTap: () => void }): React.ReactElement {
+  const good = props.status === 'ok';
+  return (
+    <button
+      type="button"
+      className="lcw-mic-chip"
+      data-status={props.status ?? 'skipped'}
+      title={F.micChipHint}
+      aria-label={`${micChipText(props.status)} · ${F.micChipHint}`}
+      onClick={props.onTap}
+      style={{
+        position: 'absolute',
+        top: 64,
+        right: 12,
+        zIndex: 20,
+        pointerEvents: 'auto',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '4px 10px',
+        minHeight: 32,
+        background: C['paper-0'],
+        color: good ? C['leaf-d'] : C['ink-700'],
+        border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
+        borderRadius: 999,
+        fontFamily: T.fonts.ui,
+        fontSize: T.scale.small.sizePx,
+        fontWeight: 700,
+        cursor: 'pointer',
+        opacity: 0.92
+      }}
+    >
+      <span aria-hidden>🎤</span>
+      {micChipText(props.status)}
+    </button>
   );
 }
 

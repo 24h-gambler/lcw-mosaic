@@ -126,7 +126,8 @@ Dan: 「별도로 조종 안해도 됩니다」, 「진행 자체가 안되고 �
 - **콘솔이 따라감**: 피드 조회에서 서버 단계가 바뀌면, 선생님이 지금 단계 패널을 보고 있던 경우 패널도 새 단계로 넘어갑니다(`followStageView`). 그래서 버튼은 계속 「다음 단계로」이고, 한 번 눌러 아이를 이전 단계로 돌려보내는 일이 없습니다.
 - **기록**: `lesson_stage_log.source` = null(선생님·시작) 또는 `auto:passes`·`auto:followups`·`auto:time`. 콘솔 피드 `stage_log` 에 그대로 나가고, 단계 패널에 「MM:SS 에 자동으로 넘어왔어요 · 목표 문장 통과」와 지금 단계의 규칙 한 줄이 보입니다.
 - **아이 화면**: 답 응답에 `auto_advanced: {from, to, why}`(넘김이 있을 때만, 같은 client_id 의 재전송에는 없음), 조회 응답에 `auto_advanced`(시간으로 넘긴 그 조회만)와 `follow_ups_en`. 답이 단계를 끝내면 컨트롤러가 0.3초 뒤 조회해 다음 단계의 장면·NPC·문장이 바로 뜹니다(`LESSON_ADVANCE_POLL_MS`). 대화창에는 `followUps`(대화 레인)를 넘기고, `onDone(r, {followUpsDone: true})` 이면 `stage-done` 을 부릅니다.
-- **시험**: `apps/edge/src/__tests__/lesson-auto-stage.test.ts`, `apps/client/src/__tests__/lesson-auto-stage.test.ts`, `apps/web/src/__tests__/directorLive.test.ts`.
+- **마이크 점검 창은 수업당 한 번**(11-18 운영 smoke: 아무도 안 누른 창이 카페·물물교환 대화창 위에 남아 있었음): 단계가 실제로 넘어가면 컨트롤러가 창 이벤트 `lcw:lesson-stage`(`world/events.ts`)를 보내고, 창이 아직 열려 있으면 닫고 'skipped' 로 남깁니다(마이크 턴이 이미 남긴 상태는 지킴). 점검 표시는 이 탭과 기기(localStorage `lcw.lessonMicChecked:<수업>`)에 같이 둬 새로고침·새 탭에서도 다시 뜨지 않습니다. 그 뒤에는 오른쪽 위 작은 마이크 칩(잘 들려요·작아요·없음·점검 안 함)만 보이고, 아이가 칩을 누를 때만 다시 점검합니다.
+- **시험**: `apps/edge/src/__tests__/lesson-auto-stage.test.ts`, `apps/client/src/__tests__/lesson-auto-stage.test.ts`, `apps/web/src/__tests__/directorLive.test.ts`. 마이크 창은 `apps/client/src/__tests__/mic-check.test.tsx`.
 
 ## 6. 이어지는 것
 

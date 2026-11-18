@@ -4,6 +4,7 @@ import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { createStudentLessonApi, type KeyValue } from '../lesson/api.js';
 import { LESSON_ADVANCE_POLL_MS, LessonController, type LessonTimers } from '../lesson/controller.js';
+import { LESSON_STAGE_EVENT } from '../world/events.js';
 
 /**
  * The child's screen follows the server's auto-advance at once (docs/18 §9, R2627 "진행 자체가 안되고 계속 있는점"):
@@ -117,5 +118,32 @@ describe('the child screen follows auto-advance (docs/18 §9)', () => {
     await ctl.stageDone(STAGES[0]!.id);
     await timers.run(1);
     expect(ctl.state.stageId).toBe(STAGES[1]!.id);
+  });
+
+  it('a stage move tells the window (the mic check card closes on it); the first state of the lesson does not', async () => {
+    const g = globalThis as unknown as { window?: EventTarget };
+    const had = g.window;
+    const win = new EventTarget();
+    const got: string[] = [];
+    win.addEventListener(LESSON_STAGE_EVENT, (e) => got.push((e as CustomEvent<{ stageId: string }>).detail.stageId));
+    g.window = win;
+    try {
+      const { ctl, timers, lessonId, admin } = await setup();
+      expect(ctl.state.stageId).toBe(STAGES[0]!.id);
+      expect(got).toEqual([]);
+      // the server's auto move (passes) and the teacher's move both reach the window once
+      await ctl.submit({ target_text: STAGES[0]!.targets[0]!.text, transcript: 'my name is oreo', chosen_stars: 1, dur_ms: 1500 });
+      await ctl.submit({ target_text: STAGES[0]!.targets[1]!.text, transcript: STAGES[0]!.targets[1]!.text, chosen_stars: 1, dur_ms: 1500 });
+      await timers.run(LESSON_ADVANCE_POLL_MS);
+      expect(got).toEqual([STAGES[1]!.id]);
+      await admin('POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: STAGES[3]!.id, targets: STAGES[3]!.targets.slice(0, 3).map((t) => t.text) });
+      await timers.run(4000);
+      expect(got).toEqual([STAGES[1]!.id, STAGES[3]!.id]);
+      // polls with no move send nothing
+      await timers.run(10_000);
+      expect(got).toHaveLength(2);
+    } finally {
+      g.window = had;
+    }
   });
 });

@@ -32,6 +32,16 @@ export const STUDENT_DAILY_IMPORTANCE = 1;
 /** Acked rows older than this are dropped when the outbox is read. */
 export const OPS_CARD_KEEP_MS = 30 * 86_400_000;
 
+/**
+ * Where the teacher sees the card (operator 11-18: "선생인 제가 명확히 오늘 뭐 하는지 및 어떻게 도와주는 지에 대해 cta가 제 화면들에
+ * 나오는지도 확인바랍니다"). The spine's card diet folds a quiet source's cards into a once-a-day digest, and 11-16 Oreo's day
+ * record and auto-closed lesson were folded there, off the hub's visible list. `keep` asks the spine to leave a real student's
+ * card in front of the teacher: 'show' (not folded, not queued: an information card) or 'until_acted' (also never expires: a
+ * card with something to do, open until the teacher sends the report or continues the lesson). Test students' cards carry no
+ * keep (and are not queued at all); a spine without the field ignores it.
+ */
+export type OpsCardKeep = 'show' | 'until_acted';
+
 export interface OpsCard {
   source: string;
   ref: string;
@@ -39,6 +49,7 @@ export interface OpsCard {
   body: string;
   importance: number;
   actions: Array<Record<string, unknown>>;
+  keep?: OpsCardKeep;
 }
 
 const kstDay = (ms: number) => new Date(ms + 9 * 3_600_000).toISOString().slice(0, 10);
@@ -93,6 +104,15 @@ const autoActions = (origin: string, lessonId: string) => [
   { type: 'open', url: `${origin}/director?auto=${encodeURIComponent(lessonId)}&next=continue`, label: '이어 하기' },
   { type: 'dismiss' }
 ];
+/**
+ * The day record of a day with a lesson: '다음 수업 준비' opens the console at that student (the row is marked and its start
+ * button focused, LessonDirector.tsx prepFocus) to pick the next plan and start.
+ */
+const prepActions = (origin: string, playerId: string) => [
+  { type: 'open', url: `${origin}/director?prep=${encodeURIComponent(playerId)}`, label: '다음 수업 준비' },
+  ...consoleActions(origin)
+];
+const keepFor = (playerId: string, keep: OpsCardKeep): { keep?: OpsCardKeep } => (isTestPlayerId(playerId) ? {} : { keep });
 const nicknameOf = (sql: SqliteExecutor, playerId: string) =>
   sql.get<{ nickname: string }>('select nickname from players where id = ?', [playerId])?.nickname ?? playerId;
 const secs = (ms: number) => Math.round(ms / 1000);
@@ -137,7 +157,8 @@ export function lessonSummaryCard(sql: SqliteExecutor, lessonId: string, nowMs: 
       '자세한 것은 디렉터 콘솔에서 봅니다(아이가 한 말 원문은 카드에 싣지 않습니다).'
     ].join('\n'),
     importance: LESSON_SUMMARY_IMPORTANCE,
-    actions: pending ? autoActions(origin, lessonId) : consoleActions(origin)
+    actions: pending ? autoActions(origin, lessonId) : consoleActions(origin),
+    ...keepFor(l.player_id, pending ? 'until_acted' : 'show')
   };
 }
 
@@ -155,10 +176,12 @@ export function studentDailyCard(sql: SqliteExecutor, playerId: string, day: str
       `학생 ${nick} (${playerId}) · ${day} (한국 시간)`,
       `수업 ${s.lessons}번 · 말한 횟수 ${s.utterances} · 통과 ${s.passes} · 별 ${s.stars}`,
       `단어 ${s.words} · 말한 시간 ${secs(s.speaking_ms)}초${s.last_at ? ` · 마지막 ${kstClock(s.last_at)}` : ''}`,
+      ...(s.lessons > 0 ? ["수업한 날: '다음 수업 준비'로 콘솔에서 이 학생의 다음 수업안을 고르고 시작합니다."] : []),
       '발화별 기록은 디렉터 콘솔의 CSV 로 받습니다(카드에는 숫자만).'
     ].join('\n'),
     importance: STUDENT_DAILY_IMPORTANCE,
-    actions: consoleActions(origin)
+    actions: s.lessons > 0 ? prepActions(origin, playerId) : consoleActions(origin),
+    ...keepFor(playerId, 'show')
   };
 }
 

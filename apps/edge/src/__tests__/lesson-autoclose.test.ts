@@ -105,6 +105,8 @@ describe('abandoned lessons close by themselves (cron sweep)', () => {
       { type: 'open', url: `${ORIGIN}/director?auto=${lessonId}&next=continue`, label: '이어 하기' },
       { type: 'dismiss' }
     ]);
+    // an action card: the spine keeps it open (not folded, never expired) until the teacher sends or continues (11-18)
+    expect(summary.keep).toBe('until_acted');
     expect(box.body.cards.some((c: any) => c.ref === 'outsourcing:lcw:student:kid-1:2026-11-16')).toBe(true);
     expect(JSON.stringify(box.body)).not.toMatch(/share_token|\/r\//);
 

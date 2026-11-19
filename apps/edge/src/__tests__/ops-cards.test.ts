@@ -65,9 +65,31 @@ describe('hub cards from the server (ops-cards.ts outbox)', () => {
     expect(text).not.toContain(end.body.share_token);
   });
 
+  it("a real student's cards ask the spine to keep them in front of the teacher; a lesson day's record has the next-lesson CTA", async () => {
+    let now = Date.parse('2026-11-16T15:00:00+09:00');
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const p = platform();
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'fam-o', guardian_id: 'g-o', player_id: 'kid-o', nickname: 'Ollie', level: 'L1' });
+    const id = await lessonWithSpeech(p, 2);
+    now += 30 * 60_000;
+    await call(p, 'POST', `/v1/admin/lessons/${id}/end`, {});
+    const cards = (await call(p, 'GET', '/v1/admin/outbox/cards')).body.cards as Array<{ ref: string; card: any }>;
+    const summary = cards.find((c) => c.ref.endsWith(':summary'))!.card;
+    const daily = cards.find((c) => c.ref.includes(':student:'))!.card;
+    expect(summary.keep).toBe('show'); // ended by the teacher: information, not folded
+    expect(daily.keep).toBe('show');
+    expect(daily.actions).toEqual([
+      { type: 'open', url: 'https://lcw.test/director?prep=kid-o', label: '다음 수업 준비' },
+      { type: 'open', url: 'https://lcw.test/director', label: '디렉터 콘솔 열기' },
+      { type: 'dismiss' }
+    ]);
+    expect(daily.body).toContain('다음 수업 준비');
+  });
+
   it("a smoke-check or demo student's lesson end queues no card (production smoke lessons stay off the hub)", async () => {
     const p = platform();
-    for (const id of ['smoke-lesson', 'SMOKE-x1', 'player-demo']) {
+    // smoke-room-* (multi-room smoke) and smoke-kid-lang-* (language smoke) reached the hub on 11-16 before the filter (a473c04)
+    for (const id of ['smoke-lesson', 'SMOKE-x1', 'player-demo', 'smoke-room-mwiz1at4', 'smoke-kid-lang-20261116']) {
       await call(p, 'POST', '/v1/admin/players', { family_id: `fam-${id}`, guardian_id: `g-${id}`, player_id: id, nickname: 'Smoke', level: 'L1' });
       const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: id });
       expect(s.status).toBe(201);
@@ -133,7 +155,12 @@ describe('hub cards from the server (ops-cards.ts outbox)', () => {
     expect(days.map((c) => c.ref)).toEqual([`${OPS_CARD_SOURCE}:lcw:student:kid-o:2026-11-16`]);
     const first = days[0]!;
     expect(first.card.importance).toBe(STUDENT_DAILY_IMPORTANCE);
-    expect(first.card.actions[0].url).toBe('https://lcw.worldwidesomething.com/director'); // no request: the real site
+    // no request: the real site (a lesson day: '다음 수업 준비' first, then the console)
+    expect(first.card.actions.map((a: { url?: string }) => a.url)).toEqual([
+      'https://lcw.worldwidesomething.com/director?prep=kid-o',
+      'https://lcw.worldwidesomething.com/director',
+      undefined
+    ]);
     await call(p, 'POST', '/v1/admin/outbox/cards/ack', { items: box.map((c) => ({ ref: c.ref, updated_at: c.updated_at })) });
     now += 60 * 60_000;
     expect((await call(p, 'POST', '/internal/cron', { cron: '0 * * * *' }, cron)).body.detail.student_cards).toBe(0); // same numbers

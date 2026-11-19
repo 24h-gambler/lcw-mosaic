@@ -86,6 +86,15 @@ export function autoCloseFocus(search: string = typeof location === 'undefined' 
   return { lessonId: id, next: q.get('next') === 'continue' ? 'continue' : 'report' };
 }
 
+/**
+ * `/director?prep=<student id>` (the hub's day-record card '다음 수업 준비' on a lesson day, apps/edge ops-cards.ts): that
+ * student's row in '학생 고르기' is marked and its start button focused, so the teacher picks the plan and starts.
+ */
+export function prepFocus(search: string = typeof location === 'undefined' ? '' : location.search): string | null {
+  const id = new URLSearchParams(search).get('prep');
+  return id && /^[\w-]{1,80}$/.test(id) ? id : null;
+}
+
 /** How often the first screen re-reads running lessons (another device may start one). */
 export const LIVE_LESSONS_POLL_MS = 15_000;
 
@@ -515,6 +524,15 @@ function StudentPicker({
   const [planId, setPlanId] = useState<string>(loadPlanChoice);
   const seats = useConsoleSeats(api, token, initialSeats);
   const [seatOpen, setSeatOpen] = useState<string | null>(null);
+  const [prep] = useState(() => prepFocus());
+  const prepRow = prep && students ? students.find((s) => s.player_id === prep) ?? null : null;
+  const studentsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!prepRow) return;
+    const b = studentsRef.current?.querySelector<HTMLButtonElement>('[data-prep-start="1"]');
+    b?.scrollIntoView?.({ block: 'center' });
+    b?.focus();
+  }, [prepRow]);
   const choosePlan = (id: string) => {
     setPlanId(id);
     savePlanChoice(id);
@@ -649,8 +667,13 @@ function StudentPicker({
           </Notice>
         ) : null}
         {students && students.length === 0 ? <p>{S.studentsEmpty}</p> : null}
+        {prep && students ? (
+          <Notice kind="info" testId="director-prep">
+            {prepRow ? M.prepHere(prepRow.nickname) : M.prepMissing}
+          </Notice>
+        ) : null}
         {students && students.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
+          <div ref={studentsRef} style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: `${T.scale.body.sizePx}px` }}>
               <thead>
                 <tr>
@@ -666,7 +689,11 @@ function StudentPicker({
               <tbody>
                 {students.map((s) => (
                   <React.Fragment key={s.player_id}>
-                  <tr data-testid="student-row">
+                  <tr
+                    data-testid="student-row"
+                    data-prep={prepRow?.player_id === s.player_id ? '1' : undefined}
+                    style={prepRow?.player_id === s.player_id ? { background: C['paper-50'], outline: `3px solid ${C['sky-d']}` } : undefined}
+                  >
                     <td style={{ ...td, fontWeight: 700 }}>{s.nickname}</td>
                     <td style={td}>{s.level}</td>
                     <td style={td}>{s.birth_year ?? '—'}</td>
@@ -691,6 +718,7 @@ function StudentPicker({
                         type="button"
                         variant="brand"
                         disabled={startingId !== null}
+                        data-prep-start={prepRow?.player_id === s.player_id ? '1' : undefined}
                         onClick={() => void start(s)}
                       >
                         {startingId === s.player_id ? S.starting : S.startLesson}

@@ -45,7 +45,11 @@ export const LAYOUT_SNAPSHOT = () => {
     const wide = b.width >= vw * 0.9 || b.height >= vh * 0.9;
     // a box over the whole screen is a layer (the page, the HUD root, a dim backdrop): its children are the parts
     const layer = b.width >= vw * 0.9 && b.height >= vh * 0.9;
-    if (positioned && !layer && shown(e) && !(wide && plain(e)) && !e.hasAttribute('aria-hidden') && !e.closest('[data-layout-ignore]')) {
+    // a box in the flow of a screen layer (the lesson layer's status row and folded window are flex items of a full-screen
+    // column): it is on the screen like a positioned one when it shows something (a card, a button); 11-19 the status row
+    // lay on the HUD's Talk button and no check saw it
+    const flowPart = !positioned && !layer && (!plain(e) || e.matches('button,a[href],[role="button"],[role="status"]'));
+    if ((positioned || flowPart) && !layer && shown(e) && !(wide && plain(e)) && !e.hasAttribute('aria-hidden') && !e.closest('[data-layout-ignore]')) {
       // an all-transparent box with no text of its own (an empty holder) is not a part either
       if (!(plain(e) && !(e.textContent || '').trim() && !e.querySelector('img,svg,canvas'))) {
         parts.push(e);
@@ -58,10 +62,23 @@ export const LAYOUT_SNAPSHOT = () => {
   // world-anchored labels (name plates, talk prompt, speech bubbles) follow people in the 3D view: two of them meeting is
   // the world, not the frame's layout; they are still held against every HUD part
   const WORLD = '.lw-plate,.lw-prompt,.lw-bub';
-  const boxes = parts.map((e) => {
+  // what shows of a part: its box cut by every scrolling / clipping holder above it (the lesson panel scrolls on a short
+  // screen: the card inside runs past the screen edge but only the holder's window of it shows)
+  const seen = (e) => {
     const b = e.getBoundingClientRect();
-    return { e, x: b.x, y: b.y, w: b.width, h: b.height, name: label(e), world: e.matches(WORLD) };
-  });
+    let x0 = b.left, y0 = b.top, x1 = b.right, y1 = b.bottom;
+    for (let n = e.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (!/(auto|scroll|hidden|clip)/.test(cs.overflow + cs.overflowX + cs.overflowY)) continue;
+      const c = n.getBoundingClientRect();
+      if (c.width >= vw * 0.9 && c.height >= vh * 0.9) continue;
+      x0 = Math.max(x0, c.left); y0 = Math.max(y0, c.top); x1 = Math.min(x1, c.right); y1 = Math.min(y1, c.bottom);
+    }
+    return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
+  };
+  const boxes = parts
+    .map((e) => ({ e, ...seen(e), name: label(e), world: e.matches(WORLD) }))
+    .filter((b) => b.w > 1 && b.h > 1);
   const problems = [];
   const inter = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
   for (let i = 0; i < boxes.length; i++) {

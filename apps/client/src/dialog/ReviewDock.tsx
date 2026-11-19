@@ -182,7 +182,8 @@ export function ReviewDock(props: ReviewDockProps): React.ReactElement | null {
         style={{
           position: 'absolute',
           right: REVIEW_PILL_PLACE.right,
-          bottom: REVIEW_PILL_PLACE.bottom,
+          // above the lesson sheet when one stands at the bottom (world/hud.ts measureFloor)
+          bottom: `calc(${REVIEW_PILL_PLACE.bottom}px + var(--lcw-hud-floor, 0px))`,
           minHeight: S.touchTargetMinPx,
           padding: '6px 14px',
           background: C['night-900'],

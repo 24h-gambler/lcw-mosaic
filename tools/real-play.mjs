@@ -24,6 +24,7 @@
 // Headless only, audio muted.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { layoutIssues } from './frame-layout.mjs';
 
 const pw = process.env.PLAYWRIGHT_CORE ? await import(pathToFileURL(process.env.PLAYWRIGHT_CORE).href) : await import('playwright-core');
 const chromium = pw.chromium ?? pw.default.chromium;
@@ -149,6 +150,22 @@ const mark = (name, extra = {}) => {
   progress(name);
   console.log(JSON.stringify(s));
 };
+// Kid-screen layout at each step as the child sees it (tools/frame-layout.mjs, the frame lane's measure): parts that
+// overlap, run off the screen or cut their own text. A problem counts when it is still there 0.6 s later (a card
+// sliding in or a name plate passing is not a layout fault).
+const hud = [];
+async function hudCheck(step) {
+  const a = await layoutIssues(page).catch(() => null);
+  if (!a) return;
+  let problems = [];
+  if (a.problems.length) {
+    await wait(600);
+    const b = await layoutIssues(page).catch(() => null);
+    problems = b ? a.problems.filter((x) => b.problems.includes(x)) : [];
+  }
+  hud.push({ step, parts: a.parts.length, problems });
+  if (problems.length) await shot(`hud-${hud.length}-${step}`);
+}
 const shot = (name) => page.screenshot({ path: `${out}/${view}-${name}.png` }).catch(() => {});
 const stats = () => page.evaluate(() => window.__lcwWorld?.getStats?.() ?? null);
 const wait = (ms) => page.waitForTimeout(ms);
@@ -368,19 +385,42 @@ async function tryKey(id) {
     const b = await page.$('.lw-btn.talk.on');
     if (b) {
       const box = await b.boundingBox().catch(() => null);
-      button = box ? await page.evaluate(([x, y]) => (document.elementFromPoint(x, y)?.className ?? '').toString().slice(0, 40), [box.x + box.width / 2, box.y + box.height / 2]) : 'no box';
+      // what is under the button's middle: the button itself (or its icon inside it), or something over it
+      button = box
+        ? await page.evaluate(([x, y]) => {
+            const e = document.elementFromPoint(x, y);
+            const own = e?.closest('.lw-btn.talk');
+            if (own) return 'talk';
+            // name what covers it: the nearest box with a class, role, test id or text
+            const named = e?.closest('[class]:not([class=""]),[role],[data-testid]') ?? e;
+            const cls = (named?.className ?? '').toString().trim().split(/\s+/).slice(0, 2).join('.');
+            const t = (named?.getAttribute?.('data-testid') || named?.getAttribute?.('role') || '') + ' "' + (named?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 28) + '"';
+            return `${named?.tagName ?? '-'}${cls ? '.' + cls : ''} ${t}`;
+          }, [box.x + box.width / 2, box.y + box.height / 2])
+        : 'no box';
+      // a talk button showing but covered by another screen part: the child's tap lands on that part
+      if (button !== 'talk' && button !== 'no box') {
+        hud.push({ step: `talk-button(${id})`, parts: 0, problems: [`talk button covered: .lw-btn.talk / ${button}`] });
+        await hudCheck(`talk-button(${id})`);
+      }
       await b.tap().catch(() => {});
     } else button = 'hidden';
   } else await page.keyboard.press('KeyE');
   await page.waitForSelector('.lcw-dlg', { timeout: 1500 }).catch(() => {});
   const ok = (await dlgOpen()) && (await rightNpc(id));
+  // diagnosis only (the 1.5 s rule stays): did it open later, and what was on screen instead
+  let late = null;
+  if (!ok) {
+    late = await page.waitForSelector('.lcw-dlg', { timeout: 3000 }).then(() => true).catch(() => false);
+    if (!late) await shot(`key-miss-${id}-${counts.keyTry}`);
+  }
   if (faced || ok) counts.keyTry++;
   if (ok) counts.keyOk++;
   else if (await dlgOpen()) {
     counts.wrongNpc++;
     await closeDlg();
   }
-  return { ok, faced: !!faced, near: s?.interact?.near ?? null, goal: s?.interact?.goal ?? null, prompt: s?.interact?.prompt ?? null, why: s?.interact?.promptWhy, paused: s?.interact?.paused, walking: s?.interact?.walking, ...(touch ? { button } : {}) };
+  return { ok, faced: !!faced, near: s?.interact?.near ?? null, goal: s?.interact?.goal ?? null, prompt: s?.interact?.prompt ?? null, why: s?.interact?.promptWhy, paused: s?.interact?.paused, walking: s?.interact?.walking, ...(late === null ? {} : { late }), ...(touch ? { button } : {}) };
 }
 
 async function answer(stars) {
@@ -455,6 +495,7 @@ for (let i = 0; i < 6; i++) {
   await forward(900);
   await turn(W * 0.18);
 }
+await hudCheck('walk');
 mark('free_walk', { motion: (await stats())?.motion });
 
 const talks = [];
@@ -481,6 +522,10 @@ for (let round = 0; round < 9; round++) {
       walked.at = box ? [Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2)] : null;
       if (box && touch) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
       else if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      if (k === 0 && round < 2) {
+        await wait(1200);
+        await hudCheck('walk-button');
+      }
       walked.ok = await page
         .waitForFunction((g) => (window.__lcwWorld.getStats?.()?.npcView ?? []).some((v) => v.id === g && v.dist < 5), goal, { timeout: 25000 })
         .then(() => true)
@@ -515,6 +560,7 @@ for (let round = 0; round < 9; round++) {
     lines.set(goal, seen);
     t.line = line;
     await shot(`1${round}-talk-${goal}`);
+    if (round < 3) await hudCheck('dialog');
     t.answer = await answer(3);
   }
   await wait(1500);
@@ -638,6 +684,7 @@ if (process.env.LCW_REAL_PLAY_HILL !== '0') {
   // jumps / climbs on the way up over every try that climbed: one jump on a failed try still counts
   if (climbed) Object.assign(hill, sums);
   await shot('70-hill-top');
+  await hudCheck('hill');
   await page.evaluate(() => window.__lcwWorld.goToScene('plaza'));
   await page.waitForFunction(() => !window.__lcwWorld.getStats().interact.walking, null, { timeout: 60000 }).catch(() => {});
   mark('hill', { ...hill, upTrace: undefined, downTrace: undefined });
@@ -663,11 +710,13 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
     }
     lesson.npc = (await stats())?.interact?.goal ?? null;
     await shot('80-lesson-dialog');
+    if (open) await hudCheck('lesson-dialog');
     const fold = async () => {
       await page.click('.lcw-dlg__x', { timeout: 3000 }).catch(() => {});
       return page.waitForSelector('[data-testid="lesson-reopen"]', { timeout: 5000 }).then(() => true).catch(() => false);
     };
     if (open && lesson.npc && (await fold())) {
+      await hudCheck('lesson-folded');
       // a passer-by in the lesson (#152): no talk prompt or talk button over them, a tap and E stay quiet (no dialog,
       // the lesson window stays folded), and the lesson NPC still reopens it afterwards (the click/E checks below)
       const passerId = ['cafe_owner', 'shop_owner', 'guide'].find((id) => id !== lesson.npc);
@@ -732,6 +781,7 @@ const errand = await call('GET', '/v1/errand', undefined, dev.device_token);
 const repeats = [...lines.entries()].map(([id, ls]) => ({ id, visits: ls.length, distinct: new Set(ls).size }));
 await Promise.allSettled(ttsJudging);
 const report = {
+  hud,
   faceMisses,
   look,
   dlgJudgedBy,

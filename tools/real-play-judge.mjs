@@ -54,6 +54,14 @@ export function judgeView(r) {
     add('npc-not-drawn', `말 걸 NPC 가 화면에 안 그려짐: ${ids.join(', ')}`);
   }
   // paused or a dialog open stops the look by design: those misses stay talk regressions, not a look-input one
+  // kid-screen layout at the play's steps (tools/frame-layout.mjs): an overlap, a part off the screen or cut text
+  const hudBad = (r.hud ?? []).filter((h) => h.problems.length);
+  if (hudBad.length) {
+    const seen = new Map();
+    for (const h of hudBad) for (const p of h.problems) if (!seen.has(p)) seen.set(p, h.step);
+    const list = [...seen].map(([p, step]) => `${step}: ${p}`);
+    add('hud-overlap', `화면 부품 겹침·잘림 ${list.length}건 — ${list.slice(0, 6).join(' / ')}${list.length > 6 ? ' …' : ''}`, 'frame');
+  }
   const stuck = (r.faceMisses ?? []).filter((m) => m.turned === false && !m.paused && !m.dlg);
   if (stuck.length) add('look-input', `시점 끌기로 시점이 안 돌아감 (${[...new Set(stuck.map((m) => m.id))].join(', ')} 찾는 중, ${stuck.reduce((a, m) => a + (m.turns ?? 0), 0)}번 끌어 0번 돎)`);
   const missedOnly = botMissedOnly(r);
@@ -136,6 +144,8 @@ export function playLines(reports) {
     const les = r.lesson?.started ? `수업 다시 열기 클릭 ${yn(r.lesson.reopenByClick)}·E ${yn(r.lesson.reopenByKey)}` : '수업 안 봄';
     const zero = (x) => ratio(x)?.tried === 0 && botMissedOnly(r);
     const talk = (x) => (zero(x) ? `${x} 확인 안 됨(NPC 는 그려져 있고 봇이 화면에 못 잡음)` : x);
-    return `- ${view} ${r.size ?? ''}: 클릭 ${talk(r.clickSuccess)} · E ${talk(r.keySuccess)} · 다른 NPC ${r.wrongNpc ?? 0} · 원치 않은 점프 ${r.unwantedJumps ?? 0} · 점프 시점 ${cam}m · 심부름 ${r.errand?.state ?? '?'} · ${h} · ${les}${p ? ` · ${p}` : ''} · 오류 ${(r.errs ?? []).length} (캐시 전용 음성 404 ${r.ttsCacheMiss ?? 0}, 설계대로) · ${r.seconds ?? '?'}초`;
+    const hudN = (r.hud ?? []).reduce((a, h) => a + h.problems.length, 0);
+    const hudTxt = r.hud ? ` · 화면 겹침 ${hudN}(${r.hud.length}단계)` : '';
+    return `- ${view} ${r.size ?? ''}: 클릭 ${talk(r.clickSuccess)} · E ${talk(r.keySuccess)} · 다른 NPC ${r.wrongNpc ?? 0} · 원치 않은 점프 ${r.unwantedJumps ?? 0} · 점프 시점 ${cam}m · 심부름 ${r.errand?.state ?? '?'} · ${h} · ${les}${p ? ` · ${p}` : ''}${hudTxt} · 오류 ${(r.errs ?? []).length} (캐시 전용 음성 404 ${r.ttsCacheMiss ?? 0}, 설계대로) · ${r.seconds ?? '?'}초`;
   });
 }

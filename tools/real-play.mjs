@@ -155,13 +155,17 @@ const mark = (name, extra = {}) => {
 // sliding in or a name plate passing is not a layout fault).
 const hud = [];
 async function hudCheck(step) {
-  const a = await layoutIssues(page).catch(() => null);
-  if (!a) return;
+  // a measure that fails is written down (error), never left out: a broken measure must not read as a clean screen
+  const a = await layoutIssues(page).catch((e) => ({ error: String(e?.message ?? e).slice(0, 120) }));
+  if (a.error) {
+    hud.push({ step, parts: 0, problems: [], error: a.error });
+    return;
+  }
   let problems = [];
   if (a.problems.length) {
     await wait(600);
     const b = await layoutIssues(page).catch(() => null);
-    problems = b ? a.problems.filter((x) => b.problems.includes(x)) : [];
+    problems = b ? a.problems.filter((x) => b.problems.includes(x)) : a.problems;
   }
   hud.push({ step, parts: a.parts.length, problems });
   if (problems.length) await shot(`hud-${hud.length}-${step}`);
@@ -386,20 +390,27 @@ async function tryKey(id) {
     if (b) {
       const box = await b.boundingBox().catch(() => null);
       // what is under the button's middle: the button itself (or its icon inside it), or something over it
-      button = box
-        ? await page.evaluate(([x, y]) => {
+      const under = ([x, y]) => {
             const e = document.elementFromPoint(x, y);
-            const own = e?.closest('.lw-btn.talk');
+            if (!e) return 'offscreen';
+            const own = e.closest('.lw-btn.talk');
             if (own) return 'talk';
             // name what covers it: the nearest box with a class, role, test id or text
             const named = e?.closest('[class]:not([class=""]),[role],[data-testid]') ?? e;
             const cls = (named?.className ?? '').toString().trim().split(/\s+/).slice(0, 2).join('.');
             const t = (named?.getAttribute?.('data-testid') || named?.getAttribute?.('role') || '') + ' "' + (named?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 28) + '"';
             return `${named?.tagName ?? '-'}${cls ? '.' + cls : ''} ${t}`;
-          }, [box.x + box.width / 2, box.y + box.height / 2])
-        : 'no box';
+          };
+      const mid = box ? [box.x + box.width / 2, box.y + box.height / 2] : null;
+      button = mid ? await page.evaluate(under, mid) : 'no box';
+      // covered counts when it is still covered 0.6 s later (a toast or a card sliding past is not a layout fault)
+      if (mid && button !== 'talk' && button !== 'offscreen') {
+        await wait(600);
+        const again = await page.evaluate(under, mid);
+        if (again === 'talk') button = 'talk';
+      }
       // a talk button showing but covered by another screen part: the child's tap lands on that part
-      if (button !== 'talk' && button !== 'no box') {
+      if (button !== 'talk' && button !== 'no box' && button !== 'offscreen') {
         hud.push({ step: `talk-button(${id})`, parts: 0, problems: [`talk button covered: .lw-btn.talk / ${button}`] });
         await hudCheck(`talk-button(${id})`);
       }

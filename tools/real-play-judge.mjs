@@ -55,6 +55,10 @@ export function judgeView(r) {
   }
   // paused or a dialog open stops the look by design: those misses stay talk regressions, not a look-input one
   // kid-screen layout at the play's steps (tools/frame-layout.mjs): an overlap, a part off the screen or cut text
+  // the layout measure itself failed at every step (or never ran on a page from now on): the tool is broken, say so
+  if (Array.isArray(r.hud) && (r.hud.length === 0 || r.hud.every((h) => h.error))) {
+    add('hud-unmeasured', `화면 겹침을 한 단계도 못 잼 (${r.hud.length ? r.hud[0].error : '측정 기록 없음'})`);
+  }
   const hudBad = (r.hud ?? []).filter((h) => h.problems.length);
   if (hudBad.length) {
     const seen = new Map();
@@ -145,7 +149,8 @@ export function playLines(reports) {
     const zero = (x) => ratio(x)?.tried === 0 && botMissedOnly(r);
     const talk = (x) => (zero(x) ? `${x} 확인 안 됨(NPC 는 그려져 있고 봇이 화면에 못 잡음)` : x);
     const hudN = (r.hud ?? []).reduce((a, h) => a + h.problems.length, 0);
-    const hudTxt = r.hud ? ` · 화면 겹침 ${hudN}(${r.hud.length}단계)` : '';
+    const hudErr = (r.hud ?? []).filter((h) => h.error).length;
+    const hudTxt = r.hud ? ` · 화면 겹침 ${hudN}(${r.hud.length - hudErr}단계${hudErr ? `, 측정 실패 ${hudErr}` : ''})` : '';
     return `- ${view} ${r.size ?? ''}: 클릭 ${talk(r.clickSuccess)} · E ${talk(r.keySuccess)} · 다른 NPC ${r.wrongNpc ?? 0} · 원치 않은 점프 ${r.unwantedJumps ?? 0} · 점프 시점 ${cam}m · 심부름 ${r.errand?.state ?? '?'} · ${h} · ${les}${p ? ` · ${p}` : ''}${hudTxt} · 오류 ${(r.errs ?? []).length} (캐시 전용 음성 404 ${r.ttsCacheMiss ?? 0}, 설계대로) · ${r.seconds ?? '?'}초`;
   });
 }

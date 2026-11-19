@@ -125,6 +125,13 @@ describe('real-play judgement for the nightly audit', () => {
     expect(f.map((x: { id: string; owner: string }) => [x.id, x.owner])).toEqual([['play:hud-overlap', 'frame']]);
     expect(f[0].why).toContain('1건 — dialog: overlap');
     expect(playRegressions({ touch: { ...r, view: 'touch' } })[0].sizes).toEqual(['390x844']);
+    // a measure that failed at every step is not a clean screen; one failed step among clean ones is shown, not raised
+    const broken = { ...clean(), hud: [{ step: 'walk', parts: 0, problems: [], error: 'Target closed' }] };
+    expect(judgeView(broken).map((x: { id: string }) => x.id)).toEqual(['play:hud-unmeasured']);
+    expect(judgeView({ ...clean(), hud: [] }).map((x: { id: string }) => x.id)).toEqual(['play:hud-unmeasured']);
+    const oneErr = { ...clean(), hud: [{ step: 'walk', parts: 9, problems: [] }, { step: 'hill', parts: 0, problems: [], error: 'x' }] };
+    expect(judgeView(oneErr)).toEqual([]);
+    expect(playLines({ pc: oneErr })[0]).toContain('화면 겹침 0(1단계, 측정 실패 1)');
     // a talk button covered by another part (prod 11-19: the lesson status row over it at 390) is the same regression
     const covered = { ...clean(), hud: [{ step: 'talk-button(guide)', parts: 0, problems: ['talk button covered: .lw-btn.talk / SPAN status "Juno · With Teacher"'] }] };
     expect(judgeView(covered)[0].why).toContain('talk-button(guide): talk button covered');

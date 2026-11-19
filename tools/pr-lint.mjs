@@ -113,27 +113,80 @@ export function lintPrTextFull(text) {
   return { hits: out, cited: [...cited] };
 }
 
+// Review lanes are read-only (operator rule: a review or an independent check reproduces and judges, it changes no file).
+// 2026-11-17 a home-PC review lane ("PR #131 … 독립 검토 — 읽기 전용, 고치지 않고 판정만") committed the ten zz-* probe tests its
+// checker left behind and merged them as PR #147; main's edge build broke until #151 reverted them. A review's output is a
+// verdict (a card or a PR comment), never a PR, so two things are refused here:
+//   - a PR whose title is a review task ('검토', '판정만', '고치지 않고', 'review only', '읽기 전용'/'read-only' next to a review word) unless it says it fixes or reverts
+//     something ("검토 지적 반영", "Review fixes", "Revert the review probes"); English "review" alone is not refused, it names
+//     the spaced-repetition feature too (#17)
+//   - a PR that adds or changes a probe test: a test file named zz-*, or one with "probe" or "verify" in its name
+// Deleting such a file (a revert) is allowed.
+export const REVIEW_TITLE = /검토|리뷰|독립\s*검증|\bindependent\s+(?:review|check)\b/i;
+// a fix, a follow-up or a feature: '검토 지적 고치기', '검토 후속', '리뷰 지적 처리', '리포트 검토 단계 추가' (review of #153)
+export const FIXES_TITLE = /고침|고쳐|고치(?!지\s*(?:않|말))|고칠|반영|수정|되돌|후속|처리|대응|보완|추가|만들|\bfix(?:es|ed)?\b|\brevert|\baddress|\badd\b/i;
+// strong markers are refused even next to a fix word ("검토 — 읽기 전용, 고치지 않고 판정만" contains "고치")
+// '읽기 전용'·'read-only' alone names a feature too (#39 "live-lesson watch (read-only, …)"): it counts only next to a review word
+const REVIEW_ONLY_STRONG =
+  /판정만|고치지\s*(?:않고|말고)|검토만|\breview[-_\s]*only\b|\bverdict[-_\s]*only\b|(?:검토|리뷰|검증|\breview)[^\n]{0,30}(?:읽기\s*전용|\bread[-_\s]*only\b)|(?:읽기\s*전용|\bread[-_\s]*only\b)[^\n]{0,30}(?:검토|리뷰|검증|\breview)/i;
+// code in tests: *.test/*.spec files and helpers under __tests__/; fixtures there ('probe-data.json') are data (review of #153)
+const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)__tests__\/.*\.[cm]?[jt]sx?$/;
+const PROBE_NAME = /^zz-|probe/i;
+// 'verify' names real features too (receipt-verify, oauth verify): refused only in a test file this PR adds
+const VERIFY_NAME = /verify/i;
+
+/** Review-lane output that must not become a PR: [{ id, phrase, text }]. `files`: gh `--json files` rows ({ path, changeType }). */
+export function lintPrMeta({ title = '', files = [] } = {}) {
+  const out = [];
+  const t = String(title ?? '');
+  const strong = t.match(REVIEW_ONLY_STRONG);
+  const weak = t.match(REVIEW_TITLE);
+  if (strong || (weak && !FIXES_TITLE.test(t))) {
+    out.push({ line: 1, id: 'review-title', phrase: (strong ?? weak)[0], text: t.slice(0, 160) });
+  }
+  for (const f of files ?? []) {
+    const p = String(f?.path ?? f ?? '').replace(/\\/g, '/');
+    const base = p.split('/').pop() ?? '';
+    if (String(f?.changeType ?? '').toUpperCase() === 'DELETED') continue;
+    const added = String(f?.changeType ?? '').toUpperCase() === 'ADDED';
+    if (TEST_FILE.test(p) && (PROBE_NAME.test(base) || (added && VERIFY_NAME.test(base)))) {
+      out.push({ line: 0, id: 'probe-test', phrase: base, text: p });
+    }
+  }
+  return out;
+}
+
 function readPr(number) {
-  const json = execFileSync('gh', ['pr', 'view', String(number), '--json', 'title,body'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  const { title, body } = JSON.parse(json);
-  return `${title ?? ''}\n\n${body ?? ''}`;
+  const json = execFileSync('gh', ['pr', 'view', String(number), '--json', 'title,body,files'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const { title, body, files } = JSON.parse(json);
+  return { text: `${title ?? ''}\n\n${body ?? ''}`, title: title ?? '', files: files ?? [] };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   let text;
   let label;
+  let meta = [];
   if (args[0] === '--file' && args[1]) {
     text = fs.readFileSync(args[1], 'utf8');
     label = args[1];
   } else if (/^\d+$/.test(args[0] ?? '')) {
-    text = readPr(args[0]);
+    const pr = readPr(args[0]);
+    text = pr.text;
+    meta = lintPrMeta(pr);
     label = `PR #${args[0]}`;
   } else {
     console.error('usage: node tools/pr-lint.mjs <PR number> | --file <path>');
     process.exit(2);
   }
+  for (const f of meta) console.log(`${label} [${f.id}] "${f.phrase}" — ${f.text}`);
+  if (meta.length) {
+    console.log(
+      `\n검토·판정(읽기 전용) 레인의 결과물은 PR 이 아니라 판정 글(카드·PR 댓글)입니다. 검토 제목의 PR 과 zz-*·probe·(새로 더한) verify 시험 파일은 머지하지 않습니다 (AGENTS.md 5장, 2026-11-17 #147). 검토 지적을 고치는 PR 이면 제목에 '반영'·'고침'·'후속'·fix 를 넣으세요.`
+    );
+  }
   const { hits: found, cited } = lintPrTextFull(text);
+  if (meta.length && !found.length) process.exit(1);
   // the lane merge gate reads this line and looks every id up on the spine and in the ledger
   if (cited.length) console.log(`근거 결정: ${cited.join(' ')}`);
   for (const f of found) console.log(`${label}:${f.line} [${f.id}] "${f.phrase}" — ${f.text}`);

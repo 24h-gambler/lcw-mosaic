@@ -1,7 +1,7 @@
 // PR text check (AGENTS.md 0.7): postponing or narrowing in a PR needs the operator's decision id in the same paragraph.
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs tool without types
-import { lintPrTextFull, lintPrText } from '../pr-lint.mjs';
+import { lintPrMeta, lintPrTextFull, lintPrText } from '../pr-lint.mjs';
 
 const ids = (t: string) => (lintPrText(t) as { id: string }[]).map((f) => f.id);
 
@@ -77,5 +77,57 @@ describe('pr-lint: postponing is narrowing (fault injection)', () => {
     expect(ids('Lesson mode instead of the 3D world for now.')).toContain('instead');
     expect(ids('게이지는 다음 단계에서 붙입니다.')).toContain('later');
     expect(ids('G07 월드 고르기 화면을 만들고 spec-coverage 를 done 으로 바꿨습니다. 시험 12개, 1440/390 실화면 확인.')).toEqual([]);
+  });
+});
+
+// Review lanes are read-only (2026-11-17: a review lane merged ten zz-* probe tests as #147 and broke the edge build).
+const meta = (title: string, files: { path: string; changeType?: string }[] = []) =>
+  (lintPrMeta({ title, files }) as { id: string }[]).map((f) => f.id);
+
+describe('pr-lint: a review lane makes a verdict, not a PR', () => {
+  it('refuses the #147 title and the probe tests it added', () => {
+    const files = [
+      'apps/edge/src/__tests__/zz-final-verify.test.ts',
+      'apps/edge/src/__tests__/zz-indep-check.test.ts',
+      'apps/edge/src/__tests__/zz-review-probe.test.ts',
+      'apps/web/src/__tests__/zz-review-html.test.ts'
+    ].map((path) => ({ path, changeType: 'ADDED' }));
+    const found = meta('LCW PR #131(dom/guardian-ko, db391f6) 보호자 화면 독립 검토 — 읽기 전용, 고치지 않고 판정만', files);
+    expect(found.filter((x) => x === 'review-title')).toHaveLength(1);
+    expect(found.filter((x) => x === 'probe-test')).toHaveLength(4);
+  });
+
+  it('refuses review titles and probe/verify test files under any name', () => {
+    expect(meta('보호자 화면 검토')).toEqual(['review-title']);
+    expect(meta('Read-only review of the lesson route')).toEqual(['review-title']);
+    expect(meta('LCW #131 검토 — 읽기 전용')).toEqual(['review-title']);
+    expect(meta('review only: guardian page')).toEqual(['review-title']);
+    expect(meta('lesson fix', [{ path: 'apps/edge/src/lesson-probe.test.ts', changeType: 'ADDED' }])).toEqual(['probe-test']);
+    expect(meta('lesson fix', [{ path: 'apps/web/src/__tests__/opus-verify2.test.ts', changeType: 'ADDED' }])).toEqual(['probe-test']);
+    // review of #153: titles that slipped through
+    expect(meta('LCW PR #131 독립 검증(읽기 전용)')).toEqual(['review-title']);
+    expect(meta('Independent review of PR #131 (verdict only)')).toEqual(['review-title']);
+    expect(meta('Opus independent check of #131, no changes')).toEqual(['review-title']);
+    expect(meta('lesson fix', [{ path: 'apps/edge/src/__tests__/helpers/zz-x.ts' }])).toEqual(['probe-test']);
+  });
+
+  it('lets through fixes, reverts and real past PR titles', () => {
+    expect(meta('Revert the review probes PR 147 committed to main (they break the edge build)', [
+      { path: 'apps/edge/src/__tests__/zz-final-verify.test.ts', changeType: 'DELETED' }
+    ])).toEqual([]);
+    expect(meta("Review fixes: keys on buttons, plot ops body order, lesson builds to the student's own plot")).toEqual([]);
+    expect(meta('review: memory cards with 20 min / 1 day reviews and HUD review signs (WP-310, WP-406)')).toEqual([]);
+    expect(meta('fix(seats): review fixes for WP-704 money paths')).toEqual([]);
+    expect(meta('보호자 화면 독립 검토 지적 반영')).toEqual([]);
+    expect(meta('tools: live-lesson watch (read-only, operator GET + wrangler tail)')).toEqual([]);
+    expect(meta('Dialog preview: item, price per sentence, NPC face (audit G02)')).toEqual([]);
+    expect(meta('perf: faster world load', [{ path: 'tools/perf-probe.mjs', changeType: 'MODIFIED' }])).toEqual([]);
+    expect(meta('ops: student day cards catch up (2-day window)', [{ path: 'apps/edge/src/ops-cards.test.ts' }])).toEqual([]);
+    // review of #153: fixes and follow-ups of a review, and review-named features
+    for (const t of ['#131 검토 지적 고치기', '보호자 화면 검토 후속: 쉼표 규칙', '리뷰 지적 처리 (#154)', '검토 의견 대응',
+      '교사용 리포트 검토 단계 추가', '보호자 화면 독립 검토 지적 반영']) expect(meta(t)).toEqual([]);
+    // 'verify' in a test that already exists is a real feature test; fixtures under __tests__ are data
+    expect(meta('pay: receipts', [{ path: 'apps/edge/src/__tests__/receipt-verify.test.ts', changeType: 'MODIFIED' }])).toEqual([]);
+    expect(meta('world: data', [{ path: 'apps/web/src/__tests__/fixtures/probe-data.json', changeType: 'ADDED' }])).toEqual([]);
   });
 });

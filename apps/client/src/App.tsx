@@ -583,7 +583,7 @@ export function App(): React.ReactElement {
       room.stop();
     };
     // a pass starting or ending moves this page to (or out of) the host's room at once
-  }, [world, identity?.kind, teach, passToken]);
+  }, [world, identity?.kind, teach, passToken, lessonOn]);
 
   // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
   useEffect(() => {

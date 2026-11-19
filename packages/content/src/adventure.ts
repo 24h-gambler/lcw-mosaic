@@ -533,10 +533,18 @@ export function adventureChapter(id: number): AdventureChapter {
   return ADVENTURE_CHAPTERS.find((c) => c.id === id) ?? ADVENTURE_CHAPTERS[0]!;
 }
 
-/** The voice an islander speaks with (the cast pack's own voice for that role). */
+/** The voice a world role speaks with (the cast pack's own voice for that role). */
 export function adventureVoice(ref: AdventureVoiceRef, lang: string = 'en'): NpcVoice {
   const pack = npcCast(lang);
   return (pack.npcs[ref] ?? pack.npcs.guide!).voice;
+}
+
+/**
+ * The voice one islander speaks with: its own entry in the cast pack's `islanders` table (a creature's id, a villager's
+ * English name), else its role's world voice.
+ */
+export function islanderVoice(key: string, ref: AdventureVoiceRef, lang: string = 'en'): NpcVoice {
+  return npcCast(lang).islanders[key] ?? adventureVoice(ref, lang);
 }
 
 /** Words of the daily-opener bank (automation server/daily_opener_bank.json words_by_topic) with Korean and a picture. */
@@ -733,10 +741,10 @@ export function adventureFixedLines(lang: string = 'en'): Array<{ text: string; 
   const model = npcCast(lang).modelVoice;
   for (const ch of ADVENTURE_CHAPTERS) {
     for (const c of [...ch.critters, ch.guardian]) {
-      const v = adventureVoice(c.voice, lang);
+      const v = islanderVoice(c.id, c.voice, lang);
       for (const l of [c.intro, ...c.turns, ...c.react, c.ready, c.friend, c.poked, c.leaves, c.asks]) out.push({ text: l.en, voice: v });
     }
-    const guide = adventureVoice('guide', lang);
+    const guide = islanderVoice(ch.villager.nameEn, 'guide', lang);
     for (const l of ch.villager.lines) out.push({ text: l.en, voice: guide });
     for (const lv of [1, 2, 3] as const) {
       out.push({ text: ch.greet[lv].en, voice: model }, { text: ch.feel[lv].en, voice: model }, { text: ch.befriend[lv].en, voice: model });

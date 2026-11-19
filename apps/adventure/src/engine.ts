@@ -2,7 +2,7 @@ import {
   ADVENTURE_CHAPTERS,
   adventureChapter,
   adventureLevelOf,
-  adventureVoice,
+  islanderVoice,
   npcCast,
   type AdventureChapterId,
   type AdventureLevel,
@@ -532,7 +532,7 @@ export class Engine {
     if (t && t.mode !== 'spell') {
       // a learner hears the model sentence first at L1; above, on the 🔊
       if (this.plan?.level === 1 && t.mode === 'say') void this.voice.speak(npcCast().modelVoice, t.target);
-      if (t.mode === 'pick' && t.prompt && this.battle) void this.voice.speak(adventureVoice(this.battle.enc.creature.voice), t.prompt.en);
+      if (t.mode === 'pick' && t.prompt && this.battle) void this.voice.speak(islanderVoice(this.battle.enc.creature.id, this.battle.enc.creature.voice), t.prompt.en);
     } else if (t?.mode === 'spell') void this.voice.speak(npcCast().modelVoice, t.target, 0.8);
     this.afterBattleChange();
   }
@@ -653,7 +653,7 @@ export class Engine {
       if (es.state !== 'idle') {
         if (force && es.state === 'friend') {
           const c = e.kind === 'guardian' ? ch.guardian : ch.critters[e.index as 0 | 1];
-          this.exploreMsg = { who: c.nameEn, whoKo: c.nameKo, lines: [c.friend], i: 0, voice: adventureVoice(c.voice) };
+          this.exploreMsg = { who: c.nameEn, whoKo: c.nameKo, lines: [c.friend], i: 0, voice: islanderVoice(c.id, c.voice) };
           this.reveal = 0;
           this.notify();
         }
@@ -666,8 +666,8 @@ export class Engine {
     this.lastTouch = e.id;
     if (e.kind === 'villager') {
       const v = ch.villager;
-      this.exploreMsg = { who: v.nameEn, whoKo: v.nameKo, lines: v.lines, i: 0, voice: adventureVoice('guide') };
-      void this.voice.speak(adventureVoice('guide'), v.lines[0]!.en);
+      this.exploreMsg = { who: v.nameEn, whoKo: v.nameKo, lines: v.lines, i: 0, voice: islanderVoice(v.nameEn, 'guide') };
+      void this.voice.speak(islanderVoice(v.nameEn, 'guide'), v.lines[0]!.en);
     } else if (e.kind === 'stone') {
       const w = this.stoneLines(e.index);
       if (!w) return;
@@ -843,7 +843,7 @@ export class Engine {
     this.reveal = 0;
     this.sfx('encounter');
     this.music(enc.cls === 'critter' ? 'battle' : 'guardian');
-    const v = adventureVoice(enc.creature.voice);
+    const v = islanderVoice(enc.creature.id, enc.creature.voice);
     this.voice.prefetch([
       ...enc.creature.turns.map((l) => ({ voice: v, text: l.en })),
       ...enc.creature.react.map((l) => ({ voice: v, text: l.en })),
@@ -861,8 +861,8 @@ export class Engine {
       this.lastPhaseKey = key;
       this.reveal = 0;
       const m = b.phase === 'msg' ? b.msgs[0] : null;
-      if (m?.who === 'creature') void this.voice.speak(adventureVoice(b.enc.creature.voice), m.line.en);
-      if (b.phase === 'dodge' && b.turnLine) void this.voice.speak(adventureVoice(b.enc.creature.voice), b.turnLine.en);
+      if (m?.who === 'creature') void this.voice.speak(islanderVoice(b.enc.creature.id, b.enc.creature.voice), m.line.en);
+      if (b.phase === 'dodge' && b.turnLine) void this.voice.speak(islanderVoice(b.enc.creature.id, b.enc.creature.voice), b.turnLine.en);
     }
     this.notify();
   }

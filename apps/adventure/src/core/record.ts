@@ -66,6 +66,44 @@ export function wordHit(r: ChapterRecord, w: string, kind: 'caught' | 'missed'):
   if (r.words.has(w) || r.words.size < ADV.recordMax.words) r.words.set(w, x);
 }
 
+/** Lowercase words of a sentence, punctuation gone ("I'm fine. Thank you!" → im fine thank you). */
+function tokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[‘’']/g, '')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/** Does the sentence hold this word or phrase as whole words ("good bye" also counts for goodbye)? */
+export function saysWord(sentence: string, word: string): boolean {
+  const t = tokens(sentence);
+  const w = tokens(word);
+  if (!w.length) return false;
+  const joined = w.join('');
+  for (let i = 0; i < t.length; i++) {
+    if (w.every((x, k) => t[i + k] === x)) return true;
+    // a word heard split in two or a phrase heard as one ("good bye", "thankyou")
+    if (t[i] === joined || (i + 1 < t.length && t[i]! + t[i + 1]! === joined)) return true;
+  }
+  return false;
+}
+
+/**
+ * The child said (or typed) a sentence: every day word in it counts as caught, once per answer (coordinator 11-19:
+ * an island finished by speaking must not show the day's words as not done in the guardian's word column).
+ */
+export function wordsSaid(r: ChapterRecord, sentences: readonly string[]): string[] {
+  const hit: string[] = [];
+  for (const w of r.words.keys()) {
+    if (sentences.some((s) => saysWord(s, w))) {
+      wordHit(r, w, 'caught');
+      hit.push(w);
+    }
+  }
+  return hit;
+}
+
 /** Chapter stars (docs/22 4장). */
 export function chapterStars(r: ChapterRecord): 0 | 1 | 2 | 3 {
   if (r.outcome === 'quit') return 0;

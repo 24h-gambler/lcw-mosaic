@@ -25,8 +25,15 @@ export const VOICE_RMS = 0.02;
 export const SERVER_STT_UPLOAD_TIMEOUT_MS = 40_000;
 export const SERVER_STT_STOP_GRACE_MS = SERVER_STT_UPLOAD_TIMEOUT_MS + 5_000;
 const FRAME_MS = 100;
-/** What Whisper says over silence (its training subtitles), lowercased without punctuation. */
-export const WHISPER_SILENCE_LINES: ReadonlySet<string> = new Set(['thank you', 'thanks for watching', 'thank you for watching', 'you', 'bye', 'okay']);
+/**
+ * The meter alone never calls a turn silent when it is not sure (coordinator 11-19: "thank you" from a child the meter
+ * could not hear was thrown away as Whisper's silence line). A turn whose loudest running frame reached this level
+ * (below VOICE_RMS: a soft voice, a far mic) or whose meter ran for fewer than METER_MIN_FRAMES frames goes to the
+ * server, and only an empty transcript from Whisper (its own VAD, `vad_filter`) makes it 'no_speech' 'stt_empty'.
+ * Only a turn the meter heard clearly as quiet for a full second stays home ('vad_quiet', nothing charged).
+ */
+export const VOICE_RMS_BORDER = 0.005;
+export const METER_MIN_FRAMES = 10;
 
 interface RecorderLike {
   state: string;
@@ -149,7 +156,8 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
       let stopTick: (() => void) | null = null;
       let voiced = false;
       let meterRan = false;
-      let blind = false;
+      let meteredFrames = 0;
+      let peak = 0;
       let tick = 0;
       let startedAt = 0;
       const chunks: Blob[] = [];
@@ -198,9 +206,9 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
         const j = (await res.json().catch(() => null)) as { transcript?: unknown; confidence?: unknown } | null;
         const text = typeof j?.transcript === 'string' ? j.transcript.trim() : '';
         const confidence = typeof j?.confidence === 'number' ? j.confidence : 0.7;
-        // Whisper heard no words in a voiced recording: a no-speech turn the console can tell from a quiet mic. A turn
-        // sent without a working meter may be silence, which Whisper fills with its stock lines: those are not words.
-        if (!text || (blind && WHISPER_SILENCE_LINES.has(text.toLowerCase().replace(/[^a-z ]/g, '').trim()))) return fail('no_speech', 'stt_empty');
+        // Whisper heard no words: a no-speech turn the console can tell from a quiet mic. Words are words, whatever the
+        // meter said ("thank you" is an answer; VOICE_RMS_BORDER).
+        if (!text) return fail('no_speech', 'stt_empty');
         cb.onEnd({ transcript: text, confidence });
       };
 
@@ -232,10 +240,11 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
           if (aborted) return;
           // Nothing recorded at all: the recorder gave no data (a broken capture), not a quiet child.
           if (chunks.length === 0) return fail('no_speech', 'no_audio');
-          // Nothing above the voice level: no upload, nothing charged (the panel says it did not hear). A meter that never
-          // ran this turn could not tell: the turn goes up and Whisper's own VAD decides (unheard = no_speech stt_empty).
-          if (!voiced && !unmetered) return fail('no_speech', 'vad_quiet');
-          blind = unmetered;
+          // Nothing above the voice level: no upload, nothing charged (the panel says it did not hear), but only when the
+          // meter is sure. A meter that never ran, ran too briefly, or heard something near the voice level could not
+          // tell: the turn goes up and Whisper's own VAD decides (unheard = no_speech stt_empty).
+          const meterSure = !unmetered && meteredFrames >= METER_MIN_FRAMES && peak < VOICE_RMS_BORDER;
+          if (!voiced && meterSure) return fail('no_speech', 'vad_quiet');
           void upload(new Blob(chunks, { type }), ms);
         };
         meter = env.createLevelMeter?.(stream) ?? null;
@@ -245,8 +254,13 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
           // A meter that is not running (yet) decides nothing: its frames keep the turn open (dots, so the child is not
           // cut at the first-speech wait) but never mark it voiced. Once it runs, its level is the verdict.
           const running = !meter || meter.running?.() !== false;
-          if (meter && running) meterRan = true;
-          const loud = running ? !meter || meter.rms() >= VOICE_RMS : true;
+          const level = meter && running ? meter.rms() : 0;
+          if (meter && running) {
+            meterRan = true;
+            meteredFrames += 1;
+            if (level > peak) peak = level;
+          }
+          const loud = running ? !meter || level >= VOICE_RMS : true;
           if (!loud) return;
           if (running) voiced = true;
           tick += 1;

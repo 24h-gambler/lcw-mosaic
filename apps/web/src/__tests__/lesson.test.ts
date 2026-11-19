@@ -1,11 +1,11 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { FIRST_LESSON_PLAN } from '@lcw/content';
+import { ADVENTURE_STAGE_ID, FIRST_LESSON_PLAN, LESSON_JOIN_CODE_SLOT } from '@lcw/content';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { App } from '../App.js';
 import { handleDirectorKeydown } from '../director.js';
-import { LessonDirectorConsole, includeTestLessons, loadPlanChoice } from '../LessonDirector.js';
+import { LessonDirectorConsole, includeTestLessons, loadPlanChoice, withJoinCode } from '../LessonDirector.js';
 import { ParentReportPage } from '../ParentReportPage.js';
 import { StudentJoin } from '../StudentJoin.js';
 import {
@@ -786,6 +786,24 @@ describe('join links (docs/19 §4)', () => {
     // the teacher's fallback link keeps the word cards (lite=1), /join would send a 3D device into /world/
     expect(dir).toContain('/join?code=482913&amp;lite=1');
     expect(dir).toContain('/world/?code=482913');
+  });
+
+  it("the adventure stage tells the teacher the same-tab 🗺 button and this lesson's code for a new tab (R2625 last box)", () => {
+    const adv = FIRST_LESSON_PLAN.stages.find((s) => s.id === ADVENTURE_STAGE_ID)!;
+    expect(FIRST_LESSON_PLAN.stages.at(-1)).toBe(adv);
+    const html = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, {
+        initialToken: 'op',
+        initialLesson: { ...LESSON_REC, stage_id: ADVENTURE_STAGE_ID },
+        initialFeed: { ...FEED, lesson: { ...FEED.lesson, stage_id: ADVENTURE_STAGE_ID } }
+      })
+    );
+    expect(html).toContain('🗺 모험');
+    expect(html).toContain('같은 탭');
+    expect(html).toContain('수업 코드 482913');
+    expect(html).not.toContain(LESSON_JOIN_CODE_SLOT);
+    expect(withJoinCode('코드 {code} · 다시 {code}', '123456')).toBe('코드 123456 · 다시 123456');
+    expect(withJoinCode('코드 {code}', null)).toBe('코드 —');
   });
 
   it('the stage panel walks the teacher through the stage: timed steps (folded), the plan sentences, one move button', () => {

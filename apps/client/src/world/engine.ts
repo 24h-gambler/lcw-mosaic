@@ -3,6 +3,7 @@
  * Rendering is Three.js (AGENTS 2); every block change goes through VoxelWorld.setBlock (AGENTS 4.1).
  */
 import * as THREE from 'three';
+import { drawState } from './draw-state.js';
 import { VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
@@ -329,7 +330,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     scene,
     hud.root,
     (p) => (p.role === 'teacher' ? teacherDef(p.name).look : peerLook(p.id, PLAYER_LOOK, peerShirts)),
-    (p) => (p.role === 'teacher' ? plateText(p.name) : p.name)
+    (p) => (p.role === 'teacher' ? plateText(p.name) : p.name),
+    (plate, sx, sy) => hud.fadePlate(plate, sx, sy)
   );
   /** The lesson's last teacher presence; the visiting figure stays away while the real teacher is in the room. */
   let teacherWanted: { present: boolean; name: string | null } | null = null;
@@ -416,6 +418,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let buddy: Buddy | null = null;
   let greetPending = false;
   let teacherPlate: THREE.Sprite | null = null;
+  /** Where the teacher's name plate (a sprite in the 3D view) is on the screen this frame, for the layout check. */
+  let teacherLabel: { name: string; x: number; y: number; w: number; h: number; opacity: number } | null = null;
+  const plateWorld = new THREE.Vector3();
+  const plateScale = new THREE.Vector3();
   /** Where the child looks (first and third person: the camera; mirror: the body), for who stands in view. */
   const viewYaw = (): number => (camMode === 'mirror' ? playerYaw : camYaw);
   /** The teacher's avatar near the child (NPC 'teacher' with a name plate); null removes it. The same name: kept. */
@@ -450,6 +456,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         disposePlate(teacherPlate);
       }
       teacherPlate = makePlate(plateText(name));
+      teacherPlate.name = plateText(name);
       teacherPlate.position.set(0, CHAR_HEIGHT + 0.3, 0);
       t.char.root.add(teacherPlate);
     }
@@ -1727,6 +1734,26 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       reduceMotion
     );
 
+    // the teacher's name plate is drawn in the 3D view: under a HUD card (status chip, goal card) it fades instead of
+    // showing through the card (prod shot 11-18, 'Teacher' behind the chip)
+    if (teacherPlate && teacherRt?.char.root.visible) {
+      teacherPlate.getWorldPosition(plateWorld);
+      teacherPlate.getWorldScale(plateScale);
+      const p = project(plateWorld.x, plateWorld.y, plateWorld.z);
+      const depth = -plateWorld.applyMatrix4(camera.matrixWorldInverse).z;
+      const mat = teacherPlate.material;
+      if (p.vis && depth > 0.05) {
+        const px = viewH / (2 * Math.tan((camera.fov * Math.PI) / 360) * depth);
+        const w = plateScale.x * px;
+        const h = plateScale.y * px;
+        const x = p.sx - w / 2;
+        const y = p.sy - h / 2;
+        const target = hud.underHud(x, y, x + w, y + h) ? 0.12 : 1;
+        mat.opacity += (target - mat.opacity) * Math.min(1, dt * 14);
+        teacherLabel = { name: teacherPlate.name || 'teacher', x, y, w, h, opacity: mat.opacity };
+      } else teacherLabel = null;
+    } else teacherLabel = null;
+
     renderer.render(scene, camera);
     lastStats = { draw: renderer.info.render.calls, tris: renderer.info.render.triangles };
     if (camMode === 'first' && !(paused && focusNpc) && !attract) {
@@ -1881,6 +1908,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         focusWorld();
         if (greetPending) greetByName();
       }
+    },
+    screenLabels() {
+      return teacherLabel ? [{ ...teacherLabel }] : [];
     },
     setTeacher(t) {
       // The tag next to the lesson tag (hud, the lesson layer's teacher presence) and, while the teacher is with the
@@ -2179,7 +2209,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         arrival: lastArrival ?? undefined,
         ground: { near: chunks.outstanding(body.x, body.z, FIRST_RING), view: chunks.outstanding(body.x, body.z, viewChunks) },
         scene: currentScene,
-        player: { x: body.x, y: body.y, z: body.z },
+        // yaw: where the view looks (the real-play check tells a look input that did not turn the view from a bot miss)
+        player: { x: body.x, y: body.y, z: body.z, yaw: Math.round(camYaw * 1000) / 1000 },
         dialogShot: dialogShotStats(),
         interact: {
           near: nearNpc?.def.id ?? null,
@@ -2210,6 +2241,16 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
               dist: Math.round(Math.hypot(n.pos.x - body.x, n.pos.z - body.z) * 10) / 10
             };
           }),
+        npcScene: [...npcs.values()].map((n) => {
+          return {
+            id: n.def.id,
+            ...drawState(n.char.root, scene),
+            x: Math.round(n.pos.x * 10) / 10,
+            y: Math.round(n.pos.y * 10) / 10,
+            z: Math.round(n.pos.z * 10) / 10,
+            dist: Math.round(Math.hypot(n.pos.x - body.x, n.pos.z - body.z) * 10) / 10
+          };
+        }),
         motion: {
           jumps: counts.jumps,
           unpressedJumps: counts.unpressedJumps,

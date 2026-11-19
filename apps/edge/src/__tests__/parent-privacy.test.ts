@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { COMMON_WORDS_EN, NAME_LIKE_WORDS } from '@lcw/content';
+import { COMMON_WORDS_EN, NAME_LIKE_WORDS, NPC_CAST_PACKS, RESIDENT_REGISTRY } from '@lcw/content';
 import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
 import { FAMILY_FAILS_PER_HOUR } from '../family.js';
 import { maskNickname, pickQuotes, publicFacts, publicSafeText } from '../parent-report.js';
 import { fakeDurableStorage } from './fake-do.js';
+import { reportNameKeys, romanise } from '../name-keys.js';
 
 /**
  * docs/16 §1 "실명 없음": the report link can be forwarded, so nothing on it may name the child — whatever name the
@@ -122,6 +123,52 @@ describe('public text filter (quotes, expressions)', () => {
     expect(dropped.length, `dropped: ${dropped.join(' | ')}`).toBeLessThanOrEqual(1);
   });
 
+  // #154 review: 9 of 15 new sentences were dropped (words not on the list); and a comma rule dropped the child's café
+  // orders ('Water, please.'). Neither set was used to build the list.
+  it.each([
+    'Unicorns are my favorite',
+    'Spaghetti is yummy',
+    'Lego is fun to build',
+    'Kimbap is my favorite lunch',
+    'Jellyfish are so soft',
+    'Octopus has eight legs',
+    'Bubble tea please',
+    'Water, please.',
+    'Milk, please.',
+    'Lemonade, please.',
+    'Great, thank you',
+    'Awesome, I did it',
+    'Sounds like a great plan',
+    'Tap the word cards',
+    'Table lamp please'
+  ])('allows %s', (t) => {
+    expect(publicSafeText(t, names)).toBe(true);
+  });
+
+  it('names in our own content never become sentence starters (NPCs, voices)', () => {
+    for (const n of ['Hannah', 'Luna', 'Mia', 'Toby', 'Athena', 'Hera', 'Apollo', 'Delia'])
+      expect(publicSafeText(`${n} likes cookies`, names), n).toBe(false);
+  });
+
+  // #165 review: 'Mason Theo' (a resident's nameEn) and 'the mason' (a line) made 'Mason likes cookies' ordinary.
+  it('every resident and NPC name word stays a name, in every form (job words like Chef may pass)', () => {
+    const everyday = new Set(COMMON_WORDS_EN);
+    const nameEns = [...RESIDENT_REGISTRY.map((r) => r.nameEn), ...Object.values(NPC_CAST_PACKS).flatMap((pk) => JSON.stringify(pk).match(/"nameEn":"[^"]+"/g) ?? []).map((m) => m.slice(10, -1))];
+    const words = [...new Set(nameEns.flatMap((n) => n.split(/[^A-Za-z]+/)).filter((w) => w.length >= 2 && !everyday.has(w.toLowerCase())))];
+    expect(words).toEqual(expect.arrayContaining(['Mason', 'Theo', 'Leo', 'Hannah']));
+    const leaks = words
+      .flatMap((n) => [`${n} likes cookies`, `${n.toLowerCase()} likes cookies`, `${n}, look at this`, `${n.toLowerCase()}, look at this`])
+      .filter((t) => publicSafeText(t, names));
+    expect(leaks).toEqual([]);
+  });
+
+  it('a word that is also a name before a comma is a call (blocked); an order is not', () => {
+    for (const t of ['May, look at this', 'June, come here', 'Will, can you help me', 'Honey, look', 'Cookie, sit down', 'Lucky, come here', 'Mason, look at this'])
+      expect(publicSafeText(t, names), t).toBe(false);
+    for (const t of ['Cookie, please.', 'Honey, please', 'Water, please.', 'Great, thanks', 'Awesome, I did it', 'Okay, let me try'])
+      expect(publicSafeText(t, names), t).toBe(true);
+  });
+
   it('the everyday word list holds no given names and only plain lowercase words', () => {
     expect(COMMON_WORDS_EN.length).toBeGreaterThan(500);
     expect(COMMON_WORDS_EN.filter((w) => !/^[a-z]+$/.test(w))).toEqual([]);
@@ -196,6 +243,95 @@ describe('public facts are an allow-list', () => {
     for (const bad of ['jiwoo', 'hannuri', 'mapo', '지우', 'kid-x', 'my name']) expect(text).not.toContain(bad);
     expect(r.body.facts.lesson.quotes.map((q: any) => q.text)).toEqual(['I like drawing because it makes me happy']);
     expect(r.body.teacher_comment).toBe('아이가 오늘 처음으로 영어 주문을 했어요.');
+  });
+});
+
+describe('every name tied to the child, in any case, anywhere in a sentence (11-18: lowercase names mid-sentence leaked)', () => {
+  // The child 도윤 (Korean nickname: the child says 'doyun'), a sibling Minji, a classmate Seoyeon (the same teacher's
+  // tutor student, another family), a sign-up the guardian typed as Jiwoo with a device label, the guardian's e-mail.
+  async function setUp() {
+    const p = platform();
+    const sql = (p as any).sql;
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'f', guardian_id: 'g', player_id: 'kid-x', nickname: '도윤', birth_year: 2016, level: 'L1' });
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'f', guardian_id: 'g', player_id: 'kid-sib', nickname: 'Minji', level: 'L1' });
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'f2', guardian_id: 'g2', player_id: 'kid-class', nickname: '서연', level: 'L1' });
+    sql.run("update players set tutor_student = 1 where id = 'kid-class'");
+    sql.run(
+      `insert into student_signups (id, family_id, guardian_id, nickname, claim_hash, label, created_at, expires_at, state)
+       values ('su-1', 'f', 'g', 'Jiwoo', 'h-1', ?, 1, 2, 'pending')`,
+      ["Haeun's tablet"]
+    );
+    // Labels are usually possessive (#163 review): the name before 's must become a key.
+    sql.run("insert into devices (id, player_id, family_id, token_hash, label, created_at) values ('d-1', 'kid-x', 'f', 'th-1', 'Hope''s iPad', 1)");
+    sql.run("insert into oauth_identities (provider, sub, role, subject_id, email, created_at, last_login_at) values ('google', 's-1', 'guardian', 'g', 'hana.kim@example.com', 1, 1)");
+    return { p, sql };
+  }
+  const LEAKS = [
+    'hello doyun',
+    'hi minji how are you',
+    'I play with seoyeon',
+    'my friend jiwoo is nice',
+    'I gave hana a cookie',
+    "I like doyun's red bag",
+    'I play with DoYun every day',
+    'we can play with haeun later',
+    'I play with hope today',
+    'I play with seo yeon'
+  ];
+  const NAMES = ['doyun', 'minji', 'seoyeon', 'seo yeon', 'jiwoo', 'hana', 'haeun', 'hope'];
+
+  it('the keys block each sentence that passes without them; ordinary sentences still pass', async () => {
+    const { sql } = await setUp();
+    const keys = reportNameKeys(sql, 'kid-x');
+    // Without the keys these got through (all but the mixed-case one, which the capital check already stops).
+    expect(LEAKS.filter((t) => publicSafeText(t, [])).length).toBeGreaterThanOrEqual(LEAKS.length - 1);
+    expect(LEAKS.filter((t) => publicSafeText(t, keys))).toEqual([]);
+    for (const t of ['I play with my dog', 'Can I have a warm honey tea', 'I like drawing because it makes me happy'])
+      expect(publicSafeText(t, keys), t).toBe(true);
+  });
+
+  it('a Korean nickname gives its romanised spellings', () => {
+    expect(romanise('도윤')).toEqual(expect.arrayContaining(['doyun', 'doyoon']));
+    expect(romanise('지우')).toEqual(expect.arrayContaining(['jiu', 'jiwoo']));
+    expect(romanise('서연')).toEqual(expect.arrayContaining(['seoyeon']));
+    expect(romanise('정민')).toEqual(expect.arrayContaining(['jeongmin', 'jungmin']));
+    // Spellings families use (#163 review).
+    expect(romanise('지영')).toEqual(expect.arrayContaining(['jiyoung']));
+    expect(romanise('민희')).toEqual(expect.arrayContaining(['minhee', 'minhi']));
+    expect(romanise('서아')).toEqual(expect.arrayContaining(['seoah']));
+    expect(romanise('서연')).toEqual(expect.arrayContaining(['seoyoun']));
+    expect(romanise('윤서')).toEqual(expect.arrayContaining(['yoonsuh']));
+    expect(romanise('서연', ' ')).toEqual(expect.arrayContaining(['seo yeon']));
+  });
+
+  it('report building and the public link both drop them; no name or key reaches the response', async () => {
+    const { p, sql } = await setUp();
+    const s = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-x' });
+    const j = await call(p, 'POST', '/v1/join', { code: s.body.join_code }, anon);
+    const st = { authorization: `Bearer ${j.body.student_token}`, 'content-type': 'application/json' };
+    for (const t of [...LEAKS, 'I like drawing because it makes me happy'])
+      await call(p, 'POST', '/v1/lesson/utterance', { transcript: t, dur_ms: 2000 }, st);
+    const end = await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/end`, {
+      teacher_comment: '도윤이가 오늘 Minji 랑 seoyeon 이야기를 했어요. 서연이도 다음에 같이 해요.'
+    });
+    const built = JSON.parse(sql.get('select facts from reports where share_token = ?', [end.body.share_token]).facts);
+    const builtText = JSON.stringify(built).toLowerCase();
+    for (const n of NAMES) expect(builtText, `built: ${n}`).not.toContain(n);
+    expect(built.lesson.quotes.map((q: any) => q.text)).toEqual(['I like drawing because it makes me happy']);
+
+    // A report stored before a name was known: the public path checks again.
+    built.lesson.quotes = [...LEAKS.map((text) => ({ text, stars: 3 })), { text: 'I like drawing because it makes me happy', stars: 3 }];
+    built.lesson.expressions = ['with minji', 'so that'];
+    built.lesson.home_practice = ['I play with seoyeon', 'Can I have a warm honey tea, please?'];
+    sql.run('update reports set facts = ? where share_token = ?', [JSON.stringify(built), end.body.share_token]);
+    const r = await call(p, 'GET', `/v1/reports/${end.body.share_token}`, undefined, {});
+    const text = JSON.stringify(r.body).toLowerCase();
+    for (const bad of [...NAMES, '도윤', '서연', 'kid-x', 'kid-sib', 'kid-class', 'example.com']) expect(text, bad).not.toContain(bad);
+    // The teacher's comment on the public link masks every name tied to the child, not only the child's nickname.
+    expect(r.body.teacher_comment).toBe('아이이가 오늘 아이 랑 아이 이야기를 했어요. 아이이도 다음에 같이 해요.');
+    expect(r.body.facts.lesson.quotes.map((q: any) => q.text)).toEqual(['I like drawing because it makes me happy']);
+    expect(r.body.facts.lesson.expressions).toEqual(['so that']);
+    expect(r.body.facts.lesson.home_practice).toEqual(['Can I have a warm honey tea, please?']);
   });
 });
 

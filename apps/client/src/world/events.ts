@@ -9,6 +9,14 @@
 export const LESSON_TALK_EVENT = 'lcw:lesson-talk';
 
 /**
+ * LESSON_STAGE_EVENT: the lesson moved to another stage while the child's screen was on (the teacher's move or the
+ * server's auto move, PR 146). The mic check card closes if it is still open, so no card sits over the new stage's
+ * dialog (lesson lane 11-18, production smoke: the card stayed over the cafe and trade dialogs). Not sent on the
+ * first state of a lesson.
+ */
+export const LESSON_STAGE_EVENT = 'lcw:lesson-stage';
+
+/**
  * The NPC the first-visit errand (docs/03 D1, server state) needs next, by world town.ts id: the giver at the honey cafe
  * door to start and to hand the drink over, the cafe owner to order. Null when it is done or not started. The world
  * marks it (WorldHandle.setGoalNpc) and keeps its talk prompt (Dan 11-16 R2625 ⑤).

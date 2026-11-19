@@ -218,10 +218,12 @@ describe('local open-weights model voice (R2625: the bank in a natural voice for
     expect(isLocalTtsEngine(model.engine)).toBe(true);
     expect(model.standIn && isLocalTtsEngine(model.standIn.engine)).toBe(false);
     expect(castVoices().map(ttsVoiceId)).toEqual(expect.arrayContaining([modelId, standInId]));
-    // every offer sentence, lesson target and echo piece of the model voice is a local line; no NPC line is
+    // every offer sentence, lesson target and echo piece of the model voice is a local line, and so is every
+    // /adventure/ islander line (their own Kokoro voices, npc-cast islanders); no world NPC line is
     const local = localTtsLines();
-    expect(local.every((l) => l.voice === model)).toBe(true);
-    expect(fixedTtsLines().filter((l) => l.voice === model)).toHaveLength(local.length);
+    const islanders = new Set(Object.values(npcCast().islanders).map(ttsVoiceId));
+    expect(local.every((l) => l.voice === model || islanders.has(ttsVoiceId(l.voice)))).toBe(true);
+    expect(fixedTtsLines().filter((l) => l.voice === model || islanders.has(ttsVoiceId(l.voice)))).toHaveLength(local.length);
     for (const piece of chunkPhrases(bankLine)) expect(local.some((l) => l.text === piece)).toBe(true);
     for (const plan of LESSON_PLANS) for (const st of plan.stages) for (const tg of st.targets) expect(local.some((l) => l.text === tg.text)).toBe(true);
     expect(localLinesList().lines).toHaveLength(local.length);
@@ -250,7 +252,7 @@ describe('local open-weights model voice (R2625: the bank in a natural voice for
 
   it('upload checks: local cast voice only, fixed line only, mp3 within the size limit', async () => {
     const { deps, store } = rig();
-    expect((await handleTtsUpload(put('kokoro-af_bella', bankLine), mp3(), deps)).status).toBe(400); // not in the cast
+    expect((await handleTtsUpload(put('kokoro-af_river', bankLine), mp3(), deps)).status).toBe(400); // not in the cast
     expect(await (await handleTtsUpload(put(standInId, bankLine), mp3(), deps)).json()).toMatchObject({ error: 'not_local_engine' });
     expect((await handleTtsUpload(put(ttsVoiceId(voiceForCtx('cafe')), NPC_OPENING_LINES.cafe!), mp3(), deps)).status).toBe(400);
     const odd = await handleTtsUpload(put(modelId, 'Give me all your coins right now.'), mp3(), deps);

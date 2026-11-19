@@ -4,7 +4,7 @@ import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { MicController, type Clock } from '../dialog/mic-controller.js';
 import { readMicIssue, readMicTurns, resetMicStatusForTest } from '../dialog/mic-status.js';
-import { createDialogSpeechEngine, createServerSpeechEngine, pickRecorderType, HALLUCINATION_NO_SPEECH_PROB, HALLUCINATION_PEAK_RMS, hallucinationKey, METER_MIN_FRAMES, SERVER_STT_PATH, VOICE_RMS, VOICE_RMS_BORDER, WHISPER_HALLUCINATIONS, type ServerSttEnv } from '../dialog/server-stt.js';
+import { createDialogSpeechEngine, createServerSpeechEngine, pickRecorderType, HALLUCINATION_NO_SPEECH_PROB, HALLUCINATION_PEAK_RMS, hallucinationKey, isHallucinationLine, METER_MIN_FRAMES, SERVER_STT_PATH, VOICE_RMS, VOICE_RMS_BORDER, WHISPER_HALLUCINATIONS, type ServerSttEnv } from '../dialog/server-stt.js';
 
 /**
  * The Workers AI Whisper rung from the child's side: the mic controller drives the server engine, the recorded turn
@@ -234,6 +234,27 @@ describe('server Whisper engine through the mic controller and the real route', 
     await settle();
     expect(other.finals).toEqual([{ transcript: 'Thank you for the tea.', confidence: expect.any(Number) }]);
     expect([...WHISPER_HALLUCINATIONS].every((l) => l === hallucinationKey(l))).toBe(true);
+    expect(isHallucinationLine('Thank you. Thank you.')).toBe(true);
+    expect(isHallucinationLine('Bye-bye!')).toBe(true);
+    expect(isHallucinationLine('Thank you. I am Oreo.')).toBe(false);
+  });
+
+  it('a device whose meter never ran: Whisper saying there was speech (low no-speech probability) keeps a real "Thank you."', async () => {
+    const h = await harness({ level: () => 0, running: () => false, ai: says('Thank you.', 0.02) });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(2000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.finals).toEqual([{ transcript: 'Thank you.', confidence: expect.any(Number) }]);
+    const twice = await harness({ level: () => 0, running: () => false, ai: says('Thank you. Thank you.', 0.9) });
+    twice.ctrl.tap();
+    await settle();
+    twice.clock.advance(2000);
+    twice.ctrl.tap();
+    await settle();
+    expect(twice.finals).toEqual([]);
+    expect(readMicIssue()).toMatchObject({ raw: 'stt_hallucination' });
   });
 
   it('a soft voice near the voice level (between VOICE_RMS_BORDER and VOICE_RMS) is not called quiet by the meter: it goes to Whisper', async () => {

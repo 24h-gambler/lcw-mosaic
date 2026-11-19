@@ -64,6 +64,14 @@ export const WHISPER_HALLUCINATIONS: ReadonlySet<string> = new Set([
 export const HALLUCINATION_PEAK_RMS = 0.02;
 export const HALLUCINATION_MIN_VOICED_FRAMES = 3;
 export const HALLUCINATION_NO_SPEECH_PROB = 0.6;
+/** Every sentence of the transcript is a silence line ("Thank you. Thank you." is one too). */
+export function isHallucinationLine(text: string): boolean {
+  const parts = text
+    .split(/[.!?。]+/)
+    .map(hallucinationKey)
+    .filter(Boolean);
+  return parts.length > 0 && parts.every((p) => WHISPER_HALLUCINATIONS.has(p));
+}
 export function hallucinationKey(text: string): string {
   return text
     .toLowerCase()
@@ -248,10 +256,15 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
         // meter said ("thank you" is an answer; VOICE_RMS_BORDER).
         if (!text) return fail('no_speech', 'stt_empty');
         // ...except Whisper's own silence lines when the turn had no real speech in it (WHISPER_HALLUCINATIONS)
-        if (WHISPER_HALLUCINATIONS.has(hallucinationKey(text))) {
-          const noSpeech = typeof j?.no_speech_prob === 'number' ? j.no_speech_prob : 0;
-          const spoke = meteredFrames > 0 && voicedFrames >= HALLUCINATION_MIN_VOICED_FRAMES && peak >= HALLUCINATION_PEAK_RMS;
-          if (!spoke || noSpeech >= HALLUCINATION_NO_SPEECH_PROB) return fail('no_speech', 'stt_hallucination');
+        if (isHallucinationLine(text)) {
+          const noSpeech = typeof j?.no_speech_prob === 'number' ? j.no_speech_prob : null;
+          // A meter that ran is the evidence; a device whose meter never ran (R2627 suspended AudioContext) leans on
+          // Whisper's own no-speech probability, and with none of either the line is not taken as words.
+          const spoke =
+            meteredFrames > 0
+              ? voicedFrames >= HALLUCINATION_MIN_VOICED_FRAMES && peak >= HALLUCINATION_PEAK_RMS && (noSpeech ?? 0) < HALLUCINATION_NO_SPEECH_PROB
+              : noSpeech !== null && noSpeech < HALLUCINATION_NO_SPEECH_PROB;
+          if (!spoke) return fail('no_speech', 'stt_hallucination');
         }
         cb.onEnd({ transcript: text, confidence });
       };

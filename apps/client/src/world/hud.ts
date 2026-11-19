@@ -356,6 +356,7 @@ export class WorldHud {
   /** The talk button's bottom without the lift: 160, or 96 in the jump row when the sheet leaves little room. */
   private talkB = 160;
   private talkHSeen = 0;
+  private talkWSeen = 0;
   /** A narrow phone with a tall sheet: the band above the sheet kept for the buttons (y from the top, 0 = none). */
   private sheetReserve = 0;
   private needSeen = new WeakMap<HTMLElement, number>();
@@ -965,8 +966,8 @@ export class WorldHud {
       }
       return this.needSeen.get(e) ?? 0;
     };
-    const capOn = this.cap.classList.contains('on');
-    let needFull = Math.max(base(this.hotbarEl), capOn ? base(this.cap) : 0, this.help.classList.contains('off') ? 0 : base(this.help));
+    // the caption counts always: it comes and goes with each item pick, the mode must not change with it
+    let needFull = Math.max(base(this.hotbarEl), base(this.cap), this.help.classList.contains('off') ? 0 : base(this.help));
     let needTight = 0;
     if (this.touchOn) {
       // the talk button by its full place (160), not where the tight mode put it: the choice must not feed itself
@@ -979,35 +980,57 @@ export class WorldHud {
     }
     // a short screen can narrow the sheet between the button columns (talk / jump on touch, the mouse minimap) when
     // that leaves it a usable width; a narrow phone cannot (review of #181: a 240 px sheet still lay on Talk at 390)
-    let sideN = 12;
-    if (this.touchOn) {
-      if (this.talkBtn && this.talkBtn.offsetWidth > 0) sideN = Math.max(sideN, rb.right - this.talkBtn.getBoundingClientRect().left + 8);
-      if (this.jumpBtn && this.jumpBtn.offsetWidth > 0) sideN = Math.max(sideN, rb.right - this.jumpBtn.getBoundingClientRect().left + 8);
-    } else {
+    // The button columns a narrowed sheet keeps clear of, from their resting places (not where a mode put them: the
+    // choice must not feed itself, review of #181 at 667x375): talk at right 96 with its last seen width while it is by
+    // an NPC, jump at right 24, the mouse minimap (bottom right).
+    const talkOn = this.touchOn && !!this.talkBtn?.classList.contains('on');
+    if (this.talkBtn && this.talkBtn.offsetWidth > 0) this.talkWSeen = this.talkBtn.offsetWidth;
+    const sideTalk = talkOn ? 96 + Math.max(this.talkWSeen, S.micButtonPx * 1.6) + 8 : 12;
+    const sideJump = this.touchOn && this.jumpBtn && this.jumpBtn.offsetWidth > 0 ? 24 + this.jumpBtn.offsetWidth + 8 : 12;
+    let sideMouse = 12;
+    if (!this.touchOn) {
       const mini = this.root.querySelector<HTMLElement>('.lw-mini');
-      if (mini && mini.offsetWidth > 0) sideN = Math.max(sideN, rb.right - mini.getBoundingClientRect().left + 8);
+      if (mini && mini.offsetWidth > 0 && rb.width > 600) sideMouse = 12 + mini.offsetWidth + 8;
     }
-    const canNarrow = rb.width - 2 * sideN >= 320;
+    const usable = (side: number): boolean => rb.width - 2 * side >= 320;
+    // the sheet's least height: the status row and one row of big buttons (a band that leaves less is no help)
+    const SHEET_MIN = 180;
     // lift: everything stands on the sheet. tight (touch): the action buttons stand on it (talk in the jump row), the
-    // bag line, caption, help and menu step aside. hide: no room above it, the sheet narrows between the button columns.
-    // Where it cannot narrow, the sheet is held under a reserved band for the buttons and scrolls (--lcw-hud-sheet-top).
+    // bag line, caption, help and menu step aside. hide: no room above it, the sheet narrows between the button
+    // columns (talk folds away when only that makes the width: the sheet's own button opens the same lesson talk, a
+    // lesson talks only to its own NPC, App.tsx). Else (a narrow phone) the sheet is held under a band kept for the
+    // buttons and scrolls (--lcw-hud-sheet-top); with no room even for that, talk folds away too.
     // 8 px of slack: a sheet held at the band measures exactly the band, it must keep its mode.
     const fits = (need: number): boolean => room + 8 >= need;
-    let lift = floor > 0 && fits(needFull);
-    let tight = floor > 0 && !lift && this.touchOn && fits(needTight);
-    let hide = floor > 0 && !lift && !tight && canNarrow;
-    // no room even for the jump row and no width to narrow (a small phone with the folded window and a tall goal card):
-    // the talk button steps aside too; by the lesson NPC the sheet's own button opens the same window (a lesson talks
-    // only to its own NPC, App.tsx), so nothing is lost
+    let lift = false;
+    let tight = false;
+    let hide = false;
     let noTalk = false;
-    if (floor > 0 && !lift && !tight && !hide) {
-      if (this.touchOn) {
-        tight = true;
-        noTalk = !fits(needTight);
-      } else lift = true;
+    let side = 12;
+    let reserve = 0;
+    if (floor > 0) {
+      if (fits(needFull)) lift = true;
+      else if (this.touchOn && fits(needTight)) tight = true;
+      else if (this.touchOn ? usable(Math.max(sideTalk, sideJump)) : usable(sideMouse)) {
+        hide = true;
+        side = this.touchOn ? Math.max(sideTalk, sideJump) : sideMouse;
+      } else if (this.touchOn && usable(sideJump) && (talkOn || h - topB - needTight < SHEET_MIN)) {
+        hide = true;
+        noTalk = talkOn;
+        side = sideJump;
+      } else if (this.touchOn) tight = true;
+      else lift = true;
+      // a phone too narrow to narrow the sheet: the band for the buttons is kept whatever the mode, so a sheet that grows
+      // scrolls instead of switching modes back and forth (the band is the same in every mode: no feeding back); when
+      // the band would leave the sheet less than its least height, talk folds away and the band is the jump row only
+      if (this.touchOn && !usable(sideJump)) {
+        const jumpNeed = base(this.jumpBtn) || 96 + 56 + 12;
+        noTalk = talkOn && h - (topB + needTight) < SHEET_MIN;
+        reserve = topB + (noTalk ? jumpNeed : needTight);
+      } else if (!this.touchOn && !usable(sideMouse)) reserve = topB + needFull;
     }
     this.root.classList.toggle('floor-notalk', noTalk);
-    this.sheetReserve = floor > 0 && !canNarrow ? topB + (this.touchOn ? needTight : needFull) : 0;
+    this.sheetReserve = reserve;
     this.floorPx = floor;
     this.floorLift = lift || tight ? floor : 0;
     this.root.classList.toggle('floor-lift', lift || tight);
@@ -1020,7 +1043,6 @@ export class WorldHud {
     if (tight || hide) doc.setAttribute('data-lcw-floor', 'hide');
     else if (lift) doc.setAttribute('data-lcw-floor', 'lift');
     else doc.removeAttribute('data-lcw-floor');
-    const side = hide ? sideN : 12;
     this.sheetSide = side;
     doc.style.setProperty('--lcw-hud-sheet-max', `${Math.floor(rb.width - 2 * side)}px`);
   }

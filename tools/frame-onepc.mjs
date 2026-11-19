@@ -31,6 +31,9 @@ const VIEWPORTS = [
   // a phone with the browser's bars and a small phone: a tall lesson sheet leaves little room above it
   { name: 'p390x664-touch', width: 390, height: 664, touch: true },
   { name: 'p360x640-touch', width: 360, height: 640, touch: true },
+  // sideways phones narrower than 844 (a narrowed sheet only fits without the talk column)
+  { name: 'l667x375-touch', width: 667, height: 375, touch: true },
+  { name: 'l740x360-touch', width: 740, height: 360, touch: true },
   // a 1PC browser window with its tabs and address bar
   { name: 'd1280x680-mouse', width: 1280, height: 680, touch: false },
   { name: 't1280-touch', width: 1280, height: 800, touch: true },
@@ -89,8 +92,18 @@ async function covered(page) {
         o *= Number(cs.opacity);
       }
       if (hidden || o < 0.3) continue;
-      const x = r.left + r.width / 2;
-      const y = r.top + r.height / 2;
+      // what shows of it inside scrolling holders (the lesson panel scrolls on a short screen): a button scrolled away is
+      // reached by scrolling; the part that shows must take the tap
+      let x0 = r.left, y0 = r.top, x1 = r.right, y1 = r.bottom;
+      for (let n = b.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+        const cs = getComputedStyle(n);
+        if (!/(auto|scroll|hidden|clip)/.test(cs.overflow + cs.overflowX + cs.overflowY)) continue;
+        const c = n.getBoundingClientRect();
+        x0 = Math.max(x0, c.left); y0 = Math.max(y0, c.top); x1 = Math.min(x1, c.right); y1 = Math.min(y1, c.bottom);
+      }
+      if (x1 - x0 < 16 || y1 - y0 < 16) continue;
+      const x = (x0 + x1) / 2;
+      const y = (y0 + y1) / 2;
       if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
       const at = document.elementFromPoint(x, y);
       if (!at || !(at === b || b.contains(at))) bad.push(`a tap on "${say(b)}" lands on "${at ? say(at) : 'nothing'}"`);
@@ -154,15 +167,28 @@ try {
       // let the goal card, the teacher tag and the measures settle
       await page.waitForTimeout(2500);
       if (process.env.ONEPC_DEBUG) console.log(name, JSON.stringify(await page.evaluate(() => { const r = document.querySelector('.lw-hud'); const d = document.documentElement; const cs = getComputedStyle(d); return { cls: r?.className, floor: r?.style.getPropertyValue('--lw-floor'), mode: d.getAttribute('data-lcw-floor'), max: cs.getPropertyValue('--lcw-hud-sheet-max'), top: cs.getPropertyValue('--lcw-hud-sheet-top'), help: document.querySelector('.lw-help')?.className, cap: document.querySelector('.lw-cap')?.className }; })));
-      // the floor mode settles: two reads 1.5 s apart (a mode that feeds itself flips every measure; review of #181)
-      const modeNow = () => page.evaluate(() => {
-        const r = document.querySelector('.lw-hud');
-        return `${r?.className} ${r?.style.getPropertyValue('--lw-floor')} ${getComputedStyle(document.documentElement).getPropertyValue('--lcw-hud-sheet-top')}`;
-      });
-      const m1 = await modeNow();
-      await page.waitForTimeout(1500);
-      const m2 = await modeNow();
-      if (m1 !== m2) fail(`the HUD keeps re-placing itself: "${m1}" then "${m2}"`);
+      // the floor mode settles: every animation frame for 1.5 s, the HUD's mode and measures must not change (a mode that
+      // feeds itself flips each measure; two reads could both land on the same phase, review of #181)
+      const flips = await page.evaluate(
+        () =>
+          new Promise((done) => {
+            const read = () => {
+              const r = document.querySelector('.lw-hud');
+              const d = getComputedStyle(document.documentElement);
+              return `${r?.className} ${r?.style.getPropertyValue('--lw-floor')} ${d.getPropertyValue('--lcw-hud-sheet-top')} ${d.getPropertyValue('--lcw-hud-sheet-max')}`;
+            };
+            const seen = [read()];
+            const t0 = performance.now();
+            const step = () => {
+              const v = read();
+              if (v !== seen[seen.length - 1]) seen.push(v);
+              if (performance.now() - t0 < 1500) requestAnimationFrame(step);
+              else done(seen);
+            };
+            requestAnimationFrame(step);
+          })
+      );
+      if (flips.length > 1) fail(`the HUD keeps re-placing itself (${flips.length - 1} changes in 1.5 s): ${flips.slice(0, 3).join(' -> ')}`);
       const { problems } = await layoutIssues(page);
       for (const p of problems) fail(p);
       for (const p of await covered(page)) fail(p);
@@ -172,7 +198,7 @@ try {
       // the child stands by the lesson NPC: on touch the Talk button must be there to tap
       // (a small phone with no room above the folded window hides it: the window's own button is there instead)
       const noTalk = await page.evaluate(() => !!document.querySelector('.lw-hud.floor-notalk'));
-      if (vp.touch && !(await talk.count()) && !(noTalk && (await page.getByTestId('lesson-reopen').isVisible().catch(() => false)))) fail('Talk button not shown on touch by the lesson NPC');
+      if (vp.touch && !(await talk.count()) && !(noTalk && ((await page.getByTestId('lesson-reopen').isVisible().catch(() => false)) || (await page.locator('[data-lcw-lesson] .lcw-panel').first().isVisible().catch(() => false))))) fail('Talk button not shown on touch by the lesson NPC');
       if ((await talk.count()) && !noTalk) {
         // the tap reaches the world's talk (the Talk button runs the same talk as the E key: interact.byKey counts it,
         // a tap on the NPC itself counts byTap); by the lesson's own NPC it opens the window again (folded phase)

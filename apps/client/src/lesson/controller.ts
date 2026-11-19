@@ -5,6 +5,7 @@
  */
 import {
   LESSON_DIRECTOR_EVENTS,
+  TEACHER_SPEAKER_ID,
   flushOutbox,
   isRetryableStatus,
   newUtteranceClientId,
@@ -29,6 +30,9 @@ import {
   type DialogResult,
   type KeyValue,
   type LessonOffer,
+  type LessonTradeBody,
+  type LessonTradeInfo,
+  type LessonTradeResult,
   type StudentLessonApi,
   type StudentLessonState,
   type StudentSession,
@@ -52,7 +56,15 @@ export const LESSON_BUBBLES_KEPT = 3;
 
 /** What the lesson needs from the world (docs/19 §2 WorldHandle; the two optional methods are lesson additions). */
 export interface LessonWorld {
-  goToScene(id: LessonSceneId): Promise<void>;
+  /**
+   * The stage's scene changed: its NPC goes to its spot. The child is never moved (R325, Dan 11-19 "'다음'을 누를 때마다
+   * 장소로 순간이동"): the goal mark, the edge arrow and the light beam (world wayfinding) show the way.
+   */
+  placeSceneNpc?(id: LessonSceneId): void;
+  /** A thing the teacher handed over: in the child's hand and hotbar (WorldHandle.giveItem). */
+  giveItem?(itemKey: string): void;
+  /** The child's thing handed to the teacher in a trade: out of the hotbar and the hand. */
+  takeItem?(itemKey: string): boolean;
   npcSay(npcId: string, text: string, opts?: { possessed?: boolean }): void;
   setGoal(goalKo: string, targetEn?: string): void;
   celebrate(stars: 0 | 1 | 2 | 3): void;
@@ -64,6 +76,8 @@ export interface LessonWorld {
   setStars?(n: number | null): void;
   /** Teacher name tag (WorldHandle.setTeacher): with the teacher, or "혼자 놀기"; null = no lesson. */
   setTeacher?(t: { present: boolean; name: string | null } | null): void;
+  /** Where the child is now (nearest scene spot), for the console's student box; undefined = unknown. */
+  whereNow?(): string | undefined;
   /** Marks the NPC to talk to over its head (WorldHandle.setGoalNpc): the lesson's NPC while it runs, null after. */
   setGoalNpc?(npcId: string | null): void;
 }
@@ -125,7 +139,7 @@ export interface LessonView {
   /** Answers kept on this device while the connection was down, sent after the next good poll. */
   outbox: number;
   /** With the teacher now (console heartbeat) or alone; an older server without the field = with the teacher. */
-  teacher: { present: boolean; name: string | null };
+  teacher: { present: boolean; name: string | null; inWorld?: boolean };
   /** The lesson's plan id from the server (1PC teacher panel); null on an older server. */
   planId: string | null;
   /** The joined lesson (1PC teacher panel calls). */
@@ -192,6 +206,9 @@ export function initialLessonView(): LessonView {
  * The English line under the world HUD goal. Only with the full hint: in recall and the other hint levels the cards
  * show the sentence masked, and the goal box must not give the answer away.
  */
+/** Gift ids already handed over in this tab (session store). */
+export const LESSON_GIFTS_KEY = 'lcw.lessonGiftsSeen';
+
 export function goalTargetEn(hint: LessonHintLevel, offers: readonly { text: string }[]): string | undefined {
   return hint === 'full' ? offers[0]?.text : undefined;
 }
@@ -207,6 +224,27 @@ export class LessonController {
   private retryMs = LESSON_RETRY_START_MS;
   private readonly seenLines = new Set<string>();
   private readonly seenEvents = new Set<string>();
+  private readonly seenGifts = new Set<string>();
+  /** Gifts already in the hand, kept in the tab's store too: a reload never hands one over twice (R326 review). */
+  private seenGiftIds(): Set<string> {
+    if (this.seenGifts.size === 0) {
+      try {
+        const raw = this.store()?.getItem(LESSON_GIFTS_KEY);
+        for (const id of raw ? (JSON.parse(raw) as string[]) : []) this.seenGifts.add(id);
+      } catch {
+        /* nothing kept */
+      }
+    }
+    return this.seenGifts;
+  }
+  private noteGift(id: string): void {
+    this.seenGifts.add(id);
+    try {
+      this.store()?.setItem(LESSON_GIFTS_KEY, JSON.stringify([...this.seenGifts].slice(-50)));
+    } catch {
+      /* the memory set still holds it */
+    }
+  }
   private stopped = false;
   private polling = false;
   /** The stage moved (an answer or the dialog's done): the poll after the one in flight comes in LESSON_ADVANCE_POLL_MS. */
@@ -292,7 +330,9 @@ export class LessonController {
       feedbackKo: r.feedback_ko,
       ...(r.feedback_en ? { feedbackEn: r.feedback_en } : {}),
       coinsTotal: r.coins_total,
-      ...(r.repeat === true ? { repeat: true } : {})
+      ...(r.repeat === true ? { repeat: true } : {}),
+      // R326 ⑫: the stage sentence the child's own words carried (the result card shows it)
+      ...(r.mission_text ? { matchedText: r.mission_text } : {})
     };
     // An answer that lands after "나가기", a new code or stop belongs to a lesson this screen no longer shows: the
     // panel still gets its result, the HUD chips do not move.
@@ -327,6 +367,73 @@ export class LessonController {
     } catch {
       /* the server's own rules (passes, minutes) still move the stage */
     }
+  };
+
+  /** R326: tell the server the child skipped (the console shows skips, the stage never moves on them). Quiet on failure. */
+  readonly skip = async (s: { kind: 'follow_up' | 'close'; question: string; tried: boolean }): Promise<void> => {
+    const sess = this.session;
+    const stageId = this.view.stageId;
+    if (!sess || !stageId || this.stopped) return;
+    try {
+      await this.opts.api.skip(sess.token, { client_id: newUtteranceClientId(), stage_id: stageId, kind: s.kind, question: s.question.slice(0, 300), tried: s.tried });
+    } catch {
+      /* a lost skip note only loses a count */
+    }
+  };
+
+  /** The trade window's lists (R325): the teacher's things and the child's own that can be handed over. */
+  readonly tradeInfo = async (): Promise<LessonTradeInfo> => {
+    const s = this.session;
+    if (!s) throw new LessonHttpError(401, 'student_only');
+    return this.opts.api.tradeInfo(s.token);
+  };
+
+  /**
+   * One trade sentence (R325): the dialog's answer goes to /v1/lesson/trade with what is asked for and what is handed
+   * over; the server scores it and moves the things only on a pass. The result is the dialog's (itemKey = the thing
+   * now the child's, which the dialog host puts in hand); `gave` = the child's thing that went to the teacher.
+   */
+  readonly trade = async (
+    u: UtteranceSubmit | unknown,
+    pick: { getKey: string | null; giveItemId: string | null }
+  ): Promise<{ result: DialogResult; trade: LessonTradeResult['trade'] }> => {
+    const s = this.session;
+    if (!s) throw new LessonHttpError(401, 'student_only');
+    const b = readUtteranceSubmit(u);
+    // the dialog window's id: one trade per window on the server (another try for more stars moves nothing again)
+    const win = (u as { dialogId?: unknown } | null)?.dialogId;
+    const body: LessonTradeBody = {
+      client_id: newUtteranceClientId(this.timers.now()),
+      ...(typeof win === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(win) ? { window_id: win } : {}),
+      get_key: pick.getKey,
+      give_item_id: pick.giveItemId,
+      target_text: b.target_text,
+      transcript: b.transcript,
+      chosen_stars: b.chosen_stars ?? 1,
+      hint_level: b.hint_level ?? 'full',
+      latency_ms: b.latency_ms ?? 0,
+      dur_ms: b.dur_ms ?? 0,
+      stt_source: b.stt_source ?? 'browser',
+      confidence: b.confidence ?? 0.5
+    };
+    const r = await this.opts.api.trade(s.token, body);
+    const result: DialogResult = {
+      pass: r.pass,
+      stars: r.stars,
+      feedbackKo: r.feedback_ko,
+      ...(r.feedback_en ? { feedbackEn: r.feedback_en } : {}),
+      coinsTotal: r.coins_total,
+      // into the hand only when it landed in the bag (a full bag sends it to the chest)
+      ...(r.trade.done && r.trade.get_key && (r.trade.location ?? 'bag') === 'bag' ? { itemKey: r.trade.get_key } : {})
+    };
+    if (this.session === s) {
+      this.showCoins(r.coins_total);
+      if (r.trade.done && r.trade.give_key) this.opts.world?.takeItem?.(r.trade.give_key);
+      // the next poll brings the teacher's reply line at once
+      this.soon = true;
+      this.schedulePoll(LESSON_ADVANCE_POLL_MS);
+    }
+    return { result, trade: r.trade };
   };
 
   stop(): void {
@@ -364,7 +471,8 @@ export class LessonController {
     try {
       const st = await this.opts.api.state(s.token, {
         cursor: this.cursor,
-        scene: this.view.sceneId ?? undefined,
+        // where the child really is (they walk there themselves now, R325); the stage's scene when the world cannot say
+        scene: this.opts.world?.whereNow?.() ?? this.view.sceneId ?? undefined,
         ui: this.opts.ui ?? '3d',
         mic: readLessonMicStatus(),
         micIssue: readLessonMicIssue(),
@@ -479,11 +587,13 @@ export class LessonController {
       // server clock, the same one the NPC lines carry
       patch.stageStartedAt = typeof st.stage_started_at === 'number' ? st.stage_started_at : st.server_now;
       patch.lastResult = null;
-      if (w && st.scene_id !== this.view.sceneId) void w.goToScene(st.scene_id).catch(() => undefined);
+      // no walk, no fade (R325): the stage's NPC takes its spot and the way-finding points there
+      if (w && st.scene_id !== this.view.sceneId) w.placeSceneNpc?.(st.scene_id);
     }
     const goalEn = st.stage_goal_en ?? '';
     if (stageChanged || targetsChanged || st.stage_goal_ko !== this.view.goalKo || goalEn !== this.view.goalEn) {
-      w?.setGoal(lessonGoal(goalEn, st.stage_goal_ko), goalTargetEn(st.hint, st.offers));
+      // R326 ⑫: the mission only (the sentences are ideas in the side panel)
+      w?.setGoal(lessonGoal(goalEn, st.stage_goal_ko));
     }
     Object.assign(patch, {
       goalKo: st.stage_goal_ko,
@@ -502,14 +612,18 @@ export class LessonController {
       if (this.seenLines.has(line.id)) continue;
       this.seenLines.add(line.id);
       // Lines only come from the director's npc-say, which possesses that NPC as it speaks: always the teacher's voice,
-      // even if the teacher switched NPC before this poll.
-      const possessed = line.possessed ?? true;
+      // even if the teacher switched NPC before this poll. The teacher's own lines (R325, npc_id 'teacher') are the
+      // teacher speaking as the teacher: no possession sparkle, the teacher's name.
+      const own = line.npc_id === TEACHER_SPEAKER_ID;
+      const possessed = own ? false : (line.possessed ?? true);
       w?.npcSay(line.npc_id, line.text, { possessed });
+      const tName = st.teacher?.name ?? null;
+      const name = own ? { nameEn: tName || 'Teacher', nameKo: tName ? `${tName} 선생님` : '선생님' } : childNpcName(line.npc_id);
       fresh.push({
         id: line.id,
         npcId: line.npc_id,
-        npcNameKo: childNpcName(line.npc_id).nameKo,
-        npcNameEn: childNpcName(line.npc_id).nameEn,
+        npcNameKo: name.nameKo,
+        npcNameEn: name.nameEn,
         text: line.text,
         possessed,
         at: line.at
@@ -538,14 +652,20 @@ export class LessonController {
         if (this.view.banner?.id === id) this.set({ banner: null });
       }, LESSON_BANNER_MS);
     }
+    for (const g of st.gifts ?? []) {
+      if (this.seenGiftIds().has(g.id)) continue;
+      this.noteGift(g.id);
+      // into the hand only when it went to the bag (a full bag sends it to the chest: the hand stays as it is)
+      if (g.item_key && (g.location ?? 'bag') === 'bag') w?.giveItem?.(g.item_key);
+    }
     if ((st.plan_id ?? null) !== this.view.planId) patch.planId = st.plan_id ?? null;
     if (st.lesson_id !== this.view.lessonId) patch.lessonId = st.lesson_id;
-    const teacher = st.teacher ? { present: st.teacher.present, name: st.teacher.name } : { present: true, name: null };
+    const teacher = st.teacher ? { present: st.teacher.present, name: st.teacher.name, inWorld: st.teacher.in_world === true } : { present: true, name: null, inWorld: false };
     if (teacher.present !== this.view.teacher.present || teacher.name !== this.view.teacher.name || !this.teacherShown) {
       patch.teacher = teacher;
       this.teacherShown = true;
-      w?.setTeacher?.(teacher);
-    }
+      w?.setTeacher?.({ present: teacher.present, name: teacher.name });
+    } else if (teacher.inWorld !== (this.view.teacher.inWorld ?? false)) patch.teacher = teacher;
     if (st.ended) {
       patch.phase = 'ended';
       w?.setTeacher?.(null);

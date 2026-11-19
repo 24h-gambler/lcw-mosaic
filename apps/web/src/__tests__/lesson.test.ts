@@ -706,7 +706,7 @@ describe('/director live console', () => {
     }
   });
 
-  it('live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters', () => {
+  it('live lesson: compact join code, /join, stage chips with the current stage, folded guide, script, feed and counters (R325)', () => {
     const html = renderToStaticMarkup(
       React.createElement(LessonDirectorConsole, {
         initialToken: 'op',
@@ -720,7 +720,8 @@ describe('/director live console', () => {
     expect(html).toContain('/join');
     expect(html).toMatch(/data-testid="stage-cafe_order" data-status="now"/);
     expect(html).toMatch(/data-testid="stage-warmup_anchor" data-status="done"/);
-    expect(html).toContain(LESSON_STRINGS_KO.director.guideLabel);
+    // the guide folds under one line (R325 console trim); the script stays out
+    expect(html).toContain('data-testid="stage-guide"');
     const cafe = FIRST_LESSON_PLAN.stages[1]!;
     expect(html).toContain(cafe.teacherGuideKo);
     expect(html).toContain(cafe.teacherScriptEn);
@@ -730,9 +731,13 @@ describe('/director live console', () => {
     expect(html).not.toContain(LESSON_STRINGS_KO.director.pinCoaching);
     expect(html).not.toContain(LESSON_STRINGS_KO.director.pinExpression);
     expect(html).toContain(LESSON_STRINGS_KO.director.endButton);
-    // per-stage elapsed: 75 s on the current stage, 15:00 banked on the first
+    // per-stage elapsed on the running stage's chip (75 s); a done stage is its number with a check
     expect(html).toContain('01:15');
-    expect(html).toContain('15:00');
+    expect(html).toMatch(/data-testid="stage-warmup_anchor"[^>]*>.*?1 ✓/);
+    // R325: the teacher's voice and the trades are on the console; possession and sound fold under one '더 보기'
+    expect(html).toContain('data-testid="director-teacher-say"');
+    expect(html).toContain('data-testid="director-trades"');
+    expect(html).toContain('data-testid="director-live-more"');
   });
 
   it('after the lesson ends the report link and preview are shown', () => {

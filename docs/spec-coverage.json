@@ -1,7 +1,7 @@
 {
   "$comment": "설계서 대조 목록. tools/spec-ids.mjs 가 docs 에서 뽑은 id 마다 한 줄. 규칙과 고치는 법: docs/README.md 「설계서 대조」. pnpm test 의 tools/__tests__/spec-coverage.test.ts 가 검사, tools/nightly-audit.mjs 가 매일 밤 운영 화면과 맞춰 봄.",
   "version": 1,
-  "updated": "2026-11-16",
+  "updated": "2026-11-20",
   "statuses": {
     "done": "사용자 화면에서 동작 + 시험(tests) + 실화면 확인(e2e) 통과",
     "partial": "일부만(note 에 빠진 것)",
@@ -281,14 +281,16 @@
       "tests": [
         "apps/web/src/__tests__/directorLive.test.ts::R2625 trim: the student screen and what the child said stay; possession, events and own sentence sit folded under 「선생님이 직접 하기」; chart, helps, pins and the next-lesson box are gone",
         "apps/web/src/__tests__/directorLive.test.ts::Dan 11-19 \"선생은 못하고\": with 「선생님이 직접 하기」 open the teacher can speak as an NPC, put an own sentence and fire events",
-        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
+        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report",
+        "apps/web/src/__tests__/lesson.test.ts::live lesson: compact join code, /join, stage chips with the current stage, folded guide, script, feed and counters (R325)"
       ],
       "evidence": [
         "apps/web/src/LessonDirector.tsx:65",
         "apps/web/src/DirectorLive.tsx:35",
-        "docs/18-lesson-mode.md:1"
+        "docs/18-lesson-mode.md:1",
+        "apps/web/src/DirectorTeacherWorld.tsx:1"
       ],
-      "note": "디렉터 콘솔: 학생 화면·아이가 한 말·단계 패널(수업안 문장, 버튼 하나)·수업 끝·리포트. 진행표·핀 버튼은 첫 실제 수업에서 0번 쓰여 R2625 로 콘솔에서 뺐고 서버 API 는 그대로(docs/18 §8). 빙의·대사·사건 6종·내 문장 띄우기는 11-19 Dan \"선생은 못하고\" 로 「선생님이 직접 하기」 접힘 안에 되살림(docs/18 §10). 근거 문서는 18(08 이 가리키는 06 은 끊긴 참조 목록에 있음). 감사: 있음",
+      "note": "디렉터 콘솔: 학생 화면·아이가 한 말·단계 패널(수업안 문장, 버튼 하나)·수업 끝·리포트. 진행표·핀 버튼은 첫 실제 수업에서 0번 쓰여 R2625 로 콘솔에서 뺐고 서버 API 는 그대로(docs/18 §8). 빙의·대사·사건 6종·내 문장 띄우기는 11-19 Dan \"선생은 못하고\" 로 「선생님이 직접 하기」 접힘 안에 되살림(docs/18 §10). 근거 문서는 18(08 이 가리키는 06 은 끊긴 참조 목록에 있음). 감사: 있음 11-19 R325(\"콘솔이 너무 난잡\"): 참가 코드 띠를 한 줄로 줄이고(주소는 접음), 단계 7줄을 번호 칩 한 줄로, 진행 안내를 접고, 선생님 말하기·주고받기 상자를 더하고, 직접 조종·수업 소리를 「더 보기」 하나로 묶음(docs/18 §11).",
       "decision": "R2625"
     },
     "T02": {
@@ -929,7 +931,7 @@
       },
       "tests": [
         "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report",
-        "apps/web/src/__tests__/lesson.test.ts::live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters"
+        "apps/web/src/__tests__/lesson.test.ts::live lesson: compact join code, /join, stage chips with the current stage, folded guide, script, feed and counters (R325)"
       ],
       "evidence": [
         "apps/web/src/LessonDirector.tsx:722",
@@ -1034,12 +1036,17 @@
       "status": "partial",
       "owner": "talk",
       "route": "/world/",
-      "tests": [],
+      "tests": [
+        "apps/edge/src/__tests__/shop.test.ts::a passed solo sentence earns coins once per window, tops up a better grade, and stops at the daily cap",
+        "apps/client/src/__tests__/shop-ui.test.tsx::the maker's book only uses things the shop sells, and today's challenge is the same all day"
+      ],
       "evidence": [
         "apps/client/src/dialog/ReviewDock.tsx:32",
-        "apps/edge/src/errand.ts:111"
+        "apps/edge/src/errand.ts:111",
+        "apps/edge/src/shop.ts:75",
+        "apps/client/src/frame/menu/MakePanel.tsx:1"
       ],
-      "note": "별·코인 보상·복습 징후는 있음. 전투·탐험·도감 같은 놀이 보상 없음"
+      "note": "별·코인 보상(혼자 놀 때 별당 5코인, 하루 150)·오늘의 목표 4개·오늘의 만들기 도전·만들기 도감·복습 징후는 있음. 전투·탐험 같은 놀이 보상 없음"
     },
     "F10.1.T-W": {
       "kind": "flow",
@@ -1047,12 +1054,19 @@
       "status": "partial",
       "owner": "lesson",
       "route": "/director",
-      "tests": [],
+      "tests": [
+        "apps/edge/src/__tests__/lesson-teacher-trade.test.ts::speaks as the teacher (no NPC possessed)",
+        "apps/edge/src/__tests__/lesson-teacher-trade.test.ts::holds the stage while the teacher walks in the world: passes make it ready, the teacher moves on",
+        "apps/edge/src/__tests__/lesson-teacher-trade.test.ts::a swap: the child's thing goes to the teacher, the teacher's comes to the child",
+        "apps/client/src/__tests__/lesson-teacher-trade.test.tsx::the teacher speaks as the teacher and hands over a thing: the bubble and the hand, once"
+      ],
       "evidence": [
         "apps/web/src/DirectorLive.tsx:35",
-        "apps/edge/src/lesson-mode.ts:478"
+        "apps/edge/src/lesson-mode.ts:478",
+        "apps/client/src/world/TeacherBar.tsx:1",
+        "apps/edge/src/lesson-trade.ts:1"
       ],
-      "note": "빙의·사건 6종은 있음. 던전(전투 없음)·캠페인 노트 없음"
+      "note": "빙의·사건 6종은 있음. 던전(전투 없음)·캠페인 노트 없음 11-19 R325: 선생님이 월드 안에서 말하기(선생님 말풍선)·같이 걷기·단계 쥐기·물건 주기·아이와 거래(영어 문장 통과 뒤 서버가 옮김)가 이어짐(docs/18 §11)."
     },
     "F10.1.W-T": {
       "kind": "flow",
@@ -1060,12 +1074,16 @@
       "status": "partial",
       "owner": "lesson",
       "route": "/director",
-      "tests": [],
+      "tests": [
+        "apps/edge/src/__tests__/lesson-auto-stage.test.ts::R326: a child who says nothing and only skips is not moved on by the minutes; the console sees quiet and the skips",
+        "apps/edge/src/__tests__/lesson-auto-stage.test.ts::R326 ⑫: in a guided stage the child own words that carry a stage sentence do the mission (that sentence passes)",
+        "apps/client/src/__tests__/lesson-teacher-trade.test.tsx::R326 ④: skips reach the console (follow-up skipped without a try, a window closed with nothing said)"
+      ],
       "evidence": [
         "apps/edge/src/lesson-mode.ts:239",
         "apps/web/src/DirectorLive.tsx:439"
       ],
-      "note": "대화 밀도·수업 기록은 있음. 학생별 타깃 자동 준비(T02) 없음"
+      "note": "대화 밀도·수업 기록은 있음. 학생별 타깃 자동 준비(T02) 없음 11-19 R326: 건너뛰기·말 없이 닫은 창을 기록해 콘솔에 보이고(남용 경고), 말 없이 시간만 지나면 선생님이 넘김; 자기 말이 단계 문장을 담으면 임무 통과(docs/18 §11)."
     },
     "F10.1.W-P": {
       "kind": "flow",
@@ -1924,13 +1942,16 @@
         ]
       },
       "tests": [
-        "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world"
+        "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world",
+        "apps/edge/src/__tests__/shop.test.ts::the shop button buys at list price once per request id, never below zero, and the thing lands in the bag",
+        "apps/edge/src/__tests__/shop.test.ts::saying the order in English to the shopkeeper buys at the star price (3 stars = half) and counts for the quest"
       ],
       "evidence": [
         "apps/edge/src/economy.ts:1",
-        "packages/sim-core/src/domains.ts:1"
+        "packages/sim-core/src/domains.ts:1",
+        "apps/edge/src/shop.ts:1"
       ],
-      "note": "가게 구매·물가만; 채굴·환전·취업은 sim-core 함수뿐 화면 없음"
+      "note": "가게 구매(마을 상점 66종, 정가 단추·영어 주문 별 할인)·되팔기·물가만; 채굴·환전·취업은 sim-core 함수뿐 화면 없음"
     },
     "F10.3.B4": {
       "kind": "flow",
@@ -3901,7 +3922,7 @@
       "owner": "lesson",
       "route": "/director",
       "tests": [
-        "apps/web/src/__tests__/lesson.test.ts::live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters",
+        "apps/web/src/__tests__/lesson.test.ts::live lesson: compact join code, /join, stage chips with the current stage, folded guide, script, feed and counters (R325)",
         "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
       ],
       "evidence": [
@@ -4408,13 +4429,15 @@
       },
       "tests": [
         "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world",
-        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court",
+        "apps/edge/src/__tests__/shop.test.ts::child-to-child trade: both say their line in English, escrow, one buyer, coins to the seller once, cancel returns the thing"
       ],
       "evidence": [
         "apps/edge/src/economy.ts:1",
-        "packages/sim-core/src/domains.ts:271"
+        "packages/sim-core/src/domains.ts:271",
+        "apps/edge/src/shop.ts:1"
       ],
-      "note": "월드별 주간 시세·흥정 문장은 연결됨, 채굴·취업·가게·플레이어 거래·변론은 함수뿐"
+      "note": "월드별 주간 시세·흥정 문장·마을 상점 66종(영어 주문 별 할인)·플레이어 간 거래(양쪽 발화) 연결됨. 채굴·취업·가게 운영·변론은 함수뿐"
     },
     "C01.6.탐험가": {
       "kind": "promise",
@@ -5852,13 +5875,16 @@
       "status": "partial",
       "owner": "world",
       "tests": [
-        "apps/edge/src/__tests__/edge.test.ts::executes bilateral trade atomically, tracks solo expression reuse, sends parent report, triggers 48h reminder, and updates on open"
+        "apps/edge/src/__tests__/edge.test.ts::executes bilateral trade atomically, tracks solo expression reuse, sends parent report, triggers 48h reminder, and updates on open",
+        "apps/edge/src/__tests__/shop.test.ts::child-to-child trade: both say their line in English, escrow, one buyer, coins to the seller once, cancel returns the thing"
       ],
       "evidence": [
         "apps/edge/src/storage.ts:869",
-        "apps/edge/src/app.ts:705"
+        "apps/edge/src/app.ts:705",
+        "apps/edge/src/shop.ts:1",
+        "apps/client/src/frame/menu/ShopPanel.tsx:1"
       ],
-      "note": "양쪽 발화 후 성사·장부 일치는 /v1/worlds/:id/trades API 와 시험뿐. 플레이어 간 거래 창 화면 없음(멀티 없음), NPC 물물교환만 월드에 있음"
+      "note": "R326 ⑫: 학생↔학생 거래창(상점 Trade 탭)이 실경로 — 파는 쪽 'Do you want my …?'·사는 쪽 'Can I buy your …?' 를 서버가 채점해 통과해야 보관·성사, 장부 한 번(shop.ts /v1/p2p/*). 선생님 거래는 수업 /v1/lesson/trade. 남은 것: 월드에서 다른 아이를 눌러 거래창 열기(lcw:open-trade, 월드 레인), 물물교환(코인 없이 물건↔물건)"
     },
     "WP-601": {
       "kind": "wp",

@@ -14,9 +14,11 @@ import { FrameFloorWatch, TIER_SETTINGS, gpuClassOf, readGpuRenderer, type GpuCl
 import { RoomClient } from './world/room-client.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { FrameLayer } from './frame/FrameLayer.js';
+import { SHOP_SAY_EVENT } from './frame/shop-api.js';
+import { SHOPKEEPER, shopSayOffers } from './frame/shop-say.js';
 import { savedTier } from './frame/settings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
-import { DEFAULT_WORLD_CHOICE, type WorldSetupChoice } from '@lcw/content';
+import { DEFAULT_WORLD_CHOICE, readWorldSetup, type WorldSetupChoice } from '@lcw/content';
 import { codeFromSearch, loadStudentSession, saveStudentSession } from './lesson/api.js';
 import { LessonAutoJoin, StartFlow } from './start/StartFlow.js';
 import { GuestPassLayer } from './start/PassLayer.js';
@@ -40,6 +42,9 @@ export interface DialogConfig {
   /** What the NPC asks next in the same window after a pass (a lesson stage's follow-ups, a solo open question). */
   followUps?: readonly string[];
   followUpSubmit?: (u: unknown) => Promise<DialogResultLike>;
+  /** R326: follow-ups skip only after a try (lesson); every skip / untried close reported. dialog/types.ts */
+  skipNeedsTry?: boolean;
+  onSkip?: (s: { kind: 'follow_up' | 'close'; question: string; tried: boolean }) => void;
   /** Voice and face of another ctx (the errand giver pointing the way). */
   voiceCtx?: string;
 }
@@ -100,6 +105,8 @@ export interface LessonLayerProps {
   canRender3d?: boolean;
   /** A free talk with a passer-by is open over the lesson (Dan 11-19): the lesson window stays off until it closes. */
   freeTalkOpen?: boolean;
+  /** R326 ⑫: the live lesson's answer route for the app's own talks (passer-by), null when no lesson runs. */
+  onTalkSubmit?: (submit: ((u: unknown) => Promise<DialogResultLike>) | null) => void;
 }
 
 /** What solo play knows about the player: a linked child device sends its token, a guest sends nothing. */
@@ -220,7 +227,8 @@ export function guideDestination(npc: NpcRef, r: DialogResultLike): SceneId | nu
 export function dialogViewInset(r: { left: number; top: number; width: number; height: number }, vw: number, vh: number): { bottom: number; right: number } {
   // The side panel starts under the HUD star/coin chip (dialog styles: 52-56px down), so it is not full height: it
   // reaches the bottom edge, covers most of the height and only part of the width.
-  const side = r.top + r.height >= vh - 2 && r.height >= vh * 0.75 && r.width < vw * 0.8;
+  // (the desktop panel, R326, keeps a 12px margin at the bottom)
+  const side = r.top + r.height >= vh - 16 && r.height >= vh * 0.75 && r.width < vw * 0.8;
   if (side) return { bottom: 0, right: Math.max(0, Math.round(vw - r.left)) };
   return { bottom: Math.max(0, Math.round(vh - r.top)), right: 0 };
 }
@@ -382,6 +390,8 @@ function DialogHost(props: {
       {...(cfg.followUps ? { followUps: cfg.followUps } : {})}
       {...(cfg.followUpSubmit ? { followUpSubmit: cfg.followUpSubmit } : {})}
       {...(cfg.voiceCtx ? { voiceCtx: cfg.voiceCtx } : {})}
+      {...(cfg.skipNeedsTry ? { skipNeedsTry: true } : {})}
+      {...(cfg.onSkip ? { onSkip: cfg.onSkip } : {})}
       submit={submit}
       onDone={onDone}
       onResult={play}
@@ -415,6 +425,8 @@ export function App(): React.ReactElement {
   // The kind the child last read aloud for (kept after the build screen closes, until the next room check).
   const [readKind, setReadKind] = useState<'light' | 'rest' | 'flat' | null>(null);
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
+  // R326 ⑪: the shop window's "Ask in English" opens the shopkeeper with that thing's order lines
+  const [sayItem, setSayItem] = useState<string | null>(null);
   const [firstVisitMod, setFirstVisitMod] = useState<FirstVisitModule | null>(null);
   const [errand, setErrand] = useState<ErrandLike | null>(null);
   // The errand shape of a solo dialog is fixed when its window opens (a step it moves must not swap its sentences).
@@ -437,6 +449,12 @@ export function App(): React.ReactElement {
   const [passToken, setPassToken] = useState<string | null>(null);
   /** The host's world look while the pass runs; my own look comes back when it ends. */
   const [passLook, setPassLook] = useState<WorldSetupChoice | null>(null);
+  /**
+   * The child's own world look during a lesson (R325, Dan 11-19: the lesson is the teacher coming into the child's
+   * world): read with the student token when the child came in by the lesson (no look of their own yet in this tab),
+   * and the teacher's 3D page takes the same look from the console feed (TeacherBar onLook).
+   */
+  const [lessonLook, setLessonLook] = useState<WorldSetupChoice | null>(null);
   const soloBlocked = soloPlayBlocked(identity);
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
@@ -456,16 +474,33 @@ export function App(): React.ReactElement {
     if (world && identity?.kind === 'child' && identity.nickname) world.setPlayerName?.(identity.nickname);
   }, [world, identity]);
 
-  // A lesson keeps the town's own look (daytime, no weather, no animal friend); my world shows its details.
+  // The child's world keeps its own look in a lesson too (R325: season, sky, animal friend); a guest pass shows the host's.
+  useEffect(() => {
+    if (!lessonOn || myLook || lessonLook || teach) return;
+    const token = storedStudentToken();
+    if (!token) return;
+    let live = true;
+    void globalThis
+      .fetch('/v1/my-world', { headers: { authorization: `Bearer ${token}` }, cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { made?: boolean; world?: unknown } | null) => {
+        const w = b?.made === true ? readWorldSetup(b.world) : null;
+        if (live && w) setLessonLook(w);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [lessonOn, myLook, lessonLook, teach]);
   const lastLook = useRef<{ world: WorldHandle | null; key: string }>({ world: null, key: '' });
   useEffect(() => {
     if (!world || startOpen) return;
-    const look = lessonOn ? null : (passLook ?? myLook);
+    const look = passLook ?? myLook ?? lessonLook;
     const key = JSON.stringify(look);
     if (lastLook.current.world === world && lastLook.current.key === key) return;
     lastLook.current = { world, key };
     world.setWorldLook?.(look);
-  }, [world, startOpen, lessonOn, myLook, passLook]);
+  }, [world, startOpen, myLook, passLook, lessonLook]);
 
   const onLessonSession = useCallback((s: DeviceLessonSession) => {
     // the title closes either way; already in this lesson (a poll answered twice): keep the running layer
@@ -615,6 +650,25 @@ export function App(): React.ReactElement {
     [world]
   );
 
+  useEffect(() => {
+    const onSay = (e: Event): void => {
+      const key = (e as CustomEvent<{ itemKey?: string }>).detail?.itemKey;
+      if (!key || lessonActive.current || !world) return;
+      if (soloBlocked) {
+        setSeatCard(true);
+        return;
+      }
+      if (!dialogMod?.DialogPanel || !dialogMod.createSoloSubmit) return;
+      setSayItem(key);
+      setSoloNpc(SHOPKEEPER);
+    };
+    window.addEventListener(SHOP_SAY_EVENT, onSay);
+    return () => window.removeEventListener(SHOP_SAY_EVENT, onSay);
+  }, [world, dialogMod, soloBlocked]);
+  useEffect(() => {
+    if (soloNpc === null) setSayItem(null);
+  }, [soloNpc]);
+
   // Seat stopped: say so once when the world opens (and again on every NPC tap), while the world stays walkable.
   useEffect(() => {
     if (soloBlocked && world) setSeatCard(true);
@@ -641,7 +695,8 @@ export function App(): React.ReactElement {
         // `free` says whether this app can open one at all (a paused seat or a dialog module not loaded yet cannot):
         // without it the layer leaves its window alone instead of folding it for nothing.
         lessonTapNpc.current = npc;
-        const free = !soloBlocked && Boolean(dialogMod?.DialogPanel && dialogMod.createSoloSubmit);
+        // a lesson's own answer route lets a child with no solo seat talk to anyone in the lesson (R326 ⑫)
+        const free = (lessonSubmit.current !== null || !soloBlocked) && Boolean(dialogMod?.DialogPanel && dialogMod.createSoloSubmit);
         window.dispatchEvent(new CustomEvent(LESSON_TALK_EVENT, { detail: { npcId: npc.id, free } }));
         return;
       }
@@ -657,11 +712,15 @@ export function App(): React.ReactElement {
   // asks for this NPC's own window. A stage move closes it again, so the next stage's lesson window is not hidden
   // behind it; the lesson ending closes it too.
   const lessonTapNpc = useRef<NpcRef | null>(null);
+  /** R326 ⑫: the live lesson's answer route; a passer-by talk in a lesson goes there (the teacher sees it, stars count). */
+  const lessonSubmit = useRef<((u: unknown) => Promise<DialogResultLike>) | null>(null);
+  // the same in state, so the passer-by window re-renders with it (a ref read in render would go stale)
+  const [lessonSubmitFn, setLessonSubmitFn] = useState<((u: unknown) => Promise<DialogResultLike>) | null>(null);
   useEffect(() => {
     const free = (e: Event): void => {
       const id = (e as CustomEvent<{ npcId?: string }>).detail?.npcId;
       const npc = lessonTapNpc.current;
-      if (!npc || npc.id !== id || soloBlocked) return;
+      if (!npc || npc.id !== id || (soloBlocked && !lessonSubmit.current)) return;
       if (dialogMod?.DialogPanel && dialogMod.createSoloSubmit) setSoloNpc(npc);
     };
     const stage = (): void => {
@@ -724,7 +783,10 @@ export function App(): React.ReactElement {
     };
   }
   const plan = soloPlan.current.plan;
-  const soloSubmit = dialogNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(dialogNpc, soloPlayerOf(identity)) : null;
+  // Not the shop (its sentences buy things: solo route) nor an errand step (the errand's own route): those keep their
+  // own answers, so a purchase or a hand-over never vanishes into lesson talk (review R326).
+  const lessonTalk = lessonOn && !ed && soloNpc?.ctx !== 'trade_shop' ? lessonSubmitFn : null;
+  const soloSubmit = lessonTalk ?? (dialogNpc && dialogMod?.createSoloSubmit ? dialogMod.createSoloSubmit(dialogNpc, soloPlayerOf(identity)) : null);
   // docs/03 D13: while the room lacks a kind of furniture (or the child just read it aloud), Toby sells that kind.
   const shopKind = room?.missing[0] ?? readKind;
   const shopOffers =
@@ -733,7 +795,10 @@ export function App(): React.ReactElement {
     ...(soloLevel ? { level: soloLevel } : {}),
     ...(shopOffers.length > 0 ? { offers: shopOffers } : {}),
     ...(plan ? { npcLine: plan.npcLine, ...(plan.offers ? { offers: plan.offers } : {}), ...(plan.followUps ? { followUps: plan.followUps } : {}), ...(plan.followUpSubmit ? { followUpSubmit: plan.followUpSubmit } : {}) } : {}),
+    ...(sayItem && soloNpc?.ctx === 'trade_shop' && shopSayOffers(sayItem, soloLevel ?? 'L1').length > 0 ? { offers: shopSayOffers(sayItem, soloLevel ?? 'L1') } : {}),
     ...(ed ? { offers: ed.offers, npcLine: ed.npcLine, ...(ed.voiceCtx ? { voiceCtx: ed.voiceCtx } : {}) } : {}),
+    // R326 ⑫: in a lesson a passer-by is talked to in the child's own words, as lesson talk (ideas only, follow-ups too)
+    ...(lessonTalk ? { mode: 'free' as const, followUpSubmit: lessonTalk, skipNeedsTry: true } : {}),
     onDone: (r) => {
       if (dialogNpc) dialogMod?.noteSoloDone?.(dialogNpc.ctx, r);
       const step = r.errand;
@@ -755,7 +820,7 @@ export function App(): React.ReactElement {
           {/* the title screen holds the whole screen: the menu button and keys step aside like for a dialog */}
           <FrameLayer world={world} identity={identity} lessonOn={lessonOn} teacher={!!teach} dialogOpen={dialogNpc !== null || startOpen} />
           {/* The title is the whole screen: no lesson-layer button over it (a ?code= address never opens the title). */}
-          {world && teach ? <TeacherBar world={world} session={teach} room={roomClient} /> : null}
+          {world && teach ? <TeacherBar world={world} session={teach} room={roomClient} onLook={setLessonLook} /> : null}
           {Lesson && !startOpen && !teach ? (
             <Lesson
               key={lessonKey}
@@ -764,6 +829,10 @@ export function App(): React.ReactElement {
               canRender3d={!tooSlow}
               renderDialog={renderDialog}
               freeTalkOpen={lessonOn && soloNpc !== null}
+              onTalkSubmit={(s: ((u: unknown) => Promise<DialogResultLike>) | null) => {
+                lessonSubmit.current = s;
+                setLessonSubmitFn(() => s);
+              }}
               onLessonActive={(a: boolean) => {
                 // a free talk opened in the lesson closes with it (only on live → over, never on the first report)
                 if (!a && lessonActive.current) setSoloNpc(null);
@@ -819,10 +888,11 @@ export function App(): React.ReactElement {
             <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null || startOpen} />
           ) : null}
           {/* children run the errand, then the town goals; guests (no errand) start on the town goals (dialog/goals.ts) */}
-          {FirstVisit && (identity?.kind === 'child' || (identity?.kind === 'guest' && !passToken)) && !soloBlocked ? (
+          {/* not on the teacher's page (?teach=): the teacher walks with the child, no errand or town goals of a guest (R325) */}
+          {FirstVisit && !teach && (identity?.kind === 'child' || (identity?.kind === 'guest' && !passToken)) && !soloBlocked ? (
             <FirstVisit world={world} player={soloPlayerOf(identity)} errand={errand} onErrand={setErrand} hidden={lessonOn || soloNpc !== null || startOpen} />
           ) : null}
-          {world && !soloBlocked && SoloPanel && soloNpc && dialogNpc && soloSubmit ? (
+          {world && (!soloBlocked || lessonTalk) && SoloPanel && soloNpc && dialogNpc && soloSubmit ? (
             <DialogHost
               Panel={SoloPanel}
               world={world}

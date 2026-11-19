@@ -55,7 +55,10 @@ function env(startCoins = 100) {
   };
   const ledgerSum = () =>
     Number(world.sql.get<{ s: number }>('select coalesce(sum(delta),0) as s from ledger where player = ?', ['kid'])?.s ?? 0);
-  return { app, db, world, score, ledgerSum };
+  // R326 ⑤: a passed solo sentence also earns coins (shop.ts creditSoloEarn); the price checks add what was earned.
+  const earned = () =>
+    Number(world.sql.get<{ s: number }>("select coalesce(sum(delta),0) as s from ledger where player = ? and reason = 'earn_solo'", ['kid'])?.s ?? 0);
+  return { app, db, world, score, ledgerSum, earned };
 }
 
 const smoothie = CAFE_MENU.find((d) => d.key === 'smoothie')!;
@@ -76,7 +79,7 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     expect(r.pass).toBe(false);
     expect(r.stars).toBe(0);
     expect(r.granted).toBeNull();
-    expect(e.ledgerSum()).toBe(100);
+    expect(e.ledgerSum()).toBe(100 + e.earned());
     expect(r.feedback_ko).toContain('because');
   });
 
@@ -92,7 +95,7 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     expect(r.stars).toBe(2);
     expect(r.granted?.item_id).toBe('smoothie');
     expect(r.granted?.coins_delta).toBe(-starPrice(smoothie.basePrice, 2));
-    expect(r.coins_total).toBe(100 - starPrice(smoothie.basePrice, 2));
+    expect(r.coins_total).toBe(100 - starPrice(smoothie.basePrice, 2) + e.earned());
     expect(e.ledgerSum()).toBe(r.coins_total);
   });
 
@@ -102,7 +105,7 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     expect(r.stars).toBe(3);
     expect(r.granted?.coins_delta).toBe(-starPrice(smoothie.basePrice, 3));
     expect(r.granted?.slot_or_socket).toBe('RightHand_Socket');
-    expect(e.ledgerSum()).toBe(100 - 25);
+    expect(e.ledgerSum()).toBe(100 - 25 + e.earned());
   });
 
   it('the star grade comes from the bank sentence, not from chosen_stars', async () => {
@@ -119,7 +122,7 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     expect(r.pass).toBe(true);
     expect(r.stars).toBe(1);
     expect(r.granted).toBeNull();
-    expect(e.ledgerSum()).toBe(100);
+    expect(e.ledgerSum()).toBe(100 + e.earned());
   });
 
   it('keyboard or word-card input counts for at most 2 stars (docs/04 4.1)', async () => {
@@ -153,19 +156,19 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     const r2 = await e.score({ dialog_id: 'buy-1', chosen_stars: 2, target_text: L2_2STAR, transcript: L2_2STAR });
     expect(r2.granted?.coins_delta).toBe(p(1) - p(2));
     const r3 = await e.score({ dialog_id: 'buy-1', chosen_stars: 3, target_text: L2_3STAR, transcript: L2_3STAR });
-    expect(r3.coins_total).toBe(100 - p(3));
+    expect(r3.coins_total).toBe(100 - p(3) + e.earned());
     // A resend (lost reply) or a lower grade later in the same window changes nothing.
     const again = await e.score({ dialog_id: 'buy-1', chosen_stars: 3, target_text: L2_3STAR, transcript: L2_3STAR });
     const lower = await e.score({ dialog_id: 'buy-1', chosen_stars: 1, target_text: L2_1STAR, transcript: L2_1STAR });
     expect(again.granted?.coins_delta).toBe(0);
-    expect(lower.coins_total).toBe(100 - p(3));
-    expect(e.ledgerSum()).toBe(100 - p(3));
+    expect(lower.coins_total).toBe(100 - p(3) + e.earned());
+    expect(e.ledgerSum()).toBe(100 - p(3) + e.earned());
     const items = e.world.listPlayerItems('kid');
     expect(items).toHaveLength(1);
     expect(JSON.parse(items[0]!.spec)).toMatchObject({ item: 'smoothie', ctx: 'cafe' });
     // A new window is a new purchase.
     const next = await e.score({ dialog_id: 'buy-2', chosen_stars: 3, target_text: L2_3STAR, transcript: L2_3STAR });
-    expect(next.coins_total).toBe(100 - 2 * p(3));
+    expect(next.coins_total).toBe(100 - 2 * p(3) + e.earned());
     expect(e.world.listPlayerItems('kid')).toHaveLength(2);
   });
 
@@ -175,7 +178,7 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     expect(r.pass).toBe(true);
     expect(r.granted).toBeNull();
     expect((r as { asked_key?: string }).asked_key).toBe('helmet');
-    expect(e.ledgerSum()).toBe(100);
+    expect(e.ledgerSum()).toBe(100 + e.earned());
     expect(e.world.listPlayerItems('kid')).toHaveLength(0);
     const sell = await e.score({ npc_ctx: 'exchange', chosen_stars: 1, target_text: 'I want to sell this gold.', transcript: 'I want to sell this gold', level: 'L2' });
     expect(sell.granted).toBeNull();
@@ -187,7 +190,7 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     const r = await e.score({ level: 'L3', chosen_stars: 3, target_text: 'Can I have some cold water, please?', transcript: 'Can I have some cold water, please?' });
     expect(r.stars).toBeLessThanOrEqual(1);
     expect(r.granted).toBeNull();
-    expect(e.ledgerSum()).toBe(100);
+    expect(e.ledgerSum()).toBe(100 + e.earned());
   });
 
   it('a body that is not JSON, or an empty target outside the student path, is a 400', async () => {
@@ -208,8 +211,8 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     expect(r.pass).toBe(true);
     expect(r.stars).toBe(1);
     expect(r.granted).toBeNull();
-    expect(r.coins_total).toBe(0);
-    expect(e.ledgerSum()).toBe(0);
+    expect(r.coins_total).toBe(0 + e.earned());
+    expect(e.ledgerSum()).toBe(0 + e.earned());
     expect(r.feedback_ko).toContain('코인');
   });
 
@@ -217,7 +220,8 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     const e = env(1000);
     const a = await e.score({ dialog_id: 'det-a', chosen_stars: 2, target_text: L2_2STAR, transcript: 'can I get cold smoothie' });
     const b = await e.score({ dialog_id: 'det-b', chosen_stars: 2, target_text: L2_2STAR, transcript: 'can I get cold smoothie' });
-    expect(a).toEqual({ ...b, coins_total: a.coins_total, memory_card: a.memory_card });
+    // the same sentence pays its coins once a day (R326 ⑤), so only the score parts are compared
+    expect(a).toEqual({ ...b, coins_total: a.coins_total, coins_earned: (a as { coins_earned?: number }).coins_earned, memory_card: a.memory_card });
     for (let i = 0; i < 5; i++) await e.score({ dialog_id: `det-${i}`, chosen_stars: 3, target_text: L2_3STAR, transcript: L2_3STAR });
     expect(e.world.getPlayerBalance('kid')).toBe(e.ledgerSum());
   });
@@ -274,7 +278,9 @@ describe('student solo scoring through the platform gate', () => {
     expect(r.body.pass).toBe(true);
     expect(r.body.stars).toBe(3);
     const water = CAFE_MENU.find((d) => d.key === 'water')!;
-    expect(r.body.coins_total).toBe(200 - starPrice(water.basePrice, 3));
+    // a passed solo sentence also earns coins (R326 ⑤, shop.ts)
+    expect(r.body.coins_earned).toBe(15);
+    expect(r.body.coins_total).toBe(200 - starPrice(water.basePrice, 3) + 15);
     const utt = p.db.listUtterancesForPlayer('kid-1');
     expect(utt).toHaveLength(1);
     expect(utt[0]!.world_id).toBe(homeWorldId('kid-1'));
@@ -283,7 +289,8 @@ describe('student solo scoring through the platform gate', () => {
 
     // The starting purse is granted once only.
     const again = await call(p, '/v1/converse/score', { ...body, dialog_id: 'solo-2' }, st);
-    expect(again.body.coins_total).toBe(200 - 2 * starPrice(water.basePrice, 3));
+    // the same sentence in a new window buys again but earns nothing more today (R326 ⑤)
+    expect(again.body.coins_total).toBe(200 - 2 * starPrice(water.basePrice, 3) + 15);
 
     // Made-up sentences earn nothing on the student path ("hi" == "hi" used to pass with 1 star).
     const made = await call(p, '/v1/converse/score', { ...body, dialog_id: 'solo-3', target_text: 'hi', transcript: 'hi', strict_bank: false }, st);
@@ -325,7 +332,7 @@ describe('student solo scoring through the platform gate', () => {
     }, dev);
     expect(r.status).toBe(200);
     expect(r.body.stars).toBe(3);
-    expect(r.body.coins_total).toBe(200 - starPrice(smoothie.basePrice, 3));
+    expect(r.body.coins_total).toBe(200 - starPrice(smoothie.basePrice, 3) + 15);
     const utt = p.db.listUtterancesForPlayer('kid-2');
     expect(utt).toHaveLength(1);
     expect(utt[0]!.session_id).toBe('solo-dev-1');

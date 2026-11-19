@@ -20,6 +20,10 @@ import { startSettingsSync } from './settings-sync.js';
 import { useGauges } from './useGauges.js';
 import { keyLabel } from './menu/SettingsPanel.js';
 import type { KeyHintLabels } from '../world/strings.js';
+import { OPEN_SHOP_EVENT, OPEN_TRADE_EVENT } from './shop-api.js';
+import { SHOP_STRINGS } from './shop-strings.js';
+import { openShopOn } from './menu/ShopPanel.js';
+import { say } from '../world/lang.js';
 
 export interface FrameLayerProps {
   world: WorldHandle | null;
@@ -255,6 +259,41 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
     return () => window.removeEventListener('keydown', onKey);
   }, [menu, blocked, open]);
 
+  // The shop opens from the HUD shop button, a first-coin tip, the maker's book, or a peer tap in the world (trade).
+  useEffect(() => {
+    const shop = (e: Event): void => {
+      const cat = (e as CustomEvent<{ cat?: string }>).detail?.cat;
+      if (cat) openShopOn(cat as Parameters<typeof openShopOn>[0]);
+      open('shop');
+    };
+    const trade = (): void => {
+      openShopOn('trade');
+      open('shop');
+    };
+    window.addEventListener(OPEN_SHOP_EVENT, shop);
+    window.addEventListener(OPEN_TRADE_EVENT, trade);
+    return () => {
+      window.removeEventListener(OPEN_SHOP_EVENT, shop);
+      window.removeEventListener(OPEN_TRADE_EVENT, trade);
+    };
+  }, [open]);
+  // One short tip the first time (Dan R326 ⑪ "도움말이 없다"): what coins are for, pointing at the shop button.
+  const [shopTip, setShopTip] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('lcw.shopTipSeen') !== '1';
+    } catch {
+      return false;
+    }
+  });
+  const dropShopTip = useCallback(() => {
+    setShopTip(false);
+    try {
+      localStorage.setItem('lcw.shopTipSeen', '1');
+    } catch {
+      /* private window */
+    }
+  }, []);
+
   // A dialog opening (an NPC, the teacher) takes the screen: the menu steps aside.
   useEffect(() => {
     if (blocked) setMenu(null);
@@ -286,6 +325,41 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
             </span>
           ) : null}
         </button>
+      ) : null}
+      {!blocked && menu === null && auth.kind !== 'guest' ? (
+        <button
+          type="button"
+          className="lcw-hudbtn lcw-hudbtn--shop"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => {
+            dropShopTip();
+            open('shop');
+          }}
+          aria-label={say(SHOP_STRINGS.hudShop).text}
+        >
+          <span className="ic" aria-hidden="true">
+            🛍️
+          </span>
+          <span>{say(SHOP_STRINGS.hudShop).text}</span>
+          {say(SHOP_STRINGS.hudShop).help ? (
+            <span className="ko" lang="ko">
+              {say(SHOP_STRINGS.hudShop).help}
+            </span>
+          ) : null}
+        </button>
+      ) : null}
+      {!blocked && menu === null && auth.kind !== 'guest' && shopTip && !lessonOn ? (
+        <div className="lcw-shoptip" role="note">
+          <span>{say(SHOP_STRINGS.helpSpend).text}</span>
+          {say(SHOP_STRINGS.helpSpend).help ? (
+            <span className="ko" lang="ko">
+              {say(SHOP_STRINGS.helpSpend).help}
+            </span>
+          ) : null}
+          <button type="button" className="x" onPointerDown={(e) => e.stopPropagation()} onClick={dropShopTip} aria-label={say(SHOP_STRINGS.helpOk).text}>
+            {say(SHOP_STRINGS.helpOk).text}
+          </button>
+        </div>
       ) : null}
       {menu !== null ? (
         <PlayerMenu world={world} identity={identity} auth={auth} lessonOn={lessonOn} tab={menu} onTab={open} onClose={close} syncBag={syncBag} />

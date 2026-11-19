@@ -450,6 +450,9 @@ export function createLessonApi(opts: LessonApiOptions = {}) {
       ),
     npcSay: (op: string, lessonId: string, input: { npc_id: string; text: string }) =>
       request<{ ok: boolean; id: string; at: number }>('POST', `/v1/admin/lessons/${enc(lessonId)}/npc-say`, op, input),
+    /** R325: hand one of the teacher's things to the child (one client_id = one gift). */
+    give: (op: string, lessonId: string, input: { item_key: string; client_id: string }) =>
+      request<{ ok: boolean; item_key: string; line: string; replayed?: boolean }>('POST', `/v1/admin/lessons/${enc(lessonId)}/give`, op, input),
     possess: (op: string, lessonId: string, npcId: string | null) =>
       request<{ ok: boolean; possessed_npc_id: string | null }>('POST', `/v1/admin/lessons/${enc(lessonId)}/possess`, op, {
         npc_id: npcId

@@ -59,6 +59,7 @@ describe('ReadAloudPrompt', () => {
     });
     const bought = await submit({ target_text: text, transcript: text, chosen_stars: 2, hint_level: 'full', latency_ms: 800, dur_ms: 2000, stt_source: 'browser', confidence: 0.9 });
     expect(bought.itemKey).toBe(lamp.key);
-    expect(bought.coinsTotal).toBe(200 - applyReadAloudDiscount(starPrice(lamp.basePrice, 2), 0.1));
+    // the passed sentence also earns 2 stars × 5 coins (R326 ⑤)
+    expect(bought.coinsTotal).toBe(200 - applyReadAloudDiscount(starPrice(lamp.basePrice, 2), 0.1) + 10);
   });
 });

@@ -24,7 +24,8 @@ import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './l
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp, guestPassFromRequest, sweepEndedGuestCells } from './free-play.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
-import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp } from './my-world.js';
+import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp, readMyWorld } from './my-world.js';
+import { applyLessonTrade, ownedForTrade } from './lesson-trade.js';
 import { injectReportShareMeta } from './report-page.js';
 import { htmlForClient } from './html-cache.js';
 import { injectShowroomShareMeta, showroomTokenFromPath } from './showroom-page.js';
@@ -423,6 +424,11 @@ export class PlatformDO {
       w.appendLedger(playerId, delta, reason, ref, nowMs);
     }
     return w.getPlayerBalance(playerId);
+  }
+
+  /** The child's home world (its items, ledger), created if missing: lesson trades with the teacher move things there. */
+  homeWorld(playerId: string): WorldDO | undefined {
+    return this.worlds.get(this.ensureHomeWorld(playerId));
   }
 
   coinBalance(playerId: string): number {
@@ -850,6 +856,54 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   soloRead('/v1/items');
   soloWrite('/v1/items/equip', 'invalid_equip_request', (b) => ({ item_id: b.item_id, to: b.to }));
   soloWrite('/v1/items/use', 'invalid_use_request', (b) => ({ item_key: b.item_key }));
+  // Town shop, daily quests and child-to-child trades (shop.ts, Dan R326 ⑤⑪⑫): the child's own ledger and things only.
+  soloRead('/v1/shop');
+  soloWrite('/v1/shop/buy', 'invalid_buy_request', (b) => ({ item_key: b.item_key, request_id: b.request_id }));
+  soloWrite('/v1/shop/sell', 'invalid_sell_request', (b) => ({ item_id: b.item_id }));
+  soloWrite('/v1/quests/claim', 'invalid_claim', (b) => ({ quest: b.quest }));
+  // Trades are seen by the people in the same room, and the server names the room from the token exactly as the
+  // multi room does (room.ts roomSeatFor): a lesson's room or the family's room, never a name the client sends.
+  const tradeRoom = async (req: Request): Promise<string | null> => {
+    const student = await platform.studentFromRequest(req);
+    if (student) return `lesson-${student.lesson_id}`;
+    const device = await platform.deviceFromRequest(req);
+    if (!device) return null;
+    const fam = platform.sql.get<{ family_id: string }>('select family_id from players where id = ?', [device.player_id])?.family_id;
+    return fam ? `family-${fam}` : null;
+  };
+  app.get('/v1/p2p/offers', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const room = await tradeRoom(c.req.raw);
+    if (!room) return c.json({ error: 'no_room' }, 404);
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id, room }));
+  });
+  app.post('/v1/p2p/offer', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const body = await readBody(c);
+    const blocked = seatBlocked(s);
+    if (blocked) return blocked;
+    if (!body) return c.json({ error: 'invalid_offer' }, 400);
+    const room = await tradeRoom(c.req.raw);
+    if (!room) return c.json({ error: 'no_room' }, 404);
+    return forwardSolo(c.req.url, s, { item_id: body.item_id, price: body.price, said: body.said }, (p) => ({ player_id: p.player_id, world_id: p.world_id, room }));
+  });
+  app.post('/v1/p2p/accept', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const body = await readBody(c);
+    const blocked = seatBlocked(s);
+    if (blocked) return blocked;
+    if (!body) return c.json({ error: 'invalid_accept' }, 400);
+    const room = await tradeRoom(c.req.raw);
+    if (!room) return c.json({ error: 'no_room' }, 404);
+    return forwardSolo(c.req.url, s, { offer_id: body.offer_id, said: body.said }, (p) => ({ player_id: p.player_id, world_id: p.world_id, room }));
+  });
+  soloWrite('/v1/p2p/cancel', 'invalid_cancel', (b) => ({ offer_id: b.offer_id }));
   soloRead('/v1/collection');
   soloRead('/v1/settings', (p) => ({ player_id: p.player_id }));
   app.put('/v1/settings', async (c, next) => {
@@ -1160,6 +1214,12 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
         platform.voiceStore()
           ? offerVoiceUpload({ sql: platform.sql, db: platform.db, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)), sha256Hex }, p)
           : null,
+      // R325: trades with the teacher move the child's things in the home world (lesson-trade.ts)
+      trades: {
+        owned: (playerId) => ownedForTrade(platform.homeWorld(playerId), playerId),
+        apply: (p) => applyLessonTrade(platform.homeWorld(p.playerId), p)
+      },
+      worldLook: (playerId) => readMyWorld(platform.sql, platform.ensureHomeWorld(playerId)),
       coins: {
         credit: (playerId, delta, ref, nowMs) => platform.creditCoins(playerId, delta, 'lesson_stars', ref, nowMs),
         balance: (playerId) => platform.coinBalance(playerId)

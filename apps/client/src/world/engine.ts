@@ -15,7 +15,7 @@ import { makeBlockMaterials } from './materials.js';
 import { AutoTierPicker, ResolutionGovernor, TIER_SETTINGS, graphicsFor } from './tiers.js';
 import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
-import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, makeJumpView, pickVoxel, raycastDistance, stepBody, stepJumpView, type Body, type MoveIntent } from './physics.js';
+import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Storefronts } from './storefront.js';
 import { MINIMAP_AREA, Wayfinder, minimapSteps, type MapPerson } from './wayfinding.js';
@@ -1171,7 +1171,6 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const camPos = new THREE.Vector3();
   const camLook = new THREE.Vector3();
   let camInit = false;
-  const jumpView = makeJumpView();
   /** Where the dialog NPC's face lands on screen (CSS px), for the headless framing check. */
   const dialogShotStats = (): { npc: string; face: [number, number] } | null => {
     if (!paused || !focusNpc) return null;
@@ -1179,9 +1178,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     return { npc: focusNpc.def.id, face: [Math.round(((v.x + 1) / 2) * viewW), Math.round(((1 - v.y) / 2) * viewH)] };
   };
   const updateCamera = (dt: number): void => {
-    // R2625 ①: a jump does not throw the view up and down. The view keeps the height it took off from and follows the
-    // body only a little; landing higher eases it up, dropping lower follows at once (never above the real eye).
-    const viewY = stepJumpView(jumpView, body.y + body.stepOffset, body.onGround, dt);
+    // R325 (Dan 11-19): the view rides with the body through a jump, the way the reference sandbox does. The 15%
+    // follow of R2625 left the eye near the take-off height (0.17 m of a 1.1 m jump: "점프를 높이 안 하는 느낌") and,
+    // landing on a block, lifted it ~0.85 m in the 0.1-0.2 s after the feet stopped (the jolt read as shaking). The
+    // per-frame wobble came from one Euler step per frame; physics.ts now moves the body in fixed 1/120 s steps.
+    // Step-ups (stairs, slabs) still ease through stepOffset.
+    const viewY = body.y + body.stepOffset;
     const headY = viewY + 1.45;
     camTarget.set(body.x, headY, body.z);
     let wantPos: THREE.Vector3;

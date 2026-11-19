@@ -12,8 +12,8 @@ const clean = () => ({
   size: '1440x900',
   unwantedJumps: 0,
   jumpView: [
-    { bodyRise: 0.86, camRise: 0.13 },
-    { bodyRise: 1.11, camRise: 0.17 }
+    { bodyRise: 1.31, camRise: 1.31 },
+    { bodyRise: 1.34, camRise: 1.33 }
   ],
   clickSuccess: '7/7',
   keySuccess: '7/7',
@@ -43,7 +43,8 @@ describe('real-play judgement for the nightly audit', () => {
     const bad = clean();
     bad.unwantedJumps = 2;
     bad.keySuccess = '6/7';
-    bad.jumpView = [{ bodyRise: 1.2, camRise: 1.1 }];
+    // the R2625 view: 15% of a low jump (R325)
+    bad.jumpView = [{ bodyRise: 1.11, camRise: 0.17 }];
     bad.hill = { ...bad.hill, reachedTop: false, topY: 1, tries: 3 };
     bad.lesson.passer = { ...bad.lesson.passer, ok: false, dialogOpened: false };
     bad.errs = ['http 500 lcw.worldwidesomething.com/v1/errand'];

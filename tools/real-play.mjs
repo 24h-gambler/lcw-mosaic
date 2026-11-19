@@ -10,7 +10,7 @@
 // reports:
 //   unwanted jumps (rose without the jump pressed + whole-block climbs with auto jump off) -> must be 0
 //   click/tap talk success rate, E-key / talk-button success rate (the right NPC's dialog opened within 1.5 s)
-//   camera rise during a pressed jump (first person view must stay steady, R2625 ①)
+//   camera rise during a pressed jump (the view rides with the body, over a block high, R325)
 //   repeated first lines when the same NPC is visited again (dialog lane, R2625)
 //   the hill: down the half-step ramp and back up by keys / stick only, no jump (LCW_REAL_PLAY_HILL=0 skips it)
 //   in a lesson: the lesson NPC reopens the folded window by click and E; a passer-by opens a free talk of its own (Dan 11-19)
@@ -404,7 +404,7 @@ async function answer(stars) {
   return { said: pick.text, res };
 }
 
-/** The jump check: three pressed jumps in place; the camera may rise only a little of what the body rises. */
+/** The jump check: three pressed jumps in place; the camera rises with the body (R325). */
 async function jumpCheck() {
   for (let i = 0; i < 3; i++) {
     const samples = [];

@@ -261,7 +261,10 @@ describe('every name tied to the child, in any case, anywhere in a sentence (11-
     await call(p, 'POST', '/v1/admin/players', { family_id: 'f6', guardian_id: 'g6', player_id: 'kid-c3', nickname: '지우', level: 'L1' });
     // The class as production has it (#169 review): tutor_student stays 0; a lesson, or a tutoring seat, makes a classmate.
     expect(sql.get("select count(*) n from players where tutor_student = 1").n).toBe(0);
-    for (const id of ['kid-x', 'kid-class', 'kid-c3'])
+    // English names that are Hangul words or English words when written (#169 review 2): Mia 미아, Max 맥스, Sun 선/sun, Sam 샘.
+    for (const [id, nick] of [['kid-mia', 'Mia'], ['kid-max', 'Max'], ['kid-sun', 'Sun'], ['kid-sam', 'Sam']])
+      await call(p, 'POST', '/v1/admin/players', { family_id: `f-${id}`, guardian_id: `g-${id}`, player_id: id, nickname: nick, level: 'L1' });
+    for (const id of ['kid-x', 'kid-class', 'kid-c3', 'kid-mia', 'kid-max', 'kid-sun', 'kid-sam'])
       sql.run("insert into lessons (id, player_id, world_id, started_at, ended_at, plan) values (?, ?, 'w', 1, 2, '{}')", [`l-${id}`, id]);
     sql.run("insert into seats (id, payer_id, player_id, plan, period, starts_at, ends_at, status) values ('s-c2', 'g5', 'kid-c2', 'tutoring', 'month', 1, 2, 'active')");
     sql.run(
@@ -333,10 +336,23 @@ describe('every name tied to the child, in any case, anywhere in a sentence (11-
     ['그레이스가 왔어요. 윌이랑 놀았어요. 도윤이네 엄마', '아이가 왔어요. 아이랑 놀았어요. 아이네 엄마'],
     ['Seo Yeon, seo-yeon 이 왔어요.', '아이, 아이 이 왔어요.'],
     ['이도 저도 아니에요. 조이스틱을 썼어요. 보라색으로 칠했어요. 하나도 안 어려웠어요.', '이도 저도 아니에요. 조이스틱을 썼어요. 보라색으로 칠했어요. 하나도 안 어려웠어요.'],
-    ['선생님이 영어로 말했어요. 다음 수업은 목요일입니다. 우리 모두 즐거웠어요. 책이랑 공이랑 했어요.', '선생님이 영어로 말했어요. 다음 수업은 목요일입니다. 우리 모두 즐거웠어요. 책이랑 공이랑 했어요.']
+    ['선생님이 영어로 말했어요. 다음 수업은 목요일입니다. 우리 모두 즐거웠어요. 책이랑 공이랑 했어요.', '선생님이 영어로 말했어요. 다음 수업은 목요일입니다. 우리 모두 즐거웠어요. 책이랑 공이랑 했어요.'],
+    // #169 review 2: Hangul spellings of English names, and the everyday words they look like.
+    ['맥스가 웃었어요. 선이가 왔어요. 샘이랑 놀았어요. 미아랑 놀았어요.', '아이가 웃었어요. 아이가 왔어요. 아이랑 놀았어요. 아이랑 놀았어요.'],
+    ['미아가 될 뻔한 이야기를 했어요. 선이 그어진 종이에 그렸어요. 샘이 나서 열심히 했대요. 강아지 두 마리가 나와요.', '미아가 될 뻔한 이야기를 했어요. 선이 그어진 종이에 그렸어요. 샘이 나서 열심히 했대요. 강아지 두 마리가 나와요.'],
+    ['I like the sun 을 연습했어요. Sun and Mia 가 왔어요.', 'I like the sun 을 연습했어요. 아이 and 아이 가 왔어요.']
   ])('teacher text on the public link: %s', async (text, masked) => {
     const { sql } = await setUp();
     expect(reportNameMasker(sql, 'kid-x')(text)).toBe(masked);
+  });
+
+  it('a name that is an English word blocks it where a name stands, not after a determiner or as grammar (#169 review 2)', async () => {
+    const { sql } = await setUp();
+    const keys = reportNameKeys(sql, 'kid-x');
+    for (const t of ['I play with sun', 'sun is my friend', 'hi will', 'will is my friend', 'I play with max', 'I play with mia', 'I play with sam', 'I like sun'])
+      expect(publicSafeText(t, keys), t).toBe(false);
+    for (const t of ['I like the sun', 'the sun is hot today', 'I will go home', 'we will play later', 'I see a big sun'])
+      expect(publicSafeText(t, keys), t).toBe(true);
   });
 
   it('a class of 240 stays fast: keys by set, the masker by word', async () => {
@@ -365,6 +381,11 @@ describe('every name tied to the child, in any case, anywhere in a sentence (11-
     expect(romanise('서연')).toEqual(expect.arrayContaining(['seoyoun']));
     expect(romanise('윤서')).toEqual(expect.arrayContaining(['yoonsuh']));
     expect(romanise('서연', ' ')).toEqual(expect.arrayContaining(['seo yeon']));
+    // Hangul spellings of English names (loanword mode).
+    expect(romanise('맥스', '', true)).toEqual(expect.arrayContaining(['max']));
+    expect(romanise('샘', '', true)).toEqual(expect.arrayContaining(['sam']));
+    expect(romanise('잭', '', true)).toEqual(expect.arrayContaining(['jack']));
+    expect(romanise('그레이스', '', true)).toEqual(expect.arrayContaining(['grace']));
   });
 
   it('report building and the public link both drop them; no name or key reaches the response', async () => {

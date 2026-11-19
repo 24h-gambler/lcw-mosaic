@@ -32,7 +32,7 @@
 
 | 장치 | 어디서 | 어떻게 |
 |---|---|---|
-| 말하기(TALK) | 만남의 내 차례 | 세 가지 말 걸기 중 하나를 고르면 그 방식으로 문장을 냅니다. 🗣 말하기(마이크 = 브라우저 인식, 안 되거나 거절되면 바로 타이핑) · 🧩 문장 조립(낱말 조각 순서대로) · ✅ 고르기(상대 말에 맞는 대답) · 🔤 철자(글자 조각, 또는 타이핑). 채점은 `@lcw/converse` `scoreUtterance`(레벨 통과선 `LEVEL_DEFINITIONS`) 그대로, 별 3 = 0.9 이상, 별 2 = 0.75 이상, 별 1 = 통과 |
+| 말하기(TALK) | 만남의 내 차례 | 세 가지 말 걸기 중 하나를 고르면 그 방식으로 문장을 냅니다. 🗣 말하기(마이크 = LCW 대화와 같은 서버 Whisper 경로 `POST /v1/converse/stt`, 토큰이 없으면 그 자리에서 수업 코드 넣기, 못 알아들으면 "다시 말해 봐요", 마이크가 없거나 거절되면 타이핑) · 🧩 문장 조립(낱말 조각 순서대로) · ✅ 고르기(상대 말에 맞는 대답) · 🔤 철자(글자 조각, 또는 타이핑). 채점은 `@lcw/converse` `scoreUtterance`(레벨 통과선 `LEVEL_DEFINITIONS`) 그대로, 별 3 = 0.9 이상, 별 2 = 0.75 이상, 별 1 = 통과 |
 | 모범 문장 듣기 | TALK 판의 🔊 | 신경망 목소리 `/v1/tts`(배역 팩 `modelVoice`), 꺼져 있거나 1.5초 안에 안 오면 기기 목소리 |
 | 철자 조각 잡기 | 상대 차례(탄막) | 그날 낱말의 글자가 섞여 떨어집니다. 다음 글자만 잡으면 마음이 오르고, 다른 글자에 닿으면 조금 아픕니다. 낱말을 다 모으면 큰 마음 |
 | 맞는 철자 거품 | 상대 차례 | 같은 낱말의 바른 철자 하나와 틀린 철자 둘이 떠다닙니다. 바른 것만 잡습니다 |
@@ -56,7 +56,7 @@
 | A01 | 섬 지도(모험 시작) | 플레이어 | 네 섬, 열린 섬·끝낸 섬(별)·잠긴 섬, 한국어 도움말 스위치, 소리 스위치 | 문서 자료를 못 읽으면 내장 낱말로 시작(안내 한 줄), 저장소가 막히면 이 탭 동안만 기억 |
 | A02 | 섬 탐험 | 플레이어 | 탑다운 걷기(방향키·WASD·화면 방향판·탭 이동), 낱말 돌, 종 기둥(쉼·회복), 주민 말풍선 | 마이크 없이도 끝까지 갈 수 있음 |
 | A03 | 만남 | 플레이어 | 상대 그림·대사, 공책 무대 안 말풍선 영혼, 탄막, 내 기운·상대 마음 막대, POKE·TALK·POUCH·FRIEND | 기운이 다 떨어지면 "Let's try again" 으로 같은 만남을 처음부터(벌 없음) |
-| A04 | 말 걸기 판 | 플레이어 | 목표 문장(22px 이상), 🔊 모범 문장, 🎤 말하기·⌨ 타이핑·조각 고르기, 별 1~3 | 인식이 없거나 거절되면 타이핑 칸과 조각으로 바로 바뀜 |
+| A04 | 말 걸기 판 | 플레이어 | 목표 문장(22px 이상), 🔊 모범 문장, 🎤 말하기·⌨ 타이핑·조각 고르기, 별 1~3 | 토큰이 없으면 수업 코드 칸(6자리, `/v1/join`), 조용하거나 못 알아들으면 다시 말하기 안내, 마이크가 없거나 거절되면 타이핑 칸과 조각으로 바뀜 |
 | A05 | 장 끝 | 플레이어 | 친구가 된 주민, 돌려받은 낱말, 별, 문서로 돌아가기(`edr`), 다음 섬 안내 | 결과를 못 보내도 화면은 같음(다음 장 끝이나 페이지를 떠날 때 다시 보냄) |
 | A06 | 보호자 요약 | 학부모 | 한국어: 장별 결과·걸린 시간·말한 문장·잡은 낱말·별 | 아직 한 장도 안 했으면 "아직 모험 기록이 없어요" |
 
@@ -68,7 +68,9 @@
   - 봉투: `{v:1, source:'lcw-adventure', student, date, activities:[{id:'ch<N>', kind:'chapter', label:'모험 N장', startedAt, endedAt, seconds, stars, starsMax:3, correct, total, words:[{w, ok, caught, missed}], lines:[{en, ko, mode:'voice'|'typed'|'pick'|'spell', ok, tries}], extra:{outcome:'spared'|'fought'|'quit', hp_lost, level, lessonDate?}}], summaryKo}` — `packages/schemas/src/adventure.ts` 가 모양과 한도(64KB, words·lines ≤ 60, 문자열 ≤ 300자)를 검사합니다.
   - 날짜: 문서는 학생 키로 KST 오늘 -10일~+2일의 `date` 만 받습니다. 수업 날이 그 밖이면(오래된 링크) `date` 는 오늘, 원래 수업 날은 활동의 `extra.lessonDate` 에 넣습니다 — 학부모·선생님 화면은 '지난 수업 복습'으로 따로 보입니다(문서 레인 합의 11-18).
   - 같은 장 id 가 다시 오면 문서가 장별 최고(결과 spared > fought > quit, 같으면 별, 그다음 correct)를 남깁니다. 모험도 같은 탭 안에서는 더 나쁜 다시 하기를 보내지 않고, 보호자 요약의 마지막 기록도 그 섬의 최고를 둡니다.
-  - 문서로는 아이 별명·문장만 갑니다. 마이크 말하기는 브라우저의 음성 인식(`SpeechRecognition`)을 씁니다 — 크롬 등은 인식을 위해 소리를 **브라우저 회사의 인식 서버**로 보낼 수 있습니다. 모험은 소리를 녹음·저장하거나 LCW·문서 서버로 보내지 않고, 인식된 글자만 채점·기록합니다. 마이크를 쓰고 싶지 않으면 늘 타이핑으로 답할 수 있습니다.
+  - 문서로는 아이 별명·문장만 갑니다. 마이크 말하기는 LCW 대화와 같은 하나의 경로입니다(`apps/client/src/dialog/server-stt.ts` `createServerSpeechEngine` 를 그대로 씀): 한 차례를 Opus 16kbps 로 녹음해 아이 토큰과 함께 `POST /v1/converse/stt`(Workers AI Whisper, 한도 계기 통과)로 한 번 보내고, 서버도 이 페이지도 소리를 남기지 않습니다(edge `stt.ts`). 브라우저 자체 음성 인식(`SpeechRecognition`)은 쓰지 않습니다. 소리가 그친 뒤 1.4초면 차례가 끝나고, 7초 동안 아무 말이 없거나 15초가 넘으면 멈춥니다(`ADV.listen`). 문서로는 인식된 글자만 갑니다. 마이크를 쓰고 싶지 않으면 늘 타이핑으로 답할 수 있습니다.
+  - 토큰: 이 탭의 수업 토큰(`sessionStorage lcw.studentToken`) 또는 연결된 기기 토큰(`localStorage lcw.deviceToken`), LCW 와 같은 키와 순서입니다. 둘 다 없으면 말하기 자리에 **수업 코드 칸**이 나옵니다. 선생님 콘솔의 6자리 코드를 넣으면 LCW 와 같은 `POST /v1/join` 으로 학생 토큰을 받아 같은 키(`saveStudentSession`)에 둡니다. 코드는 남기지 않고, 토큰은 그 탭 밖으로 나가지 않습니다. 문서 링크에는 토큰을 싣지 않습니다(공개 링크).
+  - 실패: 아무 소리가 없으면 "I did not hear anything", 업로드·모델 실패면 "I could not catch that. Tap 🎤 and say it again!", 한도가 쉬면 타이핑으로 넘어갑니다.
 - **신경망 목소리**: 섬 주민 대사는 배역 팩 목소리(`ADVENTURE_CAST` → `npc-cast.ts` 의 기존 목소리), 아이 문장은 `modelVoice`. 고정 대사와 내장 낱말 문장은 `fixedTtsLines()` 에 들어 있어 손님도 신경망 목소리를 듣고, 문서 자료에서 온 새 문장은 아이 토큰이 있을 때만 서버가 만듭니다(없으면 기기 목소리).
 - **LCW 월드**: 장마다 같은 상황의 문장 뱅크 문장을 써서, 모험에서 연습한 문장을 `/world/` 카페·상점·안내인에게 그대로 씁니다. 장 끝 화면에 `/world/` 로 가는 단추가 있습니다.
 
@@ -90,5 +92,6 @@
 
 - 자동 시험: `pnpm test` 의 `apps/adventure/src/__tests__/` — 핵심 규칙(`adventure-core.test.ts`: 계획·채점·하루 한 장·봉투·탄막·만남·섬·길찾기), 화면(`adventure-screens.test.tsx`: A01~A06 과 빈·오류 상태), 독창성(`adventure-originality.test.ts`: 빌려 온 이름·장소·용어, 유명한 네 명령어, 하트 표지가 없음).
 - 실화면: `pnpm --filter @lcw/adventure build` 뒤 `npx vite preview --port 8994`(apps/adventure) 를 띄우고 `PLAYWRIGHT_CORE=<playwright-core/index.mjs> node tools/adventure-play.mjs http://127.0.0.1:8994/adventure/ shots/adventure` 를 돌립니다. 헤드리스·소리 끔으로 1440(키보드)·390(터치)·844×390(터치·키보드)에서 네 장을 끝까지 하고, 말하기 네 방식(say·build·spell·pick)을 모두 쓰며, 페이지가 스스로 센 프레임으로 30fps 이상, 페이지 오류 0, 보호자 요약, 그리고 문서 링크를 붙인 1440 실행에서 그날 파일 읽기와 계약 v1 봉투(활동 4개)를 확인합니다. english-day 와 `/v1/*` 는 브라우저 안에서 대신 답하므로 실제 학생·문서에는 아무것도 가지 않습니다. 하나라도 어긋나면 종료 코드 1.
+- 말로만 실측: `ADV_VOICE_DIR=<폴더>` 를 주면 크롬의 가짜 마이크(`--use-fake-device-for-media-stream --use-file-for-fake-audio-capture=<폴더>/turn.wav`)로 답마다 Windows 음성으로 만든 WAV(`tools/say-wav.ps1`, 앞 0.7초·뒤 3.5초 조용함)를 넣고 모든 답을 말로만 합니다(🗣 말하기만 고름). 크롬은 마이크를 열 때마다 파일을 다시 읽으므로 차례마다 다른 문장이 들어갑니다. 첫 차례는 조용한 파일로 "다시 말해 봐요" 안내를 확인합니다. 토큰이 없으면 `ADV_JOIN_CODE`(smoke 학생 수업의 코드)를 코드 칸에 넣습니다. 로컬 빌드는 `ADV_API_BASE=https://lcw.worldwidesomething.com` 으로 `/v1/join`·`/v1/converse/stt` 두 호출만 운영 서버로 넘깁니다. 보고의 `voice` 에 차례 수, STT 응답(상태·인식 글자), 참여 응답 상태(토큰은 남기지 않음)가 남습니다.
 - 운영 학생 문서 실측(문서 사이트 배포 뒤): `ADV_LIVE_SECRET=<english-day.secret 경로> MAXCH=1 … adventure-play.mjs <주소> <출력> d1440-keys` 는 진짜 `https://engday.pages.dev` 에 smoke 학생 `smoke-adv` 로만 결과를 보냅니다. 쓰기 키는 도구 안에서 HMAC 으로 만들고 출력하지 않습니다. 그날 파일은 `ADV_LIVE_DAY_FROM`(꼭 적어야 함) 학생 페이지의 것을 읽기만 합니다. smoke- 학생은 보고와 교사 화면에서 빠집니다. 이 방식에서는 화면마다(390 터치 포함) 문서 링크를 답니다. 2026-11-18 실측: POST 200, ACAO `*`, 활동 1개.
 - 운영 확인은 `smoke-` 로 시작하는 학생 키로만 합니다(학생 문서 쪽이 보고서·누적·선생님 화면에서 뺍니다).

@@ -115,6 +115,18 @@ describe('real-play judgement for the nightly audit', () => {
     expect(judgeView({ ...clean(), clickSuccess: '5/6', faceMisses: [miss(drawn)] }).map((x: { id: string }) => x.id)).toEqual(['play:click-talk']);
   });
 
+  it('a layout problem at a play step is play:hud-overlap for the frame lane; clean steps are not', () => {
+    const r = { ...clean(), hud: [{ step: 'walk', parts: 9, problems: [] }, { step: 'dialog', parts: 12, problems: [] }] };
+    expect(judgeView(r)).toEqual([]);
+    expect(playLines({ pc: r })[0]).toContain('화면 겹침 0(2단계)');
+    r.hud[1]!.problems = ['overlap: .lw-cap "Hi" / .lcw-dlg__win'];
+    r.hud.push({ step: 'lesson-dialog', parts: 10, problems: ['overlap: .lw-cap "Hi" / .lcw-dlg__win'] });
+    const f = judgeView(r);
+    expect(f.map((x: { id: string; owner: string }) => [x.id, x.owner])).toEqual([['play:hud-overlap', 'frame']]);
+    expect(f[0].why).toContain('1건 — dialog: overlap');
+    expect(playRegressions({ touch: { ...r, view: 'touch' } })[0].sizes).toEqual(['390x844']);
+  });
+
   it('a short night skips the play so the screens keep their time', () => {
     expect(playBudget(10 * 60000)).toBe(0);
     expect(playBudget(40 * 60000)).toBe(24 * 60000);

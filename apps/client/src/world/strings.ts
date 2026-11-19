@@ -96,7 +96,7 @@ const WORLD_STRINGS_KO = {
   rested: '너무 지쳤어요! 광장에서 쉬고 다시 시작해요',
   ouch: '아야! 높은 데서 떨어지면 체력이 줄어요',
   warmedUp: '후~ 따뜻해졌어요! 한동안 덜 추워요',
-  controlsDesktop: 'WASD 이동 · 한 번 누르면 마우스로 둘러보기(Esc 풀기) · 왼쪽 클릭 말 걸기·때리기 · 오른쪽 클릭 쓰기 · Space 점프 · E 말 걸기', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
+  controlsDesktop: 'WASD 이동 · 눌러서 둘러보기 · 왼쪽 클릭 말 걸기·때리기 · 오른쪽 클릭 쓰기 · Space 점프 · E 말 걸기', // = controlsDesktopFor(DEFAULT_KEY_HINTS)
   controlsTouch: '왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기',
   // Building on my plot (docs/03 D13).
   buildHelpDesktop: '내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · Z 되돌리기 · R 돌리기',
@@ -201,7 +201,7 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   rested: 'So tired! You rested at the square',
   ouch: 'Ouch! Long falls hurt',
   warmedUp: 'Ahh, nice and warm! The cold stays away for a while',
-  controlsDesktop: 'WASD move · Click, then the mouse looks (Esc frees it) · Left-click talk / hit · Right-click use · Space jump · E talk',
+  controlsDesktop: 'WASD move · Click to look · Left-click talk / hit · Right-click use · Space jump · E talk',
   controlsTouch: 'Drag left to move · Drag right to look',
   buildHelpDesktop: 'Your plot! Right-click place · Hold left-click break · 1-5 pick · Z undo · R rotate',
   buildHelpTouch: 'Your plot! Tap to place · Pick break and hold',
@@ -560,13 +560,13 @@ export interface KeyHintLabels {
 export const DEFAULT_KEY_HINTS: Readonly<KeyHintLabels> = Object.freeze({ move: 'WASD', jump: 'Space', talk: 'E', undo: 'Z', rotate: 'R' });
 /** The desktop controls line with the player's keys, in the learn language (Korean after it with the help on). */
 export function controlsDesktopFor(k: Readonly<KeyHintLabels>): string {
-  return joinHelp(`${k.move} move · Click, then the mouse looks (Esc frees it) · Left-click talk / hit · Right-click use · ${k.jump} jump · ${k.talk} talk`, `${k.move} 이동 · 한 번 누르면 마우스로 둘러보기(Esc 풀기) · 왼쪽 클릭 말 걸기·때리기 · 오른쪽 클릭 쓰기 · ${k.jump} 점프 · ${k.talk} 말 걸기`);
+  return joinHelp(`${k.move} move · Click to look · Left-click talk / hit · Right-click use · ${k.jump} jump · ${k.talk} talk`, `${k.move} 이동 · 눌러서 둘러보기 · 왼쪽 클릭 말 걸기·때리기 · 오른쪽 클릭 쓰기 · ${k.jump} 점프 · ${k.talk} 말 걸기`);
 }
 /** The same line as English plus its Korean help line (null while the help is off), for the HUD's own two lines. */
 export function controlsDesktopBi(k: Readonly<KeyHintLabels>): { en: string; ko: string | null } {
   return {
-    en: `${k.move} move · Click, then the mouse looks (Esc frees it) · Left-click talk / hit · Right-click use · ${k.jump} jump · ${k.talk} talk`,
-    ko: helpKoOn() ? `${k.move} 이동 · 한 번 누르면 마우스로 둘러보기(Esc 풀기) · 왼쪽 클릭 말 걸기·때리기 · 오른쪽 클릭 쓰기 · ${k.jump} 점프 · ${k.talk} 말 걸기` : null
+    en: `${k.move} move · Click to look · Left-click talk / hit · Right-click use · ${k.jump} jump · ${k.talk} talk`,
+    ko: helpKoOn() ? `${k.move} 이동 · 눌러서 둘러보기 · 왼쪽 클릭 말 걸기·때리기 · 오른쪽 클릭 쓰기 · ${k.jump} 점프 · ${k.talk} 말 걸기` : null
   };
 }
 export function buildHelpDesktopFor(k: Readonly<KeyHintLabels>): string {

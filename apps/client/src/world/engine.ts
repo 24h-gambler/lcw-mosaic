@@ -918,6 +918,8 @@ ${line(s.help)}` : line(s.text), 4000);
   // play fighting (R326 ⑩): the room says when a hit lands (multi.hit); the gauges take the health (useGauges)
   let roomOut: RoomOut | null = null;
   let pvpOn = true;
+  /** this screen pressed the teacher's switch (its own echo is not news) */
+  let pvpMine = false;
   let myHitShieldUntil = 0;
   const hitListeners = new Set<(from: string) => void>();
   const HIT_REACH_M = 3.5;
@@ -2423,7 +2425,10 @@ ${line(s.help)}` : line(s.text), 4000);
     shieldHits: (ms) => {
       myHitShieldUntil = performance.now() + ms;
     },
-    setRoomPvp: (on) => roomOut?.setPvp(on),
+    setRoomPvp: (on) => {
+      pvpMine = true;
+      roomOut?.setPvp(on);
+    },
     roomPvp: () => pvpOn,
     onFall: (cb) => {
       fallListeners.add(cb);
@@ -2511,7 +2516,9 @@ ${line(s.help)}` : line(s.text), 4000);
         roomOut = out;
       },
       pvp(on) {
-        if (on !== pvpOn && peers.count > 0) hud.notice(on ? W.pvpOn : W.pvpOffNow, 3000);
+        // the children hear it; the teacher who pressed the switch sees it on the button
+        if (on !== pvpOn && peers.count > 0 && !pvpMine) hud.notice(on ? W.pvpOn : W.pvpOffNow, 3000);
+        pvpMine = false;
         pvpOn = on;
       },
       hit(from, to, d) {

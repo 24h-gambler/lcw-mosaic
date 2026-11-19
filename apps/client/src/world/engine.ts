@@ -6,11 +6,11 @@ import * as THREE from 'three';
 import { VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
-import { atlasMaterialSteps, TILE_PX } from './atlas.js';
+import { atlasMaterialSteps, startAtlasWorkers, TILE_PX } from './atlas.js';
 import { PostChain } from './post.js';
 import { TILE_NAMES, blockLook } from './blocks.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
-import { ChunkRenderer } from './chunks.js';
+import { ChunkRenderer, EXTRACT_FRAME_MS } from './chunks.js';
 import { makeBlockMaterials, type BlockMaterialMode } from './materials.js';
 import { AutoTierPicker, ResolutionGovernor, TIER_SETTINGS, graphicsFor } from './tiers.js';
 import { Effects } from './effects.js';
@@ -210,6 +210,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // ---- Town (deterministic, system actor through setBlock).
   // Built in slices between frames (~12 ms each): one 300–900 ms task froze the page and the loading bar on tablets.
   const world = new VoxelWorld();
+  // the block atlases paint in a Worker while the town is built (R2627: 0.7 s on a phone, off the critical path)
+  // split over the cores the meshing Workers leave idle until the town is built
+  const atlasJob = startAtlasWorkers(Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 2) - 1)), () => new Worker(new URL('./atlas.worker.ts', import.meta.url), { type: 'module' }));
   await runSliced(buildTownSteps(world));
   mark('town');
   hud.setLoading(0.45, false);
@@ -259,7 +262,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   }
 
   // Block textures (textures.ts, R2627): albedo (sRGB) and material (normal, roughness, metal; linear) atlases, 64 px.
-  const atlasData = await runSliced(atlasMaterialSteps());
+  const atlasData = (await atlasJob) ?? (await runSliced(atlasMaterialSteps()));
   const atlasPixels = atlasData.albedo;
   const arrayTex = (px: Uint8Array<ArrayBuffer>, srgb: boolean): THREE.DataArrayTexture => {
     const t = new THREE.DataArrayTexture(px, TILE_PX, TILE_PX, TILE_NAMES.length);
@@ -285,7 +288,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   // the tier's material (low: per-vertex, mid: per-pixel with the material atlas, high: PBR); sun shadows need PBR
   const materialModeOf = (t: WorldTier, shadows: boolean): BlockMaterialMode => (shadows ? 'lit' : TIER_SETTINGS[t].material);
   let chunkMats = matsFor(materialModeOf(tierName, gfx.shadows));
-  const workerCount = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
+  // the light grid makes each chunk ~2.7x the work of plain meshing (R2627): an eight-core phone gets a fourth Worker
+  const workerCount = Math.max(1, Math.min((navigator.hardwareConcurrency || 2) >= 8 ? 4 : 3, (navigator.hardwareConcurrency || 2) - 1));
   const chunks = new ChunkRenderer(world, chunkMats, workerCount, () =>
     new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module' })
   );
@@ -1678,7 +1682,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     buddy?.update(dt, body.x, body.y, body.z, viewYaw(), (x, z, fromY) => standHeight(world, x, z, fromY));
     weather?.update(dt, camera.position);
     chunkMats.sync(sky);
-    chunks.update(body.x, body.z, viewChunks);
+    chunks.update(body.x, body.z, viewChunks, undefined, EXTRACT_FRAME_MS);
     updateCamera(dt);
     updateBuild(dt, now);
 

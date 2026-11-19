@@ -18,5 +18,7 @@ function transfers(g: GeoBuffers): ArrayBuffer[] {
 self.onmessage = (ev: MessageEvent<Req>) => {
   const { id, key, vox, origin, n, skyAbove } = ev.data;
   const mesh = meshChunk(vox, origin, n && skyAbove ? { n, skyAbove } : undefined);
-  (self as unknown as Worker).postMessage({ id, key, mesh }, [...transfers(mesh.opaque), ...transfers(mesh.translucent)]);
+  // the grid goes back too, so the main thread reuses it for the next chunk (no 170 KB of garbage per chunk)
+  const back: ArrayBuffer[] = skyAbove ? [vox.buffer as ArrayBuffer, skyAbove.buffer as ArrayBuffer] : [];
+  (self as unknown as Worker).postMessage({ id, key, mesh, vox: skyAbove ? vox : undefined, skyAbove }, [...transfers(mesh.opaque), ...transfers(mesh.translucent), ...back]);
 };

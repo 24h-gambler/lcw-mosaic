@@ -131,6 +131,12 @@ describe('chunk borders and extraction cost (R2627 review)', () => {
     const t0 = performance.now();
     for (const [a, b, c] of keys) extractLit(town, a, b, c);
     const per = (performance.now() - t0) / keys.length;
+    // a buffer pair sent back by the Worker (still holding another chunk's grid) gives the same grid as a fresh one
+    const [ex, ey, ez] = keys[3]!;
+    const reused = extractLit(town, ex, ey, ez, { vox: new Uint16Array(n ** 3).fill(77), skyAbove: new Uint8Array(n * n).fill(0) });
+    const fresh = extractLit(town, ex, ey, ez);
+    expect(reused.vox).toEqual(fresh.vox);
+    expect(reused.skyAbove).toEqual(fresh.skyAbove);
     // 44^3 cells copied from 27 chunks: well under 2 ms each even on a loaded test machine
     expect(per).toBeLessThan(2);
   });

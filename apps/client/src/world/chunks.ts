@@ -73,6 +73,9 @@ export function extractPadded(world: VoxelWorld, cx: number, cy: number, cz: num
   return out;
 }
 
+/** Main-thread time per frame spent reading light grids for the Worker while streaming (ChunkRenderer.update). */
+export const EXTRACT_FRAME_MS = 4;
+
 /** Side of the lit grid: the chunk plus LIGHT_PAD blocks on every side. */
 export const LIT_N = CHUNK_SIZE + 2 * LIGHT_PAD;
 
@@ -81,12 +84,19 @@ export const LIT_N = CHUNK_SIZE + 2 * LIGHT_PAD;
  * ((y * n) + z) * n + x with local coordinate = index - LIGHT_PAD, plus for each column whether anything above the grid's
  * top blocks the sky (read from the chunks stacked above, so a roof two chunks up still shades the room).
  */
-export function extractLit(world: VoxelWorld, cx: number, cy: number, cz: number): { vox: Uint16Array; skyAbove: Uint8Array } {
+export function extractLit(
+  world: VoxelWorld,
+  cx: number,
+  cy: number,
+  cz: number,
+  into?: { vox: Uint16Array; skyAbove: Uint8Array }
+): { vox: Uint16Array; skyAbove: Uint8Array } {
   const S = CHUNK_SIZE;
   const n = LIT_N;
   const P = LIGHT_PAD;
-  const vox = new Uint16Array(n * n * n);
-  const skyAbove = new Uint8Array(n * n).fill(1);
+  // a reused pair (sent back by the Worker) saves 170 KB of garbage per chunk; cleared because missing chunks are skipped
+  const vox = into ? into.vox.fill(0) : new Uint16Array(n * n * n);
+  const skyAbove = into ? into.skyAbove.fill(1) : new Uint8Array(n * n).fill(1);
   type Src = ReturnType<VoxelWorld['chunks']['get']>;
   // P < S: the grid touches at most 3 x 3 x 3 chunks. Look each up once (27 map reads, no key per voxel), then copy
   // rows straight from the chunk's palette array by the per-axis slot (0 = previous chunk, 1 = this one, 2 = next).
@@ -227,6 +237,8 @@ export function mergeGeo(parts: Array<{ g: GeoBuffers; ox: number; oy: number; o
 
 export class ChunkRenderer {
   private entries = new Map<string, ChunkEntry>();
+  /** light-grid buffers the Worker sent back, reused by the next extraction */
+  private gridPool: Array<{ vox: Uint16Array; skyAbove: Uint8Array }> = [];
   private regions = new Map<string, Region>();
   private workers: Worker[] = [];
   private nextWorker = 0;
@@ -251,7 +263,11 @@ export class ChunkRenderer {
       for (let i = 0; i < workerCount; i++) {
         try {
           const w = makeWorker();
-          w.onmessage = (ev: MessageEvent<{ id: number; key: string; mesh: ChunkMesh }>) => this.onResult(ev.data);
+          w.onmessage = (ev: MessageEvent<{ id: number; key: string; mesh: ChunkMesh; vox?: Uint16Array; skyAbove?: Uint8Array }>) => {
+            const d = ev.data;
+            if (d.vox && d.skyAbove && d.vox.length === LIT_N ** 3 && this.gridPool.length < 12) this.gridPool.push({ vox: d.vox, skyAbove: d.skyAbove });
+            this.onResult(d);
+          };
           this.workers.push(w);
         } catch {
           break;
@@ -384,7 +400,7 @@ export class ChunkRenderer {
    * Schedule meshing for chunks around (px, pz) within `radius` chunks, re-merge changed regions and toggle region
    * visibility. `budget` limits synchronous meshes per call when no Worker is available.
    */
-  update(px: number, pz: number, radius: number, budget = 4): void {
+  update(px: number, pz: number, radius: number, budget = 4, extractMs = Infinity): void {
     const pcx = Math.floor(px / CHUNK_SIZE);
     const pcz = Math.floor(pz / CHUNK_SIZE);
     const want: Array<{ e: ChunkEntry; d: number }> = [];
@@ -395,9 +411,13 @@ export class ChunkRenderer {
     want.sort((a, b) => a.d - b.d);
     if (this.workers.length > 0) {
       const maxInFlight = this.workers.length * 3;
+      // the light grids are read on the main thread: the frame loop passes EXTRACT_FRAME_MS so streaming a new part of
+      // town on a phone is spread over frames (at least one chunk each) instead of one long frame
+      const t0 = performance.now();
       for (const { e } of want) {
         if (this.pending.size >= maxInFlight) break;
         this.dispatch(e);
+        if (performance.now() - t0 >= extractMs) break;
       }
     } else {
       for (const { e } of want.slice(0, budget)) {
@@ -452,7 +472,7 @@ export class ChunkRenderer {
 
   private dispatch(e: ChunkEntry): void {
     e.first = false;
-    const { vox, skyAbove } = extractLit(this.world, e.cx, e.cy, e.cz);
+    const { vox, skyAbove } = extractLit(this.world, e.cx, e.cy, e.cz, this.gridPool.pop());
     const id = ++this.jobId;
     this.pending.set(id, { key: e.key, version: e.version });
     e.inFlight = true;

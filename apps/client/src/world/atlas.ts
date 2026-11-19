@@ -19,12 +19,13 @@ export interface AtlasPixels {
 }
 
 /** Both atlases one tile per step, so the start-up can hand frames back between tiles (no long main-thread task). */
-export function* atlasMaterialSteps(): Generator<void, AtlasPixels> {
+export function* atlasMaterialSteps(from = 0, to: number = TILE_NAMES.length): Generator<void, AtlasPixels> {
   const layerBytes = S * S * 4;
-  const albedo = new Uint8Array(layerBytes * TILE_NAMES.length);
-  const material = new Uint8Array(layerBytes * TILE_NAMES.length);
-  for (let i = 0; i < TILE_NAMES.length; i++) {
-    paintTile(TILE_NAMES[i] as TileName, i * 31 + 7, albedo, material, i * layerBytes);
+  // layers from..to-1 (a Worker paints a share of them; atlasMaterialSteps() is the whole atlas)
+  const albedo = new Uint8Array(layerBytes * (to - from));
+  const material = new Uint8Array(layerBytes * (to - from));
+  for (let i = from; i < to; i++) {
+    paintTile(TILE_NAMES[i] as TileName, i * 31 + 7, albedo, material, (i - from) * layerBytes);
     yield;
   }
   return { albedo, material };
@@ -55,4 +56,42 @@ export function tileAverageColor(pixels: Uint8Array, layer: number): [number, nu
   }
   if (n === 0) return [1, 1, 1];
   return [r / n / 255, g / n / 255, b / n / 255];
+}
+
+/**
+ * Paint both atlases in `count` Workers (atlas.worker.ts), each a share of the tiles, while the town is built; resolves
+ * null when a Worker cannot run or fails, and the caller paints them on the main thread (atlasMaterialSteps).
+ */
+export function startAtlasWorkers(count: number, make: () => Worker): Promise<AtlasPixels | null> {
+  const n = TILE_NAMES.length;
+  const k = Math.max(1, Math.min(count, n));
+  const share = (from: number, to: number): Promise<AtlasPixels | null> =>
+    new Promise((resolve) => {
+      let w: Worker;
+      try {
+        w = make();
+      } catch {
+        resolve(null);
+        return;
+      }
+      const done = (v: AtlasPixels | null): void => {
+        w.terminate();
+        resolve(v);
+      };
+      w.onmessage = (ev: MessageEvent<AtlasPixels | { error: string }>) => done('albedo' in ev.data ? ev.data : null);
+      w.onerror = () => done(null);
+      w.postMessage({ from, to });
+    });
+  const bounds = Array.from({ length: k + 1 }, (_, i) => Math.round((i * n) / k));
+  return Promise.all(bounds.slice(0, k).map((b, i) => share(b, bounds[i + 1]!))).then((parts) => {
+    if (parts.some((p) => !p)) return null;
+    const layerBytes = S * S * 4;
+    const albedo = new Uint8Array(layerBytes * n);
+    const material = new Uint8Array(layerBytes * n);
+    parts.forEach((p, i) => {
+      albedo.set(p!.albedo, bounds[i]! * layerBytes);
+      material.set(p!.material, bounds[i]! * layerBytes);
+    });
+    return { albedo, material };
+  });
 }

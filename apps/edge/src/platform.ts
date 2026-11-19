@@ -362,6 +362,19 @@ export class PlatformDO {
   }
 
   /**
+   * The lesson child is talking somewhere off the town screen (the adventure's 🎤 with the same lesson token, the
+   * day's last box): a sign of life, so the idle sweep does not close the lesson while the town polls stop. Only the
+   * time moves; the scene and screen kind the console shows stay what the town said last.
+   */
+  lessonChildSeen(lessonId: string, now = Date.now()): void {
+    this.sql.run(
+      `insert into lesson_presence (lesson_id, last_seen_at) values (?, ?)
+       on conflict(lesson_id) do update set last_seen_at = max(lesson_presence.last_seen_at, excluded.last_seen_at)`,
+      [lessonId, now]
+    );
+  }
+
+  /**
    * Linked child device token (guardian /link → `lcw.deviceToken`, same checks as GET /v1/device/me) → player,
    * for solo play outside a lesson.
    */
@@ -863,6 +876,8 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       await drain();
       return c.json({ error: 'child_token_required' }, 401);
     }
+    // a lesson child's turn off the town screen (the adventure) keeps the lesson alive for the idle sweep
+    if (student) platform.lessonChildSeen(student.lesson_id);
     const blocked = device ? seatBlocked({ player_id: playerId, device: true }) : null;
     if (blocked) {
       await drain();

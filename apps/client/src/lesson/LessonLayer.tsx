@@ -590,7 +590,7 @@ export function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () =>
         data-testid="lesson-adventure"
         data-now={adventureNow ? '1' : undefined}
         onClick={() => setToAdventure(true)}
-        style={adventureNow ? { ...small, background: C.sun, fontWeight: 800 } : small}
+        style={adventureNow ? { ...small, background: C.sun } : small}
       >
         {S.status.adventure}
       </button>

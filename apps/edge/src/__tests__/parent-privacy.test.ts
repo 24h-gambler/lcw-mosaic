@@ -127,8 +127,6 @@ describe('public text filter (quotes, expressions)', () => {
   it.each([
     'Unicorns are my favorite',
     'Spaghetti is yummy',
-    'Minecraft is so fun',
-    'Roblox is my favorite game',
     'Lego is fun to build',
     'Kimbap is my favorite lunch',
     'Jellyfish are so soft',

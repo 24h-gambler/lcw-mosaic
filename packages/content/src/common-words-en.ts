@@ -63,7 +63,7 @@ september october november december english korean korea math science art
 unicorn unicorns spaghetti pasta kimbap tteokbokki bibimbap bulgogi dumplings sushi taco tacos hotdog sausage bacon
 jelly jellyfish octopus squid crab lobster seal otter fox wolf deer owl parrot goldfish hedgehog koala kangaroo
 camel hippo rhino cheetah leopard crocodile alligator lizard ladybug caterpillar worm snail
-bubble bubbles balloon balloons kite slide swing sandbox trampoline lego legos blocks minecraft roblox pokemon
+bubble bubbles balloon balloons kite slide swing sandbox trampoline lego legos blocks
 slime crayons stickers sticker marker markers scissors glue notebook ruler
 cartoon cartoons comic comics youtube video videos phone camera ipad laptop
 birthday party present presents gift gifts holiday vacation trip picnic camping festival christmas halloween
@@ -71,7 +71,7 @@ water milk juice smoothie lemonade cocoa soda candy gum chips ketchup
 lamp table floor wall window door roof stairs bed sofa couch pillow blanket toilet shower
 tap press type send set check key word words whole single bunk cozy dining cooking sewing saw wood petals flower
 flowers tree trees grass leaf leaves rock rocks sand stone island cave castle tower bridge
-instead sounds ooh agreed deal
+instead sounds ooh agreed deal clap clapping hop wag peep tiptoe
 not very too just only even still almost already together alone inside outside up down in out on off over under
 into onto around through across between behind near far away back with without about at by for from of to as than
 like until while since during

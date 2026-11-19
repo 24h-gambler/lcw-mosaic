@@ -124,6 +124,11 @@ export interface WorldHandle {
    */
   setTeacher?(t: { present: boolean; name: string | null } | null): void;
   /**
+   * Labels drawn inside the 3D view (the teacher's name plate) where they are on the screen now, with their opacity:
+   * the frame's layout check (tools/frame-layout.mjs) holds them against the HUD parts. HTML plates are DOM and seen there.
+   */
+  screenLabels?(): ReadonlyArray<{ name: string; x: number; y: number; w: number; h: number; opacity: number }>;
+  /**
    * Walk up to an NPC and face it, about 1.5 m in front (inside the talk range): the NPC's scene first when it is
    * far. Resolves on arrival (a dialog pausing the world ends the walk where it is). Unknown or hidden NPCs: no-op.
    */

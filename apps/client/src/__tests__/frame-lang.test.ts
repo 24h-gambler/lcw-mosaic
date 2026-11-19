@@ -15,7 +15,7 @@ import { ko, koHelpActive, koOf } from '../frame/menu/ko-help.js';
 import { ACHIEVEMENT_NAMES_EN, COLLECTION_NAMES_EN, achievementName, entryName, thingName } from '../frame/menu/collection-names.js';
 import { itemTitleBi, itemTitleEnKnown } from '../world/strings.js';
 import { keyLabel } from '../frame/menu/SettingsPanel.js';
-import { lowNotice } from '../frame/useGauges.js';
+import { noticeLine } from '../frame/useGauges.js';
 import { clockLabel, hotbarCaption, placeBi, placeLabel } from '../frame/status.js';
 
 const HANGUL = /[가-힣]/;
@@ -101,7 +101,7 @@ describe('the screens speak the learn language', () => {
       mapSummary({ cells, playerCell: 4, near: places[0]!, band: 'surface', yaw: 0, places, lessonOn: false }),
       goLabel(SCENE_TITLES_KO.plaza),
       mapNowLine(SCENE_TITLES_KO.plaza, 'surface', 0).en,
-      lowNotice('lowThirst'),
+      noticeLine('lowThirst'),
       keyLabel('ShiftLeft'),
       keyLabel('ControlRight'),
       ...ACHIEVEMENT_REGISTRY.map((a) => achievementName(a.id, a.nameKo)),
@@ -171,12 +171,14 @@ describe('Korean help (world/lang.ts helpKoOn, one switch with the start screen)
 
   it('the HUD band and the low-gauge notices put the Korean on a line of its own', () => {
     expect(worldSay('offlineBand').help).toBeNull();
-    expect(lowNotice('lowThirst')).not.toContain('\n');
+    expect(noticeLine('lowThirst')).not.toContain('\n');
     setHelpKo(true);
     const band = worldSay('offlineBand');
     expect(HANGUL.test(band.text)).toBe(false);
     expect(band.help).toBe('연결이 잠깐 끊겼어요 · 혼자 모드로 계속 중');
-    expect(lowNotice('lowThirst')).toMatch(/^[^가-힣]+\n목이 말라서/);
+    expect(noticeLine('lowThirst')).toMatch(/^[^가-힣]+\n목이 말라서/);
+    // ate / drank / a bit later: the same two lines (a dot join ran past a phone's hotbar line and was cut)
+    for (const k of ['ate', 'drank', 'restLater'] as const) expect(noticeLine(k)).toMatch(/^[^가-힣]+\n[^\n]*[가-힣]/);
     expect(WORLD_STRINGS.talk).toBe('Talk · 말 걸기');
   });
 

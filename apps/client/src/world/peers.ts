@@ -46,7 +46,9 @@ export class PeerAvatars {
     private readonly scene: THREE.Scene,
     private readonly plateParent: HTMLElement,
     private readonly look: (info: PeerInfo) => NpcLook,
-    private readonly plateOf: (info: PeerInfo) => string = (info) => info.name
+    private readonly plateOf: (info: PeerInfo) => string = (info) => info.name,
+    /** Fades a plate that runs under a HUD part (hud.fadePlate): checked every frame, the HUD can change under a still plate. */
+    private readonly fadePlate: ((plate: HTMLElement, sx: number, sy: number) => void) | null = null
   ) {}
 
   get count(): number {
@@ -150,6 +152,7 @@ export class PeerAvatars {
       }
       const p = visible && showPlates ? project(rt.pos.x, rt.pos.y + CHAR_HEIGHT + 0.25, rt.pos.z) : null;
       const key = p && p.vis ? `${Math.round(p.sx)}:${Math.round(p.sy)}` : 'off';
+      if (p && p.vis) this.fadePlate?.(rt.plate, Math.round(p.sx), Math.round(p.sy));
       if (key === rt.plateKey) continue;
       rt.plateKey = key;
       if (!p || !p.vis) rt.plate.style.visibility = 'hidden';

@@ -98,19 +98,19 @@ function adventureStage(order: number, minutes: number, playUntil: number): Less
     minutes,
     mode: 'free',
     teacherGuideKo:
-      '오늘의 마지막 칸, 모험입니다. 아이 화면 상태줄의 「🗺 모험」을 같은 탭에서 누르게 하세요 — 수업 토큰이 따라가 🎤가 바로 됩니다. 새 탭·다른 기기면 수업 코드 {code} 를 넣으면 됩니다. 끝나면 「수업 끝」으로 리포트를 만드세요.',
-    teacherScriptEn: "Now it's adventure time! Tap the map at the top of your screen.",
-    studentGoalKo: '위쪽 상태줄의 🗺 모험을 눌러 모험을 떠나요',
-    studentGoalEn: 'Tap 🗺 Adventure at the top',
+      '오늘의 마지막 칸, 모험입니다. 아이 화면에서 먼저 대화창 오른쪽 위 ✕ 로 창을 접게 하고(접어야 상태줄이 보여요), 상태줄의 「🗺 모험」을 같은 탭에서 누르게 하세요 — 수업 토큰이 따라가 🎤가 바로 됩니다. 새 탭·다른 기기면 수업 코드 {code} 를 넣으면 됩니다. 끝나면 「수업 끝」으로 리포트를 만드세요.',
+    teacherScriptEn: "Now it's adventure time! Close this window with the X, then tap the map.",
+    studentGoalKo: '✕ 로 대화창을 접고 🗺 모험을 눌러요',
+    studentGoalEn: 'Close the chat with ✕, then tap 🗺 Adventure',
     sceneId: 'plaza',
     npcId: 'guide',
     hint: 'none',
     stepsKo: [
-      '0–2분 · 아이 화면 상태줄의 「🗺 모험」을 같은 탭에서 누르게 해요. 새 탭이면 수업 코드 {code}.',
+      '0–2분 · 아이 화면에서 ✕ 로 대화창을 접고, 상태줄의 「🗺 모험」을 같은 탭에서 누르게 해요. 새 탭이면 수업 코드 {code}.',
       `2–${playUntil}분 · 모험에서 🎤로 오늘 낱말을 말하며 이야기를 따라가요. 막히면 첫 낱말만 알려 줘요.`,
       `${playUntil}–${minutes}분 · 마을로 돌아오면 「수업 끝」에 한마디와 다음 수업 날짜를 쓰고, 리포트를 미리보기 뒤 보내요.`
     ],
-    followUpsEn: ['Are you ready for the adventure?', 'Tap the map at the top of your screen.', 'Come back to the town when you finish!'],
+    followUpsEn: ['Are you ready for the adventure?', 'Close this window with the X, then tap the map.', 'Come back to the town when you finish!'],
     targets: [{ stars: 1, text: "Let's go on an adventure!", hintTags: ['adventure'] }]
   };
 }

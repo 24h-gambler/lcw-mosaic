@@ -8,7 +8,7 @@ import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
 import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LESSON_RETRY_START_MS, LessonController, goalTargetEn, initialLessonView, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
-import { LessonLayer, StatusPill, goToSceneChecked, lessonGoneInWorld, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
+import { FOLD_HINT_MIN_LEFT_PX, FOLD_HINT_ROOM_PX, FoldHint, LessonLayer, StatusPill, foldHintPlace, goToSceneChecked, lessonGoneInWorld, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
 import { SubmitError } from '../dialog/submit.js';
 
@@ -530,6 +530,41 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(cafe).not.toContain('data-now');
     // the goal card the world shows for that stage points at the same button
     for (const plan of LESSON_PLANS) expect(plan.stages.at(-1)!.studentGoalEn).toContain('🗺 Adventure');
+  });
+
+  it('in the adventure stage the order is ✕ first, then 🗺: goal, teacher guide and the card over the open window say so', () => {
+    // 🗺 lives in the status bar, which shows only while the dialog window is folded (adventure lane, 390 run 11-19 17:04)
+    for (const plan of LESSON_PLANS) {
+      const s = plan.stages.at(-1)!;
+      expect(s.id).toBe(ADVENTURE_STAGE_ID);
+      for (const text of [s.studentGoalEn, s.studentGoalKo, s.teacherGuideKo, s.stepsKo![0]!]) {
+        expect(text).toContain('✕');
+        expect(text.indexOf('✕')).toBeLessThan(text.indexOf('🗺'));
+      }
+    }
+    for (const S of [LESSON_STRINGS, LESSON_STRINGS_KO]) {
+      expect(S.status.adventureFold.indexOf('✕')).toBeGreaterThanOrEqual(0);
+      expect(S.status.adventureFold.indexOf('✕')).toBeLessThan(S.status.adventureFold.indexOf('🗺'));
+    }
+    const html = renderToStaticMarkup(React.createElement(FoldHint));
+    expect(html).toContain('data-testid="lesson-adventure-fold"');
+    expect(html).toContain(LESSON_STRINGS.status.adventureFold);
+    expect(html).toContain('pointer-events:none'); // the ✕ under the arrow stays tappable
+  });
+
+  it('the fold card points at the ✕ from beside it (not over the NPC line), else above, else below, else top right', () => {
+    // 390 bottom sheet, measured: ✕ 336–376 x 558–598 -> the card ends 4 px left of the ✕, centred on its row
+    expect(foldHintPlace({ top: 558, bottom: 598, left: 336, right: 376 }, 390)).toEqual({ top: 578, right: 58, side: 'left' });
+    // no room on the left (a narrow window flush left): above the ✕, its arrow over it
+    const narrow = { top: 300, bottom: 340, left: FOLD_HINT_MIN_LEFT_PX - 1, right: FOLD_HINT_MIN_LEFT_PX + 39 };
+    expect(foldHintPlace(narrow, 390)).toEqual({ top: 292, right: 390 - (FOLD_HINT_MIN_LEFT_PX + 39), side: 'above' });
+    // and near the top as well: under it, arrow up
+    const low = foldHintPlace({ ...narrow, top: FOLD_HINT_ROOM_PX - 1, bottom: FOLD_HINT_ROOM_PX + 39 }, 390);
+    expect(low.side).toBe('below');
+    expect(low.top).toBeGreaterThan(FOLD_HINT_ROOM_PX + 39);
+    expect(foldHintPlace(null, 1280).side).toBe('none');
+    // never off the right edge
+    expect(foldHintPlace({ top: 200, bottom: 240, left: 20, right: 400 }, 390).right).toBeGreaterThan(0);
   });
 
   it('hints follow the stage ladder and the layer draws nothing outside a lesson', () => {

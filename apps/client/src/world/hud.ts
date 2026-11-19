@@ -162,7 +162,7 @@ function css(): string {
 
 @media (max-width:600px){.lw-hud .lw-goal{top:calc(var(--lw-chip-b,74px) + 10px)}.lw-hud:has(.lw-touch.on) .lw-cap{left:12px;transform:none;max-width:calc(100% - 12px - var(--lw-jump,140px))}}
 /* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
-@media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}}
+@media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}.lw-chip .l{max-width:var(--lw-chip-s-w,200px);white-space:normal}}
 /* short landscape: the goal card sits between the status chip and the stars, with a smaller line so it stays short */
 @media (max-height:500px){.lw-hud .lw-goal{max-width:calc(100% - 2 * var(--lw-side,200px));padding:6px 10px}.lw-hud .lw-goal .t{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1))}.lw-hud .lw-goal .g{font-size:calc(${T.scale.body.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.body.lineHeightPx}px * var(--lcw-hs,1))}}
 @media (max-width:600px) and (max-height:500px){.lw-hud .lw-goal{max-width:none}}
@@ -393,6 +393,10 @@ export class WorldHud {
       const stars = this.starsEl;
       const measure = (): void => {
         this.root.style.setProperty('--lw-chip-b', `${Math.ceil(12 + chip.offsetHeight)}px`);
+        // the status box's own width: a long lesson / teacher tag under it wraps there instead of widening the chip
+        // (667x375 with the teacher's name: the goal card between chip and stars fell to 61 px)
+        const sBox = chip.querySelector<HTMLElement>('.s');
+        if (sBox && sBox.offsetWidth > 0) this.root.style.setProperty('--lw-chip-s-w', `${Math.ceil(Math.max(160, sBox.offsetWidth))}px`);
         // on touch the talk button (it comes and goes by the NPC) keeps its column free too
         // the right column under the stars: the view button (touch) and the minimap when it sits there (touch portrait,
         // tablet; world/minimap-place.ts), measured: the goal card keeps clear of both
@@ -470,6 +474,7 @@ export class WorldHud {
       this.slots.push(s);
     }
     this.cap = el('div', 'lw-cap', this.root);
+    this.cap.addEventListener('transitionend', () => this.measureStacks());
     this.selectSlot(0, false);
 
     this.toast = el('div', 'lw-toast lw-card', this.root);
@@ -596,6 +601,7 @@ export class WorldHud {
   /** The player's own keys (G14 키 바꾸기) in the talk prompt and the desktop help line; quiet (no re-show). */
   setKeyHints(k: Readonly<KeyHintLabels>): void {
     this.keys = k;
+    this.promptSize = null;
     if (this.talkKbd) this.talkKbd.textContent = k.talk;
     if (!this.touchOn) this.help.textContent = this.helpText();
   }
@@ -872,7 +878,9 @@ export class WorldHud {
     let stack = 0;
     // the caption only while it shows (a faded one keeps its last text and height)
     // the controls help only until it fades (.off, 9 s after touch starts)
-    for (const e of [this.help.classList.contains('off') ? null : this.help, this.cap.classList.contains('on') ? this.cap : null]) {
+    // (and while it is still fading out: the walk button waits for the fade, transitionend measures again)
+    const capShows = this.cap.classList.contains('on') || Number(getComputedStyle(this.cap).opacity) > 0.05;
+    for (const e of [this.help.classList.contains('off') ? null : this.help, capShows ? this.cap : null]) {
       if (e && e.offsetHeight > 0 && getComputedStyle(e).display !== 'none') stack = Math.max(stack, h - e.offsetTop);
     }
     // never lower than the hotbar and the frame's bottom buttons (menu): with the help faded and no caption the stack
@@ -901,6 +909,17 @@ export class WorldHud {
       if (b.left - rb.left > rb.width / 2 && b.top - rb.top < rb.height / 2) right = Math.max(right, b.bottom - rb.top);
     }
     doc.setProperty('--lcw-hud-right-b', `${Math.ceil(right)}px`);
+    // the dialog walk button (left, above the bottom stack) steps right of a minimap that sits top-left on a short
+    // landscape screen when they would meet (667x375 with the lesson tag)
+    let walkL = 12;
+    const mini = this.root.querySelector<HTMLElement>('.lw-mini');
+    if (mini && mini.offsetWidth > 0) {
+      const b = mini.getBoundingClientRect();
+      const walk = document.querySelector<HTMLElement>('.lcw-goal-walk, .lcw-errand-walk');
+      const walkTop = h - stack - 12 - (walk?.offsetHeight || 48);
+      if (b.left - rb.left < rb.width / 2 && b.top - rb.top < h / 2 && walkTop < b.bottom - rb.top + 8) walkL = b.right - rb.left + 8;
+    }
+    doc.setProperty('--lcw-hud-walk-l', `${Math.ceil(walkL)}px`);
   }
 
   setGoal(goalKo: string, targetEn?: string): void {
@@ -1233,8 +1252,24 @@ export class WorldHud {
     this.promptKey = key;
     this.prompt.classList.toggle('on', on && !touch);
     this.talkBtn.classList.toggle('on', on && touch);
-    if (on) this.prompt.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
+    if (!on) return;
+    let py = y;
+    if (!touch) {
+      // clear of the HUD parts like the bubbles (900 wide: the goal card under the chip covered the NPC's head)
+      if (!this.promptSize || this.promptSize.w === 0) this.promptSize = { w: this.prompt.offsetWidth, h: this.prompt.offsetHeight };
+      const { w, h } = this.promptSize;
+      const cover = this.hudCover();
+      const half = this.root.clientHeight / 2;
+      for (let guard = 0; guard < 4; guard++) {
+        const hit = cover.find(([l, t, r, b]) => x - w / 2 < r && x + w / 2 > l && py - h < b && py > t);
+        if (!hit) break;
+        py = hit[1] < half ? hit[3] + 6 + h : hit[1] - 6;
+      }
+    }
+    this.prompt.style.transform = `translate(${x}px, ${py}px) translate(-50%, -100%)`;
   }
+
+  private promptSize: { w: number; h: number } | null = null;
 
   director(kind: 'blackout' | 'snow' | null): void {
     this.dirLayer.className = `lw-dir${kind ? ` on ${kind}` : ''}`;

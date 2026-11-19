@@ -186,12 +186,13 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
 
 const WALK_STYLE: React.CSSProperties = {
   position: 'absolute',
-  left: 12,
+  // right of a top-left minimap where they would meet on a short landscape screen (world/hud.ts --lcw-hud-walk-l)
+  left: 'var(--lcw-hud-walk-l, 12px)',
   // above the HUD's bottom-left stack (controls help and the hotbar line), measured by the HUD (world/hud.ts
   // --lcw-hud-stack): a fixed 132 ran under a two-line Korean-help hotbar line on a phone and the 150% help (frame, 11-18)
   bottom: 'calc(var(--lcw-hud-stack, 120px) + 12px)',
   // on a phone the talk button shares this row on the right (world/hud.ts --lcw-hud-talk-w): a longer label wraps
-  maxWidth: 'calc(100vw - 12px - var(--lcw-hud-talk-w, 12px))',
+  maxWidth: 'calc(100vw - var(--lcw-hud-walk-l, 12px) - var(--lcw-hud-talk-w, 12px))',
   overflowWrap: 'anywhere',
   textAlign: 'left',
   minHeight: S.touchTargetMinPx,

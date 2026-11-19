@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { filterSpeechBubble } from '@lcw/converse';
 import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
-import { reportNameKeys } from './name-keys.js';
+import { reportNameKeys, reportNameMasker } from './name-keys.js';
 import { REPORT_SHARE_TTL_MS, kstDayOf, maskNickname, publicFacts, type PublicReportView } from './parent-report.js';
 import { buildLessonWindow } from './lesson-window.js';
 import { answerListening, closeListeners, lessonAudioState, listenerOf, startListening, touchListener, type RealtimeClient } from './lesson-audio.js';
@@ -219,6 +219,7 @@ export function openPublicReport(
   };
   const clips = parse(r.clips);
   const nick = row.nickname ?? '';
+  const mask = reportNameMasker(sql, row.player_id, row.ref_id);
   return {
     status: 200,
     view: {
@@ -230,8 +231,9 @@ export function openPublicReport(
       clips: Array.isArray(clips) ? clips : [],
       created_at: Number(r.created_at),
       expires_at: Number(r.created_at) + REPORT_SHARE_TTL_MS,
-      teacher_comment: maskNickname(delivery?.teacher_comment ?? '', nick),
-      next_lesson_at: maskNickname(delivery?.next_lesson_at ?? '', nick)
+      // Free text on the public link: every name tied to the child is masked, not only the child's nickname.
+      teacher_comment: mask(maskNickname(delivery?.teacher_comment ?? '', nick)),
+      next_lesson_at: mask(maskNickname(delivery?.next_lesson_at ?? '', nick))
     }
   };
 }

@@ -208,12 +208,15 @@ describe('every name tied to the child, in any case, anywhere in a sentence (11-
     const sql = (p as any).sql;
     await call(p, 'POST', '/v1/admin/players', { family_id: 'f', guardian_id: 'g', player_id: 'kid-x', nickname: '도윤', birth_year: 2016, level: 'L1' });
     await call(p, 'POST', '/v1/admin/players', { family_id: 'f', guardian_id: 'g', player_id: 'kid-sib', nickname: 'Minji', level: 'L1' });
-    await call(p, 'POST', '/v1/admin/players', { family_id: 'f2', guardian_id: 'g2', player_id: 'kid-class', nickname: 'Seoyeon', level: 'L1' });
+    await call(p, 'POST', '/v1/admin/players', { family_id: 'f2', guardian_id: 'g2', player_id: 'kid-class', nickname: '서연', level: 'L1' });
     sql.run("update players set tutor_student = 1 where id = 'kid-class'");
     sql.run(
       `insert into student_signups (id, family_id, guardian_id, nickname, claim_hash, label, created_at, expires_at, state)
-       values ('su-1', 'f', 'g', 'Jiwoo', 'h-1', 'Haeun tablet', 1, 2, 'pending')`
+       values ('su-1', 'f', 'g', 'Jiwoo', 'h-1', ?, 1, 2, 'pending')`,
+      ["Haeun's tablet"]
     );
+    // Labels are usually possessive (#163 review): the name before 's must become a key.
+    sql.run("insert into devices (id, player_id, family_id, token_hash, label, created_at) values ('d-1', 'kid-x', 'f', 'th-1', 'Hope''s iPad', 1)");
     sql.run("insert into oauth_identities (provider, sub, role, subject_id, email, created_at, last_login_at) values ('google', 's-1', 'guardian', 'g', 'hana.kim@example.com', 1, 1)");
     return { p, sql };
   }
@@ -225,9 +228,11 @@ describe('every name tied to the child, in any case, anywhere in a sentence (11-
     'I gave hana a cookie',
     "I like doyun's red bag",
     'I play with DoYun every day',
-    'we can play with haeun later'
+    'we can play with haeun later',
+    'I play with hope today',
+    'I play with seo yeon'
   ];
-  const NAMES = ['doyun', 'minji', 'seoyeon', 'jiwoo', 'hana', 'haeun'];
+  const NAMES = ['doyun', 'minji', 'seoyeon', 'seo yeon', 'jiwoo', 'hana', 'haeun', 'hope'];
 
   it('the keys block each sentence that passes without them; ordinary sentences still pass', async () => {
     const { sql } = await setUp();
@@ -244,6 +249,13 @@ describe('every name tied to the child, in any case, anywhere in a sentence (11-
     expect(romanise('지우')).toEqual(expect.arrayContaining(['jiu', 'jiwoo']));
     expect(romanise('서연')).toEqual(expect.arrayContaining(['seoyeon']));
     expect(romanise('정민')).toEqual(expect.arrayContaining(['jeongmin', 'jungmin']));
+    // Spellings families use (#163 review).
+    expect(romanise('지영')).toEqual(expect.arrayContaining(['jiyoung']));
+    expect(romanise('민희')).toEqual(expect.arrayContaining(['minhee', 'minhi']));
+    expect(romanise('서아')).toEqual(expect.arrayContaining(['seoah']));
+    expect(romanise('서연')).toEqual(expect.arrayContaining(['seoyoun']));
+    expect(romanise('윤서')).toEqual(expect.arrayContaining(['yoonsuh']));
+    expect(romanise('서연', ' ')).toEqual(expect.arrayContaining(['seo yeon']));
   });
 
   it('report building and the public link both drop them; no name or key reaches the response', async () => {
@@ -253,7 +265,9 @@ describe('every name tied to the child, in any case, anywhere in a sentence (11-
     const st = { authorization: `Bearer ${j.body.student_token}`, 'content-type': 'application/json' };
     for (const t of [...LEAKS, 'I like drawing because it makes me happy'])
       await call(p, 'POST', '/v1/lesson/utterance', { transcript: t, dur_ms: 2000 }, st);
-    const end = await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/end`, {});
+    const end = await call(p, 'POST', `/v1/admin/lessons/${s.body.lesson_id}/end`, {
+      teacher_comment: '도윤이가 오늘 Minji 랑 seoyeon 이야기를 했어요. 서연이도 다음에 같이 해요.'
+    });
     const built = JSON.parse(sql.get('select facts from reports where share_token = ?', [end.body.share_token]).facts);
     const builtText = JSON.stringify(built).toLowerCase();
     for (const n of NAMES) expect(builtText, `built: ${n}`).not.toContain(n);
@@ -266,7 +280,9 @@ describe('every name tied to the child, in any case, anywhere in a sentence (11-
     sql.run('update reports set facts = ? where share_token = ?', [JSON.stringify(built), end.body.share_token]);
     const r = await call(p, 'GET', `/v1/reports/${end.body.share_token}`, undefined, {});
     const text = JSON.stringify(r.body).toLowerCase();
-    for (const bad of [...NAMES, '도윤', 'kid-x', 'kid-sib', 'kid-class', 'example.com']) expect(text, bad).not.toContain(bad);
+    for (const bad of [...NAMES, '도윤', '서연', 'kid-x', 'kid-sib', 'kid-class', 'example.com']) expect(text, bad).not.toContain(bad);
+    // The teacher's comment on the public link masks every name tied to the child, not only the child's nickname.
+    expect(r.body.teacher_comment).toBe('아이이가 오늘 아이 랑 아이 이야기를 했어요. 아이이도 다음에 같이 해요.');
     expect(r.body.facts.lesson.quotes.map((q: any) => q.text)).toEqual(['I like drawing because it makes me happy']);
     expect(r.body.facts.lesson.expressions).toEqual(['so that']);
     expect(r.body.facts.lesson.home_practice).toEqual(['Can I have a warm honey tea, please?']);

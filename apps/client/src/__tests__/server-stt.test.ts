@@ -4,7 +4,7 @@ import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { MicController, type Clock } from '../dialog/mic-controller.js';
 import { readMicIssue, readMicTurns, resetMicStatusForTest } from '../dialog/mic-status.js';
-import { createDialogSpeechEngine, createServerSpeechEngine, pickRecorderType, SERVER_STT_PATH, type ServerSttEnv } from '../dialog/server-stt.js';
+import { createDialogSpeechEngine, createServerSpeechEngine, pickRecorderType, METER_MIN_FRAMES, SERVER_STT_PATH, VOICE_RMS, VOICE_RMS_BORDER, type ServerSttEnv } from '../dialog/server-stt.js';
 
 /**
  * The Workers AI Whisper rung from the child's side: the mic controller drives the server engine, the recorded turn
@@ -178,11 +178,34 @@ describe('server Whisper engine through the mic controller and the real route', 
     expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'vad_quiet' });
   });
 
-  it("a turn sent without a working meter that Whisper fills with its silence line is not words", async () => {
+  it('"thank you" from a child the meter could not hear is an answer, not silence: only an empty transcript is (11-19)', async () => {
     const h = await harness({ level: () => 0, running: () => false, ai: { run: async () => ({ text: 'Thank you.', segments: [] }) } as unknown as LcwEnv['AI'] });
     h.ctrl.tap();
     await settle();
     h.clock.advance(2000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.requests).toHaveLength(1);
+    expect(h.finals).toEqual([{ transcript: 'Thank you.', confidence: expect.any(Number) }]);
+    expect(readMicTurns()).toMatchObject({ started: 1, lost: 0 });
+  });
+
+  it('a soft voice near the voice level (between VOICE_RMS_BORDER and VOICE_RMS) is not called quiet by the meter: it goes to Whisper', async () => {
+    const h = await harness({ level: () => (VOICE_RMS_BORDER + VOICE_RMS) / 2, ai: { run: async () => ({ text: 'Thank you.', segments: [] }) } as unknown as LcwEnv['AI'] });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(2000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.requests).toHaveLength(1);
+    expect(h.finals).toEqual([{ transcript: 'Thank you.', confidence: expect.any(Number) }]);
+  });
+
+  it('a meter that ran too briefly to judge (under METER_MIN_FRAMES) sends the turn; Whisper hearing nothing is the silence verdict', async () => {
+    const h = await harness({ level: () => 0, ai: { run: async () => ({ text: '', segments: [] }) } as unknown as LcwEnv['AI'] });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance((METER_MIN_FRAMES - 4) * 100);
     h.ctrl.tap();
     await settle();
     expect(h.requests).toHaveLength(1);

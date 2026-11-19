@@ -26,6 +26,9 @@ export interface SttDeps {
   nowMs: () => number;
 }
 
+/** A failed Workers AI call is tried once more on the server before the child hears 'say it again'. */
+export const STT_RETRIES = 1;
+
 const WhisperOut = z
   .object({
     text: z.string(),
@@ -83,14 +86,26 @@ export async function handleServerStt(req: Request, who: SttCaller, deps: SttDep
   if (!meter.consumeNeurons(who.player_id, serverSttNeurons(sec), 'stt', sec)) {
     return json({ error: 'stt_quota', fallback: 'board', stage: meter.getStatus(now).stage }, 429);
   }
-  let out: unknown;
-  try {
-    out = await deps.ai.run(SERVER_STT.model, { audio: toBase64(buf), language: 'en', task: 'transcribe', vad_filter: true });
-  } catch {
-    return json({ error: 'stt_failed', fallback: 'board' }, 502);
+  // Workers AI now and then fails a call (an 'InferenceUpstreamError' 502; 11-19 measurement): one more try on the
+  // server before the child is asked to say it again (coordinator 11-19). The second call costs the model again, so
+  // it goes through the meter again; a refused meter keeps the first failure. A turn that still fails is the client's
+  // 'stt_failed' 'http_502' as before, so the mic-turn ledger (lcw.micTurns, R2627) records it unchanged.
+  const audio = toBase64(buf);
+  const call = async (): Promise<z.infer<typeof WhisperOut> | null> => {
+    try {
+      const parsed = WhisperOut.safeParse(await deps.ai!.run(SERVER_STT.model, { audio, language: 'en', task: 'transcribe', vad_filter: true }));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
+  };
+  let out = await call();
+  let retried = false;
+  if (!out && STT_RETRIES > 0 && meter.consumeNeurons(who.player_id, serverSttNeurons(sec), 'stt', sec)) {
+    retried = true;
+    out = await call();
   }
-  const parsed = WhisperOut.safeParse(out);
-  if (!parsed.success) return json({ error: 'stt_failed', fallback: 'board' }, 502);
-  const transcript = parsed.data.text.replace(/\s+/g, ' ').trim().slice(0, SERVER_STT.maxTranscriptChars);
-  return json({ transcript, confidence: transcript ? whisperConfidence(parsed.data.segments) : 0, stt_sec: sec, source: 'workers_ai' });
+  if (!out) return json({ error: 'stt_failed', fallback: 'board', retried }, 502);
+  const transcript = out.text.replace(/\s+/g, ' ').trim().slice(0, SERVER_STT.maxTranscriptChars);
+  return json({ transcript, confidence: transcript ? whisperConfidence(out.segments) : 0, stt_sec: sec, source: 'workers_ai', ...(retried ? { retried: true } : {}) });
 }

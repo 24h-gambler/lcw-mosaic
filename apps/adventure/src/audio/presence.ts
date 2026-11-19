@@ -1,3 +1,4 @@
+import { readLessonMicIssue, readLessonMicStatus, readLessonMicTurns } from '../../../client/src/lesson/api.js';
 import { ADV } from '../core/tuning.js';
 import { lessonTokenRefused } from './listen.js';
 
@@ -21,7 +22,15 @@ export async function pingLesson(fetchImpl: typeof fetch = (...a) => fetch(...a)
   const t = readLessonToken();
   if (!t) return 'none';
   try {
-    const r = await fetchImpl('/v1/lesson/state?away=adventure', { headers: { authorization: `Bearer ${t}` }, cache: 'no-store' });
+    // the mic as the LCW world sends it (same keys): the console's mic line and turn ledger follow the adventure too
+    const q = new URLSearchParams({ away: 'adventure' });
+    const mic = readLessonMicStatus();
+    const micIssue = readLessonMicIssue();
+    const micTurns = readLessonMicTurns();
+    if (mic) q.set('mic', mic);
+    if (micIssue) q.set('mic_issue', micIssue);
+    if (micTurns) q.set('mic_turns', micTurns);
+    const r = await fetchImpl(`/v1/lesson/state?${q}`, { headers: { authorization: `Bearer ${t}` }, cache: 'no-store' });
     if (r.status === 401 || r.status === 403) {
       lessonTokenRefused();
       return 'refused';

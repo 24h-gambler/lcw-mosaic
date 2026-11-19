@@ -32,7 +32,7 @@ import {
   toSettings,
   type Progress
 } from './core/progress.js';
-import { addLine, betterPlay, buildEnvelope, datedPlays, chapterStars, startRecord, toActivity, wordHit, type ChapterRecord } from './core/record.js';
+import { addLine, betterPlay, buildEnvelope, datedPlays, chapterStars, startRecord, toActivity, wordHit, wordsSaid, type ChapterRecord } from './core/record.js';
 import { dayFileUrls, readEdLink, resultUrl, type EdLink } from './core/edlink.js';
 import { Sound, type SfxName } from './audio/sound.js';
 import type { TrackId } from './audio/tracks.js';
@@ -551,6 +551,8 @@ export class Engine {
     const ko = t.ko ?? '';
     addLine(this.record, { en: t.target, ko, mode: a.mode, ok: g.pass && g.stars > 0, stars: g.stars });
     if (t.word && t.mode === 'spell') wordHit(this.record, t.word, g.pass ? 'caught' : 'missed');
+    // a day word inside what the child said or typed is a word they used (the guardian's word column)
+    if (t.mode === 'say') wordsSaid(this.record, a.transcripts ?? []);
     if (!g.pass || g.stars === 0) this.sfx('wrong');
     return g;
   }
@@ -578,6 +580,7 @@ export class Engine {
     if (said && transcript) {
       const g = gradeSpoken(line.en, transcript, this.plan.level);
       addLine(this.record, { en: line.en, ko: line.ko, mode, ok: g.pass, stars: g.stars });
+      wordsSaid(this.record, transcript);
     }
     b.befriend();
     this.afterBattleChange();

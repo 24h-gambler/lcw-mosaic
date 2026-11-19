@@ -5,6 +5,7 @@ import type { SpeechCallbacks, SpeechEngine } from '../../../client/src/dialog/s
 import { cleanCode, joinWithCode } from '../audio/join.js';
 import { Listener, endOf, listenState, resetListenMemory, setSpeechEngineFactory } from '../audio/listen.js';
 import { pingLesson } from '../audio/presence.js';
+import { saysWord, startRecord, toActivity, wordsSaid } from '../core/record.js';
 import { Speak } from '../ui/Speak.js';
 import { S } from '../ui/strings.js';
 
@@ -131,6 +132,62 @@ describe('A04 voice: the LCW server Whisper path and the class code', () => {
     setSpeechEngineFactory(() => fakeEngine({ ok: true }, (cb) => cb.onError('stt_failed', 'http_502')));
     new Listener().start(() => {}, (r) => got.push(r));
     expect(got).toEqual([{ kind: 'heard', alternatives: ['The eagle can fly.'] }, { kind: 'retry' }]);
+  });
+
+  it("a day word inside what the child said counts as caught: an island finished by speaking does not show the day's words as not done", () => {
+    expect(saysWord("I'm fine. Thank you.", 'thank you')).toBe(true);
+    expect(saysWord('Hello. Nice to meet you.', 'hello')).toBe(true);
+    expect(saysWord('Good bye, friend!', 'goodbye')).toBe(true);
+    expect(saysWord('thankyou', 'thank you')).toBe(true);
+    expect(saysWord('Othello is here', 'hello')).toBe(false);
+    expect(saysWord('I thank them', 'thank you')).toBe(false);
+    // contractions are not other words; plurals are the word
+    expect(saysWord("She'll swim", 'shell')).toBe(false);
+    expect(saysWord("We're here, we'll go", 'were')).toBe(false);
+    expect(saysWord("We'll go", 'well')).toBe(false);
+    expect(saysWord('These shells are mine!', 'shell')).toBe(true);
+    expect(saysWord('I like puppies', 'puppy')).toBe(true);
+    expect(saysWord('Two boxes', 'box')).toBe(true);
+    expect(saysWord("Let's be friends", "let's")).toBe(true);
+    const r = startRecord(1, 1, ['hello', 'goodbye', 'thank you', 'puppy'], 0);
+    expect(wordsSaid(r, ['Hello. Nice to meet you.'])).toEqual(['hello']);
+    wordsSaid(r, ["I'm fine. Thank you."]);
+    wordsSaid(r, ['Hello!']);
+    r.endedMs = 60_000;
+    r.outcome = 'spared';
+    const words = toActivity(r, 60_000).words;
+    expect(words.find((w) => w.w === 'hello')).toEqual({ w: 'hello', ok: true, caught: 2, missed: 0 });
+    expect(words.find((w) => w.w === 'thank you')).toMatchObject({ ok: true, caught: 1 });
+    expect(words.find((w) => w.w === 'goodbye')).toMatchObject({ ok: false, caught: 0 });
+  });
+
+  it('every adventure turn goes into the LCW mic-turn ledger (lcw.micTurns), and the lesson ping carries it', async () => {
+    const session: Record<string, string> = { 'lcw.studentToken': 'tok' };
+    withStorage(session, {});
+    setSpeechEngineFactory(() => fakeEngine({ ok: true }, (cb) => cb.onEnd({ transcript: 'Thank you.', confidence: 0.8 })));
+    new Listener().start(() => {}, () => {});
+    setSpeechEngineFactory(() => fakeEngine({ ok: true }, (cb) => cb.onError('stt_failed', 'http_502')));
+    new Listener().start(() => {}, () => {});
+    expect(session['lcw.micTurns']).toMatch(/^2\.1\.1\|stt_failed:\d+$/);
+    expect(session['lcw.micIssue']).toMatch(/^stt_failed:http_502\|\d+$/);
+    // a refused token is not a mic problem; a turn cut by closing the panel is 'closed', not left open
+    setSpeechEngineFactory(() => fakeEngine({ ok: true }, (cb) => cb.onError('unsupported', 'http_401')));
+    new Listener().start(() => {}, () => {});
+    expect(session['lcw.micStatus']).toBe('ok');
+    expect(session['lcw.micTurns']).toMatch(/^3\.1\.2\|token_refused:\d+$/);
+    setSpeechEngineFactory(() => fakeEngine({ ok: true }));
+    const cut = new Listener();
+    cut.start(() => {}, () => {});
+    cut.abort();
+    expect(session['lcw.micTurns']).toMatch(/^4\.1\.3\|closed:\d+$/);
+    resetListenMemory();
+    const urls: string[] = [];
+    await pingLesson((async (url: string) => (urls.push(url), new Response('{}', { status: 200 }))) as unknown as typeof fetch);
+    const q = new URLSearchParams(urls[0]!.split('?')[1]);
+    expect(q.get('away')).toBe('adventure');
+    expect(q.get('mic_turns')).toBe(session['lcw.micTurns']);
+    expect(q.get('mic_issue')).toBe(session['lcw.micIssue']);
+    expect(q.get('mic')).toBe('ok');
   });
 
   it('the class code goes to the same /v1/join as LCW and is kept under the same session keys', async () => {

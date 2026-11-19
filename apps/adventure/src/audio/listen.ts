@@ -1,3 +1,4 @@
+import { noteMicIssue, noteMicTurn, noteTurnLost, noteTurnSent, noteTurnStart } from '../../../client/src/dialog/mic-status.js';
 import { createServerSpeechEngine } from '../../../client/src/dialog/server-stt.js';
 import type { MicIssue, SpeechEngine, SpeechSession } from '../../../client/src/dialog/speech.js';
 import { ADV } from '../core/tuning.js';
@@ -123,10 +124,21 @@ export class Listener {
       onEnd(endOf(a.issue));
       return;
     }
-    const finish = (r: ListenEnd) => {
+    // Every turn goes into the same mic-turn ledger as the LCW dialog (dialog/mic-status.ts 'lcw.micTurns', R2627): the
+    // lesson console sees the adventure's turns and why one was lost (audio/presence.ts sends it with the ping).
+    noteTurnStart();
+    const finish = (r: ListenEnd, issue?: { issue: MicIssue; raw?: string }) => {
       if (this.done) return;
       this.done = true;
       this.clear();
+      // 'sent' here: the server heard the turn's words (the adventure sends no lesson utterance; docs/22)
+      if (r.kind === 'heard') {
+        noteMicTurn(true);
+        noteTurnSent();
+      } else if (issue && /^http_40[13]$/.test(issue.raw ?? '')) {
+        // a refused token is the class code, not the mic: the console's mic line stays as it was
+        noteTurnLost('token_refused');
+      } else noteMicIssue(issue?.issue ?? (r.kind === 'silent' ? 'no_speech' : 'stt_failed'), issue?.raw ?? (r.kind === 'silent' ? 'stt_empty' : 'timeout'));
       onEnd(r);
     };
     let voicedAt = 0;
@@ -144,7 +156,7 @@ export class Listener {
         const t = res?.transcript.trim() ?? '';
         finish(t ? { kind: 'heard', alternatives: [t] } : { kind: 'silent' });
       },
-      onError: (issue, raw) => finish(endOf(issue, raw))
+      onError: (issue, raw) => finish(endOf(issue, raw), { issue, raw })
     });
     // nobody spoke: end the turn (the recorder hears nothing, no upload, "say it again")
     this.timers.push(setTimeout(() => voicedAt === 0 && this.session?.stop(), ADV.listen.noVoiceMs));
@@ -171,6 +183,8 @@ export class Listener {
   }
 
   abort(): void {
+    // a turn cut mid-way (the panel closed) is lost as 'closed', like the LCW dialog, not left open in the ledger
+    if (this.session && !this.done) noteTurnLost('closed');
     this.done = true;
     this.clear();
     this.session?.abort();

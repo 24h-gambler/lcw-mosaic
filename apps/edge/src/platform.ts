@@ -892,7 +892,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const playerId = student?.player_id ?? device?.player_id ?? null;
     // smoke-check and demo students hear cached lines only (they never spend the day's neurons)
     const cachedOnly = !!playerId && isTestPlayerId(playerId);
-    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student), cachedOnly }, ttsDeps(operator));
+    return handleTts(new URL(c.req.url), { operator, player_id: playerId, lesson: Boolean(student), cachedOnly }, ttsDeps(operator), c.req.header('if-none-match'));
   });
   // Operator measurement: one uncached synthesis with its time (engine/voice choice, docs/04 4.8).
   app.post('/v1/admin/tts/try', async (c) => {

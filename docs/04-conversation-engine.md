@@ -205,6 +205,7 @@ POST /v1/converse/score
   - 올리기: `PUT /v1/admin/tts/line?v=kokoro-af_sarah&t=<문장>`(운영자, 몸 = mp3). 서버는 배역의 로컬 엔진 목소리인지, 그 목소리의 고정 문장인지, mp3(ID3 또는 MPEG 프레임 동기)이고 512 B~256 KiB 인지 봅니다. 키는 `tts/v1/kokoro-af_sarah/<sha256 40자>.mp3` — 엔진 이름이 키에 들어가고, Workers AI 목소리(`aura2-*` 등) 키에는 올릴 수 없어 그 키는 언제나 그 엔진이 만든 소리입니다. 올린 줄은 다른 캐시된 줄과 똑같이 나가고(1년 immutable) 한도 계기를 건드리지 않습니다. 목록: `GET /v1/admin/tts/local-lines`(배포된 코드의 목록).
   - 아직 안 올라온 줄(낮에 새로 생긴 뱅크 문장 등)은 대역(`standIn`, aura2-luna)이 같은 규칙(고정 문장은 누구나, 계기 거침)으로 읽고 대역 자신의 키에 넣습니다. 이때 응답은 `cache-control: public, max-age=600` 이라 같은 주소가 올라온 뒤 곧 Kokoro 로 바뀝니다. 응답 머리 `x-lcw-tts-voice` 가 실제로 말한 목소리입니다.
   - 아침·밤 미리 만들기(`runTtsCron`)와 운영자 prebuild 는 로컬 엔진 줄을 건너뜁니다(뉴런을 쓰지 않음).
+  - 모험 섬 주민 16명도 같은 길입니다: 배역 팩 `islanders` 표의 Kokoro 목소리(인물마다 하나, `docs/22`). 목록·올리기·밤 작업이 그 목소리들을 함께 다룹니다.
   - 매일 밤: 자동화 저장소 `server/lcw_tts_local.py`(작업 Dan-LCW-TTS-Local)가 운영에 목록을 묻고, `c=1`(캐시만, 0 뉴런)로 각 줄이 `x-lcw-tts-voice: kokoro-af_sarah` 로 나가는지 보고, 빠진 것만 만들어 올립니다. 음량은 EBU R128 −19.5 LUFS(캐시된 aura-2 NPC 줄 중앙값 −19.3~−19.7), 실제 피크 ≤ −1.5 dBTP, 모노 24 kHz mp3 64 kbps.
 - 경로: `GET /v1/tts?v=<engine-speaker>&t=<문장>` → R2 `tts/v1/<voice>/<sha256 40자>.mp3` 캐시를 먼저 보고, 없으면 합성해 넣습니다. 같은 문장은 한 번만 만듭니다. 응답은 `cache-control: public, immutable`, `x-lcw-tts: hit|miss`.
 - 누가 무엇을: 고정 대사(`fixedTtsLines()` — NPC 인사·심부름 대사·반응·열린 질문·되따라 말하기 안내·뱅크 문장 전부)는 로그인 없이도 받습니다. 그 밖의 문장(수업에서 선생님이 NPC로 하는 말)은 아이 토큰(학생·기기)이나 운영자만 만듭니다. 300자 넘으면 413.

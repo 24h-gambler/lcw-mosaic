@@ -65,6 +65,10 @@ const browser = await chromium.launch({
   ]
 });
 
+// One refused class code (or none to give) ends the joins for the whole run, every screen and chapter after it is
+// skipped: the edge counts failed joins per IP and for everyone per hour (JOIN_FAILS_PER_HOUR), and a real child's
+// join in the same hour must not meet a 429.
+let joinRefused = false;
 const VIEWPORTS = [
   { name: 'd1440-keys', width: 1440, height: 900, touch: false, ed: true },
   { name: 'p390-touch', width: 390, height: 844, touch: true, ed: false },
@@ -259,14 +263,12 @@ async function run(vp) {
     await sleep(300);
     return voice.stt.length > n;
   };
-  let joinRefused = false;
   const sayAnswer = async (text) => {
-    // one refused code ends the joins for the run: the edge counts failed joins per IP and for everyone per hour
-    // (JOIN_FAILS_PER_HOUR), and a real child's join in the same hour must not meet a 429
     if (joinRefused) return;
     if (await exists('adv-join')) {
       await shot('voice-join-need');
       if (!JOIN) {
+        joinRefused = true;
         fails.push(`${vp.name}: the page asks for a class code and ADV_JOIN_CODE is not set`);
         return;
       }
@@ -307,6 +309,7 @@ async function run(vp) {
   };
 
   for (const ch of [1, 2, 3, 4].slice(0, Number(process.env.MAXCH || 4))) {
+    if (joinRefused) break;
     const t0 = Date.now();
     let talks = 0;
     const modesUsed = new Set();
@@ -317,6 +320,7 @@ async function run(vp) {
     let stuck = 0;
     let lastX = -1;
     while (true) {
+      if (joinRefused) break;
       // a spoken turn waits for the recording, the upload and the model: voice only gets more time
       if (Date.now() - t0 > (VOICE ? 15 : 4) * 60_000) {
         fails.push(`${vp.name} ch${ch}: timeout`);
@@ -605,6 +609,10 @@ async function run(vp) {
 
 for (const vp of VIEWPORTS) {
   if (only && vp.name !== only) continue;
+  if (joinRefused) {
+    fails.push(`${vp.name}: skipped, the class code was refused earlier in this run`);
+    continue;
+  }
   try {
     await run(vp);
   } catch (e) {

@@ -626,9 +626,12 @@ export function App(): React.ReactElement {
       // In a lesson the talk is the lesson's dialog window: a click, tap or E on an NPC opens it again (it was a dead
       // tap, Dan 11-16 R2625).
       if (lessonActive.current) {
-        // the lesson layer answers a passer-by with LESSON_FREE_TALK_EVENT (Dan 11-19): this NPC's free talk opens then
+        // the lesson layer answers a passer-by with LESSON_FREE_TALK_EVENT (Dan 11-19): this NPC's free talk opens then.
+        // `free` says whether this app can open one at all (a paused seat or a dialog module not loaded yet cannot):
+        // without it the layer leaves its window alone instead of folding it for nothing.
         lessonTapNpc.current = npc;
-        window.dispatchEvent(new CustomEvent(LESSON_TALK_EVENT, { detail: { npcId: npc.id } }));
+        const free = !soloBlocked && Boolean(dialogMod?.DialogPanel && dialogMod.createSoloSubmit);
+        window.dispatchEvent(new CustomEvent(LESSON_TALK_EVENT, { detail: { npcId: npc.id, free } }));
         return;
       }
       if (soloBlocked) {
@@ -695,7 +698,8 @@ export function App(): React.ReactElement {
   if (errandDialog.current.npc !== soloNpc) {
     errandDialog.current = {
       npc: soloNpc,
-      ed: soloNpc && firstVisitMod?.errandDialogFor ? firstVisitMod.errandDialogFor(soloNpc, errand, soloLevel ?? 'L1') : null
+      // a free talk inside a lesson is plain talk: the errand does not move during a lesson (Dan 11-19 review)
+      ed: soloNpc && !lessonOn && firstVisitMod?.errandDialogFor ? firstVisitMod.errandDialogFor(soloNpc, errand, soloLevel ?? 'L1') : null
     };
   }
   const ed = errandDialog.current.ed;

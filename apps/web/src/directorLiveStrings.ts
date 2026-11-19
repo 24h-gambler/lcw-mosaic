@@ -70,5 +70,6 @@ export const DIRECTOR_LIVE_STRINGS_KO = {
   ownTargetHelp: '지금 단계의 목표 문장 대신 이 문장을 띄워요. 아이가 말하면 이 문장으로 채점해요.',
   ownTargetPlaceholder: '영어 문장 (예: Can I have two cookies, please?)',
   ownTargetSend: '띄우기',
-  ownTargetFailed: '띄우지 못했어요. 다시 눌러 주세요.'
+  ownTargetFailed: '띄우지 못했어요. 다시 눌러 주세요.',
+  ownTargetMoved: '그 사이 단계가 넘어갔어요. 문장은 그대로 두었어요 — 새 단계에 띄우려면 다시 눌러 주세요.'
 } as const;

@@ -86,6 +86,16 @@ export async function goToSceneChecked(w: LayerWorld | null, id: LessonSceneId):
   if (w.getScene && w.getScene() !== id) await w.goToScene(id);
 }
 
+/**
+ * What an NPC click, tap or E does in a running lesson (LESSON_TALK_EVENT): the lesson's own NPC (or no id) reopens
+ * the lesson window; a passer-by gets a free talk of its own when the app can open one (`free`), the lesson window
+ * folding for it (Dan 11-19 "자유도도 없앴다"); otherwise nothing happens and the lesson window stays as it is.
+ */
+export function lessonTalkAction(npcId: string | undefined, lessonNpcId: string, free: boolean | undefined): 'reopen' | 'free' | 'none' {
+  if (!npcId || npcId === lessonNpcId) return 'reopen';
+  return free === true ? 'free' : 'none';
+}
+
 export function isLessonPage(search: string): boolean {
   return Boolean(codeFromSearch(search) ?? loadStudentSession());
 }
@@ -141,13 +151,14 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   const panelKeyRef = useRef('');
   useEffect(() => {
     const open = (e: Event): void => {
-      const id = (e as CustomEvent<{ npcId?: string }>).detail?.npcId;
-      if (!id || id === lessonNpc.current) {
-        setFoldedKey(null);
-        return;
+      const d = (e as CustomEvent<{ npcId?: string; free?: boolean }>).detail;
+      const act = lessonTalkAction(d?.npcId, lessonNpc.current, d?.free);
+      if (act === 'reopen') setFoldedKey(null);
+      else if (act === 'free') {
+        // the app said it can open this NPC's window: fold ours first, then ask for theirs
+        setFoldedKey(panelKeyRef.current);
+        window.dispatchEvent(new CustomEvent(LESSON_FREE_TALK_EVENT, { detail: { npcId: d?.npcId } }));
       }
-      setFoldedKey(panelKeyRef.current);
-      window.dispatchEvent(new CustomEvent(LESSON_FREE_TALK_EVENT, { detail: { npcId: id } }));
     };
     window.addEventListener(LESSON_TALK_EVENT, open);
     return () => window.removeEventListener(LESSON_TALK_EVENT, open);
@@ -413,7 +424,8 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
             </div>
           ) : null}
           <div className="lcw-panel" style={{ width: '100%', maxWidth: 720, pointerEvents: 'auto', overflowY: 'auto', minHeight: 0 }}>
-            {external ?? (
+            {/* a free talk with a passer-by is open (Dan 11-19): no second talk panel under it */}
+            {props.freeTalkOpen ? null : external ?? (
               <SpeakPanel
                 key={panelKey}
                 npc={npcRef}

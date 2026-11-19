@@ -75,6 +75,56 @@ describe('stages move on by themselves (R2625, R2627)', () => {
     ]);
   });
 
+  it("the teacher's own sentence on the same stage (Dan 11-19) is not swept off by passes from before it; passing it moves on", async () => {
+    now = T0;
+    const p = platform();
+    const { lessonId, st } = await lesson(p);
+    await state(p, st);
+    now += 60_000;
+    expect((await say(p, st, STAGES[0]!.targets[0]!.text, 'my name is oreo')).body.pass).toBe(true);
+    // the teacher puts one sentence of their own on the running stage (console 「학생 화면에 내 문장 띄우기」)
+    now += 10_000;
+    const own = 'I like cookies.';
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: STAGES[0]!.id, targets: [own] })).status).toBe(200);
+    // the child's next polls keep it on screen: the earlier pass does not count against the one new sentence
+    now += 1_200;
+    const s1 = await state(p, st);
+    expect(s1.body.stage_id).toBe(STAGES[0]!.id);
+    expect(s1.body.auto_advanced).toBeNull();
+    expect(s1.body.offers.map((o: any) => o.text)).toEqual([own]);
+    now += 1_200;
+    expect((await state(p, st)).body.stage_id).toBe(STAGES[0]!.id);
+    // saying the teacher's sentence is the pass that moves on
+    now += 20_000;
+    const r = await say(p, st, own);
+    expect(r.body.pass).toBe(true);
+    expect(r.body.auto_advanced).toEqual({ from: STAGES[0]!.id, to: STAGES[1]!.id, why: 'passes' });
+  });
+
+  it("the console's own sentence changes the running stage only: a stage the server moved on answers 409 stage_moved and stays", async () => {
+    now = T0;
+    const p = platform();
+    const { lessonId, st } = await lesson(p);
+    await state(p, st);
+    // the server moved to stage 2 while the console still showed stage 1
+    now += 60_000;
+    await say(p, st, STAGES[0]!.targets[0]!.text);
+    now += 30_000;
+    expect((await say(p, st, STAGES[0]!.targets[1]!.text)).body.auto_advanced?.to).toBe(STAGES[1]!.id);
+    const late = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: STAGES[0]!.id, targets: ['Hello, teacher.'], only_if_stage: true });
+    expect(late.status).toBe(409);
+    expect(late.body).toEqual({ error: 'stage_moved', stage_id: STAGES[1]!.id });
+    const s = await state(p, st);
+    expect(s.body.stage_id).toBe(STAGES[1]!.id);
+    expect(s.body.offers.map((o: any) => o.text)).toEqual(STAGES[1]!.targets.map((t) => t.text));
+    // on the running stage it goes through
+    const ok = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: STAGES[1]!.id, targets: ['Two cookies, please.'], only_if_stage: true });
+    expect(ok.status).toBe(200);
+    expect((await state(p, st)).body.offers.map((o: any) => o.text)).toEqual(['Two cookies, please.']);
+    // the stage button (no flag) still moves the stage as before
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: STAGES[2]!.id, targets: STAGES[2]!.targets.map((t) => t.text) })).status).toBe(200);
+  });
+
   it('free talk with no sentence on screen does not count as a pass (a free stage moves on by follow-ups or time)', async () => {
     now = T0;
     const p = platform();

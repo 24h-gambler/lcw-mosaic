@@ -1610,8 +1610,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       // the visiting teacher is not an E/tap target: E and the dialog frame stay on the lesson's own NPCs
       // R2625 ④: among NPCs in reach, the one in front of the view wins over one just behind the child's back
       const off = Math.abs(wrapAngle(Math.atan2(n.pos.x - body.x, n.pos.z - body.z) - viewYaw()));
-      const score = pd + (off > 1.2 ? 2.5 : off * 0.6);
-      // in a lesson a passer-by is "near" too: E and the talk prompt open a free talk with them (Dan 11-19)
+      let score = pd + (off > 1.2 ? 2.5 : off * 0.6);
+      // in a lesson a passer-by is "near" too: E and the talk prompt open a free talk with them (Dan 11-19); when both
+      // are in reach the lesson's NPC wins unless the passer-by is clearly the one in front (its score 1.5 better)
+      if (isPasser(n)) score += 1.5;
       if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode)) {
         nearD = score;
         nearNpc = n;

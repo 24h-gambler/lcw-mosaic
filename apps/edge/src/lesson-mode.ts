@@ -339,7 +339,13 @@ function isBlankTeacherName(v: string): boolean {
 }
 const PanelPinSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/) }).strict();
 const StageSchema = z
-  .object({ stage_id: z.string().min(1).max(64), targets: z.array(z.string().min(1).max(200)).max(6) })
+  .object({
+    stage_id: z.string().min(1).max(64),
+    targets: z.array(z.string().min(1).max(200)).max(6),
+    // the console's own-sentence push (Dan 11-19): change the sentences of the running stage only; when the stage has
+    // moved on meanwhile (auto move, another tab) answer 409 stage_moved instead of sending the child back
+    only_if_stage: z.boolean().optional()
+  })
   .strict();
 const StageDoneSchema = z.object({ stage_id: z.string().min(1).max(64) }).strict();
 const PinSchema = z
@@ -575,10 +581,14 @@ export function buildLessonModeApp(
       // what the child can say now (the teacher may have pushed fewer sentences than the plan has)
       const offered = st.targets.length || stage.targets.length;
       const need = Math.max(1, Math.min(offered, LESSON_AUTO_ADVANCE_PASSES));
+      // Passes count from the latest sentences on screen: lesson_state.updated_at moves on the start, an auto move and
+      // the teacher's push. A teacher who puts their own sentence on the same stage (console 「학생 화면에 내 문장
+      // 띄우기」, Dan 11-19) must not see it swept off by the child's passes from before it (one sentence → need 1).
+      const shownAt = Number(d.sql.get<{ at: number }>('select updated_at as at from lesson_state where lesson_id = ?', [id])?.at ?? 0);
       const passed = Number(
         d.sql.get<{ n: number }>(
           'select count(distinct target_text) as n from utterances where session_id = ? and ctx = ? and stars > 0 and length(target_text) > 0 and created_at >= ?',
-          [id, stage.id, entered]
+          [id, stage.id, Math.max(entered, shownAt)]
         )?.n ?? 0
       );
       if (offered > 0 && passed >= need) why = 'passes';
@@ -1115,6 +1125,11 @@ export function buildLessonModeApp(
     if (!l) return c.json({ error: 'lesson_not_found' }, 404);
     const p = StageSchema.safeParse(await c.req.json());
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    if (p.data.only_if_stage) {
+      if (l.ended_at) return c.json({ error: 'lesson_ended' }, 409);
+      const cur = stateOf(id)?.stage_id ?? null;
+      if (cur !== p.data.stage_id) return c.json({ error: 'stage_moved', stage_id: cur }, 409);
+    }
     d.sql.run(
       'insert or replace into lesson_state (lesson_id, plan_id, stage_id, targets, updated_at) values (?, ?, ?, ?, ?)',
       [id, l.plan || 'first_lesson_v1', p.data.stage_id, JSON.stringify(p.data.targets), d.nowMs()]

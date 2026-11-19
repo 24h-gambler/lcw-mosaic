@@ -330,12 +330,14 @@ export function EventsBox(p: {
   const putTarget = async (en: string) => {
     if (!p.stage) return;
     try {
-      await p.api.pushStage(p.token, p.lessonId, { stage_id: p.stage.id, targets: [en] });
+      await p.api.pushStage(p.token, p.lessonId, { stage_id: p.stage.id, targets: [en], only_if_stage: true });
       setPutDone(true);
       p.onSent();
     } catch (e) {
-      p.onAuthError(errorCodeOf(e));
-      setErr(L.eventFailed);
+      const code = errorCodeOf(e);
+      p.onAuthError(code);
+      setErr(code === 'stage_moved' ? L.ownTargetMoved : L.eventFailed);
+      if (code === 'stage_moved') p.onSent();
     }
   };
   return (
@@ -422,13 +424,17 @@ export function OwnTargetBox(p: {
     setErr(null);
     setDone(null);
     try {
-      await p.api.pushStage(p.token, p.lessonId, { stage_id: p.stageId, targets: [t] });
+      // only_if_stage: the console's stage can be up to one poll behind an auto move; never send the child back
+      await p.api.pushStage(p.token, p.lessonId, { stage_id: p.stageId, targets: [t], only_if_stage: true });
       setDone(t);
       setText('');
       p.onSent();
     } catch (e) {
-      p.onAuthError(errorCodeOf(e));
-      setErr(L.ownTargetFailed);
+      const code = errorCodeOf(e);
+      p.onAuthError(code);
+      setErr(code === 'stage_moved' ? L.ownTargetMoved : L.ownTargetFailed);
+      // catch up with the server's stage at once, so the next press goes to the new stage
+      if (code === 'stage_moved') p.onSent();
     } finally {
       setBusy(false);
     }

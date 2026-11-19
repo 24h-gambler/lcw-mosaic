@@ -5,7 +5,7 @@
  * On-device Whisper and Workers AI Whisper plug in as further `SpeechEngine`s with the same interface.
  */
 
-export type MicIssue = 'unsupported' | 'in_app' | 'insecure' | 'denied' | 'no_speech' | 'network' | 'aborted';
+export type MicIssue = 'unsupported' | 'in_app' | 'insecure' | 'denied' | 'no_speech' | 'network' | 'aborted' | 'quota' | 'stt_failed';
 
 export interface SpeechFinal {
   transcript: string;
@@ -295,7 +295,7 @@ export function createScriptedSpeechEngine(lines: Array<string | MicIssue | null
       const line = lines[Math.min(i, lines.length - 1)] ?? null;
       i++;
       let done = false;
-      const issues: MicIssue[] = ['unsupported', 'in_app', 'insecure', 'denied', 'no_speech', 'network', 'aborted'];
+      const issues: MicIssue[] = ['unsupported', 'in_app', 'insecure', 'denied', 'no_speech', 'network', 'aborted', 'quota', 'stt_failed'];
       const t1 = setTimeout(() => {
         if (done) return;
         if (line && issues.includes(line as MicIssue)) {

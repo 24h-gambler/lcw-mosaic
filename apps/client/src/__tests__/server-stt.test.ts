@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { MicController, type Clock } from '../dialog/mic-controller.js';
+import { readMicIssue, readMicTurns, resetMicStatusForTest } from '../dialog/mic-status.js';
 import { createDialogSpeechEngine, createServerSpeechEngine, pickRecorderType, SERVER_STT_PATH, type ServerSttEnv } from '../dialog/server-stt.js';
 
 /**
@@ -65,13 +66,23 @@ class FakeRecorder {
   }
 }
 
-async function harness(opts: { level: () => number; ai?: LcwEnv['AI']; token?: string } ) {
+async function harness(opts: { level: () => number; running?: () => boolean; ai?: LcwEnv['AI']; token?: string }) {
+  // the mic status and turn count live in sessionStorage (node has none): a fresh one per harness
+  const mem = new Map<string, string>();
+  (globalThis as { sessionStorage?: unknown }).sessionStorage = {
+    getItem: (k: string) => mem.get(k) ?? null,
+    setItem: (k: string, v: string) => void mem.set(k, v),
+    removeItem: (k: string) => void mem.delete(k),
+    clear: () => mem.clear()
+  };
+  resetMicStatusForTest();
   const aiCalls: unknown[] = [];
   const p = new PlatformDO(
     { storage: fakeDurableStorage() },
     {
       PLATFORM: undefined as never,
       LCW_OPERATOR_TOKEN: TOKEN,
+      BUILD_SHA: 'test', // a deployed Worker: without it there is no AI (platform.ts workersAi)
       AI: opts.ai ?? ({ run: async (_m: string, input: unknown) => { aiCalls.push(input); return { text: 'Cold water, please.', segments: [{ avg_logprob: -0.1 }] }; } } as LcwEnv['AI'])
     } as LcwEnv
   );
@@ -85,7 +96,7 @@ async function harness(opts: { level: () => number; ai?: LcwEnv['AI']; token?: s
     isSecureContext: true,
     getUserMedia: async () => ({ getTracks: () => [{ stop: () => (tracksStopped += 1) }] }) as unknown as MediaStream,
     MediaRecorder: FakeRecorder as unknown as ServerSttEnv['MediaRecorder'],
-    createLevelMeter: () => ({ rms: opts.level, close: () => undefined }),
+    createLevelMeter: () => ({ rms: opts.level, close: () => undefined, ...(opts.running ? { running: opts.running } : {}) }),
     token: () => opts.token ?? tok,
     now: clock.now,
     every: clock.every,
@@ -134,11 +145,76 @@ describe('server Whisper engine through the mic controller and the real route', 
     h.clock.advance(7000); // first-speech wait
     await settle();
     expect(h.requests).toHaveLength(0);
-    expect(h.finals).toEqual([null]);
+    // a no-speech turn with its cause: the mic heard nothing above the voice level (R2627)
+    expect(h.finals).toEqual([]);
+    expect(h.issues).toEqual(['no_speech']);
+    expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'vad_quiet' });
+    expect(readMicTurns()).toMatchObject({ started: 1, sent: 0, lost: 1, lastLost: { cause: 'no_speech' } });
     expect(h.p.quota.getStatus(Date.now()).neuronsUsed).toBe(0);
   });
 
-  it('a bank-only day (429) closes the server rung: the panel gets "unsupported" and goes to the word cards', async () => {
+  it('a meter that cannot hear (suspended AudioContext) does not drop the turn as quiet: it is uploaded (R2627)', async () => {
+    const h = await harness({ level: () => 0, running: () => false });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(2000);
+    h.ctrl.tap(); // the child taps to finish
+    await settle();
+    expect(h.requests).toHaveLength(1);
+    expect(h.finals).toEqual([{ transcript: 'Cold water, please.', confidence: expect.any(Number) }]);
+  });
+
+  it('a meter that starts suspended and then runs decides from its running frames: a quiet child is not uploaded', async () => {
+    let running = false;
+    const h = await harness({ level: () => 0.001, running: () => running });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(300); // the first frames before resume() landed
+    running = true;
+    h.clock.advance(2000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.requests).toHaveLength(0);
+    expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'vad_quiet' });
+  });
+
+  it("a turn sent without a working meter that Whisper fills with its silence line is not words", async () => {
+    const h = await harness({ level: () => 0, running: () => false, ai: { run: async () => ({ text: 'Thank you.', segments: [] }) } as unknown as LcwEnv['AI'] });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(2000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.requests).toHaveLength(1);
+    expect(h.finals).toEqual([]);
+    expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'stt_empty' });
+  });
+
+  it('Whisper hears no words in a voiced turn: no_speech with its own cause, not a silent null', async () => {
+    const h = await harness({ level: () => 0.1, ai: { run: async () => ({ text: '  ', segments: [] }) } as unknown as LcwEnv['AI'] });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(1000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.requests).toHaveLength(1);
+    expect(h.issues).toEqual(['no_speech']);
+    expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'stt_empty' });
+  });
+
+  it('a failed model call says try again (stt_failed, http_502), never "no mic"', async () => {
+    const h = await harness({ level: () => 0.1, ai: { run: async () => { throw new Error('boom'); } } as unknown as LcwEnv['AI'] });
+    h.ctrl.tap();
+    await settle();
+    h.clock.advance(1000);
+    h.ctrl.tap();
+    await settle();
+    expect(h.issues).toEqual(['stt_failed']);
+    expect(readMicIssue()).toMatchObject({ issue: 'stt_failed', raw: 'http_502' });
+    expect(sessionStorage.getItem('lcw.micStatus')).not.toBe('none');
+  });
+
+  it('a bank-only day (429) closes the server rung: the panel gets "quota" (word cards), the console does not read "no mic"', async () => {
     const h = await harness({ level: () => 0.1 });
     await h.p.fetch(new Request('https://lcw.test/v1/admin/quota', { method: 'POST', headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ daily_neurons: 0 }) }));
     h.ctrl.tap();
@@ -147,8 +223,11 @@ describe('server Whisper engine through the mic controller and the real route', 
     h.ctrl.tap(); // second tap ends the turn
     await settle();
     expect(h.requests).toHaveLength(1);
-    expect(h.issues).toEqual(['unsupported']);
+    expect(h.issues).toEqual(['quota']);
     expect(h.aiCalls).toHaveLength(0);
+    expect(readMicIssue()).toMatchObject({ issue: 'quota', raw: 'http_429' });
+    expect(sessionStorage.getItem('lcw.micStatus')).not.toBe('none');
+    expect(readMicTurns()).toMatchObject({ started: 1, lost: 1, lastLost: { cause: 'quota' } });
   });
 
   it('closing the window mid-turn uploads nothing and releases the mic', async () => {
@@ -173,9 +252,31 @@ describe('server Whisper engine through the mic controller and the real route', 
     await settle();
     h.clock.advance(5000); // longer than the browser engine's 3 s grace
     expect(h.finals).toEqual([]);
+    // R2627: 12 s later (the old 9 s grace gave the turn up as "not heard") the words still come through
+    h.clock.advance(12_000);
+    expect(h.finals).toEqual([]);
+    expect(h.issues).toEqual([]);
     release!();
     await settle();
     expect(h.finals).toEqual([{ transcript: 'Here you are.', confidence: 0.7 }]);
+    expect(readMicTurns()).toMatchObject({ started: 1, lost: 0 });
+  });
+
+  it('while the words are on the way the panel is told (processing), not left on an idle mic', async () => {
+    let release: (() => void) | null = null;
+    const slowAi = { run: () => new Promise((r) => { release = () => r({ text: 'Here you are.' }); }) } as unknown as LcwEnv['AI'];
+    const h = await harness({ level: () => 0.1, ai: slowAi });
+    const seen: boolean[] = [];
+    const ctrl = new MicController(h.engine, { onView: (v) => seen.push(!!v.processing), onFinal: () => undefined, onIssue: () => undefined }, h.clock);
+    ctrl.tap();
+    await settle();
+    h.clock.advance(1000);
+    ctrl.tap();
+    await settle();
+    expect(seen[seen.length - 1]).toBe(true);
+    release!();
+    await settle();
+    expect(seen[seen.length - 1]).toBe(false);
   });
 
   it('is only offered with a secure page, a recorder and a child token', () => {

@@ -46,7 +46,8 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
   it('lesson stars go into the ledger once per utterance; lesson, solo dialog and /join all read the same balance', async () => {
     const p = platform();
     const { lessonId, st } = await startLesson(p);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    // two sentences on screen: one passed sentence does not move the stage on yet (docs/18 §9), so saying it again is a repeat
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?', 'Honey tea, please.'] });
     const say = (stars: 1 | 2 | 3, transcript = 'can I have a warm honey tea') =>
       call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript, chosen_stars: stars, dur_ms: 2000 }, st);
 
@@ -73,9 +74,12 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
     );
     expect(order.body.coins_total).toBe(240 - starPrice(water.basePrice, 3));
 
-    // back in the lesson (3D client or /join send the same request): balance continues from there
-    const b = await say(2);
-    expect(b.body.coins_total).toBe(240 - starPrice(water.basePrice, 3) + 20);
+    // back in the lesson (3D client or /join send the same request): balance continues from there; the same ★★
+    // sentence again earns nothing (R2627 stars once per goal), a new ★ sentence earns its star
+    const again = await say(2);
+    expect(again.body).toMatchObject({ stars: 0, repeat: true, coins_total: 240 - starPrice(water.basePrice, 3) });
+    const b = await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Honey tea, please.', transcript: 'honey tea please', chosen_stars: 1, dur_ms: 2000 }, st);
+    expect(b.body.coins_total).toBe(240 - starPrice(water.basePrice, 3) + 10);
     expect(p.coinBalance('kid-1')).toBe(b.body.coins_total);
   });
 

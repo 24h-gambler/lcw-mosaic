@@ -17,6 +17,7 @@ export const SCAN_DIRS = [
   'apps/web/src',
   'apps/client/src',
   'apps/edge/src',
+  'apps/adventure/src',
   ...(fs.existsSync(path.join(ROOT, 'packages'))
     ? fs
         .readdirSync(path.join(ROOT, 'packages'), { withFileTypes: true })
@@ -27,7 +28,7 @@ export const SCAN_DIRS = [
 /** Scripts served as-is whose strings people read (the family push service worker titles its notifications). */
 export const SCAN_SCRIPTS = ['apps/web/public/family-sw.js'];
 /** Plain files served as-is (titles, meta tags, manifests). */
-export const SCAN_FILES = ['apps/web/index.html', 'apps/client/index.html', 'apps/web/public/family.webmanifest'];
+export const SCAN_FILES = ['apps/web/index.html', 'apps/client/index.html', 'apps/adventure/index.html', 'apps/web/public/family.webmanifest'];
 
 /**
  * The banned words. `ko` matches anywhere in a user-visible string (게임 and its short form 겜). `en` matches as a whole

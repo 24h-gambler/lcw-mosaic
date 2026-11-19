@@ -51,6 +51,8 @@ export interface DialogResult {
   practice?: boolean;
   /** First-visit errand step this sentence moved (server state), and coins it paid on hand-over (docs/03 D1). */
   errand?: { state: 'offered' | 'accepted' | 'carrying' | 'done'; rewardCoins?: number };
+  /** Lesson: this goal already had its stars in the stage, so this answer earned none (server `repeat`, R2627). */
+  repeat?: boolean;
 }
 
 /**

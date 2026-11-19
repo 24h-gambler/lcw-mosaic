@@ -107,7 +107,11 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/panel-pin`, { pin: '2580' })).status).toBe(200);
     expect((await call(p, 'GET', `/v1/admin/lessons/${lessonId}/panel-pin`)).body.set).toBe(true);
     // The number is never stored or returned in clear.
-    expect(JSON.stringify(p.sql.all('select * from lesson_panel_lock'))).not.toContain('2580');
+    // only the hash is kept (the hash is hex, so it may hold '2580' by chance: look at the column, not the row text)
+    const lock = p.sql.get<Record<string, unknown>>('select * from lesson_panel_lock')!;
+    expect(lock.pin_hash).not.toBe('2580');
+    expect(String(lock.pin_hash).length).toBeGreaterThanOrEqual(32);
+    expect(JSON.stringify({ ...lock, pin_hash: null })).not.toContain('2580');
     expect((await unlock('2580', st)).status).toBe(401); // the child's token cannot try
     expect((await unlock('2580')).status).toBe(200);
     for (let i = 0; i < 5; i++) expect((await unlock('0000')).status).toBe(403);

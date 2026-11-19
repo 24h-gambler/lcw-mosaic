@@ -63,6 +63,8 @@ export const ADV = {
    * @lcw/audio), or when nobody spoke for `noVoiceMs`, and never runs past `maxMs`.
    */
   listen: { silenceStopMs: AUDIO_LIMITS.DIALOG_MIC_AUTO_STOP_SILENCE_MS, noVoiceMs: 7000, maxMs: 20000 },
+  /** In a lesson: how often the adventure tells the lesson it is still here (audio/presence.ts; the lesson closes after 15 idle minutes). */
+  lessonPingMs: 60_000,
   /** A class code is 6 digits (edge makeJoinCode). */
   joinCodeDigits: 6
 } as const;

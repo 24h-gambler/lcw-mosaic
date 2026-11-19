@@ -6,6 +6,7 @@ import {
   LCW_SITE_ORIGIN,
   LESSON_EMPTY_GRACE_MS,
   LESSON_IDLE_CLOSE_MS,
+  LESSON_RECLAMP_BEFORE_MS,
   LESSON_SWEEP_CRON,
   TEACHER_PRESENT_MS
 } from '../lesson-mode.js';
@@ -169,6 +170,28 @@ describe('abandoned lessons close by themselves (cron sweep)', () => {
       expect((await cron(p)).body.lessons.closed).toEqual([]);
     }
     expect(count(p, 'select count(*) as n from lessons where ended_at is null')).toBe(1);
+  });
+
+  it('the child on /adventure/ (away=adventure poll) keeps the lesson open, the console sees it, the stage clock does not run', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    const stage0 = sqlOf(p).get<{ stage_id: string; child_ms: number }>('select stage_id, child_ms from lesson_state where lesson_id = ?', [lessonId]);
+    for (let i = 0; i < 6; i++) {
+      now += 10 * 60_000;
+      const r = await call(p, 'GET', '/v1/lesson/state?away=adventure', undefined, st);
+      expect(r.status).toBe(200);
+      expect(r.body.auto_advanced).toBeNull();
+      expect((await cron(p)).body.lessons.closed).toEqual([]);
+    }
+    const after = sqlOf(p).get<{ stage_id: string; child_ms: number }>('select stage_id, child_ms from lesson_state where lesson_id = ?', [lessonId]);
+    expect(after).toEqual(stage0);
+    expect(sqlOf(p).get<{ scene_id: string }>('select scene_id from lesson_presence where lesson_id = ?', [lessonId])?.scene_id).toBe('adventure');
+    // no poll at all: closed after the idle time as before
+    now += 16 * 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
   });
 
   it('a card that went out before keep (11-16 Oreo, folded on the hub) goes again once with keep on the next hourly cron (review of PR 162)', async () => {
@@ -476,14 +499,18 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     expect(sent.body.facts.lesson.duration_min).toBe(25);
   });
 
-  it("the adventure's 🎤 with the lesson token is a sign of life: the town polls stop there, the lesson stays open (R2625 last box)", async () => {
+  it("in the adventure both ways keep the lesson alive by the same presence rule: the away poll (#172) and a 🎤 turn (R2625 last box)", async () => {
     now = T0;
     const p = platform();
     await addStudent(p);
     const { lessonId, st } = await startLesson(p);
     await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'adventure', targets: [] });
-    await call(p, 'GET', '/v1/lesson/state', undefined, st);
-    // the child leaves the town for /adventure/ (same tab): no more state polls, only the adventure's turns
+    await call(p, 'GET', '/v1/lesson/state?scene=plaza&ui=3d', undefined, st);
+    const presence = () =>
+      sqlOf(p).get<{ last_seen_at: number; scene_id: string | null }>('select last_seen_at, scene_id from lesson_presence where lesson_id = ?', [lessonId])!;
+    const lessonState = () => sqlOf(p).get<{ stage_id: string; child_ms: number }>('select stage_id, child_ms from lesson_state where lesson_id = ?', [lessonId])!;
+    const before = lessonState();
+    // the child leaves the town for /adventure/ (same tab): the adventure's turns, and its away poll every minute
     const turn = () =>
       p.fetch(
         new Request(`${host}/v1/converse/stt`, {
@@ -492,19 +519,55 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
           body: new Uint8Array(64).buffer as ArrayBuffer
         })
       );
-    for (let m = 5; m <= 40; m += 5) {
+    now = T0 + 5 * 60_000;
+    await call(p, 'GET', '/v1/lesson/state?away=adventure', undefined, st);
+    expect(presence()).toEqual({ last_seen_at: now, scene_id: 'adventure' });
+    // a turn moves the same time column, nothing else (the console keeps saying 'adventure')
+    for (let m = 10; m <= 40; m += 5) {
       now = T0 + m * 60_000;
       await turn();
+      expect(presence(), `minute ${m}`).toEqual({ last_seen_at: now, scene_id: 'adventure' });
       expect((await cron(p)).body.lessons.closed, `minute ${m}`).toEqual([]);
     }
+    // neither way runs the town stage's own minutes or moves the stage
+    expect(lessonState().stage_id).toBe(before.stage_id);
+    expect(lessonState().child_ms).toBe(before.child_ms);
     expect(sqlOf(p).get<{ ended_at: number | null }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBeNull();
-    // the console still shows the town's last scene (only the time moved)
-    expect(sqlOf(p).get<{ scene_id: string | null }>('select scene_id from lesson_presence where lesson_id = ?', [lessonId])!.scene_id).not.toBe('adventure');
-    // and once the child is really gone, the sweep closes it at the last turn
+    // once the child is really gone, the sweep closes it at the last turn
     const lastTurn = now;
     now += LESSON_IDLE_CLOSE_MS + 60_000;
     expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
     expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(lastTurn);
+  });
+
+  it('the reclamp only looks at real students closed by the old rule (each sweep re-read every unsent close)', async () => {
+    // closed by the old rule, but a smoke student: never recomputed
+    now = T0;
+    const p = platform();
+    await addStudent(p, 'smoke-reclamp-1', 'Smoky');
+    const smoke = await startLesson(p, 'smoke-reclamp-1');
+    await say(p, smoke.st);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    await cron(p);
+    const late = T0 + 422 * 60_000;
+    sqlOf(p).all('update lessons set ended_at = ? where id = ?', [late, smoke.lessonId]);
+    now = late + 30 * 60_000;
+    expect((await cron(p)).body.lessons.reclamped).toEqual([]);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [smoke.lessonId])!.ended_at).toBe(late);
+    // a real student closed after the fix went live: the close was already right, so the sweep does not look again
+    const T1 = LESSON_RECLAMP_BEFORE_MS + 3_600_000;
+    now = T1;
+    const q = platform();
+    await addStudent(q);
+    const real = await startLesson(q);
+    await say(q, real.st);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    await cron(q);
+    const forged = T1 + 400 * 60_000;
+    sqlOf(q).all('update lessons set ended_at = ? where id = ?', [forged, real.lessonId]);
+    now = forged + 30 * 60_000;
+    expect((await cron(q)).body.lessons.reclamped).toEqual([]);
+    expect(LESSON_RECLAMP_BEFORE_MS).toBeGreaterThan(T0);
   });
 
   it('a possession is a sign of life', async () => {

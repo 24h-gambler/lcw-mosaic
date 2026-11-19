@@ -363,8 +363,9 @@ export class PlatformDO {
 
   /**
    * The lesson child is talking somewhere off the town screen (the adventure's 🎤 with the same lesson token, the
-   * day's last box): a sign of life, so the idle sweep does not close the lesson while the town polls stop. Only the
-   * time moves; the scene and screen kind the console shows stay what the town said last.
+   * day's last box): a sign of life, so the idle sweep does not close the lesson while the town polls stop. Same rule
+   * as the adventure's away poll (GET /v1/lesson/state?away=adventure, PR 172): only lesson_presence.last_seen_at moves
+   * (never back); the scene the console shows stays what the last poll said, and the town stage's minutes do not run.
    */
   lessonChildSeen(lessonId: string, now = Date.now()): void {
     this.sql.run(

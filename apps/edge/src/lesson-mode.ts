@@ -130,6 +130,11 @@ export const LESSON_END_AUTO_IDLE = 'auto_idle';
  */
 export const LESSON_AUTO_ADVANCE_PASSES = 2;
 /**
+ * Auto-closes made from this moment on already end at the last real activity (PR 159 live 11-18 23:19 KST); only
+ * the ones before it are pulled back by the sweep's reclamp.
+ */
+export const LESSON_RECLAMP_BEFORE_MS = Date.parse('2026-11-18T14:30:00Z');
+/**
  * The stage's planned minutes count only the time the child's screen was there (its state poll every LESSON_POLL_MS,
  * 1.2 s; a retrying screen waits up to 15 s). A gap longer than this between two polls counts nothing: a child who joins
  * late does not skip the warm-up, and a child back from 20 minutes away does not skip a stage.
@@ -887,13 +892,17 @@ export function buildLessonModeApp(
   /** Unsent auto-closes older than this are left as they are (the sweep runs every 5 minutes; the box shows a week). */
   const LESSON_RECLAMP_WINDOW_MS = 14 * 86_400_000;
   const reclampAutoClosed = (dryRun: boolean, now: number, fallbackOrigin: string | null): Array<{ lesson_id: string; ended_at: number; was: number }> => {
-    const rows = d.sql.all<{ lesson_id: string; last_activity_at: number; started_at: number; ended_at: number }>(
-      `select a.lesson_id, a.last_activity_at, l.started_at, l.ended_at from lesson_auto_close a join lessons l on l.id = a.lesson_id
-       where a.sent_at is null and a.folded_into is null and l.ended_at is not null and a.closed_at >= ?`,
-      [now - LESSON_RECLAMP_WINDOW_MS]
+    // Only the closes the old rule made (before PR 159 went live) and only real students: each row costs a full
+    // lastActivityOf (seven tables) every 5 minutes (prod 11-19: ~28 of the sweep's ~89 rows; the hourly :00 cron is
+    // where ~100k rows an hour go, see ops_runs).
+    const rows = d.sql.all<{ lesson_id: string; player_id: string; last_activity_at: number; started_at: number; ended_at: number }>(
+      `select a.lesson_id, l.player_id, a.last_activity_at, l.started_at, l.ended_at from lesson_auto_close a join lessons l on l.id = a.lesson_id
+       where a.sent_at is null and a.folded_into is null and l.ended_at is not null and a.closed_at >= ? and a.closed_at < ?`,
+      [now - LESSON_RECLAMP_WINDOW_MS, LESSON_RECLAMP_BEFORE_MS]
     );
     const out: Array<{ lesson_id: string; ended_at: number; was: number }> = [];
     for (const row of rows) {
+      if (isTestPlayerId(row.player_id)) continue;
       const last = lastActivityOf(row.lesson_id, row.started_at);
       const endAt = Math.max(row.started_at, Math.min(last, row.ended_at));
       if (endAt >= row.ended_at) continue;
@@ -1559,9 +1568,13 @@ export function buildLessonModeApp(
     const now = d.nowMs();
     // A tutoring seat is in use once its child is in a lesson (seats.ts markSeatUse; refund ends at first use).
     markSeatUse(d.sql, s.player_id, now, 'lesson');
+    // `away=adventure`: the child is on /adventure/ in this tab (docs/22): a sign of life that keeps the lesson open (the
+    // idle sweep, LESSON_IDLE_CLOSE_MS) and shows the console where the child is, but the world stage's own minutes do
+    // not run and the stage never moves on while the child is not in the world.
+    const away = c.req.query('away') === 'adventure';
     // The stage's planned minutes of the child's own time are over: on to the next one (LESSON_CHILD_GAP_MS).
-    childTick(s.lesson_id, now);
-    const advanced = autoAdvance(s.lesson_id, now);
+    if (!away) childTick(s.lesson_id, now);
+    const advanced = away ? null : autoAdvance(s.lesson_id, now);
     const st = stateOf(s.lesson_id);
     const l = lessonRow(s.lesson_id);
     const plan = getLessonPlan(st?.plan_id);
@@ -1580,7 +1593,7 @@ export function buildLessonModeApp(
       [
         s.lesson_id,
         now,
-        scene && /^[a-z_]{1,32}$/.test(scene) ? scene : null,
+        away ? 'adventure' : scene && /^[a-z_]{1,32}$/.test(scene) ? scene : null,
         ui === '3d' || ui === 'cards' ? ui : null,
         mic && (LESSON_MIC_STATUSES as readonly string[]).includes(mic) ? mic : null,
         micIssue && MIC_ISSUE_RE.test(micIssue) ? micIssue : null,

@@ -1,6 +1,7 @@
 /** Entry of /adventure/ (docs/22): the talk-to-befriend adventure on the Hushwind Isles. */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { startLessonPresence } from './audio/presence.js';
 import { Engine } from './engine.js';
 import { App } from './ui/App.js';
 import { CSS } from './ui/styles.js';
@@ -21,6 +22,8 @@ if (typeof document !== 'undefined') {
   const rootEl = document.getElementById('root');
   if (rootEl) createRoot(rootEl).render(<App engine={engine} />);
   void engine.boot();
+  // in a lesson: keep it open while the child plays here (audio/presence.ts)
+  startLessonPresence();
   // a child who closes the tab mid-island still leaves what they said in the document (same id overwrites later)
   const leave = () => engine.sendResults(true);
   window.addEventListener('pagehide', leave);

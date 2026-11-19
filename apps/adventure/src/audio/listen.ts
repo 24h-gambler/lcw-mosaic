@@ -22,6 +22,10 @@ const MIC_OFF_KEY = 'lcw.adventure.micOff';
 /** For this page view: the server refused the token (an old lesson tab: 401/403) → ask for the code again; the meter is resting (429) → typing. */
 let refused = false;
 let resting = false;
+/** The lesson refused this tab's token (the lesson ended): the next 🎤 asks for the class code. */
+export function lessonTokenRefused(): void {
+  refused = true;
+}
 /** A new class code worked: the token is good again. */
 export function tokenRenewed(): void {
   refused = false;

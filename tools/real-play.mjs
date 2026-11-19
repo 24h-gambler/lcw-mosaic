@@ -115,6 +115,7 @@ page.on('console', (m) => {
 // child's browser never asks with c=1. Those are counted apart, everything else is an error.
 const httpFails = [];
 let ttsCacheMiss = 0;
+const ttsJudging = [];
 page.on('response', (r) => {
   const st = r.status();
   if (st < 400) return;
@@ -130,9 +131,12 @@ page.on('response', (r) => {
   };
   // only `tts_not_cached` is the by-design miss: `tts_not_made` / `tts_off` would reach a child too (review of #158)
   if (st === 404 && u.pathname === '/v1/tts' && u.searchParams.get('c') === '1') {
-    r.json()
-      .then((b) => (b?.error === 'tts_not_cached' ? ttsCacheMiss++ : fail(` ${b?.error ?? ''}`)))
-      .catch(() => fail());
+    ttsJudging.push(
+      r
+        .json()
+        .then((b) => (b?.error === 'tts_not_cached' ? ttsCacheMiss++ : fail(` ${b?.error ?? ''}`)))
+        .catch(() => fail())
+    );
     return;
   }
   fail();
@@ -226,6 +230,7 @@ const FOCAL = H / 2 / Math.tan((70 * Math.PI) / 360);
 /** Face the NPC: turn until its body is near the middle of the screen. */
 let faceMiss = null;
 async function face(id) {
+  progress('face');
   for (let i = 0; i < 16; i++) {
     const s = await stats();
     const n = s?.npcView?.find((v) => v.id === id);
@@ -285,7 +290,8 @@ let lastClick = null;
 /** One talk opened by a click/tap on the NPC's body. */
 async function tryClick(id) {
   const n = await face(id);
-  if (!n) return false;
+  // null: the bot never got the NPC on screen, so nothing was tried (not checked; review 2 of #158)
+  if (!n) return null;
   counts.clickTry++;
   const s = await stats();
   const v = s?.npcView?.find((x) => x.id === id) ?? n;
@@ -491,6 +497,7 @@ async function walkTo(lineX, endZ, done) {
   let stuck = 0;
   const trace = [];
   for (let i = 0; i < 40; i++) {
+    progress('hill-walk');
     const a = (await stats()).player;
     if (done(a)) break;
     await forward(350);
@@ -544,6 +551,8 @@ if (process.env.LCW_REAL_PLAY_HILL !== '0') {
   await wait(1200);
   const top = (await stats()).player;
   // a few tries: the bot's steering can leave the 3-wide ramp on a big turn at the bottom (11-18 run 1), a child's does not
+  let climbed = null; // a try that got down and climbed (to the top or not)
+  const sums = { pressedJumpsUp: 0, unwantedJumpsUp: 0, autoClimbsUp: 0 };
   for (let tryNo = 1; tryNo <= 3 && !hill.reachedTop; tryNo++) {
     const down = await walkTo(HILL_RAMP.downX, HILL_RAMP.bottomZ, (p) => p.z > HILL_RAMP.bottomZ - 2);
     // the climb counts only from the bottom: a walk that never got down "reaches the top" without climbing (11-18)
@@ -551,7 +560,7 @@ if (process.env.LCW_REAL_PLAY_HILL !== '0') {
     const mUp = (await stats()).motion;
     const up = reachedBottom ? await walkTo(HILL_RAMP.x, HILL_RAMP.topZ, (p) => p.z < HILL_RAMP.topZ + 3.5) : { end: down.end, trace: [] };
     const mTop = (await stats()).motion;
-    Object.assign(hill, {
+    const cur = {
       ran: true,
       tries: tryNo,
       startY: top.y,
@@ -565,8 +574,16 @@ if (process.env.LCW_REAL_PLAY_HILL !== '0') {
       autoClimbsUp: mTop.autoClimbs - mUp.autoClimbs,
       camOverBody: +(mTop.camY - mTop.bodyY).toFixed(2),
       upTrace: up.trace
-    });
+    };
+    if (reachedBottom) {
+      for (const k of Object.keys(sums)) sums[k] += cur[k];
+      climbed = cur;
+    }
+    // a later try that never got down must not hide an earlier failed climb (review 2 of #158)
+    Object.assign(hill, climbed && !reachedBottom ? { ...climbed, tries: tryNo } : cur);
   }
+  // jumps / climbs on the way up over every try that climbed: one jump on a failed try still counts
+  if (climbed) Object.assign(hill, sums);
   await shot('70-hill-top');
   await page.evaluate(() => window.__lcwWorld.goToScene('plaza'));
   await page.waitForFunction(() => !window.__lcwWorld.getStats().interact.walking, null, { timeout: 60000 }).catch(() => {});
@@ -631,9 +648,8 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
       await walkToNpc(lesson.npc);
       await page.waitForFunction(() => !window.__lcwWorld.getStats().interact.walking, null, { timeout: 60000 }).catch(() => {});
       await approach(lesson.npc, 2.4);
-      const c0 = counts.clickOk;
-      await tryClick(lesson.npc);
-      lesson.reopenByClick = counts.clickOk > c0;
+      // null when the bot could not get the lesson NPC on screen: not checked, not a failure (review 2 of #158)
+      lesson.reopenByClick = await tryClick(lesson.npc);
       await shot('81-lesson-click');
       if (await fold()) {
         await approach(lesson.npc, 2.4);
@@ -648,7 +664,7 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
         lesson.promptOnShare = seq.filter((q) => q[1] === 'P').length / seq.length;
         lesson.promptSeq = seq.join(' ');
         const k = await tryKey(lesson.npc);
-        lesson.reopenByKey = k.ok;
+        lesson.reopenByKey = k.faced || k.ok ? k.ok : null;
         lesson.key = k;
       }
     }
@@ -661,6 +677,7 @@ const end = await stats();
 const motion = end?.motion ?? {};
 const errand = await call('GET', '/v1/errand', undefined, dev.device_token);
 const repeats = [...lines.entries()].map(([id, ls]) => ({ id, visits: ls.length, distinct: new Set(ls).size }));
+await Promise.allSettled(ttsJudging);
 const report = {
   view,
   size: `${W}x${H}`,

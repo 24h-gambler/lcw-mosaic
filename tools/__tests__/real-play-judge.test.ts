@@ -84,6 +84,15 @@ describe('real-play judgement for the nightly audit', () => {
     expect(judgeView(r).map((x: { id: string }) => x.id)).toEqual(['play:hill']);
   });
 
+  it('a lesson reopen the bot could not try (NPC never on screen) is not checked', () => {
+    const r = clean();
+    r.lesson = { ...r.lesson, reopenByClick: null, reopenByKey: null } as typeof r.lesson;
+    expect(judgeView(r)).toEqual([]);
+    expect(playLines({ pc: r })[0]).toContain('클릭 확인 안 됨');
+    r.lesson = { ...r.lesson, reopenByClick: false } as typeof r.lesson;
+    expect(judgeView(r).map((x: { id: string }) => x.id)).toEqual(['play:lesson-reopen']);
+  });
+
   it('a short night skips the play so the screens keep their time', () => {
     expect(playBudget(10 * 60000)).toBe(0);
     expect(playBudget(40 * 60000)).toBe(24 * 60000);

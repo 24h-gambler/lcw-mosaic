@@ -104,7 +104,8 @@ export function playLines(reports) {
     const cam = (r.jumpView ?? []).map((j) => j.camRise).join('/');
     const h = !r.hill?.ran ? '언덕 안 봄' : r.hill.reachedBottom === false ? '언덕 확인 안 됨(경사로 아래로 못 내려감)' : `언덕 ${r.hill.reachedTop ? `오름(높이 ${r.hill.topY})` : '못 오름'}`;
     const p = r.lesson?.passer ? `지나가는 NPC ${r.lesson.passer.ok === null ? '확인 안 됨(화면에 못 잡음)' : r.lesson.passer.ok ? '조용' : '문제'}` : '';
-    const les = r.lesson?.started ? `수업 다시 열기 클릭 ${r.lesson.reopenByClick ? '됨' : '안 됨'}·E ${r.lesson.reopenByKey ? '됨' : '안 됨'}` : '수업 안 봄';
+    const yn = (v) => (v === null || v === undefined ? '확인 안 됨' : v ? '됨' : '안 됨');
+    const les = r.lesson?.started ? `수업 다시 열기 클릭 ${yn(r.lesson.reopenByClick)}·E ${yn(r.lesson.reopenByKey)}` : '수업 안 봄';
     return `- ${view} ${r.size ?? ''}: 클릭 ${r.clickSuccess} · E ${r.keySuccess} · 다른 NPC ${r.wrongNpc ?? 0} · 원치 않은 점프 ${r.unwantedJumps ?? 0} · 점프 시점 ${cam}m · 심부름 ${r.errand?.state ?? '?'} · ${h} · ${les}${p ? ` · ${p}` : ''} · 오류 ${(r.errs ?? []).length} (캐시 전용 음성 404 ${r.ttsCacheMiss ?? 0}, 설계대로) · ${r.seconds ?? '?'}초`;
   });
 }

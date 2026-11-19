@@ -338,6 +338,7 @@ export class WorldHud {
   private miniSeen = false;
   private walkSeen: HTMLElement | null = null;
   private onPart: (() => void) | null = null;
+  private partsSeen = new Set<HTMLElement>();
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -450,7 +451,10 @@ export class WorldHud {
       this.chipObs.observe(this.root);
       // a frame part placed by these measures came or went (TeacherPanel): measure, and follow its size from now on
       this.onPart = () => {
-        for (const e of rightColParts()) this.chipObs?.observe(e);
+        const now = new Set(rightColParts());
+        for (const e of this.partsSeen) if (!now.has(e)) this.chipObs?.unobserve(e);
+        for (const e of now) if (!this.partsSeen.has(e)) this.chipObs?.observe(e);
+        this.partsSeen = now;
         measure();
       };
       window.addEventListener(HUD_PART_EVENT, this.onPart);
@@ -1355,6 +1359,7 @@ export class WorldHud {
 
     this.chipObs?.disconnect();
     this.promptObs?.disconnect();
+    for (const v of ['--lcw-hud-stack', '--lcw-hud-top-b', '--lcw-hud-col-b', '--lcw-hud-right-b', '--lcw-hud-talk-w', '--lcw-hud-walk-l']) document.documentElement.style.removeProperty(v);
     if (this.onPart) window.removeEventListener(HUD_PART_EVENT, this.onPart);
     window.removeEventListener('resize', this.onResizeNet);
     this.root.remove();

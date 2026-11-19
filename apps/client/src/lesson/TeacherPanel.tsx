@@ -227,13 +227,14 @@ export function TeacherPanel({
     setPhase('locked');
   };
 
+  // under the toggle button (the HUD's top-right column, measured), so the open panel never covers its own button
   const box: React.CSSProperties = {
     position: 'fixed',
-    top: 100,
+    top: 'calc(var(--lcw-hud-right-b, 92px) + 8px)',
     right: 12,
     zIndex: 70,
     width: 'min(420px, calc(100vw - 24px))',
-    maxHeight: 'calc(100vh - 124px)',
+    maxHeight: 'calc(100vh - var(--lcw-hud-right-b, 92px) - 32px)',
     overflowY: 'auto',
     background: C['paper-0'],
     color: C['ink-900'],

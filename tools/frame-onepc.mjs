@@ -102,12 +102,31 @@ try {
       if (await page.getByTestId('teacher-panel-toggle').isVisible().catch(() => false)) break;
       await page.waitForTimeout(2000);
     }
-    const shown = await page.getByTestId('teacher-panel-toggle').isVisible().catch(() => false);
+    const toggle = page.getByTestId('teacher-panel-toggle');
+    const shown = await toggle.isVisible().catch(() => false);
     if (!shown) fails.push(`${vp.name}: teacher button not on the screen (1PC lesson did not come up)`);
     // let the goal card, the teacher tag and the measures settle
     await page.waitForTimeout(2500);
     const { problems } = await layoutIssues(page);
     for (const p of problems) fails.push(`${vp.name}: ${p}`);
+    if (shown) {
+      // the teacher can press it: nothing on top at its middle, the lock card opens, the open card leaves it uncovered
+      const top = await toggle.evaluate((b) => {
+        const r = b.getBoundingClientRect();
+        const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !!at && (at === b || b.contains(at));
+      });
+      if (!top) fails.push(`${vp.name}: something lies on the teacher button`);
+      await toggle.click({ timeout: 4000 }).catch(() => {});
+      const lock = page.getByTestId('teacher-panel-lock');
+      if (!(await lock.waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false))) fails.push(`${vp.name}: teacher button does not open the lock card`);
+      else {
+        const [a, b] = await Promise.all([toggle.boundingBox(), lock.boundingBox()]);
+        if (a && b && a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height) fails.push(`${vp.name}: the lock card covers the teacher button`);
+        if (out) await page.screenshot({ path: `${out}/${vp.name}-lock.png` });
+        await toggle.click({ timeout: 4000 }).catch(() => {});
+      }
+    }
     for (const e of errs) fails.push(`${vp.name}: ${e}`);
     if (out) await page.screenshot({ path: `${out}/${vp.name}.png` });
     await ctx.close();

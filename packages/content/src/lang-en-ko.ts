@@ -1214,6 +1214,9 @@ export const UI_STRINGS_KO = {
     networkError: '연결이 잠깐 끊겼어요. 한 번 더 눌러 볼까요?',
     savedOffline: '인터넷이 잠깐 끊겼어요. 말한 건 저장해 두었다가 연결되면 선생님께 보낼게요.',
     submitError: '잠깐 문제가 생겼어요. 한 번 더 해 볼까요?',
+    /** R2627: why a recorded turn did not reach the teacher, said on the child's screen (dialog/mic-status.ts). */
+    sttQuota: '지금은 말 알아듣기가 잠깐 쉬어요. 단어 카드로 문장을 만들어 보내요!',
+    sttFailed: '녹음을 못 알아들었어요. 한 번 더 말해 볼까요?',
     sessionEnded: '수업 시간이 끝나서 저장하지 못했어요. 선생님께 알려 주세요.',
     practiceNote: '연습 중이라 코인과 물건은 없어요. 보호자와 기기를 연결하면 모을 수 있어요.',
     keepBest: '이대로 받을게요',

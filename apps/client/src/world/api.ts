@@ -152,6 +152,8 @@ export interface WorldHandle {
    * 3 x 3 sectors), the walkable places, and where the player stands. World coordinates in metres.
    */
   getMap?(): WorldMapInfo;
+  /** Headless screenshot tools only: stand at (x, z), look along yaw (first person pitch 0.3 = level), at an hour. */
+  debugPose?(p: { x: number; z: number; y?: number; yaw: number; pitch?: number; hour?: number }): void;
   /**
    * Star chip from an outside count (a lesson's stars, server-summed): the chip shows this number and celebrate()
    * no longer adds to it, so a star is never counted twice. null hands the chip back to celebrate().

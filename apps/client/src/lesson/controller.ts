@@ -21,6 +21,8 @@ import {
   LessonHttpError,
   loadStudentSession,
   readLessonMicIssue,
+  readLessonMicTurns,
+  clearLessonMicTurns,
   readLessonMicStatus,
   readUtteranceSubmit,
   saveStudentSession,
@@ -242,6 +244,8 @@ export class LessonController {
         this.seenLines.clear();
         this.seenEvents.clear();
       }
+      // The mic turn count (R2627) is this lesson's: solo play or another lesson in this tab before it does not count.
+      if (this.session?.lessonId !== r.lesson_id) clearLessonMicTurns();
       this.session = { token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, level: r.level, voiceStore: r.voice_store === true };
       saveStudentSession(this.session, this.store());
       this.cursor = null;
@@ -276,7 +280,14 @@ export class LessonController {
       }
       throw e;
     }
-    const result: DialogResult = { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, ...(r.feedback_en ? { feedbackEn: r.feedback_en } : {}), coinsTotal: r.coins_total };
+    const result: DialogResult = {
+      pass: r.pass,
+      stars: r.stars,
+      feedbackKo: r.feedback_ko,
+      ...(r.feedback_en ? { feedbackEn: r.feedback_en } : {}),
+      coinsTotal: r.coins_total,
+      ...(r.repeat === true ? { repeat: true } : {})
+    };
     // An answer that lands after "나가기", a new code or stop belongs to a lesson this screen no longer shows: the
     // panel still gets its result, the HUD chips do not move.
     if (run !== this.run || this.session !== s) return result;
@@ -349,7 +360,8 @@ export class LessonController {
         scene: this.view.sceneId ?? undefined,
         ui: this.opts.ui ?? '3d',
         mic: readLessonMicStatus(),
-        micIssue: readLessonMicIssue()
+        micIssue: readLessonMicIssue(),
+        micTurns: readLessonMicTurns()
       });
       if (run !== this.run) return;
       this.retryMs = LESSON_POLL_MS;

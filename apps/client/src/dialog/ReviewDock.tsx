@@ -3,6 +3,7 @@ import { npcPersona } from '@lcw/content';
 import { live } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
+import { MINIMAP_TOUCH_BOTTOM } from '../world/minimap-place.js';
 import { DialogPanel } from './DialogPanel.js';
 import { createReviewSubmit, fetchReviewDue, nextPollDelay, type ReviewSignView } from './review.js';
 import { playSfx } from './sound.js';
@@ -54,10 +55,10 @@ function tokenOf(player?: SoloPlayerRef): string {
 
 /**
  * Top-right column under the world's star+coin chip (top 12, 36 high). Touch HUDs also carry the world's view button
- * at about 60~116px, so the dock starts below it there (docs/19 5장).
+ * at about 60~116px and the minimap under it (124~220px, docs/08 7.3), so the dock starts below both there (docs/19 5장).
  */
 export function reviewDockTop(coarse: boolean): number {
-  return coarse ? 128 : 60;
+  return coarse ? MINIMAP_TOUCH_BOTTOM : 60;
 }
 
 function coarseQuery(): MediaQueryList | null {

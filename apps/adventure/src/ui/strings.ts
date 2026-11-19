@@ -1,0 +1,165 @@
+/**
+ * Screen words of /adventure/ (AGENTS 6: strings live in one file). The child reads English; `ko` is the help line
+ * shown when 한국어 도움말 is on. The guardian summary (A06) is Korean only. docs/21: never "game"; no "wrong"/"fail".
+ */
+export const S = {
+  title: { en: 'The Hushwind Isles', ko: '휘파람 바람 섬' },
+  tagline: { en: 'Talk kindly in English to make friends on four islands.', ko: '영어로 다정하게 말해서 네 섬의 친구를 사귀어요.' },
+  help: '한국어 도움말',
+  soundOn: { en: 'Sound on', ko: '소리 켬' },
+  soundOff: { en: 'Sound off', ko: '소리 끔' },
+  parentLink: '보호자용 요약',
+  start: { en: 'Start', ko: '시작' },
+  replay: { en: 'Play again', ko: '다시 하기' },
+  island: { en: 'Island', ko: '섬' },
+  state: {
+    open: { en: 'Open', ko: '열림' },
+    cleared: { en: 'Friends made', ko: '친구가 됐어요' },
+    previous: { en: 'Finish the island before', ko: '앞 섬을 먼저 끝내요' },
+    'next-day': { en: 'Opens on your next lesson day', ko: '다음 수업 날 열려요' }
+  },
+  /** Opened without the student document: the next island waits for tomorrow (Korea time). */
+  stateTomorrow: { en: 'Opens tomorrow', ko: '내일 열려요' },
+  loading: { en: 'Getting your islands ready…', ko: '섬을 준비하고 있어요…' },
+  dayWords: { en: "Today's words", ko: '오늘의 낱말' },
+  dayFailed: { en: 'Island words today (your page did not open).', ko: '문서 자료를 못 읽어서 섬의 낱말로 해요.' },
+  next: { en: 'Next', ko: '다음' },
+  close: { en: 'Close', ko: '닫기' },
+  back: { en: 'Back', ko: '뒤로' },
+  action: { en: 'Talk / Look', ko: '말 걸기 · 보기' },
+  keysHint: { en: 'Arrow keys or WASD to move · Z or Enter to talk', ko: '방향키·WASD 로 걷기 · Z·Enter 로 말 걸기' },
+  touchHint: { en: 'Use the pad or tap where to walk', ko: '방향판을 누르거나 갈 곳을 톡 눌러요' },
+  dodgeKeys: { en: 'Move your voice bubble with the arrow keys!', ko: '방향키로 말풍선을 움직여 피해요!' },
+  dodgeTouch: { en: 'Drag on the picture or use the pad to move your voice bubble!', ko: '그림 위를 끌거나 방향판으로 말풍선을 움직여요!' },
+  catchHint: { en: 'Catch the good letters and words, dodge the rest.', ko: '맞는 글자·낱말은 잡고, 나머지는 피해요.' },
+  cmd: {
+    poke: { en: 'POKE', ko: '콕 찌르기' },
+    talk: { en: 'TALK', ko: '말하기' },
+    pouch: { en: 'POUCH', ko: '주머니' },
+    friend: { en: 'FRIEND', ko: '친구 하기' }
+  },
+  cmdHint: {
+    poke: { en: 'Pokes end it fast, but nobody becomes a friend.', ko: '빨리 끝나지만 친구는 안 돼요.' },
+    talk: { en: 'Say something kind in English to calm them.', ko: '영어로 다정하게 말해서 마음을 풀어 줘요.' },
+    pouch: { en: 'Eat a snack to get your voice back.', ko: '간식을 먹고 목소리 힘을 채워요.' },
+    friend: { en: 'When CALM is full, make friends!', ko: 'CALM 이 꽉 차면 친구가 돼요!' }
+  },
+  chooseTalk: { en: 'What will you say?', ko: '뭐라고 말할까요?' },
+  pokeHint: { en: 'Press Z or tap when the ring meets the red circle!', ko: '고리가 빨간 원에 닿을 때 Z 를 누르거나 톡!' },
+  pokeNow: { en: 'POKE!', ko: '콕!' },
+  pouchTitle: { en: 'Your pouch', ko: '주머니' },
+  listen: { en: 'Listen', ko: '듣기' },
+  speak: { en: 'Speak', ko: '말하기' },
+  listening: { en: 'Listening… say it now!', ko: '듣고 있어요… 지금 말해요!' },
+  stop: { en: 'Done', ko: '다 말했어요' },
+  typeInstead: { en: 'Type instead', ko: '글자로 쓰기' },
+  typeHere: { en: 'Type the sentence', ko: '문장을 써요' },
+  typeWord: { en: 'Type the word', ko: '낱말을 써요' },
+  check: { en: 'Check', ko: '확인' },
+  clear: { en: 'Clear', ko: '지우기' },
+  skip: { en: 'Not now', ko: '나중에 말하기' },
+  saySentence: { en: 'Say this sentence', ko: '이 문장을 말해요' },
+  buildSentence: { en: 'Put the words in order', ko: '낱말을 순서대로 놓아요' },
+  spellWord: { en: 'Spell the word you hear', ko: '들리는 낱말의 철자를 맞혀요' },
+  pickReply: { en: 'Pick the best answer', ko: '알맞은 대답을 골라요' },
+  heard: { en: 'I heard', ko: '들린 말' },
+  micUnavailable: { en: 'No microphone here — type it instead.', ko: '여기서는 마이크를 쓸 수 없어요 — 글자로 써요.' },
+  micDenied: { en: 'The microphone is off — type it instead.', ko: '마이크가 꺼져 있어요 — 글자로 써요.' },
+  micSilent: { en: 'I did not hear anything. Try again or type it.', ko: '아무 소리도 안 들렸어요. 다시 말하거나 글자로 써요.' },
+  result: {
+    3: { en: 'Perfect!', ko: '완벽해요!' },
+    2: { en: 'Great!', ko: '아주 좋아요!' },
+    1: { en: 'Good!', ko: '좋아요!' },
+    0: { en: 'Almost! Try once more.', ko: '거의 다 왔어요! 한 번 더 해 봐요.' }
+  },
+  missedWords: { en: 'Listen for', ko: '이 낱말을 잘 들어 봐요' },
+  befriendTitle: { en: 'Make friends', ko: '친구 하기' },
+  befriendSay: { en: 'Say it to make friends (you can also just press the button).', ko: '말하면서 친구가 돼요(그냥 단추만 눌러도 돼요).' },
+  befriendBtn: { en: 'Make friends!', ko: '친구 하기!' },
+  stoneSay: { en: 'Say the word or its sentence', ko: '낱말이나 문장을 말해 봐요' },
+  stoneLit: { en: 'The stone glows! You said it.', ko: '돌이 빛나요! 잘 말했어요.' },
+  endTitle: { en: 'Island cleared!', ko: '섬을 끝냈어요!' },
+  endFriends: { en: 'New friends', ko: '새 친구' },
+  endWords: { en: 'Words you brought back', ko: '되찾은 낱말' },
+  endLines: { en: 'Sentences you used', ko: '쓴 문장' },
+  endNext: {
+    'next-day': { en: 'The next island opens on your next lesson day.', ko: '다음 섬은 다음 수업 날 열려요.' },
+    tomorrow: { en: 'The next island opens tomorrow.', ko: '다음 섬은 내일 열려요.' },
+    'done-all': { en: 'You made friends on all four islands. The words are home!', ko: '네 섬 모두에서 친구가 됐어요. 낱말이 모두 돌아왔어요!' },
+    replay: { en: 'You can play any island you finished again.', ko: '끝낸 섬은 언제든 다시 할 수 있어요.' }
+  },
+  endFought: { en: 'Next time, try TALK — words make friends.', ko: '다음엔 TALK 로 말을 걸어 봐요 — 말이 친구를 만들어요.' },
+  backToDoc: { en: 'Back to my English Day page', ko: '내 영어 문서로 돌아가기' },
+  toMap: { en: 'Island map', ko: '섬 지도' },
+  toWorld: { en: 'Use these words in the LCW town', ko: 'LCW 마을에서 이 문장 써 보기' },
+  sent: { en: 'Saved to your English Day page ✓', ko: '내 영어 문서에 저장했어요 ✓' },
+  items: { honeyDrop: { en: 'Honey Drop', ko: '꿀 사탕' }, berryBun: { en: 'Berry Bun', ko: '베리 빵' } },
+  /** TALK buttons (A04): what kind of line, how it is answered. */
+  talkKind: {
+    greet: { en: 'Say hello', ko: '인사하기' },
+    feel: { en: 'Share a feeling', ko: '기분 말하기' },
+    word: { en: 'Use a new word', ko: '새 낱말로 말하기' },
+    bank: { en: 'Ask nicely', ko: '예의 바르게 묻기' },
+    befriend: { en: 'Offer friendship', ko: '친구 하자고 말하기' }
+  },
+  talkMode: {
+    say: { en: 'say it', ko: '말하기' },
+    build: { en: 'build it', ko: '문장 조립' },
+    pick: { en: 'pick a reply', ko: '대답 고르기' },
+    spell: { en: 'spell it', ko: '철자 맞히기' }
+  },
+  spellLabel: (emoji: string) => ({ en: `Spell the word ${emoji}`.trim(), ko: '낱말 철자 맞히기' }),
+  answerLabel: (q: { en: string; ko: string }) => ({ en: `Answer "${q.en}"`, ko: `"${q.ko}"에 대답하기` }),
+  /** What the island's phrase-bank line is for (its Korean help: the bank has no Korean of its own). */
+  bankKo: {
+    guide: '길을 묻는 문장 (LCW 마을 안내인에게도 써요)',
+    trade_shop: '물건을 바꾸자는 문장 (LCW 교환 상점에서도 써요)',
+    cafe: '주문하는 문장 (LCW 카페에서도 써요)',
+    errand: '도와주겠다는 문장 (LCW 심부름에서도 써요)'
+  } as Record<string, string>,
+  /** The narrator in an encounter (A03). */
+  narr: {
+    pouchEmpty: { en: 'Your pouch is empty.', ko: '주머니가 비었어요.' },
+    notReady: (en: string, ko: string) => ({ en: `${en} is not ready yet. Try TALK first!`, ko: `${ko}는 아직 준비가 안 됐어요. 먼저 TALK 로 말을 걸어 봐요!` }),
+    ate: (en: string, ko: string, heal: number) => ({ en: `You ate a ${en}. Your voice feels stronger! (+${heal})`, ko: `${ko}을(를) 먹었어요. 목소리에 힘이 나요! (+${heal})` }),
+    missed: { en: 'Missed!', ko: '빗나갔어요!' },
+    voiceRest: { en: "Your voice bubble needs a rest. Let's try again!", ko: '말풍선이 조금 쉬어야 해요. 다시 해 봐요!' }
+  },
+  /** On the island (A02). */
+  walkStones: { en: 'Walk right. Touch the glowing word stones and meet the islanders!', ko: '오른쪽으로 걸어가요. 빛나는 낱말 돌을 만지고 섬 주민을 만나요!' },
+  walkOn: { en: 'Walk right to meet the islanders.', ko: '오른쪽으로 걸어가 섬 주민을 만나요.' },
+  wordStone: { en: 'Word Stone', ko: '낱말 돌' },
+  bell: { en: 'Moss Bell', ko: '종 기둥' },
+  bellFirst: { en: 'Ding! The bell rings. You found a Honey Drop for your pouch.', ko: '딩! 종이 울려요. 주머니에 꿀 사탕이 하나 생겼어요.' },
+  bellAgain: { en: 'Ding! The bell rings softly.', ko: '딩! 종이 살짝 울려요.' },
+  catchSpelling: { en: 'Catch the right spelling', ko: '맞는 철자를 잡아요' },
+  catchPrompt: { en: 'Catch:', ko: '잡을 것:' },
+  voiceLabel: { en: 'VOICE', ko: '목소리 힘' },
+  calmLabel: { en: 'CALM', ko: '마음' }
+} as const;
+
+/** The guardian summary (A06), Korean. */
+export const PARENT = {
+  title: '모험 기록 · 보호자용 요약',
+  intro: '아이가 휘파람 바람 섬에서 영어로 말해 섬 주민과 친구가 된 기록이에요. 이 기기에 저장된 기록이며, 학생 문서 링크로 열었다면 문서에도 같은 결과가 모여요.',
+  empty: '아직 모험 기록이 없어요',
+  chapter: (n: number) => `${n}장`,
+  notYet: '아직 안 했어요',
+  locked: '아직 열리지 않았어요',
+  cleared: '끝냄',
+  playedOn: '한 날',
+  time: '걸린 시간',
+  stars: '별',
+  outcome: '결과',
+  outcomes: { spared: '말로 친구가 됨', fought: '콕 찌르기로 끝냄', quit: '중간에 멈춤' },
+  lines: '말한·고른 문장',
+  words: '잡은 낱말',
+  modes: { voice: '말하기', typed: '타이핑', pick: '고르기', spell: '철자' },
+  ok: '성공',
+  retry: '다시 연습',
+  tries: (n: number) => `${n}번 시도`,
+  voiceLost: (n: number) => `피하기에서 잃은 기운 ${n}`,
+  level: '문장 단계',
+  back: '모험으로 돌아가기',
+  minutes: (s: number) => `${Math.floor(s / 60)}분 ${s % 60}초`
+} as const;

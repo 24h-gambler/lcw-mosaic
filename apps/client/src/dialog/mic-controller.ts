@@ -8,7 +8,7 @@ import {
   type MicCaptureState
 } from '@lcw/audio';
 import type { MicIssue, SpeechEngine, SpeechFinal, SpeechSession } from './speech.js';
-import { noteMicIssue, noteMicTurn } from './mic-status.js';
+import { noteMicIssue, noteMicTurn, noteTurnLost, noteTurnStart } from './mic-status.js';
 
 /**
  * Dialog microphone (docs/08 7.1, docs/12 9): tap to start, tap again to finish, or auto-stop after
@@ -42,6 +42,8 @@ export interface MicView {
   level: number;
   /** Whole seconds left before the soft turn cap, only in its last COUNTDOWN_MS (else absent). */
   secondsLeft?: number;
+  /** The turn ended and its words are on the way (the server rung uploads and transcribes): the panel says so. */
+  processing?: boolean;
 }
 
 export interface MicControllerEvents {
@@ -108,6 +110,8 @@ export class MicController {
   }
 
   dispose(): void {
+    // The window closed while a turn was still open (recording, or its result on the way): that turn is lost.
+    if ((this.state.recording || this.finishing) && !this.ended) noteTurnLost('closed');
     this.gen++;
     this.finishing = false;
     this.stopTicker?.();
@@ -128,6 +132,7 @@ export class MicController {
     this.lastActivityAt = this.startedAt;
     const gen = ++this.gen;
     this.clip = null;
+    noteTurnStart();
     this.session = this.engine.start({
       onInterim: (text) => {
         if (gen === this.gen) this.interim = text;
@@ -214,6 +219,8 @@ export class MicController {
         this.deliver(said ? { transcript: said, confidence: 0.5 } : null);
       });
       s.stop();
+      // still waiting for the engine (the server rung's upload and Whisper): say "listening to your answer" meanwhile
+      if (this.finishing && gen === this.gen) this.ev.onView({ recording: false, interim: this.interim, hangover: false, level: 0, processing: true });
     } else this.deliver(null);
   }
 
@@ -227,6 +234,7 @@ export class MicController {
     this.ev.onView({ recording: false, interim: r?.transcript ?? this.interim, hangover: false, level: 0 });
     const heard = r && r.transcript.trim() ? r : null;
     noteMicTurn(!!heard);
+    if (!heard) noteTurnLost('no_speech');
     if (this.recorder && !this.clip) this.clip = this.recorder.stop();
     const clip = this.clip;
     this.clip = null;

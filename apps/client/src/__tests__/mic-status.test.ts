@@ -1,6 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MicController } from '../dialog/mic-controller.js';
-import { MIC_ISSUE_KEY, MIC_STATUS_KEY, noteMicIssue, noteMicTurn, readMicIssue, resetMicStatusForTest } from '../dialog/mic-status.js';
+import {
+  MIC_ISSUE_KEY,
+  MIC_STATUS_KEY,
+  MIC_TURNS_KEY,
+  noteMicIssue,
+  noteMicTurn,
+  noteTurnLost,
+  noteTurnRecovered,
+  noteTurnSent,
+  noteTurnStart as noteTurnStartForTest,
+  readMicIssue,
+  readMicTurns,
+  resetMicStatusForTest
+} from '../dialog/mic-status.js';
+import { MIC_TURNS_RE, readLessonMicTurns } from '../lesson/api.js';
 import type { SpeechCallbacks, SpeechEngine } from '../dialog/speech.js';
 
 /** Oreo lesson 11-16: the console said "no mic" all lesson while voiced turns came in. The status follows the turns. */
@@ -65,5 +79,74 @@ describe('live mic status for the teacher console', () => {
     expect(mem.get(MIC_STATUS_KEY)).toBe('none');
     expect(readMicIssue()?.raw).toBe('not-allowed');
     c.dispose();
+  });
+});
+
+/** R2627: every mic turn ends sent or lost (with why), so a lesson with two answers in 25 minutes can be read. */
+describe('mic turn count (lcw.micTurns)', () => {
+  const mem = new Map<string, string>();
+  beforeEach(() => {
+    mem.clear();
+    resetMicStatusForTest();
+    (globalThis as { sessionStorage?: unknown }).sessionStorage = {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, v),
+      removeItem: (k: string) => void mem.delete(k)
+    };
+  });
+  afterEach(() => {
+    delete (globalThis as { sessionStorage?: unknown }).sessionStorage;
+  });
+
+  function engineOf(script: Array<'words' | 'nothing' | 'denied' | 'open'>) {
+    let i = 0;
+    return {
+      source: 'browser',
+      interimIsText: true,
+      availability: () => ({ ok: true }),
+      start(c: SpeechCallbacks) {
+        const step = script[i++];
+        if (step === 'denied') queueMicrotask(() => c.onError('denied', 'not-allowed'));
+        return {
+          stop: () => {
+            if (step === 'words') c.onEnd({ transcript: 'I like soccer', confidence: 0.9 });
+            if (step === 'nothing') c.onEnd(null);
+          },
+          abort() {}
+        };
+      }
+    } as unknown as SpeechEngine;
+  }
+
+  it('the controller counts starts and the turns that ended with nothing; the panel counts the sent ones', async () => {
+    const c = new MicController(engineOf(['words', 'nothing', 'denied', 'open']), { onView() {}, onFinal() {}, onIssue() {} });
+    c.tap();
+    c.tap(); // words → the panel sends it
+    noteTurnSent();
+    c.tap();
+    c.tap(); // nothing heard
+    c.tap(); // refused
+    await Promise.resolve();
+    c.tap(); // open when the window closes
+    c.dispose();
+    const t = readMicTurns();
+    expect(t).toMatchObject({ started: 4, sent: 1, lost: 3, lastLost: { cause: 'closed' } });
+    expect(t.started).toBe(t.sent + t.lost);
+  });
+
+  it('a send that failed and went through on "try again" is one sent turn (started = sent + lost holds)', () => {
+    noteTurnStartForTest();
+    noteTurnLost('submit_failed', 1794816185609);
+    noteTurnRecovered();
+    expect(readMicTurns()).toMatchObject({ started: 1, sent: 1, lost: 0 });
+  });
+
+  it('same key and format on both sides (the lesson poll sends it as is)', () => {
+    noteTurnLost('submit_failed', 1794816185609);
+    expect(mem.get(MIC_TURNS_KEY)).toBe('0.0.1|submit_failed:1794816185609');
+    expect(MIC_TURNS_RE.test(mem.get(MIC_TURNS_KEY)!)).toBe(true);
+    expect(readLessonMicTurns()).toBe('0.0.1|submit_failed:1794816185609');
+    noteTurnLost('Bad Cause!', 1794816185610);
+    expect(readMicTurns().lastLost).toEqual({ cause: 'other', at: 1794816185610 });
   });
 });

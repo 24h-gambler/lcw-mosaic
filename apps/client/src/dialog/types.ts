@@ -79,6 +79,14 @@ export interface UtteranceSubmit {
   clip?: Promise<Blob | null>;
 }
 
+export interface DialogSkip {
+  kind: 'follow_up' | 'close';
+  /** The follow-up question skipped ('' for a close). */
+  question: string;
+  /** The child tried this turn at least once before skipping. */
+  tried: boolean;
+}
+
 export interface DialogDoneInfo {
   followUpsDone: boolean;
 }
@@ -111,6 +119,13 @@ export interface DialogPanelProps {
    * then, not on close (outsider capture 2026-11-16). onDone still reports the window's best at the end.
    */
   onResult?: (r: DialogResult) => void;
+  /**
+   * R326 (Dan 11-19 "skip 만 눌러 넘어감"): true = a follow-up can be skipped only after the child tried it once (the
+   * lesson); without it the 다음으로 button shows at once (solo play).
+   */
+  skipNeedsTry?: boolean;
+  /** Each follow-up skip, and a ✕ with nothing said in the window (`kind 'close'`): the lesson logs them for the teacher. */
+  onSkip?: (s: DialogSkip) => void;
   /** Optional extras (not in the docs/19 minimum): the NPC's question and accessibility font scale (1~1.5). */
   npcLine?: string;
   fontScale?: number;

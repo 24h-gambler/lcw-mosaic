@@ -90,6 +90,17 @@ export interface GaugeView {
 
 export interface WorldHandle {
   goToScene(id: SceneId): Promise<void>; // 걸어가거나 문을 지나는 연출 포함
+  /**
+   * Lesson stage changed (R325): put that scene's NPC on its spot (walking there when near) without moving the child —
+   * the child walks there by the way-finding (goal mark, edge arrow, light beam).
+   */
+  placeSceneNpc?(scene: SceneId): void;
+  /** The scene spot nearest to where the child stands now (R325: the console's "학생 위치"). */
+  whereNow?(): SceneId;
+  /** Metres from the child to an NPC on the ground (the side panel's "Cafe owner · 12 m"); null = not in the world. */
+  npcDistance?(npcId: string): number | null;
+  /** Teacher in the world (R325 "같이 걷기"): keep walking after the nearest person of this role; null stops. */
+  followPeer?(role: string | null): void;
   /** Teacher in the world: stand two metres in front of the nearest person in the room (of a role); false = nobody placed. */
   goNearPeer?(role?: string): Promise<boolean>;
   onNpcInteract(cb: (npc: NpcRef) => void): () => void; // E 키·탭으로 NPC에게 말 걸기

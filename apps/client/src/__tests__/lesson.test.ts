@@ -8,7 +8,7 @@ import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
 import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LESSON_RETRY_START_MS, LessonController, goalTargetEn, initialLessonView, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
-import { FOLD_HINT_MIN_LEFT_PX, FOLD_HINT_ROOM_PX, FoldHint, LessonLayer, StatusPill, foldHintPlace, goToSceneChecked, lessonGoneInWorld, lessonTalkAction, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
+import { FOLD_HINT_MIN_LEFT_PX, FOLD_HINT_ROOM_PX, FoldHint, LessonLayer, StatusPill, foldHintPlace, lessonGoneInWorld, lessonTalkAction, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
 import { SubmitError } from '../dialog/submit.js';
 
@@ -59,7 +59,8 @@ function fakeTimers(clock: { now: number }) {
 function fakeWorld() {
   const calls: string[] = [];
   const world: LessonWorld = {
-    goToScene: async (id) => void calls.push(`scene:${id}`),
+    // R325: a stage change puts its NPC on the spot; the child is never moved (no goToScene in the lesson)
+    placeSceneNpc: (id) => void calls.push(`scene:${id}`),
     npcSay: (n, t, o) => void calls.push(`say:${n}:${t}:${o?.possessed ? 'sparkle' : 'plain'}`),
     setGoal: (g, t) => void calls.push(`goal:${g}|${t ?? ''}`),
     celebrate: (s) => void calls.push(`celebrate:${s}`),
@@ -109,7 +110,8 @@ describe('client lesson module (docs/19 §4)', () => {
     // the ledger balance is on the HUD from the first poll (starter purse), before any answer
     expect(calls).toContain('coins:200');
     expect(ctl.state.coins).toBe(200);
-    expect(calls.find((c) => c.startsWith('goal:'))).toContain('My name is ___.');
+    // R326 ⑫: the HUD card is the mission only (the sentence is an idea in the side panel, never an order)
+    expect(calls.find((c) => c.startsWith('goal:'))).not.toContain('My name is ___.');
 
     // the teacher moves to the cafe, possesses the owner, speaks and fires a blackout
     await admin('POST', `/v1/admin/lessons/${lesson_id}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
@@ -351,22 +353,10 @@ describe('client lesson module (docs/19 §4)', () => {
     expect([kakao, wk, safari, android].map(micUnreliable)).toEqual([true, true, false, false]);
   });
 
-  it('a scene walk that ends without arriving (dialog pausing the world) is tried once more', async () => {
-    let scene = 'plaza';
-    let calls = 0;
-    const w = {
-      ...fakeWorld().world,
-      getScene: () => scene,
-      goToScene: async (id: string) => {
-        calls++;
-        if (calls > 1) scene = id; // the first walk is cut short
-      }
-    };
-    await goToSceneChecked(w, 'honey_cafe');
-    expect(scene).toBe('honey_cafe');
-    expect(calls).toBe(2);
-    await goToSceneChecked(w, 'honey_cafe');
-    expect(calls).toBe(3); // arrived: no extra walk
+  it('the teacher (R325): E or a tap on the teacher opens the trade window, before the lesson NPC and passers-by', () => {
+    expect(lessonTalkAction('teacher', 'cafe_owner', false)).toBe('trade');
+    expect(lessonTalkAction('teacher', 'teacher', true)).toBe('trade');
+    expect(lessonTalkAction('cafe_owner', 'cafe_owner', false)).toBe('reopen');
   });
 
   it("the dialog's first line: the teacher's newest line as this stage's NPC, else the stage script", () => {

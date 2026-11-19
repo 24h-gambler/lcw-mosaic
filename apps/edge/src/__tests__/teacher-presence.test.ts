@@ -52,7 +52,7 @@ describe('teacher presence: lesson mode only while the teacher console beats (Da
     expect((await call(p, 'GET', '/v1/lesson/state', undefined, st)).body.teacher).toMatchObject({ present: true });
     vi.advanceTimersByTime(1);
     s = await call(p, 'GET', '/v1/lesson/state', undefined, st);
-    expect(s.body.teacher).toEqual({ present: false, name: null, since: null });
+    expect(s.body.teacher).toEqual({ present: false, name: null, since: null, in_world: false });
     await say(p, st);
     expect(lastInterlocutor(p)).toBe('self');
     const feed = await call(p, 'GET', `/v1/admin/lessons/${lessonId}/feed`);

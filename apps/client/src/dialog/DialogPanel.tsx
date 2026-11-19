@@ -154,6 +154,12 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const [turn, setTurn] = useState(0);
   const followTurn = turn > 0;
   const followSubmit = props.followUpSubmit ?? submit;
+  // R326 (Dan 11-19 "skip 만 눌러 넘어감"): with `skipNeedsTry` a follow-up can be skipped only after the child tried it
+  // once (a scored answer in this turn); every skip and every close with no try is reported (`onSkip`).
+  const triedTurn = useRef(-1);
+  const triedAny = useRef(false);
+  const onSkipRef = useRef(props.onSkip);
+  onSkipRef.current = props.onSkip;
   const freeTalk = (mode === 'free' && props.offers.length > 0) || followTurn;
   const needsUnderstand = !followTurn && mode === 'free' && offers.length === 0;
 
@@ -227,6 +233,9 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       const spoken = u.stt_source !== 'board' && u.stt_source !== 'keyboard';
       try {
         const r = await (followTurn ? followSubmit : submit)({ ...u, dialogId: dialogId.current });
+        // a try counts once it was scored (a failed send is no try)
+        triedTurn.current = turn;
+        triedAny.current = true;
         if (spoken) {
           if (lostSend.current === u) noteTurnRecovered();
           else noteTurnSent();
@@ -303,7 +312,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         clearTimeout(slowTimer);
       }
     },
-    [submit, followSubmit, followTurn, misses, level, hint]
+    [submit, followSubmit, followTurn, turn, misses, level, hint]
   );
 
   const sendSpoken = useCallback(
@@ -474,11 +483,14 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
 
   // Closing after a pass still finishes the order: the server already granted (and charged for) the item.
   const closeWindow = useCallback(() => {
+    // ✕ on a follow-up with no try is that follow-up skipped; ✕ on a window with nothing said is a close
+    if (turn > 0 && triedTurn.current !== turn) onSkipRef.current?.({ kind: 'follow_up', question: followUps?.[turn - 1] ?? '', tried: false });
+    else if (!triedAny.current) onSkipRef.current?.({ kind: 'close', question: '', tried: false });
     if (bestPass.current) {
       if (followUps) onDone(bestPass.current, { followUpsDone: false });
       else onDone(bestPass.current);
     } else onClose();
-  }, [onDone, onClose, followUps]);
+  }, [onDone, onClose, followUps, turn]);
 
   // 완료 / "keep this one" / "next": the NPC asks its next follow-up in this window, or the window is finished.
   const finish = useCallback(
@@ -509,9 +521,13 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
     },
     [followUps, turn, onDone, micIssue]
   );
+  const triedThisTurn = triedTurn.current === turn;
+  const canSkip = !props.skipNeedsTry || triedThisTurn;
   const skipFollowUp = () => {
+    if (!canSkip) return;
     unlockDialogAudio();
     playSfx('ui.click');
+    onSkipRef.current?.({ kind: 'follow_up', question: followUps?.[turn - 1] ?? '', tried: triedThisTurn });
     finish(bestPass.current ?? result ?? { pass: false, stars: 0, feedbackKo: '' });
   };
 
@@ -792,7 +808,11 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
             </div>
           ) : followTurn ? (
             <div className="lcw-row">
-              <button type="button" className="lcw-alt lcw-dlg__next" onClick={skipFollowUp}>{S.followUpSkip} →</button>
+              {canSkip ? (
+                <button type="button" className="lcw-alt lcw-dlg__next" onClick={skipFollowUp}>{S.followUpSkip} →</button>
+              ) : (
+                <span className="lcw-dlg__name" data-testid="dlg-try-first">{S.followUpTryFirst}</span>
+              )}
             </div>
           ) : (
             <div className="lcw-dlg__offers">
@@ -861,7 +881,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               </div>
               {phase !== 'echo' ? (
                 <>
-                  <button type="button" className="lcw-alt" data-hot={noSpeechRun.current > 0} onClick={() => { setPhase('board'); setCardsPicked([]); }} disabled={!offer || freeTalk}>
+                  <button type="button" className="lcw-alt" data-hot={noSpeechRun.current > 0} onClick={() => { setPhase('board'); setCardsPicked([]); }} disabled={!offer || followTurn}>
                     🧩 {S.boardOpen}
                   </button>
                   <button type="button" className="lcw-alt" onClick={() => { setPhase('keyboard'); setTyped(''); }}>⌨️ {S.keyboardOpen}</button>
@@ -874,7 +894,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               {phase === 'board' ? (
                 <button type="button" className="lcw-alt" onClick={() => { setPhase('keyboard'); setTyped(''); }}>⌨️ {S.keyboardOpen}</button>
               ) : (
-                <button type="button" className="lcw-alt" onClick={() => { setPhase('board'); setCardsPicked([]); }} disabled={!offer || freeTalk}>🧩 {S.boardOpen}</button>
+                <button type="button" className="lcw-alt" onClick={() => { setPhase('board'); setCardsPicked([]); }} disabled={!offer || followTurn}>🧩 {S.boardOpen}</button>
               )}
             </div>
           ) : null}

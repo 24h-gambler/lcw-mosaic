@@ -143,12 +143,56 @@ describe('stages move on by themselves (R2625, R2627)', () => {
     const p = platform();
     const { lessonId, st } = await lesson(p);
     const mins = STAGES[0]!.minutes * 60_000;
+    // R326: the minutes count only for a child who said something in the stage
+    await state(p, st);
+    await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'hello', chosen_stars: 1, dur_ms: 1000 }, st);
     expect((await stay(p, st, mins - 3000)).body.stage_id).toBe(STAGES[0]!.id);
     const s = await stay(p, st, 3000);
     expect(s.body).toMatchObject({ stage_id: STAGES[1]!.id, auto_advanced: { from: STAGES[0]!.id, to: STAGES[1]!.id, why: 'time' } });
     // its clock starts again in the new stage
     expect((await stay(p, st, 60_000)).body).toMatchObject({ stage_id: STAGES[1]!.id, auto_advanced: null });
     expect((await log(p, lessonId)).at(-1)).toMatchObject({ stage_id: STAGES[1]!.id, source: 'auto:time' });
+  });
+
+  it('R326: a child who says nothing and only skips is not moved on by the minutes; the console sees quiet and the skips', async () => {
+    now = T0;
+    const p = platform();
+    const { lessonId, st } = await lesson(p);
+    const mins = STAGES[0]!.minutes * 60_000;
+    for (let i = 0; i < 3; i++) {
+      const k = await call(p, 'POST', '/v1/lesson/skip', { client_id: `skip-0000-${i}`, stage_id: STAGES[0]!.id, kind: 'follow_up', question: 'What did you do?', tried: false }, st);
+      expect(k.body).toMatchObject({ ok: true, skips: i + 1 });
+    }
+    // the same note again is one note
+    expect((await call(p, 'POST', '/v1/lesson/skip', { client_id: 'skip-0000-0', stage_id: STAGES[0]!.id, kind: 'follow_up', tried: false }, st)).body.skips).toBe(3);
+    expect((await stay(p, st, mins + 60_000)).body.stage_id).toBe(STAGES[0]!.id);
+    const f = (await call(p, 'GET', `/v1/admin/lessons/${lessonId}/feed`)).body;
+    expect(f.stage_hold).toMatchObject({ ready: null, quiet: true });
+    expect(f.skips).toMatchObject({ total: 3, untried: 3, stage: 3, stage_untried: 3, heavy: true });
+    expect(f.skips.recent[0]).toMatchObject({ kind: 'follow_up', tried: false, question: 'What did you do?' });
+    // one word from the child and the minutes move it on; the teacher could anyway
+    await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'i went to the park', chosen_stars: 1, dur_ms: 2000 }, st);
+    expect((await stay(p, st, 3000)).body.stage_id).toBe(STAGES[1]!.id);
+    expect((await call(p, 'POST', '/v1/lesson/skip', { client_id: 'skip-0000-9', stage_id: 'x', kind: 'nope' }, st)).status).toBe(400);
+    expect((await call(p, 'POST', '/v1/lesson/skip', { client_id: 'skip-0000-8', stage_id: 'x', kind: 'close' })).status).toBe(401);
+  });
+
+  it('R326 ⑫: in a guided stage the child own words that carry a stage sentence do the mission (that sentence passes)', async () => {
+    now = T0;
+    const p = platform();
+    const { lessonId, st } = await lesson(p);
+    const cafe = STAGES[1]!;
+    expect(cafe.mode).not.toBe('free');
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: cafe.id, targets: cafe.targets.map((t) => t.text) });
+    now += 5_000;
+    const top = [...cafe.targets].sort((a, b) => a.stars - b.stars)[0]!;
+    const r = await call(p, 'POST', '/v1/lesson/utterance', { transcript: top.text.replace(/[.?!]$/, ''), chosen_stars: 1, dur_ms: 2000 }, st);
+    expect(r.body).toMatchObject({ pass: true, mission_text: expect.any(String) });
+    expect(r.body.stars).toBeGreaterThan(0);
+    // talk that carries none of them is free talk: no mission, still heard
+    now += 5_000;
+    const other = await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'i like my dog very much', chosen_stars: 1, dur_ms: 2000 }, st);
+    expect(other.body.mission_text).toBeUndefined();
   });
 
   it('a child who joins late does not skip the warm-up; time away does not count', async () => {
@@ -159,6 +203,7 @@ describe('stages move on by themselves (R2625, R2627)', () => {
     // the teacher started the lesson; the child's screen first comes long after the stage's minutes
     now = T0 + mins + 10 * 60_000;
     expect((await state(p, st)).body).toMatchObject({ stage_id: STAGES[0]!.id, auto_advanced: null });
+    await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'hello', chosen_stars: 1, dur_ms: 1000 }, st);
     expect((await stay(p, st, mins / 2)).body.stage_id).toBe(STAGES[0]!.id);
     // the child goes away for 20 minutes (a gap over LESSON_CHILD_GAP_MS): the gap is not stage time
     now += 20 * 60_000;

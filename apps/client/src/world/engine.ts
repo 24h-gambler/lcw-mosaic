@@ -334,11 +334,21 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     (p) => (p.role === 'teacher' ? plateText(p.name) : p.name),
     (plate, sx, sy) => hud.fadePlate(plate, sx, sy)
   );
-  /** The lesson's last teacher presence; the visiting figure stays away while the real teacher is in the room. */
+  /**
+   * The lesson's last teacher presence. One teacher figure in the child's world (R325): the visiting teacher NPC, which
+   * E, a click or a tap reach (the trade window). While the real teacher walks in the room (role 'teacher') the same
+   * figure stands where the teacher is, so the teacher's own peer avatar is not drawn a second time.
+   */
   let teacherWanted: { present: boolean; name: string | null } | null = null;
+  peers.hiddenRole = 'teacher';
   const syncTeacherFigure = (): void => {
-    showTeacher(teacherWanted?.present && peers.countRole('teacher') === 0 ? (teacherWanted.name ?? '') : null);
+    const real = peers.countRole('teacher') > 0 ? (peers.roleAt('teacher')?.name ?? null) : null;
+    const want = real !== null || (teacherWanted?.present ?? false);
+    showTeacher(want ? (real ?? teacherWanted?.name ?? '') : null);
   };
+  /** The teacher's own page (?teach=): walk along with the nearest person of this role (R325 "같이 걷기"); null = off. */
+  let followRole: string | null = null;
+  let followAuto = false;
   const hands = new FirstPersonHands(PLAYER_LOOK);
   // one character per task (each is a few dozen boxes; all of them at once was a 150 ms task on a throttled tablet)
   await yieldToMain();
@@ -1741,6 +1751,26 @@ ${line(s.help)}` : line(s.text), 4000);
       if (showFps) hud.setFps(`${fps.toFixed(0)} fps · ${lastStats.draw} dc · ${(lastStats.tris / 1000).toFixed(0)}k`);
     }
 
+    // "같이 걷기" on the teacher's page (R325): walk after the child, stop a few steps short; the teacher's own keys or
+    // stick win at once (the follow walk is dropped while they steer).
+    if (followRole) {
+      const steering = input.stick || ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].some((k) => input.keys.has(k));
+      const who = !paused && !attract && travel === null && !steering ? peers.nearest(player.root.position, followRole) : null;
+      if (steering && followAuto) {
+        autopilot = [];
+        followAuto = false;
+      } else if (who) {
+        const d = Math.hypot(who.x - body.x, who.z - body.z);
+        if (d > 4.5 && d < 80) {
+          const k = (d - 2.5) / d;
+          autopilot = [[body.x + (who.x - body.x) * k, body.z + (who.z - body.z) * k]];
+          followAuto = true;
+        } else if (followAuto && d < 3) {
+          autopilot = [];
+          followAuto = false;
+        }
+      }
+    }
     // Movement intent.
     const intent: MoveIntent = { dx: 0, dz: 0, run: false, jump: false };
     if (autopilot.length > 0) {
@@ -1837,7 +1867,16 @@ ${line(s.help)}` : line(s.text), 4000);
 
     // The teacher in my world (visitor.ts) keeps a few steps from the child and turns to face them.
     const tch = npcs.get(TEACHER_NPC_ID);
-    if (tch) {
+    const realTeacher = tch ? peers.roleAt('teacher') : null;
+    if (tch && realTeacher) {
+      // the real teacher in the room: the figure is where they walk (their pose, eased by the peer motion)
+      const step = Math.hypot(realTeacher.x - tch.pos.x, realTeacher.z - tch.pos.z);
+      if (dt > 0) tch.speed += (step / dt - tch.speed) * Math.min(1, dt * 8);
+      tch.pos.set(realTeacher.x, realTeacher.y, realTeacher.z);
+      tch.path = [];
+      tch.homeYaw = realTeacher.yaw;
+      tch.yaw = realTeacher.yaw;
+    } else if (tch) {
       const far = Math.hypot(tch.pos.x - body.x, tch.pos.z - body.z);
       if (far > 20) {
         const t = teacherTarget(body.x, body.z, viewYaw(), tch.pos.x, tch.pos.z) ?? [body.x + 2, body.z + 2];
@@ -1857,7 +1896,8 @@ ${line(s.help)}` : line(s.text), 4000);
       const inPlay = npcTalkable(n.def, lessonMode);
       n.char.root.visible = inPlay;
       if (!inPlay) continue;
-      let sp = 0;
+      // the teacher figure standing in for the real teacher walks at the speed the teacher moves (R325)
+      let sp = n === tch && realTeacher ? Math.min(5.5, n.speed) : 0;
       if (n.path.length > 0) {
         const [tx, tz] = n.path[0]!;
         const dx = tx - n.pos.x;
@@ -2507,6 +2547,35 @@ ${line(s.help)}` : line(s.text), 4000);
       reset() {
         peers.clear();
         syncTeacherFigure();
+      }
+    },
+    whereNow() {
+      // the nearest scene spot to where the child stands (they walk on their own in a lesson, R325)
+      let best: SceneId = currentScene;
+      let bd = Infinity;
+      for (const id of Object.keys(SCENES) as SceneId[]) {
+        const p = SCENES[id].player;
+        const d = Math.hypot(p.x - body.x, p.z - body.z);
+        if (d < bd) {
+          bd = d;
+          best = id;
+        }
+      }
+      return best;
+    },
+    npcDistance(npcId) {
+      const n = npcs.get(npcId);
+      return n ? Math.hypot(n.pos.x - body.x, n.pos.z - body.z) : null;
+    },
+    placeSceneNpc(scene) {
+      // the lesson's NPC goes to its stage spot (walking when near); the child stays where they are (R325)
+      if (SCENES[scene]) placeNpcForScene(scene, true);
+    },
+    followPeer(role) {
+      followRole = role;
+      if (!role && followAuto) {
+        autopilot = [];
+        followAuto = false;
       }
     },
     async goNearPeer(role) {

@@ -276,14 +276,16 @@
       "tests": [
         "apps/web/src/__tests__/directorLive.test.ts::R2625 trim: the student screen and what the child said stay; possession, events and own sentence sit folded under 「선생님이 직접 하기」; chart, helps, pins and the next-lesson box are gone",
         "apps/web/src/__tests__/directorLive.test.ts::Dan 11-19 \"선생은 못하고\": with 「선생님이 직접 하기」 open the teacher can speak as an NPC, put an own sentence and fire events",
-        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
+        "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report",
+        "apps/web/src/__tests__/lesson.test.ts::live lesson: compact join code, /join, stage chips with the current stage, folded guide, script, feed and counters (R325)"
       ],
       "evidence": [
         "apps/web/src/LessonDirector.tsx:65",
         "apps/web/src/DirectorLive.tsx:35",
-        "docs/18-lesson-mode.md:1"
+        "docs/18-lesson-mode.md:1",
+        "apps/web/src/DirectorTeacherWorld.tsx:1"
       ],
-      "note": "디렉터 콘솔: 학생 화면·아이가 한 말·단계 패널(수업안 문장, 버튼 하나)·수업 끝·리포트. 진행표·핀 버튼은 첫 실제 수업에서 0번 쓰여 R2625 로 콘솔에서 뺐고 서버 API 는 그대로(docs/18 §8). 빙의·대사·사건 6종·내 문장 띄우기는 11-19 Dan \"선생은 못하고\" 로 「선생님이 직접 하기」 접힘 안에 되살림(docs/18 §10). 근거 문서는 18(08 이 가리키는 06 은 끊긴 참조 목록에 있음). 감사: 있음",
+      "note": "디렉터 콘솔: 학생 화면·아이가 한 말·단계 패널(수업안 문장, 버튼 하나)·수업 끝·리포트. 진행표·핀 버튼은 첫 실제 수업에서 0번 쓰여 R2625 로 콘솔에서 뺐고 서버 API 는 그대로(docs/18 §8). 빙의·대사·사건 6종·내 문장 띄우기는 11-19 Dan \"선생은 못하고\" 로 「선생님이 직접 하기」 접힘 안에 되살림(docs/18 §10). 근거 문서는 18(08 이 가리키는 06 은 끊긴 참조 목록에 있음). 감사: 있음 11-19 R325(\"콘솔이 너무 난잡\"): 참가 코드 띠를 한 줄로 줄이고(주소는 접음), 단계 7줄을 번호 칩 한 줄로, 진행 안내를 접고, 선생님 말하기·주고받기 상자를 더하고, 직접 조종·수업 소리를 「더 보기」 하나로 묶음(docs/18 §11).",
       "decision": "R2625"
     },
     "T02": {
@@ -924,7 +926,7 @@
       },
       "tests": [
         "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report",
-        "apps/web/src/__tests__/lesson.test.ts::live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters"
+        "apps/web/src/__tests__/lesson.test.ts::live lesson: compact join code, /join, stage chips with the current stage, folded guide, script, feed and counters (R325)"
       ],
       "evidence": [
         "apps/web/src/LessonDirector.tsx:722",
@@ -1042,12 +1044,19 @@
       "status": "partial",
       "owner": "lesson",
       "route": "/director",
-      "tests": [],
+      "tests": [
+        "apps/edge/src/__tests__/lesson-teacher-trade.test.ts::speaks as the teacher (no NPC possessed)",
+        "apps/edge/src/__tests__/lesson-teacher-trade.test.ts::holds the stage while the teacher walks in the world: passes make it ready, the teacher moves on",
+        "apps/edge/src/__tests__/lesson-teacher-trade.test.ts::a swap: the child's thing goes to the teacher, the teacher's comes to the child",
+        "apps/client/src/__tests__/lesson-teacher-trade.test.tsx::the teacher speaks as the teacher and hands over a thing: the bubble and the hand, once"
+      ],
       "evidence": [
         "apps/web/src/DirectorLive.tsx:35",
-        "apps/edge/src/lesson-mode.ts:478"
+        "apps/edge/src/lesson-mode.ts:478",
+        "apps/client/src/world/TeacherBar.tsx:1",
+        "apps/edge/src/lesson-trade.ts:1"
       ],
-      "note": "빙의·사건 6종은 있음. 던전(전투 없음)·캠페인 노트 없음"
+      "note": "빙의·사건 6종은 있음. 던전(전투 없음)·캠페인 노트 없음 11-19 R325: 선생님이 월드 안에서 말하기(선생님 말풍선)·같이 걷기·단계 쥐기·물건 주기·아이와 거래(영어 문장 통과 뒤 서버가 옮김)가 이어짐(docs/18 §11)."
     },
     "F10.1.W-T": {
       "kind": "flow",
@@ -1055,12 +1064,16 @@
       "status": "partial",
       "owner": "lesson",
       "route": "/director",
-      "tests": [],
+      "tests": [
+        "apps/edge/src/__tests__/lesson-auto-stage.test.ts::R326: a child who says nothing and only skips is not moved on by the minutes; the console sees quiet and the skips",
+        "apps/edge/src/__tests__/lesson-auto-stage.test.ts::R326 ⑫: in a guided stage the child own words that carry a stage sentence do the mission (that sentence passes)",
+        "apps/client/src/__tests__/lesson-teacher-trade.test.tsx::R326 ④: skips reach the console (follow-up skipped without a try, a window closed with nothing said)"
+      ],
       "evidence": [
         "apps/edge/src/lesson-mode.ts:239",
         "apps/web/src/DirectorLive.tsx:439"
       ],
-      "note": "대화 밀도·수업 기록은 있음. 학생별 타깃 자동 준비(T02) 없음"
+      "note": "대화 밀도·수업 기록은 있음. 학생별 타깃 자동 준비(T02) 없음 11-19 R326: 건너뛰기·말 없이 닫은 창을 기록해 콘솔에 보이고(남용 경고), 말 없이 시간만 지나면 선생님이 넘김; 자기 말이 단계 문장을 담으면 임무 통과(docs/18 §11)."
     },
     "F10.1.W-P": {
       "kind": "flow",
@@ -3896,7 +3909,7 @@
       "owner": "lesson",
       "route": "/director",
       "tests": [
-        "apps/web/src/__tests__/lesson.test.ts::live lesson: huge join code, /join, stage rail with the current stage, guide, script, feed and counters",
+        "apps/web/src/__tests__/lesson.test.ts::live lesson: compact join code, /join, stage chips with the current stage, folded guide, script, feed and counters (R325)",
         "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
       ],
       "evidence": [

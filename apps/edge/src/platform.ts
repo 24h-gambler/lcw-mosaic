@@ -24,7 +24,8 @@ import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './l
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp, guestPassFromRequest, sweepEndedGuestCells } from './free-play.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
-import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp } from './my-world.js';
+import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp, readMyWorld } from './my-world.js';
+import { applyLessonTrade, ownedForTrade } from './lesson-trade.js';
 import { injectReportShareMeta } from './report-page.js';
 import { htmlForClient } from './html-cache.js';
 import { injectShowroomShareMeta, showroomTokenFromPath } from './showroom-page.js';
@@ -423,6 +424,11 @@ export class PlatformDO {
       w.appendLedger(playerId, delta, reason, ref, nowMs);
     }
     return w.getPlayerBalance(playerId);
+  }
+
+  /** The child's home world (its items, ledger), created if missing: lesson trades with the teacher move things there. */
+  homeWorld(playerId: string): WorldDO | undefined {
+    return this.worlds.get(this.ensureHomeWorld(playerId));
   }
 
   coinBalance(playerId: string): number {
@@ -1157,6 +1163,12 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
         platform.voiceStore()
           ? offerVoiceUpload({ sql: platform.sql, db: platform.db, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)), sha256Hex }, p)
           : null,
+      // R325: trades with the teacher move the child's things in the home world (lesson-trade.ts)
+      trades: {
+        owned: (playerId) => ownedForTrade(platform.homeWorld(playerId), playerId),
+        apply: (p) => applyLessonTrade(platform.homeWorld(p.playerId), p)
+      },
+      worldLook: (playerId) => readMyWorld(platform.sql, platform.ensureHomeWorld(playerId)),
       coins: {
         credit: (playerId, delta, ref, nowMs) => platform.creditCoins(playerId, delta, 'lesson_stars', ref, nowMs),
         balance: (playerId) => platform.coinBalance(playerId)

@@ -42,6 +42,7 @@ const VIEWPORTS = [
     : [])
 ];
 
+const REVIEW = process.env.REVIEW === '1';
 const SETTINGS = process.env.FRAME_SETTINGS ? JSON.parse(process.env.FRAME_SETTINGS) : null;
 
 // the title screen (world lane) and the first-visit / mic cards (dialog domain): step past them like a child would
@@ -133,6 +134,27 @@ for (const vp of VIEWPORTS) {
   // no edge server behind the dev page: the neural-voice switch answers "off" (the device voice reads)
   await cacheWebFonts(ctx);
   await ctx.route('**/v1/tts/status', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"enabled":false}' }));
+  // REVIEW=1: a linked child (offline: the device check never answers) with two review signs due, so the review dock
+  // (dialog/ReviewDock.tsx) is on the screen and in the layout check (R2722: on a sideways phone the full dock lay over
+  // the jump and talk buttons). Every other server call is cut like a dropped line (ERR_ABORTED, not an error here).
+  if (REVIEW) {
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.setItem('lcw.deviceToken', 'frame-shots-review-device-token-000000');
+        localStorage.setItem('lcw.deviceNickname', 'Mina');
+      } catch {
+        /* no storage: no dock */
+      }
+    });
+    const sign = (id, key, name, text) => ({ card_id: id, item_key: key, item_name_ko: name, emoji: '🍯', ctx: 'cafe', text, hint_tags: [], hint: 'full', listen: true, box: 1, stars: 2, due_at: Date.now() - 1000 });
+    const due = JSON.stringify({ signs: [sign('fs-1', 'honey_tea', '꿀차', 'Can I have a honey tea, please?'), sign('fs-2', 'cookie', '쿠키', 'One cookie, please.')], next_due_at: null });
+    await ctx.route('**/v1/**', (r) => {
+      const path = new URL(r.request().url()).pathname;
+      if (path === '/v1/review/due') return r.fulfill({ status: 200, contentType: 'application/json', body: due });
+      if (path === '/v1/tts/status') return r.fulfill({ status: 200, contentType: 'application/json', body: '{"enabled":false}' });
+      return r.abort('aborted');
+    });
+  }
   // screen language and Korean help (world/lang.ts lcw.helpKo, one switch with the start screen)
   await langInitScript(ctx);
   await ctx.addInitScript(`window.__frameBoxes = ${SNAP.toString()};`);
@@ -183,7 +205,8 @@ for (const vp of VIEWPORTS) {
   await page.screenshot({ path: `${out}/${vp.name}-1start.png` });
   check(vp.name, /·/.test(a.scene?.text ?? ''), `place · band missing (${a.scene?.text})`);
   check(vp.name, /\d\d:\d\d/.test(a.clock?.text ?? ''), `weather · clock missing (${a.clock?.text})`);
-  check(vp.name, !!a.coins, 'coin count not shown for a guest');
+  // a linked child's coins wait for the server ledger, which REVIEW=1 cuts off
+  if (!REVIEW) check(vp.name, !!a.coins, 'coin count not shown for a guest');
   check(vp.name, a.empties === 5, `expected 5 empty slots, got ${a.empties}`);
   // G01 gauges: hunger and thirst on the status chip from the start (45% on a new device)
   check(vp.name, a.gauges.length === 2 && a.gauges.every((v) => v >= 40 && v <= 46), `gauges hunger/thirst near 45 (${a.gauges})`);

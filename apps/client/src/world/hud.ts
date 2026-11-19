@@ -329,6 +329,7 @@ export class WorldHud {
   private viewBtn: HTMLElement | null = null;
   private chipBox: HTMLElement | null = null;
   private hotbarEl: HTMLElement | null = null;
+  private miniSeen = false;
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -393,7 +394,20 @@ export class WorldHud {
       const measure = (): void => {
         this.root.style.setProperty('--lw-chip-b', `${Math.ceil(12 + chip.offsetHeight)}px`);
         // on touch the talk button (it comes and goes by the NPC) keeps its column free too
-        const viewR = this.touchOn && this.viewBtn && this.viewBtn.offsetWidth > 0 ? 12 + this.viewBtn.offsetWidth + 8 : 12;
+        // the right column under the stars: the view button (touch) and the minimap when it sits there (touch portrait,
+        // tablet; world/minimap-place.ts), measured: the goal card keeps clear of both
+        let colW = this.touchOn && this.viewBtn && this.viewBtn.offsetWidth > 0 ? this.viewBtn.offsetWidth : 0;
+        const mini = this.root.querySelector<HTMLElement>('.lw-mini');
+        if (mini && mini.offsetWidth > 0) {
+          if (!this.miniSeen) {
+            this.miniSeen = true;
+            this.chipObs?.observe(mini);
+          }
+          const rr = this.root.getBoundingClientRect();
+          const b = mini.getBoundingClientRect();
+          if (b.left - rr.left > rr.width / 2 && b.top - rr.top < rr.height / 2) colW = Math.max(colW, rr.right - b.left - 12);
+        }
+        const viewR = colW > 0 ? 12 + colW + 8 : 12;
         const talkR = this.placeTalk();
         // the talk button only shares the goal card's height on a short landscape screen
         const short = this.root.clientHeight <= 500;
@@ -861,6 +875,14 @@ export class WorldHud {
     for (const e of [this.help.classList.contains('off') ? null : this.help, this.cap.classList.contains('on') ? this.cap : null]) {
       if (e && e.offsetHeight > 0 && getComputedStyle(e).display !== 'none') stack = Math.max(stack, h - e.offsetTop);
     }
+    // never lower than the hotbar and the frame's bottom buttons (menu): with the help faded and no caption the stack
+    // fell to 0 and the walk button sat on the hotbar
+    const rr = this.root.getBoundingClientRect();
+    for (const e of [this.hotbarEl, ...Array.from(document.querySelectorAll('.lcw-hudbtn'))]) {
+      if (!e) continue;
+      const b = e.getBoundingClientRect();
+      if (b.height > 0 && b.top > rr.top + h / 2) stack = Math.max(stack, rr.bottom - b.top);
+    }
     let top = [this.chipBox, this.starsEl].reduce((m, e) => (e && e.offsetHeight > 0 ? Math.max(m, e.offsetTop + e.offsetHeight) : m), 0);
     // the goal card moves down under the connection band by a transform, which offsetTop does not see
     const off = this.root.classList.contains('off');
@@ -869,6 +891,16 @@ export class WorldHud {
     const doc = document.documentElement.style;
     doc.setProperty('--lcw-hud-stack', `${Math.ceil(stack)}px`);
     doc.setProperty('--lcw-hud-top-b', `${Math.ceil(top)}px`);
+    // the right column under the stars (view button on touch, the minimap when it sits up there): the review dock starts
+    // under it and under the goal card (R2722 / the frame check: the dock lay over the stars, minimap and goal card)
+    let right = this.starsEl && this.starsEl.offsetHeight > 0 ? this.starsEl.offsetTop + this.starsEl.offsetHeight : 0;
+    const rb = this.root.getBoundingClientRect();
+    for (const e of [this.touchOn ? this.viewBtn : null, this.root.querySelector<HTMLElement>('.lw-mini')]) {
+      if (!e || e.offsetWidth === 0) continue;
+      const b = e.getBoundingClientRect();
+      if (b.left - rb.left > rb.width / 2 && b.top - rb.top < rb.height / 2) right = Math.max(right, b.bottom - rb.top);
+    }
+    doc.setProperty('--lcw-hud-right-b', `${Math.ceil(right)}px`);
   }
 
   setGoal(goalKo: string, targetEn?: string): void {
@@ -877,7 +909,9 @@ export class WorldHud {
     this.goalT.textContent = targetEn ?? '';
     this.goalT.style.display = targetEn ? 'block' : 'none';
     this.goal.classList.toggle('on', on);
-    this.measureStacks();
+    // the sides too (the minimap may have joined the HUD since the last resize); they measure the stacks as well
+    if (this.measureSides) this.measureSides();
+    else this.measureStacks();
   }
 
   setScene(titleKo: string): void {

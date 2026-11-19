@@ -61,24 +61,33 @@ export function reviewDockTop(coarse: boolean): number {
   return coarse ? MINIMAP_TOUCH_BOTTOM : 60;
 }
 
-function coarseQuery(): MediaQueryList | null {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(pointer: coarse)') : null;
+function mediaQuery(q: string): MediaQueryList | null {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(q) : null;
 }
 
-function useCoarsePointer(): boolean {
-  const [coarse, setCoarse] = useState(() => coarseQuery()?.matches ?? false);
+function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => mediaQuery(query)?.matches ?? false);
   useEffect(() => {
-    const q = coarseQuery();
+    const q = mediaQuery(query);
     if (!q) return;
-    const on = () => setCoarse(q.matches);
-    q.addEventListener?.('change', on);
-    return () => q.removeEventListener?.('change', on);
-  }, []);
-  return coarse;
+    const change = () => setOn(q.matches);
+    change();
+    q.addEventListener?.('change', change);
+    return () => q.removeEventListener?.('change', change);
+  }, [query]);
+  return on;
 }
+
+/**
+ * A phone held sideways (touch, 500 px tall or less): the right column is full (view, talk, jump, build tools) and the
+ * left one holds the status chip, the minimap and the walk button, so the dock folds into one button in the free
+ * bottom-right corner right of the hotbar, which opens the first sign (frame, R2722: the full dock lay over jump / talk).
+ */
+export const REVIEW_PILL_PLACE = { right: 12, bottom: 12 } as const;
 
 export function ReviewDock(props: ReviewDockProps): React.ReactElement | null {
-  const coarse = useCoarsePointer();
+  const coarse = useMedia('(pointer: coarse)');
+  const shortLandscape = useMedia('(max-height: 500px)');
   const { world, player, hidden, baseUrl, fetchImpl, speech, onReviewed } = props;
   const [signs, setSigns] = useState<ReviewSignView[]>([]);
   const [open, setOpen] = useState<ReviewSignView | null>(null);
@@ -159,14 +168,50 @@ export function ReviewDock(props: ReviewDockProps): React.ReactElement | null {
     );
   }
   if (hidden || signs.length === 0) return null;
+  if (coarse && shortLandscape) {
+    return (
+      <button
+        type="button"
+        className="lcw-review-dock lcw-review-pill"
+        data-hud-part=""
+        aria-label={`${R.dockTitle} ${signs.length}`}
+        onClick={() => {
+          playSfx('ui.click');
+          setOpen(signs[0] ?? null);
+        }}
+        style={{
+          position: 'absolute',
+          right: REVIEW_PILL_PLACE.right,
+          bottom: REVIEW_PILL_PLACE.bottom,
+          minHeight: S.touchTargetMinPx,
+          padding: '6px 14px',
+          background: C['night-900'],
+          color: C.sun,
+          border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
+          borderRadius: S.radiusButtonPx,
+          boxShadow: S.shadowDefault,
+          fontFamily: T.fonts.ui,
+          fontSize: T.scale.small.sizePx,
+          fontWeight: 800,
+          pointerEvents: 'auto',
+          cursor: 'pointer'
+        }}
+      >
+        ⚡ {R.dockTitle} {signs.length}
+      </button>
+    );
+  }
   return (
     <div
       className="lcw-review-dock"
+      data-hud-part=""
       role="region"
       aria-label={R.dockTitle}
       style={{
         position: 'absolute',
-        top: reviewDockTop(coarse),
+        // under the HUD's measured top stack (goal card) and right column (stars, view button, minimap), world/hud.ts;
+        // the fixed value is only the fallback before the HUD has measured
+        top: `calc(max(var(--lcw-hud-top-b, ${reviewDockTop(coarse)}px), var(--lcw-hud-right-b, 0px)) + 8px)`,
         right: 12,
         width: 'min(300px, calc(100vw - 24px))',
         display: 'flex',

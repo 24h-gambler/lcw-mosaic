@@ -121,7 +121,12 @@ export async function runPlay({ base, out, limitMs, env = process.env, log = () 
           } catch {
             r = null;
           }
-          log(`play ${view}: exit ${code}${r ? '' : ' - no report'}`);
+          if (!r) {
+            // the bot's stall watchdog names the step it stopped after (real-play.mjs, exit 3)
+            const m = /"name":"stalled","after":"([^"]+)"/.exec(fs.readFileSync(path.join(out, `play-${view}.log`), 'utf8'));
+            if (m) runs[view].stalledAfter = m[1];
+          }
+          log(`play ${view}: exit ${code}${r ? '' : ' - no report'}${runs[view].stalledAfter ? ` (stalled after ${runs[view].stalledAfter})` : ''}`);
           resolve(r);
         });
       }, delay);

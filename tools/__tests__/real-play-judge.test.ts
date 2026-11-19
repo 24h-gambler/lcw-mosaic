@@ -61,6 +61,7 @@ describe('real-play judgement for the nightly audit', () => {
   it('a run that did not finish is "not checked", never a regression; a run that never tried a talk is a regression', () => {
     expect(playRegressions({ pc: null })).toEqual([]);
     expect(playNotRun({ pc: null, touch: clean() }, { pc: { killed: true, code: null } })).toEqual([{ view: 'pc', why: '시간 한도에 멈춤' }]);
+    expect(playNotRun({ pc: null, touch: clean() }, { pc: { killed: false, code: 3, stalledAfter: 'browser' } })[0].why).toContain("'browser' 다음 단계");
     expect(playNotRun({ touch: null }, { touch: { killed: false, code: 1 } })).toEqual([{ view: 'touch', why: '보고서 없음(종료 코드 1)' }]);
     expect(playLines({ pc: null })[0]).toContain('확인 안 됨');
     const none = { ...clean(), clickSuccess: '0/0' };
@@ -72,6 +73,15 @@ describe('real-play judgement for the nightly audit', () => {
     r.lesson.passer = { ...r.lesson.passer, faced: false, ok: null };
     expect(judgeView(r)).toEqual([]);
     expect(playLines({ pc: r })[0]).toContain('확인 안 됨(화면에 못 잡음)');
+  });
+
+  it('a hill walk that never got down to the ramp is not checked; one that got down and not up is a regression', () => {
+    const r = clean();
+    r.hill = { ...r.hill, reachedBottom: false, reachedTop: false, topY: 10 } as typeof r.hill;
+    expect(judgeView(r)).toEqual([]);
+    expect(playLines({ pc: r })[0]).toContain('언덕 확인 안 됨');
+    r.hill = { ...r.hill, reachedBottom: true, reachedTop: false, topY: 1 } as typeof r.hill;
+    expect(judgeView(r).map((x: { id: string }) => x.id)).toEqual(['play:hill']);
   });
 
   it('a short night skips the play so the screens keep their time', () => {

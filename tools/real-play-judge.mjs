@@ -43,7 +43,8 @@ export function judgeView(r) {
   if (!(r.jumpView ?? []).length) add('jump-view', '점프 시점 측정 없음');
   if (r.errand?.state !== 'done') add('errand', `심부름이 끝나지 않음 (${r.errand?.state ?? r.errand?.status ?? '?'})`);
   const h = r.hill;
-  if (h?.ran) {
+  // the bot never got down to the ramp's foot: the climb was not tried, so it is not checked (not a regression)
+  if (h?.ran && h.reachedBottom !== false) {
     if (!h.reachedTop) add('hill', `언덕 경사로를 키로 못 오름 (높이 ${h.topY}, ${h.tries}번 시도)`);
     else if ((h.pressedJumpsUp ?? 0) + (h.unwantedJumpsUp ?? 0) + (h.autoClimbsUp ?? 0) > 0)
       add('hill', `언덕을 오르는 데 점프·자동 오르기가 섞임 (점프 ${h.pressedJumpsUp}, 원치 않은 ${h.unwantedJumpsUp}, 자동 ${h.autoClimbsUp})`);
@@ -86,7 +87,14 @@ export function playRegressions(reports, sizes = { pc: '1440x900', touch: '390x8
 export function playNotRun(reports, runs = {}) {
   return Object.entries(reports)
     .filter(([, r]) => !r)
-    .map(([view]) => ({ view, why: runs[view]?.killed ? '시간 한도에 멈춤' : `보고서 없음(종료 코드 ${runs[view]?.code ?? '?'})` }));
+    .map(([view]) => ({
+      view,
+      why: runs[view]?.stalledAfter
+        ? `'${runs[view].stalledAfter}' 다음 단계에서 10분 넘게 진행 없음(봇이 멈춤)`
+        : runs[view]?.killed
+          ? '시간 한도에 멈춤'
+          : `보고서 없음(종료 코드 ${runs[view]?.code ?? '?'})`
+    }));
 }
 
 /** One line per view for the summary (Korean, what the night run measured). */
@@ -94,7 +102,7 @@ export function playLines(reports) {
   return Object.entries(reports).map(([view, r]) => {
     if (!r) return `- ${view}: 실행 못 함 — 확인 안 됨(회귀 아님)`;
     const cam = (r.jumpView ?? []).map((j) => j.camRise).join('/');
-    const h = r.hill?.ran ? `언덕 ${r.hill.reachedTop ? `오름(높이 ${r.hill.topY})` : '못 오름'}` : '언덕 안 봄';
+    const h = !r.hill?.ran ? '언덕 안 봄' : r.hill.reachedBottom === false ? '언덕 확인 안 됨(경사로 아래로 못 내려감)' : `언덕 ${r.hill.reachedTop ? `오름(높이 ${r.hill.topY})` : '못 오름'}`;
     const p = r.lesson?.passer ? `지나가는 NPC ${r.lesson.passer.ok === null ? '확인 안 됨(화면에 못 잡음)' : r.lesson.passer.ok ? '조용' : '문제'}` : '';
     const les = r.lesson?.started ? `수업 다시 열기 클릭 ${r.lesson.reopenByClick ? '됨' : '안 됨'}·E ${r.lesson.reopenByKey ? '됨' : '안 됨'}` : '수업 안 봄';
     return `- ${view} ${r.size ?? ''}: 클릭 ${r.clickSuccess} · E ${r.keySuccess} · 다른 NPC ${r.wrongNpc ?? 0} · 원치 않은 점프 ${r.unwantedJumps ?? 0} · 점프 시점 ${cam}m · 심부름 ${r.errand?.state ?? '?'} · ${h} · ${les}${p ? ` · ${p}` : ''} · 오류 ${(r.errs ?? []).length} (캐시 전용 음성 404 ${r.ttsCacheMiss ?? 0}, 설계대로) · ${r.seconds ?? '?'}초`;

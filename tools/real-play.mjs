@@ -36,8 +36,23 @@ mkdirSync(out, { recursive: true });
 const touch = view === 'touch';
 const [W, H] = touch ? [390, 844] : [1440, 900];
 
+// Stall watchdog: no progress line for LCW_REAL_PLAY_STALL_MIN (10) minutes -> say after which step and stop, so the
+// night audit keeps its time for the screens and knows where it stopped (11-18: a touch run sat 24 min with no line).
+const STALL_MS = Number(process.env.LCW_REAL_PLAY_STALL_MIN ?? 10) * 60_000;
+const P0 = Date.now();
+let lastStep = { name: 'start', at: P0 };
+const progress = (name) => {
+  lastStep = { name, at: Date.now() };
+};
+setInterval(() => {
+  if (Date.now() - lastStep.at < STALL_MS) return;
+  console.log(JSON.stringify({ name: 'stalled', after: lastStep.name, t: Math.round((Date.now() - P0) / 1000) }));
+  process.exit(3);
+}, 15_000).unref();
+
 async function call(method, p, body, token) {
   const r = await fetch(base + p, {
+    signal: AbortSignal.timeout(30_000),
     method,
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body)
@@ -71,6 +86,8 @@ async function newChild() {
 }
 
 const dev = devFile ? JSON.parse(readFileSync(devFile, 'utf8')) : await newChild();
+progress('child');
+console.log(JSON.stringify({ name: 'child', t: Math.round((Date.now() - P0) / 1000) }));
 const browser = await chromium.launch({
   channel: 'chrome',
   headless: true,
@@ -86,6 +103,7 @@ await ctx.addInitScript(([t]) => {
   localStorage.setItem('lcw.deviceNickname', 'Juno');
 }, [dev.device_token]);
 const page = await ctx.newPage();
+progress('browser');
 const errs = [];
 page.on('pageerror', (e) => errs.push(String(e.message).slice(0, 200)));
 page.on('console', (m) => {
@@ -124,6 +142,7 @@ const log = [];
 const mark = (name, extra = {}) => {
   const s = { name, t: Math.round((Date.now() - T0) / 100) / 10, ...extra };
   log.push(s);
+  progress(name);
   console.log(JSON.stringify(s));
 };
 const shot = (name) => page.screenshot({ path: `${out}/${view}-${name}.png` }).catch(() => {});
@@ -363,6 +382,7 @@ async function jumpCheck() {
 
 // ---- play
 await page.goto(`${base}/world/`, { waitUntil: 'domcontentloaded' });
+progress('page');
 await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 300000 });
 await page.waitForFunction(() => (window.__lcwWorld.getStats?.()?.ground?.near ?? 1) === 0, null, { timeout: 120000 }).catch(() => {});
 mark('spawn', { scene: (await stats())?.scene });
@@ -490,10 +510,17 @@ async function walkTo(lineX, endZ, done) {
       trace.push([+b.x.toFixed(1), +b.y.toFixed(1), +b.z.toFixed(1), +err.toFixed(2)]);
       // the view turns by -dx * k (engine onLook): a positive yaw error is a drag to the left; big turns in two goes
       if (Math.abs(err) > 0.08) await turn(-Math.max(-1.6, Math.min(1.6, err)) / RAD_PER_PX);
+      // a big turn (turning round at the bottom) is only turned, then measured again: walking on would carry the bot
+      // sideways off the line (11-18: 7 m west of the ramp)
+      if (Math.abs(err) > 1.2) continue;
     } else {
+      // against a block or an NPC: step back, turn ~40 degrees and aim again from the next step's heading
+      // (turning blind kept the bot on the ramp's side wall; backing alone walked into the hill guide 8 times, 11-18)
       trace.push(['stuck', +b.x.toFixed(1), +b.y.toFixed(1), +b.z.toFixed(1)]);
-      if (++stuck > 5) break;
-      await turn(0.6 / RAD_PER_PX);
+      if (++stuck > 8) break;
+      await back(400);
+      await turn(0.7 / RAD_PER_PX);
+      continue;
     }
     // shorter steps while off the line, so a correction lands before the bot leaves the ramp
     await forward(Math.abs(b.x - lineX) > 0.8 ? 450 : 900);
@@ -505,7 +532,8 @@ async function walkTo(lineX, endZ, done) {
   return { end: { x: +e.x.toFixed(2), y: +e.y.toFixed(2), z: +e.z.toFixed(2) }, minY: +minY.toFixed(2), maxY: +maxY.toFixed(2), trace };
 }
 // the ramp (packages/sim-core town.ts): x 143..145, half a block a cell from z 126 (ground) to z 109 (the top, y 10)
-const HILL_RAMP = { x: 144.5, bottomZ: 131, topZ: 103, topY: 10 };
+// down along x 143.6 (still on the ramp): the hill scene's spot faces the guide standing on the centre line 2.3 m south
+const HILL_RAMP = { x: 144.5, downX: 143.6, bottomZ: 131, topZ: 103, topY: 10 };
 const hill = { ran: false };
 if (process.env.LCW_REAL_PLAY_HILL !== '0') {
   await closeDlg();
@@ -517,17 +545,21 @@ if (process.env.LCW_REAL_PLAY_HILL !== '0') {
   const top = (await stats()).player;
   // a few tries: the bot's steering can leave the 3-wide ramp on a big turn at the bottom (11-18 run 1), a child's does not
   for (let tryNo = 1; tryNo <= 3 && !hill.reachedTop; tryNo++) {
-    const down = await walkTo(HILL_RAMP.x, HILL_RAMP.bottomZ, (p) => p.z > HILL_RAMP.bottomZ - 2);
+    const down = await walkTo(HILL_RAMP.downX, HILL_RAMP.bottomZ, (p) => p.z > HILL_RAMP.bottomZ - 2);
+    // the climb counts only from the bottom: a walk that never got down "reaches the top" without climbing (11-18)
+    const reachedBottom = down.end.y < 2 && down.end.z > HILL_RAMP.bottomZ - 3;
     const mUp = (await stats()).motion;
-    const up = await walkTo(HILL_RAMP.x, HILL_RAMP.topZ, (p) => p.z < HILL_RAMP.topZ + 3.5);
+    const up = reachedBottom ? await walkTo(HILL_RAMP.x, HILL_RAMP.topZ, (p) => p.z < HILL_RAMP.topZ + 3.5) : { end: down.end, trace: [] };
     const mTop = (await stats()).motion;
     Object.assign(hill, {
       ran: true,
       tries: tryNo,
       startY: top.y,
       bottomY: down.end.y,
+      reachedBottom,
+      downTrace: reachedBottom ? undefined : down.trace,
       topY: up.end.y,
-      reachedTop: up.end.z < HILL_RAMP.topZ + 3.5 && up.end.y > HILL_RAMP.topY - 0.6,
+      reachedTop: reachedBottom && up.end.z < HILL_RAMP.topZ + 3.5 && up.end.y > HILL_RAMP.topY - 0.6,
       pressedJumpsUp: mTop.jumps - mUp.jumps,
       unwantedJumpsUp: mTop.unpressedJumps - mUp.unpressedJumps,
       autoClimbsUp: mTop.autoClimbs - mUp.autoClimbs,
@@ -538,7 +570,7 @@ if (process.env.LCW_REAL_PLAY_HILL !== '0') {
   await shot('70-hill-top');
   await page.evaluate(() => window.__lcwWorld.goToScene('plaza'));
   await page.waitForFunction(() => !window.__lcwWorld.getStats().interact.walking, null, { timeout: 60000 }).catch(() => {});
-  mark('hill', { ...hill, upTrace: undefined });
+  mark('hill', { ...hill, upTrace: undefined, downTrace: undefined });
 }
 
 // Lesson part (R2625 ③④: in Dan's lesson a click or E on an NPC did nothing): the operator starts a lesson for this
@@ -664,7 +696,7 @@ console.log(
     goals: seenGoals,
     errand: report.errand.state,
     camRise: jumpView.map((j) => `${j.camRise}/${j.bodyRise}`).join(' '),
-    hill: hill.ran ? { top: hill.reachedTop, y: hill.topY, jumps: hill.pressedJumpsUp + hill.unwantedJumpsUp, tries: hill.tries } : 'skipped',
+    hill: hill.ran ? { bottom: hill.reachedBottom, top: hill.reachedTop, y: hill.topY, jumps: hill.pressedJumpsUp + hill.unwantedJumpsUp, tries: hill.tries } : 'skipped',
     passer: lesson.passer ? lesson.passer.ok : null,
     errs: errs.length,
     ttsCacheMiss

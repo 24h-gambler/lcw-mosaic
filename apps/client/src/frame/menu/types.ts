@@ -2,8 +2,9 @@
 import type { WorldHandle } from '../../world/api.js';
 import type { PlayerIdentity } from '../../world/identity.js';
 
-export type MenuTab = 'bag' | 'mirror' | 'map' | 'book' | 'repair' | 'settings';
-export const MENU_TABS: readonly MenuTab[] = ['bag', 'mirror', 'map', 'book', 'repair', 'settings'];
+export type MenuTab = 'bag' | 'shop' | 'make' | 'mirror' | 'map' | 'book' | 'repair' | 'settings';
+/** The shop and the maker's book sit next to the bag (Dan R326 ⑪: the child goes shopping and building on their own). */
+export const MENU_TABS: readonly MenuTab[] = ['bag', 'shop', 'make', 'mirror', 'map', 'book', 'repair', 'settings'];
 
 /** Who asks the server: a linked child's device token, a lesson student's own token, or nobody (guest). */
 export interface FrameAuth {

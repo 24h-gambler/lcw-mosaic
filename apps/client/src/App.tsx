@@ -14,6 +14,8 @@ import { FrameFloorWatch, TIER_SETTINGS, gpuClassOf, readGpuRenderer, type GpuCl
 import { RoomClient } from './world/room-client.js';
 import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
 import { FrameLayer } from './frame/FrameLayer.js';
+import { SHOP_SAY_EVENT } from './frame/shop-api.js';
+import { SHOPKEEPER, shopSayOffers } from './frame/shop-say.js';
 import { savedTier } from './frame/settings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import { DEFAULT_WORLD_CHOICE, readWorldSetup, type WorldSetupChoice } from '@lcw/content';
@@ -423,6 +425,8 @@ export function App(): React.ReactElement {
   // The kind the child last read aloud for (kept after the build screen closes, until the next room check).
   const [readKind, setReadKind] = useState<'light' | 'rest' | 'flat' | null>(null);
   const [soloNpc, setSoloNpc] = useState<NpcRef | null>(null);
+  // R326 ⑪: the shop window's "Ask in English" opens the shopkeeper with that thing's order lines
+  const [sayItem, setSayItem] = useState<string | null>(null);
   const [firstVisitMod, setFirstVisitMod] = useState<FirstVisitModule | null>(null);
   const [errand, setErrand] = useState<ErrandLike | null>(null);
   // The errand shape of a solo dialog is fixed when its window opens (a step it moves must not swap its sentences).
@@ -643,6 +647,25 @@ export function App(): React.ReactElement {
     [world]
   );
 
+  useEffect(() => {
+    const onSay = (e: Event): void => {
+      const key = (e as CustomEvent<{ itemKey?: string }>).detail?.itemKey;
+      if (!key || lessonActive.current || !world) return;
+      if (soloBlocked) {
+        setSeatCard(true);
+        return;
+      }
+      if (!dialogMod?.DialogPanel || !dialogMod.createSoloSubmit) return;
+      setSayItem(key);
+      setSoloNpc(SHOPKEEPER);
+    };
+    window.addEventListener(SHOP_SAY_EVENT, onSay);
+    return () => window.removeEventListener(SHOP_SAY_EVENT, onSay);
+  }, [world, dialogMod, soloBlocked]);
+  useEffect(() => {
+    if (soloNpc === null) setSayItem(null);
+  }, [soloNpc]);
+
   // Seat stopped: say so once when the world opens (and again on every NPC tap), while the world stays walkable.
   useEffect(() => {
     if (soloBlocked && world) setSeatCard(true);
@@ -769,6 +792,7 @@ export function App(): React.ReactElement {
     ...(soloLevel ? { level: soloLevel } : {}),
     ...(shopOffers.length > 0 ? { offers: shopOffers } : {}),
     ...(plan ? { npcLine: plan.npcLine, ...(plan.offers ? { offers: plan.offers } : {}), ...(plan.followUps ? { followUps: plan.followUps } : {}), ...(plan.followUpSubmit ? { followUpSubmit: plan.followUpSubmit } : {}) } : {}),
+    ...(sayItem && soloNpc?.ctx === 'trade_shop' && shopSayOffers(sayItem, soloLevel ?? 'L1').length > 0 ? { offers: shopSayOffers(sayItem, soloLevel ?? 'L1') } : {}),
     ...(ed ? { offers: ed.offers, npcLine: ed.npcLine, ...(ed.voiceCtx ? { voiceCtx: ed.voiceCtx } : {}) } : {}),
     // R326 ⑫: in a lesson a passer-by is talked to in the child's own words, as lesson talk (ideas only, follow-ups too)
     ...(lessonTalk ? { mode: 'free' as const, followUpSubmit: lessonTalk, skipNeedsTry: true } : {}),

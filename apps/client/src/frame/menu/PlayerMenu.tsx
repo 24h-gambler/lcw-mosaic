@@ -14,9 +14,13 @@ import { MapPanel } from './MapPanel.js';
 import { BookPanel } from './BookPanel.js';
 import { RepairPanel } from './RepairPanel.js';
 import { SettingsPanel } from './SettingsPanel.js';
+import { ShopPanel } from './ShopPanel.js';
+import { MakePanel } from './MakePanel.js';
 
 export const TAB_ICONS: Readonly<Record<MenuTab, string>> = {
   bag: '🎒',
+  shop: '🛍️',
+  make: '🔨',
   mirror: '🪞',
   map: '🗺️',
   book: '📖',
@@ -26,6 +30,8 @@ export const TAB_ICONS: Readonly<Record<MenuTab, string>> = {
 
 const PANELS: Readonly<Record<MenuTab, React.ComponentType<MenuPanelProps>>> = {
   bag: BagPanel,
+  shop: ShopPanel,
+  make: MakePanel,
   mirror: MirrorPanel,
   map: MapPanel,
   book: BookPanel,

@@ -1,3 +1,5 @@
+import { SHOP_CATALOG, shopOrderLines } from './shop-catalog.js';
+
 export type LangLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
 
 export interface PhraseOffer {
@@ -714,6 +716,34 @@ for (const level of ['L1', 'L2', 'L3'] as const) {
   }
 }
 
+/**
+ * The town shop (Dan R326 ⑪, shop-catalog.ts) at Toby's trade shop: saying the order in English buys the thing at
+ * the star price (1★ list, 2★ 20% off, 3★ 50% off, STAR_PRICE_FACTOR) through the same server purchase path as the
+ * furniture. Listed after the barter goods so the shop's default lines stay the first lesson's.
+ */
+const GENERATED_TOWN_SHOP_BANK: PhraseBankEntry[] = [];
+for (const level of ['L1', 'L2', 'L3'] as const) {
+  for (const g of SHOP_CATALOG) {
+    const [t1, t2, t3] = shopOrderLines(g, level);
+    GENERATED_TOWN_SHOP_BANK.push({
+      id: `trade_shop_${level}_${g.key}`,
+      lang: 'en',
+      ctx: 'trade_shop',
+      intent: 'buy_good',
+      slotsKey: `item=${g.key}|mod=${g.adj.toLowerCase().replace(/\s+/g, '_')}`,
+      level,
+      offers: [
+        { stars: 1, text: t1, price: starPrice(g.price, 1), bonus: null },
+        { stars: 2, text: t2, price: starPrice(g.price, 2), bonus: null },
+        { stars: 3, text: t3, price: starPrice(g.price, 3), bonus: null }
+      ],
+      hintTags: level === 'L1' ? [g.label, 'can I have', 'please'] : level === 'L2' ? [g.label, 'can I get', 'because'] : [g.label, 'could you', 'so that'],
+      baseMesh: 'item_crate_01',
+      socket: g.socket
+    });
+  }
+}
+
 const DOMAIN_BANK_ENTRIES: PhraseBankEntry[] = [
   {
     id: 'makers_lab_L3_jetpack_red',
@@ -901,7 +931,8 @@ export const PHRASE_BANK: readonly PhraseBankEntry[] = [
   ...GENERATED_GUIDE_BANK,
   ...GENERATED_FURNITURE_BANK,
   ...GENERATED_ERRAND_BANK,
-  ...DOMAIN_BANK_ENTRIES
+  ...DOMAIN_BANK_ENTRIES,
+  ...GENERATED_TOWN_SHOP_BANK
 ];
 
 export function lookupPhraseBank(params: {

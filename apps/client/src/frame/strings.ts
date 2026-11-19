@@ -21,6 +21,8 @@ export const FRAME_STRINGS_KO = {
   close: '닫기',
   tabs: {
     bag: '소지품',
+    shop: '상점',
+    make: '만들기',
     mirror: '거울',
     map: '지도',
     book: '도감',
@@ -323,6 +325,8 @@ export const FRAME_STRINGS_EN: FrameStrings = {
   close: 'Close',
   tabs: {
     bag: 'Bag',
+    shop: 'Shop',
+    make: 'Make',
     mirror: 'Mirror',
     map: 'Map',
     book: 'Book',

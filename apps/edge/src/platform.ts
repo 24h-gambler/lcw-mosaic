@@ -891,7 +891,18 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (!room) return c.json({ error: 'no_room' }, 404);
     return forwardSolo(c.req.url, s, { item_id: body.item_id, price: body.price, said: body.said }, (p) => ({ player_id: p.player_id, world_id: p.world_id, room }));
   });
-  soloWrite('/v1/p2p/accept', 'invalid_accept', (b) => ({ offer_id: b.offer_id, said: b.said }));
+  app.post('/v1/p2p/accept', async (c, next) => {
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    const body = await readBody(c);
+    const blocked = seatBlocked(s);
+    if (blocked) return blocked;
+    if (!body) return c.json({ error: 'invalid_accept' }, 400);
+    const room = await tradeRoom(c.req.raw);
+    if (!room) return c.json({ error: 'no_room' }, 404);
+    return forwardSolo(c.req.url, s, { offer_id: body.offer_id, said: body.said }, (p) => ({ player_id: p.player_id, world_id: p.world_id, room }));
+  });
   soloWrite('/v1/p2p/cancel', 'invalid_cancel', (b) => ({ offer_id: b.offer_id }));
   soloRead('/v1/collection');
   soloRead('/v1/settings', (p) => ({ player_id: p.player_id }));

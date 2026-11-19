@@ -69,11 +69,16 @@ describe('town shop and coins (R326)', { timeout: 60_000 }, () => {
     const better = await say(p, dev, 'win-1', 3);
     expect(better.body.coins_earned).toBe(2 * COIN_RULES.soloPerStar);
     expect(better.body.coins_total).toBe(start + 3 * COIN_RULES.soloPerStar);
-    // many windows: never more than the cap a day
-    for (let i = 0; i < 14; i++) await say(p, dev, `cap-${i}`, 3);
+    // the same sentence in a fresh window (the dialog id is the client's) pays nothing more today
+    const fresh = await say(p, dev, 'win-2', 3);
+    expect(fresh.body.pass).toBe(true);
+    expect(fresh.body.coins_earned).toBeUndefined();
+    // many windows of different sentences: never more than the cap a day
+    const cafe = bankEntriesFor('cafe', 'L2');
+    for (let i = 0; i < 14; i++) await say(p, dev, `cap-${i}`, 3, 'cafe', cafe[i]!.offers[2].text);
+    // (the cafe orders also buy drinks, so count the earnings, not the balance)
     const s = await shop(p, dev);
     expect(s.earned_today).toBe(COIN_RULES.soloDailyCap);
-    expect(s.coins_total).toBe(start + COIN_RULES.soloDailyCap);
   });
 
   it('the shop button buys at list price once per request id, never below zero, and the thing lands in the bag', async () => {
@@ -157,15 +162,43 @@ describe('town shop and coins (R326)', { timeout: 60_000 }, () => {
     expect(c1.body.reward).toBe(30);
   });
 
-  it('selling back pays half the list price once, and the thing is gone', async () => {
+  it('selling back pays half of what was paid once, and the thing is gone', async () => {
     const p = platform();
     const dev = await child(p, 'kid-sell', 'fam-sell');
     const b = await call(p, 'POST', '/v1/shop/buy', { item_key: 'cap_blue', request_id: 'req-cap-00001' }, dev);
+    expect((await shop(p, dev)).sell_prices[b.body.item_id]).toBe(Math.floor(b.body.paid / 2));
     const s1 = await call(p, 'POST', '/v1/shop/sell', { item_id: b.body.item_id }, dev);
     expect(s1.status).toBe(200);
-    expect(s1.body.paid).toBe(Math.floor(shopItem('cap_blue')!.price / 2));
+    expect(s1.body.paid).toBe(Math.floor(b.body.paid / 2));
     expect(s1.body.coins_total).toBe(b.body.coins_total + s1.body.paid);
     expect((await call(p, 'POST', '/v1/shop/sell', { item_id: b.body.item_id }, dev)).status).toBe(404);
+    // the same request id for another thing is not a free second purchase
+    const reuse = await call(p, 'POST', '/v1/shop/buy', { item_key: 'hat_red', request_id: 'req-cap-00001' }, dev);
+    expect(reuse.status).toBe(409);
+    expect(reuse.body.error).toBe('request_reused');
+  });
+
+  it('review of PR 189: saying a bought order again never brings back a thing sold back (no coin loop)', async () => {
+    const p = platform();
+    const dev = await child(p, 'kid-loop', 'fam-loop');
+    const entry = bankEntriesFor('trade_shop', 'L2').find((e) => e.id === 'trade_shop_L2_cap_blue')!;
+    const r = await say(p, dev, 'loop-cap', 3, 'trade_shop', entry.offers[2].text);
+    expect(r.body.granted?.item_id).toBe('cap_blue');
+    const things = (await call(p, 'GET', '/v1/items', undefined, dev)).body.items as Array<{ item_id: string; item_key: string }>;
+    const cap = things.find((t) => t.item_key === 'cap_blue')!;
+    expect(cap.item_id.startsWith('buy-')).toBe(true);
+    // a three-star buy sells back for half of the half price: buying and selling can only lose coins
+    const sold = await call(p, 'POST', '/v1/shop/sell', { item_id: cap.item_id }, dev);
+    expect(sold.body.paid).toBe(Math.floor(starPrice(shopItem('cap_blue')!.price, 3) / 2));
+    const after = sold.body.coins_total as number;
+    for (let i = 0; i < 3; i++) {
+      const again = await say(p, dev, 'loop-cap', 3, 'trade_shop', entry.offers[2].text);
+      expect(again.status).toBe(200);
+      expect(again.body.granted?.item_id).toBeUndefined();
+    }
+    const s = await shop(p, dev);
+    expect(s.owned.cap_blue).toBeUndefined();
+    expect(s.coins_total).toBe(after);
   });
 
   it('child-to-child trade: both say their line in English, escrow, one buyer, coins to the seller once, cancel returns the thing', async () => {
@@ -181,7 +214,11 @@ describe('town shop and coins (R326)', { timeout: 60_000 }, () => {
     expect(silent.status).toBe(422);
     expect(silent.body.target).toBe('Do you want my red hat?');
     expect((await shop(p, a)).owned.hat_red).toBe(1);
+    const talk5 = async () => (await shop(p, a)).quests.find((q: { key: string }) => q.key === 'talk5').progress as number;
+    const talkBefore = await talk5();
     const offer = await call(p, 'POST', '/v1/p2p/offer', { item_id: hat.body.item_id, price: 40, said: offerSaid('hat_red') }, a);
+    // review of PR 189: trade lines are logged, but they do not fill the talk goal (no offer / take-back loop)
+    expect(await talk5()).toBe(talkBefore);
     expect(offer.status).toBe(201);
     // in escrow: not in the seller's things any more, cannot be offered twice
     expect((await shop(p, a)).owned.hat_red).toBeUndefined();
@@ -191,6 +228,10 @@ describe('town shop and coins (R326)', { timeout: 60_000 }, () => {
     expect(seen.body.offers[0]).toMatchObject({ seller_name: 'Mint', item_key: 'hat_red', price: 40, mine: false });
     expect((await call(p, 'GET', '/v1/p2p/offers?room=family-fam-t', undefined, other)).body.offers).toHaveLength(0);
     expect((await call(p, 'POST', '/v1/p2p/accept', { offer_id: offer.body.offer_id, said: acceptSaid('hat_red') }, a)).body.error).toBe('own_offer');
+    // review of PR 189: a child of another family who learns the offer id cannot buy it (same room only)
+    const outsider = await child(p, 'kid-out2', 'fam-other2', 'Kiwi');
+    const far = await call(p, 'POST', '/v1/p2p/accept', { offer_id: offer.body.offer_id, said: acceptSaid('hat_red') }, outsider);
+    expect(far.status).toBe(404);
     // WP-509: the buyer must ask in English; a mumble moves nothing
     const mumble = await call(p, 'POST', '/v1/p2p/accept', { offer_id: offer.body.offer_id, said: { transcript: 'uh', stt_source: 'device', confidence: 0.5 } }, b);
     expect(mumble.status).toBe(422);

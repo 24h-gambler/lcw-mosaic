@@ -56,6 +56,11 @@ describe('shop catalog (one table)', () => {
         expect(offers[2]!.text.toLowerCase()).toContain(i.label.toLowerCase());
       }
     expect(shopSayOffers('hat_red', 'L1')[2]!.text).toBe('Can I have a red hat, please?');
+    // review of PR 189: no two things share an order line (the server would hand over the first one)
+    for (const lv of ['L1', 'L2', 'L3'] as const) {
+      const lines = SHOP_CATALOG.flatMap((i) => shopSayOffers(i.key, lv).map((o) => o.text.toLowerCase()));
+      expect(new Set(lines).size).toBe(lines.length);
+    }
     expect(shopSayOffers('apple', 'L1')[0]!.text).toBe('An apple, please.');
     expect(shopSayOffers('nope', 'L1')).toEqual([]);
     expect(SHOPKEEPER.ctx).toBe('trade_shop');

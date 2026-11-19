@@ -34,8 +34,10 @@ import {
   kstDay,
   kstDayStart,
   shopItem,
+  starPrice,
   tradeLines,
-  type DailyQuestKey
+  type DailyQuestKey,
+  type ShopItemDef
 } from '@lcw/content';
 import { scoreUtterance } from '@lcw/converse';
 import { indexedPrice } from './economy.js';
@@ -72,7 +74,7 @@ function earnedToday(world: WorldDO, playerId: string, nowMs: number): number {
  * A passed solo sentence pays coins (Dan R326 ⑤ "코인이 안 쌓인다": before this only lessons and the one errand paid).
  * Returns the coins added now (0 when the window already paid this grade or the day's cap is reached).
  */
-export function creditSoloEarn(world: WorldDO, p: { playerId: string; dialogId: string; stars: number; nowMs: number }): number {
+export function creditSoloEarn(world: WorldDO, p: { playerId: string; dialogId: string; stars: number; nowMs: number; sentence?: string }): number {
   if (p.stars <= 0) return 0;
   const target = Math.min(3, p.stars) * COIN_RULES.soloPerStar;
   const prefix = `earn:${p.dialogId}:`;
@@ -80,17 +82,58 @@ export function creditSoloEarn(world: WorldDO, p: { playerId: string; dialogId: 
     world.sql.get<{ s: number | null }>('select sum(delta) as s from ledger where player = ? and substr(ref, 1, ?) = ?', [p.playerId, prefix.length, prefix])
       ?.s ?? 0
   );
+  // The dialog id comes from the client: the same sentence in a fresh window pays nothing more today (review of PR 189).
+  const said = sentenceTag(p.sentence ?? '');
+  if (paid === 0 && said && world.sql.get("select 1 as x from ledger where player = ? and reason = ? and at >= ? and ref like ?", [p.playerId, SOLO_EARN_REASON, kstDayStart(p.nowMs), `%|s:${said}`])) return 0;
   const room = COIN_RULES.soloDailyCap - earnedToday(world, p.playerId, p.nowMs);
   const add = Math.min(target - paid, room);
   if (add <= 0) return 0;
-  const ref = `${prefix}${p.stars}`;
+  const ref = `${prefix}${p.stars}${said ? `|s:${said}` : ''}`;
   if (world.sql.get('select 1 as x from ledger where player = ? and ref = ?', [p.playerId, ref])) return 0;
   world.appendLedger(p.playerId, add, SOLO_EARN_REASON, ref, p.nowMs);
   return add;
 }
 
+/** A short tag of a sentence (letters only, lower case, FNV-1a): the same words with other punctuation are the same. */
+export function sentenceTag(text: string): string {
+  const t = text.toLowerCase().replace(/[^a-z]+/g, '');
+  if (!t) return '';
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 0x01000193) >>> 0;
+  return h.toString(36);
+}
+
+/**
+ * What a sold-back thing pays: half of what was paid for it (kept on the thing itself, also across a trade), never
+ * half of today's price — buying at three stars and selling back can never make coins. Things from before this record
+ * count as bought at the lowest price (three stars).
+ */
+function sellBackPay(spec: string | null, item: ShopItemDef): number {
+  let paid = NaN;
+  try {
+    paid = Number((JSON.parse(spec ?? '{}') as { paid?: unknown }).paid);
+  } catch {
+    /* old spec */
+  }
+  const base = Number.isFinite(paid) && paid >= 0 ? paid : starPrice(item.price, 3);
+  return Math.floor((base * COIN_RULES.sellBackPct) / 100);
+}
+
 function listPrice(deps: ShopDeps, worldId: string, base: number): number {
   return indexedPrice(base, deps.priceIndex?.(worldId) ?? 1);
+}
+
+/** What each owned shop thing sells back for (by item id), for the trade view. */
+function sellPrices(world: WorldDO, playerId: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of world.sql.all<{ id: string; spec: string | null }>(
+    "select id, spec from items where owner = ? and location in ('bag', 'hotbar', 'socket', 'equipped', 'chest')",
+    [playerId]
+  )) {
+    const item = shopItem(itemKeyOfCard(r.id));
+    if (item) out[r.id] = sellBackPay(r.spec, item);
+  }
+  return out;
 }
 
 /** Owned shop things by key (bag, chest, worn), from the child's items. */
@@ -129,11 +172,11 @@ function placedToday(world: WorldDO, playerId: string, nowMs: number): number {
 }
 
 /** Server counts behind each daily quest (KST today). */
-function questProgress(deps: ShopDeps, world: WorldDO, playerId: string, nowMs: number): Record<DailyQuestKey, number> {
+function questProgress(deps: ShopDeps, world: WorldDO, playerId: string, nowMs: number, placedNow?: number): Record<DailyQuestKey, number> {
   const from = kstDayStart(nowMs);
   const talk = Number(
     deps.db.sql.get<{ n: number }>(
-      "select count(*) as n from utterances where player_id = ? and created_at >= ? and stars > 0 and session_kind <> 'lesson'",
+      "select count(*) as n from utterances where player_id = ? and created_at >= ? and stars > 0 and session_kind <> 'lesson' and ctx <> 'trade'",
       [playerId, from]
     )?.n ?? 0
   );
@@ -143,7 +186,7 @@ function questProgress(deps: ShopDeps, world: WorldDO, playerId: string, nowMs: 
       from
     ])?.n ?? 0
   );
-  const placed = placedToday(world, playerId, nowMs);
+  const placed = placedNow ?? placedToday(world, playerId, nowMs);
   const shown =
     tableExists(deps.db.sql, 'showrooms') &&
     deps.db.sql.get('select 1 as x from showrooms where player_id = ? and updated_at >= ?', [playerId, from])
@@ -158,10 +201,10 @@ function questProgress(deps: ShopDeps, world: WorldDO, playerId: string, nowMs: 
 }
 
 function questsView(deps: ShopDeps, world: WorldDO, playerId: string, nowMs: number) {
-  const prog = questProgress(deps, world, playerId, nowMs);
+  const placed = placedToday(world, playerId, nowMs);
+  const prog = questProgress(deps, world, playerId, nowMs, placed);
   const day = kstDay(nowMs);
   const challenge = challengeOfDay(nowMs);
-  const placed = placedToday(world, playerId, nowMs);
   return {
     day,
     challenge: { key: challenge.key, placed, goal: challenge.placeGoal },
@@ -199,7 +242,7 @@ const OfferSchema = z.object({
   said: SaidSchema
 });
 const OfferActSchema = z.object({ player_id: z.string().min(1).max(64), world_id: z.string().min(1).max(96), offer_id: z.string().regex(/^p2p-[a-z0-9]{6,32}$/) });
-const AcceptSchema = OfferActSchema.extend({ said: SaidSchema });
+const AcceptSchema = OfferActSchema.extend({ room: RoomSchema, said: SaidSchema });
 
 /**
  * Scores a trade line on the server (no AI call) and logs it as the child's utterance, so it counts like any other
@@ -330,6 +373,7 @@ export function mountShopRoutes(app: Hono, deps: ShopDeps): void {
       earned_today: earnedToday(world, playerId, now),
       earn_cap: COIN_RULES.soloDailyCap,
       sell_back_pct: COIN_RULES.sellBackPct,
+      sell_prices: sellPrices(world, playerId),
       ...questsView(deps, world, playerId, now)
     });
   });
@@ -346,13 +390,17 @@ export function mountShopRoutes(app: Hono, deps: ShopDeps): void {
     const itemId = `shop-${rid}|${key}`;
     const out = runInTransaction(deps.db.sql, () => {
       const done = world.sql.get<{ delta: number }>('select delta from ledger where player = ? and ref = ?', [playerId, ref]);
-      if (done) return { status: 200 as const, body: { ok: true, repeated: true, item_id: itemId, paid: -Number(done.delta) } };
+      if (done) {
+        const same = world.sql.get<{ reason: string }>('select reason from ledger where player = ? and ref = ?', [playerId, ref])?.reason === `shop:${key}`;
+        if (!same) return { status: 409 as const, body: { error: 'request_reused' } };
+        return { status: 200 as const, body: { ok: true, repeated: true, item_id: itemId, paid: -Number(done.delta) } };
+      }
       const price = listPrice(deps, worldId, item.price);
       const balance = world.getPlayerBalance(playerId);
       if (balance < price) return { status: 409 as const, body: { error: 'short_of_coins', need: price - balance, coins_total: balance } };
       world.appendLedger(playerId, -price, `shop:${key}`, ref, now);
       const place = landingPlace(world, playerId, itemId);
-      world.grantOrSetItem(playerId, itemId, JSON.stringify({ kind: 'shop', item: key, cat: item.cat, ...(item.block ? { block: item.block.key, count: item.block.count } : {}) }), place);
+      world.grantOrSetItem(playerId, itemId, JSON.stringify({ kind: 'shop', item: key, cat: item.cat, paid: price, ...(item.block ? { block: item.block.key, count: item.block.count } : {}) }), place);
       return { status: 201 as const, body: { ok: true, item_id: itemId, paid: price, location: place === 'chest' ? 'chest' : 'bag' } };
     });
     return c.json({ ...out.body, coins_total: world.getPlayerBalance(playerId) }, out.status);
@@ -369,9 +417,14 @@ export function mountShopRoutes(app: Hono, deps: ShopDeps): void {
     const item = shopItem(key);
     const now = deps.nowMs();
     const out = runInTransaction(deps.db.sql, () => {
-      const row = world.sql.get('select 1 as x from items where id = ? and owner = ?', [itemId, playerId]);
+      const row = world.sql.get<{ spec: string | null }>('select spec from items where id = ? and owner = ?', [itemId, playerId]);
       if (!row || !item) return { status: 404 as const, body: { error: 'item_not_found' } };
-      const pay = Math.floor((listPrice(deps, worldId, item.price) * COIN_RULES.sellBackPct) / 100);
+      // one thing sells once, even if it came back some other way (review of PR 189)
+      if (world.sql.get('select 1 as x from ledger where player = ? and ref = ?', [playerId, `sell:${itemId}`])) {
+        world.sql.run('delete from items where id = ? and owner = ?', [itemId, playerId]);
+        return { status: 409 as const, body: { error: 'already_sold' } };
+      }
+      const pay = sellBackPay(row.spec, item);
       world.sql.run('delete from items where id = ? and owner = ?', [itemId, playerId]);
       world.appendLedger(playerId, pay, `sell:${key}`, `sell:${itemId}`, now);
       return { status: 200 as const, body: { ok: true, paid: pay } };
@@ -454,18 +507,19 @@ export function mountShopRoutes(app: Hono, deps: ShopDeps): void {
   app.post('/v1/p2p/accept', async (c) => {
     const p = AcceptSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!p.success) return c.json({ error: 'invalid_accept' }, 400);
-    const { player_id: playerId, world_id: worldId, offer_id: offerId, said } = p.data;
+    const { player_id: playerId, world_id: worldId, offer_id: offerId, said, room } = p.data;
     const world = deps.worlds.get(worldId);
     if (!world) return c.json({ error: 'offer_not_found' }, 404);
     const now = deps.nowMs();
-    const pre = deps.db.sql.get<OfferRow>('select * from p2p_offers where id = ?', [offerId]);
+    // only an offer of the buyer's own room (review of PR 189: an offer id from elsewhere is not a way in)
+    const pre = deps.db.sql.get<OfferRow>('select * from p2p_offers where id = ? and room = ?', [offerId, room]);
     if (pre && pre.state === 'open' && pre.seller !== playerId && pre.expires_at > now) {
       const line = tradeLines(pre.item_key).accept;
       const spoken = scoreTradeLine(deps, { playerId, worldId, room: pre.room, target: line, said, nowMs: now });
       if (!spoken.pass) return c.json({ error: 'say_it_again', target: line, missed: spoken.missed }, 422);
     }
     const out = runInTransaction(deps.db.sql, () => {
-      const o = deps.db.sql.get<OfferRow>('select * from p2p_offers where id = ?', [offerId]);
+      const o = deps.db.sql.get<OfferRow>('select * from p2p_offers where id = ? and room = ?', [offerId, room]);
       if (!o) return { status: 404 as const, body: { error: 'offer_not_found' } };
       if (o.state === 'sold' && o.buyer === playerId) return { status: 200 as const, body: { ok: true, repeated: true, item_id: o.item_id } };
       if (o.state !== 'open' || o.expires_at <= now) return { status: 409 as const, body: { error: 'offer_closed' } };

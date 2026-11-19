@@ -21,6 +21,8 @@ export interface ShopView {
   earned_today: number;
   earn_cap: number;
   sell_back_pct: number;
+  /** What each owned shop thing sells back for, by item id (half of what was paid). */
+  sell_prices?: Record<string, number>;
   day: string;
   challenge: { key: string; placed: number; goal: number };
   quests: QuestView[];

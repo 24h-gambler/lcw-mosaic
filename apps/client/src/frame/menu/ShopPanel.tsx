@@ -5,7 +5,7 @@
  * it opens and once per press.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { SHOP_CATALOG, SHOP_CATEGORIES, SHOP_CATEGORY_NAMES, shopItem, tradeLines, type ShopCategory, type ShopItemDef } from '@lcw/content';
+import { COIN_RULES, SHOP_CATALOG, SHOP_CATEGORIES, SHOP_CATEGORY_NAMES, shopItem, starPrice, tradeLines, type ShopCategory, type ShopItemDef } from '@lcw/content';
 import { SayLine, type Said } from './SayLine.js';
 import { say } from '../../world/lang.js';
 import { SHOP_STRINGS as S, type Bi } from '../shop-strings.js';
@@ -58,7 +58,15 @@ function markHelpSeen(): void {
 
 /** Which view the shop opens on: set by the HUD shop button, a peer tap (trade) or the maker's book. */
 let pendingView: ShopCategory | 'trade' | null = null;
+/** An open shop window takes the new view at once; a closed one opens on it next time. */
+const SHOP_VIEW_EVENT = 'lcw:shop-view';
+let shopMounted = false;
 export function openShopOn(v: ShopCategory | 'trade'): void {
+  if (shopMounted && typeof window !== 'undefined') {
+    pendingView = null;
+    window.dispatchEvent(new CustomEvent(SHOP_VIEW_EVENT, { detail: v }));
+    return;
+  }
   pendingView = v;
 }
 
@@ -126,6 +134,15 @@ export function ShopPanel(props: MenuPanelProps): React.ReactElement {
     pendingView = null;
     return v ?? 'clothes';
   });
+  useEffect(() => {
+    shopMounted = true;
+    const on = (e: Event): void => setCat((e as CustomEvent<ShopCategory | 'trade'>).detail);
+    window.addEventListener(SHOP_VIEW_EVENT, on);
+    return () => {
+      shopMounted = false;
+      window.removeEventListener(SHOP_VIEW_EVENT, on);
+    };
+  }, []);
   const [help, setHelp] = useState<boolean>(() => !helpSeen());
   const [msg, setMsg] = useState<{ text: Bi; bad?: boolean; extra?: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -215,7 +232,7 @@ export function ShopPanel(props: MenuPanelProps): React.ReactElement {
         </div>
       ) : null}
       {cat === 'trade' ? (
-        <TradeView {...props} listPrices={view?.prices ?? {}} sellPct={view?.sell_back_pct ?? 50} onCoins={setCoinsOnly} />
+        <TradeView {...props} listPrices={view?.prices ?? {}} sellPrices={view?.sell_prices ?? {}} onCoins={setCoinsOnly} />
       ) : (
         <ul className="lcw-goods">
           {SHOP_CATALOG.filter((i) => i.cat === cat).map((i) => {
@@ -262,9 +279,24 @@ export function ShopPanel(props: MenuPanelProps): React.ReactElement {
 }
 
 /** Child-to-child trades in this world (the server names the room) and selling back to the shop. */
-function TradeView(props: MenuPanelProps & { listPrices: Record<string, number>; sellPct: number; onCoins(n: number): void }): React.ReactElement {
-  const { auth, fetchImpl, syncBag, onCoins, listPrices, sellPct } = props;
-  const listOf = (key: string): number => listPrices[key] ?? shopItem(key)?.price ?? 20;
+function TradeView(props: MenuPanelProps & { listPrices: Record<string, number>; sellPrices: Record<string, number>; onCoins(n: number): void }): React.ReactElement {
+  const { auth, fetchImpl, syncBag, onCoins, listPrices, sellPrices } = props;
+  const listOf = (key: string): number => listPrices[key] ?? shopItem(key)?.price ?? 0;
+  /** A friend price to start from: half the shop's price (the child changes it). */
+  const startPrice = (key: string): number => Math.min(COIN_RULES.tradeMaxCoins, Math.floor(listOf(key) / 2));
+  /** What the shop pays back: half of what was paid (the server's number; before it answers, the lowest it can be). */
+  const sellOf = (t: ThingView): number => sellPrices[t.item_id] ?? Math.floor((starPrice(shopItem(t.item_key)?.price ?? 0, 3) * COIN_RULES.sellBackPct) / 100);
+  /** One press at a time: a second tap waits for the first answer. */
+  const [busy, setBusy] = useState(false);
+  const once = async (f: () => Promise<void>): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await f();
+    } finally {
+      setBusy(false);
+    }
+  };
   const [offers, setOffers] = useState<OffersView | null>(null);
   const [noRoom, setNoRoom] = useState(false);
   const [things, setThings] = useState<ThingView[]>([]);
@@ -289,7 +321,7 @@ function TradeView(props: MenuPanelProps & { listPrices: Record<string, number>;
   useEffect(load, [load]);
 
   const offer = async (t: ThingView, said: Said): Promise<void> => {
-    const price = Math.max(0, Math.min(1000, Math.round(prices[t.item_id] ?? Math.floor(listOf(t.item_key) / 2))));
+    const price = Math.max(0, Math.min(COIN_RULES.tradeMaxCoins, Math.round(prices[t.item_id] ?? startPrice(t.item_key))));
     const r = await makeOffer(auth, t.item_id, price, said, fetchImpl);
     if (r.ok) {
       setStep(null);
@@ -338,7 +370,7 @@ function TradeView(props: MenuPanelProps & { listPrices: Record<string, number>;
           line={step.kind === 'offer' ? tradeLines(step.thing.item_key).offer : tradeLines(step.offer.item_key).accept}
           note={again}
           onCancel={() => setStep(null)}
-          onSaid={(said) => void (step.kind === 'offer' ? offer(step.thing, said) : accept(step.offer, said))}
+          onSaid={(said) => void once(() => (step.kind === 'offer' ? offer(step.thing, said) : accept(step.offer, said)))}
         />
       ) : null}
       <h3>
@@ -362,7 +394,19 @@ function TradeView(props: MenuPanelProps & { listPrices: Record<string, number>;
               </span>
               <span>🪙 {o.price}</span>
               {o.mine ? (
-                <button type="button" className="btn" onClick={() => void cancelOffer(auth, o.id, fetchImpl).then(() => { syncBag?.(); load(); })}>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={() =>
+                    void once(async () => {
+                      const r = await cancelOffer(auth, o.id, fetchImpl);
+                      if (!r.ok) setNote(say(S.failed).text);
+                      syncBag?.();
+                      load();
+                    })
+                  }
+                >
                   {say(S.cancel).text}
                 </button>
               ) : (
@@ -391,9 +435,9 @@ function TradeView(props: MenuPanelProps & { listPrices: Record<string, number>;
                     <input
                       type="number"
                       min={0}
-                      max={1000}
+                      max={COIN_RULES.tradeMaxCoins}
                       aria-label={say(S.price).text}
-                      value={prices[t.item_id] ?? Math.floor(listOf(t.item_key) / 2)}
+                      value={prices[t.item_id] ?? startPrice(t.item_key)}
                       onChange={(e) => setPrices((p) => ({ ...p, [t.item_id]: Number(e.target.value) }))}
                     />
                   </label>
@@ -403,8 +447,8 @@ function TradeView(props: MenuPanelProps & { listPrices: Record<string, number>;
                 </>
               ) : null}
               {def ? (
-                <button type="button" className="btn" onClick={() => void sell(t)}>
-                  {say(S.sellShop).text} +{Math.floor((listOf(t.item_key) * sellPct) / 100)}
+                <button type="button" className="btn" disabled={busy} onClick={() => void once(() => sell(t))}>
+                  {say(S.sellShop).text} +{sellOf(t)}
                 </button>
               ) : null}
             </li>

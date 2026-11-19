@@ -220,7 +220,8 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     const e = env(1000);
     const a = await e.score({ dialog_id: 'det-a', chosen_stars: 2, target_text: L2_2STAR, transcript: 'can I get cold smoothie' });
     const b = await e.score({ dialog_id: 'det-b', chosen_stars: 2, target_text: L2_2STAR, transcript: 'can I get cold smoothie' });
-    expect(a).toEqual({ ...b, coins_total: a.coins_total, memory_card: a.memory_card });
+    // the same sentence pays its coins once a day (R326 ⑤), so only the score parts are compared
+    expect(a).toEqual({ ...b, coins_total: a.coins_total, coins_earned: a.coins_earned, memory_card: a.memory_card });
     for (let i = 0; i < 5; i++) await e.score({ dialog_id: `det-${i}`, chosen_stars: 3, target_text: L2_3STAR, transcript: L2_3STAR });
     expect(e.world.getPlayerBalance('kid')).toBe(e.ledgerSum());
   });
@@ -288,7 +289,8 @@ describe('student solo scoring through the platform gate', () => {
 
     // The starting purse is granted once only.
     const again = await call(p, '/v1/converse/score', { ...body, dialog_id: 'solo-2' }, st);
-    expect(again.body.coins_total).toBe(200 - 2 * starPrice(water.basePrice, 3) + 30);
+    // the same sentence in a new window buys again but earns nothing more today (R326 ⑤)
+    expect(again.body.coins_total).toBe(200 - 2 * starPrice(water.basePrice, 3) + 15);
 
     // Made-up sentences earn nothing on the student path ("hi" == "hi" used to pass with 1 star).
     const made = await call(p, '/v1/converse/score', { ...body, dialog_id: 'solo-3', target_text: 'hi', transcript: 'hi', strict_bank: false }, st);

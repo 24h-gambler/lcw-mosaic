@@ -413,8 +413,11 @@ export function shopOrderLines(item: ShopItemDef, level: 'L1' | 'L2' | 'L3'): [s
   const a = item.art;
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   if (level === 'L1') {
+    // The 1-star line is the bare word, unless another thing shares it (red / blue roof tiles): then the server could
+    // not tell which one the child asked for, so the describing word stays in (review of PR 189).
+    const shared = SHOP_CATALOG.some((o) => o.key !== item.key && o.label === item.label);
     return [
-      `${cap(artBefore(a, item.label))} ${item.label}, please.`,
+      shared ? `${cap(item.adj)} ${item.label}, please.` : `${cap(artBefore(a, item.label))} ${item.label}, please.`,
       `${cap(artBefore(a, item.adj))} ${item.adj} ${item.label}, please.`,
       `Can I have ${artBefore(a, item.adj)} ${item.adj} ${item.label}, please?`
     ];

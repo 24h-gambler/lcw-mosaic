@@ -101,8 +101,8 @@ describe('the discount is spent by the server on the next furniture purchase of 
     const b = await e.buy('d2', entry.offers[1].text, 2);
     expect(b.body.granted.coins_delta).toBe(-full2);
     expect(b.body.read_aloud_discount_pct).toBeUndefined();
-    // + two passed 2★ sentences × 5 coins (R326 ⑤)
-    expect(e.world.getPlayerBalance('kid')).toBe(1000 - applyReadAloudDiscount(full2, 0.1) - full2 + 20);
+    // + the passed 2★ sentence × 5 coins, once a day for the same sentence (R326 ⑤)
+    expect(e.world.getPlayerBalance('kid')).toBe(1000 - applyReadAloudDiscount(full2, 0.1) - full2 + 10);
   });
 
   it('"one more star" in the same window keeps the discount on the better price (refund of the difference)', async () => {

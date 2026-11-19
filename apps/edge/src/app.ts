@@ -348,7 +348,9 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
           } else {
             shortOfCoins = true;
           }
-        } else {
+        } else if (worldDo.sql.get('select 1 as x from items where id = ? and owner = ?', [`buy-${ref}`, req.player_id])) {
+          // Saying the same purchase again keeps the thing where it is (and a better grade pays the difference back),
+          // but only while the child still has it: a thing sold back or traded away does not come back (review of PR 189).
           if (price < paid) {
             coinsDelta = paid - price;
             worldDo.appendLedger(req.player_id, coinsDelta, `${reason}:better_stars`, ref, nowMs);
@@ -363,7 +365,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
           worldDo.grantOrSetItem(
             req.player_id,
             `buy-${ref}`,
-            JSON.stringify({ kind: 'converse_purchase', item: itemKey, ctx: req.npc_ctx, stars: decision.stars }),
+            JSON.stringify({ kind: 'converse_purchase', item: itemKey, ctx: req.npc_ctx, stars: decision.stars, paid: alreadyBought ? Math.min(paid, price) : price }),
             place
           );
         }
@@ -384,7 +386,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     // Dan R326 ⑤: a passed solo sentence earns coins (once per window, daily cap; shop.ts creditSoloEarn).
     const coinsEarned =
       decision.pass && worldDo && req.session_kind !== 'lesson'
-        ? creditSoloEarn(worldDo, { playerId: req.player_id, dialogId: req.dialog_id, stars: decision.stars, nowMs })
+        ? creditSoloEarn(worldDo, { playerId: req.player_id, dialogId: req.dialog_id, stars: decision.stars, nowMs, sentence: req.target_text ?? req.transcript })
         : 0;
     if (worldDo) coinsTotal = worldDo.getPlayerBalance(req.player_id);
 

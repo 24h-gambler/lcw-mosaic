@@ -64,8 +64,8 @@ describe('first-visit errand (docs/03 D1, WP-111)', () => {
     // saying it again pays nothing more
     const again = await e.say('d-give2', 'errand', line('errand_deliver', 3), 3);
     expect(again.errand).toEqual({ state: 'done' });
-    // the errand pays nothing more; only the new window's passed sentence earns its 3★ × 5 (R326 ⑤)
-    expect(e.world.getPlayerBalance('kid')).toBe(give.coins_total + 15);
+    // the errand pays nothing more, and the same sentence earns once a day (R326 ⑤)
+    expect(e.world.getPlayerBalance('kid')).toBe(give.coins_total);
     const paid = e.world.sql.all<{ reason: string; delta: number }>("select reason, delta from ledger where reason = 'errand:first'");
     expect(paid).toEqual([{ reason: 'errand:first', delta: 50 }]);
 

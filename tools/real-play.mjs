@@ -385,19 +385,42 @@ async function tryKey(id) {
     const b = await page.$('.lw-btn.talk.on');
     if (b) {
       const box = await b.boundingBox().catch(() => null);
-      button = box ? await page.evaluate(([x, y]) => (document.elementFromPoint(x, y)?.className ?? '').toString().slice(0, 40), [box.x + box.width / 2, box.y + box.height / 2]) : 'no box';
+      // what is under the button's middle: the button itself (or its icon inside it), or something over it
+      button = box
+        ? await page.evaluate(([x, y]) => {
+            const e = document.elementFromPoint(x, y);
+            const own = e?.closest('.lw-btn.talk');
+            if (own) return 'talk';
+            // name what covers it: the nearest box with a class, role, test id or text
+            const named = e?.closest('[class]:not([class=""]),[role],[data-testid]') ?? e;
+            const cls = (named?.className ?? '').toString().trim().split(/\s+/).slice(0, 2).join('.');
+            const t = (named?.getAttribute?.('data-testid') || named?.getAttribute?.('role') || '') + ' "' + (named?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 28) + '"';
+            return `${named?.tagName ?? '-'}${cls ? '.' + cls : ''} ${t}`;
+          }, [box.x + box.width / 2, box.y + box.height / 2])
+        : 'no box';
+      // a talk button showing but covered by another screen part: the child's tap lands on that part
+      if (button !== 'talk' && button !== 'no box') {
+        hud.push({ step: `talk-button(${id})`, parts: 0, problems: [`talk button covered: .lw-btn.talk / ${button}`] });
+        await hudCheck(`talk-button(${id})`);
+      }
       await b.tap().catch(() => {});
     } else button = 'hidden';
   } else await page.keyboard.press('KeyE');
   await page.waitForSelector('.lcw-dlg', { timeout: 1500 }).catch(() => {});
   const ok = (await dlgOpen()) && (await rightNpc(id));
+  // diagnosis only (the 1.5 s rule stays): did it open later, and what was on screen instead
+  let late = null;
+  if (!ok) {
+    late = await page.waitForSelector('.lcw-dlg', { timeout: 3000 }).then(() => true).catch(() => false);
+    if (!late) await shot(`key-miss-${id}-${counts.keyTry}`);
+  }
   if (faced || ok) counts.keyTry++;
   if (ok) counts.keyOk++;
   else if (await dlgOpen()) {
     counts.wrongNpc++;
     await closeDlg();
   }
-  return { ok, faced: !!faced, near: s?.interact?.near ?? null, goal: s?.interact?.goal ?? null, prompt: s?.interact?.prompt ?? null, why: s?.interact?.promptWhy, paused: s?.interact?.paused, walking: s?.interact?.walking, ...(touch ? { button } : {}) };
+  return { ok, faced: !!faced, near: s?.interact?.near ?? null, goal: s?.interact?.goal ?? null, prompt: s?.interact?.prompt ?? null, why: s?.interact?.promptWhy, paused: s?.interact?.paused, walking: s?.interact?.walking, ...(late === null ? {} : { late }), ...(touch ? { button } : {}) };
 }
 
 async function answer(stars) {

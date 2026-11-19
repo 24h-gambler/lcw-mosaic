@@ -125,6 +125,9 @@ describe('real-play judgement for the nightly audit', () => {
     expect(f.map((x: { id: string; owner: string }) => [x.id, x.owner])).toEqual([['play:hud-overlap', 'frame']]);
     expect(f[0].why).toContain('1건 — dialog: overlap');
     expect(playRegressions({ touch: { ...r, view: 'touch' } })[0].sizes).toEqual(['390x844']);
+    // a talk button covered by another part (prod 11-19: the lesson status row over it at 390) is the same regression
+    const covered = { ...clean(), hud: [{ step: 'talk-button(guide)', parts: 0, problems: ['talk button covered: .lw-btn.talk / SPAN status "Juno · With Teacher"'] }] };
+    expect(judgeView(covered)[0].why).toContain('talk-button(guide): talk button covered');
   });
 
   it('a short night skips the play so the screens keep their time', () => {

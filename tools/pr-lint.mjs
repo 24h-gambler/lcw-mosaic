@@ -6,6 +6,7 @@
 //
 //   node tools/pr-lint.mjs <PR number>      reads title + body with `gh pr view` and fails (exit 1) on an uncited phrase
 //   node tools/pr-lint.mjs --file <path>    the same for a text file (a PR body draft)
+//   node tools/pr-lint.mjs --meta-file <json>  a saved `gh pr view --json title,body,files`: text + review-lane checks
 // Required before every merge (AGENTS.md 5장). Code blocks, short code spans (a phrase being named) and quotes that say
 // they are the operator's words (`> Dan: …`) are not checked: quoting the operator or this rule is not postponing.
 import { execFileSync } from 'node:child_process';
@@ -122,13 +123,19 @@ export function lintPrTextFull(text) {
 //     the spaced-repetition feature too (#17)
 //   - a PR that adds or changes a probe test: a test file named zz-*, or one with "probe" or "verify" in its name
 // Deleting such a file (a revert) is allowed.
-export const REVIEW_TITLE = /검토|리뷰|독립\s*검증|\bindependent\s+(?:review|check)\b/i;
+export const REVIEW_TITLE = /검토|리뷰|검수|독립\s*검증|(?:교차|재)\s*검증|\bopus\s+(?:검증|verif)|\bindependent\s+(?:review|check|verification)\b/i;
+// a review task names the PR it reviews: 'PR #160 독립 검토', 'Review of PR #131', '#131 재검증', 'Audit of PR #131'. Such a
+// title is exempt only by a word that says it changes something on purpose - '추가'·'처리'·'수정'·'고칠'·'add' are what a
+// review task says too ("재현 시험 추가", "수정 필요 지적", "머지 또는 고칠 것") (re-review of #153)
+const PR_REVIEW =
+  /(?:PR\s*)?#\d+[^\n#]{0,25}(?:검토|리뷰|검증|검수|\breview|\bverif|\baudit)|(?:검토|리뷰|검증|검수|\breview(?:\s+of)?|\bverification\s+of|\baudit\s+of|\bcheck\s+of)\s*(?:PR\s*)?#\d+/i;
+const STRICT_FIX = /고침|고쳐|고치(?!지)|반영|되돌|후속|\bfix(?:es|ed)?\b|\brevert/i;
 // a fix, a follow-up or a feature: '검토 지적 고치기', '검토 후속', '리뷰 지적 처리', '리포트 검토 단계 추가' (review of #153)
-export const FIXES_TITLE = /고침|고쳐|고치(?!지\s*(?:않|말))|고칠|반영|수정|되돌|후속|처리|대응|보완|추가|만들|\bfix(?:es|ed)?\b|\brevert|\baddress|\badd\b/i;
+export const FIXES_TITLE = /고침|고쳐|고치(?!지)|반영|수정|되돌|후속|처리|대응|보완|추가|만들|\bfix(?:es|ed)?\b|\brevert|\baddress|\badd\b/i;
 // strong markers are refused even next to a fix word ("검토 — 읽기 전용, 고치지 않고 판정만" contains "고치")
 // '읽기 전용'·'read-only' alone names a feature too (#39 "live-lesson watch (read-only, …)"): it counts only next to a review word
 const REVIEW_ONLY_STRONG =
-  /판정만|고치지\s*(?:않고|말고)|검토만|\breview[-_\s]*only\b|\bverdict[-_\s]*only\b|(?:검토|리뷰|검증|\breview)[^\n]{0,30}(?:읽기\s*전용|\bread[-_\s]*only\b)|(?:읽기\s*전용|\bread[-_\s]*only\b)[^\n]{0,30}(?:검토|리뷰|검증|\breview)/i;
+  /판정만|판정\s*(?:글|결과)|머지\s*또는\s*고칠|고치지\s*(?:않|말|마)|검토만|\breview[-_\s]*only\b|\bverdict[-_\s]*only\b|(?:검토|리뷰|검증|\breview)[^\n]{0,30}(?:읽기\s*전용|\bread[-_\s]*only\b)|(?:읽기\s*전용|\bread[-_\s]*only\b)[^\n]{0,30}(?:검토|리뷰|검증|\breview)/i;
 // code in tests: *.test/*.spec files and helpers under __tests__/; fixtures there ('probe-data.json') are data (review of #153)
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)__tests__\/.*\.[cm]?[jt]sx?$/;
 const PROBE_NAME = /^zz-|probe/i;
@@ -141,15 +148,17 @@ export function lintPrMeta({ title = '', files = [] } = {}) {
   const t = String(title ?? '');
   const strong = t.match(REVIEW_ONLY_STRONG);
   const weak = t.match(REVIEW_TITLE);
-  if (strong || (weak && !FIXES_TITLE.test(t))) {
-    out.push({ line: 1, id: 'review-title', phrase: (strong ?? weak)[0], text: t.slice(0, 160) });
+  const pr = t.match(PR_REVIEW);
+  if (strong || (pr && !STRICT_FIX.test(t)) || (weak && !FIXES_TITLE.test(t))) {
+    out.push({ line: 1, id: 'review-title', phrase: (strong ?? (pr && !STRICT_FIX.test(t) ? pr : weak))[0], text: t.slice(0, 160) });
   }
   for (const f of files ?? []) {
     const p = String(f?.path ?? f ?? '').replace(/\\/g, '/');
     const base = p.split('/').pop() ?? '';
     if (String(f?.changeType ?? '').toUpperCase() === 'DELETED') continue;
-    const added = String(f?.changeType ?? '').toUpperCase() === 'ADDED';
-    if (TEST_FILE.test(p) && (PROBE_NAME.test(base) || (added && VERIFY_NAME.test(base)))) {
+    const added = ['ADDED', 'RENAMED', 'COPIED'].includes(String(f?.changeType ?? '').toUpperCase());
+    // zz-* is a probe wherever it sits (tools/zz-review.mjs, apps/edge/test/zz-x.ts): no real file in the repo has the prefix
+    if (/^zz-/i.test(base) || (TEST_FILE.test(p) && (PROBE_NAME.test(base) || (added && VERIFY_NAME.test(base))))) {
       out.push({ line: 0, id: 'probe-test', phrase: base, text: p });
     }
   }
@@ -170,13 +179,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (args[0] === '--file' && args[1]) {
     text = fs.readFileSync(args[1], 'utf8');
     label = args[1];
+  } else if (args[0] === '--meta-file' && args[1]) {
+    // what `gh pr view --json title,body,files` returns, from a file: the same checks as a PR number without GitHub (tests)
+    const { title, body, files } = JSON.parse(fs.readFileSync(args[1], 'utf8'));
+    text = `${title ?? ''}\n\n${body ?? ''}`;
+    meta = lintPrMeta({ title: title ?? '', files: files ?? [] });
+    label = args[1];
   } else if (/^\d+$/.test(args[0] ?? '')) {
     const pr = readPr(args[0]);
     text = pr.text;
     meta = lintPrMeta(pr);
     label = `PR #${args[0]}`;
   } else {
-    console.error('usage: node tools/pr-lint.mjs <PR number> | --file <path>');
+    console.error('usage: node tools/pr-lint.mjs <PR number> | --file <path> | --meta-file <gh pr view json>');
     process.exit(2);
   }
   for (const f of meta) console.log(`${label} [${f.id}] "${f.phrase}" — ${f.text}`);

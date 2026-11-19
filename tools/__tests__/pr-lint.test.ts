@@ -1,4 +1,8 @@
 // PR text check (AGENTS.md 0.7): postponing or narrowing in a PR needs the operator's decision id in the same paragraph.
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs tool without types
 import { lintPrMeta, lintPrTextFull, lintPrText } from '../pr-lint.mjs';
@@ -109,6 +113,30 @@ describe('pr-lint: a review lane makes a verdict, not a PR', () => {
     expect(meta('Independent review of PR #131 (verdict only)')).toEqual(['review-title']);
     expect(meta('Opus independent check of #131, no changes')).toEqual(['review-title']);
     expect(meta('lesson fix', [{ path: 'apps/edge/src/__tests__/helpers/zz-x.ts' }])).toEqual(['probe-test']);
+    // re-review of #153: a review task's own words ('머지 또는 고칠 것', '재현 시험 추가', '수정 필요') are not a fix
+    for (const t of ['LCW PR #153 독립 검토 — 머지 또는 고칠 것 판정', 'PR #160 독립 검토: 고칠 것 3건', '#131 보호자 화면 검토 — 파일 고치지 마세요',
+      '#131 검토: 재현 시험 추가', 'PR #160 독립 검토 (수정 필요 지적)', 'Independent review of #160: add probes', 'Review PR #131',
+      'Review of PR #131', 'Independent verification of PR #131', 'Opus verification: guardian page #131', 'LCW #131 Opus 검증',
+      '#131 교차 검증 결과', '#131 재검증', 'PR #131 검수', 'Audit of PR #131, no changes']) expect(meta(t), t).toEqual(['review-title']);
+    // zz-* anywhere, and a verify test brought in by a rename
+    for (const path of ['tools/zz-review.mjs', 'apps/edge/test/zz-review.ts', 'e2e/zz-check.e2e.ts'])
+      expect(meta('lesson fix', [{ path, changeType: 'ADDED' }]), path).toEqual(['probe-test']);
+    expect(meta('lesson fix', [{ path: 'apps/web/src/__tests__/opus-verify.test.ts', changeType: 'RENAMED' }])).toEqual(['probe-test']);
+  });
+
+  it('the CLI exits 1 on a review-lane PR with nothing to postpone (the lane merge gate reads the exit code)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-lint-'));
+    const run = (pr: object) => {
+      const f = path.join(dir, 'pr.json');
+      fs.writeFileSync(f, JSON.stringify(pr));
+      return spawnSync(process.execPath, [path.resolve(__dirname, '../pr-lint.mjs'), '--meta-file', f], { encoding: 'utf8' });
+    };
+    const bad = run({ title: 'PR #131 독립 검토 — 읽기 전용', body: 'verdict', files: [{ path: 'apps/edge/src/__tests__/zz-a.test.ts', changeType: 'ADDED' }] });
+    expect(bad.status).toBe(1);
+    expect(bad.stdout).toContain('[review-title]');
+    expect(bad.stdout).toContain('[probe-test]');
+    const ok = run({ title: 'world: faster hill', body: 'plain', files: [{ path: 'apps/web/src/hill.ts', changeType: 'MODIFIED' }] });
+    expect(ok.status).toBe(0);
   });
 
   it('lets through fixes, reverts and real past PR titles', () => {

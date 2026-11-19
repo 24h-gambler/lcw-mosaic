@@ -234,6 +234,29 @@ function isSentenceStarter(w: string): boolean {
   return singular.some((s) => SENTENCE_STARTERS.has(s) && !NAME_LIKE.has(s));
 }
 
+const NAME_SETS = new WeakMap<readonly string[], Set<string>>();
+
+/**
+ * Whether the normalised text holds one of the name keys on word edges. Keys are looked up one to four words at a time
+ * in a set (a class gives thousands of keys; scanning each of them per sentence made a lesson end take seconds).
+ */
+function hasNameKey(n: string, names: readonly string[]): boolean {
+  if (!names.length) return false;
+  let set = NAME_SETS.get(names);
+  if (!set) {
+    set = new Set(names.map(norm).filter((x) => x.length >= 2));
+    NAME_SETS.set(names, set);
+  }
+  const words = n.trim().split(' ');
+  for (let i = 0; i < words.length; i++)
+    for (let len = 1; len <= 4 && i + len <= words.length; len++) {
+      const span = words.slice(i, i + len);
+      // 'seo yeon' / 'seo-yeon' for a child registered as Seoyeon: the words of one name, spaced or joined.
+      if (set.has(span.join(' ')) || (len > 1 && set.has(span.join('')))) return true;
+    }
+  return false;
+}
+
 /** Text that may appear on the public report: English, no PII/profanity, no names, no self-introduction. */
 export function publicSafeText(text: string, names: string[]): boolean {
   const t = text.trim();
@@ -243,7 +266,7 @@ export function publicSafeText(text: string, names: string[]): boolean {
   const n = ` ${norm(t)} `;
   if (SELF_IDENTIFYING_PATTERN.test(n)) return false;
   for (const m of n.matchAll(INTRO_OPENER)) if (!INTRO_SAFE_NEXT.has(m[1]!)) return false;
-  if (names.some((x) => x.length >= 2 && n.includes(` ${x} `))) return false;
+  if (hasNameKey(n, names)) return false;
   // "Minji, can I …" is stopped here too: a name is not a starter. A word that is also a name ("May,", "Cookie,")
   // before a comma is a call, unless an order's please/thanks follows; other words before a comma are fine
   // ("Water, please.", "Great, thanks"). Registered names are blocked anywhere (name-keys.ts).

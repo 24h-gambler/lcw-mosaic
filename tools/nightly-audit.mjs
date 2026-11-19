@@ -519,14 +519,21 @@ export function frameOutliers(results) {
   return internal.filter((r) => sig(r.frame) !== common).map((r) => ({ route: r.route, frame: r.frame, common }));
 }
 
+/** The KST calendar day of an instant (rep.at is UTC ISO): the 02:50 KST audit is still the previous UTC day. */
+export function kstDay(at = new Date()) {
+  return new Date(new Date(at).getTime() + 9 * 3_600_000).toISOString().slice(0, 10);
+}
+
 export function summaryMarkdown(rep) {
   const lines = [];
   const c = rep.counts;
-  lines.push(`# LCW 야간 실화면 감사 ${rep.at.slice(0, 10)}`);
+  lines.push(`# LCW 야간 실화면 감사 ${kstDay(rep.at)} (KST)`);
   lines.push('');
   lines.push(`- 운영 ${rep.base} · 배포 ${rep.sha ?? '?'} · 경로 ${rep.routes}개 × 2크기 = 화면 ${rep.screens}개`);
   lines.push(`- 설계서 대조: done ${c.done} · partial ${c.partial} · missing ${c.missing}${c.deferred ? ` · deferred ${c.deferred}` : ''}`);
-  lines.push(`- 회귀(done 인데 운영에서 안 열림): ${rep.regressions.length} · 열쇠 화면만 확인: ${rep.unverified.length}`);
+  // play:* entries are the child's play breaking, not a done screen that did not open (world lane 11-19)
+  const playReg = rep.regressions.filter((r) => r.id.startsWith('play:'));
+  lines.push(`- 회귀(done 인데 운영에서 안 열림): ${rep.regressions.length - playReg.length} · 실플레이 회귀: ${playReg.length} · 열쇠 화면만 확인: ${rep.unverified.length}`);
   if (rep.skippedScreens) lines.push(`- 감사 시간 ${rep.limitMin ?? Math.round(AUDIT_LIMIT_MS / 60000)}분이 넘어 열지 못한 화면 ${rep.skippedScreens}개 — 이번에는 확인 안 됨(done ${rep.notChecked.length}개): ${rep.notChecked.slice(0, 8).map((x) => x.id).join(', ')}${rep.notChecked.length > 8 ? ' …' : ''}`);
   lines.push(`- 디자인: 넘침 ${rep.design.overflow.length} · 금지어 ${rep.design.banned.length} · 내부 번호 노출 ${rep.design.internalIds.length} · keep-all 빠짐 ${rep.design.keepAll.length} · 공통 틀 벗어남 ${rep.design.frame.length}`);
   if (rep.play) lines.push(`- 아이 실플레이(운영, smoke 학생): 회귀 ${rep.regressions.filter((r) => r.id.startsWith('play:')).length}${rep.play.notRun?.length ? ` · 확인 안 됨 ${rep.play.notRun.map((x) => `${x.view}(${x.why})`).join(', ')}` : ''}${rep.play.skipped ? ` · ${rep.play.skipped}` : ''}`);
@@ -562,7 +569,7 @@ export function summaryMarkdown(rep) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const base = arg('--base', 'https://lcw.worldwidesomething.com').replace(/\/+$/, '');
-  const out = path.resolve(arg('--out', path.join(ROOT, 'shots', 'nightly', new Date().toISOString().slice(0, 10))));
+  const out = path.resolve(arg('--out', path.join(ROOT, 'shots', 'nightly', kstDay())));
   try {
     const pw = process.env.PLAYWRIGHT_CORE ? await import(pathToFileURL(process.env.PLAYWRIGHT_CORE).href) : await import('playwright-core');
     const chromium = pw.chromium ?? pw.default.chromium;

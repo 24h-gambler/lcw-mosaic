@@ -130,6 +130,7 @@ function css(): string {
 .lw-edge .d{position:absolute;left:0;top:30px;transform:translateX(-50%);background:${C['ink-900']};color:${C['paper-0']};font-family:${T.fonts.ui};font-weight:800;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px;padding:1px 8px;border-radius:${S.radiusButtonPx}px;white-space:nowrap}
 @keyframes lwedge{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
 .lw-edge .a{animation:lwedge 1.2s ease-in-out infinite}
+@media (max-width:600px){.lw-mini{bottom:auto;top:${m.touch.top}px;right:${m.touch.right}px;width:${m.touch.size}px;height:${m.touch.size}px}.lw-hud.off .lw-mini{top:calc(${m.touch.top}px + var(--lw-net-h,30px) + 2px)}}
 @media (pointer:coarse){.lw-mini{bottom:auto;top:${m.tablet.top}px;right:${m.tablet.right}px;width:${m.tablet.size}px;height:${m.tablet.size}px}}
 @media (pointer:coarse) and (max-width:600px),(pointer:coarse) and (max-height:500px){.lw-mini{width:${m.touch.size}px;height:${m.touch.size}px;top:${m.touch.top}px;right:${m.touch.right}px}}
 @media (pointer:coarse) and (max-height:500px){.lw-mini{top:calc(var(--lw-chip-b,74px) + ${m.landscape.gapBelowChip}px);right:auto;left:${m.landscape.left}px;width:${m.landscape.size}px;height:${m.landscape.size}px}}

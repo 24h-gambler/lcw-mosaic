@@ -10,3 +10,9 @@ export function coverHits(cover: ReadonlyArray<readonly [number, number, number,
   }
   return false;
 }
+
+/**
+ * Frame parts that stand in the HUD's columns (the 1PC teacher button, lesson/TeacherPanel.tsx) send this on window when
+ * they come or go, so the HUD measures its columns again. Here (no DOM, no three.js) so the lesson chunk can import it.
+ */
+export const HUD_PART_EVENT = 'lcw:hud-part';

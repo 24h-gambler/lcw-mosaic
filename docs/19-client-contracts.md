@@ -71,6 +71,10 @@ export interface WorldHandle {
 // 다른 층(대화의 걷기 버튼·토스트 등)은 고정 px 대신 이 값으로 놓고, HUD 부품으로 셀 것은 [data-hud-part] 를 붙입니다. 3D 안에 그리는
 // 글자(선생님 이름표)는 HUD 부품 뒤에 오면 흐려지고(HTML 이름표도 같음), 위치는 screenLabels?() 로 읽습니다. tools/frame-layout.mjs 가
 // 모든 부품 쌍의 겹침·화면 밖 잘림·글자 잘림과 3D 글자 vs 부품을 실화면에서 봅니다(frame-shots·frame-menu-shots 가 단계마다 부름).
+// 오른쪽 위 열: --lcw-hud-col-b(별·시점 버튼·위쪽 미니맵이 끝나는 y), --lcw-hud-right-b(그 아래 틀 부품까지 끝나는 y, 복습 도크가 그 아래).
+// 틀이 그 열에 세우는 부품(1PC 선생님 버튼, lesson/TeacherPanel.tsx)은 data-hud-col="right" 를 붙이고 top 을 --lcw-hud-col-b 아래로 두며,
+// 나타나고 사라질 때 window 에 HUD_PART_EVENT(world/cover.ts) 를 보냅니다 — HUD 가 열을 다시 재고 목표 카드·도크가 비켜 갑니다.
+// tools/frame-onepc.mjs 가 1PC 수업 화면(선생님 버튼 있음)을 터치·마우스 × 390·1280·1440 에서 같은 검사로 봅니다.
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
 export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
 ```

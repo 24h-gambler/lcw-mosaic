@@ -23,7 +23,7 @@ import { LessonDO, runInTransaction, type DirectorEventKind, type EdgePlatformDb
 import { markSeatUse } from './seats.js';
 import { buildLessonParentFacts, mergeLessonParentFacts } from './parent-report.js';
 import { createMemoryCard } from './review.js';
-import { enqueueLessonEnd, enqueueRecentStudentDays, mountOpsCardRoutes, OPS_CARD_SOURCE } from './ops-cards.js';
+import { enqueueCard, enqueueLessonEnd, enqueueTestSessionCard, mountOpsCardRoutes, OPS_CARD_SOURCE, studentDailyCard } from './ops-cards.js';
 import { isTestPlayerId } from './nickname.js';
 import { starsOnce, type PassedBefore } from './lesson-stars.js';
 
@@ -1502,29 +1502,107 @@ export function buildLessonModeApp(
 
   /**
    * A session someone ran on a real child's id (11-19: les-20261119-517e4021 on Oreo, 15:55, no teacher, 9 of 11 lines
-   * typed, a plan the child had finished) is marked as a test: its lesson, lines, lesson-born expressions, memory cards
-   * and voice clips move to a test id (`smoke-test-<lesson>`), so every place that leaves test students out (the
-   * console box, the continuation, the hub cards and their hourly resend, the daily record, the 'previous lesson' of
-   * the next report, the weekly numbers) leaves it out too. Its coins come back off the child's balance (a reversal row
-   * per line, never a delete). A report it was folded into is written again without it under the same share token, so
-   * a link the teacher already sent shows the right numbers. Nothing is deleted: every moved id and the original
-   * child are kept in lesson_test_marks. dry_run lists what would move.
+   * typed, a plan the child had finished) is marked as a test: its lesson, lines, lesson-born expressions and memory
+   * cards move to a test id (`smoke-test-<lesson>`), so every place that leaves test students out (the console box, the
+   * continuation, the hub cards and their hourly resend, the daily record, the 'previous lesson' of the next report, the
+   * weekly numbers) leaves it out too. Voice clips stay with the child on purpose: a test id has no voice consent, and
+   * the 03:00 retention would purge them (review of PR 184); they hang off the moved lines, so no report reads them.
+   * Its coins come back off the child's balance (a reversal row per line, never a delete). A report it was folded into
+   * is written again without it under the same share token, with its delivery, opened and created times as they were,
+   * so a link the teacher already sent shows the right numbers on the same date. The session's hub card is rewritten
+   * once as "marked as a test" (no keep). Nothing is deleted: lesson_test_marks keeps the child, every moved id, the
+   * report as it was before, and how far the follow-up steps got; calling again finishes a step that failed.
    */
+  type MarkRecord = {
+    utterances: string[];
+    expressions: string[];
+    memory_cards: string[];
+    voice_clips_kept: string[];
+    coins: number;
+    folded_into: string | null;
+    report_before?: { facts: string; body: string; created_at: number; opened_at: number | null } | null;
+    report_done?: boolean;
+    card_done?: boolean;
+  };
+  const markFollowUps = async (id: string, playerId: string, rec: MarkRecord, now: number, origin: string) => {
+    // coins: a reversal row per line on the child's balance (home-world ledger; a ref is credited once, so a repeat is a no-op)
+    const lines = rec.utterances.length
+      ? d.sql.all<{ id: string; stars: number }>(`select id, stars from utterances where id in (${rec.utterances.map(() => '?').join(', ')})`, rec.utterances)
+      : [];
+    for (const u of lines) if (u.stars > 0) d.coins?.credit(playerId, -u.stars * COINS_PER_STAR, `test-lesson:${u.id}`, now);
+    // the report it was folded into: the same share token, numbers without this part, the delivery and dates as they were
+    let report: { rebuilt: string; report_path: string } | { error: string } | null = null;
+    if (rec.folded_into && !rec.report_done) {
+      const host = lessonRow(rec.folded_into);
+      const repId = `rep-${rec.folded_into}`;
+      const del = d.sql.get<Record<string, unknown> & { share_token: string; teacher_comment: string | null; next_lesson_at: string | null }>(
+        'select * from report_deliveries where report_id = ?',
+        [repId]
+      );
+      const before = rec.report_before ?? null;
+      if (!host || !del || !before) report = { error: 'host_report_missing' };
+      else {
+        const res = await writeLessonReport(rec.folded_into, host.player_id, reportParts(rec.folded_into), {
+          token: del.share_token,
+          teacherComment: del.teacher_comment ?? '',
+          nextLessonAt: del.next_lesson_at ?? ''
+        });
+        if (res.ok) {
+          d.sql.run('update report_deliveries set status = ?, sent_at = ?, opened_at = ?, reminder_sent_at = ? where report_id = ?', [
+            del.status,
+            del.sent_at,
+            del.opened_at,
+            del.reminder_sent_at,
+            repId
+          ]);
+          d.sql.run('update reports set opened_at = ?, created_at = ? where id = ?', [before.opened_at, before.created_at, repId]);
+          rec.report_done = true;
+          report = { rebuilt: rec.folded_into, report_path: `/r/${del.share_token}` };
+        } else report = { error: `report_rebuild_failed:${res.status}` };
+      }
+    }
+    // the session's hub card said it was the child's lesson: rewrite it once (only a card that went out before)
+    if (!rec.card_done) {
+      try {
+        enqueueTestSessionCard(d.sql, id, playerId, now, origin);
+        rec.card_done = true;
+      } catch {
+        rec.card_done = false;
+      }
+    }
+    // the child's daily record for the session's day, without the test lines (the cards leave test ids out)
+    try {
+      const day = kstDay(lessonRow(id)?.started_at ?? now);
+      const daily = studentDailyCard(d.sql, playerId, day, origin);
+      if (daily) enqueueCard(d.sql, daily, now);
+    } catch {
+      /* the hourly cron writes it again */
+    }
+    d.sql.run('update lesson_test_marks set moved = ? where lesson_id = ?', [JSON.stringify(rec), id]);
+    return report;
+  };
+
   app.post('/v1/admin/lessons/:id/mark-test', async (c) => {
     const id = c.req.param('id');
     const l = lessonRow(id);
     if (!l) return c.json({ error: 'lesson_not_found' }, 404);
     const p = MarkTestSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const origin = d.sql.get<{ origin: string }>('select origin from lesson_origins where lesson_id = ?', [id])?.origin ?? LCW_SITE_ORIGIN;
     const done = d.sql.get<{ player_id: string; test_player_id: string; at: number; moved: string }>(
       'select player_id, test_player_id, at, moved from lesson_test_marks where lesson_id = ?',
       [id]
     );
-    if (done) return c.json({ lesson_id: id, already: true, ...done, moved: JSON.parse(done.moved) as unknown });
+    if (done) {
+      // marked before: finish a follow-up step that did not get through (a failed report rebuild), else the same record
+      const rec = JSON.parse(done.moved) as MarkRecord;
+      const report = p.data.dry_run ? null : await markFollowUps(id, done.player_id, rec, d.nowMs(), origin);
+      return c.json({ lesson_id: id, already: true, player_id: done.player_id, test_player_id: done.test_player_id, at: done.at, moved: rec, report });
+    }
     if (isTestPlayerId(l.player_id)) return c.json({ error: 'already_test_student' }, 409);
     if (!l.ended_at) return c.json({ error: 'lesson_live' }, 409);
     // its own report went out to the guardian: that is not a test session to hide afterwards
-    if (d.sql.get("select 1 from report_deliveries where report_id = ?", [`rep-${id}`])) return c.json({ error: 'report_sent' }, 409);
+    if (d.sql.get('select 1 from report_deliveries where report_id = ?', [`rep-${id}`])) return c.json({ error: 'report_sent' }, 409);
     const testId = `smoke-test-${id}`;
     const utts = d.sql.all<{ id: string; stars: number }>('select id, stars from utterances where session_id = ? and player_id = ?', [id, l.player_id]);
     const uttIds = utts.map((u) => u.id);
@@ -1536,30 +1614,38 @@ export function buildLessonModeApp(
         return []; // a table this deploy does not have
       }
     };
-    const auto = autoOf(id);
-    const foldedInto = auto?.folded_into ?? null;
-    const moved = {
+    const foldedInto = autoOf(id)?.folded_into ?? null;
+    const before = foldedInto
+      ? (d.sql.get<{ facts: string; body: string; created_at: number; opened_at: number | null }>(
+          'select facts, body, created_at, opened_at from reports where id = ?',
+          [`rep-${foldedInto}`]
+        ) ?? null)
+      : null;
+    const rec: MarkRecord = {
       utterances: uttIds,
       expressions: idsOf('select id from expressions where lesson_id = ? and player_id = ?', [id, l.player_id]),
       memory_cards: idsOf(`select id from memory_cards where player_id = ? and ${inUtts('utterance_id')}`, [l.player_id, ...uttIds]),
-      voice_clips: idsOf(`select id from voice_clips where player_id = ? and ${inUtts('utterance_id')}`, [l.player_id, ...uttIds]),
+      voice_clips_kept: idsOf(`select id from voice_clips where player_id = ? and ${inUtts('utterance_id')}`, [l.player_id, ...uttIds]),
       coins: utts.reduce((n, u) => n + Math.max(0, Number(u.stars)) * COINS_PER_STAR, 0),
-      folded_into: foldedInto
+      folded_into: foldedInto,
+      report_before: before
     };
-    if (p.data.dry_run) return c.json({ lesson_id: id, player_id: l.player_id, test_player_id: testId, dry_run: true, moved });
+    if (p.data.dry_run) {
+      const { report_before: _b, ...show } = rec;
+      return c.json({ lesson_id: id, player_id: l.player_id, test_player_id: testId, dry_run: true, moved: show, report_exists: Boolean(before) });
+    }
     const now = d.nowMs();
     runInTransaction(d.sql, () => {
       d.sql.run('update lessons set player_id = ? where id = ?', [testId, id]);
       d.sql.run('update utterances set player_id = ? where session_id = ? and player_id = ?', [testId, id, l.player_id]);
-      const move = (table: string, col: string, ids: string[]) => {
-        if (ids.length) d.sql.run(`update ${table} set ${col} = ? where id in (${ids.map(() => '?').join(', ')})`, [testId, ...ids]);
+      const move = (table: string, ids: string[]) => {
+        if (ids.length) d.sql.run(`update ${table} set player_id = ? where id in (${ids.map(() => '?').join(', ')})`, [testId, ...ids]);
       };
-      move('expressions', 'player_id', moved.expressions);
-      move('memory_cards', 'player_id', moved.memory_cards);
-      move('voice_clips', 'player_id', moved.voice_clips);
+      move('expressions', rec.expressions);
+      move('memory_cards', rec.memory_cards);
       d.sql.run('update student_tokens set player_id = ?, expires_at = min(expires_at, ?) where lesson_id = ?', [testId, now, id]);
       d.sql.run('delete from lesson_joins where lesson_id = ?', [id]);
-      // out of the report it was folded into (rewritten below); its own row stays as the record of the close
+      // out of the report it was folded into (rewritten next); its own row stays as the record of the close
       if (foldedInto) d.sql.run('update lesson_auto_close set folded_into = null where lesson_id = ?', [id]);
       d.sql.run('insert into lesson_test_marks (lesson_id, player_id, test_player_id, at, note, moved) values (?, ?, ?, ?, ?, ?)', [
         id,
@@ -1567,43 +1653,12 @@ export function buildLessonModeApp(
         testId,
         now,
         p.data.note,
-        JSON.stringify(moved)
+        JSON.stringify(rec)
       ]);
     });
-    // coins: a reversal row per line on the child's balance (the ledger is in the home world; never deleted)
-    for (const u of utts) if (u.stars > 0) d.coins?.credit(l.player_id, -u.stars * COINS_PER_STAR, `test-lesson:${u.id}`, now);
-    // the report it was folded into: the same share token, numbers without this part, the delivery as it was
-    let report: { rebuilt: string; report_path: string } | { error: string } | null = null;
-    if (foldedInto) {
-      const host = lessonRow(foldedInto);
-      const del = d.sql.get<Record<string, unknown> & { share_token: string; teacher_comment: string | null; next_lesson_at: string | null }>(
-        'select * from report_deliveries where report_id = ?',
-        [`rep-${foldedInto}`]
-      );
-      const openedReport = d.sql.get<{ opened_at: number | null }>('select opened_at from reports where id = ?', [`rep-${foldedInto}`])?.opened_at ?? null;
-      if (host && del) {
-        const res = await writeLessonReport(foldedInto, host.player_id, reportParts(foldedInto), {
-          token: del.share_token,
-          teacherComment: del.teacher_comment ?? '',
-          nextLessonAt: del.next_lesson_at ?? ''
-        });
-        if (res.ok) {
-          d.sql.run(
-            'update report_deliveries set status = ?, sent_at = ?, opened_at = ?, reminder_sent_at = ? where report_id = ?',
-            [del.status, del.sent_at, del.opened_at, del.reminder_sent_at, `rep-${foldedInto}`]
-          );
-          d.sql.run('update reports set opened_at = ? where id = ?', [openedReport, `rep-${foldedInto}`]);
-          report = { rebuilt: foldedInto, report_path: `/r/${del.share_token}` };
-        } else report = { error: `report_rebuild_failed:${res.status}` };
-      }
-    }
-    // the child's daily record card for that day is written again without the test lines (the cards leave test ids out)
-    try {
-      enqueueRecentStudentDays(d.sql, now, LCW_SITE_ORIGIN);
-    } catch {
-      /* the hourly cron writes it again */
-    }
-    return c.json({ lesson_id: id, player_id: l.player_id, test_player_id: testId, moved, report });
+    const report = await markFollowUps(id, l.player_id, rec, now, origin);
+    const { report_before: _b, ...show } = rec;
+    return c.json({ lesson_id: id, player_id: l.player_id, test_player_id: testId, moved: show, report });
   });
 
   const dailyRows = (where: string, params: unknown[]) =>

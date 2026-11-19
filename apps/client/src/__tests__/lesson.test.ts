@@ -8,7 +8,7 @@ import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
 import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LESSON_RETRY_START_MS, LessonController, goalTargetEn, initialLessonView, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
-import { FOLD_HINT_MIN_LEFT_PX, FOLD_HINT_ROOM_PX, FoldHint, LessonLayer, StatusPill, foldHintPlace, goToSceneChecked, lessonGoneInWorld, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
+import { FOLD_HINT_MIN_LEFT_PX, FOLD_HINT_ROOM_PX, FoldHint, LessonLayer, StatusPill, foldHintPlace, goToSceneChecked, lessonGoneInWorld, lessonTalkAction, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
 import { SubmitError } from '../dialog/submit.js';
 
@@ -678,5 +678,16 @@ describe('disconnect recovery: answers kept on the device (lesson outbox)', () =
     const feed = await admin('GET', `/v1/admin/lessons/${lesson_id}/feed`);
     expect(feed.utterances).toHaveLength(1);
     expect(again.state.lessonStars).toBe(2);
+  });
+});
+
+describe('an NPC tap in a running lesson (Dan 11-19 "자유도도 없앴다")', () => {
+  it('the lesson NPC reopens the lesson window; a passer-by gets its own free talk only when the app can open one', () => {
+    expect(lessonTalkAction('cafe_owner', 'cafe_owner', false)).toBe('reopen');
+    expect(lessonTalkAction(undefined, 'cafe_owner', true)).toBe('reopen');
+    expect(lessonTalkAction('shop_owner', 'cafe_owner', true)).toBe('free');
+    // a paused seat or the dialog module not loaded yet: the lesson window is left alone (not folded for nothing)
+    expect(lessonTalkAction('shop_owner', 'cafe_owner', false)).toBe('none');
+    expect(lessonTalkAction('shop_owner', 'cafe_owner', undefined)).toBe('none');
   });
 });

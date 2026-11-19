@@ -57,7 +57,7 @@ import {
   type NewStudentForm
 } from './lessonFlow.js';
 import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView, type FeedLiveExtra } from './directorLiveState.js';
-import { StudentScreenBox } from './DirectorLive.js';
+import { StudentScreenBox, TeachHands } from './DirectorLive.js';
 import { LessonAudioBox } from './LessonAudioBox.js';
 import { ConsoleSeatBadge, SeatManager, useConsoleSeats } from './DirectorSeats.js';
 import { SignupQueue, type SignupQueueProps } from './DirectorSignups.js';
@@ -971,7 +971,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
     return () => clearInterval(id);
   }, [poll, ended]);
 
-  // R2625 console trim (docs/18 §8): no pin buttons, F1/F2 or event hotkeys on the console any more.
+  // R2625 console trim (docs/18 §8): no pin buttons or F1/F2; event hotkeys only while 「선생님이 직접 하기」 is open.
   const elapsed = clock - startedAt;
   const lastUtterances = [...feed.utterances].reverse();
 
@@ -1027,6 +1027,17 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
         </div>
         <div style={{ display: 'grid', gap: sp(4), minWidth: 0 }}>
           <StudentScreenBox live={liveX} localNow={clock} startedAt={serverStartedAt} />
+          {/* Dan 11-19: the teacher can teach again — possession, own sentence, events (folded, docs/18 §8). */}
+          <TeachHands
+            api={api}
+            token={token}
+            lessonId={lesson.lesson_id}
+            stage={stageById(plan, lesson.stage_id ?? plan.stages[0]!.id) ?? undefined}
+            live={liveX}
+            disabled={ended}
+            onSent={() => void poll()}
+            onAuthError={onAuthError}
+          />
           <Box title={M.feedTitle(live.utterances, live.passes, live.stars_total)} testId="director-feed">
             {lastUtterances.length === 0 ? <p style={{ margin: 0 }}>{S.feedEmpty}</p> : null}
             <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: sp(2), maxHeight: '560px', overflowY: 'auto' }}>

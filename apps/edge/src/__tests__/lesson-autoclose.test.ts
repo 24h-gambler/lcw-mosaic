@@ -6,6 +6,7 @@ import {
   LCW_SITE_ORIGIN,
   LESSON_EMPTY_GRACE_MS,
   LESSON_IDLE_CLOSE_MS,
+  LESSON_RECLAMP_BEFORE_MS,
   LESSON_SWEEP_CRON,
   TEACHER_PRESENT_MS
 } from '../lesson-mode.js';
@@ -418,6 +419,36 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     const sent = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { send: true });
     expect(sent.status).toBe(200);
     expect(sent.body.facts.lesson.duration_min).toBe(25);
+  });
+
+  it('the reclamp only looks at real students closed by the old rule (it read ~30k rows an hour over smoke lessons)', async () => {
+    // closed by the old rule, but a smoke student: never recomputed
+    now = T0;
+    const p = platform();
+    await addStudent(p, 'smoke-reclamp-1', 'Smoky');
+    const smoke = await startLesson(p, 'smoke-reclamp-1');
+    await say(p, smoke.st);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    await cron(p);
+    const late = T0 + 422 * 60_000;
+    sqlOf(p).all('update lessons set ended_at = ? where id = ?', [late, smoke.lessonId]);
+    now = late + 30 * 60_000;
+    expect((await cron(p)).body.lessons.reclamped).toEqual([]);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [smoke.lessonId])!.ended_at).toBe(late);
+    // a real student closed after the fix went live: the close was already right, so the sweep does not look again
+    const T1 = LESSON_RECLAMP_BEFORE_MS + 3_600_000;
+    now = T1;
+    const q = platform();
+    await addStudent(q);
+    const real = await startLesson(q);
+    await say(q, real.st);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    await cron(q);
+    const forged = T1 + 400 * 60_000;
+    sqlOf(q).all('update lessons set ended_at = ? where id = ?', [forged, real.lessonId]);
+    now = forged + 30 * 60_000;
+    expect((await cron(q)).body.lessons.reclamped).toEqual([]);
+    expect(LESSON_RECLAMP_BEFORE_MS).toBeGreaterThan(T0);
   });
 
   it('a possession is a sign of life', async () => {

@@ -227,6 +227,10 @@ describe('local open-weights model voice (R2625: the bank in a natural voice for
     for (const piece of chunkPhrases(bankLine)) expect(local.some((l) => l.text === piece)).toBe(true);
     for (const plan of LESSON_PLANS) for (const st of plan.stages) for (const tg of st.targets) expect(local.some((l) => l.text === tg.text)).toBe(true);
     expect(localLinesList().lines).toHaveLength(local.length);
+    // the cast's names ride along, so the generator's Whisper check does not count "Rootle" heard as "riddle"
+    const names = localLinesList().names;
+    expect(names).toEqual(expect.arrayContaining(['rootle', 'conekin', 'Old Fern', 'Nim the Lamplighter']));
+    for (const p of Object.values(npcCast().npcs)) expect(names).toContain(p.nameEn);
   });
 
   it('an uploaded line is served like any cached line: same key the client asks, long cache, no neurons, no AI call', async () => {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LESSON_DIRECTOR_EVENTS } from '@lcw/content';
 import { LessonDirectorConsole, followStageView } from '../LessonDirector.js';
 import type { DirectorLessonRecord, LessonFeed } from '../lessonApi.js';
@@ -128,7 +128,9 @@ describe('director live layer (WP-305)', () => {
     expect(followStageView('recall_today', 'warmup_anchor', 'cafe_order')).toBe('recall_today');
   });
 
-  it('R2625 trim: the student screen and what the child said stay; possession, events, chart, helps, pins and the next-lesson box are gone', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('R2625 trim: the student screen and what the child said stay; possession, events and own sentence sit folded under 「선생님이 직접 하기」; chart, helps, pins and the next-lesson box are gone', () => {
     const html = renderToStaticMarkup(
       React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: REC, initialFeed: FEED, now: () => T0 + 17 * 60_000 - 500 })
     );
@@ -137,12 +139,34 @@ describe('director live layer (WP-305)', () => {
     expect(html).toContain('can I have a warm honey tea');
     expect(html).toContain('data-testid="director-feed"');
     expect(html).toContain('아이가 한 말 · 말 4번 · 통과 3 · 별 7');
-    for (const gone of ['director-possess', 'npc-say-script', 'director-events', 'director-progress', 'director-helps', 'director-pins', 'director-next-lesson', 'director-counters']) {
+    for (const gone of ['director-progress', 'director-helps', 'director-pins', 'director-next-lesson', 'director-counters']) {
       expect(html).not.toContain(`data-testid="${gone}"`);
+    }
+    // folded by default: the fold is there, its boxes (and the 1–6 event hotkeys) are not mounted
+    expect(html).toContain('data-testid="director-teach-more"');
+    expect(html).toContain(L.teachMore);
+    for (const folded of ['director-possess', 'npc-say-script', 'director-events', 'director-own-target']) {
+      expect(html).not.toContain(`data-testid="${folded}"`);
     }
     for (const ev of LESSON_DIRECTOR_EVENTS) expect(html).not.toContain(`data-testid="event-${ev.kind}"`);
     // the guardians' lesson sound is kept, folded; the key box folds to the bottom once signed in
     expect(html).toContain('data-testid="director-audio-more"');
     expect(html).toContain('data-testid="director-key-more"');
+  });
+
+  it('Dan 11-19 "선생은 못하고": with 「선생님이 직접 하기」 open the teacher can speak as an NPC, put an own sentence and fire events', () => {
+    vi.stubGlobal('localStorage', { getItem: (k: string) => (k === 'lcw.director.teachOpen' ? '1' : null), setItem: () => undefined });
+    const html = renderToStaticMarkup(
+      React.createElement(LessonDirectorConsole, { initialToken: 'op', initialLesson: REC, initialFeed: FEED, now: () => T0 + 17 * 60_000 - 500 })
+    );
+    expect(html).toMatch(/data-testid="director-teach-more"[^>]*open=""/);
+    expect(html).toContain('data-testid="director-possess"');
+    expect(html).toContain('data-testid="npc-say-input"');
+    // the running stage's script line is one press away (cafe_order's teacher script)
+    expect(html).toContain('data-testid="npc-say-script"');
+    expect(html).toContain('data-testid="director-own-target"');
+    expect(html).toContain('data-testid="own-target-input"');
+    expect(html).toContain('data-testid="director-events"');
+    for (const ev of LESSON_DIRECTOR_EVENTS) expect(html).toContain(`data-testid="event-${ev.kind}"`);
   });
 });

@@ -23,7 +23,7 @@ import { GuestPassLayer } from './start/PassLayer.js';
 import { passFromSearch } from './start/guestPass.js';
 import type { DeviceLessonSession } from './start/api.js';
 import { TeacherBar, teachFrom, teachTicketBody } from './world/TeacherBar.js';
-import { LESSON_TALK_EVENT, errandGoalNpc } from './world/events.js';
+import { LESSON_FREE_TALK_EVENT, LESSON_STAGE_EVENT, LESSON_TALK_EVENT, errandGoalNpc } from './world/events.js';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
 export interface DialogConfig {
@@ -98,6 +98,8 @@ export interface LessonLayerProps {
   /** false when this device cannot carry the 3D world (no WebGL, start failure, or unusably slow at the lowest
    *  resolution): the lesson moves to the /join word cards in the same session. */
   canRender3d?: boolean;
+  /** A free talk with a passer-by is open over the lesson (Dan 11-19): the lesson window stays off until it closes. */
+  freeTalkOpen?: boolean;
 }
 
 /** What solo play knows about the player: a linked child device sends its token, a guest sends nothing. */
@@ -624,7 +626,12 @@ export function App(): React.ReactElement {
       // In a lesson the talk is the lesson's dialog window: a click, tap or E on an NPC opens it again (it was a dead
       // tap, Dan 11-16 R2625).
       if (lessonActive.current) {
-        window.dispatchEvent(new CustomEvent(LESSON_TALK_EVENT, { detail: { npcId: npc.id } }));
+        // the lesson layer answers a passer-by with LESSON_FREE_TALK_EVENT (Dan 11-19): this NPC's free talk opens then.
+        // `free` says whether this app can open one at all (a paused seat or a dialog module not loaded yet cannot):
+        // without it the layer leaves its window alone instead of folding it for nothing.
+        lessonTapNpc.current = npc;
+        const free = !soloBlocked && Boolean(dialogMod?.DialogPanel && dialogMod.createSoloSubmit);
+        window.dispatchEvent(new CustomEvent(LESSON_TALK_EVENT, { detail: { npcId: npc.id, free } }));
         return;
       }
       if (soloBlocked) {
@@ -634,6 +641,28 @@ export function App(): React.ReactElement {
       if (dialogMod?.DialogPanel && dialogMod.createSoloSubmit) setSoloNpc(npc);
     });
   }, [world, dialogMod, soloBlocked]);
+
+  // A free talk with a passer-by during a lesson (Dan 11-19 "자유도도 없앴다"): the lesson layer folded its window and
+  // asks for this NPC's own window. A stage move closes it again, so the next stage's lesson window is not hidden
+  // behind it; the lesson ending closes it too.
+  const lessonTapNpc = useRef<NpcRef | null>(null);
+  useEffect(() => {
+    const free = (e: Event): void => {
+      const id = (e as CustomEvent<{ npcId?: string }>).detail?.npcId;
+      const npc = lessonTapNpc.current;
+      if (!npc || npc.id !== id || soloBlocked) return;
+      if (dialogMod?.DialogPanel && dialogMod.createSoloSubmit) setSoloNpc(npc);
+    };
+    const stage = (): void => {
+      if (lessonActive.current) setSoloNpc(null);
+    };
+    window.addEventListener(LESSON_FREE_TALK_EVENT, free);
+    window.addEventListener(LESSON_STAGE_EVENT, stage);
+    return () => {
+      window.removeEventListener(LESSON_FREE_TALK_EVENT, free);
+      window.removeEventListener(LESSON_STAGE_EVENT, stage);
+    };
+  }, [dialogMod, soloBlocked]);
 
   // R2625 ⑤: the world marks the NPC the errand needs next (the giver to start and to hand over, the cafe to order); the
   // lesson layer marks its own NPC while a lesson runs. After the errand the town goal chain (dialog lane, goals.ts)
@@ -669,7 +698,8 @@ export function App(): React.ReactElement {
   if (errandDialog.current.npc !== soloNpc) {
     errandDialog.current = {
       npc: soloNpc,
-      ed: soloNpc && firstVisitMod?.errandDialogFor ? firstVisitMod.errandDialogFor(soloNpc, errand, soloLevel ?? 'L1') : null
+      // a free talk inside a lesson is plain talk: the errand does not move during a lesson (Dan 11-19 review)
+      ed: soloNpc && !lessonOn && firstVisitMod?.errandDialogFor ? firstVisitMod.errandDialogFor(soloNpc, errand, soloLevel ?? 'L1') : null
     };
   }
   const ed = errandDialog.current.ed;
@@ -722,7 +752,10 @@ export function App(): React.ReactElement {
               identity={identity ?? undefined}
               canRender3d={!tooSlow}
               renderDialog={renderDialog}
+              freeTalkOpen={lessonOn && soloNpc !== null}
               onLessonActive={(a: boolean) => {
+                // a free talk opened in the lesson closes with it (only on live → over, never on the first report)
+                if (!a && lessonActive.current) setSoloNpc(null);
                 lessonActive.current = a;
                 setLessonOn(a);
                 world?.setLessonBadge?.(a);

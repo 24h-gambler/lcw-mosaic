@@ -157,6 +157,8 @@ export interface StartLessonResult {
 export interface StagePushInput {
   stage_id: string;
   targets: string[];
+  /** Only change the sentences of this running stage: 409 stage_moved when the server moved on meanwhile (Dan 11-19). */
+  only_if_stage?: boolean;
 }
 
 export interface PinInput {

@@ -6,7 +6,7 @@
 
 | 사람 | 화면 | 하는 일 |
 |---|---|---|
-| 교사(운영자) | `/director` | 학생 고르기·등록 → 수업 시작(6자리 참가 코드) → 단계 넘기기(수업안 문장 그대로) → 학생 화면·아이가 한 말 보기 → 수업 끝 → 부모 리포트 링크 받기 |
+| 교사(운영자) | `/director` | 학생 고르기·등록 → 수업 시작(6자리 참가 코드) → 단계 넘기기(수업안 문장 그대로, 자동 진행) → 학생 화면·아이가 한 말 보기 → 필요하면 「선생님이 직접 하기」(NPC 로 말하기·내 문장 띄우기·이벤트, 10절) → 수업 끝 → 부모 리포트 링크 받기 |
 | 학생 | `/world/?code=` (3D), 대체 `/join` | 코드 입력 → 지금 단계 장면에서 NPC(또는 빙의한 교사)와 목표 문장 말하기 → 별·코인·오늘 말한 수. 대체 화면은 같은 순서를 단어 카드로 |
 | 학부모 | `/r/<토큰>` | 수업 리포트(사실표와 같은 숫자만, 07 §5) |
 | 외부인 | `/`, `/try` | 소개와 3분 체험 |
@@ -33,6 +33,7 @@
 | `GET /v1/admin/lessons/live` | 운영자 | — | `{lessons: [{lesson_id, join_code, expires_at, plan_id, player_id, nickname, started_at, stage_id, stage_started_at, stage_ms}], server_now}` — 끝나지 않고 시작 12시간 안(참여 코드 수명)인 수업, smoke- 학생 제외(`?include_test=1` 이면 포함 — 콘솔 `/director?include_test=1` 로 운영 실측). 다른 기기에서 연 콘솔 첫 화면의 「진행 중인 수업 이어 하기」 카드가 씀(시각은 서버 시계, 콘솔이 `server_now` 차이만큼 옮김). `auto_closed: [{lesson_id, player_id, nickname, plan_id, started_at, ended_at, closed_at, stage_id, utterances, passes, draft_summary_ko}]` 는 리포트를 아직 안 보낸 자동 마무리 수업(14일 안, 이어 하는 중인 것 제외) — 콘솔 「자동 마무리된 수업」 상자 |
 | `GET /v1/admin/lesson-plans` · `lesson-npcs` · `director-events` | 운영자 | — | `LESSON_PLANS` · `LESSON_NPCS` · `LESSON_DIRECTOR_EVENTS` 그대로 |
 | `POST /v1/admin/lessons/:id/end` | 운영자 | `{teacher_comment?, next_lesson_at?, send?}` | `{report_path, share_token, facts}` — 자동 마무리된 수업은 `send: true` 일 때만 리포트를 만들어 보냄(없으면 409 `auto_closed_unsent` + `draft_summary_ko`). 이어 한 수업은 앞 조각까지 한 리포트로(7절) |
+| `POST /v1/admin/lessons/:id/mark-test` | 운영자 | `{note, dry_run?}` | `{lesson_id, player_id, test_player_id, moved:{utterances, expressions, memory_cards, voice_clips_kept, coins, folded_into, report_done, card_done}, report:{rebuilt, report_path} 또는 null}` — 실학생 id 로 돈 시험 세션을 시험 id 로 옮기고 합쳐진 리포트를 같은 링크로 다시 씀(7절). 다시 부르면 `already: true` |
 | `POST /v1/admin/lessons/sweep-idle` | 운영자 | `{dry_run?}` | `{open, idle:[{lesson_id, test, last_activity_at, idle_min}], closed, dry_run}` — 크론과 같은 버려진 수업 정리를 바로 돌림(`dry_run` 이면 보기만) |
 | `GET /v1/admin/students/:id/daily?days=14` | 운영자 | — | `[{day, utterances, passes, words, speaking_ms, lessons}]` |
 | `GET /v1/admin/daily?day=YYYY-MM-DD` | 운영자 | — | `{day, students: [{player_id, nickname, utterances, passes, words, speaking_ms, lessons, last_at}]}` |
@@ -90,6 +91,7 @@ Oreo 수업(les-20261116-fdbe87bf)은 17:03 에 학생 화면과 콘솔이 둘 �
 - **보내지 않는 것**: `reports`·`report_deliveries` 행을 만들지 않고 보호자 푸시도 없습니다. 보호자에게 가는 리포트는 사람에게 보내는 말이라, 선생님이 콘솔에서 확인하고 「보호자에게 리포트 보내기」(두 번 눌러 확인, `send: true`)를 눌러야 만들고 보냅니다. 옛 콘솔의 「리포트 가져오기」(`send` 없음)는 409 와 초안만 받습니다.
 - **이어 하기**: 같은 날(KST) 같은 학생으로 수업을 시작하면(콘솔 「이어 하기」 또는 학생 목록의 시작) 새 수업이 `lesson_continuations` 로 앞 수업을 잇고, 같은 수업안이면 아이가 멈춘 단계에서 시작합니다. 새 수업을 끝내면 리포트 하나에 두 조각이 들어갑니다(`mergeLessonParentFacts`: 수는 더하고, 시간은 조각마다의 분만 — 사이 공백은 빼고). 앞 조각은 `folded_into` 로 표시되고 그 카드는 「이어 한 수업 … 의 보고서에 합쳐 보냄」으로 바뀝니다.
 - **콘솔**: 첫 화면의 「진행 중인 수업 이어 하기」는 그대로이고, 그 아래 「자동 마무리된 수업 · 리포트 아직 안 보냄」 상자가 생깁니다(마지막 활동이 14일 안인 것만). 수업을 열면 초안 한 줄과 코멘트 칸, 「보호자에게 리포트 보내기」가 보입니다.
+- **시험 수업 표시**(2026-11-19): 실학생 id 로 누가 돌린 세션(11-19 15:55 Oreo — 선생님 접속 0, 말 11번 중 9번 글자 입력, 이미 끝낸 수업안)은 자동 마무리되면 그 아이의 '버려진 수업'으로 보이고, 같은 날 그 아이의 진짜 수업이 이어 받아 리포트가 합쳐집니다. `POST /v1/admin/lessons/:id/mark-test {note, dry_run?}`(운영자)가 그 세션을 시험 id `smoke-test-<수업 id>` 로 옮깁니다. 옮기는 것은 수업·말한 줄·그 수업에서 생긴 표현·기억 카드이고, 학생 토큰은 끝냅니다. 음성 클립은 일부러 아이 쪽에 둡니다. 시험 id 에는 음성 동의가 없어 03:00 보존 정리가 지우기 때문입니다(PR 184 검토). 클립은 옮긴 줄에 달려 있어 어느 리포트도 읽지 않고, 목록은 `voice_clips_kept` 에 남습니다. 그러면 시험 학생을 빼는 모든 곳에서 빠집니다: 콘솔 상자, 이어 하기 후보, 허브 카드와 매시 다시 보내기, 그날 학생 기록 카드, 다음 리포트의 '지난 수업', 주간 숫자. 그 세션이 준 코인은 줄마다 되돌리는 원장 줄(`test-lesson:<줄 id>`)로 아이 잔액에서 뺍니다. 이미 합쳐진 리포트가 있으면 같은 공유 토큰으로 그 세션 없이 다시 씁니다. 전달 줄(상태·보낸 시각·열람·알림)과 리포트의 만든 시각·열람 시각은 그대로라, 이미 보낸 링크도 같은 날짜에 고친 숫자를 보여 줍니다. 알림은 두 번 가지 않습니다(`report:<id>` 키). 그 세션의 허브 카드는 한 번 「🧪 LCW 시험 세션으로 표시함 · … · 리포트 보내지 마세요」로 다시 씁니다. keep 도 보내기 버튼도 없고, 나간 적 없는 카드는 새로 만들지 않습니다. 지우는 것은 없습니다. 원래 학생·옮긴 id·코인·덮기 전 리포트(facts·body·만든 시각·열람 시각)·뒤따르는 단계가 어디까지 됐는지(`report_done`·`card_done`)가 `lesson_test_marks` 에 남습니다. 이미 표시한 수업을 다시 부르면 끝나지 않은 단계(리포트 다시 쓰기 실패 등)를 마저 하고 같은 기록을 돌려줍니다(`already`). 코인은 줄마다 한 번만 빠집니다. 진행 중 수업·시험 학생·자기 리포트가 나간 수업은 거절합니다(409). 이어 하기는 같은 아이의 조각만 잇습니다(`unsentPartsBefore`).
 - **Cloudflare SQLite 제약**: 마지막 활동은 UNION 이 아니라 한 행짜리 스칼라 서브쿼리로 구합니다. workerd 의 SQLite 는 다섯 항목을 넘는 compound SELECT 를 거절합니다("too many terms in compound SELECT", 11-16 배포에서 정리가 이것으로 실패). 시험의 node:sqlite 는 이를 받아 주므로, 배포 전에 `pnpm test:workerd-sql`(시험이 돌린 SQL 을 workerd 에 다시 돌림, `tools/workerd-sql.mjs`)을 돌리고, `lesson-autoclose.test.ts` 의 불변 시험이 소스의 UNION 항목 수를 막습니다.
 - **확인**: `POST /v1/admin/lessons/sweep-idle {dry_run:true}` 로 지금 닫힐 수업을 봅니다. `ops_runs` 의 `lesson_idle_sweep` 은 닫은 것이 있을 때와 매일 03시에 남습니다. 시험은 `apps/edge/src/__tests__/lesson-autoclose.test.ts`, `apps/web/src/__tests__/director-autoclose.test.ts` 입니다.
 - **허브 중계**: 카드는 서버 출력함에 쌓이고 집 PC 중계(`tools/lesson-watch.mjs --relay`)가 돌 때 허브로 갑니다. 중계 시간 밖에 닫힌 수업의 카드는 다음 중계 때 갑니다.
@@ -112,8 +114,8 @@ Dan(선생님) 수업 뒤 말: 「쓸데없는 기능이나 버튼들이 많이 
 | 진행 중 | 선생님 상태 한 줄·나가기·「월드에서 1인칭으로」 | 남김 | 퍼포먼스 레인의 1인칭 버튼 포함 |
 | 진행 중 | 학생 화면에 보일 이름·1PC 잠금 번호 | 「… (필요할 때만)」으로 접음 | 한 번 정하면 끝 |
 | 진행 중 | 보호자에게 수업 소리 들려주기(WP-307) | 접음 | 실제 수업에서 안 씀. 기능은 살림 |
-| 진행 중 | NPC 빙의·대사 보내기·후속 대사 한 번 누르기 | 뺌 | 0번 씀. 후속 대사는 대화 레인의 `followUps` 가 맡음 |
-| 진행 중 | 이벤트 버튼 6개 | 뺌 | 0번 씀 |
+| 진행 중 | NPC 빙의·대사 보내기·후속 대사 한 번 누르기 | ~~뺌~~ → 11-19 「선생님이 직접 하기」로 접어서 되살림(10절) | 0번 썼지만 빼고 나니 선생님이 수업에서 할 수 있는 게 없어짐(Dan 11-19) |
+| 진행 중 | 이벤트 버튼 6개 | ~~뺌~~ → 11-19 같은 접힘 안으로 되살림(10절) | 같은 이유 |
 | 진행 중 | 핀(코칭·표현) 버튼, F1/F2 | 뺌 | 0번 씀. 서버의 핀 API·표현 등록은 그대로 |
 | 진행 중 | 도움 띠, 숫자 상자, 분 단위 진행 그래프 | 뺌 | 같은 숫자를 말 목록 제목에 둠. 진행표는 리포트·CSV 에 남음 |
 | 진행 중 | 「지금 학생 화면」 문장 목록(단계 패널 아래) | 뺌 | 학생 화면 상자와 겹침 |
@@ -143,6 +145,16 @@ Dan: 「별도로 조종 안해도 됩니다」, 「진행 자체가 안되고 �
 - **아이 화면**: 답 응답에 `auto_advanced: {from, to, why}`(넘김이 있을 때만, 같은 client_id 의 재전송에는 없음), 조회 응답에 `auto_advanced`(시간으로 넘긴 그 조회만)와 `follow_ups_en`. 답이 단계를 끝내면 컨트롤러가 0.3초 뒤 조회해 다음 단계의 장면·NPC·문장이 바로 뜹니다(`LESSON_ADVANCE_POLL_MS`). 대화창에는 `followUps`(대화 레인)를 넘기고, `onDone(r, {followUpsDone: true})` 이면 `stage-done` 을 부릅니다.
 - **마이크 점검 창은 수업당 한 번**(11-18 운영 smoke: 아무도 안 누른 창이 카페·물물교환 대화창 위에 남아 있었음): 단계가 실제로 넘어가면 컨트롤러가 창 이벤트 `lcw:lesson-stage`(`world/events.ts`)를 보내고, 창이 아직 열려 있으면 닫고 'skipped' 로 남깁니다(마이크 턴이 이미 남긴 상태는 지킴). 점검 표시는 이 탭과 기기(localStorage `lcw.lessonMicChecked:<수업>`)에 같이 둬 새로고침·새 탭에서도 다시 뜨지 않습니다. 그 뒤에는 오른쪽 위 작은 마이크 칩(잘 들려요·작아요·없음·점검 안 함)만 보이고, 아이가 칩을 누를 때만 다시 점검합니다.
 - **시험**: `apps/edge/src/__tests__/lesson-auto-stage.test.ts`, `apps/client/src/__tests__/lesson-auto-stage.test.ts`, `apps/web/src/__tests__/directorLive.test.ts`. 마이크 창은 `apps/client/src/__tests__/mic-check.test.tsx`.
+
+## 10. 선생님이 직접 하기·수업 중 자유 대화 (2026-11-19, Dan 「LCW 는 선생은 못하고 자유도도 없앴다」)
+
+8절(콘솔 정리)·9절(자동 진행)·#152(수업 중 지나가는 NPC 조용히)가 합쳐져 수업이 '서버가 정한 순서대로만 가는 대본'이 됐습니다. 선생님은 콘솔에서 단계 버튼 하나와 「수업 끝」말고 할 수 있는 것이 없었고, 아이는 수업 중 수업 NPC 말고는 아무와도 말할 수 없었습니다. R2625 ⑥ 「별도로 조종 안해도 됩니다」는 '조종하지 않아도 수업이 돌아가야 한다'는 뜻이지 '선생님이 조종할 수 없어야 한다'는 뜻이 아니었습니다. 그래서:
+
+- **콘솔 「🎤 선생님이 직접 하기」**(`data-testid="director-teach-more"`, 학생 화면 상자 바로 아래, 기본 접힘·이 브라우저가 열림 상태를 기억 `lcw.director.teachOpen`): 펼치면 ① NPC 빙의·대사 보내기(`director-possess`, 지금 단계의 대본·후속 대사 한 번 누르기 포함, `/` 키로 입력창) ② 학생 화면에 내 문장 띄우기(`director-own-target`, `POST /v1/admin/lessons/:id/stage {stage_id: 지금 단계, targets:[문장]}` — 아이 화면의 목표 문장이 바뀌고 그 문장으로 채점) ③ 이벤트 6개(`director-events`, 숫자 키 1–6). 접혀 있으면 상자를 그리지 않아 숫자 키·`/` 키가 아무것도 하지 않습니다. 자동 진행은 그대로 돌고, 선생님이 한 것이 이깁니다(9절).
+- **내 문장과 자동 진행**: 문장 띄우기(②와 이벤트 뒤 「목표로 띄우기」)는 `only_if_stage: true` 로 보냅니다. 콘솔이 한 번의 조회만큼 늦어 서버가 이미 다음 단계로 넘겼으면 409 `stage_moved` 로 거절하고(아이를 이전 단계로 돌려보내지 않음) 콘솔은 「그 사이 단계가 넘어갔어요」와 함께 문장을 그대로 둡니다. 통과 수(9절 `passes`)는 그 단계에 들어온 때와 마지막으로 화면 문장이 바뀐 때(`lesson_state.updated_at`: 시작·자동 진행·선생님 문장) 가운데 늦은 때부터 셉니다 — 아이가 앞서 통과한 문장 때문에 선생님 문장이 뜨자마자 단계가 넘어가지 않게.
+- **수업 중 자유 대화**: 수업 중에도 지나가는 NPC 가 말 걸기 표시·E·클릭·탭에 답합니다. 수업 레이어가 수업 창을 접고(`LESSON_FREE_TALK_EVENT` `lcw:lesson-free-talk`) 앱이 그 NPC 의 혼자 놀기 대화창을 엽니다. 그 창이 열려 있는 동안 수업 창과 「말하기」 다시 열기 버튼은 그리지 않고(마이크·목소리 겹침 없음), 자유 대화 창을 닫으면 접힌 「🎤 말하기」 버튼이 돌아오고, 그 버튼이나 수업 NPC 로 수업 창을 엽니다. 단계가 넘어가거나 수업이 끝나면 자유 대화 창은 닫힙니다. 같은 단계에 선생님 문장만 바뀐 경우는 자유 대화 창을 닫을 때 보입니다. 자유 대화 창을 열 수 없는 경우(좌석 멈춤, 대화 모듈을 아직 못 받음)에는 탭이 수업 창을 건드리지 않습니다. 둘 다 닿는 거리면 E 는 수업 NPC 를 먼저 고릅니다(지나가는 NPC 는 점수 +1.5). 자유 대화 중에는 심부름이 움직이지 않습니다. 자유 대화는 연결된 아이 기기면 그 아이의 혼자 놀기 기록, 코드로 들어온 아이면 손님 대화로 남고, 수업 발화 수에는 들어가지 않습니다(`passerTaps` 로 따로 셈).
+- **남은 것**: 선생님 3D 입장(`/world/?teach=`, 02 §11)에서 선생님이 월드 안에서 직접 말하는 길(빙의 대사 입력을 월드 안 띠에 두기)은 아직 없습니다. 「월드에서 1인칭으로」가 같은 탭에서 넘어가므로, 지금은 콘솔을 다른 탭(또는 폰)에 하나 더 열어 두고 거기서 말해야 합니다. 수업 단계마다 아이를 다음 장면으로 걸어 데려가는 동작(`goToScene`)과 수업 중 '내 월드' 모습(계절·하늘·동물) 대신 마을 기본 모습으로 바뀌는 것은 R2588(선생님이 아이의 내 월드에 들어감)과 어긋나 있고 이 변경에서 바꾸지 않았습니다.
+- **시험**: `apps/web/src/__tests__/directorLive.test.ts`(접힘 기본·펼치면 세 상자), `apps/client/src/world/__tests__/events.test.ts`, 야간 실플레이 `tools/real-play.mjs` 의 `lesson-passer`(지나가는 NPC 대화창이 그 NPC 로 열리고 수업 창은 접힌 채).
 
 ## 6. 이어지는 것
 

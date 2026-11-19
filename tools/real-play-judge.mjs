@@ -9,7 +9,7 @@
 //   the errand chain ends done                                                  errand loop
 //   the hill ramp walks up by keys / stick with no jump                         R2625 (half-step ramp)
 //   in a lesson the lesson NPC reopens the folded window by click and E,
-//   a passer-by stays quiet (no prompt, no dialog, the window stays folded)     R2625 ③, #152
+//   a passer-by opens a free talk of its own, the lesson window stays folded   Dan 11-19 (was #152 quiet)
 //   no page error and no failed request (cached-only voice 404s are by design and counted apart)
 
 export const PLAY_ROUTE = '/world/';
@@ -85,7 +85,7 @@ export function judgeView(r) {
       if (l.reopenByKey === false) add('lesson-reopen', '수업 NPC E·말하기 버튼으로 접은 창이 다시 안 열림');
       if (l.passer && l.passer.ok === false) {
         const p = l.passer;
-        add('lesson-passer', `수업 중 지나가는 NPC(${p.id}): 표시 ${p.prompt ? '뜸' : '없음'}${p.talkButton ? ' · 말하기 버튼 뜸' : ''} · 대화창 ${p.dialogOpened ? '열림' : '안 열림'} · 조용한 탭 ${p.quietTaps ?? 0} · 접힘 ${p.stillFolded ? '유지' : '풀림'}${p.faced ? '' : ' · NPC를 화면에 못 잡음'}`);
+        add('lesson-passer', `수업 중 지나가는 NPC(${p.id}) 자유 대화: 대화창 ${p.dialogOpened ? `열림(${p.dialogNpc ?? '?'})` : '안 열림'} · 탭 ${p.quietTaps ?? 0} · 수업 창 ${p.lessonWindowOpen ? '같이 열림' : '접힘'}${p.faced ? '' : ' · NPC를 화면에 못 잡음'}`);
       }
     }
   }
@@ -131,7 +131,7 @@ export function playLines(reports) {
     if (!r) return `- ${view}: 실행 못 함 — 확인 안 됨(회귀 아님)`;
     const cam = (r.jumpView ?? []).map((j) => j.camRise).join('/');
     const h = !r.hill?.ran ? '언덕 안 봄' : r.hill.reachedBottom === false ? '언덕 확인 안 됨(경사로 아래로 못 내려감)' : `언덕 ${r.hill.reachedTop ? `오름(높이 ${r.hill.topY})` : '못 오름'}`;
-    const p = r.lesson?.passer ? `지나가는 NPC ${r.lesson.passer.ok === null ? '확인 안 됨(화면에 못 잡음)' : r.lesson.passer.ok ? '조용' : '문제'}` : '';
+    const p = r.lesson?.passer ? `지나가는 NPC ${r.lesson.passer.ok === null ? '확인 안 됨(화면에 못 잡음)' : r.lesson.passer.ok ? '자유 대화 됨' : '문제'}` : '';
     const yn = (v) => (v === null || v === undefined ? '확인 안 됨' : v ? '됨' : '안 됨');
     const les = r.lesson?.started ? `수업 다시 열기 클릭 ${yn(r.lesson.reopenByClick)}·E ${yn(r.lesson.reopenByKey)}` : '수업 안 봄';
     const zero = (x) => ratio(x)?.tried === 0 && botMissedOnly(r);

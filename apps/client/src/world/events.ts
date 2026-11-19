@@ -9,6 +9,13 @@
 export const LESSON_TALK_EVENT = 'lcw:lesson-talk';
 
 /**
+ * LESSON_FREE_TALK_EVENT: the lesson layer heard a LESSON_TALK_EVENT for an NPC that is not the lesson's (a passer-by)
+ * and folded its window; the app opens a free talk with that NPC (Dan 11-19 "자유도도 없앴다" — #152 had made
+ * passers-by quiet in a lesson). detail: { npcId }.
+ */
+export const LESSON_FREE_TALK_EVENT = 'lcw:lesson-free-talk';
+
+/**
  * LESSON_STAGE_EVENT: the lesson moved to another stage while the child's screen was on (the teacher's move or the
  * server's auto move, PR 146). The mic check card closes if it is still open, so no card sits over the new stage's
  * dialog (lesson lane 11-18, production smoke: the card stayed over the cafe and trade dialogs). Not sent on the

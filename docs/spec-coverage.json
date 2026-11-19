@@ -274,7 +274,8 @@
         ]
       },
       "tests": [
-        "apps/web/src/__tests__/directorLive.test.ts::R2625 trim: the student screen and what the child said stay; possession, events, chart, helps, pins and the next-lesson box are gone",
+        "apps/web/src/__tests__/directorLive.test.ts::R2625 trim: the student screen and what the child said stay; possession, events and own sentence sit folded under 「선생님이 직접 하기」; chart, helps, pins and the next-lesson box are gone",
+        "apps/web/src/__tests__/directorLive.test.ts::Dan 11-19 \"선생은 못하고\": with 「선생님이 직접 하기」 open the teacher can speak as an NPC, put an own sentence and fire events",
         "apps/edge/src/__tests__/lesson-mode.test.ts::runs a whole lesson: start, join, stage, utterances, feed, pins, daily, end → parent report"
       ],
       "evidence": [
@@ -282,7 +283,7 @@
         "apps/web/src/DirectorLive.tsx:35",
         "docs/18-lesson-mode.md:1"
       ],
-      "note": "디렉터 콘솔: 학생 화면·아이가 한 말·단계 패널(수업안 문장, 버튼 하나)·수업 끝·리포트. 빙의·사건 6종·진행표·핀 버튼은 첫 실제 수업에서 0번 쓰여 R2625(Dan \"별도로 조종 안해도 됩니다\")로 콘솔에서 뺐고 서버 API 는 그대로(docs/18 §8). 근거 문서는 18(08 이 가리키는 06 은 끊긴 참조 목록에 있음). 감사: 있음",
+      "note": "디렉터 콘솔: 학생 화면·아이가 한 말·단계 패널(수업안 문장, 버튼 하나)·수업 끝·리포트. 진행표·핀 버튼은 첫 실제 수업에서 0번 쓰여 R2625 로 콘솔에서 뺐고 서버 API 는 그대로(docs/18 §8). 빙의·대사·사건 6종·내 문장 띄우기는 11-19 Dan \"선생은 못하고\" 로 「선생님이 직접 하기」 접힘 안에 되살림(docs/18 §10). 근거 문서는 18(08 이 가리키는 06 은 끊긴 참조 목록에 있음). 감사: 있음",
       "decision": "R2625"
     },
     "T02": {

@@ -25,7 +25,7 @@ const clean = () => ({
     dialogOpened: true,
     reopenByClick: true,
     reopenByKey: true,
-    passer: { id: 'cafe_owner', ok: true, prompt: false, dialogOpened: false, quietTaps: 2, stillFolded: true, faced: true }
+    passer: { id: 'cafe_owner', ok: true, prompt: true, dialogOpened: true, dialogNpc: 'cafe_owner', lessonWindowOpen: false, quietTaps: 2, stillFolded: true, faced: true }
   },
   errs: [],
   ttsCacheMiss: 10,
@@ -45,7 +45,7 @@ describe('real-play judgement for the nightly audit', () => {
     bad.keySuccess = '6/7';
     bad.jumpView = [{ bodyRise: 1.2, camRise: 1.1 }];
     bad.hill = { ...bad.hill, reachedTop: false, topY: 1, tries: 3 };
-    bad.lesson.passer = { ...bad.lesson.passer, ok: false, dialogOpened: true };
+    bad.lesson.passer = { ...bad.lesson.passer, ok: false, dialogOpened: false };
     bad.errs = ['http 500 lcw.worldwidesomething.com/v1/errand'];
     const regs = playRegressions({ pc: bad, touch: clean() });
     expect(regs.map((r: { id: string }) => r.id).sort()).toEqual(

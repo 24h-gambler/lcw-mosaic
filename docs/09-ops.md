@@ -211,6 +211,7 @@ Dan 11-16 결정: 수업 중 실시간 경보는 디렉터 콘솔이 이미 보�
 - 시험 학생(`isTestPlayerId`: `smoke-` 로 시작하는 id 와 `player-demo`)에게는 카드를 아예 만들지 않습니다. 척추도 그 ref 의 `keep` 은 받지 않습니다.
   - 11-16 06:10–08:05Z 에 smoke-room-*·smoke-kid-lang-* 의 카드 12장이 허브에 갔습니다. 그때는 수업 끝 카드에 시험 학생 거르기가 없었습니다. a473c04 에서 들어갔습니다.
   - 시험: `ops-cards.test.ts` 'smoke-check or demo student'.
+- **배포 전에 나간 카드도 다시 앞으로**: 매시 크론이 아직 선생님을 기다리는 자동 마무리 수업의 요약 카드를 다시 씁니다(`enqueuePendingAutoCloseCards`). 대상은 보내지 않았고, 이어 하기로 접히지 않았고, 비어 있지 않고, 시험 학생이 아니고, 14일 안이며, 카드가 이미 한 번 나간 수업입니다. 같은 카드는 그대로 두므로(`enqueueCard`), `keep` 이 붙은 배포 뒤 한 번만 다시 나갑니다. 척추가 접힌 카드를 `keep` 과 함께 다시 받으면 보이는 칸으로 꺼냅니다(11-16 Oreo 카드). 척추가 `keep` 을 알기 전에 LCW 가 먼저 배포되면 그 한 번이 `keep` 없이 ack 되므로, 척추(automation #1135)를 먼저 배포합니다. 시험: `lesson-autoclose.test.ts` 'a card that went out before keep'.
 
 ### 왜 서버가 척추로 바로 보내지 않는가 (11-16 실측)
 

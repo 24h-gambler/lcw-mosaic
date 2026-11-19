@@ -240,6 +240,46 @@ export function enqueueRecentStudentDays(sql: SqliteExecutor, nowMs: number, ori
   return out;
 }
 
+/**
+ * Auto-closed lessons whose report still waits for the teacher (not sent, not folded into a continuation, not empty, not a
+ * test student, closed in the last AUTO_CLOSE_RESEND_DAYS) and whose summary card already went out once: written again
+ * each hour. An unchanged card stays as it is (enqueueCard), so this sends only when the card changed - after a deploy that
+ * added `keep: 'until_acted'`, a card that went out before it (11-16 Oreo, folded into the digest) goes again once with
+ * keep and the spine brings it back in front (review of PR 162). A lesson that never had a card (stale, empty, test) gets
+ * none here either.
+ */
+export const AUTO_CLOSE_RESEND_DAYS = 14;
+export function enqueuePendingAutoCloseCards(sql: SqliteExecutor, nowMs: number, origin: string | null): string[] {
+  let rows: Array<{ lesson_id: string; player_id: string }>;
+  try {
+    rows = sql.all<{ lesson_id: string; player_id: string }>(
+      `select a.lesson_id, l.player_id from lesson_auto_close a join lessons l on l.id = a.lesson_id
+       where a.sent_at is null and a.folded_into is null and a.empty = 0 and a.closed_at >= ?`,
+      [nowMs - AUTO_CLOSE_RESEND_DAYS * 86_400_000]
+    );
+  } catch {
+    return []; /* no lesson tables (ops-card unit setups) */
+  }
+  const out: string[] = [];
+  for (const r of rows) {
+    if (isTestPlayerId(r.player_id)) continue;
+    const ref = `${OPS_CARD_SOURCE}:lcw:lesson:${r.lesson_id}:summary`;
+    if (!sql.get('select 1 from ops_card_outbox where ref = ?', [ref])) continue;
+    // the same origin the auto-close used (lesson-mode.ts autoCloseLesson), so an unchanged card stays unchanged
+    let from = origin;
+    if (!from) {
+      try {
+        from = sql.get<{ origin: string }>('select origin from lesson_origins where lesson_id = ?', [r.lesson_id])?.origin ?? null;
+      } catch {
+        from = null;
+      }
+    }
+    const card = lessonSummaryCard(sql, r.lesson_id, nowMs, from ?? OPS_CARD_ORIGIN);
+    if (card && enqueueCard(sql, card, nowMs)) out.push(card.ref);
+  }
+  return out;
+}
+
 const AckSchema = z.object({
   items: z
     .array(z.object({ ref: z.string().min(1).max(200), updated_at: z.number().int(), spine_id: z.string().max(64).optional() }))

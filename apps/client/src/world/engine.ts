@@ -885,7 +885,8 @@ ${line(s.help)}` : line(s.text), 4000);
       /* not allowed right now (no gesture): the hint stays, the next click locks */
     }
   };
-  const uiHoldsMouse = (): boolean => paused || attract || (typeof document !== 'undefined' && !!document.querySelector('[aria-modal="true"]'));
+  const uiHoldsMouse = (): boolean =>
+    paused || attract || !!buildHud?.chestOpen || (typeof document !== 'undefined' && !!document.querySelector('[aria-modal="true"]'));
   const centre = (): { x: number; y: number } => {
     const r = canvas.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };

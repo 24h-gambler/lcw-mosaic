@@ -1,5 +1,5 @@
 /**
- * Lesson controller (docs/19 §4): joins with the code, polls /v1/lesson/state every 3 s and turns what changed into
+ * Lesson controller (docs/19 §4): joins with the code, polls /v1/lesson/state every 1.2 s and turns what changed into
  * world calls — scene change, goal line, possession sparkle, NPC bubbles, director events. Pure apart from the
  * injected api, world and timers, so it is tested without a browser.
  */
@@ -37,7 +37,13 @@ import {
 import { childNpcName, lessonGoal } from './strings.js';
 import { LESSON_STAGE_EVENT } from '../world/events.js';
 
-export const LESSON_POLL_MS = 3_000;
+/**
+ * The state poll, counted from the start of the last one (not its answer): a move the child's screen did not cause
+ * (the teacher's button, the planned minutes, the console) shows within this plus one round trip, under 2 s (11-19).
+ */
+export const LESSON_POLL_MS = 1_200;
+/** A failed poll waits this long first, doubling up to LESSON_RETRY_MAX_MS (a lost connection is not hammered). */
+export const LESSON_RETRY_START_MS = 3_000;
 /** After an answer that finished the stage, the next poll comes this soon (the next stage shows at once, docs/18 §9). */
 export const LESSON_ADVANCE_POLL_MS = 300;
 export const LESSON_RETRY_MAX_MS = 15_000;
@@ -198,7 +204,7 @@ export class LessonController {
   private bannerTimer: unknown = null;
   /** The world got the teacher tag at least once (the first poll always sets it). */
   private teacherShown = false;
-  private retryMs = LESSON_POLL_MS;
+  private retryMs = LESSON_RETRY_START_MS;
   private readonly seenLines = new Set<string>();
   private readonly seenEvents = new Set<string>();
   private stopped = false;
@@ -354,6 +360,7 @@ export class LessonController {
     const run = this.run;
     this.polling = true;
     this.soon = false;
+    const startedAt = this.timers.now();
     try {
       const st = await this.opts.api.state(s.token, {
         cursor: this.cursor,
@@ -364,7 +371,7 @@ export class LessonController {
         micTurns: readLessonMicTurns()
       });
       if (run !== this.run) return;
-      this.retryMs = LESSON_POLL_MS;
+      this.retryMs = LESSON_RETRY_START_MS;
       this.apply(st);
       if (this.view.connection !== 'ok' || this.view.errorCode) this.set({ connection: 'ok', errorCode: null });
       // Back online: what the child said meanwhile goes now, in order.
@@ -384,8 +391,10 @@ export class LessonController {
       if (run === this.run) this.polling = false;
     }
     if (run !== this.run || this.view.phase === 'ended' || this.stopped || !this.session) return;
-    // A stage move that came in while this poll was in flight still gets its quick poll (not the 3 s one).
-    this.schedulePoll(this.soon ? LESSON_ADVANCE_POLL_MS : this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+    // A stage move that came in while this poll was in flight still gets its quick poll (not the regular one). The
+    // regular one counts from this poll's start, so a slow answer does not stretch the time a move takes to show.
+    const regular = Math.max(0, LESSON_POLL_MS - (this.timers.now() - startedAt));
+    this.schedulePoll(this.soon ? LESSON_ADVANCE_POLL_MS : this.view.connection === 'ok' ? regular : this.retryMs);
     this.soon = false;
   }
 

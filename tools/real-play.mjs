@@ -238,6 +238,12 @@ async function face(id) {
     const s = await stats();
     const n = s?.npcView?.find((v) => v.id === id);
     if (n && n.vis && n.sx > 0 && n.sx < W && Math.abs(n.sx - W / 2) < W * 0.1) return n;
+    // pressed against the NPC (1 m): its feet and head both leave the screen, so no turn finds it; step back first
+    // (local run 11-19: errand_neighbor at 1 m, three face misses in the lesson)
+    if (n && !n.vis && n.dist < 1.4) {
+      await back(350);
+      continue;
+    }
     // not on screen: about 50° to the right; on screen: the angle to it (dragging right turns the view right)
     const px = !n || !n.vis || n.sx < 0 || n.sx > W ? 0.9 / RAD_PER_PX : Math.atan((n.sx - W / 2) / FOCAL) / RAD_PER_PX;
     await turn(px);

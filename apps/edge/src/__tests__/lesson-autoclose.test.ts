@@ -105,6 +105,8 @@ describe('abandoned lessons close by themselves (cron sweep)', () => {
       { type: 'open', url: `${ORIGIN}/director?auto=${lessonId}&next=continue`, label: '이어 하기' },
       { type: 'dismiss' }
     ]);
+    // an action card: the spine keeps it open (not folded, never expired) until the teacher sends or continues (11-18)
+    expect(summary.keep).toBe('until_acted');
     expect(box.body.cards.some((c: any) => c.ref === 'outsourcing:lcw:student:kid-1:2026-11-16')).toBe(true);
     expect(JSON.stringify(box.body)).not.toMatch(/share_token|\/r\//);
 
@@ -189,6 +191,60 @@ describe('abandoned lessons close by themselves (cron sweep)', () => {
     // no poll at all: closed after the idle time as before
     now += 16 * 60_000;
     expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+  });
+
+  it('a card that went out before keep (11-16 Oreo, folded on the hub) goes again once with keep on the next hourly cron (review of PR 162)', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await say(p, st);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+    const outbox = () =>
+      sqlOf(p).get<{ ref: string; card: string; acked_at: number | null }>('select ref, card, acked_at from ops_card_outbox where ref like ?', [
+        `%:lcw:lesson:${lessonId}:summary`
+      ])!;
+    const first = outbox();
+    const card = JSON.parse(first.card);
+    expect(card.keep).toBe('until_acted');
+    // what went out before PR 162: the same card without keep, posted and acked by the relay
+    delete card.keep;
+    sqlOf(p).all('update ops_card_outbox set card = ?, acked_at = ? where ref = ?', [JSON.stringify(card), now, first.ref]);
+    now += 60 * 60_000;
+    const h1 = await cron(p, '0 * * * *');
+    expect(h1.body.detail.auto_close_cards).toBe(1);
+    const again = outbox();
+    expect(JSON.parse(again.card).keep).toBe('until_acted');
+    expect(JSON.parse(again.card).title).toContain('⏸');
+    expect(again.acked_at).toBeNull();
+    // the relay posts it; every later hour leaves the unchanged card alone
+    sqlOf(p).all('update ops_card_outbox set acked_at = ? where ref = ?', [now, again.ref]);
+    for (let hour = 0; hour < 3; hour++) {
+      now += 60 * 60_000;
+      expect((await cron(p, '0 * * * *')).body.detail.auto_close_cards).toBe(0);
+    }
+    expect(outbox().acked_at).not.toBeNull();
+    // once the teacher sends the report it is no longer waiting: the hourly pass never touches it again
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { send: true })).status).toBe(200);
+    const sentCard = JSON.parse(outbox().card);
+    sqlOf(p).all('update ops_card_outbox set acked_at = ? where ref = ?', [now, outbox().ref]);
+    now += 60 * 60_000;
+    expect((await cron(p, '0 * * * *')).body.detail.auto_close_cards).toBe(0);
+    expect(JSON.parse(outbox().card)).toEqual(sentCard);
+  });
+
+  it('the hourly resend never makes a card for a lesson that had none (smoke student, stale close)', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p, 'smoke-hr', 'Smoke');
+    const s = await startLesson(p, 'smoke-hr');
+    await say(p, s.st);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([s.lessonId]);
+    now += 60 * 60_000;
+    expect((await cron(p, '0 * * * *')).body.detail.auto_close_cards).toBe(0);
+    expect(sqlOf(p).get<{ n: number }>("select count(*) as n from ops_card_outbox where ref like '%:lcw:lesson:%'")!.n).toBe(0);
   });
 
   it('smoke students close too but make no hub card; every cron sweeps, the hourly tasks still run', async () => {

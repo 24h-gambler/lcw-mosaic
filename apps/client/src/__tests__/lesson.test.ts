@@ -631,6 +631,7 @@ describe('disconnect recovery: answers kept on the device (lesson outbox)', () =
     expect(feed.utterances).toHaveLength(1);
     expect(again.state.lessonStars).toBe(2);
   });
+});
 
 describe('an NPC tap in a running lesson (Dan 11-19 "자유도도 없앴다")', () => {
   it('the lesson NPC reopens the lesson window; a passer-by gets its own free talk only when the app can open one', () => {
@@ -641,5 +642,4 @@ describe('an NPC tap in a running lesson (Dan 11-19 "자유도도 없앴다")', 
     expect(lessonTalkAction('shop_owner', 'cafe_owner', false)).toBe('none');
     expect(lessonTalkAction('shop_owner', 'cafe_owner', undefined)).toBe('none');
   });
-});
 });

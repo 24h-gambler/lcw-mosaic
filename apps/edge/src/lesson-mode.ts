@@ -565,6 +565,8 @@ export function buildLessonModeApp(
     const next = plan.stages[i + 1];
     if (!stage || !next) return null;
     const entered = stageEnteredAt(id, stage.id, l.started_at);
+    // the latest sentences on screen (start, auto move, the teacher's push): passes and follow-up answers count from here
+    const shownAt = Number(d.sql.get<{ at: number }>('select updated_at as at from lesson_state where lesson_id = ?', [id])?.at ?? 0);
     let why: StageAdvanceWhy | null = null;
     // The dialog's "done" counts only when the child answered at least one follow-up: the opening line and one more
     // passed answer in this stage (skipping every follow-up also ends the dialog, PR 146 review).
@@ -573,7 +575,7 @@ export function buildLessonModeApp(
         d.sql.get<{ n: number }>('select count(*) as n from utterances where session_id = ? and ctx = ? and stars > 0 and created_at >= ?', [
           id,
           stage.id,
-          entered
+          Math.max(entered, shownAt)
         ])?.n ?? 0
       );
     if (done && done.stageId === stage.id && answered() >= LESSON_FOLLOWUPS_MIN_ANSWERS) why = 'followups';
@@ -584,7 +586,6 @@ export function buildLessonModeApp(
       // Passes count from the latest sentences on screen: lesson_state.updated_at moves on the start, an auto move and
       // the teacher's push. A teacher who puts their own sentence on the same stage (console 「학생 화면에 내 문장
       // 띄우기」, Dan 11-19) must not see it swept off by the child's passes from before it (one sentence → need 1).
-      const shownAt = Number(d.sql.get<{ at: number }>('select updated_at as at from lesson_state where lesson_id = ?', [id])?.at ?? 0);
       const passed = Number(
         d.sql.get<{ n: number }>(
           'select count(distinct target_text) as n from utterances where session_id = ? and ctx = ? and stars > 0 and length(target_text) > 0 and created_at >= ?',

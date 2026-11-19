@@ -421,7 +421,7 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     expect(sent.body.facts.lesson.duration_min).toBe(25);
   });
 
-  it('the reclamp only looks at real students closed by the old rule (it read ~30k rows an hour over smoke lessons)', async () => {
+  it('the reclamp only looks at real students closed by the old rule (each sweep re-read every unsent close)', async () => {
     // closed by the old rule, but a smoke student: never recomputed
     now = T0;
     const p = platform();

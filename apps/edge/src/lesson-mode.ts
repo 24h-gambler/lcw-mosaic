@@ -893,7 +893,8 @@ export function buildLessonModeApp(
   const LESSON_RECLAMP_WINDOW_MS = 14 * 86_400_000;
   const reclampAutoClosed = (dryRun: boolean, now: number, fallbackOrigin: string | null): Array<{ lesson_id: string; ended_at: number; was: number }> => {
     // Only the closes the old rule made (before PR 159 went live) and only real students: each row costs a full
-    // lastActivityOf (seven tables), and every 5 minutes over 14 days of smoke lessons that was ~30k rows read an hour.
+    // lastActivityOf (seven tables) every 5 minutes (prod 11-19: ~28 of the sweep's ~89 rows; the hourly :00 cron is
+    // where ~100k rows an hour go, see ops_runs).
     const rows = d.sql.all<{ lesson_id: string; player_id: string; last_activity_at: number; started_at: number; ended_at: number }>(
       `select a.lesson_id, l.player_id, a.last_activity_at, l.started_at, l.ended_at from lesson_auto_close a join lessons l on l.id = a.lesson_id
        where a.sent_at is null and a.folded_into is null and l.ended_at is not null and a.closed_at >= ? and a.closed_at < ?`,

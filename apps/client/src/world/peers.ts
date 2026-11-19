@@ -77,6 +77,20 @@ export class PeerAvatars {
     return false;
   }
 
+  /**
+   * People of this role are drawn by someone else (R325: the teacher in the child's world is the one teacher figure the
+   * world owns, an NPC you can talk and trade with, placed where the real teacher walks): no second figure or plate.
+   */
+  hiddenRole: string | null = null;
+
+  /** Where the first placed person of a role stands now (predicted between poses), or null. */
+  roleAt(role: string): { x: number; y: number; z: number; yaw: number; name: string } | null {
+    for (const rt of this.peers.values()) {
+      if (rt.seen && rt.info.role === role) return { x: rt.pos.x, y: rt.pos.y, z: rt.pos.z, yaw: rt.yaw, name: rt.info.name };
+    }
+    return null;
+  }
+
   /** Where the nearest placed person (of a role, if given) stands: for "학생 옆으로". */
   nearest(me: THREE.Vector3, role?: string): { x: number; y: number; z: number; yaw: number } | null {
     let best: PeerRt | null = null;
@@ -158,7 +172,7 @@ export class PeerAvatars {
       rt.yaw = rt.motion.yaw;
       const moved = dt > 0 ? Math.hypot(rt.pos.x - this.tmp.x, rt.pos.z - this.tmp.z) / dt : 0;
       rt.speed += (moved - rt.speed) * Math.min(1, dt * 8);
-      const visible = rt.pos.distanceTo(me) < viewDistance;
+      const visible = rt.pos.distanceTo(me) < viewDistance && rt.info.role !== this.hiddenRole;
       rt.char.root.visible = visible;
       if (visible) {
         rt.char.root.position.copy(rt.pos);

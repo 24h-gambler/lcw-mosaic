@@ -57,7 +57,6 @@ function server(clock: { now: number }) {
 function world() {
   const teacher: Array<{ present: boolean; name: string | null } | null> = [];
   const w: LessonWorld = {
-    goToScene: async () => undefined,
     npcSay: () => undefined,
     setGoal: () => undefined,
     celebrate: () => undefined,

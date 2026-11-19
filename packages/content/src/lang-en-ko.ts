@@ -1235,6 +1235,8 @@ export const UI_STRINGS_KO = {
     /** A follow-up question in the same window (R2625: the NPC asks the next thing, never the same line again). */
     followUpHint: '내 생각을 영어로 자유롭게 말해 봐요. 짧아도 괜찮아요!',
     followUpSkip: '다음으로',
+    /** R326: in a lesson the follow-up is skipped only after one try. */
+    followUpTryFirst: '🎤 한 번 말해 보면 다음으로 갈 수 있어요',
     openAnswerOk: '좋은 대답이에요!',
     openAnswerShort: '조금만 더 길게 말해 볼까요?',
     coins: '코인',

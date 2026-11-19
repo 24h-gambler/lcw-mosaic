@@ -47,6 +47,10 @@ export interface WorldHandle {
   setGauges?(g: { hunger; thirst; lowHunger; lowThirst; slow } | null): void; // G01 배고픔·목마름 막대(상태 칩 셋째 줄)
   setMove?(mult: number, canRun: boolean): void;   // G01 낮은 게이지: 걷기 배율(0.3~1)·달리기 허용(docs/03 D1)
   notice?(text: string): void;                      // 핫바 위 한 줄 알림(먹었어요·느려졌어요)
+  placeSceneNpc?(id: SceneId): void;               // 수업 단계 바뀜(R325): 그 장면 NPC 만 제자리로(가까우면 걸어서). 아이는 안 옮김
+  whereNow?(): SceneId;                            // 아이가 서 있는 곳에서 가장 가까운 장면(콘솔 「학생 화면」)
+  npcDistance?(npcId: string): number | null;      // 아이 → NPC 거리(m), 수업 옆 패널의 「29 m」
+  followPeer?(role: string | null): void;          // 선생님 3D 「같이 걷기」: 그 역할의 가장 가까운 사람을 따라 걸음(null = 그만)
 }
 // WorldMapInfo = { size_m; sectors: {id,nameKo,kind:'town'|'biome'|'ruin'|'plot'|…,explored,rect:[x0,z0,x1,z1]}[];
 //                  scenes: {id,nameKo,x,z}[]; player: {x,z,yaw} }
@@ -159,7 +163,7 @@ export interface DialogPanelProps {
 ## 4. 수업 → 다른 도메인 (`apps/client/src/lesson/`)
 
 - `/world/?code=123456`(옛 `/game/?code=` 도 리다이렉트로 같은 곳) 또는 첫 화면의 코드 입력 → `POST /v1/join` → 학생 토큰은 `sessionStorage`. 응답의 `voice_store`(보호자의 음성 저장 동의)는 `lcw.studentVoice='1'`로 같이 두고, 대화창 `recordClip`이 이것을 봅니다(3장).
-- `GET /v1/lesson/state`를 1.2초마다(`LESSON_POLL_MS`, 직전 조회를 **시작한 때**부터 셈 — 느린 응답이 간격을 늘리지 않음. 선생님 콘솔·계획한 분이 넘긴 단계도 아이 화면에 2초 안에 뜸, 11-19 실측 3–5초였음. 실패하면 3초부터 두 배씩 15초까지 기다림): `stage_id`가 바뀌면 아래 표대로 `goToScene`, `targets`는 대화창 `offers`, 빙의 대사(`npc_lines`)는 `npcSay`.
+- `GET /v1/lesson/state`를 1.2초마다(`LESSON_POLL_MS`, 직전 조회를 **시작한 때**부터 셈 — 느린 응답이 간격을 늘리지 않음. 선생님 콘솔·계획한 분이 넘긴 단계도 아이 화면에 2초 안에 뜸, 11-19 실측 3–5초였음. 실패하면 3초부터 두 배씩 15초까지 기다림): `stage_id`가 바뀌면 그 장면 NPC 를 `placeSceneNpc` 로 제자리에 두고 아이는 옮기지 않습니다(R325, docs/18 §11 — 길 찾기가 가리킴), `targets`는 대화창 `offers`, 빙의·선생님 대사(`npc_lines`, 선생님은 `npc_id:'teacher'`)는 `npcSay`, 선생님이 준 물건(`gifts`)은 id 마다 한 번 `giveItem`.
 
 | stage_id | 장면 | NPC | 힌트 |
 |---|---|---|---|

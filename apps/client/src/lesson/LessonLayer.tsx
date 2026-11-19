@@ -8,6 +8,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ADVENTURE_STAGE_ID,
+  TEACHER_SPEAKER_ID,
   getLessonNpc,
   type LessonDirectorEventKind,
   type LessonHintLevel,
@@ -18,12 +19,13 @@ import {
 import type { Level } from '@lcw/schemas';
 import { TOKENS } from '@lcw/ui';
 import { codeFromSearch, createStudentLessonApi, loadStudentSession, type DialogResult, type LessonOffer, type StudentLessonApi, type UtteranceSubmit } from './api.js';
-import { LessonController, goalTargetEn, initialLessonView, type LessonView, type LessonWorld } from './controller.js';
+import { LessonController, initialLessonView, type LessonView, type LessonWorld } from './controller.js';
 import { MIC_BLOCKING_ERRORS, maskTarget, micUnreliable, pickHeard, type HeardAlternative } from './hint.js';
 import { LESSON_STRINGS as S, childNpcName, helpLine, lessonGoal } from './strings.js';
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
 import { SubmitError } from '../dialog/submit.js';
 import { TeacherPanel } from './TeacherPanel.js';
+import { LessonSidePanel, TradeWindow, sideStartsFolded } from './LessonSide.js';
 import { LESSON_FREE_TALK_EVENT, LESSON_TALK_EVENT } from '../world/events.js';
 
 const C = TOKENS.colors;
@@ -54,6 +56,9 @@ export interface LessonDialogConfig {
   npcLine?: string;
   /** The stage NPC's follow-up questions, asked in the same window after the opening line passes (stage.followUpsEn). */
   followUps?: readonly string[];
+  /** R326: a follow-up is skipped only after one try, and skips are logged for the teacher (docs/18 §11). */
+  skipNeedsTry?: boolean;
+  onSkip?: (s: { kind: 'follow_up' | 'close'; question: string; tried: boolean }) => void;
 }
 
 export interface LessonLayerProps {
@@ -67,32 +72,28 @@ export interface LessonLayerProps {
   freeTalkOpen?: boolean;
   /** True while a lesson is live: App shows the "수업 중" badge; NPC taps reach the lesson layer first. */
   onLessonActive?: (active: boolean) => void;
+  /**
+   * R326 ⑫: while a lesson is live, the lesson's answer route for talks the app opens itself (a passer-by in the
+   * child's own words): what the child says to anyone is lesson talk the teacher sees. null when no lesson runs.
+   */
+  onTalkSubmit?: (submit: ((u: unknown) => Promise<DialogResult>) | null) => void;
   api?: StudentLessonApi;
   search?: string;
   /** False when the device cannot run the 3D world: the lesson continues on the /join word-card screen. */
   canRender3d?: boolean;
 }
 
-/** World members the layer uses beyond the controller's (docs/19 §2): the child's own line as a bubble. */
-type LayerWorld = LessonWorld & { playerSay?(text: string): void; getScene?(): string };
+/** World members the layer uses beyond the controller's (docs/19 §2): the child's own line as a bubble, the NPC distance. */
+type LayerWorld = LessonWorld & { playerSay?(text: string): void; npcDistance?(npcId: string): number | null };
 
 /**
- * Walks the world to the stage's scene and checks it arrived. The world judges arrival by position and fades in when
- * a pause (the dialog window remounting on the stage change) cut the walk short; this second try only guards a world
- * that ends a travel without getting there.
- */
-export async function goToSceneChecked(w: LayerWorld | null, id: LessonSceneId): Promise<void> {
-  if (!w) return;
-  await w.goToScene(id);
-  if (w.getScene && w.getScene() !== id) await w.goToScene(id);
-}
-
-/**
- * What an NPC click, tap or E does in a running lesson (LESSON_TALK_EVENT): the lesson's own NPC (or no id) reopens
- * the lesson window; a passer-by gets a free talk of its own when the app can open one (`free`), the lesson window
+ * What an NPC click, tap or E does in a running lesson (LESSON_TALK_EVENT): the teacher opens the trade window (R325);
+ * the lesson's own NPC (or no id) opens the lesson window; a passer-by gets a free talk of its own when the app can open one (`free`), the lesson window
  * folding for it (Dan 11-19 "자유도도 없앴다"); otherwise nothing happens and the lesson window stays as it is.
  */
-export function lessonTalkAction(npcId: string | undefined, lessonNpcId: string, free: boolean | undefined): 'reopen' | 'free' | 'none' {
+export function lessonTalkAction(npcId: string | undefined, lessonNpcId: string, free: boolean | undefined): 'reopen' | 'trade' | 'free' | 'none' {
+  // the teacher (the one teacher figure in the world, R325): the trade window, any time
+  if (npcId === TEACHER_SPEAKER_ID) return 'trade';
   if (!npcId || npcId === lessonNpcId) return 'reopen';
   return free === true ? 'free' : 'none';
 }
@@ -121,7 +122,11 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
         api,
         // The world can arrive after the first render; the controller always talks to the current one.
         world: {
-          goToScene: (id) => goToSceneChecked(worldRef.current, id),
+          // R325: the child is never moved; the stage NPC goes to its spot and the way-finding points there
+          placeSceneNpc: (id) => worldRef.current?.placeSceneNpc?.(id),
+          giveItem: (k) => worldRef.current?.giveItem?.(k),
+          takeItem: (k) => worldRef.current?.takeItem?.(k) ?? false,
+          whereNow: () => worldRef.current?.whereNow?.(),
           npcSay: (n, t, o) => worldRef.current?.npcSay(n, t, o),
           setGoal: (g, t) => worldRef.current?.setGoal(g, t),
           celebrate: (s) => worldRef.current?.celebrate(s),
@@ -142,37 +147,44 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     [api]
   );
 
-  const [foldedKey, setFoldedKey] = useState<string | null>(null);
+  // The lesson window opens only when the child asks (R325, Dan 11-19 "자유도가 없다"): E / a tap on the stage's NPC or
+  // 🎤 on the side panel. It stays open for that NPC; a new stage with another NPC closes it (the child walks there).
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const [tradeOpen, setTradeOpen] = useState(false);
   const [doneSeq, setDoneSeq] = useState(0);
   // A click, tap or E on an NPC in the world during the lesson opens the folded dialog window again (Dan 11-16 R2625).
   // The lesson's own NPC reopens the lesson window. A passer-by gets a free talk of its own (Dan 11-19 "자유도도
   // 없앴다"): the lesson window folds and the app opens the passer-by's window; the lesson NPC brings it back.
   const lessonNpc = useRef(view.npcId);
   lessonNpc.current = view.npcId;
-  const panelKeyRef = useRef('');
   useEffect(() => {
     const open = (e: Event): void => {
       const d = (e as CustomEvent<{ npcId?: string; free?: boolean }>).detail;
       const act = lessonTalkAction(d?.npcId, lessonNpc.current, d?.free);
-      if (act === 'reopen') setFoldedKey(null);
-      else if (act === 'free') {
+      if (act === 'reopen') {
+        setTradeOpen(false);
+        setOpenFor(lessonNpc.current);
+      } else if (act === 'trade') {
+        setOpenFor(null);
+        setTradeOpen(true);
+      } else if (act === 'free') {
         // the app said it can open this NPC's window: fold ours first, then ask for theirs
-        setFoldedKey(panelKeyRef.current);
+        setOpenFor(null);
+        setTradeOpen(false);
         window.dispatchEvent(new CustomEvent(LESSON_FREE_TALK_EVENT, { detail: { npcId: d?.npcId } }));
       }
     };
     window.addEventListener(LESSON_TALK_EVENT, open);
     return () => window.removeEventListener(LESSON_TALK_EVENT, open);
   }, []);
-  // New stage or new sentences from the teacher: the panel starts fresh (selection, heard text, open microphone),
-  // and a folded dialog window opens again.
+  // New stage or new sentences from the teacher: an open window starts fresh (selection, heard text, microphone).
   const panelKey = `${view.stageSeq}:${view.offers.map((o) => o.text).join('|')}`;
-  panelKeyRef.current = panelKey;
+  const folded = openFor !== view.npcId;
   // The dialog window's first NPC line is fixed while that window is open (review of #26): a teacher line arriving
   // mid-answer must not swap the question and be read aloud over the open microphone. A new window (new stage or
   // sentences, "완료", reopening after ✕) takes the newest line again.
   const openLine = useRef<{ key: string; line: string } | null>(null);
-  const openKey = `${panelKey}:${doneSeq}:${foldedKey === panelKey ? 'folded' : 'open'}`;
+  const openKey = `${panelKey}:${doneSeq}:${folded ? 'folded' : 'open'}`;
   openLine.current = pinOpeningLine(openLine.current, openKey, view);
   const firstLine = openLine.current.line;
   // App decides WebGL once (canRunWorld) and never mounts the layer without it; no probing here on every render.
@@ -197,6 +209,12 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
       goalSet.current = false;
     }
   }, [props.world, live, hasStage, view.npcId]);
+  const onTalkSubmit = useRef(props.onTalkSubmit);
+  onTalkSubmit.current = props.onTalkSubmit;
+  useEffect(() => {
+    onTalkSubmit.current?.(live ? ctl.submit : null);
+    return () => onTalkSubmit.current?.(null);
+  }, [live, ctl]);
   useEffect(() => {
     onActive.current?.(live);
     // In a lesson the chip shows this lesson's stars from the start (0 before the first). When it ends the chip keeps
@@ -219,8 +237,9 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     const w = props.world;
     const v = ctl.state;
     if (!w || v.phase !== 'live') return;
-    if (v.sceneId) void goToSceneChecked(w, v.sceneId).catch(() => undefined);
-    if (v.goalKo || v.goalEn) w.setGoal(lessonGoal(v.goalEn, v.goalKo), goalTargetEn(v.hint, v.offers));
+    if (v.sceneId) w.placeSceneNpc?.(v.sceneId);
+    // R326 ⑫: the HUD card is the mission only; the sentences are ideas in the side panel, not an order to repeat
+    if (v.goalKo || v.goalEn) w.setGoal(lessonGoal(v.goalEn, v.goalKo));
     w.setPossessed?.(v.possessedNpcId);
     if (v.coins !== null) w.setCoins?.(v.coins);
     w.setStars?.(v.lessonStars);
@@ -322,7 +341,9 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   const npcRef: LessonNpcRef = { id: view.npcId, ctx: npc?.ctx ?? 'guide', ...childNpcName(view.npcId) };
   const cfg: LessonDialogConfig = {
     level: view.level,
-    mode: view.mode,
+    // R326 ⑫ (Dan 11-19 "억지 교육"): the child answers in their own words; the stage's sentences are ideas, and the
+    // server finds the one the words carry (the mission). Recall and read-aloud stages keep their own mode.
+    mode: view.mode === 'guided' ? 'free' : view.mode,
     offers: view.offers,
     hint: view.hint,
     submit: ctl.submit,
@@ -331,6 +352,8 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     // the script is not asked (and read aloud) again over a follow-up line.
     ...(firstLine ? { npcLine: firstLine } : {}),
     ...(view.followUpsEn.length ? { followUps: view.followUpsEn } : {}),
+    skipNeedsTry: true,
+    onSkip: (s) => void ctl.skip(s),
     // "완료" on a result: the window starts over for the next sentence (free talk takes many in one stage). When the
     // NPC has asked its last follow-up the stage is done: the server moves on and the next stage opens (docs/18 §9).
     onDone: (_r, info) => {
@@ -338,46 +361,56 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
       setDoneSeq((n) => n + 1);
       // The adventure's goal is the 🗺 button, not more talk: a finished answer (✕ or 완료) folds the window so the
       // status bar with 🗺 shows at once, instead of a fresh window that needs a second ✕.
-      if (view.stageId === ADVENTURE_STAGE_ID) setFoldedKey(panelKey);
+      if (view.stageId === ADVENTURE_STAGE_ID) setOpenFor(null);
     },
-    // ✕ on the dialog window folds it away so the child can look at the world; "말하기" brings it back.
-    onClose: () => setFoldedKey(panelKey)
+    // ✕ on the dialog window folds it away; E on the NPC or 🎤 on the side panel brings it back.
+    onClose: () => setOpenFor(null)
   };
+  const openTalk = () => {
+    setTradeOpen(false);
+    setOpenFor(view.npcId);
+  };
+  const side = (windowOpen: boolean) => (
+    <LessonSidePanel
+      view={view}
+      npc={npcRef}
+      distance={() => worldRef.current?.npcDistance?.(view.npcId) ?? null}
+      onTalk={openTalk}
+      onTrade={() => {
+        setOpenFor(null);
+        setTradeOpen(true);
+      }}
+      status={<StatusPill view={view} onLeave={() => ctl.leave()} />}
+      windowOpen={windowOpen}
+    />
+  );
+  const tradeWin = tradeOpen ? (
+    <TradeWindow view={view} teacherName={view.teacher.name} load={ctl.tradeInfo} trade={ctl.trade} talk={ctl.submit} {...(props.renderDialog ? { renderDialog: props.renderDialog } : {})} onClose={() => setTradeOpen(false)} />
+  ) : null;
   // No sentences yet (before the first poll, a stage without targets): the dialog window would fill in its own solo
   // bank and send those lines as lesson answers, so our panel (free talk, the teacher's goal) stands in until they come.
   const external = view.offers.length > 0 ? (props.renderDialog?.(npcRef, cfg) ?? null) : null;
 
   if (external) {
-    // The dialog window is a full-screen modal (dim backdrop, z 40): our banner and status go on a layer above it,
-    // never catching taps, and "나가기" lives with the reopen button while the window is folded.
-    const folded = foldedKey === panelKey;
+    // The dialog window (a full-screen modal with a dim backdrop, z 40) shows only when the child opened it; the rest of
+    // the time the world is the child's with the side panel on the right (R325). Our banner goes on a layer above it,
+    // never catching taps.
+    const windowOpen = !folded || tradeOpen || Boolean(props.freeTalkOpen);
     return (
       <Shell>
         <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
         {/* Second child in both live layouts, so opening the dialog does not remount (and lock) the 1PC panel. */}
         <TeacherPanel lessonId={view.lessonId} planId={view.planId} stageId={view.stageId} />
-        {props.freeTalkOpen ? null : folded ? (
-          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: SP[3], display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
-            <div style={{ width: '100%', maxWidth: 720, display: 'flex', justifyContent: 'flex-end' }}>
-              <StatusPill view={view} onLeave={() => ctl.leave()} />
-            </div>
-            <button
-              type="button"
-              data-testid="lesson-reopen"
-              onClick={() => setFoldedKey(null)}
-              className="lcw-btn"
-              style={{ ...bigButton(C['brand-d']), pointerEvents: 'auto', width: '100%', maxWidth: 720, minHeight: TOKENS.shape.micButtonPx, fontSize: T.scale.h3.sizePx }}
-            >
-              🎤 {S.speak.title(npcRef)}
-            </button>
-          </div>
-        ) : (
+        {props.freeTalkOpen ? null : tradeOpen ? (
+          tradeWin
+        ) : folded ? null : (
           // New stage, new sentences or a finished answer: a fresh window (selection, result and step reset).
           // pointer-events: the Shell lets taps through to the world; the dialog window must take them again.
           <div key={`${panelKey}:${doneSeq}`} data-testid="lesson-dialog" style={{ pointerEvents: 'auto' }}>
             {external}
           </div>
         )}
+        {side(windowOpen)}
         <div style={{ position: 'absolute', inset: 0, zIndex: 45, pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: SP[2] }}>
           {view.connection !== 'ok' || view.outbox > 0 ? (
             <div
@@ -389,9 +422,11 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
               {view.outbox > 0 ? ` ${S.status.queued(view.outbox)}` : ''}
             </div>
           ) : null}
-          {/* The teacher's newest line stays readable above the dim backdrop (the NPC's own bubble is behind it). */}
+          {/* Over an open window the teacher's newest line stays readable above the dim backdrop (the NPC's own bubble
+              is behind it); without a window the world's bubble and the side panel carry it. */}
           <div style={{ marginTop: '22vh', width: '100%', maxWidth: 640, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
-            <LatestLine view={view} />
+            {/* not over the trade window (the teacher is its NPC) nor on a short screen (the window takes the height) */}
+            {windowOpen && !tradeOpen && !sideStartsFolded() ? <LatestLine view={view} /> : null}
             <EventBanner view={view} />
           </div>
         </div>
@@ -423,14 +458,10 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[1], flex: '0 1 auto', minHeight: 0 }}>
-          {props.world ? (
-            <div style={{ width: '100%', maxWidth: 720, display: 'flex', justifyContent: 'flex-end' }}>
-              <StatusPill view={view} onLeave={() => ctl.leave()} />
-            </div>
-          ) : null}
           <div className="lcw-panel" style={{ width: '100%', maxWidth: 720, pointerEvents: 'auto', overflowY: 'auto', minHeight: 0 }}>
-            {/* a free talk with a passer-by is open (Dan 11-19): no second talk panel under it */}
-            {props.freeTalkOpen ? null : external ?? (
+            {/* a free talk with a passer-by is open (Dan 11-19): no second talk panel under it. With the world the
+                panel opens only when the child asks (R325); without it (no world yet) it is the whole screen. */}
+            {props.freeTalkOpen || tradeOpen || (props.world && folded) ? null : (
               <SpeakPanel
                 key={panelKey}
                 npc={npcRef}
@@ -445,6 +476,8 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
           </div>
         </div>
       </div>
+      {props.world ? side(!folded || tradeOpen || Boolean(props.freeTalkOpen)) : null}
+      {props.freeTalkOpen ? null : tradeWin}
     </Shell>
   );
 }

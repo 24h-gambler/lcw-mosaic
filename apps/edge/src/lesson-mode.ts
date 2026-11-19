@@ -4,11 +4,20 @@ import {
   LESSON_DIRECTOR_EVENTS,
   LESSON_NPCS,
   LESSON_PLANS,
+  LESSON_TRADES_MAX,
+  TEACHER_SPEAKER_ID,
+  tradeNotUnderstood,
+  TEACHER_STOCK,
   UTTERANCE_CLIENT_ID_RE,
   bankTextKey,
   getLessonPlan,
+  giftLineEn,
   normalizeTeacherName,
-  type LessonPlan
+  teacherStockItem,
+  tradeOffers,
+  tradeReplyEn,
+  type LessonPlan,
+  type WorldSetup
 } from '@lcw/content';
 import { scoreUtterance } from '@lcw/converse';
 import {
@@ -143,6 +152,17 @@ export const LESSON_CHILD_GAP_MS = 30_000;
 export type StageAdvanceWhy = 'passes' | 'followups' | 'time';
 /** The dialog's follow-ups "done" moves the stage only after this many passed answers in it (opening + one follow-up). */
 export const LESSON_FOLLOWUPS_MIN_ANSWERS = 2;
+/** R326 skip 남용: untried skips in one stage / in the whole lesson that turn the console's skip line red. */
+export const LESSON_SKIP_HEAVY_STAGE = 3;
+export const LESSON_SKIP_HEAVY_LESSON = 5;
+/**
+ * The teacher holds the stages while walking with the child in the world (Dan 11-19 R325: "선생과 함께 진행이 안 된다",
+ * "'다음'을 누를 때마다 … 계속 진행된다"): while the teacher's 3D page (/world/?teach=, source 'world') beat within
+ * TEACHER_PRESENT_MS, the stage does not move by itself. The server still says when it would have (`stage_hold.ready`),
+ * and the teacher moves on with "다음 단계로". A console that is only open keeps the auto-advance (R2625: a lesson
+ * must go on without anybody steering).
+ */
+export const TEACHER_WORLD_HOLD = true;
 
 /** The site the hub card links to when neither the lesson's start nor the deploy (LCW_PUBLIC_ORIGIN) gave one. */
 export const LCW_SITE_ORIGIN = 'https://lcw.worldwidesomething.com';
@@ -183,7 +203,9 @@ create table if not exists lesson_panel_lock (lesson_id text primary key, pin_ha
 create table if not exists lesson_auto_close (lesson_id text primary key, closed_at integer not null, last_activity_at integer not null, draft text not null, sent_at integer, folded_into text, empty integer not null default 0);
 create table if not exists lesson_continuations (lesson_id text primary key, continues_from text not null, at integer not null);
 create table if not exists lesson_origins (lesson_id text primary key, origin text not null);
-create table if not exists lesson_test_marks (lesson_id text primary key, player_id text not null, test_player_id text not null, at integer not null, note text not null, moved text not null)
+create table if not exists lesson_test_marks (lesson_id text primary key, player_id text not null, test_player_id text not null, at integer not null, note text not null, moved text not null);
+create table if not exists lesson_skips (lesson_id text not null, client_id text not null, at integer not null, stage_id text not null, kind text not null, tried integer not null default 0, question text not null default '', primary key (lesson_id, client_id));
+create table if not exists lesson_trades (lesson_id text not null, client_id text not null, player_id text not null, at integer not null, kind text not null, get_key text, give_item_id text, give_key text, target_text text not null default '', transcript text not null default '', stars integer not null default 0, ok integer not null default 0, reason text, response text not null default '', window_id text, primary key (lesson_id, client_id))
 `;
 
 export interface LessonModeDeps {
@@ -202,6 +224,18 @@ export interface LessonModeDeps {
     credit: (playerId: string, delta: number, ref: string, nowMs: number) => number;
     balance: (playerId: string) => number;
   };
+  /**
+   * The child's things for a trade with the teacher (lesson-trade.ts, home world items): what can be handed over, and
+   * one atomic move. Absent in unit setups without worlds: trades answer 503 there.
+   */
+  trades?: {
+    owned: (playerId: string) => Array<{ item_id: string; item_key: string; location: string }>;
+    apply: (p: { playerId: string; lessonId: string; tradeId: string; giveItemId: string | null; getKey: string | null; nowMs: number }) =>
+      | { ok: true; got_item_id: string | null; got_location: 'bag' | 'chest' | null; gave_key: string | null }
+      | { ok: false; reason: string };
+  };
+  /** The child's own world look (my-world.ts): the teacher's 3D page shows the child's world as the child sees it (R2588). */
+  worldLook?: (playerId: string) => WorldSetup | null;
   /** Voice clips (voice.ts offerVoiceUpload): an upload token for a speech turn with voice_store on, else null. */
   offerVoiceUpload?: (p: { playerId: string; utteranceId: string; source: string; nowMs: number }) => Promise<VoiceUploadOfferLike | null>;
 }
@@ -323,7 +357,8 @@ const StartSchema = z
 const PresenceSchema = z
   .object({
     panel: z.enum(['open', 'closed']).default('open'),
-    source: z.enum(['console', 'panel']).default('console'),
+    // 'world' = the teacher's own 3D page in the lesson (/world/?teach=, TeacherBar): the teacher holds the stages then
+    source: z.enum(['console', 'panel', 'world']).default('console'),
     resume: z.boolean().optional(),
     // The name alone ("김민지", no "선생님"), typed on the console; the child sees teacherLabel(name). Blank (or only the
     // title) clears it. Typed name > the signed-in account's name > "선생님" (review #80).
@@ -367,7 +402,39 @@ const EndSchema = z
 const SweepSchema = z.object({ dry_run: z.boolean().default(false) }).strict();
 const MarkTestSchema = z.object({ note: z.string().trim().min(1).max(200), dry_run: z.boolean().default(false) }).strict();
 const NpcIdSchema = z.enum(LESSON_NPCS.map((n) => n.id) as [string, ...string[]]);
-const NpcSaySchema = z.object({ npc_id: NpcIdSchema, text: z.string().trim().min(1).max(200) }).strict();
+// 'teacher' = the teacher in person (the avatar in the child's world, R325): no possession, the line is the teacher's
+const NpcSaySchema = z
+  .object({ npc_id: z.union([NpcIdSchema, z.literal(TEACHER_SPEAKER_ID)]), text: z.string().trim().min(1).max(200) })
+  .strict();
+const STOCK_KEYS = TEACHER_STOCK.map((x) => x.key) as [string, ...string[]];
+const SkipSchema = z
+  .object({
+    client_id: z.string().regex(UTTERANCE_CLIENT_ID_RE),
+    stage_id: z.string().min(1).max(64),
+    kind: z.enum(['follow_up', 'close']),
+    question: z.string().max(300).default(''),
+    tried: z.boolean().default(false)
+  })
+  .strict();
+const GiveSchema = z.object({ item_key: z.enum(STOCK_KEYS), client_id: z.string().regex(UTTERANCE_CLIENT_ID_RE) }).strict();
+const TradeSchema = z
+  .object({
+    client_id: z.string().regex(UTTERANCE_CLIENT_ID_RE),
+    get_key: z.enum(STOCK_KEYS).nullable().default(null),
+    give_item_id: z.string().min(1).max(200).nullable().default(null),
+    // '' = the child's own words (R326 ⑫): the server finds the trade sentence they carry
+    target_text: z.string().max(200).default(''),
+    // the dialog window (one trade per window): saying it again for more stars in the same window moves nothing again
+    window_id: z.string().regex(UTTERANCE_CLIENT_ID_RE).optional(),
+    transcript: z.string().min(1).max(1000),
+    chosen_stars: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
+    hint_level: z.enum(['full', 'keyword', 'initial', 'picture', 'none']).default('full'),
+    latency_ms: z.number().int().min(0).max(600_000).default(0),
+    dur_ms: z.number().int().min(0).max(600_000).default(0),
+    stt_source: z.enum(['browser', 'keyboard', 'board', 'device', 'workers_ai']).default('browser'),
+    confidence: z.number().min(0).max(1).default(1)
+  })
+  .strict();
 const PossessSchema = z.object({ npc_id: NpcIdSchema.nullable() }).strict();
 const DIRECTOR_EVENT_KINDS = LESSON_DIRECTOR_EVENTS.map((e) => e.kind) as [DirectorEventKind, ...DirectorEventKind[]];
 const EventSchema = z.object({ kind: z.enum(DIRECTOR_EVENT_KINDS), detail: z.string().max(200).default('') }).strict();
@@ -445,6 +512,8 @@ export function buildLessonModeApp(
   if (!teacherCols.includes('account_name')) d.sql.exec('alter table lesson_teacher add column account_name text');
   // Kept from PR 140 (a console's beat after the 1PC leave); no longer written: a console only open is not activity.
   if (!teacherCols.includes('console_seen_at')) d.sql.exec('alter table lesson_teacher add column console_seen_at integer');
+  // The teacher's 3D page beat (source 'world', R325): while it is fresh the teacher holds the stages (TEACHER_WORLD_HOLD).
+  if (!teacherCols.includes('world_at')) d.sql.exec('alter table lesson_teacher add column world_at integer');
   const presenceCols = d.sql.all<{ name: string }>('pragma table_info(lesson_presence)').map((col) => col.name);
   if (!presenceCols.includes('mic_issue')) d.sql.exec('alter table lesson_presence add column mic_issue text');
   if (!presenceCols.includes('mic_turns')) d.sql.exec('alter table lesson_presence add column mic_turns text');
@@ -520,12 +589,40 @@ export function buildLessonModeApp(
       panel: present ? (t.panel === 'closed' ? 'closed' : 'open') : null
     };
   };
+  /** The teacher's own 3D page beat within TEACHER_PRESENT_MS (and no leave since): the teacher walks with the child. */
+  const teacherInWorld = (lessonId: string, now: number): boolean => {
+    const t = d.sql.get<{ world_at: number | null; left_at: number | null }>('select world_at, left_at from lesson_teacher where lesson_id = ?', [lessonId]);
+    return Boolean(t?.world_at && now - t.world_at <= TEACHER_PRESENT_MS && (t.left_at === null || t.left_at < t.world_at));
+  };
   const stateOf = (id: string) => {
     const s = d.sql.get<{ plan_id: string; stage_id: string; targets: string }>(
       'select plan_id, stage_id, targets from lesson_state where lesson_id = ?',
       [id]
     );
     return s ? { plan_id: s.plan_id, stage_id: s.stage_id, targets: JSON.parse(s.targets) as string[] } : null;
+  };
+  /**
+   * R326 ⑫: own words against the stage's sentences (those on screen first, then the plan's): the highest-star sentence
+   * the words pass, scored with no hint (the child picked nothing). Null when none passes.
+   */
+  const missionMatch = (
+    stage: LessonPlan['stages'][number],
+    shown: readonly string[],
+    transcript: string,
+    level: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6'
+  ): { text: string; stars: number; score: number } | null => {
+    const known = new Map(stage.targets.map((t) => [t.text, t] as const));
+    const list = [...new Set([...shown, ...stage.targets.map((t) => t.text)])].map((text, i) => ({
+      text,
+      stars: (known.get(text)?.stars ?? Math.min(3, i + 1)) as 1 | 2 | 3,
+      hintTags: known.get(text)?.hintTags
+    }));
+    list.sort((a, b) => b.stars - a.stars);
+    for (const t of list) {
+      const r = scoreUtterance({ targetText: t.text, spokenTranscript: transcript, level, hintLevel: 'none', stars: t.stars, hintTags: t.hintTags });
+      if (r.pass) return { text: t.text, stars: Math.min(t.stars, r.starCap), score: r.score };
+    }
+    return null;
   };
   const planStage = (plan: LessonPlan, stageId: string) => plan.stages.find((s) => s.id === stageId);
   const possessedOf = (id: string) =>
@@ -558,6 +655,44 @@ export function buildLessonModeApp(
    * follow-ups are over for `doneStageId`; without it only the passes and the planned minutes count.
    */
   const autoAdvance = (id: string, now: number, done?: { stageId: string }): { from: string; to: string; why: StageAdvanceWhy } | null => {
+    const r = stageReady(id, now, done);
+    if (!r) return null;
+    // the teacher walks with the child in the world: the teacher moves on (stage_hold.ready tells the teacher it is time)
+    if (TEACHER_WORLD_HOLD && teacherInWorld(id, now)) return null;
+    const targets = r.next.targets.map((t) => t.text);
+    d.sql.run('update lesson_state set stage_id = ?, targets = ?, updated_at = ?, child_ms = 0 where lesson_id = ?', [
+      r.next.id,
+      JSON.stringify(targets),
+      now,
+      id
+    ]);
+    logStage(id, r.next.id, now, `auto:${r.why}`);
+    return { from: r.from, to: r.next.id, why: r.why };
+  };
+  /** The child's tries in a stage since it began (R326: the planned minutes need one). */
+  const spokeIn = (id: string, stageId: string, since: number) =>
+    Number(d.sql.get<{ n: number }>('select count(*) as n from utterances where session_id = ? and ctx = ? and created_at >= ?', [id, stageId, since])?.n ?? 0);
+  /** R326: what the child skipped in this lesson (follow-up skips, windows closed with nothing said), for the console. */
+  const skipsOf = (id: string, stageId: string | null) => {
+    const all = d.sql.all<{ at: number; stage_id: string; kind: string; tried: number; question: string }>(
+      'select at, stage_id, kind, tried, question from lesson_skips where lesson_id = ? order by at desc',
+      [id]
+    );
+    const untried = all.filter((r) => !r.tried).length;
+    const here = stageId ? all.filter((r) => r.stage_id === stageId) : [];
+    return {
+      total: all.length,
+      untried,
+      stage: here.length,
+      stage_untried: here.filter((r) => !r.tried).length,
+      // R326 "skip 남용": three skips without a try in one stage, or five in the lesson
+      heavy: here.filter((r) => !r.tried).length >= LESSON_SKIP_HEAVY_STAGE || untried >= LESSON_SKIP_HEAVY_LESSON,
+      recent: all.slice(0, 8).map((r) => ({ at: r.at, stage_id: r.stage_id, kind: r.kind, tried: r.tried === 1, question: r.question }))
+    };
+  };
+  /** Whether the running stage is done by the auto-advance rules (docs/18 §9), and the stage after it. Reads only. */
+  const stageReady = (id: string, now: number, done?: { stageId: string }): { from: string; next: LessonPlan['stages'][number]; why: StageAdvanceWhy } | null => {
+    void now;
     const l = lessonRow(id);
     const st = stateOf(id);
     if (!l || l.ended_at || !st) return null;
@@ -595,18 +730,12 @@ export function buildLessonModeApp(
         )?.n ?? 0
       );
       if (offered > 0 && passed >= need) why = 'passes';
-      else if (stage.minutes > 0 && childMsOf(id) >= stage.minutes * 60_000) why = 'time';
+      // R326 (Dan 11-19 "skip 만 눌러 넘어감"): the planned minutes move a stage on only when the child said something in
+      // it (any try, scored or not). A child who only skips waits for the teacher's 다음 단계 (the console says so).
+      else if (stage.minutes > 0 && childMsOf(id) >= stage.minutes * 60_000 && spokeIn(id, stage.id, entered) > 0) why = 'time';
     }
     if (!why) return null;
-    const targets = next.targets.map((t) => t.text);
-    d.sql.run('update lesson_state set stage_id = ?, targets = ?, updated_at = ?, child_ms = 0 where lesson_id = ?', [
-      next.id,
-      JSON.stringify(targets),
-      now,
-      id
-    ]);
-    logStage(id, next.id, now, `auto:${why}`);
-    return { from: stage.id, to: next.id, why };
+    return { from: stage.id, next, why };
   };
   const stageAt = (id: string, at: number) =>
     d.sql.get<{ stage_id: string }>(
@@ -728,7 +857,9 @@ export function buildLessonModeApp(
   type LiveRow = { seq: number; id: string; at: number; type: string; npc_id: string | null; kind: string | null; text: string };
   const splitLive = (rows: LiveRow[]) => ({
     npc_lines: rows.filter((r) => r.type === 'line').map((r) => ({ id: r.id, seq: r.seq, at: r.at, npc_id: r.npc_id ?? '', text: r.text })),
-    events: rows.filter((r) => r.type === 'event').map((r) => ({ id: r.id, seq: r.seq, at: r.at, kind: r.kind ?? '', detail: r.text }))
+    events: rows.filter((r) => r.type === 'event').map((r) => ({ id: r.id, seq: r.seq, at: r.at, kind: r.kind ?? '', detail: r.text })),
+    // things the teacher handed over (R325): the child's world puts each in hand once (the bag itself is the server's)
+    gifts: rows.filter((r) => r.type === 'gift').map((r) => ({ id: r.id, seq: r.seq, at: r.at, item_key: r.kind ?? '', location: r.text || 'bag' }))
   });
   const maxSeq = (id: string) =>
     Number(d.sql.get<{ s: number | null }>('select max(seq) as s from lesson_live where lesson_id = ?', [id])?.s ?? 0);
@@ -754,7 +885,7 @@ export function buildLessonModeApp(
     const next = rows.length ? rows[rows.length - 1]!.seq : cursor;
     return { ...splitLive(rows.filter((r) => r.at >= now - LESSON_LIVE_MAX_BACKLOG_MS)), cursor: next };
   };
-  const insertLive = (row: { id: string; lessonId: string; at: number; type: 'line' | 'event'; npcId?: string; kind?: string; text: string }) =>
+  const insertLive = (row: { id: string; lessonId: string; at: number; type: 'line' | 'event' | 'gift'; npcId?: string; kind?: string; text: string }) =>
     d.sql.run('insert into lesson_live (id, lesson_id, at, type, npc_id, kind, text) values (?, ?, ?, ?, ?, ?, ?)', [
       row.id,
       row.lessonId,
@@ -1134,6 +1265,7 @@ export function buildLessonModeApp(
       return c.json({ teacher: teacherOf(id, now), left: true, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
     }
     beat(id, now, fromPanel ? p.data.panel : p.data.resume ? 'open' : null, c.req.header('x-lcw-op-session') ?? null, p.data.name);
+    if (p.data.source === 'world') d.sql.run('update lesson_teacher set world_at = ? where lesson_id = ?', [now, id]);
     return c.json({ teacher: teacherOf(id, now), left: false, beat_ms: TEACHER_BEAT_MS, present_ms: TEACHER_PRESENT_MS });
   });
 
@@ -1172,7 +1304,8 @@ export function buildLessonModeApp(
     const at = d.nowMs();
     const lineId = `npc-${hex(d.randomBytes(6))}`;
     insertLive({ id: lineId, lessonId: id, at, type: 'line', npcId: p.data.npc_id, text: p.data.text });
-    setPossessed(id, p.data.npc_id);
+    // the teacher in person speaks as themselves: no NPC is possessed (and one possessed before stays as it was)
+    if (p.data.npc_id !== TEACHER_SPEAKER_ID) setPossessed(id, p.data.npc_id);
     recordMinuteAt(id, at);
     return c.json({ ok: true, id: lineId, at }, 201);
   });
@@ -1324,6 +1457,45 @@ export function buildLessonModeApp(
     return c.json({ ok: true, id: pinId }, 201);
   });
 
+  const tradesOf = (id: string, limit: number) =>
+    d.sql
+      .all<{ client_id: string; at: number; kind: string; get_key: string | null; give_key: string | null; target_text: string; transcript: string; stars: number; ok: number; reason: string | null }>(
+        'select client_id, at, kind, get_key, give_key, target_text, transcript, stars, ok, reason from lesson_trades where lesson_id = ? order by at desc limit ?',
+        [id, limit]
+      )
+      .map((t) => ({ ...t, ok: t.ok === 1 }));
+
+  /**
+   * The teacher hands one of the teacher's things to the child (R325, console or the teacher's 3D page): no sentence
+   * needed. One client_id = one gift (a double tap or a resend gives one thing). The child's world puts it in hand
+   * (state `gifts`) and the teacher's line says so.
+   */
+  app.post('/v1/admin/lessons/:id/give', async (c) => {
+    const id = c.req.param('id');
+    const l = lessonRow(id);
+    if (!l) return c.json({ error: 'lesson_not_found' }, 404);
+    const p = GiveSchema.safeParse(await c.req.json().catch(() => null));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    if (l.ended_at) return c.json({ error: 'lesson_ended' }, 409);
+    if (!d.trades) return c.json({ error: 'trades_unavailable' }, 503);
+    const seen = d.sql.get<{ response: string }>('select response from lesson_trades where lesson_id = ? and client_id = ?', [id, p.data.client_id]);
+    if (seen?.response) return c.json({ ...(JSON.parse(seen.response) as object), replayed: true });
+    const now = d.nowMs();
+    const r = d.trades.apply({ playerId: l.player_id, lessonId: id, tradeId: `${id}-${p.data.client_id}`, giveItemId: null, getKey: p.data.item_key, nowMs: now });
+    if (!r.ok) return c.json({ error: r.reason }, 409);
+    const line = giftLineEn(p.data.item_key);
+    insertLive({ id: `npc-${hex(d.randomBytes(6))}`, lessonId: id, at: now, type: 'line', npcId: TEACHER_SPEAKER_ID, text: line });
+    // text = where it landed (bag, or chest when the bag is full): the child's hand only takes a bag thing
+    insertLive({ id: `gift-${hex(d.randomBytes(6))}`, lessonId: id, at: now, type: 'gift', kind: p.data.item_key, text: r.got_location ?? 'bag' });
+    recordMinuteAt(id, now);
+    const answer = { ok: true, item_key: p.data.item_key, item_id: r.got_item_id, location: r.got_location, line };
+    d.sql.run(
+      "insert into lesson_trades (lesson_id, client_id, player_id, at, kind, get_key, ok, response) values (?, ?, ?, ?, 'gift', ?, 1, ?)",
+      [id, p.data.client_id, l.player_id, now, p.data.item_key, JSON.stringify(answer)]
+    );
+    return c.json(answer, 201);
+  });
+
   app.get('/v1/admin/lessons/:id/feed', (c) => {
     const id = c.req.param('id');
     const l = lessonRow(id);
@@ -1420,6 +1592,27 @@ export function buildLessonModeApp(
       },
       // What the child's world says about the teacher right now (the console's own heartbeat, read back).
       teacher: teacherOf(id, now),
+      // R325: the teacher walks with the child (3D page beat) and holds the stages; `ready` = the auto rules say the
+      // running stage is done (passes, follow-ups, minutes): the teacher's cue for "다음 단계로".
+      stage_hold: (() => {
+        const held = TEACHER_WORLD_HOLD && !l.ended_at && teacherInWorld(id, now);
+        const r = l.ended_at ? null : stageReady(id, now);
+        const st = stateOf(id);
+        // R326: the stage's minutes are up but the child has not said anything: only the teacher moves it on
+        const quiet = (() => {
+          if (l.ended_at || r || !st) return false;
+          const stage = planStage(getLessonPlan(st.plan_id), st.stage_id);
+          if (!stage || stage.minutes <= 0 || childMsOf(id) < stage.minutes * 60_000) return false;
+          return spokeIn(id, stage.id, stageEnteredAt(id, stage.id, l.started_at)) === 0;
+        })();
+        return { held, ready: r ? r.why : null, next_stage_id: r ? r.next.id : null, quiet };
+      })(),
+      // R326: skips (follow-ups skipped, windows closed with nothing said), newest first; heavy = 남용 warning
+      skips: skipsOf(id, stateOf(id)?.stage_id ?? null),
+      // Trades with the teacher in this lesson, newest first (R325): what the child said and what moved.
+      trades: tradesOf(id, 20),
+      // The child's own world look (season, sky, animal friend) for the teacher's 3D page (R2588).
+      world_look: d.worldLook ? d.worldLook(l.player_id) : null,
       server_now: now
     });
   });
@@ -1762,7 +1955,7 @@ export function buildLessonModeApp(
   const student = (req: Request) => studentFromRequest(d, req);
   const lessonStarsOf = (lessonId: string, playerId: string): number =>
     Number(
-      d.sql.get<{ n: number | null }>('select coalesce(sum(stars), 0) as n from utterances where session_id = ? and player_id = ?', [
+      d.sql.get<{ n: number | null }>("select coalesce(sum(stars), 0) as n from utterances where session_id = ? and player_id = ? and ctx <> 'trade'", [
         lessonId,
         playerId
       ])?.n ?? 0
@@ -1827,6 +2020,8 @@ export function buildLessonModeApp(
       possessed_npc_id: possessedOf(s.lesson_id),
       npc_lines: live.npc_lines,
       events: live.events,
+      // things the teacher handed over since the cursor (R325): the world puts each in hand once
+      gifts: live.gifts,
       cursor: live.cursor,
       ended: Boolean(l?.ended_at),
       // The child's one coin balance (home-world ledger), so the 3D HUD and /join show it from the first poll.
@@ -1845,7 +2040,7 @@ export function buildLessonModeApp(
       // The teacher's newest line as the stage NPC in this stage, however old: after a reload the first poll only
       // carries the last 20 s of lines, and the dialog window must still open with the follow-up, not the script.
       // Whether a teacher is with the child now (console heartbeat): the world shows a teacher tag, or "혼자 놀기".
-      teacher: (({ present, name, since }) => ({ present, name, since }))(teacherOf(s.lesson_id, now)),
+      teacher: (({ present, name, since }) => ({ present, name, since, in_world: teacherInWorld(s.lesson_id, now) }))(teacherOf(s.lesson_id, now)),
       stage_last_line_en:
         stageStartedAt === null
           ? null
@@ -1866,6 +2061,162 @@ export function buildLessonModeApp(
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
     const advanced = autoAdvance(s.lesson_id, d.nowMs(), { stageId: p.data.stage_id });
     return c.json({ ok: true, auto_advanced: advanced, stage_id: stateOf(s.lesson_id)?.stage_id ?? null });
+  });
+
+  /**
+   * R326: the child skipped a follow-up or closed the window with nothing said. Logged once per client_id for the
+   * console; never moves a stage, never pays.
+   */
+  app.post('/v1/lesson/skip', async (c) => {
+    const s = await student(c.req.raw);
+    if (!s) return c.json({ error: 'student_only' }, 401);
+    const p = SkipSchema.safeParse(await c.req.json().catch(() => null));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const l = lessonRow(s.lesson_id);
+    if (!l || l.ended_at) return c.json({ error: 'lesson_ended' }, 409);
+    d.sql.run('insert or ignore into lesson_skips (lesson_id, client_id, at, stage_id, kind, tried, question) values (?, ?, ?, ?, ?, ?, ?)', [
+      s.lesson_id,
+      p.data.client_id,
+      d.nowMs(),
+      p.data.stage_id,
+      p.data.kind,
+      p.data.tried ? 1 : 0,
+      p.data.question
+    ]);
+    const n = Number(d.sql.get<{ n: number }>('select count(*) as n from lesson_skips where lesson_id = ?', [s.lesson_id])?.n ?? 0);
+    return c.json({ ok: true, skips: n });
+  });
+
+  /**
+   * What the child can trade with the teacher (R325): the teacher's things (content, never run out) and the child's own
+   * things that can be handed over (home world). The trade window asks this when it opens.
+   */
+  app.get('/v1/lesson/trade', async (c) => {
+    const s = await student(c.req.raw);
+    if (!s) return c.json({ error: 'student_only' }, 401);
+    const l = lessonRow(s.lesson_id);
+    return c.json({ stock: TEACHER_STOCK, owned: d.trades ? d.trades.owned(s.player_id) : [], trades: tradesOf(s.lesson_id, 5), ended: Boolean(l?.ended_at) });
+  });
+
+  /**
+   * A trade with the teacher (R325): the child says one of this trade's sentences (tradeOffers); the server scores it
+   * like a lesson sentence and only a pass moves the things. One client_id = one trade (a lost answer or a resend never
+   * moves things twice). Stored as a lesson utterance with ctx 'trade' (the lesson's talk, never a stage pass: the
+   * auto-advance counts ctx = the stage id) and as a lesson_trades row the console lists.
+   */
+  app.post('/v1/lesson/trade', async (c) => {
+    const s = await student(c.req.raw);
+    if (!s) return c.json({ error: 'student_only' }, 401);
+    const p = TradeSchema.safeParse(await c.req.json().catch(() => null));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const u = p.data;
+    const l = lessonRow(s.lesson_id);
+    if (!l || l.ended_at) return c.json({ error: 'lesson_ended' }, 409);
+    if (!d.trades) return c.json({ error: 'trades_unavailable' }, 503);
+    const seen = d.sql.get<{ response: string; ok: number }>('select response, ok from lesson_trades where lesson_id = ? and client_id = ?', [s.lesson_id, u.client_id]);
+    if (seen?.response) return c.json({ ...(JSON.parse(seen.response) as object), replayed: true });
+    // one trade per dialog window (review R326: "one more star" in the same window gave a second lantern)
+    if (u.window_id) {
+      const won = d.sql.get<{ response: string }>("select response from lesson_trades where lesson_id = ? and window_id = ? and kind = 'trade' and ok = 1", [s.lesson_id, u.window_id]);
+      if (won?.response) return c.json({ ...(JSON.parse(won.response) as object), replayed: true });
+    }
+    const count = Number(d.sql.get<{ n: number }>("select count(*) as n from lesson_trades where lesson_id = ? and kind = 'trade' and ok = 1", [s.lesson_id])?.n ?? 0);
+    if (count >= LESSON_TRADES_MAX) return c.json({ error: 'too_many_trades' }, 429);
+    // tries are bounded too (each one is a stored talk row)
+    const tries = Number(d.sql.get<{ n: number }>("select count(*) as n from lesson_trades where lesson_id = ? and kind = 'trade'", [s.lesson_id])?.n ?? 0);
+    if (tries >= LESSON_TRADES_MAX * 4) return c.json({ error: 'too_many_trades' }, 429);
+    // the thing the child offers must be the child's own, and the sentence one of this trade's
+    let giveKey: string | null = null;
+    if (u.give_item_id) {
+      const own = d.trades.owned(s.player_id).find((x) => x.item_id === u.give_item_id);
+      if (!own) return c.json({ error: 'item_not_owned' }, 409);
+      giveKey = own.item_key;
+    }
+    if (!u.get_key && !giveKey) return c.json({ error: 'nothing_to_trade' }, 400);
+    const level = (d.sql.get<{ level: string }>('select level from players where id = ?', [s.player_id])?.level ?? 'L1') as 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
+    const offers = tradeOffers({ getKey: u.get_key, giveKey, level });
+    // R326 ⑫: own words (no sentence picked) count as the highest-star trade sentence they pass with no hint
+    const own = !u.target_text
+      ? [...offers]
+          .sort((a, b) => b.stars - a.stars)
+          .find((o) => scoreUtterance({ targetText: o.text, spokenTranscript: u.transcript, level, hintLevel: 'none', stars: o.stars, hintTags: o.hintTags }).pass)
+      : undefined;
+    const offer = own ?? offers.find((o) => o.text === u.target_text);
+    if (!offer && u.target_text) return c.json({ error: 'not_a_trade_sentence', offers: offers.map((o) => o.text) }, 400);
+    if (!offer) {
+      // own words that carry no trade sentence: no trade, the teacher's answer says how (stored for a resend)
+      const answer = {
+        pass: false,
+        score: 0,
+        stars: 0,
+        feedback_ko: tradeNotUnderstood(offers[0]!.text).ko,
+        feedback_en: tradeNotUnderstood(offers[0]!.text).en,
+        coins_total: d.coins ? d.coins.balance(s.player_id) : 0,
+        lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
+        trade: { done: false, get_key: u.get_key, give_key: giveKey, item_id: null, location: null, reason: 'not_understood' }
+      };
+      return c.json(answer);
+    }
+    const now = d.nowMs();
+    const chosen = own ? own.stars : u.chosen_stars;
+    const r = scoreUtterance({ targetText: offer.text, spokenTranscript: u.transcript, level, hintLevel: own ? 'none' : u.hint_level, stars: chosen, hintTags: offer.hintTags });
+    let stars = r.pass ? Math.min(chosen, r.starCap) : 0;
+    const typedCapped = TYPED_INPUT_SOURCES.has(u.stt_source) && stars > TYPED_INPUT_MAX_STARS;
+    if (typedCapped) stars = TYPED_INPUT_MAX_STARS;
+    const uttId = `utt-${s.lesson_id}-${now}-${hex(d.randomBytes(3))}`;
+    d.db.logUtterance({
+      id: uttId,
+      player_id: s.player_id,
+      world_id: 'lesson-mode',
+      session_id: s.lesson_id,
+      session_kind: 'lesson',
+      ctx: 'trade',
+      mode: 'guided',
+      interlocutor: 'teacher',
+      first_text: u.transcript,
+      target_text: offer.text,
+      final_text: u.transcript,
+      words: wordsOf(u.transcript),
+      l1_words: (u.transcript.match(/[가-힣]+/g) ?? []).length,
+      dur_ms: u.dur_ms,
+      latency_ms: u.latency_ms,
+      stars,
+      hint_level: u.hint_level,
+      attempts: 1,
+      score: r.score,
+      confidence: u.confidence,
+      source: u.stt_source,
+      audio_first: null,
+      audio_final: null,
+      created_at: now
+    });
+    recordMinuteAt(s.lesson_id, now);
+    let moved: { got_item_id: string | null; got_location: 'bag' | 'chest' | null } | null = null;
+    let reason: string | null = null;
+    if (r.pass) {
+      const a = d.trades.apply({ playerId: s.player_id, lessonId: s.lesson_id, tradeId: `${s.lesson_id}-${u.client_id}`, giveItemId: u.give_item_id, getKey: u.get_key, nowMs: now });
+      if (a.ok) moved = { got_item_id: a.got_item_id, got_location: a.got_location };
+      else reason = a.reason;
+    }
+    const reply = moved ? tradeReplyEn({ getKey: u.get_key, giveKey }) : null;
+    if (reply) insertLive({ id: `npc-${hex(d.randomBytes(6))}`, lessonId: s.lesson_id, at: now, type: 'line', npcId: TEACHER_SPEAKER_ID, text: reply });
+    const fb = feedbackOf({ pass: r.pass, stars, chosen, capped: r.pass && r.starCap < chosen, mode: 'guided', coreMissed: r.coreTotal > 0 && r.coreMatchRate === 0, typedCapped, repeat: false });
+    const answer = {
+      pass: r.pass,
+      score: Math.round(r.score * 1000) / 1000,
+      stars,
+      ...fb,
+      ...(reply ? { feedback_en: reply } : {}),
+      coins_total: d.coins ? d.coins.balance(s.player_id) : 0,
+      lesson_stars: lessonStarsOf(s.lesson_id, s.player_id),
+      trade: { done: Boolean(moved), get_key: moved ? u.get_key : null, give_key: moved ? giveKey : null, item_id: moved?.got_item_id ?? null, location: moved?.got_location ?? null, reason }
+    };
+    d.sql.run(
+      `insert or replace into lesson_trades (lesson_id, client_id, player_id, at, kind, get_key, give_item_id, give_key, target_text, transcript, stars, ok, reason, response, window_id)
+       values (?, ?, ?, ?, 'trade', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [s.lesson_id, u.client_id, s.player_id, now, u.get_key, u.give_item_id, giveKey, offer.text, u.transcript, stars, moved ? 1 : 0, reason, JSON.stringify(answer), u.window_id ?? null]
+    );
+    return c.json(answer);
   });
 
   app.post('/v1/lesson/utterance', async (c) => {
@@ -1927,7 +2278,16 @@ export function buildLessonModeApp(
     let stars: number;
     let capped = false;
     let coreMissed = false;
-    if (mode === 'free' || !u.target_text) {
+    // R326 ⑫ (Dan 11-19 "억지 교육"): the child talks in their own words (no target picked). In a guided stage what
+    // they said still does the stage's mission when it carries one of the stage's sentences (scored like that sentence, best stars first);
+    // anything else is free talk, scored by how much was said. The row keeps the sentence it matched.
+    const mission = !u.target_text && stage && mode !== 'free' ? missionMatch(stage, answered ? [] : (st?.targets ?? []), u.transcript, level) : null;
+    const targetText = u.target_text || mission?.text || '';
+    if (mission) {
+      pass = true;
+      score = mission.score;
+      stars = mission.stars;
+    } else if (mode === 'free' || !targetText) {
       const f = scoreFreeTalk(u.transcript);
       ({ pass, score, stars } = f);
     } else {
@@ -1955,7 +2315,7 @@ export function buildLessonModeApp(
       'select target_text, final_text as transcript, stars from utterances where session_id = ? and player_id = ? and ctx = ? and stars > 0',
       [s.lesson_id, s.player_id, stage?.id ?? 'lesson']
     );
-    const once = starsOnce(passedBefore, { pass, stars, targetText: u.target_text, transcript: u.transcript });
+    const once = starsOnce(passedBefore, { pass, stars, targetText, transcript: u.transcript });
     const shownStars = once.repeat ? 0 : stars;
     // the sentence's own quality (a memory card is graded by how well it was said, not by what it added)
     const earnedStars = stars;
@@ -1972,7 +2332,7 @@ export function buildLessonModeApp(
       // Fixed at arrival: with the teacher present (console heartbeat) 'teacher', the child alone 'self'.
       interlocutor: teacherOf(s.lesson_id, now).present ? 'teacher' : 'self',
       first_text: u.transcript,
-      target_text: u.target_text,
+      target_text: targetText,
       final_text: u.transcript,
       words: wordsOf(u.transcript),
       l1_words: (u.transcript.match(/[가-힣]+/g) ?? []).length,
@@ -2000,9 +2360,9 @@ export function buildLessonModeApp(
     // WP-310: a lesson line passed with 2+ stars becomes a memory card (one per lesson and sentence), reviewed later
     // in solo play like any other card (dialog domain, review.ts).
     // a repeat adds nothing: the card keeps the utterance that earned it
-    if (pass && u.target_text && !once.repeat) {
+    if (pass && targetText && !once.repeat) {
       createMemoryCard(d.db, {
-        cardId: `mc-${s.lesson_id}-${bankTextKey(u.target_text).replace(/[^a-z0-9]+/g, '-').slice(0, 60)}`,
+        cardId: `mc-${s.lesson_id}-${bankTextKey(targetText).replace(/[^a-z0-9]+/g, '-').slice(0, 60)}`,
         playerId: s.player_id,
         utteranceId: uttId,
         itemId: `lesson-${uttId}|${stage?.id ?? 'lesson'}`,
@@ -2022,9 +2382,11 @@ export function buildLessonModeApp(
       // What this answer earned on screen: a top-up shows its own stars (the row keeps the difference), a repeat 0.
       stars: shownStars,
       ...(once.repeat ? { repeat: true } : {}),
+      // R326 ⑫: own words that did the stage's mission (the sentence they matched)
+      ...(mission ? { mission_text: mission.text } : {}),
       // The child's screen shows feedback_en (the Korean only as the help line); a resend of an answer stored before
       // feedback_en existed finds it from the Korean line (feedbackEnFromKo).
-      ...feedbackOf({ pass, stars: shownStars, chosen: u.chosen_stars, capped, mode, coreMissed, typedCapped, repeat: once.repeat }),
+      ...feedbackOf({ pass, stars: shownStars, chosen: mission ? mission.stars as 1 | 2 | 3 : u.chosen_stars, capped, mode: targetText ? mode : 'free', coreMissed, typedCapped, repeat: once.repeat }),
       coins_total: coinsTotal,
       // This lesson's star sum right after this answer was stored: the HUD chip takes it as is (adding the answer's
       // stars to its own count could count one twice when a poll lands between the store and this answer).

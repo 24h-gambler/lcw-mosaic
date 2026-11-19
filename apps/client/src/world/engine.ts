@@ -4,18 +4,18 @@
  */
 import * as THREE from 'three';
 import { drawState } from './draw-state.js';
-import { VoxelWorld, parseRef } from '@lcw/sim-core';
+import { TUNING, VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
-import { TILE_NAMES, blockLook } from './blocks.js';
+import { TILE_NAMES, blockLook, collideHeight } from './blocks.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import { ChunkRenderer } from './chunks.js';
 import { makeBlockMaterials } from './materials.js';
 import { AutoTierPicker, ResolutionGovernor, TIER_SETTINGS, graphicsFor } from './tiers.js';
 import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
-import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, makeJumpView, pickVoxel, raycastDistance, stepBody, stepJumpView, type Body, type MoveIntent } from './physics.js';
+import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, pickVoxel, raycastDistance, stepBody, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
 import { Storefronts } from './storefront.js';
 import { MINIMAP_AREA, Wayfinder, minimapSteps, type MapPerson } from './wayfinding.js';
@@ -24,7 +24,7 @@ import { tileAverageColor } from './atlas.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels, worldSay } from './strings.js';
 import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
@@ -36,7 +36,7 @@ import { PeerAvatars, peerLook } from './peers.js';
 import { Buddy } from './buddy.js';
 import { SeasonWeather } from './season.js';
 import { TEACHER_NPC_ID, disposePlate, makePlate, pickableNpc, plateText, teacherDef, teacherTarget } from './visitor.js';
-import { WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
+import { BLOCK_PALETTE, WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
 import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
@@ -405,8 +405,70 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     wayfinder.setGround(ground, MINIMAP_AREA.x1 - MINIMAP_AREA.x0, MINIMAP_AREA.z1 - MINIMAP_AREA.z0);
   }
   /** people to talk to on the minimap (read by the wayfinder at its own pace, not per frame) */
-  const mapPeople = (): MapPerson[] =>
-    [...npcs.values()].filter((n) => n.char.root.visible && n.def.id !== TEACHER_NPC_ID).map((n) => ({ id: n.def.id, x: n.pos.x, z: n.pos.z }));
+  /** R325 warmth gauge: blocks that are cold to stand on and blocks that warm (by key: the ids stay in @lcw/content) */
+  const blockIds = (keys: readonly string[]): ReadonlySet<number> => new Set(BLOCK_PALETTE.filter((b) => keys.includes(b.key)).map((b) => b.id));
+  const COLD_BLOCKS = blockIds(['snow_block', 'ice_brick']);
+  const FIRE_BLOCKS = blockIds(['torch', 'lantern']);
+  /** someone came into the room: say who, and where to look (the minimap pin) */
+  const greeted = new Set<string>();
+  /** a small room (two, three people): a class room of many children gets no line per child and no pins (review R325) */
+  const FRIEND_ROOM_MAX = 3;
+  const sayFriendHere = (id: string, name: string, role: string): void => {
+    if (role === 'bot' || disposed || greeted.has(id)) return;
+    greeted.add(id);
+    if (peers.count > FRIEND_ROOM_MAX) return;
+    const who = name.trim() || W.friendDefault;
+    const s = worldSay('friendHere');
+    const line = (t: string): string => t.replace('{name}', who);
+    hud.notice(s.help ? `${line(s.text)}
+${line(s.help)}` : line(s.text), 4000);
+  };
+  /**
+   * R325: everyone starts on the same spawn spot, so two people met inside each other (first person: inside a head).
+   * Once after someone joins or play starts (the title closes): when the other stands within a metre, the one of the two
+   * with the larger room id (one of them only, else both would move) steps 2.2 m ahead and turns round to face them, or
+   * back / to a side when the front is a wall or a drop. Waits while a dialog or a card holds the world or the world
+   * walks the child; gives up after ASIDE_WAIT_MS (not a teleport every time two friends walk close later).
+   */
+  const ASIDE_WAIT_MS = 10_000;
+  let myRoomId = '';
+  let asideUntil = 0;
+  const clearBetween = (ox: number, oz: number, x: number, z: number, y: number): boolean => {
+    for (let i = 1; i <= 4; i++) {
+      const bx = Math.floor(ox + ((x - ox) * i) / 4);
+      const bz = Math.floor(oz + ((z - oz) * i) / 4);
+      for (let dy = 0; dy < 2; dy++) {
+        const id = world.getBlock(bx, Math.floor(y + 0.05) + dy, bz);
+        if (id !== 0 && collideHeight(id) > 0.5) return false;
+      }
+    }
+    return true;
+  };
+  const stepAsideIfOnPeer = (): void => {
+    if (!peers.anyWithin(body.x, body.z, 1, myRoomId)) return;
+    asideUntil = 0;
+    const fx = Math.sin(camYaw);
+    const fz = Math.cos(camYaw);
+    const ox = body.x;
+    const oz = body.z;
+    for (const [f, r] of [[2.2, 0], [-2.2, 0], [0, 1.8], [0, -1.8]] as const) {
+      const x = ox + fx * f - fz * r;
+      const z = oz + fz * f + fx * r;
+      const y = standHeight(world, x, z, Math.ceil(body.y) + 2);
+      if (Math.abs(y - body.y) > 1.01 || !clearBetween(ox, oz, x, z, Math.max(y, body.y))) continue;
+      body.x = x;
+      body.z = z;
+      body.y = y;
+      body.vx = body.vz = 0;
+      playerYaw = camYaw = Math.atan2(ox - x, oz - z);
+      return;
+    }
+  };
+  const mapPeople = (): MapPerson[] => [
+    ...[...npcs.values()].filter((n) => n.char.root.visible && n.def.id !== TEACHER_NPC_ID).map((n) => ({ id: n.def.id, x: n.pos.x, z: n.pos.z })),
+    // the others in the multi room (R325: two people could not find each other)
+    ...(peers.count > FRIEND_ROOM_MAX ? [] : peers.placed()).map((p) => ({ id: `peer:${p.id}`, x: p.x, z: p.z, friend: { initial: ([...(p.name || '?').trim()][0] ?? '?').toUpperCase() } }))
+  ];
   await yieldToMain();
 
   // ---- State.
@@ -508,6 +570,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const holdListeners = new Set<(itemKey: string) => void>();
   // picking the slot that is already in hand uses the thing (eat, drink: G01 gauges, frame/gauges.ts)
   const useListeners = new Set<(itemKey: string) => void>();
+  /** R325: falls the child's own movement ended (health gauge), and the teacher's snowstorm (warmth gauge) */
+  const fallListeners = new Set<(meters: number) => void>();
+  let fallTop = Number.NaN;
+  let fallLastX = 0;
+  let fallLastY = 0;
+  let fallLastZ = 0;
   let lastPicked = -1;
   const slotPicked = (i: number): void => {
     const k = hotbar[i];
@@ -1171,7 +1239,6 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const camPos = new THREE.Vector3();
   const camLook = new THREE.Vector3();
   let camInit = false;
-  const jumpView = makeJumpView();
   /** Where the dialog NPC's face lands on screen (CSS px), for the headless framing check. */
   const dialogShotStats = (): { npc: string; face: [number, number] } | null => {
     if (!paused || !focusNpc) return null;
@@ -1179,9 +1246,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     return { npc: focusNpc.def.id, face: [Math.round(((v.x + 1) / 2) * viewW), Math.round(((1 - v.y) / 2) * viewH)] };
   };
   const updateCamera = (dt: number): void => {
-    // R2625 ①: a jump does not throw the view up and down. The view keeps the height it took off from and follows the
-    // body only a little; landing higher eases it up, dropping lower follows at once (never above the real eye).
-    const viewY = stepJumpView(jumpView, body.y + body.stepOffset, body.onGround, dt);
+    // R325 (Dan 11-19): the view rides with the body through a jump, the way the reference sandbox does. The 15%
+    // follow of R2625 left the eye near the take-off height (0.17 m of a 1.1 m jump: "점프를 높이 안 하는 느낌") and,
+    // landing on a block, lifted it ~0.85 m in the 0.1-0.2 s after the feet stopped (the jolt read as shaking). The
+    // per-frame wobble came from one Euler step per frame; physics.ts now moves the body in fixed 1/120 s steps.
+    // Step-ups (stairs, slabs) still ease through stepOffset.
+    const viewY = body.y + body.stepOffset;
     const headY = viewY + 1.45;
     camTarget.set(body.x, headY, body.z);
     let wantPos: THREE.Vector3;
@@ -1526,6 +1596,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     const pushers = [...npcs.values()].filter((n) => n.def.id !== TEACHER_NPC_ID).map((n) => ({ x: n.pos.x, z: n.pos.z, r: npcRing }));
     const preVy = body.vy;
     const preY = body.y;
+    // moved by something other than physics since the last frame (scene change, teleport, a rescue): not a fall
+    if (Math.abs(body.x - fallLastX) + Math.abs(body.z - fallLastZ) > 2 || Math.abs(body.y - fallLastY) > 2) fallTop = Number.NaN;
     // the world's own walks (walk buttons, scene arrivals) still climb a whole block so they never get stuck
     const walking = autopilot.length > 0;
     const stepMax = autoJump || walking ? STEP_UP_MAX : STEP_UP_SMALL;
@@ -1535,6 +1607,17 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       sfx.play('body.jump');
     } else if (!intent.jump && wasGround && !body.onGround && body.vy > 0) counts.unpressedJumps++;
     if (!wasGround && body.onGround && preVy < -6) sfx.play('body.land');
+    // R325 health: the highest point of this time in the air; on landing, the drop goes to the gauges (a walk the world
+    // does is not the child's fall; a scene change or a teleport resets it above)
+    if (!body.onGround) fallTop = Number.isFinite(fallTop) ? Math.max(fallTop, body.y) : Math.max(preY, body.y);
+    else if (Number.isFinite(fallTop)) {
+      const drop = fallTop - body.y;
+      fallTop = Number.NaN;
+      if (!walking && !paused && drop > 0 && drop < 64) for (const cb of fallListeners) cb(drop);
+    }
+    fallLastX = body.x;
+    fallLastY = body.y;
+    fallLastZ = body.z;
     const speed = Math.hypot(body.vx, body.vz);
     if (speed > 0.4) {
       const want = Math.atan2(body.vx, body.vz);
@@ -1676,6 +1759,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       hud.placePlate(p.sx, p.sy, p.vis && camMode !== 'first');
     }
     if (peers.count > 0) peers.update(dt, project, viewDistance, player.root.position, true);
+    if (now < asideUntil && peers.count > 0 && !paused && !attract && autopilot.length === 0) stepAsideIfOnPeer();
     hud.flushBubbles();
     // R2625 ⑤: the talk prompt stays for the NPC to talk to next and for NPCs not met yet in this visit; one already
     // talked to keeps quiet (E and a tap still open the talk), so the same button does not pop up at every corner.
@@ -1899,6 +1983,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       if (attract === on) return;
       attract = on;
       attractT = 0;
+      // play starts on the spawn spot: check once more for someone standing on it (R325)
+      if (!on) asideUntil = performance.now() + ASIDE_WAIT_MS;
       input.keys.clear();
       // Hidden and see-through: a bubble that sets its own visibility still does not show over the title.
       const hudEl = opts.hudRoot ?? hud.root;
@@ -2077,6 +2163,27 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       return () => useListeners.delete(cb);
     },
     setGauges: (g) => hud.setGauges(g),
+    onFall: (cb) => {
+      fallListeners.add(cb);
+      return () => fallListeners.delete(cb);
+    },
+    climate: () => {
+      const fx = Math.floor(body.x);
+      const fz = Math.floor(body.z);
+      const fy = Math.floor(body.y + 0.01);
+      const r = TUNING.gauges.fireRadius;
+      let fire = false;
+      for (let y = fy - 1; y <= fy + 2 && !fire; y++)
+        for (let z = fz - r; z <= fz + r && !fire; z++) for (let x = fx - r; x <= fx + r && !fire; x++) fire = FIRE_BLOCKS.has(world.getBlock(x, y, z));
+      let roof = false;
+      for (let y = fy + 2; y <= fy + 14 && !roof; y++) {
+        const id = world.getBlock(fx, y, fz);
+        if (id !== 0 && collideHeight(id) > 0) roof = true;
+      }
+      const under = world.getBlock(fx, Math.floor(body.y - 0.05), fz);
+      const cold: 0 | 1 | 2 = weather?.season === 'winter' || COLD_BLOCKS.has(under) ? 1 : 0;
+      return { cold, fire, roof };
+    },
     setMove: (mult, run) => {
       moveMult = Math.min(1, Math.max(0.3, Number.isFinite(mult) ? mult : 1));
       canRun = run;
@@ -2123,14 +2230,20 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       return [body.x, body.y + body.stepOffset, body.z, wrapAngle(playerYaw), anim];
     },
     multi: {
-      hello(_you, list) {
+      hello(you, list) {
         peers.clear();
         for (const p of list) peers.add({ id: p.id, name: p.name, role: p.role }, p.pose);
         syncTeacherFigure();
+        myRoomId = you;
+        asideUntil = performance.now() + ASIDE_WAIT_MS;
+        // a reconnect says nothing again (greeted keeps who was already said)
+        for (const p of list) sayFriendHere(p.id, p.name, p.role);
       },
       join(id, name, role) {
         peers.add({ id, name, role });
         syncTeacherFigure();
+        asideUntil = performance.now() + ASIDE_WAIT_MS;
+        sayFriendHere(id, name, role);
       },
       leave(id) {
         peers.remove(id);

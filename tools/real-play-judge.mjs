@@ -5,7 +5,7 @@
 // What a night run must show on production (smoke students only), and why:
 //   no jump the child did not press, no whole-block climb with auto jump off   R2625 ②
 //   every click/tap and E / talk button opened the right NPC's dialog           R2625 ③④
-//   a pressed jump lifts the first-person view a little, not with the body     R2625 ①
+//   a pressed jump lifts the view with the body, over a block high             R325 (was R2625 ① 15% follow)
 //   the errand chain ends done                                                  errand loop
 //   the hill ramp walks up by keys / stick with no jump                         R2625 (half-step ramp)
 //   in a lesson the lesson NPC reopens the folded window by click and E,
@@ -13,8 +13,13 @@
 //   no page error and no failed request (cached-only voice 404s are by design and counted apart)
 
 export const PLAY_ROUTE = '/world/';
-/** the view may follow a pressed jump this much (JUMP_VIEW_FOLLOW 0.15 of a ~1.2 m rise is ~0.18 m) */
-export const MAX_JUMP_CAM_RISE = 0.3;
+/**
+ * R325 (Dan 11-19 "점프를 높이 안 하는 느낌"): the view rides with the body (the R2625 15% follow felt like no jump and
+ * jolted on landing). Both are sampled at the same moments, so the ratio holds on a slow headless run too.
+ */
+export const MIN_JUMP_CAM_FOLLOW = 0.8;
+/** a pressed jump lifts the feet at least this much (physics.ts peaks at ~1.35 m; sampling every 40 ms can miss the top) */
+export const MIN_JUMP_RISE = 1.1;
 
 const ratio = (s) => {
   const m = /^(\d+)\/(\d+)$/.exec(String(s ?? ''));
@@ -66,8 +71,10 @@ export function judgeView(r) {
     if (!missedOnly) add('key-talk', `E·말하기 버튼 대화를 한 번도 못 해 봄 (${r.keySuccess ?? '없음'})`);
   } else if (key.ok < key.tried) add('key-talk', `E·말하기 버튼 대화 ${r.keySuccess}`);
   if ((r.wrongNpc ?? 0) > 0) add('wrong-npc', `다른 NPC 대화가 열림 ${r.wrongNpc}번`);
-  const high = (r.jumpView ?? []).filter((j) => j.bodyRise > 0.5 && j.camRise > MAX_JUMP_CAM_RISE);
-  if (high.length) add('jump-view', `점프 때 시점이 ${high.map((j) => `${j.camRise}/${j.bodyRise}m`).join(', ')} 올라감 (한도 ${MAX_JUMP_CAM_RISE}m)`);
+  const lagging = (r.jumpView ?? []).filter((j) => j.bodyRise > 0.5 && j.camRise < j.bodyRise * MIN_JUMP_CAM_FOLLOW);
+  if (lagging.length) add('jump-view', `점프 때 시점이 몸을 안 따라감 ${lagging.map((j) => `${j.camRise}/${j.bodyRise}m`).join(', ')} (${MIN_JUMP_CAM_FOLLOW * 100}% 미만)`);
+  const low = (r.jumpView ?? []).filter((j) => j.bodyRise < MIN_JUMP_RISE);
+  if (low.length) add('jump-view', `점프가 낮음 ${low.map((j) => `${j.bodyRise}m`).join(', ')} (${MIN_JUMP_RISE}m 미만)`);
   if (!(r.jumpView ?? []).length) add('jump-view', '점프 시점 측정 없음');
   if (r.errand?.state !== 'done') add('errand', `심부름이 끝나지 않음 (${r.errand?.state ?? r.errand?.status ?? '?'})`);
   const h = r.hill;

@@ -251,6 +251,17 @@ export interface RoomTicketDeps {
   isOperator: (req: Request) => boolean;
   /** player → nickname and family (who the others see, which family room) */
   player: (playerId: string) => { nickname: string; family_id: string } | null;
+  /**
+   * R325 (Dan 11-19 "둘이서 하기 힘들다"): the family whose room this child plays in when it is not their own. A Duo
+   * seat's two children may be from two families (docs/01 "Duo의 두 좌석은 가족이 아니어도 됩니다") and each sat alone
+   * in their own family room; both now meet in the payer's family room. null = their own family.
+   */
+  playFamily?: (playerId: string) => string | null;
+  /**
+   * A friend on a guest pass (docs/19 §8, `x-lcw-guest-pass`) is in the host child's world: they sit in the host's room
+   * (they were alone there, the host in their own). null = no running pass on this request.
+   */
+  pass?: (req: Request) => Promise<{ host_player_id: string; grant_id: string } | null>;
 }
 
 export interface RoomSeat {
@@ -267,11 +278,18 @@ export async function roomSeatFor(d: RoomTicketDeps, req: Request, body: { room?
     const p = d.player(student.player_id);
     return { room: `lesson-${student.lesson_id}`, key: student.player_id, name: p?.nickname ?? '', role: 'student' };
   }
+  const visit = d.pass ? await d.pass(req) : null;
+  if (visit) {
+    const host = d.player(visit.host_player_id);
+    if (!host) return null;
+    // the pass alone names no child: the others see "Friend" (a name the guest typed would be an unchecked label)
+    return { room: `family-${d.playFamily?.(visit.host_player_id) ?? host.family_id}`, key: `pass:${visit.grant_id}`, name: '', role: 'player' }; // '' = the client's own word for a friend
+  }
   const device = await d.device(req);
   if (device) {
     const p = d.player(device.player_id);
     if (!p) return null;
-    return { room: `family-${p.family_id}`, key: device.player_id, name: p.nickname, role: 'player' };
+    return { room: `family-${d.playFamily?.(device.player_id) ?? p.family_id}`, key: device.player_id, name: p.nickname, role: 'player' };
   }
   if (d.isOperator(req)) {
     const room = typeof body.room === 'string' ? body.room : '';

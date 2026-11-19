@@ -103,7 +103,13 @@ const SNAP = () => {
       help: q('.lw-help'),
       buttons: [...document.querySelectorAll('.lw-touch.on .lw-btn')].map(r).filter(Boolean),
       empties: document.querySelectorAll('.lw-slot.empty').length,
-      gauges: [...document.querySelectorAll('.lw-chip .gz [role="meter"]')].map((m) => Number(m.getAttribute('aria-valuenow'))),
+      // R325: the icon rows right over the hotbar (hunger, thirst; health and warmth start full)
+      gauges: ['f', 't', 'hp', 'w'].map((c) => Number(document.querySelector(`.lw-hotbar .lw-vit .m.${c}[role="meter"]`)?.getAttribute('aria-valuenow'))),
+      vitOverBar: (() => {
+        const v = document.querySelector('.lw-vit.on')?.getBoundingClientRect();
+        const b = document.querySelector('.lw-hotbar')?.getBoundingClientRect();
+        return !!v && !!b && v.height > 10 && v.bottom <= b.top + 1 && b.top - v.bottom < 12 && v.left >= b.left - 1 && v.right <= b.right + 1;
+      })(),
       vw: innerWidth,
       vh: innerHeight
     };
@@ -208,8 +214,9 @@ for (const vp of VIEWPORTS) {
   // a linked child's coins wait for the server ledger, which REVIEW=1 cuts off
   if (!REVIEW) check(vp.name, !!a.coins, 'coin count not shown for a guest');
   check(vp.name, a.empties === 5, `expected 5 empty slots, got ${a.empties}`);
-  // G01 gauges: hunger and thirst on the status chip from the start (45% on a new device)
-  check(vp.name, a.gauges.length === 2 && a.gauges.every((v) => v >= 40 && v <= 46), `gauges hunger/thirst near 45 (${a.gauges})`);
+  // G01 gauges (R325): icon rows right over the hotbar; hunger and thirst from 45% on a new device, health and warmth full
+  check(vp.name, a.gauges.slice(0, 2).every((v) => v >= 40 && v <= 46) && a.gauges.slice(2).every((v) => v >= 99), `gauges hunger/thirst near 45, health/warmth full (${a.gauges})`);
+  check(vp.name, a.vitOverBar, 'gauge rows not right over the hotbar');
   if (SETTINGS?.textScale) {
     const fs = await page.evaluate(() => [parseFloat(getComputedStyle(document.querySelector('.lw-goal .g') ?? document.body).fontSize), parseFloat(getComputedStyle(document.querySelector('.lw-help')).fontSize)]);
     // the HUD follows the text size up to 125% (115% on phones and short landscape screens); menus and dialogs take all of it
@@ -255,7 +262,7 @@ for (const vp of VIEWPORTS) {
     await page.waitForTimeout(400);
   }
   await page.waitForTimeout(700);
-  const dr = await page.evaluate(() => ({ cap: document.querySelector('.lw-cap')?.textContent ?? '', thirst: Number(document.querySelectorAll('.lw-chip .gz [role="meter"]')[1]?.getAttribute('aria-valuenow')) }));
+  const dr = await page.evaluate(() => ({ cap: document.querySelector('.lw-cap')?.textContent ?? '', thirst: Number(document.querySelector('.lw-vit .m.t[role="meter"]')?.getAttribute('aria-valuenow')) }));
   await layoutStep(page, vp, '2drink');
   await page.screenshot({ path: `${out}/${vp.name}-2drink.png` });
   check(vp.name, COPY.drank.test(dr.cap) && dr.thirst >= 70, `drinking the honey tea should fill thirst (${dr.cap} / ${dr.thirst})`);
@@ -314,7 +321,7 @@ for (const vp of VIEWPORTS) {
   check(vp.name, !d.net, 'connection band stays after coming back');
   check(vp.name, !!d.aim && Math.abs(d.aim.x + d.aim.w / 2 - d.vw / 2) < 2 && Math.abs(d.aim.y + d.aim.h / 2 - d.vh / 2) < 2, 'crosshair not centred');
   if (vp.name === 'd1440' || vp.name === 'p390') {
-    // low gauges from the device record: slower walking is said once and shown on the chip
+    // low gauges from the device record: slower walking is said once and shown over the hotbar
     // set at the new page's start: the old page saves its own values on pagehide
     await ctx.addInitScript(() => {
       try {
@@ -328,7 +335,7 @@ for (const vp of VIEWPORTS) {
     await page.waitForFunction(() => !!window.__lcwWorld && document.querySelector('.lw-load.done'), null, { timeout: 120000 });
     await page.waitForTimeout(1500);
     await passTitle(page);
-    const lo = await page.evaluate(() => ({ slow: !!document.querySelector('.lw-chip .gz.slow'), low: !!document.querySelector('.lw-chip .gz .t.low'), cap: document.querySelector('.lw-cap')?.textContent ?? '' }));
+    const lo = await page.evaluate(() => ({ slow: !!document.querySelector('.lw-vit.slow'), low: !!document.querySelector('.lw-vit .m.t.low'), cap: document.querySelector('.lw-cap')?.textContent ?? '' }));
     await layoutStep(page, vp, '5low');
     await page.screenshot({ path: `${out}/${vp.name}-5low.png` });
     check(vp.name, lo.slow && lo.low && COPY.lowThirst.test(lo.cap), `low thirst: slow ${lo.slow}, low ${lo.low}, said "${lo.cap}"`);

@@ -6,7 +6,7 @@ import { SCENE_IDS, type WorldHandle } from '../api.js';
 import { BK, BLOCK_LOOKS, TILE_LAYER, TILE_NAMES, blockLook, collideHeight, isOpaqueCube } from '../blocks.js';
 import { TILE_PX, buildAtlasPixels } from '../atlas.js';
 import { AO_CURVE, PAD, meshChunk, padIndex } from '../mesher.js';
-import { JUMP_VIEW_FOLLOW, STEP_UP_SMALL, makeBody, makeJumpView, pickVoxel, raycastDistance, stepBody, stepJumpView, type BlockAt } from '../physics.js';
+import { STEP_UP_SMALL, makeBody, pickVoxel, raycastDistance, stepBody, type BlockAt } from '../physics.js';
 import { NPCS, SCENES, castNpcs, WANDERERS, buildTown, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
 import { PAGE_KEYS_ON_BUTTONS, TALK_RANGE, keyIsPressable, keyIsTyping } from '../engine.js';
 import { extractPadded } from '../chunks.js';
@@ -397,55 +397,52 @@ describe('player physics', () => {
     expect(j.y).toBeCloseTo(1, 1);
   });
 
-  it('the jump view stays steady on flat ground and never sinks under the floor with jump held up stairs (R2625 ①, review)', () => {
-    const EYE = 1.45;
-    const flat: BlockAt = (_x, y) => (y < 0 ? BK.stone : 0);
-    const f = makeBody(0.5, 0, 0.5);
-    const fv = makeJumpView();
-    let camRise = 0;
-    let bodyRise = 0;
-    for (let i = 0; i < 90; i++) {
-      stepBody(f, { dx: 0, dz: 0, run: false, jump: i === 5 }, 1 / 60, flat);
-      camRise = Math.max(camRise, stepJumpView(fv, f.y, f.onGround, 1 / 60));
-      bodyRise = Math.max(bodyRise, f.y);
-    }
-    expect(bodyRise).toBeGreaterThan(1);
-    expect(camRise).toBeLessThan(bodyRise * JUMP_VIEW_FOLLOW + 0.01);
+  it('jumps about 1.35 blocks at any frame rate, and onto a whole block from a walk (R325)', () => {
+    const peakAt = (dt: number): number => {
+      const b = makeBody(0.5, 0, 0.5);
+      stepBody(b, { dx: 0, dz: 0, run: false, jump: false }, dt, floor);
+      let peak = 0;
+      stepBody(b, { dx: 0, dz: 0, run: false, jump: true }, dt, floor);
+      for (let i = 0; i < Math.ceil(2 / dt); i++) {
+        stepBody(b, { dx: 0, dz: 0, run: false, jump: false }, dt, floor);
+        peak = Math.max(peak, b.y);
+      }
+      return peak;
+    };
+    const fast = peakAt(1 / 120);
+    // 144 Hz, 60 Hz, a 30 fps phone, a 20 fps phone and a 10 fps hitch: the same jump (the old one-step-per-frame
+    // physics peaked at 1.22 at 60 fps and 1.10 at 20 fps)
+    for (const dt of [1 / 144, 1 / 60, 1 / 30, 1 / 20, 1 / 10]) expect(Math.abs(peakAt(dt) - fast)).toBeLessThan(0.02);
+    expect(fast).toBeGreaterThan(1.3);
+    expect(fast).toBeLessThan(1.45);
 
-    // one block up every two cells, walked with Space held the whole way (auto jump off): the old view fell 1.6 m
-    // under the floor here and snapped back each time the lag passed 4 m
-    const stairs: BlockAt = (x, y) => (y < (x >= 3 ? Math.floor((x - 3) / 2) + 1 : 0) ? BK.stone : 0);
-    const b = makeBody(0.5, 0, 0.5);
-    const v = makeJumpView();
-    let floor = 0;
-    let worst = Infinity;
-    let maxStep = 0;
-    let last = stepJumpView(v, b.y, true, 1 / 60);
-    for (let i = 0; i < 900; i++) {
-      stepBody(b, { dx: 1, dz: 0, run: false, jump: true }, 1 / 60, stairs, [], STEP_UP_SMALL);
-      if (b.onGround) floor = b.y;
-      const view = stepJumpView(v, b.y, b.onGround, 1 / 60);
-      worst = Math.min(worst, view + EYE - floor);
-      maxStep = Math.max(maxStep, Math.abs(view - last));
-      last = view;
+    // a one-block step with auto jump off: one press while walking at it climbs it at 60 and at 20 fps
+    const step: BlockAt = (x, y) => (y < 0 ? BK.stone : x >= 3 && y === 0 ? BK.stone : 0);
+    for (const dt of [1 / 60, 1 / 20]) {
+      const j = makeBody(0.5, 0, 0.5);
+      const t0 = Math.round(0.5 / dt);
+      for (let i = 0; i < Math.round(4 / dt); i++) stepBody(j, { dx: 1, dz: 0, run: false, jump: i === t0 }, dt, step, [], STEP_UP_SMALL);
+      expect(j.x).toBeGreaterThan(3.5);
+      expect(j.y).toBeCloseTo(1, 2);
     }
-    expect(b.y).toBeGreaterThan(8);
-    expect(worst).toBeGreaterThan(0.5);
-    // no snap: the view moves smoothly frame to frame
-    expect(maxStep).toBeLessThan(0.2);
   });
 
-  it('jumps about a block high', () => {
-    const b = makeBody(0.5, 0, 0.5);
-    stepBody(b, { dx: 0, dz: 0, run: false, jump: false }, 1 / 60, floor);
-    let peak = 0;
-    stepBody(b, { dx: 0, dz: 0, run: false, jump: true }, 1 / 60, floor);
-    for (let i = 0; i < 90; i++) {
+  it('a long frame and many short ones move the body to the same place (no per-frame wobble, R325)', () => {
+    const run = (dts: number[]): { x: number; y: number } => {
+      const b = makeBody(0.5, 0, 0.5);
       stepBody(b, { dx: 0, dz: 0, run: false, jump: false }, 1 / 60, floor);
-      peak = Math.max(peak, b.y);
-    }
-    expect(peak).toBeGreaterThan(1.1);
-    expect(peak).toBeLessThan(1.6);
+      let first = true;
+      for (const dt of dts) {
+        stepBody(b, { dx: 1, dz: 0, run: false, jump: first }, dt, floor);
+        first = false;
+      }
+      return { x: b.x, y: b.y };
+    };
+    // 0.4 s as 24 frames of 1/60 vs a phone's uneven 16/33 ms frames: same height through the jump
+    const even = run(Array.from({ length: 24 }, () => 1 / 60));
+    const uneven = run(Array.from({ length: 16 }, (_, i) => (i % 2 ? 1 / 60 : 1 / 30)));
+    expect(Math.abs(even.y - uneven.y)).toBeLessThan(0.03);
+    expect(Math.abs(even.x - uneven.x)).toBeLessThan(0.03);
   });
 
   it('casts camera rays and picks the first voxel with its face normal', () => {

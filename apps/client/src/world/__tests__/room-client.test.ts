@@ -291,6 +291,30 @@ describe('room client (docs/03 D11, docs/02 §11 request budget)', () => {
     client.stop();
   });
 
+  it('a running guest pass asks first, as x-lcw-guest-pass with no bearer: the friend sits in the host room (R325)', async () => {
+    const seen: Array<Record<string, string>> = [];
+    const fetchImpl = vi.fn(async (_u: unknown, init?: RequestInit) => {
+      seen.push({ ...(init?.headers as Record<string, string>) });
+      return new Response(JSON.stringify({ ticket: 't'.repeat(48), room: 'family-host', connect: '/v1/room/connect' }), { status: 200 });
+    });
+    const client = new RoomClient({
+      token: () => [null],
+      passToken: () => 'p'.repeat(40),
+      source: { pose: () => null },
+      sink: sinkLog().sink,
+      base: 'https://lcw.test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      socket: (url) => new FakeSocket(url)
+    });
+    client.start();
+    await flush();
+    await flush();
+    expect(seen[0]).toMatchObject({ 'x-lcw-guest-pass': 'p'.repeat(40) });
+    expect(seen[0]!.authorization).toBeUndefined();
+    expect(client.room).toBe('family-host');
+    client.stop();
+  });
+
   it('no token has a room ({room:null}): alone, no socket, asks again after five minutes', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ room: null, reason: 'no_room' }), { status: 200 }));
     const sockets: FakeSocket[] = [];

@@ -1108,7 +1108,18 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       student: (req) => platform.studentFromRequest(req),
       device: (req) => platform.deviceFromRequest(req),
       isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN),
-      player: (id) => platform.sql.get<{ nickname: string; family_id: string }>('select nickname, family_id from players where id = ?', [id]) ?? null
+      player: (id) => platform.sql.get<{ nickname: string; family_id: string }>('select nickname, family_id from players where id = ?', [id]) ?? null,
+      // a live Duo seat: both children play in the payer's family room (R325)
+      playFamily: (id) =>
+        platform.sql.get<{ family_id: string }>(
+          `select g.family_id from seats s join guardians g on g.id = s.payer_id
+           where s.player_id = ? and s.plan = 'duo' and s.status <> 'refunded' and s.starts_at <= ? and s.ends_at > ? order by s.starts_at desc limit 1`,
+          [id, Date.now(), Date.now()]
+        )?.family_id ?? null,
+      pass: async (req) => {
+        const g = await passVisitor(req);
+        return g?.active ? { host_player_id: g.player_id, grant_id: g.grant_id } : null;
+      }
     })
   );
   // Operator read-out of one room (members, counters) for load checks and the docs/02 §11 capacity numbers.

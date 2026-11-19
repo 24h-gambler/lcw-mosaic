@@ -5118,7 +5118,7 @@
         "packages/sim-core/src/player-and-gauges.ts:96",
         "packages/sim-core/src/plot.ts:27"
       ],
-      "note": "배고픔·목마름 게이지는 sim-core stepGauges 함수뿐, 월드·HUD 에 없음(감속도 없음). 5칸 슬롯은 건축 재료 가방으로만 있음"
+      "note": "R325(11-19): 체력·배고픔·목마름·체온 네 게이지가 핫바 바로 위 아이콘 줄로 화면에 있고(frame/gauges.ts·useGauges.ts·world/hud.ts setGauges), 20% 이하 감속·음식/음료/불/지붕 회복·낙하·광장 귀환까지 실제 게임 상태와 연결됨(시험 apps/client/src/__tests__/frame-gauges.test.ts, 실화면 tools/frame-shots.mjs). 남은 것: 5칸 슬롯의 장비 사용(곡괭이·폭약 등) — 한랭 섹터·방한복은 섹터 생성과 함께"
     },
     "WP-105": {
       "kind": "wp",

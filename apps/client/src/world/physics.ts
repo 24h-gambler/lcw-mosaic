@@ -10,8 +10,21 @@ import { collideHeight } from './blocks.js';
 
 export const PLAYER_HALF_W = TUNING.character.collisionBoxMeters[0] / 2;
 export const PLAYER_H = TUNING.character.collisionBoxMeters[1];
-export const GRAVITY = 26;
-export const JUMP_SPEED = 8.2;
+/**
+ * R325 (Dan 11-19 "점프를 높이 안 하는 느낌"): 28 m/s² and 8.8 m/s lift the feet about 1.35 blocks for about 0.63 s
+ * (a block-and-a-bit, like the reference sandbox), at any frame rate (PHYS_STEP below). The old 26 / 8.2 peaked at
+ * 1.10 on a 20 fps phone (each frame was one 1/20 s Euler step) — a whole block was hard to jump onto.
+ */
+export const GRAVITY = 28;
+export const JUMP_SPEED = 8.8;
+/**
+ * The body moves in equal small steps (the frame split into n of at most 1/120 s each), however long the frame was: the jump height and the path
+ * no longer depend on the device's frame rate, and a frame that runs long does not stretch one Euler step over it (the
+ * per-frame wobble of the view in first person, R325 "점프할 때마다 화면이 흔들림"). Frames longer than MAX_FRAME_DT
+ * play slower instead of jumping ahead.
+ */
+export const PHYS_STEP = 1 / 120;
+export const MAX_FRAME_DT = 0.1;
 export const STEP_UP_MAX = 1.05;
 /** Without auto jump: stairs, slabs and paths only (a slab on a path is 0.6 up; a whole block never). */
 export const STEP_UP_SMALL = 0.65;
@@ -96,7 +109,14 @@ export function stepBody(
   pushers: readonly Pusher[] = [],
   stepMax = STEP_UP_MAX
 ): boolean {
-  dt = Math.min(dt, 1 / 20);
+  const total = Math.min(Math.max(0, dt), MAX_FRAME_DT);
+  const n = Math.max(1, Math.ceil(total / PHYS_STEP - 1e-9));
+  let stepped = false;
+  for (let i = 0; i < n; i++) if (stepOnce(body, intent, total / n, blockAt, pushers, stepMax)) stepped = true;
+  return stepped;
+}
+
+function stepOnce(body: Body, intent: MoveIntent, dt: number, blockAt: BlockAt, pushers: readonly Pusher[], stepMax: number): boolean {
   const speed = intent.run ? TUNING.world.sprintSpeedMps : TUNING.world.walkSpeedMps;
   const len = Math.hypot(intent.dx, intent.dz);
   const tx = len > 1 ? (intent.dx / len) * speed : intent.dx * speed;
@@ -291,38 +311,4 @@ export function pickVoxel(
     }
   }
   return null;
-}
-
-/** R2625 ①: how much of a jump's rise the view follows (the rest stays at the take-off height, so the screen does not bob) */
-export const JUMP_VIEW_FOLLOW = 0.15;
-/** the view never sits more than this below the ground the body stands on (jumps held up a stair, review R2625) */
-export const CAM_FLOOR_LAG = 1.0;
-
-/** The jump view's memory: `floor` = the ground the body last stood on, `ground` = the height the view eases from. */
-export interface JumpView {
-  ground: number;
-  floor: number;
-  /** on the ground last frame too: standing or walking, not a landing */
-  grounded: boolean;
-}
-export function makeJumpView(): JumpView {
-  return { ground: Number.NaN, floor: Number.NaN, grounded: false };
-}
-
-/**
- * The height the camera works from this frame (add the eye height on top). A jump keeps the take-off height and
- * follows only JUMP_VIEW_FOLLOW of the rise; landing higher eases the view up (every frame, not only on the landing
- * frame, so jumps held up a stair do not leave it behind), dropping lower follows at once, and a big move (a scene
- * change, a teleport) snaps.
- */
-export function stepJumpView(v: JumpView, bodyY: number, onGround: boolean, dt: number): number {
-  if (!Number.isFinite(v.ground) || Math.abs(bodyY - v.ground) > 4) v.ground = v.floor = bodyY;
-  if (onGround || bodyY < v.floor) v.floor = bodyY;
-  // standing or walking (step-ups are already eased by stepOffset) the view follows close; a landing eases
-  const settled = onGround && v.grounded;
-  v.grounded = onGround;
-  v.ground += (v.floor - v.ground) * (1 - Math.exp(-(settled ? 30 : 10) * dt));
-  if (v.ground < v.floor - CAM_FLOOR_LAG) v.ground = v.floor - CAM_FLOOR_LAG;
-  if (bodyY < v.ground) v.ground = bodyY;
-  return v.ground + (bodyY - v.ground) * JUMP_VIEW_FOLLOW;
 }

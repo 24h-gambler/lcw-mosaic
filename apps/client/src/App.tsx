@@ -542,6 +542,11 @@ export function App(): React.ReactElement {
   // token is read on every (re)connect, so a lesson joined after the world opened is picked up by the next retry.
   const identityRef = useRef(identity);
   identityRef.current = identity;
+  const passTokenRef = useRef(passToken);
+  passTokenRef.current = passToken;
+  // a live lesson seats the child in the teacher's room: the pass (host's room) never goes first then (review R325)
+  const lessonOnRef = useRef(lessonOn);
+  lessonOnRef.current = lessonOn;
   const [roomClient, setRoomClient] = useState<RoomClient | null>(null);
   useEffect(() => {
     if (!world?.multi || !world.multiPose) return;
@@ -556,6 +561,8 @@ export function App(): React.ReactElement {
         return [st && st.length >= 32 ? st : null, id?.kind === 'child' ? id.token : null];
       },
       ...(teach ? { ticketBody: () => teachTicketBody(teach) } : {}),
+      // a friend on a guest pass sits in the host's room (R325)
+      passToken: () => (teach || lessonOnRef.current ? null : passTokenRef.current),
       source: { pose: () => world.multiPose?.() ?? null },
       sink
     });
@@ -575,7 +582,8 @@ export function App(): React.ReactElement {
       setRoomClient(null);
       room.stop();
     };
-  }, [world, identity?.kind, teach]);
+    // a pass starting or ending moves this page to (or out of) the host's room at once
+  }, [world, identity?.kind, teach, passToken, lessonOn]);
 
   // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
   useEffect(() => {
@@ -742,7 +750,7 @@ export function App(): React.ReactElement {
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
         <div style={{ pointerEvents: 'auto' }}>
           {/* the title screen holds the whole screen: the menu button and keys step aside like for a dialog */}
-          <FrameLayer world={world} identity={identity} lessonOn={lessonOn} dialogOpen={dialogNpc !== null || startOpen} />
+          <FrameLayer world={world} identity={identity} lessonOn={lessonOn} teacher={!!teach} dialogOpen={dialogNpc !== null || startOpen} />
           {/* The title is the whole screen: no lesson-layer button over it (a ?code= address never opens the title). */}
           {world && teach ? <TeacherBar world={world} session={teach} room={roomClient} /> : null}
           {Lesson && !startOpen && !teach ? (

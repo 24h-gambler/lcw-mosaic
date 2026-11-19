@@ -6,7 +6,7 @@ import { FIRST_LESSON_PLAN } from '@lcw/content';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
-import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LessonController, goalTargetEn, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
+import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LESSON_RETRY_START_MS, LessonController, goalTargetEn, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
 import { LessonLayer, goToSceneChecked, lessonGoneInWorld, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
@@ -49,7 +49,7 @@ function fakeTimers(clock: { now: number }) {
         clock.now = next.at;
         await next.fn();
       }
-      clock.now = until;
+      clock.now = Math.max(clock.now, until);
     },
     pending: () => queue.length
   };
@@ -190,6 +190,53 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(views).toContain('joining');
   });
 
+  it("the teacher's stage move shows on the child's screen within 2 s, even when each poll answers slowly (11-19)", async () => {
+    const clock = { now: Date.parse('2026-11-16T15:00:00+09:00') };
+    const { fetch, admin } = server(clock);
+    const { lesson_id, join_code } = await openLesson(admin);
+    const timers = fakeTimers(clock);
+    const { world, calls } = fakeWorld();
+    const ROUND_TRIP_MS = 500;
+    const starts: number[] = [];
+    let moveDuring: (() => Promise<unknown>) | null = null;
+    let movedAt = 0;
+    // every state poll takes half a second to come back (a slow tablet on a busy network); the server answers at its start
+    const slow = async (i: string, init?: RequestInit) => {
+      if (!i.startsWith('/v1/lesson/state')) return fetch(i, init);
+      starts.push(clock.now);
+      const r = await fetch(i, init);
+      if (moveDuring) {
+        // the worst case: the teacher moves the stage just after the server answered this poll with the old one
+        const move = moveDuring;
+        moveDuring = null;
+        movedAt = clock.now;
+        await move();
+      }
+      clock.now += ROUND_TRIP_MS;
+      return r;
+    };
+    const ctl = new LessonController({ api: createStudentLessonApi({ fetch: slow }), world, store: memStore(), timers });
+    await ctl.start(join_code);
+    await timers.run(5 * LESSON_POLL_MS);
+    // the polls keep their beat from each start: the slow answer does not stretch the gap
+    const gaps = starts.slice(1).map((t, i) => t - starts[i]!);
+    expect(gaps.length).toBeGreaterThanOrEqual(4);
+    expect(gaps.every((g) => g === LESSON_POLL_MS)).toBe(true);
+    const cafe = `scene:${FIRST_LESSON_PLAN.stages.find((st) => st.id === 'cafe_order')!.sceneId}`;
+    calls.length = 0;
+    moveDuring = () => admin('POST', `/v1/admin/lessons/${lesson_id}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    let shownAfter: number | null = null;
+    for (let t = 0; t < 4000 && shownAfter === null; t += 50) {
+      await timers.run(50);
+      if (calls.includes(cafe)) shownAfter = clock.now - movedAt;
+    }
+    expect(shownAfter).not.toBeNull();
+    expect(movedAt).toBeGreaterThan(0);
+    expect(shownAfter!).toBeLessThanOrEqual(LESSON_POLL_MS + ROUND_TRIP_MS);
+    expect(LESSON_POLL_MS + ROUND_TRIP_MS).toBeLessThan(2000);
+    ctl.stop();
+  });
+
   it('a wrong code asks again with a kind message; a lost connection retries with backoff and recovers', async () => {
     const clock = { now: Date.parse('2026-11-16T15:00:00+09:00') };
     const { fetch, admin } = server(clock);
@@ -279,10 +326,13 @@ describe('client lesson module (docs/19 §4)', () => {
     const ctl = new LessonController({ api: createStudentLessonApi({ fetch: flaky }), world: null, store: memStore(), timers });
     await ctl.start(join_code);
     offline = true;
-    await timers.run(3000 + 6000 + 12000 + 15000 - 1);
+    await timers.run(LESSON_POLL_MS + 6000 + 12000 + 15000 - 1);
     offline = false;
-    await timers.run(1 + 3000 + 3000);
-    expect(at).toEqual([0, 3000, 9000, 21000, 36000, 39000, 42000]);
+    await timers.run(1 + LESSON_POLL_MS + LESSON_POLL_MS);
+    // the first miss comes at the regular poll; the retries wait 6, 12, then 15 s (the ceiling); back online, the regular poll again
+    const p = LESSON_POLL_MS;
+    expect(LESSON_RETRY_START_MS).toBe(3000);
+    expect(at).toEqual([0, p, p + 6000, p + 18000, p + 33000, p + 33000 + p, p + 33000 + 2 * p]);
     ctl.stop();
   });
 

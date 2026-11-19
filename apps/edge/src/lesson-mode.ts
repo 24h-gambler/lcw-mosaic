@@ -131,7 +131,7 @@ export const LESSON_END_AUTO_IDLE = 'auto_idle';
 export const LESSON_AUTO_ADVANCE_PASSES = 2;
 /**
  * The stage's planned minutes count only the time the child's screen was there (its state poll every LESSON_POLL_MS,
- * 3 s; a retrying screen waits up to 15 s). A gap longer than this between two polls counts nothing: a child who joins
+ * 1.2 s; a retrying screen waits up to 15 s). A gap longer than this between two polls counts nothing: a child who joins
  * late does not skip the warm-up, and a child back from 20 minutes away does not skip a stage.
  */
 export const LESSON_CHILD_GAP_MS = 30_000;
@@ -1551,7 +1551,7 @@ export function buildLessonModeApp(
       ])?.n ?? 0
     );
 
-  /* Polled every 3 s by the student client (docs/19 §4). `since` is the previous `server_now`; `scene` and `ui`
+  /* Polled every 1.2 s by the student client (docs/19 §4). `since` is the previous `server_now`; `scene` and `ui`
      tell the director console what the student's screen shows right now. */
   app.get('/v1/lesson/state', async (c) => {
     const s = await student(c.req.raw);

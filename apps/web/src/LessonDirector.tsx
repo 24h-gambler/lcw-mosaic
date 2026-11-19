@@ -58,6 +58,7 @@ import {
 } from './lessonFlow.js';
 import { EMPTY_DIRECTOR_LIVE, mergeDirectorLive, type DirectorLiveView, type FeedLiveExtra } from './directorLiveState.js';
 import { StudentScreenBox, TeachHands } from './DirectorLive.js';
+import { TeacherSayBox, TradeBox } from './DirectorTeacherWorld.js';
 import { LessonAudioBox } from './LessonAudioBox.js';
 import { ConsoleSeatBadge, SeatManager, useConsoleSeats } from './DirectorSeats.js';
 import { SignupQueue, type SignupQueueProps } from './DirectorSignups.js';
@@ -976,7 +977,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
   const lastUtterances = [...feed.utterances].reverse();
 
   return (
-    <div style={{ display: 'grid', gap: sp(4) }} data-testid="director-live">
+    <div style={{ display: 'grid', gap: sp(3) }} data-testid="director-live">
       <JoinCodeBar api={api} token={token} lesson={lesson} elapsedMs={elapsed} totalMinutes={plan.totalMinutes} />
       <TeacherPresenceBox api={api} token={token} lessonId={lesson.lesson_id} ended={ended} />
       {feedError ? (
@@ -1014,6 +1015,7 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
             clock={clock}
             onScreen={serverLesson?.targets ?? null}
             autoMove={autoMove && autoMove.stageId === viewStageId ? autoMove : null}
+            hold={liveX.stageHold}
             disabled={ended}
             now={now}
             onAuthError={onAuthError}
@@ -1024,23 +1026,54 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
               void poll();
             }}
           />
+          {/* R325: the end box under the stage (the right column carries the child, the teacher's voice and trades) */}
+          <EndLessonBox
+            api={api}
+            token={token}
+            lesson={lesson}
+            onAuthError={onAuthError}
+            onEnded={(path) => setLesson({ ...lessonRef.current, report_path: path })}
+            onReset={() => setLesson(null)}
+            endedElsewhere={ended && !lesson.report_path}
+            autoPending={Boolean(serverLesson?.report_pending)}
+            draftSummary={serverLesson?.draft_summary_ko ?? null}
+          />
         </div>
         <div style={{ display: 'grid', gap: sp(4), minWidth: 0 }}>
           <StudentScreenBox live={liveX} localNow={clock} startedAt={serverStartedAt} />
-          {/* Dan 11-19: the teacher can teach again — possession, own sentence, events (folded, docs/18 §8). */}
-          <TeachHands
+          {/* R325: the teacher's own voice in the child's world and the trades with the child (docs/18 §11) */}
+          <TeacherSayBox
             api={api}
             token={token}
             lessonId={lesson.lesson_id}
             stage={stageById(plan, lesson.stage_id ?? plan.stages[0]!.id) ?? undefined}
-            live={liveX}
             disabled={ended}
             onSent={() => void poll()}
             onAuthError={onAuthError}
           />
+          <TradeBox api={api} token={token} lessonId={lesson.lesson_id} trades={liveX.trades} disabled={ended} onSent={() => void poll()} onAuthError={onAuthError} />
           <Box title={M.feedTitle(live.utterances, live.passes, live.stars_total)} testId="director-feed">
+            {liveX.skips && liveX.skips.total > 0 ? (
+              <div data-testid="director-skips" data-heavy={liveX.skips.heavy ? '1' : undefined} style={{ marginBottom: sp(2) }}>
+                <p style={{ margin: 0, fontWeight: 700, color: liveX.skips.heavy ? C['danger-d'] : C['ink-700'] }}>
+                  {M.skipLine(liveX.skips.total, liveX.skips.untried, liveX.skips.stage)}
+                </p>
+                {liveX.skips.heavy ? <Notice kind="error" testId="director-skips-heavy">{M.skipHeavy}</Notice> : null}
+                <details>
+                  <summary style={{ cursor: 'pointer' }}>{M.skipKind('follow_up', false)} · {liveX.skips.recent.length}</summary>
+                  <ul style={{ margin: 0, paddingLeft: sp(3) }}>
+                    {liveX.skips.recent.map((k) => (
+                      <li key={`${k.at}-${k.kind}`}>
+                        {M.skipKind(k.kind, k.tried)}
+                        {k.question ? ` · “${k.question}”` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </div>
+            ) : null}
             {lastUtterances.length === 0 ? <p style={{ margin: 0 }}>{S.feedEmpty}</p> : null}
-            <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: sp(2), maxHeight: '560px', overflowY: 'auto' }}>
+            <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: sp(2), maxHeight: '320px', overflowY: 'auto' }}>
               {lastUtterances.map((u) => (
                 <li
                   key={u.id}
@@ -1068,7 +1101,6 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
                     >
                       {u.pass ? S.feedPass : S.feedRetry}
                     </span>
-                    <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C['ink-500'] }}>{u.mode}</span>
                   </div>
                   <div style={{ fontSize: `${T.scale.small.sizePx}px`, color: C['ink-700'] }}>
                     {S.feedTarget}: <span lang="en">{u.target_text || S.feedFree}</span>
@@ -1080,22 +1112,27 @@ function LiveLesson({ api, token, lesson, setLesson, now, onAuthError, initialFe
               ))}
             </ol>
           </Box>
-          <EndLessonBox
-            api={api}
-            token={token}
-            lesson={lesson}
-            onAuthError={onAuthError}
-            onEnded={(path) => setLesson({ ...lessonRef.current, report_path: path })}
-            onReset={() => setLesson(null)}
-            endedElsewhere={ended && !lesson.report_path}
-            autoPending={Boolean(serverLesson?.report_pending)}
-            draftSummary={serverLesson?.draft_summary_ko ?? null}
-          />
-          {/* The guardians' live lesson window (WP-307): kept, folded (no real lesson used it, R2625). */}
-          <details data-testid="director-audio-more">
-            <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.audioMore}</summary>
-            <div style={{ marginTop: sp(2) }}>
-              <LessonAudioBox token={token} lessonId={lesson.lesson_id} disabled={ended} />
+          {/* R325 (Dan 11-19 "콘솔이 너무 난잡"): what a lesson rarely uses sits under one fold — the teacher's hands on
+              NPCs (possession, own sentence, events; still mounts only while open) and the guardians' live sound. */}
+          <details data-testid="director-live-more">
+            <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.liveMore}</summary>
+            <div style={{ display: 'grid', gap: sp(3), marginTop: sp(2) }}>
+              <TeachHands
+                api={api}
+                token={token}
+                lessonId={lesson.lesson_id}
+                stage={stageById(plan, lesson.stage_id ?? plan.stages[0]!.id) ?? undefined}
+                live={liveX}
+                disabled={ended}
+                onSent={() => void poll()}
+                onAuthError={onAuthError}
+              />
+              <details data-testid="director-audio-more">
+                <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.audioMore}</summary>
+                <div style={{ marginTop: sp(2) }}>
+                  <LessonAudioBox token={token} lessonId={lesson.lesson_id} disabled={ended} />
+                </div>
+              </details>
             </div>
           </details>
         </div>
@@ -1172,7 +1209,8 @@ function JoinCodeBar({
           aria-label={code.split('').join(' ')}
           style={{
             fontFamily: T.fonts.target,
-            fontSize: presence === 'in_world' || presence === 'waiting' ? `${T.scale.display.sizePx}px` : 'clamp(56px, 11vw, 112px)',
+            // R325: one compact bar (the code was 112 px tall on every lesson); still the biggest thing in the bar
+            fontSize: `${T.scale.h1.sizePx}px`,
             lineHeight: 1,
             letterSpacing: '0.12em',
             color: C.sun,
@@ -1183,30 +1221,35 @@ function JoinCodeBar({
           <span style={{ display: 'inline-block', width: '0.35em' }} />
           {code.slice(3)}
         </strong>
-        <span style={{ fontSize: `${T.scale['body-l'].sizePx}px` }}>{S.joinOpen(primary.url)}</span>
-        <ul data-testid="join-links" style={{ margin: 0, paddingLeft: sp(4), fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>
-          {links.map((l) => (
-            <li key={l.kind}>
-              {l.kind === '3d' ? S.join3d : S.joinFallback}: <span style={{ color: C['paper-0'] }}>{l.url}</span>
-              {l.kind === '3d' && !STUDENT_3D_LESSON_READY ? ` — ${S.join3dPending}` : ''}
-            </li>
-          ))}
-        </ul>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
-          <Button
-            type="button"
-            variant="paper"
-            onClick={async () => setCopyMsg((await copyText(primary.url)) ? S.copied : S.copyFailed)}
-          >
-            {S.copyJoinUrl}
-          </Button>
-          {copyMsg ? <span role="status">{copyMsg}</span> : null}
-          {lesson.expires_at ? (
-            <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>
-              {S.codeValidUntil(kstLabel(lesson.expires_at))}
-            </span>
-          ) : null}
-        </div>
+        <details data-testid="join-more">
+          <summary style={{ cursor: 'pointer', fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>{M.codeMore}</summary>
+          <div style={{ display: 'grid', gap: sp(1), marginTop: sp(1) }}>
+            <span style={{ fontSize: `${T.scale.body.sizePx}px` }}>{S.joinOpen(primary.url)}</span>
+            <ul data-testid="join-links" style={{ margin: 0, paddingLeft: sp(4), fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>
+              {links.map((l) => (
+                <li key={l.kind}>
+                  {l.kind === '3d' ? S.join3d : S.joinFallback}: <span style={{ color: C['paper-0'] }}>{l.url}</span>
+                  {l.kind === '3d' && !STUDENT_3D_LESSON_READY ? ` — ${S.join3dPending}` : ''}
+                </li>
+              ))}
+            </ul>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: sp(2), alignItems: 'center' }}>
+              <Button
+                type="button"
+                variant="paper"
+                onClick={async () => setCopyMsg((await copyText(primary.url)) ? S.copied : S.copyFailed)}
+              >
+                {S.copyJoinUrl}
+              </Button>
+              {copyMsg ? <span role="status">{copyMsg}</span> : null}
+              {lesson.expires_at ? (
+                <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C.silver }}>
+                  {S.codeValidUntil(kstLabel(lesson.expires_at))}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </details>
     </>
   );
   return (
@@ -1218,10 +1261,10 @@ function JoinCodeBar({
         boxShadow: TOKENS.shape.shadowDefault,
         backgroundColor: C['night-900'],
         color: C['paper-0'],
-        padding: sp(4),
+        padding: `${sp(2)} ${sp(3)}`,
         display: 'flex',
         flexWrap: 'wrap',
-        gap: sp(4),
+        gap: sp(3),
         alignItems: 'center',
         justifyContent: 'space-between'
       }}
@@ -1233,7 +1276,7 @@ function JoinCodeBar({
               data-testid="world-presence"
               data-state={presence ?? ''}
               role="status"
-              style={{ fontSize: `${T.scale.h2.sizePx}px`, lineHeight: 1.2, color: presence === 'in_world' ? C.leaf : C.sun }}
+              style={{ fontSize: `${T.scale.h3.sizePx}px`, lineHeight: 1.2, color: presence === 'in_world' ? C.leaf : C.sun }}
             >
               {presence === 'in_world' ? S.worldIn(lesson.nickname) : S.worldWaiting(lesson.nickname)}
             </strong>
@@ -1268,8 +1311,8 @@ function JoinCodeBar({
         <strong
           data-testid="lesson-timer"
           style={{
-            fontSize: `${T.scale.display.sizePx}px`,
-            lineHeight: `${T.scale.display.lineHeightPx}px`,
+            fontSize: `${T.scale.h2.sizePx}px`,
+            lineHeight: `${T.scale.h2.lineHeightPx}px`,
             fontVariantNumeric: 'tabular-nums',
             color: elapsedMs > totalMinutes * 60_000 ? C.brand : C['paper-0']
           }}
@@ -1296,19 +1339,21 @@ function StageRail({
   const plan = planById(lesson.plan_id);
   return (
     <Box title={S.stageRail} testId="director-stage-rail">
-      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: sp(1) }}>
+      {/* R325: one row of numbered chips (seven tall rows took half the screen); the title shows on hover */}
+      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: sp(1) }}>
         {plan.stages.map((st) => {
           const status = stageStatus(plan, lesson, st.id);
           const el = stageElapsedMs(lesson, st.id, clock);
           const over = el > st.minutes * 60_000;
           const viewing = st.id === viewStageId;
           return (
-            <li key={st.id}>
+            <li key={st.id} style={{ flex: status === 'now' ? '1 1 220px' : '0 0 auto' }}>
               <button
                 type="button"
                 data-testid={`stage-${st.id}`}
                 data-status={status}
                 aria-current={status === 'now' ? 'step' : undefined}
+                title={st.titleKo}
                 onClick={() => onView(st.id)}
                 style={{
                   width: '100%',
@@ -1329,14 +1374,13 @@ function StageRail({
                   boxShadow: status === 'now' ? TOKENS.shape.shadowDefault : 'none'
                 }}
               >
-                <span style={{ fontWeight: status === 'now' ? 700 : 400 }}>{st.titleKo}</span>
-                <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: `${T.scale.small.sizePx}px` }}>
-                  {status === 'now' ? `${S.stageNow} · ` : status === 'done' ? `${S.stageDone} · ` : ''}
-                  <span style={{ color: over ? C['brand-d'] : C['ink-900'], fontWeight: over ? 700 : 400 }}>
-                    {el > 0 ? formatClock(el) : '00:00'}
+                <span style={{ fontWeight: status === 'now' ? 700 : 400 }}>{status === 'now' ? st.titleKo : `${st.order}${status === 'done' ? ' ✓' : ''}`}</span>
+                {status === 'now' ? (
+                  <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: `${T.scale.small.sizePx}px` }}>
+                    <span style={{ color: over ? C['brand-d'] : C['ink-900'], fontWeight: over ? 700 : 400 }}>{el > 0 ? formatClock(el) : '00:00'}</span>
+                    {` / ${st.minutes}분`}
                   </span>
-                  {` / ${st.minutes}분`}
-                </span>
+                ) : null}
               </button>
             </li>
           );
@@ -1377,7 +1421,8 @@ function StagePanel({
   onAuthError,
   onPushed,
   startedAt,
-  autoMove = null
+  autoMove = null,
+  hold = null
 }: {
   api: LessonApi;
   token: string;
@@ -1391,6 +1436,8 @@ function StagePanel({
   onPushed: (stageId: string) => void;
   startedAt: number;
   autoMove?: { stageId: string; why: string; at: number } | null;
+  /** R325: the teacher walks in the world and holds the stages (feed stage_hold). */
+  hold?: { held: boolean; ready: string | null; quiet?: boolean } | null;
 }): React.ReactElement {
   const plan = planById(lesson.plan_id);
   const allTargets = new Set(stage.targets.map((t) => t.text));
@@ -1441,14 +1488,24 @@ function StagePanel({
             {M.autoMoved(autoMove.why, formatClock(Math.max(0, autoMove.at - startedAt)))}
           </Notice>
         ) : null}
+        {isCurrent && hold?.ready && next ? (
+          <Notice kind="ok" testId="stage-ready">
+            {M.holdReady(hold.ready)}
+          </Notice>
+        ) : null}
+        {isCurrent && hold?.quiet && next ? (
+          <Notice kind="info" testId="stage-quiet">
+            {M.holdQuiet}
+          </Notice>
+        ) : null}
         {isCurrent ? (
-          <p data-testid="stage-auto-rule" style={{ margin: 0, color: C['ink-700'] }}>
-            {M.autoRule(Math.max(1, Math.min(onScreen?.length || stage.targets.length, 2)), stage.minutes, !next)}
+          <p data-testid="stage-auto-rule" style={{ margin: 0, color: C['ink-700'], fontSize: `${T.scale.small.sizePx}px` }}>
+            {hold?.held && next ? M.holdOn : M.autoRule(Math.max(1, Math.min(onScreen?.length || stage.targets.length, 2)), stage.minutes, !next)}
           </p>
         ) : null}
-        <div style={{ backgroundColor: C['paper-100'], border, borderRadius: `${TOKENS.shape.radiusButtonPx}px`, padding: sp(2) }}>
-          <strong style={{ display: 'block', marginBottom: sp(1) }}>{S.guideLabel}</strong>
-          <p style={{ margin: 0, fontSize: `${T.scale['body-l'].sizePx}px`, lineHeight: `${T.scale['body-l'].lineHeightPx}px` }}>
+        <details data-testid="stage-guide" style={{ backgroundColor: C['paper-100'], border, borderRadius: `${TOKENS.shape.radiusButtonPx}px`, padding: sp(2) }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{M.guideMore}</summary>
+          <p style={{ margin: `${sp(1)} 0 0`, fontSize: `${T.scale.body.sizePx}px`, lineHeight: `${T.scale.body.lineHeightPx}px` }}>
             {withJoinCode(stage.teacherGuideKo, lesson.join_code)}
           </p>
           {stage.stepsKo?.length ? (
@@ -1463,7 +1520,7 @@ function StagePanel({
               </ol>
             </details>
           ) : null}
-        </div>
+        </details>
         <div>
           <strong style={{ display: 'block', marginBottom: sp(1) }}>{S.scriptLabel}</strong>
           <p

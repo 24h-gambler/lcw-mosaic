@@ -17,11 +17,12 @@ export const TEACHER_NPC_ID = 'teacher';
 export const TEACHER_LOOK: NpcLook = { skin: 0xf0c8a0, hair: 0x3a2a22, shirt: 0x3fa9f5, pants: 0x2f3b52, shoes: 0x3a4152, hairStyle: 'bun' };
 
 /**
- * Can E, a tap or the dialog frame pick this NPC? The visiting teacher never: in a lesson E must reach the stage's
- * NPC even with the teacher standing nearer (review of #86).
+ * Can E, a tap or the dialog frame pick this NPC? The teacher too (R325, Dan 11-19 "선생님에게 상호작용하면 언제든 거래
+ * 창"): E, a click or a tap on the teacher opens the trade window. In a lesson the stage's NPC still wins E when both are
+ * in reach (every NPC but the lesson's scores +1.5 in the engine, review of #86).
  */
 export function pickableNpc(def: Pick<NpcDef, 'id' | 'soloOnly'>, lesson: boolean): boolean {
-  return def.id !== TEACHER_NPC_ID && !(lesson && def.soloOnly);
+  return !(lesson && def.soloOnly);
 }
 
 export function teacherDef(name: string): NpcDef {

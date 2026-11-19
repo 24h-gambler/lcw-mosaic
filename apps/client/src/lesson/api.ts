@@ -95,7 +95,9 @@ export interface StudentLessonState {
   /** The stage moved on by itself on this poll (docs/18 §9), else null; absent on an older server. */
   auto_advanced?: LessonAutoAdvance | null;
   /** With the teacher now (console heartbeat), or alone ("혼자 놀기"). Absent on an older server = with the teacher. */
-  teacher?: { present: boolean; name: string | null; since: number | null };
+  teacher?: { present: boolean; name: string | null; since: number | null; in_world?: boolean };
+  /** Things the teacher handed over since the cursor (R325): the world puts each in hand once. */
+  gifts?: Array<{ id: string; at: number; item_key: string; location?: string }>;
   /** The lesson's plan (the 1PC teacher panel shows that plan's stages); absent on an older server. */
   plan_id?: string;
   server_now: number;
@@ -200,6 +202,8 @@ export interface UtteranceResult {
   utterances_today: number;
   /** This goal already had its stars in the stage: 0 stars, say something new (R2627, edge lesson-stars.ts). */
   repeat?: boolean;
+  /** R326 ⑫: own words that did the stage's mission: the stage sentence they carried. */
+  mission_text?: string;
 }
 
 export class LessonHttpError extends Error {
@@ -329,6 +333,13 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
     utterance: (token: string, u: UtteranceSubmit | LessonUtteranceBody) =>
       request<UtteranceResult & { auto_advanced?: LessonAutoAdvance }>('POST', '/v1/lesson/utterance', token, readUtteranceSubmit(u)),
     // The dialog asked all the stage NPC's follow-up questions: the server moves the stage on (if it is still that one).
+    /** The trade window (R325): the teacher's things and mine that can be handed over. */
+    tradeInfo: (token: string) => request<LessonTradeInfo>('GET', '/v1/lesson/trade', token),
+    /** One trade sentence: the server scores it and moves the things on a pass (one client_id = one trade). */
+    trade: (token: string, body: LessonTradeBody) => request<LessonTradeResult>('POST', '/v1/lesson/trade', token, body),
+    /** R326: a follow-up skip or a window closed with nothing said: the teacher's console counts them. */
+    skip: (token: string, body: { client_id: string; stage_id: string; kind: 'follow_up' | 'close'; question: string; tried: boolean }) =>
+      request<{ ok: true; skips: number }>('POST', '/v1/lesson/skip', token, body),
     stageDone: (token: string, stageId: string) =>
       request<{ ok: true; auto_advanced: LessonAutoAdvance | null; stage_id: string | null }>('POST', '/v1/lesson/stage-done', token, {
         stage_id: stageId
@@ -337,3 +348,28 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
 }
 
 export type StudentLessonApi = ReturnType<typeof createStudentLessonApi>;
+
+/** GET /v1/lesson/trade (docs/18 §11). */
+export interface LessonTradeInfo {
+  stock: Array<{ key: string; label: string; adj: string; nameKo: string; emoji: string; kind: string }>;
+  owned: Array<{ item_id: string; item_key: string; location: string }>;
+  ended: boolean;
+}
+export interface LessonTradeBody {
+  client_id: string;
+  /** The dialog window: one trade per window (R326 review). */
+  window_id?: string;
+  get_key: string | null;
+  give_item_id: string | null;
+  target_text: string;
+  transcript: string;
+  chosen_stars: 1 | 2 | 3;
+  hint_level: LessonHintLevel;
+  latency_ms: number;
+  dur_ms: number;
+  stt_source: SttSource;
+  confidence: number;
+}
+export interface LessonTradeResult extends UtteranceResult {
+  trade: { done: boolean; get_key: string | null; give_key: string | null; item_id: string | null; location: 'bag' | 'chest' | null; reason: string | null };
+}

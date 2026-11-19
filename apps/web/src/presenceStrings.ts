@@ -8,9 +8,9 @@ export const P = {
   consoleResume: '다시 수업하기 (선생님 돌아옴)',
   consoleLeave: '선생님 나가기 (학생 화면을 바로 혼자 놀기로)',
   /** Same tab into the 3D world as the teacher's avatar in the lesson room; "콘솔로" there comes back. */
-  consoleWorld: '🧭 월드에서 1인칭으로',
+  consoleWorld: '🧭 월드에 들어가기 (학생과 같이 걷고 말하고 주고받기)',
   consoleBeatFailing: '선생님 신호를 못 보냈어요. 인터넷을 확인하세요 — 45초가 지나면 학생 화면이 혼자 놀기로 바뀌어요',
-  boxTitle: '선생님 표시 · 1PC 잠금',
+  boxTitle: '선생님',
   nameLabel: '학생 화면에 보일 이름 (예: 김민지 → 「김민지 선생님」) · 비우면 「선생님」',
   namePlaceholder: '김민지',
   pinLabel: '1PC 잠금 번호 (4~6자리)',

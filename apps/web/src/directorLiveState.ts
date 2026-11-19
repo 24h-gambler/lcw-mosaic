@@ -63,6 +63,40 @@ export interface FeedLiveExtra {
   stage_log?: Array<{ at: number; stage_id: string; source?: string | null }>;
   server_now?: number;
   lesson?: { possessed_npc_id?: string | null; [k: string]: unknown };
+  /** R325: the teacher walks in the world and holds the stages; `ready` = the auto rules call this stage done. */
+  stage_hold?: FeedStageHold;
+  /** R325: trades with the teacher and the teacher's gifts, newest first. */
+  trades?: FeedTrade[];
+  /** R326: follow-ups skipped and windows closed with nothing said (heavy = the skip-abuse warning). */
+  skips?: FeedSkips;
+}
+
+export interface FeedStageHold {
+  held: boolean;
+  ready: string | null;
+  next_stage_id: string | null;
+  /** R326: the stage's minutes are up but the child said nothing in it: only the teacher moves it on. */
+  quiet?: boolean;
+}
+export interface FeedSkips {
+  total: number;
+  untried: number;
+  stage: number;
+  stage_untried: number;
+  heavy: boolean;
+  recent: Array<{ at: number; stage_id: string; kind: string; tried: boolean; question: string }>;
+}
+export interface FeedTrade {
+  client_id: string;
+  at: number;
+  kind: 'trade' | 'gift' | string;
+  get_key: string | null;
+  give_key: string | null;
+  target_text: string | null;
+  transcript: string | null;
+  stars: number | null;
+  ok: boolean;
+  reason: string | null;
 }
 
 export interface DirectorLiveView {
@@ -75,6 +109,9 @@ export interface DirectorLiveView {
   possessedNpcId: string | null;
   /** server_now minus local now when the feed arrived, for "seen 3 s ago" without trusting the device clock. */
   clockSkewMs: number;
+  stageHold: FeedStageHold | null;
+  trades: FeedTrade[];
+  skips: FeedSkips | null;
 }
 
 export const EMPTY_DIRECTOR_LIVE: DirectorLiveView = {
@@ -85,7 +122,10 @@ export const EMPTY_DIRECTOR_LIVE: DirectorLiveView = {
   progress: null,
   studentView: null,
   possessedNpcId: null,
-  clockSkewMs: 0
+  clockSkewMs: 0,
+  stageHold: null,
+  trades: [],
+  skips: null
 };
 
 const LIVE_KEEP = 200;
@@ -104,7 +144,10 @@ export function mergeDirectorLive(prev: DirectorLiveView, f: FeedLiveExtra, loca
     progress: f.progress ?? prev.progress,
     studentView: f.student_view ?? prev.studentView,
     possessedNpcId: f.lesson?.possessed_npc_id !== undefined ? (f.lesson.possessed_npc_id ?? null) : prev.possessedNpcId,
-    clockSkewMs: f.server_now ? f.server_now - localNow : prev.clockSkewMs
+    clockSkewMs: f.server_now ? f.server_now - localNow : prev.clockSkewMs,
+    stageHold: f.stage_hold ?? prev.stageHold,
+    trades: f.trades ?? prev.trades,
+    skips: f.skips ?? prev.skips
   };
 }
 

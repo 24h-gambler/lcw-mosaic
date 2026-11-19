@@ -3,6 +3,7 @@ export * from './registries.js';
 export * from './lesson-plans.js';
 export * from './lesson-events.js';
 export * from './lesson-outbox.js';
+export * from './lesson-trade.js';
 export * from './npc-cast.js';
 export * from './world-setup.js';
 export * from './try-order.js';

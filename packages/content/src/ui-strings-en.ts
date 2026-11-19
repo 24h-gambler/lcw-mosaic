@@ -94,6 +94,7 @@ export const UI_STRINGS_EN: UiStrings = {
     ideas: 'You can also say',
     followUpHint: 'Answer in your own English. Short is OK!',
     followUpSkip: 'Next',
+    followUpTryFirst: '🎤 Try saying it once, then you can go on',
     openAnswerOk: 'Nice answer!',
     openAnswerShort: 'Can you say a little more?',
     coins: 'Coins',

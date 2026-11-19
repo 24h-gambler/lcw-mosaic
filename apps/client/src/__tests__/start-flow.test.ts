@@ -222,9 +222,9 @@ describe('the teacher in my world (Dan 11-16 12:10)', () => {
     expect(teacherTarget(10, 20, 0, 18, 20)).not.toBeNull();
   });
 
-  it('is never what E, a tap or the dialog frame picks, so the stage NPC answers in a lesson', () => {
-    expect(pickableNpc(teacherDef('Kim'), true)).toBe(false);
-    expect(pickableNpc(teacherDef('Kim'), false)).toBe(false);
+  it('is reachable by E, a tap or the dialog frame (R325: the trade window); the stage NPC still wins E by score', () => {
+    expect(pickableNpc(teacherDef('Kim'), true)).toBe(true);
+    expect(pickableNpc(teacherDef('Kim'), false)).toBe(true);
     expect(pickableNpc({ id: 'cafe_owner' }, true)).toBe(true);
     expect(pickableNpc({ id: 'errand_neighbor', soloOnly: true }, true)).toBe(false);
     expect(pickableNpc({ id: 'errand_neighbor', soloOnly: true }, false)).toBe(true);

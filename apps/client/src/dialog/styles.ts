@@ -134,6 +134,17 @@ export const DIALOG_CSS = `
   .lcw-offer__text{font-size:${px(t['body-l'].sizePx)}}
   .lcw-dlg__x{min-width:40px;min-height:40px}
 }
+/* Desktop and tablets (R326, Dan 11-19: 'Talk to Luna' covered the whole screen): no bottom sheet over the middle
+   and no dim layer. The window is an info panel on the right under the HUD star chip, one column, and the world
+   frames the NPC in the part left of it (App.tsx dialogViewInset → setViewInset rightPx). */
+@media (min-width:761px) and (min-height:521px){
+  .lcw-dlg{background:transparent;align-items:stretch;justify-content:flex-end;padding:64px 12px 12px}
+  .lcw-dlg__win{width:min(440px,38vw);height:100%;max-height:100%;grid-template-columns:1fr;align-content:start;gap:10px;padding:12px;animation-name:lcwSide}
+  .lcw-dlg__preview{flex:none;min-height:0;padding:4px}
+  .lcw-dlg__item3d{width:${px(72)};height:${px(72)}}
+  .lcw-dlg__face{display:none}
+  .lcw-dlg__bar{position:sticky;bottom:-12px;background:var(--c-paper-50);padding:6px 0 12px;margin-bottom:-12px}
+}
 /* Phones: the world shows the NPC around the panel (setViewInset), so no dim layer over it. */
 @media (max-width:760px),(orientation:landscape) and (max-height:520px){.lcw-dlg{background:transparent}}
 /* Landscape phone (844x390, outsider capture 11-16): a bottom sheet covered the whole screen. The window becomes a
@@ -142,7 +153,7 @@ export const DIALOG_CSS = `
   /* starts under the world's star/coin chip (hud .lw-stars: top 12px, 36px tall), which the panel's 🔊 covered on a
      844x390 lesson screen (lesson lane, 11-16): the child sees stars and coins while ordering */
   .lcw-dlg{padding:56px 0 0;align-items:stretch;justify-content:flex-end}
-  .lcw-dlg__win{width:min(60vw,600px);height:100%;max-height:100%;grid-template-columns:1fr;align-content:start;
+  .lcw-dlg__win{width:min(52vw,560px);height:100%;max-height:100%;grid-template-columns:1fr;align-content:start;
     border-radius:${SHAPE_TOKENS.radiusCardPx * 2}px 0 0 ${SHAPE_TOKENS.radiusCardPx * 2}px;border-right:0;padding:8px max(10px,env(safe-area-inset-right)) 8px 10px;gap:6px;animation-name:lcwSide}
   .lcw-dlg__side{gap:6px}
   .lcw-dlg__preview{display:none}

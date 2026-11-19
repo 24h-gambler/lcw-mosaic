@@ -57,6 +57,41 @@ export const LESSON_STRINGS_KO = {
   result: {
     coins: (n: number) => `코인 ${n}`
   },
+  side: {
+    /** The lesson's side panel (R325): what to do now, folded to a strip when the child wants the whole world. */
+    title: '임무',
+    fold: '접기',
+    unfold: '임무 보기',
+    goTo: (npc: { nameEn: string; nameKo: string }) => `${npc.nameKo}에게 가요`,
+    near: (npc: { nameEn: string; nameKo: string }) => `${npc.nameKo} 바로 옆이에요`,
+    far: (m: number) => `${m}m · 빛기둥을 따라가요`,
+    talk: '말하기',
+    trade: '선생님과 바꾸기',
+    teacherSays: '선생님',
+    free: '마음껏 돌아다니며 놀아도 돼요',
+    /** R326 ⑫: the lesson as missions the child does in play, in their own words. */
+    ideas: '내 말로 해도 돼요. 예:',
+    anyone: '아무에게나 내 말로 말 걸기',
+    tradeMission: '선생님과 물건 바꾸기',
+    doneLabel: '한 임무'
+  },
+  trade: {
+    title: '선생님과 물건 바꾸기',
+    teacherHas: '선생님 물건',
+    mine: '내 물건',
+    mineEmpty: '아직 내 물건이 없어요. 선생님께 하나 달라고 해 봐요!',
+    pickTeacher: '갖고 싶은 것을 골라요',
+    pickMine: '줄 것을 골라요 (안 골라도 돼요)',
+    say: '영어로 말해서 바꾸기',
+    back: '다시 고르기',
+    close: '닫기',
+    loading: '불러오는 중…',
+    failed: '불러오지 못했어요. 다시 해 볼까요?',
+    done: (got: string | null, gave: string | null) => (got && gave ? `${gave} 주고 ${got} 받았어요!` : got ? `${got} 받았어요!` : gave ? `${gave} 드렸어요!` : '바꿨어요!'),
+    ended: '수업이 끝나서 바꿀 수 없어요',
+    talkFree: '그냥 이야기하기',
+    ownWords: '갖고 싶은 것을 내 말로 말해도 돼요'
+  },
   possessed: '선생님',
   ended: {
     title: '오늘 수업 끝! 정말 잘했어요',
@@ -134,6 +169,39 @@ export const LESSON_STRINGS_EN: LessonStrings = {
   },
   result: {
     coins: (n: number) => `🪙 ${n} coins`
+  },
+  side: {
+    title: '📋 Missions',
+    fold: '▸',
+    unfold: '📋 Missions',
+    goTo: (npc: { nameEn: string; nameKo: string }) => `Go to ${npc.nameEn || npc.nameKo}`,
+    near: (npc: { nameEn: string; nameKo: string }) => `${npc.nameEn || npc.nameKo} is right here`,
+    far: (m: number) => `${m} m · follow the light`,
+    talk: '🎤 Talk',
+    trade: '🤝 Trade with teacher',
+    teacherSays: '🧑‍🏫 Teacher',
+    free: 'Walk around and play as you like',
+    ideas: 'Say it your way, like:',
+    anyone: '💬 Talk to anyone, in your own words',
+    tradeMission: '🤝 Trade things with the teacher',
+    doneLabel: '✓ Done'
+  },
+  trade: {
+    title: '🤝 Trade with the teacher',
+    teacherHas: "🧑‍🏫 Teacher's things",
+    mine: '🎒 My things',
+    mineEmpty: 'Nothing yet. Ask the teacher for one!',
+    pickTeacher: 'Pick what you want',
+    pickMine: 'Pick what you give (or nothing)',
+    say: '🎤 Say it to trade',
+    back: '↩ Pick again',
+    close: '✕',
+    loading: 'Loading…',
+    failed: "🔁 Couldn't load. Try again?",
+    done: (got: string | null, gave: string | null) => (got && gave ? `🎉 You gave the ${gave} and got the ${got}!` : got ? `🎉 You got the ${got}!` : gave ? `🎉 You gave the ${gave}!` : '🎉 Traded!'),
+    ended: 'The lesson is over: no more trades',
+    talkFree: '💬 Just talk',
+    ownWords: 'Say what you want in your own words'
   },
   possessed: 'Teacher',
   ended: {

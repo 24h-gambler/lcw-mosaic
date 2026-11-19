@@ -66,7 +66,7 @@ async function setup(opts: { holdState?: { gate: Promise<void> | null } } = {}) 
   const scenes: string[] = [];
   const ctl = new LessonController({
     api: createStudentLessonApi({ fetch }),
-    world: { goToScene: async (id) => void scenes.push(id), npcSay: () => undefined, setGoal: () => undefined, celebrate: () => undefined },
+    world: { placeSceneNpc: (id) => void scenes.push(id), npcSay: () => undefined, setGoal: () => undefined, celebrate: () => undefined },
     store: memStore(),
     timers
   });

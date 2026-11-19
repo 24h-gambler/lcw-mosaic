@@ -652,7 +652,11 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
   lesson.started = st.status === 201;
   lesson.id = st.body?.lesson_id ?? null;
   if (lesson.started) {
-    const open = await page.waitForSelector('[data-testid="lesson-dialog"] .lcw-dlg', { timeout: 90000 }).then(() => true).catch(() => false);
+    // R325: the lesson window no longer opens by itself; the side panel shows and the child opens the talk with 🎤
+    const side = await page.waitForSelector('[data-testid="lesson-side"]', { timeout: 90000 }).then(() => true).catch(() => false);
+    lesson.sidePanel = side;
+    if (side) await page.click('[data-testid="lesson-reopen"]', { timeout: 5000 }).catch(() => {});
+    const open = await page.waitForSelector('[data-testid="lesson-dialog"] .lcw-dlg', { timeout: 15000 }).then(() => true).catch(() => false);
     lesson.dialogOpened = open;
     // the once-per-lesson mic check card sits over the dialog: the child presses its main button
     await wait(1500);

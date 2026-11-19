@@ -259,7 +259,11 @@ async function run(vp) {
     await sleep(300);
     return voice.stt.length > n;
   };
+  let joinRefused = false;
   const sayAnswer = async (text) => {
+    // one refused code ends the joins for the run: the edge counts failed joins per IP and for everyone per hour
+    // (JOIN_FAILS_PER_HOUR), and a real child's join in the same hour must not meet a 429
+    if (joinRefused) return;
     if (await exists('adv-join')) {
       await shot('voice-join-need');
       if (!JOIN) {
@@ -273,6 +277,7 @@ async function run(vp) {
       if (await exists('adv-join')) {
         // the code did not work: clear it so no screenshot keeps it
         await tid('adv-join-code').first().fill('');
+        joinRefused = true;
         fails.push(`${vp.name}: the class code was refused (${JSON.stringify(voice.join)})`);
         return;
       }

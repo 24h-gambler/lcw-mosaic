@@ -102,6 +102,7 @@ function css(): string {
 .lw-cap{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:${night};color:${C['paper-0']};padding:4px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));text-align:center;opacity:0;transition:opacity ${M.baseMs}ms ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lw-cap.on{opacity:1}
 .lw-cap.two{white-space:pre-line;overflow-wrap:anywhere}
+.lw-hud:has(.lw-touch.on) .lw-cap{max-width:calc(100% - 2 * var(--lcw-hud-talk-w, 140px))}
 .lw-hud:has(.lw-cap.on.two) .lw-help{opacity:0}
 .lw-hud.dlg .lw-cap{opacity:0}
 .lw-slot img{width:36px;height:36px;image-rendering:pixelated}
@@ -406,6 +407,8 @@ export class WorldHud {
           if (!this.miniSeen) {
             this.miniSeen = true;
             this.chipObs?.observe(mini);
+            // it slides when the connection band comes and goes: place the walk button again where it stops
+            mini.addEventListener('transitionend', () => this.measureStacks());
           }
           const rr = this.root.getBoundingClientRect();
           const b = mini.getBoundingClientRect();
@@ -917,7 +920,9 @@ export class WorldHud {
       const b = mini.getBoundingClientRect();
       const walk = document.querySelector<HTMLElement>('.lcw-goal-walk, .lcw-errand-walk');
       const walkTop = h - stack - 12 - (walk?.offsetHeight || 48);
-      if (b.left - rb.left < rb.width / 2 && b.top - rb.top < h / 2 && walkTop < b.bottom - rb.top + 8) walkL = b.right - rb.left + 8;
+      // a minimap on the left half is the landscape one (portrait and mouse put it right); the band pushes it below
+      // the middle of a short screen, so no top-half test
+      if (b.left - rb.left < rb.width / 2 && walkTop < b.bottom - rb.top + 8 && walkTop + (walk?.offsetHeight || 48) > b.top - rb.top - 8) walkL = b.right - rb.left + 8;
     }
     doc.setProperty('--lcw-hud-walk-l', `${Math.ceil(walkL)}px`);
   }

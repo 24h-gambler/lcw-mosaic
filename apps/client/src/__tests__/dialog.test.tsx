@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { CAFE_MENU, CAFE_MODIFIERS, CAFE_DRINKS, lookupPhraseBank, PHRASE_BANK } from '@lcw/content';
+import { SHOP_CATALOG } from '@lcw/content';
 import { AUDIO_LIMITS } from '@lcw/audio';
 import { DialogPanel } from '../dialog/DialogPanel.js';
 import {
@@ -154,7 +155,9 @@ describe('cafe bank never teaches clashing drinks (WP-107)', () => {
         }
     const honey = CAFE_MENU.find((d) => d.key === 'honey_tea')!;
     expect(lookupPhraseBank({ ctx: 'cafe', level: 'L1', item: honey.key, modifiers: ['warm'] })!.offers[1].text).toBe('Warm honey tea, please.');
-    expect(PHRASE_BANK.filter((e) => e.ctx === 'trade_shop' && e.intent !== 'buy_furniture')).toHaveLength(24);
+    expect(PHRASE_BANK.filter((e) => e.ctx === 'trade_shop' && e.intent === 'trade_item')).toHaveLength(24);
+    // R326 ⑪: Toby also sells the whole town shop catalog at each of 3 levels.
+    expect(PHRASE_BANK.filter((e) => e.ctx === 'trade_shop' && e.intent === 'buy_good')).toHaveLength(3 * SHOP_CATALOG.length);
     // docs/03 D13: Toby also sells 9 furniture goods at each of 3 levels.
     expect(PHRASE_BANK.filter((e) => e.ctx === 'trade_shop' && e.intent === 'buy_furniture')).toHaveLength(27);
   });

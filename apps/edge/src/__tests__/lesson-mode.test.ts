@@ -72,14 +72,16 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
       { dialog_id: 'solo-w', chosen_stars: 3, hint_level: 'full', npc_ctx: 'cafe', transcript: 'Can I have some cold water, please?', target_text: 'Can I have some cold water, please?' },
       st
     );
-    expect(order.body.coins_total).toBe(240 - starPrice(water.basePrice, 3));
+    // the passed solo order also earns 3★ × 5 coins (R326 ⑤)
+    const paid = 240 - starPrice(water.basePrice, 3) + 15;
+    expect(order.body.coins_total).toBe(paid);
 
     // back in the lesson (3D client or /join send the same request): balance continues from there; the same ★★
     // sentence again earns nothing (R2627 stars once per goal), a new ★ sentence earns its star
     const again = await say(2);
-    expect(again.body).toMatchObject({ stars: 0, repeat: true, coins_total: 240 - starPrice(water.basePrice, 3) });
+    expect(again.body).toMatchObject({ stars: 0, repeat: true, coins_total: paid });
     const b = await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Honey tea, please.', transcript: 'honey tea please', chosen_stars: 1, dur_ms: 2000 }, st);
-    expect(b.body.coins_total).toBe(240 - starPrice(water.basePrice, 3) + 10);
+    expect(b.body.coins_total).toBe(paid + 10);
     expect(p.coinBalance('kid-1')).toBe(b.body.coins_total);
   });
 

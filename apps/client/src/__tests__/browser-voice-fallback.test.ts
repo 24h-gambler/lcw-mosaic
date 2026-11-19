@@ -49,7 +49,7 @@ vi.mock('@lcw/audio', async (orig) => {
 });
 
 import { micCue, resetBrowserSticky, speakEnglish, stopSpeaking } from '../dialog/sound.js';
-import { neuralVoiceStatus, prefetchLines, resetNeuralVoice } from '../dialog/neural-voice.js';
+import { browserVoiceMayDownload, neuralVoiceStatus, prefetchLines, resetNeuralVoice } from '../dialog/neural-voice.js';
 import { NPC_VOICE_CUT_EVENT } from '../audio/runtime.js';
 
 const played: string[] = [];
@@ -229,6 +229,60 @@ describe('browser voice replaces the device voice when the server voice cannot r
     await speakEnglish('Hi there! Where do you want to go?', 'L1', voiceForCtx('guide'));
     expect(fake.calls).toHaveLength(2);
     expect(spoken).toEqual([]);
+  });
+});
+
+describe('the first model download (326 MB) starts only when a line really needs it (review of #150)', () => {
+  const noModel = () => {
+    fake.ready = false;
+    fake.cachedModel = false;
+  };
+
+  it('a line without a cast voice (settings volume try) never starts it: the device voice reads it', async () => {
+    serve('ok');
+    noModel();
+    await speakEnglish('Can you hear me?', 'L1');
+    expect(spoken).toEqual(['Can you hear me?']);
+    expect(fake.loads).toBe(0);
+    expect(fake.calls).toEqual([]);
+  });
+
+  it('a failed status check (5xx) is not "server off": no download, no background lines', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('down', { status: 503 })) as typeof fetch;
+    noModel();
+    await neuralVoiceStatus();
+    expect(browserVoiceMayDownload('server_off')).toBe(false);
+    await speakEnglish('Welcome to the honey cafe!', 'L1', hera);
+    prefetchLines([{ voice: hera, text: 'One more line.' }]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fake.loads).toBe(0);
+    expect(fake.background).toEqual([]);
+    expect(spoken).toEqual(['Welcome to the honey cafe!']);
+  });
+
+  it('the server itself saying off still allows it (outside a lesson)', async () => {
+    serve('off');
+    noModel();
+    await neuralVoiceStatus();
+    expect(browserVoiceMayDownload('server_off')).toBe(true);
+    await speakEnglish('Welcome to the honey cafe!', 'L1', hera);
+    expect(fake.loads).toBe(1);
+  });
+
+  it('in a lesson (?code=) a server miss reads with the device voice and downloads nothing; a model already cached is used', async () => {
+    vi.stubGlobal('location', { search: '?code=123456' });
+    serve(429);
+    noModel();
+    expect(browserVoiceMayDownload('server_missed')).toBe(false);
+    await speakEnglish('A teacher line the meter refused.', 'L1', hera);
+    prefetchLines([{ voice: hera, text: 'Another refused line.' }]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fake.loads).toBe(0);
+    expect(fake.background).toEqual([]);
+    expect(spoken).toEqual(['A teacher line the meter refused.']);
+    fake.cachedModel = true;
+    await speakEnglish('A second refused line.', 'L1', hera);
+    expect(fake.calls.map((c) => c.text)).toEqual(['A second refused line.']);
   });
 });
 

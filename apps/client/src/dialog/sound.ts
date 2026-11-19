@@ -1,7 +1,7 @@
 import { LEVEL_DEFINITIONS, type LangLevel, type NpcVoice } from '@lcw/content';
 import { browserVoice, encodeWavBytes, preloadBrowserVoiceWhenIdle, PROCEDURAL_SFX_PRESETS, synthesizeProceduralPcm, type AudioBusName, type BrowserVoiceLine } from '@lcw/audio';
 import { getAudioRuntime, NPC_VOICE_CUT_EVENT } from '../audio/runtime.js';
-import { loadLine, loudnessGain, NEURAL_RETRY_METER_MS, NEURAL_VOICE, neuralVoiceOn, neuralVoiceStatus, neuralVoiceStatusKnown, within } from './neural-voice.js';
+import { browserVoiceMayDownload, browserVoiceReadyOrCached, loadLine, loudnessGain, NEURAL_RETRY_METER_MS, NEURAL_VOICE, neuralVoiceOn, neuralVoiceStatus, neuralVoiceStatusKnown, within } from './neural-voice.js';
 import { frameSettings, pickEnglishVoice } from '../frame/settings.js';
 
 /**
@@ -110,7 +110,7 @@ export function warmBrowserVoice(): void {
   if (typeof window === 'undefined' || !frameSettings().neuralVoice) return;
   // Server on: only a browser that already has the model warms it (a disk read). A first download (326 MB on a PC)
   // starts when the server first misses a line on this device, not on every visit of every classroom PC.
-  void neuralVoiceStatus().then((on) => preloadBrowserVoiceWhenIdle({ eager: !on }));
+  void neuralVoiceStatus().then((on) => preloadBrowserVoiceWhenIdle({ eager: !on && browserVoiceMayDownload('server_off') }));
 }
 if (typeof window !== 'undefined') warmBrowserVoice();
 
@@ -131,21 +131,26 @@ export function speakEnglish(text: string, level: LangLevel, voice?: NpcVoice): 
     const t0 = Date.now();
     return within(neuralVoiceStatus(), NEURAL_VOICE.waitMs).then((on) => {
       if (gen !== speechGen) return;
-      if (!on) return speakBrowser(text, level, voice, gen);
+      if (!on) return speakBrowser(text, level, voice, gen, 'server_off');
       const sticky = browserStickyUntil.get(stickyKey(voice)) ?? 0;
-      if (Date.now() < sticky && browserVoice().state() === 'ready') return speakBrowser(text, level, voice, gen);
+      if (Date.now() < sticky && browserVoice().state() === 'ready') return speakBrowser(text, level, voice, gen, 'server_missed');
       return within(loadLine(voice, text), Math.max(0, NEURAL_VOICE.waitMs - (Date.now() - t0))).then((bytes) => {
         if (gen !== speechGen) return; // a newer line (or stop) took over while this one loaded
         if (!bytes) {
           if (browserVoice().available()) browserStickyUntil.set(stickyKey(voice), Date.now() + NEURAL_RETRY_METER_MS);
-          return speakBrowser(text, level, voice, gen);
+          return speakBrowser(text, level, voice, gen, 'server_missed');
         }
-        return playNeural(bytes, gen).then((ok) => (ok || gen !== speechGen ? undefined : speakBrowser(text, level, voice, gen)));
+        return playNeural(bytes, gen).then((ok) => (ok || gen !== speechGen ? undefined : speakBrowser(text, level, voice, gen, 'other')));
       });
     });
   }
-  // A line without a cast voice (the settings' volume try) is read by the browser voice's model speaker.
-  if (frameSettings().neuralVoice && typeof Audio !== 'undefined' && browserVoice().available()) return speakBrowser(text, level, voice, ++speechGen);
+  // A line without a cast voice (the settings' volume try) is read by the browser voice's model speaker when the model
+  // is already here; it never starts the first download (a volume check at the start of a lesson must not pull 326 MB).
+  if (frameSettings().neuralVoice && typeof Audio !== 'undefined') {
+    // the server said its voice is off: a cast line is the browser voice's (and may start its download)
+    if (voice && neuralVoiceStatusKnown() === false && browserVoice().available()) return speakBrowser(text, level, voice, ++speechGen, 'server_off');
+    if (browserVoiceReadyOrCached()) return speakBrowser(text, level, voice, ++speechGen, 'other');
+  }
   return speakDevice(text, level);
 }
 
@@ -153,13 +158,15 @@ export function speakEnglish(text: string, level: LangLevel, voice?: NpcVoice): 
  * The server voice could not read this line: the browser voice makes it (from memory when it was made before), and
  * only when that is off, fails or takes longer than BROWSER_VOICE.lineWaitMs does the device voice read it.
  */
-function speakBrowser(text: string, level: LangLevel, voice: NpcVoice | undefined, gen: number): Promise<void> {
+function speakBrowser(text: string, level: LangLevel, voice: NpcVoice | undefined, gen: number, why: 'server_off' | 'server_missed' | 'other'): Promise<void> {
   const bv = browserVoice();
   if (!frameSettings().neuralVoice || !bv.available()) return speakDevice(text, level);
   // While the model is still being downloaded for the first time (20-56 s) a line cannot wait for it: the device voice
   // reads it now and the download goes on (from a disk cache the load takes seconds and the line waits).
+  // A first download starts only when this line really needs it and the page allows it (browserVoiceMayDownload:
+  // never in a lesson, never for a voice-less line, never on a failed status check).
   if (bv.state() !== 'ready' && !bv.modelCached()) {
-    void bv.load();
+    if (browserVoiceMayDownload(why)) void bv.load();
     return speakDevice(text, level);
   }
   // Kokoro speaks at the player's speed itself (no stretch, no pitch change), so its line always plays at rate 1.

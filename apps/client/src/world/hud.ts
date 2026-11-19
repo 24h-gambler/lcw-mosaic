@@ -162,7 +162,7 @@ function css(): string {
 
 @media (max-width:600px){.lw-hud .lw-goal{top:calc(var(--lw-chip-b,74px) + 10px)}.lw-hud:has(.lw-touch.on) .lw-cap{left:12px;transform:none;max-width:calc(100% - 12px - var(--lw-jump,140px))}}
 /* a short landscape screen keeps the goal card at the top centre: the tag sits under the status box, clear of the card */
-@media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}.lw-chip .l{max-width:var(--lw-chip-s-w,200px);white-space:normal}}
+@media (max-height:500px){.lw-chip{flex-direction:column;gap:6px}.lw-chip .l.on{max-width:var(--lw-chip-s-w,200px);white-space:normal}}
 /* short landscape: the goal card sits between the status chip and the stars, with a smaller line so it stays short */
 @media (max-height:500px){.lw-hud .lw-goal{max-width:calc(100% - 2 * var(--lw-side,200px));padding:6px 10px}.lw-hud .lw-goal .t{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1))}.lw-hud .lw-goal .g{font-size:calc(${T.scale.body.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.body.lineHeightPx}px * var(--lcw-hs,1))}}
 @media (max-width:600px) and (max-height:500px){.lw-hud .lw-goal{max-width:none}}
@@ -1247,7 +1247,10 @@ export class WorldHud {
   showPrompt(on: boolean, sx = 0, sy = 0, touch = false): void {
     const x = Math.round(sx);
     const y = Math.round(sy);
-    const key = on ? `${touch ? 't' : 'k'}:${x}:${y}` : 'off';
+    // the HUD under it can change while the speaker stands still (goal card slides in): the cover's read time is part
+    // of the key, so the prompt is placed again up to four times a second
+    if (on && !touch) this.hudCover();
+    const key = on ? `${touch ? 't' : 'k'}:${x}:${y}:${on && !touch ? this.coverAt : 0}` : 'off';
     if (key === this.promptKey) return;
     this.promptKey = key;
     this.prompt.classList.toggle('on', on && !touch);

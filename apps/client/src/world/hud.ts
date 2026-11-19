@@ -828,7 +828,7 @@ export class WorldHud {
     const parts: Array<Element | null> = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null, this.help, this.cap.classList.contains('on') ? this.cap : null, this.net, this.hotbarEl];
     if (this.touchOn) parts.push(this.viewBtn, this.jumpBtn, this.talkBtn);
     // the frame's own buttons on the HUD layer (menu), and anything another layer marks as a screen part
-    parts.push(...Array.from(document.querySelectorAll('.lcw-hudbtn, [data-hud-part]')));
+    parts.push(...Array.from(document.querySelectorAll('.lcw-hudbtn, .lw-mini, [data-hud-part]')));
     this.cover = [];
     for (const e of parts) {
       if (!e) continue;
@@ -1171,6 +1171,15 @@ export class WorldHud {
         y = hit.t - gap;
       }
       y = Math.max(h + 8, y);
+      // a speaker under a HUD part (status chip, goal card, minimap, hotbar): the line moves just clear of it instead of
+      // running under it (the frame check found Luna's greeting under the minimap on a phone)
+      const cover = this.hudCover();
+      const half = this.root.clientHeight / 2;
+      for (let guard = 0; guard < 4; guard++) {
+        const hit = cover.find(([l, t, r, bt]) => b.sx - w / 2 < r && b.sx + w / 2 > l && y - h < bt && y > t);
+        if (!hit) break;
+        y = hit[1] < half ? hit[3] + gap + h : hit[1] - gap;
+      }
       placed.push({ l: b.sx - w / 2, r: b.sx + w / 2, t: y - h, b: y });
       b.el.style.transform = `translate(${b.sx}px, ${y}px) translate(-50%, -100%)`;
     }

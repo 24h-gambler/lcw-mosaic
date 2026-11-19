@@ -24,7 +24,8 @@ export const DIRECTOR_LIVE_STRINGS_KO = {
     honey_cafe: '꿀 카페',
     trade_shop: '교환 가게',
     build_plot: '건축 터',
-    open_hill: '열린 언덕'
+    open_hill: '열린 언덕',
+    adventure: '🗺 모험(/adventure/)'
   } as Record<string, string>,
   possessTitle: '빙의 · NPC 로 말하기',
   possessHelp: 'NPC 를 고르고 문장을 치면 학생 화면 그 NPC 머리 위에 반짝이는 말풍선이 떠요. Enter 로 보내기 · / 키로 입력창.',

@@ -81,6 +81,13 @@ export const MENU_CSS = `
    held by its right edge so a wider label grows away from the hotbar */
 .lcw-hudbtn--bag{right:calc(50% + 148px + 8px);bottom:12px}
 @media (max-width:600px){.lcw-hudbtn--bag{right:calc(50% + 118px + 6px);min-width:48px;height:48px;bottom:10px;font-size:${t.micro.sizePx}px;padding:0 4px}.lcw-hudbtn--bag .ic{font-size:18px}}
+.lcw-hudbtn--shop{right:calc(50% + 148px + 8px + ${S.gameButtonMinPx}px + 8px);bottom:12px}
+@media (max-width:600px){.lcw-hudbtn--shop{right:calc(50% + 118px + 6px + 48px + 6px);min-width:48px;height:48px;bottom:10px;font-size:${t.micro.sizePx}px;padding:0 4px}.lcw-hudbtn--shop .ic{font-size:18px}}
+.lcw-shoptip{position:absolute;pointer-events:auto;left:calc(50% - 148px - 8px - ${S.gameButtonMinPx * 2}px - 8px);bottom:${S.gameButtonMinPx * 2 + 28}px;max-width:260px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:${COLOR_TOKENS['paper-0']};color:${COLOR_TOKENS['ink-900']};border:${S.borderWidthPx}px solid ${COLOR_TOKENS['ink-900']};border-radius:${S.radiusCardPx}px;box-shadow:${S.shadowDefault};font-family:${TYPOGRAPHY_TOKENS.fonts.ui};font-weight:700;font-size:${t.small.sizePx}px}
+.lcw-shoptip .ko{font-size:${t.micro.sizePx}px;opacity:.8}
+.lcw-shoptip .x{align-self:flex-end;min-height:36px;padding:2px 12px;border:${S.borderWidthPx}px solid ${COLOR_TOKENS['ink-900']};border-radius:${S.radiusButtonPx}px;background:${COLOR_TOKENS.sun};font:inherit;font-weight:800}
+/* small screens: the shop's own help card says the same thing; the tip would sit on the world's buttons */
+@media (max-width:600px),(max-height:440px){.lcw-shoptip{display:none}}
 .lcw-hudbtn:active{box-shadow:${S.shadowPressed};transform:translate(3px,3px)}
 `;
 

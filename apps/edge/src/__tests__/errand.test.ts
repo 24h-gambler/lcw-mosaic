@@ -57,13 +57,15 @@ describe('first-visit errand (docs/03 D1, WP-111)', () => {
     e.tick(25_000);
     const give = await e.say('d-give', 'errand', line('errand_deliver', 3), 3);
     expect(give.errand).toEqual({ state: 'done', reward_coins: TUNING.economy.errandRewardCoins });
-    expect(give.coins_total).toBe(200 - price + 50);
+    // + the errand's 50, + what the three passed sentences earned (R326 ⑤: 2★, 2★, 3★ × 5)
+    expect(give.coins_total).toBe(200 - price + 50 + (2 + 2 + 3) * 5);
     expect(e.world.sql.get<{ location: string }>("select location from items where id = 'buy-d-cafe|water'")?.location).toBe('given');
 
     // saying it again pays nothing more
     const again = await e.say('d-give2', 'errand', line('errand_deliver', 3), 3);
     expect(again.errand).toEqual({ state: 'done' });
-    expect(e.world.getPlayerBalance('kid')).toBe(200 - price + 50);
+    // the errand pays nothing more; only the new window's passed sentence earns its 3★ × 5 (R326 ⑤)
+    expect(e.world.getPlayerBalance('kid')).toBe(give.coins_total + 15);
     const paid = e.world.sql.all<{ reason: string; delta: number }>("select reason, delta from ledger where reason = 'errand:first'");
     expect(paid).toEqual([{ reason: 'errand:first', delta: 50 }]);
 

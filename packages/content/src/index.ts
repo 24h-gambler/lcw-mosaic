@@ -14,3 +14,4 @@ export * from './teacher-name.js';
 export * from './adventure.js';
 export * from './echo-chunks.js';
 export * from './common-words-en.js';
+export * from './shop-catalog.js';

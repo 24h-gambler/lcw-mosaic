@@ -1,7 +1,7 @@
 {
   "$comment": "설계서 대조 목록. tools/spec-ids.mjs 가 docs 에서 뽑은 id 마다 한 줄. 규칙과 고치는 법: docs/README.md 「설계서 대조」. pnpm test 의 tools/__tests__/spec-coverage.test.ts 가 검사, tools/nightly-audit.mjs 가 매일 밤 운영 화면과 맞춰 봄.",
   "version": 1,
-  "updated": "2026-11-16",
+  "updated": "2026-11-20",
   "statuses": {
     "done": "사용자 화면에서 동작 + 시험(tests) + 실화면 확인(e2e) 통과",
     "partial": "일부만(note 에 빠진 것)",
@@ -1031,12 +1031,17 @@
       "status": "partial",
       "owner": "talk",
       "route": "/world/",
-      "tests": [],
+      "tests": [
+        "apps/edge/src/__tests__/shop.test.ts::a passed solo sentence earns coins once per window, tops up a better grade, and stops at the daily cap",
+        "apps/client/src/__tests__/shop-ui.test.tsx::the maker's book only uses things the shop sells, and today's challenge is the same all day"
+      ],
       "evidence": [
         "apps/client/src/dialog/ReviewDock.tsx:32",
-        "apps/edge/src/errand.ts:111"
+        "apps/edge/src/errand.ts:111",
+        "apps/edge/src/shop.ts:75",
+        "apps/client/src/frame/menu/MakePanel.tsx:1"
       ],
-      "note": "별·코인 보상·복습 징후는 있음. 전투·탐험·도감 같은 놀이 보상 없음"
+      "note": "별·코인 보상(혼자 놀 때 별당 5코인, 하루 150)·오늘의 목표 4개·오늘의 만들기 도전·만들기 도감·복습 징후는 있음. 전투·탐험 같은 놀이 보상 없음"
     },
     "F10.1.T-W": {
       "kind": "flow",
@@ -1932,13 +1937,16 @@
         ]
       },
       "tests": [
-        "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world"
+        "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world",
+        "apps/edge/src/__tests__/shop.test.ts::the shop button buys at list price once per request id, never below zero, and the thing lands in the bag",
+        "apps/edge/src/__tests__/shop.test.ts::saying the order in English to the shopkeeper buys at the star price (3 stars = half) and counts for the quest"
       ],
       "evidence": [
         "apps/edge/src/economy.ts:1",
-        "packages/sim-core/src/domains.ts:1"
+        "packages/sim-core/src/domains.ts:1",
+        "apps/edge/src/shop.ts:1"
       ],
-      "note": "가게 구매·물가만; 채굴·환전·취업은 sim-core 함수뿐 화면 없음"
+      "note": "가게 구매(마을 상점 66종, 정가 단추·영어 주문 별 할인)·되팔기·물가만; 채굴·환전·취업은 sim-core 함수뿐 화면 없음"
     },
     "F10.3.B4": {
       "kind": "flow",
@@ -4416,13 +4424,15 @@
       },
       "tests": [
         "apps/edge/src/__tests__/economy.test.ts::shop prices in a world follow that world",
-        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court",
+        "apps/edge/src/__tests__/shop.test.ts::child-to-child trade: both say their line in English, escrow, one buyer, coins to the seller once, cancel returns the thing"
       ],
       "evidence": [
         "apps/edge/src/economy.ts:1",
-        "packages/sim-core/src/domains.ts:271"
+        "packages/sim-core/src/domains.ts:271",
+        "apps/edge/src/shop.ts:1"
       ],
-      "note": "월드별 주간 시세·흥정 문장은 연결됨, 채굴·취업·가게·플레이어 거래·변론은 함수뿐"
+      "note": "월드별 주간 시세·흥정 문장·마을 상점 66종(영어 주문 별 할인)·플레이어 간 거래(양쪽 발화) 연결됨. 채굴·취업·가게 운영·변론은 함수뿐"
     },
     "C01.6.탐험가": {
       "kind": "promise",
@@ -5860,13 +5870,16 @@
       "status": "partial",
       "owner": "world",
       "tests": [
-        "apps/edge/src/__tests__/edge.test.ts::executes bilateral trade atomically, tracks solo expression reuse, sends parent report, triggers 48h reminder, and updates on open"
+        "apps/edge/src/__tests__/edge.test.ts::executes bilateral trade atomically, tracks solo expression reuse, sends parent report, triggers 48h reminder, and updates on open",
+        "apps/edge/src/__tests__/shop.test.ts::child-to-child trade: both say their line in English, escrow, one buyer, coins to the seller once, cancel returns the thing"
       ],
       "evidence": [
         "apps/edge/src/storage.ts:869",
-        "apps/edge/src/app.ts:705"
+        "apps/edge/src/app.ts:705",
+        "apps/edge/src/shop.ts:1",
+        "apps/client/src/frame/menu/ShopPanel.tsx:1"
       ],
-      "note": "양쪽 발화 후 성사·장부 일치는 /v1/worlds/:id/trades API 와 시험뿐. 플레이어 간 거래 창 화면 없음(멀티 없음), NPC 물물교환만 월드에 있음"
+      "note": "R326 ⑫: 학생↔학생 거래창(상점 Trade 탭)이 실경로 — 파는 쪽 'Do you want my …?'·사는 쪽 'Can I buy your …?' 를 서버가 채점해 통과해야 보관·성사, 장부 한 번(shop.ts /v1/p2p/*). 선생님 거래는 수업 /v1/lesson/trade. 남은 것: 월드에서 다른 아이를 눌러 거래창 열기(lcw:open-trade, 월드 레인), 물물교환(코인 없이 물건↔물건)"
     },
     "WP-601": {
       "kind": "wp",

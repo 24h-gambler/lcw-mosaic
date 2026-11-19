@@ -44,6 +44,7 @@ import { listCollection } from './collection.js';
 import { readSettings, validateSettings, writeSettings } from './settings.js';
 import { applyErrandStep, getErrand } from './errand.js';
 import { plotStoreFor } from './plot.js';
+import { creditSoloEarn, mountShopRoutes } from './shop.js';
 import { OPS_PER_REQUEST_MAX } from '@lcw/sim-core';
 
 export interface EdgeRuntimeDeps {
@@ -380,6 +381,11 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
             nowMs
           })
         : undefined;
+    // Dan R326 ⑤: a passed solo sentence earns coins (once per window, daily cap; shop.ts creditSoloEarn).
+    const coinsEarned =
+      decision.pass && worldDo && req.session_kind !== 'lesson'
+        ? creditSoloEarn(worldDo, { playerId: req.player_id, dialogId: req.dialog_id, stars: decision.stars, nowMs })
+        : 0;
     if (worldDo) coinsTotal = worldDo.getPlayerBalance(req.player_id);
 
     // A dialog can be scored several times in the same millisecond (retries, ECHO); the suffix keeps ids unique.
@@ -462,6 +468,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
       target_stars: decision.targetStars,
       feedback_ko: converseFeedbackKo({ ...decision, inputSource: req.stt_source, shortOfCoins }),
       coins_total: coinsTotal,
+      coins_earned: coinsEarned > 0 ? coinsEarned : undefined,
       asked_key: askedKey,
       read_aloud_discount_pct: grantedItem && readAloudPct > 0 ? readAloudPct : undefined,
       errand,
@@ -1018,6 +1025,8 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const res = deps.db.processPendingReportReminders(deps.nowMs());
     return c.json(res);
   });
+
+  mountShopRoutes(app, { db: deps.db, worlds: deps.worlds, nowMs: deps.nowMs, priceIndex: deps.priceIndex });
 
   app.get('/v1/reports/:token', (c) => {
     const report = deps.db.openSharedReport(c.req.param('token'), deps.nowMs());

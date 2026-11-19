@@ -115,8 +115,8 @@ describe('menu keys and words', () => {
     expect(tabForKey('KeyK')).toBe('book');
     for (const k of ['Tab', 'KeyR', 'KeyE', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Digit1', 'F5', 'Space', 'KeyZ']) expect(tabForKey(k)).toBeNull();
   });
-  it('has six tabs and child-safe words only (no blame, no price, no "게임")', () => {
-    expect(MENU_TABS).toHaveLength(6);
+  it('has eight tabs (shop and make next to the bag, R326) and child-safe words only (no blame, no price, no "게임")', () => {
+    expect(MENU_TABS).toEqual(['bag', 'shop', 'make', 'mirror', 'map', 'book', 'repair', 'settings']);
     const all = JSON.stringify(F);
     for (const w of FORBIDDEN_PLAYER_UI_PATTERNS) expect(all).not.toContain(w);
     expect(all).not.toMatch(/게임|가격|결제|원\b/);
@@ -127,7 +127,7 @@ describe('menu keys and words', () => {
     for (const P of [BagPanel, BookPanel, RepairPanel]) expect(renderToStaticMarkup(<P {...props} />)).toContain(F.guestNote.replace(/'/g, '&#x27;'));
     const html = renderToStaticMarkup(<PlayerMenu {...props} tab="bag" onTab={() => undefined} onClose={() => undefined} />);
     expect(html).toContain('role="tablist"');
-    expect((html.match(/role="tab"/g) ?? []).length).toBe(6);
+    expect((html.match(/role="tab"/g) ?? []).length).toBe(8);
   });
   it('steps aside for any other window, but not for windows inside the menu', () => {
     const doc = (hud: boolean, els: Array<{ inMenu: boolean }>) => ({

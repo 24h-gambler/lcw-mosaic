@@ -1559,9 +1559,13 @@ export function buildLessonModeApp(
     const now = d.nowMs();
     // A tutoring seat is in use once its child is in a lesson (seats.ts markSeatUse; refund ends at first use).
     markSeatUse(d.sql, s.player_id, now, 'lesson');
+    // `away=adventure`: the child is on /adventure/ in this tab (docs/22): a sign of life that keeps the lesson open (the
+    // idle sweep, LESSON_IDLE_CLOSE_MS) and shows the console where the child is, but the world stage's own minutes do
+    // not run and the stage never moves on while the child is not in the world.
+    const away = c.req.query('away') === 'adventure';
     // The stage's planned minutes of the child's own time are over: on to the next one (LESSON_CHILD_GAP_MS).
-    childTick(s.lesson_id, now);
-    const advanced = autoAdvance(s.lesson_id, now);
+    if (!away) childTick(s.lesson_id, now);
+    const advanced = away ? null : autoAdvance(s.lesson_id, now);
     const st = stateOf(s.lesson_id);
     const l = lessonRow(s.lesson_id);
     const plan = getLessonPlan(st?.plan_id);
@@ -1580,7 +1584,7 @@ export function buildLessonModeApp(
       [
         s.lesson_id,
         now,
-        scene && /^[a-z_]{1,32}$/.test(scene) ? scene : null,
+        away ? 'adventure' : scene && /^[a-z_]{1,32}$/.test(scene) ? scene : null,
         ui === '3d' || ui === 'cards' ? ui : null,
         mic && (LESSON_MIC_STATUSES as readonly string[]).includes(mic) ? mic : null,
         micIssue && MIC_ISSUE_RE.test(micIssue) ? micIssue : null,

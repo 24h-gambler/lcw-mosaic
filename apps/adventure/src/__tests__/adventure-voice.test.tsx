@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SpeechCallbacks, SpeechEngine } from '../../../client/src/dialog/speech.js';
 import { cleanCode, joinWithCode } from '../audio/join.js';
 import { Listener, endOf, listenState, resetListenMemory, setSpeechEngineFactory } from '../audio/listen.js';
+import { pingLesson } from '../audio/presence.js';
 import { Speak } from '../ui/Speak.js';
 import { S } from '../ui/strings.js';
 
@@ -99,6 +100,27 @@ describe('A04 voice: the LCW server Whisper path and the class code', () => {
     expect(listenState()).toBe('ok');
     expect(endOf('quota', 'http_429')).toEqual({ kind: 'quota' });
     expect(listenState()).toBe('unsupported');
+  });
+
+  it('in a lesson the adventure keeps it open (away=adventure); no token, no call; a refused token asks for the code', async () => {
+    withStorage({}, {});
+    const calls: Array<{ url: string; auth: string }> = [];
+    const answer = (n: number) =>
+      (async (url: string, init: RequestInit) => {
+        calls.push({ url, auth: String((init.headers as Record<string, string>).authorization) });
+        return new Response('{}', { status: n });
+      }) as unknown as typeof fetch;
+    expect(await pingLesson(answer(200))).toBe('none');
+    expect(calls).toEqual([]);
+    withStorage({ 'lcw.studentToken': 'tok' }, {});
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: () => Promise.resolve({}) } });
+    vi.stubGlobal('MediaRecorder', function MediaRecorder() {});
+    setSpeechEngineFactory(() => fakeEngine({ ok: true }));
+    expect(await pingLesson(answer(200))).toBe('ok');
+    expect(calls[0]).toEqual({ url: '/v1/lesson/state?away=adventure', auth: 'Bearer tok' });
+    expect(listenState()).toBe('ok');
+    expect(await pingLesson(answer(401))).toBe('refused');
+    expect(listenState()).toBe('need_code');
   });
 
   it('a heard turn gives the transcript; a server error asks to say it again', () => {

@@ -435,10 +435,15 @@ export function frameOutliers(results) {
   return internal.filter((r) => sig(r.frame) !== common).map((r) => ({ route: r.route, frame: r.frame, common }));
 }
 
+/** The KST calendar day of an instant (rep.at is UTC ISO): the 02:50 KST audit is still the previous UTC day. */
+export function kstDay(at = new Date()) {
+  return new Date(new Date(at).getTime() + 9 * 3_600_000).toISOString().slice(0, 10);
+}
+
 export function summaryMarkdown(rep) {
   const lines = [];
   const c = rep.counts;
-  lines.push(`# LCW 야간 실화면 감사 ${rep.at.slice(0, 10)}`);
+  lines.push(`# LCW 야간 실화면 감사 ${kstDay(rep.at)} (KST)`);
   lines.push('');
   lines.push(`- 운영 ${rep.base} · 배포 ${rep.sha ?? '?'} · 경로 ${rep.routes}개 × 2크기 = 화면 ${rep.screens}개`);
   lines.push(`- 설계서 대조: done ${c.done} · partial ${c.partial} · missing ${c.missing}${c.deferred ? ` · deferred ${c.deferred}` : ''}`);
@@ -473,7 +478,7 @@ export function summaryMarkdown(rep) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const base = arg('--base', 'https://lcw.worldwidesomething.com').replace(/\/+$/, '');
-  const out = path.resolve(arg('--out', path.join(ROOT, 'shots', 'nightly', new Date().toISOString().slice(0, 10))));
+  const out = path.resolve(arg('--out', path.join(ROOT, 'shots', 'nightly', kstDay())));
   try {
     const pw = process.env.PLAYWRIGHT_CORE ? await import(pathToFileURL(process.env.PLAYWRIGHT_CORE).href) : await import('playwright-core');
     const chromium = pw.chromium ?? pw.default.chromium;

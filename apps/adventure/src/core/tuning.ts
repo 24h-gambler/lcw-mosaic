@@ -1,3 +1,5 @@
+import { AUDIO_LIMITS } from '@lcw/audio';
+
 /** Every number of the adventure in one place (AGENTS 4.10, docs/22 4장). */
 export const ADV = {
   /** Logical screen (the canvas draws at an integer multiple of this). */
@@ -54,7 +56,15 @@ export const ADV = {
   /** Solid boxes on the island (pixels): critters fill their three-tile gate, the guardian is big, the rest small. */
   entityBox: { small: { w: 14, h: 12 }, critter: { w: 14, h: 44, below: 14 }, guardian: { w: 28, h: 40 } },
   /** The server settings row's key limit (docs/19 3장). */
-  settingsMaxKeys: 40
+  settingsMaxKeys: 40,
+  /**
+   * The 🎤 turn on the server Whisper path (docs/22 1.3, the same /v1/converse/stt as the LCW dialog): it ends
+   * `silenceStopMs` after the child's voice stops (the LCW dialog's own value: L2 children pause 1.0-1.8 s mid-clause,
+   * @lcw/audio), or when nobody spoke for `noVoiceMs`, and never runs past `maxMs`.
+   */
+  listen: { silenceStopMs: AUDIO_LIMITS.DIALOG_MIC_AUTO_STOP_SILENCE_MS, noVoiceMs: 7000, maxMs: 20000 },
+  /** A class code is 6 digits (edge makeJoinCode). */
+  joinCodeDigits: 6
 } as const;
 
 export type CreatureClass = 'critter' | 'guardian' | 'final';

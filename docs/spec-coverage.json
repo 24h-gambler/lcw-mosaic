@@ -6281,7 +6281,7 @@
     },
     "A04.state": {
       "kind": "state",
-      "title": "말 걸기 판: 인식이 없거나 거절되면 타이핑 칸과 조각으로 바로 바뀜",
+      "title": "말 걸기 판: 토큰이 없으면 수업 코드 칸(6자리, `/v1/join`), 조용하거나 못 알아들으면 다시 말하기 안내, 인식이 없거나 마이크가 거절되면 타이핑 칸과 조각으로 바로 바뀜",
       "status": "done",
       "owner": "talk",
       "route": "/adventure/",
@@ -6292,12 +6292,14 @@
         ]
       },
       "tests": [
-        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A04 state: without speech recognition the typing box and the pieces are there at once"
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A04 state: without speech recognition the typing box and the pieces are there at once",
+        "apps/adventure/src/__tests__/adventure-voice.test.tsx::no token but a recorder: the page asks for the class code instead of going quiet to typing",
+        "apps/adventure/src/__tests__/adventure-voice.test.tsx::what a failed turn means: say it again (quiet, not understood, slow upload), typing (no mic, resting meter)"
       ],
       "evidence": [
         "apps/adventure/src/ui/Speak.tsx:52"
       ],
-      "note": "브라우저 인식이 꺼졌거나 거절되면 타이핑 칸이 바로 열리고, 소리가 들리지 않으면 다시 말하기 또는 타이핑"
+      "note": "마이크는 LCW 대화와 같은 서버 Whisper 경로(/v1/converse/stt). 토큰 없는 아이에게는 그 자리에서 수업 코드 칸, 조용하거나 못 알아들으면 다시 말하기 안내, 마이크를 쓸 수 없거나 거절되면 타이핑. 11-19 실측: 모든 답을 가짜 마이크 WAV 말하기로 해서(smoke 수업 코드) 1섬 별 3, STT 200"
     },
     "A05": {
       "kind": "screen",

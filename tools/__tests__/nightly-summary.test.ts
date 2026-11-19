@@ -29,3 +29,16 @@ describe('nightly summary date (KST)', () => {
     expect(kstDay('2026-11-18T15:00:00.000Z')).toBe('2026-11-19');
   });
 });
+
+describe('nightly summary regressions', () => {
+  it('counts play:* apart from screens that did not open', () => {
+    const r = {
+      ...rep('2026-11-18T05:00:00.000Z'),
+      regressions: [
+        { id: 'T01', owner: 'lesson', route: '/director', sizes: ['1440x900'], why: ['안 열림'] },
+        { id: 'play:hill', owner: 'world', route: '/world/', sizes: ['1440x900'], why: ['pc: 언덕 못 오름'] }
+      ]
+    };
+    expect(summaryMarkdown(r)).toContain('- 회귀(done 인데 운영에서 안 열림): 1 · 실플레이 회귀: 1 · ');
+  });
+});

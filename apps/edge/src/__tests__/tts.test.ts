@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { QuotaMeter, NEURAL_TTS, ttsNeurons } from '@lcw/quota';
 import { FIRST_ERRAND, LESSON_PLANS, NPC_OPENING_LINES, castVoices, chunkPhrases, fixedTtsLines, getLessonNpc, isLocalTtsEngine, localTtsLines, npcCast, ttsVoiceId, voiceForCtx } from '@lcw/content';
-import { TTS_CRON, TTS_UPLOAD, handleTts, handleTtsUpload, localLinesList, parseTryVoice, prebuildFixedLines, runTtsCron, ttsCacheKey, ttsStatus, type TtsCaller, type TtsDeps } from '../tts.js';
+import { TTS_CACHE, TTS_CRON, TTS_UPLOAD, etagMatches, handleTts, handleTtsUpload, localLinesList, parseTryVoice, prebuildFixedLines, runTtsCron, ttsCacheKey, ttsStatus, type TtsCaller, type TtsDeps } from '../tts.js';
 
 async function sha256Hex(s: string): Promise<string> {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
@@ -27,7 +27,8 @@ function rig(opts: { enabled?: boolean; limit?: number } = {}) {
     store: {
       async get(k) {
         const v = store.get(k);
-        return v ? { arrayBuffer: async () => v.slice().buffer } : null;
+        // R2 answers a quoted httpEtag of the stored bytes; a new upload under the same key gets a new one
+        return v ? { arrayBuffer: async () => v.slice().buffer, httpEtag: `"${v.length}-${v.reduce((a, b) => (a * 31 + b) >>> 0, 7)}"` } : null;
       },
       async put(k, v) {
         store.set(k, v);
@@ -54,7 +55,7 @@ describe('neural NPC voice (tts.ts)', () => {
     expect(await ttsStatus(rig().deps).json()).toMatchObject({ enabled: true, voices: castVoices().map(ttsVoiceId) });
   });
 
-  it('a fixed line is made once for anyone, then served from R2 with a long cache', async () => {
+  it('a fixed line is made once for anyone, then served from R2 with an hour of cache and an ETag', async () => {
     const { deps, calls, store, meter } = rig();
     const r1 = await handleTts(url(mia, FIRST_ERRAND.lines.ask), guest, deps);
     expect(r1.status).toBe(200);
@@ -68,7 +69,9 @@ describe('neural NPC voice (tts.ts)', () => {
     expect(store.has(key)).toBe(true);
     const r2 = await handleTts(url(mia, `  ${FIRST_ERRAND.lines.ask}  `), guest, deps);
     expect(r2.headers.get('x-lcw-tts')).toBe('hit');
-    expect(r2.headers.get('cache-control')).toContain('immutable');
+    expect(r2.headers.get('cache-control')).toBe(TTS_CACHE.line);
+    expect(r2.headers.get('cache-control')).not.toContain('immutable');
+    expect(r2.headers.get('etag')).toMatch(/^".+"$/);
     expect(calls).toHaveLength(1);
   });
 
@@ -233,7 +236,7 @@ describe('local open-weights model voice (R2625: the bank in a natural voice for
     for (const p of Object.values(npcCast().npcs)) expect(names).toContain(p.nameEn);
   });
 
-  it('an uploaded line is served like any cached line: same key the client asks, long cache, no neurons, no AI call', async () => {
+  it('an uploaded line is served like any cached line: same key the client asks, cache + ETag, no neurons, no AI call', async () => {
     const { deps, calls, store, meter } = rig({ limit: 1000 });
     const up = await handleTtsUpload(put(modelId, `  ${bankLine} `), mp3(), deps);
     expect(up.status).toBe(200);
@@ -247,11 +250,41 @@ describe('local open-weights model voice (R2625: the bank in a natural voice for
       expect(r.status).toBe(200);
       expect(r.headers.get('x-lcw-tts')).toBe('hit');
       expect(r.headers.get('x-lcw-tts-voice')).toBe(modelId);
-      expect(r.headers.get('cache-control')).toContain('immutable');
+      expect(r.headers.get('cache-control')).toBe(TTS_CACHE.line);
       expect(new Uint8Array(await r.arrayBuffer())).toEqual(mp3());
     }
     expect(calls).toHaveLength(0);
     expect(meter.getStatus(deps.nowMs()).neuronsUsed).toBe(1000); // only the test's own spend
+  });
+
+  it('a better take uploaded again reaches a device that already has the old one (no year-long immutable copy)', async () => {
+    const { deps } = rig();
+    await handleTtsUpload(put(modelId, bankLine), mp3(), deps);
+    const first = await handleTts(url(modelId, bankLine), guest, deps);
+    const etag = first.headers.get('etag')!;
+    expect(first.headers.get('cache-control')).toMatch(/max-age=3600\b/);
+    // the browser asks again with its copy's ETag: unchanged -> 304, no body, same cache rules
+    const same = await handleTts(url(modelId, bankLine), guest, deps, etag);
+    expect(same.status).toBe(304);
+    expect(same.headers.get('cache-control')).toBe(TTS_CACHE.line);
+    expect((await same.arrayBuffer()).byteLength).toBe(0);
+    expect((await handleTts(url(modelId, bankLine), guest, deps, `W/${etag}, "x"`)).status).toBe(304);
+    // the generator re-made the line (another take): same key, new bytes -> the old ETag no longer matches
+    const better = mp3(5000);
+    await handleTtsUpload(put(modelId, bankLine), better, deps);
+    const again = await handleTts(url(modelId, bankLine), guest, deps, etag);
+    expect(again.status).toBe(200);
+    expect(again.headers.get('etag')).not.toBe(etag);
+    expect(new Uint8Array(await again.arrayBuffer())).toEqual(better);
+  });
+
+  it('a stand-in answer keeps its short cache and never answers 304', async () => {
+    expect(TTS_CACHE.standIn).toBe('public, max-age=600');
+    expect(etagMatches('"a", W/"b"', '"b"')).toBe(true);
+    expect(etagMatches('*', '"b"')).toBe(true);
+    expect(etagMatches('"a"', '"b"')).toBe(false);
+    expect(etagMatches(null, '"b"')).toBe(false);
+    expect(etagMatches('"b"', undefined)).toBe(false);
   });
 
   it('upload checks: local cast voice only, fixed line only, mp3 within the size limit', async () => {

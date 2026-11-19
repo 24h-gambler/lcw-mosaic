@@ -2180,7 +2180,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         arrival: lastArrival ?? undefined,
         ground: { near: chunks.outstanding(body.x, body.z, FIRST_RING), view: chunks.outstanding(body.x, body.z, viewChunks) },
         scene: currentScene,
-        player: { x: body.x, y: body.y, z: body.z },
+        // yaw: where the view looks (the real-play check tells a look input that did not turn the view from a bot miss)
+        player: { x: body.x, y: body.y, z: body.z, yaw: Math.round(camYaw * 1000) / 1000 },
         dialogShot: dialogShotStats(),
         interact: {
           near: nearNpc?.def.id ?? null,

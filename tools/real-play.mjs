@@ -232,10 +232,27 @@ let faceMiss = null;
 // every face miss with what the scene graph had for that NPC (engine getStats().npcScene): the judge tells "not drawn"
 // (a product fault) from "drawn, the bot did not get it on screen" (not checked)
 const faceMisses = [];
+// every measured drag of every face(): how many turned the view (shows the yaw measure works on a night with no miss)
+const look = { drags: 0, turned: 0 };
 async function face(id) {
   progress('face');
+  // did any drag turn the view? (getStats().player.yaw; null on a page from before) - a look input that does nothing
+  // makes every face miss, and must not pass as "the bot missed a drawn NPC" (review of #168)
+  let turns = 0;
+  let turned = 0;
+  let yaw0 = null;
   for (let i = 0; i < 16; i++) {
     const s = await stats();
+    const yaw = s?.player?.yaw;
+    if (yaw0 !== null && typeof yaw === 'number') {
+      turns++;
+      look.drags++;
+      if (Math.abs(Math.atan2(Math.sin(yaw - yaw0), Math.cos(yaw - yaw0))) > 0.01) {
+        turned++;
+        look.turned++;
+      }
+    }
+    yaw0 = null;
     const n = s?.npcView?.find((v) => v.id === id);
     if (n && n.vis && n.sx > 0 && n.sx < W && Math.abs(n.sx - W / 2) < W * 0.1) return n;
     // pressed against the NPC (1 m): its feet and head both leave the screen, so no turn finds it; step back first
@@ -246,6 +263,8 @@ async function face(id) {
     }
     // not on screen: about 50° to the right; on screen: the angle to it (dragging right turns the view right)
     const px = !n || !n.vis || n.sx < 0 || n.sx > W ? 0.9 / RAD_PER_PX : Math.atan((n.sx - W / 2) / FOCAL) / RAD_PER_PX;
+    // only drags big enough to see (over ~3 degrees) are checked for turning the view
+    if (Math.abs(px * RAD_PER_PX) > 0.05 && typeof yaw === 'number') yaw0 = yaw;
     await turn(px);
   }
   const s = await stats();
@@ -255,6 +274,9 @@ async function face(id) {
     step: lastStep.name,
     view: n ? { vis: n.vis, sx: Math.round(n.sx), dist: n.dist } : null,
     sceneKnown: Array.isArray(s?.npcScene),
+    // false: the bot dragged and the view never turned; null: no yaw on this page or no drag measured
+    turned: turns === 0 ? null : turned > 0,
+    turns,
     drawn: s?.npcScene?.find((x) => x.id === id) ?? null,
     walking: s?.interact?.walking ?? null,
     paused: s?.interact?.paused ?? null,
@@ -711,6 +733,7 @@ const repeats = [...lines.entries()].map(([id, ls]) => ({ id, visits: ls.length,
 await Promise.allSettled(ttsJudging);
 const report = {
   faceMisses,
+  look,
   dlgJudgedBy,
   npcSceneAtSpawn,
   view,

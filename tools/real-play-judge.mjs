@@ -37,7 +37,8 @@ export function notDrawn(m) {
  */
 export function botMissedOnly(r) {
   const misses = r?.faceMisses ?? [];
-  return misses.length > 0 && misses.every((m) => m.sceneKnown && !notDrawn(m));
+  // a miss with the view not turning, the world paused or a dialog left open is the page's doing, not the bot's
+  return misses.length > 0 && misses.every((m) => m.sceneKnown && !notDrawn(m) && m.turned !== false && !m.paused && !m.dlg);
 }
 
 export function judgeView(r) {
@@ -52,6 +53,9 @@ export function judgeView(r) {
     const ids = [...new Map(gone.map((m) => [m.id, `${m.id}(${why(m)}${m.drawn ? ` @${m.drawn.x},${m.drawn.y},${m.drawn.z}` : ''})`])).values()];
     add('npc-not-drawn', `말 걸 NPC 가 화면에 안 그려짐: ${ids.join(', ')}`);
   }
+  // paused or a dialog open stops the look by design: those misses stay talk regressions, not a look-input one
+  const stuck = (r.faceMisses ?? []).filter((m) => m.turned === false && !m.paused && !m.dlg);
+  if (stuck.length) add('look-input', `시점 끌기로 시점이 안 돌아감 (${[...new Set(stuck.map((m) => m.id))].join(', ')} 찾는 중, ${stuck.reduce((a, m) => a + (m.turns ?? 0), 0)}번 끌어 0번 돎)`);
   const missedOnly = botMissedOnly(r);
   const click = ratio(r.clickSuccess);
   if (!click || click.tried === 0) {

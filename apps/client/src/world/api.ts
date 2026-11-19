@@ -33,7 +33,7 @@ export interface WorldStats {
   chunksMeshed: number;
   chunksVisible: number;
   scene: SceneId;
-  player: { x: number; y: number; z: number };
+  player: { x: number; y: number; z: number; yaw?: number };
   /** While a dialog pauses the world: the NPC and where its face lands on screen (CSS px). */
   dialogShot?: { npc: string; face: [number, number] } | null;
   /** current dynamic-resolution scale (1 = tier scale x devicePixelRatio) */

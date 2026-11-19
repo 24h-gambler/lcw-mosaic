@@ -105,6 +105,12 @@ describe('real-play judgement for the nightly audit', () => {
     expect(judgeView({ ...r, faceMisses: [miss({ ...drawn, meshes: 0 })] })[0].why).toContain('메시 0');
     // a page from before the scene graph was read cannot tell: zero talks stay a regression
     expect(judgeView({ ...r, faceMisses: [{ id: 'cafe_owner', sceneKnown: false, drawn: null }] }).map((x: { id: string }) => x.id)).toEqual(['play:click-talk', 'play:key-talk']);
+    // the view never turned on a drag, or the world was paused / a dialog open: the page's fault, never "not checked"
+    const noTurn = { ...r, faceMisses: [{ ...miss(drawn), turned: false, turns: 15 }] };
+    expect(judgeView(noTurn).map((x: { id: string }) => x.id)).toEqual(['play:look-input', 'play:click-talk', 'play:key-talk']);
+    expect(judgeView({ ...r, faceMisses: [{ ...miss(drawn), turned: true, dlg: true }] }).map((x: { id: string }) => x.id)).toEqual(['play:click-talk', 'play:key-talk']);
+    expect(judgeView({ ...r, faceMisses: [{ ...miss(drawn), turned: true, paused: true }] }).map((x: { id: string }) => x.id)).toEqual(['play:click-talk', 'play:key-talk']);
+    expect(judgeView({ ...r, faceMisses: [{ ...miss(drawn), turned: true, turns: 15 }] })).toEqual([]);
     // a drawn NPC missed on one talk does not hide the talks that were tried
     expect(judgeView({ ...clean(), clickSuccess: '5/6', faceMisses: [miss(drawn)] }).map((x: { id: string }) => x.id)).toEqual(['play:click-talk']);
   });

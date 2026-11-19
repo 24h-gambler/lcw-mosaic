@@ -444,7 +444,9 @@ for (let round = 0; round < 9; round++) {
   const near = await approach(goal, 2.6);
   const t = { goal, walked, reached: !!near, ...(near ? {} : { faceMiss }), dist: near?.dist ?? null, promptOnGoal: (await stats())?.interact?.prompt ?? null };
   t.click = await tryClick(goal);
-  if (!t.click) t.clickMiss = lastClick;
+  // not on screen (null): the face miss explains it; the last click would point at an earlier talk
+  if (t.click === null) t.clickMiss = { notOnScreen: faceMiss };
+  else if (!t.click) t.clickMiss = lastClick;
   if (t.click) {
     t.lineClick = await firstLine();
     await closeDlg();

@@ -16,6 +16,7 @@ import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
 import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, makeJumpView, pickVoxel, raycastDistance, stepBody, stepJumpView, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
+import { Soundscape } from './soundscape.js';
 import { Storefronts } from './storefront.js';
 import { MINIMAP_AREA, Wayfinder, minimapSteps, type MapPerson } from './wayfinding.js';
 import { TILE_LAYER, BLOCK_LOOKS } from './blocks.js';
@@ -372,6 +373,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     await yieldToMain();
   }
   const windmill = new Windmill(137.5, standHeight(world, 137, 98) + 6.4, 99.9);
+  // the town's sounds from their places (R2627, docs/12 8장): HRTF and the room reverb on the high tier
+  const soundscape = new Soundscape(world, { hrtf: opts.tier === 'high', reverb: opts.tier === 'high', mill: { x: 137.5, y: standHeight(world, 137, 98) + 6.4, z: 99.9 } });
+  sfx.attachSoundscape(soundscape);
   scene.add(windmill.root);
   const butterflies = new Butterflies([
     [131, 1, 131],
@@ -1641,6 +1645,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     windmill.update(dt);
     butterflies.update(dt);
     storefronts.update(dt, sky.hour, reduceMotion);
+    soundscape.update(dt, camera, sky.hour, paused || attract);
     if (player.root.position.distanceTo(fountain) < viewDistance) effects.spray(fountain.x, fountain.y, fountain.z, dt);
     effects.update(dt);
     sky.update(dt, player.root.position);
@@ -1965,6 +1970,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       wayfinder.dispose();
       chunks.dispose();
       VoxelCharacter.shadows = null;
+      soundscape.dispose();
       sfx.dispose();
       hud.dispose();
       renderer.dispose();
@@ -2167,6 +2173,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       return {
         fps,
         frameMs,
+        sound: soundscape.state(),
         renderScale: governor.scale,
         tier: tierName,
         autoTier: autoPick ? autoPick.settled : null,

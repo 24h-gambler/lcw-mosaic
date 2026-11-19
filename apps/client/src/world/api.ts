@@ -57,6 +57,8 @@ export interface WorldStats {
   arrival?: { scene: SceneId; groundMs: number };
   /** building on my plot (headless checks): mode, carried stacks, sync queue, current aim, last room check */
   build?: Record<string, unknown>;
+  /** the soundscape (R2627, soundscape.ts): audio started, sounds built, inside a room / store, sources, panning */
+  sound?: { started: boolean; built: number; indoor: boolean; store: string | null; emitters: number; panning: string };
   /**
    * Talking to NPCs (R2625 real-play check): the NPC E would talk to, the goal NPC (errand step), whether the talk prompt
    * shows, NPCs talked to in this visit, talks opened by E / the talk button and by a click or tap.

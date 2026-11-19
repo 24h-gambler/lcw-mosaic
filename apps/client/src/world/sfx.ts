@@ -5,6 +5,7 @@
  */
 import { PROCEDURAL_SFX_PRESETS, dbToGain, getLadderSemitoneOffset, type AudioBusName } from '@lcw/audio';
 import { getAudioRuntime } from '../audio/runtime.js';
+import type { Soundscape } from './soundscape.js';
 
 type Ctx = AudioContext;
 
@@ -29,7 +30,15 @@ export class Sfx {
   private ladderStep = 0;
   private ladderAt = 0;
   private lastBubble = 0;
+  /** the town's soundscape (soundscape.ts): beds, life sounds, footsteps from built samples; replaces the old bed */
+  private scape: Soundscape | null = null;
   muted = false;
+
+  /** Hands the soundscape the effects and ambience outputs once audio is unlocked (now, if it already is). */
+  attachSoundscape(s: Soundscape): void {
+    this.scape = s;
+    if (this.ctx && this.master && this.ambOut) s.start(this.ctx, { sfx: this.master, amb: this.ambOut });
+  }
 
   unlock(): void {
     if (this.ctx) {
@@ -65,6 +74,7 @@ export class Sfx {
     } catch {
       this.ctx = null;
     }
+    if (this.ctx && this.master && this.ambOut) this.scape?.start(this.ctx, { sfx: this.master, amb: this.ambOut });
   }
 
   /** Where the sound being played right now goes (set per `play`). */
@@ -191,6 +201,8 @@ export class Sfx {
         return;
       default: {
         if (id.startsWith('step.')) {
+          // built footstep samples per material (sound-synth.ts); the filtered tick below until they are ready
+          if (this.scape?.step(id.slice(5), opts.pitch ?? 0)) return;
           const mat = id.slice(5);
           const f = mat === 'stone' ? 900 : mat === 'wood' ? 600 : mat === 'sand' ? 2200 : mat === 'metal' ? 1800 : 400;
           this.noise(0.06, 0.07, 'bandpass', f * p, 0, 1.2);
@@ -223,7 +235,8 @@ export class Sfx {
   /** Soft outdoor bed: wind and an occasional bird (docs/12 5장 앰비언스 대체). */
   startAmbient(): void {
     const ctx = this.ctx;
-    if (!ctx || !this.ambOut || !this.noiseBuf || this.ambient) return;
+    // the soundscape owns the beds (wind, fountain, birds, crickets)
+    if (this.scape || !ctx || !this.ambOut || !this.noiseBuf || this.ambient) return;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuf;
     src.loop = true;

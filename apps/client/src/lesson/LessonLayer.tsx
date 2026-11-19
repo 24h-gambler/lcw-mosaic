@@ -531,7 +531,21 @@ function bigButton(bg: string): React.CSSProperties {
 function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }) {
   const ok = view.connection === 'ok';
   const [asking, setAsking] = useState(false);
+  const [toAdventure, setToAdventure] = useState(false);
   const small: React.CSSProperties = { ...card, boxShadow: 'none', padding: `${SP[1]}px ${SP[2]}px`, fontSize: T.scale.small.sizePx, cursor: 'pointer', minHeight: TOKENS.shape.touchTargetMinPx, color: C['ink-900'] };
+  if (toAdventure) {
+    // Two taps here too: the link leaves the lesson screen (the lesson token goes along in this tab, /world/ brings the
+    // child back into the same lesson), so a stray tap must not take the child away.
+    return (
+      <div role="group" aria-label={S.status.adventureAsk} style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: SP[1], alignItems: 'center', padding: SP[1], pointerEvents: 'auto', marginLeft: 'auto' }}>
+        <span style={{ fontSize: T.scale.small.sizePx, fontWeight: 700, padding: `0 ${SP[1]}px` }}>{S.status.adventureAsk}</span>
+        <button type="button" onClick={() => setToAdventure(false)} style={{ ...small, background: C['leaf-d'], color: C['paper-0'], fontWeight: 800 }}>{S.status.leaveNo}</button>
+        <a href="/adventure/" data-testid="lesson-adventure-go" style={{ ...small, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+          {S.status.adventureGo}
+        </a>
+      </div>
+    );
+  }
   if (asking) {
     // Two taps to leave: a stray tap on a phone must not drop the child out of the lesson.
     return (
@@ -543,7 +557,7 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
     );
   }
   return (
-    <div style={{ display: 'flex', gap: SP[1], pointerEvents: 'auto', marginLeft: 'auto' }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: SP[1], pointerEvents: 'auto', marginLeft: 'auto' }}>
       <span
         role="status"
         style={{
@@ -568,9 +582,9 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
               : S.status.alone(view.nickname)}
       </span>
       {/* same tab on purpose: the lesson token (sessionStorage) goes along, so the adventure's 🎤 works at once */}
-      <a href="/adventure/" data-testid="lesson-adventure" style={{ ...small, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+      <button type="button" data-testid="lesson-adventure" onClick={() => setToAdventure(true)} style={small}>
         {S.status.adventure}
-      </a>
+      </button>
       <button type="button" onClick={() => setAsking(true)} style={small}>
         {S.status.leave}
       </button>

@@ -270,6 +270,12 @@ async function run(vp) {
       await press('adv-join-ok');
       await page.waitForFunction(() => !document.querySelector('[data-testid=adv-join]'), null, { timeout: 15000 }).catch(() => {});
       await sleep(300);
+      if (await exists('adv-join')) {
+        // the code did not work: clear it so no screenshot keeps it
+        await tid('adv-join-code').first().fill('');
+        fails.push(`${vp.name}: the class code was refused (${JSON.stringify(voice.join)})`);
+        return;
+      }
       await shot('voice-join-ok');
     }
     if (!(await exists('adv-mic'))) {

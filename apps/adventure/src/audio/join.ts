@@ -1,5 +1,6 @@
 import { saveStudentSession, type JoinResult } from '../../../client/src/lesson/api.js';
 import { ADV } from '../core/tuning.js';
+import { tokenRenewed } from './listen.js';
 
 /**
  * The class code for the 🎤 (docs/22 1.3): a child with no token in this tab and no linked device types the 6-digit code
@@ -26,6 +27,7 @@ export async function joinWithCode(raw: string, fetchImpl: typeof fetch = (...a)
   if (!res.ok) return { ok: false, reason: res.status === 404 || res.status === 400 ? 'invalid' : 'network' };
   const j = (await res.json().catch(() => null)) as JoinResult | null;
   if (!j || typeof j.student_token !== 'string' || !j.student_token) return { ok: false, reason: 'network' };
+  tokenRenewed();
   saveStudentSession({ token: j.student_token, lessonId: j.lesson_id, nickname: j.nickname ?? '', level: j.level ?? 'L1', voiceStore: Boolean(j.voice_store) });
   return { ok: true, nickname: j.nickname ?? '' };
 }

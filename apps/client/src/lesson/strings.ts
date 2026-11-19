@@ -25,6 +25,8 @@ export const LESSON_STRINGS_KO = {
     queued: (n: number) => `보낼 말 ${n}개 · 연결되면 보내요`,
     /** Same-tab link to the talk-to-befriend adventure (/adventure/): the lesson token in this tab goes along (docs/22). */
     adventure: '🗺 모험',
+    adventureAsk: '모험으로 갈까요? 다 하면 마을로 돌아와요',
+    adventureGo: '🗺 모험 가기',
     leave: '나가기',
     leaveAsk: '수업에서 나갈까요?',
     leaveYes: '나가기',
@@ -100,6 +102,8 @@ export const LESSON_STRINGS_EN: LessonStrings = {
     retrying: 'Connecting again…',
     queued: (n: number) => `${n} to send · sends when online`,
     adventure: '🗺 Adventure',
+    adventureAsk: 'Go to the adventure? Come back to the town after',
+    adventureGo: '🗺 Go',
     leave: '🚪 Leave',
     leaveAsk: 'Leave the lesson?',
     leaveYes: '🚪 Leave',

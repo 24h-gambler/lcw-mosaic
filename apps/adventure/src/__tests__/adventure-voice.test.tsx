@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SpeechCallbacks, SpeechEngine } from '../../../client/src/dialog/speech.js';
 import { cleanCode, joinWithCode } from '../audio/join.js';
-import { Listener, endOf, listenState, setSpeechEngineFactory } from '../audio/listen.js';
+import { Listener, endOf, listenState, resetListenMemory, setSpeechEngineFactory } from '../audio/listen.js';
 import { Speak } from '../ui/Speak.js';
 import { S } from '../ui/strings.js';
 
@@ -33,6 +33,7 @@ function withStorage(session: Record<string, string>, local: Record<string, stri
 
 afterEach(() => {
   setSpeechEngineFactory(null);
+  resetListenMemory();
   vi.unstubAllGlobals();
 });
 
@@ -83,6 +84,21 @@ describe('A04 voice: the LCW server Whisper path and the class code', () => {
     expect(endOf('unsupported').kind).toBe('unsupported');
     withStorage({}, {});
     expect(endOf('unsupported').kind).toBe('need_code');
+  });
+
+  it('a refused token (an old lesson tab, 401) asks for the code again, until a new code works; a resting meter is typing for the page', async () => {
+    withStorage({ 'lcw.studentToken': 'old' }, {});
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: () => Promise.resolve({}) } });
+    vi.stubGlobal('MediaRecorder', function MediaRecorder() {});
+    setSpeechEngineFactory(() => fakeEngine({ ok: true }));
+    expect(listenState()).toBe('ok');
+    expect(endOf('unsupported', 'http_401')).toEqual({ kind: 'need_code' });
+    expect(listenState()).toBe('need_code');
+    const ok = (async () => new Response(JSON.stringify({ student_token: 'new', lesson_id: 'les-2', player_id: 'p', nickname: '', level: 'L1' }), { status: 200 })) as unknown as typeof fetch;
+    expect((await joinWithCode('123456', ok)).ok).toBe(true);
+    expect(listenState()).toBe('ok');
+    expect(endOf('quota', 'http_429')).toEqual({ kind: 'quota' });
+    expect(listenState()).toBe('unsupported');
   });
 
   it('a heard turn gives the transcript; a server error asks to say it again', () => {

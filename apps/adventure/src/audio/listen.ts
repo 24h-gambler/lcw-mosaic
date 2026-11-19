@@ -19,6 +19,18 @@ export type ListenEnd =
 export type ListenState = 'ok' | 'need_code' | 'unsupported';
 
 const MIC_OFF_KEY = 'lcw.adventure.micOff';
+/** For this page view: the server refused the token (an old lesson tab: 401/403) → ask for the code again; the meter is resting (429) → typing. */
+let refused = false;
+let resting = false;
+/** A new class code worked: the token is good again. */
+export function tokenRenewed(): void {
+  refused = false;
+}
+/** Test seam. */
+export function resetListenMemory(): void {
+  refused = false;
+  resting = false;
+}
 
 function localStorageFlag(k: string): boolean {
   try {
@@ -55,7 +67,8 @@ const engine = (): SpeechEngine => (engineFor ? engineFor() : createServerSpeech
 /** Can this page take a spoken turn now? `need_code`: everything is there but the child has no token yet. */
 export function listenState(): ListenState {
   try {
-    if (localStorageFlag(MIC_OFF_KEY)) return 'unsupported';
+    if (localStorageFlag(MIC_OFF_KEY) || resting) return 'unsupported';
+    if (refused) return hasRecorder() ? 'need_code' : 'unsupported';
     const a = engine().availability();
     if (a.ok) return 'ok';
     if (a.issue === 'unsupported' && !childToken() && hasRecorder()) return 'need_code';
@@ -71,7 +84,11 @@ function hasRecorder(): boolean {
 }
 
 /** What a failed turn means for the panel: say it again, or go to typing. */
-export function endOf(issue: MicIssue): ListenEnd {
+export function endOf(issue: MicIssue, raw?: string): ListenEnd {
+  if (raw === 'http_401' || raw === 'http_403') {
+    refused = true;
+    return { kind: 'need_code' };
+  }
   if (issue === 'denied') {
     markMicDenied();
     return { kind: 'denied' };
@@ -79,7 +96,10 @@ export function endOf(issue: MicIssue): ListenEnd {
   if (issue === 'no_speech' || issue === 'aborted') return { kind: 'silent' };
   // a slow or failed upload, a model error: the words may come through next time
   if (issue === 'stt_failed' || issue === 'network') return { kind: 'retry' };
-  if (issue === 'quota') return { kind: 'quota' };
+  if (issue === 'quota') {
+    resting = true;
+    return { kind: 'quota' };
+  }
   if (issue === 'unsupported' && !childToken()) return { kind: 'need_code' };
   return { kind: 'unsupported' };
 }
@@ -120,7 +140,7 @@ export class Listener {
         const t = res?.transcript.trim() ?? '';
         finish(t ? { kind: 'heard', alternatives: [t] } : { kind: 'silent' });
       },
-      onError: (issue) => finish(endOf(issue))
+      onError: (issue, raw) => finish(endOf(issue, raw))
     });
     // nobody spoke: end the turn (the recorder hears nothing, no upload, "say it again")
     this.timers.push(setTimeout(() => voicedAt === 0 && this.session?.stop(), ADV.listen.noVoiceMs));

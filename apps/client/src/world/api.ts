@@ -74,6 +74,20 @@ export interface WorldStats {
   motion?: { jumps: number; unpressedJumps: number; autoClimbs: number; autoJump: boolean; bodyY: number; camY: number };
 }
 
+/** What the gauge rows show (0..100 each). `cold`: the warmth row shows (it is cold here or warmth is not full). */
+export interface GaugeView {
+  health: number;
+  hunger: number;
+  thirst: number;
+  warmth: number;
+  lowHealth: boolean;
+  lowHunger: boolean;
+  lowThirst: boolean;
+  lowWarmth: boolean;
+  cold: boolean;
+  slow: boolean;
+}
+
 export interface WorldHandle {
   goToScene(id: SceneId): Promise<void>; // 걸어가거나 문을 지나는 연출 포함
   /** Teacher in the world: stand two metres in front of the nearest person in the room (of a role); false = nobody placed. */
@@ -152,8 +166,12 @@ export interface WorldHandle {
   setKeyHints?(k: KeyHintLabels): void;
   /** the child picked the slot already in hand again: use that thing (G01 eat / drink) */
   onUse?(cb: (itemKey: string) => void): () => void;
-  /** G01 gauges on the status chip; null hides them */
-  setGauges?(g: { hunger: number; thirst: number; lowHunger: boolean; lowThirst: boolean; slow: boolean } | null): void;
+  /** G01 gauges as icon rows right over the hotbar (R325); null hides them */
+  setGauges?(g: GaugeView | null): void;
+  /** where the child stands this second for the warmth gauge (cold, a fire near, a roof over the head; R325) */
+  climate?(): { cold: 0 | 1 | 2; fire: boolean; roof: boolean };
+  /** the child landed after a fall of `meters` (the player's own movement; not a scene change or a walk) */
+  onFall?(cb: (meters: number) => void): () => void;
   /** walking speed multiplier (0.3..1) and whether running is allowed (G01 low gauges, docs/03 D1) */
   setMove?(mult: number, canRun: boolean): void;
   /** a one-off line over the hotbar (same place as the slot caption) */

@@ -8,6 +8,7 @@
  * stops trying for a while.
  */
 import { MAX_TURN_RATE, TUNING, predictPose } from '@lcw/sim-core';
+import { GUEST_PASS_HEADER } from '@lcw/schemas';
 import { peerMotionOf } from './peer-motion.js';
 
 export interface RoomPoseSource {
@@ -42,6 +43,11 @@ interface SocketLike {
 export interface RoomClientOptions {
   /** Bearer tokens to try in order (lesson student token first, then the child's device token); empty = none yet. */
   token: () => string | null | ReadonlyArray<string | null>;
+  /**
+   * A running guest pass (docs/19 §8): tried first, as `x-lcw-guest-pass`, so the friend sits in the host child's room
+   * (R325: they were in the host's world but alone in the room).
+   */
+  passToken?: () => string | null;
   /** Ticket request body: only an operator names a room (a teacher walking into the lesson room, docs/02 §11). */
   ticketBody?: () => Record<string, unknown>;
   source: RoomPoseSource;
@@ -163,7 +169,11 @@ export class RoomClient {
   private async connect(): Promise<void> {
     if (this.stopped || this.ws) return;
     const raw = this.o.token();
-    const tokens = [...new Set((Array.isArray(raw) ? raw : [raw]).filter((t): t is string => typeof t === 'string' && t.length > 0))];
+    const pass = this.o.passToken?.() ?? null;
+    const tokens: Array<Record<string, string>> = [
+      ...(pass && pass.length >= 32 ? [{ [GUEST_PASS_HEADER]: pass }] : []),
+      ...[...new Set((Array.isArray(raw) ? raw : [raw]).filter((t): t is string => typeof t === 'string' && t.length > 0))].map((t) => ({ authorization: `Bearer ${t}` }))
+    ];
     if (!tokens.length) {
       this.status = 'none';
       return this.schedule(NO_TOKEN_RETRY_MS);
@@ -177,7 +187,7 @@ export class RoomClient {
       try {
         const res = await (this.o.fetchImpl ?? fetch)(`${base}/v1/room/ticket`, {
           method: 'POST',
-          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          headers: { ...token, 'content-type': 'application/json' },
           body: JSON.stringify(this.o.ticketBody?.() ?? {})
         });
         // {room:null} (or 401 from an older server): this token has no room (an expired lesson) — try the next one

@@ -9,6 +9,7 @@ import { onLearnLang } from './lang.js';
 import { bandOf, clockLabel, isNight, placeBi, type BandId } from '../frame/status.js';
 import { HUD_PART_EVENT, coverHits } from './cover.js';
 import { refillOf } from '../frame/gauges.js';
+import type { GaugeView } from './api.js';
 
 const STYLE_ID = 'lcw-world-hud-style';
 
@@ -39,17 +40,26 @@ function css(): string {
 .lw-chip .w.night i{background:transparent;box-shadow:inset -4px -2px 0 0 ${C.silver}}
 .lw-chip .w.snow i{background:${C['paper-0']};box-shadow:0 0 0 2px ${C.silver}}
 .lw-chip .s{white-space:nowrap}
-.lw-chip .gz{display:none;align-items:center;gap:10px;margin-top:2px}
-.lw-chip .gz.on{display:inline-flex}
-.lw-chip .gz span{display:inline-flex;align-items:center;gap:4px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:1}
-.lw-chip .gz b{display:block;width:calc(40px * var(--lcw-hs,1));height:8px;border-radius:999px;background:${C['night-700']};box-shadow:inset 0 0 0 1px ${C['paper-0']};overflow:hidden}
-.lw-chip .gz b i{display:block;height:100%;width:45%;background:var(--gz);transition:width ${M.slowMs}ms linear}
-.lw-chip .gz .h{--gz:${C.sun}}
-.lw-chip .gz .t{--gz:${C.sky}}
-.lw-chip .gz .low b i{background:var(--c-danger,${C.danger})}
-.lw-chip .gz .low{animation:lwGzLow 1.6s ease-in-out infinite}
-.lw-chip .gz em{display:none;font-style:normal;color:${C.sun};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
-.lw-chip .gz.slow em{display:inline}
+.lw-vit{position:absolute;left:0;right:0;bottom:calc(100% + 4px);display:none;flex-direction:column;gap:1px;pointer-events:none}
+.lw-vit.on{display:flex}
+.lw-vit .r{display:flex;justify-content:space-between;align-items:center;position:relative}
+.lw-vit .m{display:flex;line-height:1;font-size:13px}
+.lw-vit .m.rt{flex-direction:row-reverse}
+.lw-vit .m i{display:block;position:relative;width:14px;height:15px;font-style:normal;text-align:center;filter:drop-shadow(1px 1px 0 ${C['ink-900']})}
+.lw-vit .m i::before,.lw-vit .m i::after{content:attr(data-c);position:absolute;inset:0}
+.lw-vit .m i::after{display:none;filter:grayscale(1);opacity:.35}
+.lw-vit .m i.e::before{filter:grayscale(1);opacity:.35}
+.lw-vit .m i.h::before{clip-path:inset(0 50% 0 0)}
+.lw-vit .m i.h::after{display:block;clip-path:inset(0 0 0 50%)}
+.lw-vit .m.rt i.h::before{clip-path:inset(0 0 0 50%)}
+.lw-vit .m.rt i.h::after{clip-path:inset(0 50% 0 0)}
+.lw-vit .m.low{animation:lwGzLow 1.6s ease-in-out infinite}
+.lw-vit .m.w{visibility:hidden}
+.lw-vit.cold .m.w{visibility:visible}
+.lw-vit em{display:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-style:normal;font-weight:700;color:${C.sun};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));text-shadow:1px 1px 0 ${C['ink-900']};white-space:nowrap}
+.lw-vit.slow em{display:block}
+.lw-hud.gz .lw-cap{bottom:calc(80px + 34px)}
+.lw-hud.gz .lw-toast{bottom:calc(84px + 34px)}
 @keyframes lwGzLow{50%{opacity:.55}}
 .lw-net{position:absolute;top:0;left:0;right:0;display:none;overflow:hidden;align-items:center;justify-content:center;gap:8px;padding:4px 12px;background:${C.sun};color:${C['ink-900']};border-bottom:${S.borderWidthPx}px solid ${C['ink-900']};font-weight:700;font-size:${T.scale.small.sizePx}px;line-height:${T.scale.small.lineHeightPx}px}
 .lw-net i{width:10px;height:10px;border-radius:50%;background:${C['ink-900']};flex:none}
@@ -157,7 +167,7 @@ function css(): string {
 .lw-fps{position:absolute;bottom:4px;right:4px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};background:${night};padding:2px 6px;display:none}
 .lw-fps.on{display:block}
 @media (max-width:600px),(max-height:500px){.lw-hud{--lcw-hs:min(var(--lcw-fs,1),1.15)}}
-@media (max-width:600px){.lw-chip .gz{gap:6px}.lw-chip .gz b{width:calc(26px * var(--lcw-hs,1))}}
+@media (max-width:600px){.lw-vit .m{font-size:10px}.lw-vit .m i{width:11px;height:12px}.lw-hud.gz .lw-cap{bottom:calc(64px + 28px)}.lw-hud.gz .lw-toast{bottom:calc(68px + 28px)}}
 /* the lesson tag wraps under the status box on a phone (the chip leaves room for the stars): the goal card starts below it */
 /* phones: the goal card starts under the status chip's real height (gauges, a wrapped lesson tag, the Korean help line) */
 
@@ -169,7 +179,7 @@ function css(): string {
 @media (max-width:600px) and (max-height:500px){.lw-hud .lw-goal{max-width:none}}
 @media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
 .lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:var(--lw-view-r,84px);max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,calc(var(--lw-net-h,30px) + 2px))}}
-@media (prefers-reduced-motion:reduce){.lw-chip .gz .low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
+@media (prefers-reduced-motion:reduce){.lw-vit .m.low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
 }
 
@@ -382,7 +392,6 @@ export class WorldHud {
     this.clockChip = el('span', 'w none', sc);
     el('i', '', this.clockChip);
     this.clockText = el('span', '', this.clockChip);
-    this.gz = el('span', 'gz', sc);
     this.lessonChip = el('span', 'l', chip);
     this.lessonChip.textContent = W.lessonBadge;
     // G01 empty state: the connection dropped, the world keeps going on this device (docs/08 8.6).
@@ -492,6 +501,8 @@ export class WorldHud {
 
     const bar = el('div', 'lw-hotbar', this.root);
     this.hotbarEl = bar;
+    // R325: the gauges sit right over the slots as icon rows (they rode the status chip at the top left before)
+    this.gz = el('div', 'lw-vit', bar);
     for (let i = 0; i < 5; i++) {
       const s = el('div', 'lw-slot empty', bar);
       s.style.pointerEvents = 'auto';
@@ -777,37 +788,57 @@ export class WorldHud {
   }
 
   /**
-   * G01 게이지 (docs/03 D1): hunger and thirst bars on the status chip, red and pulsing at 20% or less, "느려짐" while
-   * walking is slower. null hides them (the frame decides when they run).
+   * G01 게이지 (docs/03 D1, R325 Dan 11-19 "핫바 바로 위에 아이콘 줄로"): over the hotbar, the bottom row has health
+   * (hearts, left) and hunger (bread, right, emptying from the left like the reference sandbox); the row above has
+   * thirst (drops, right) and warmth (flames, left, only while it is cold or warmth is not full). Ten icons per gauge,
+   * a half icon per 5%; a gauge at 20% or less pulses; "Slow" while walking is slower. null hides them.
    */
-  setGauges(g: { hunger: number; thirst: number; lowHunger: boolean; lowThirst: boolean; slow: boolean } | null): void {
+  setGauges(g: GaugeView | null): void {
     const gz = this.gz;
     if (!gz) return;
     this.gzOn = g !== null;
     this.root.classList.toggle('gz', this.gzOn);
     gz.classList.toggle('on', this.gzOn);
-    if (!g) return;
-    if (!gz.firstChild) {
-      for (const [cls, icon, label] of [['h', '🍞', W.hunger], ['t', '💧', W.thirst]] as const) {
-        const s = el('span', cls, gz);
-        s.setAttribute('role', 'meter');
-        s.setAttribute('aria-label', label);
-        s.setAttribute('aria-valuemin', '0');
-        s.setAttribute('aria-valuemax', '100');
-        el('span', '', s).textContent = icon;
-        el('i', '', el('b', '', s));
-      }
-      el('em', '', gz).textContent = W.slowed;
+    if (!g) {
+      this.measureStacks();
+      return;
     }
-    const [h, t] = [gz.children[0] as HTMLElement, gz.children[1] as HTMLElement];
-    const put = (s: HTMLElement, v: number, low: boolean): void => {
+    if (!gz.firstChild) {
+      const meter = (row: HTMLElement, cls: string, icon: string, label: string): void => {
+        const m = el('span', `m ${cls}`, row);
+        m.setAttribute('role', 'meter');
+        m.setAttribute('aria-label', label);
+        m.setAttribute('aria-valuemin', '0');
+        m.setAttribute('aria-valuemax', '100');
+        for (let i = 0; i < 10; i++) el('i', 'f', m).dataset.c = icon;
+      };
+      const top = el('div', 'r', gz);
+      meter(top, 'w', '🔥', W.warmth);
+      el('em', '', top).textContent = W.slowed;
+      meter(top, 't rt', '💧', W.thirst);
+      const bottom = el('div', 'r', gz);
+      meter(bottom, 'hp', '❤️', W.health);
+      meter(bottom, 'f rt', '🍞', W.hunger);
+      this.measureStacks();
+    }
+    const put = (m: Element | null, v: number, low: boolean): void => {
+      if (!m) return;
       const p = Math.round(Math.min(100, Math.max(0, v)));
-      (s.querySelector('b i') as HTMLElement).style.width = `${p}%`;
-      s.setAttribute('aria-valuenow', String(p));
-      s.classList.toggle('low', low);
+      if (m.getAttribute('aria-valuenow') !== String(p)) {
+        m.setAttribute('aria-valuenow', String(p));
+        const halves = Math.round(p / 5);
+        Array.from(m.children).forEach((ic, i) => {
+          const c = halves >= (i + 1) * 2 ? 'f' : halves === i * 2 + 1 ? 'h' : 'e';
+          if (ic.className !== c) ic.className = c;
+        });
+      }
+      m.classList.toggle('low', low);
     };
-    put(h, g.hunger, g.lowHunger);
-    put(t, g.thirst, g.lowThirst);
+    put(gz.querySelector('.m.hp'), g.health, g.lowHealth);
+    put(gz.querySelector('.m.f'), g.hunger, g.lowHunger);
+    put(gz.querySelector('.m.t'), g.thirst, g.lowThirst);
+    put(gz.querySelector('.m.w'), g.warmth, g.lowWarmth);
+    gz.classList.toggle('cold', g.cold);
     gz.classList.toggle('slow', g.slow);
   }
 
@@ -861,7 +892,7 @@ export class WorldHud {
     if (now - this.coverAt < 250) return this.cover;
     this.coverAt = now;
     const rr = this.root.getBoundingClientRect();
-    const parts: Array<Element | null> = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null, this.help, this.cap.classList.contains('on') ? this.cap : null, this.net, this.hotbarEl];
+    const parts: Array<Element | null> = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null, this.help, this.cap.classList.contains('on') ? this.cap : null, this.net, this.hotbarEl, this.gzOn ? this.gz : null];
     if (this.touchOn) parts.push(this.viewBtn, this.jumpBtn, this.talkBtn);
     // the frame's own buttons on the HUD layer (menu), and anything another layer marks as a screen part
     parts.push(...Array.from(document.querySelectorAll('.lcw-hudbtn, .lw-mini, [data-hud-part]')));
@@ -917,7 +948,7 @@ export class WorldHud {
     // never lower than the hotbar and the frame's bottom buttons (menu): with the help faded and no caption the stack
     // fell to 0 and the walk button sat on the hotbar
     const rr = this.root.getBoundingClientRect();
-    for (const e of [this.hotbarEl, ...Array.from(document.querySelectorAll('.lcw-hudbtn'))]) {
+    for (const e of [this.hotbarEl, this.gzOn ? this.gz : null, ...Array.from(document.querySelectorAll('.lcw-hudbtn'))]) {
       if (!e) continue;
       const b = e.getBoundingClientRect();
       if (b.height > 0 && b.top > rr.top + h / 2) stack = Math.max(stack, rr.bottom - b.top);
@@ -1339,8 +1370,10 @@ export class WorldHud {
     this.clockKey = '';
     const gz = this.gz;
     if (gz?.firstChild) {
-      gz.children[0]?.setAttribute('aria-label', W.hunger);
-      gz.children[1]?.setAttribute('aria-label', W.thirst);
+      gz.querySelector('.m.hp')?.setAttribute('aria-label', W.health);
+      gz.querySelector('.m.f')?.setAttribute('aria-label', W.hunger);
+      gz.querySelector('.m.t')?.setAttribute('aria-label', W.thirst);
+      gz.querySelector('.m.w')?.setAttribute('aria-label', W.warmth);
       const em = gz.querySelector('em');
       if (em) em.textContent = W.slowed;
     }

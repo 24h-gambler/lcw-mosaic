@@ -62,6 +62,13 @@ export class PeerAvatars {
     return n;
   }
 
+  /** Everyone placed in the room, where they are drawn now (the minimap pins, R325). */
+  placed(): Array<{ id: string; name: string; role: string; x: number; z: number }> {
+    const out: Array<{ id: string; name: string; role: string; x: number; z: number }> = [];
+    for (const rt of this.peers.values()) if (rt.seen) out.push({ id: rt.info.id, name: rt.info.name, role: rt.info.role, x: rt.pos.x, z: rt.pos.z });
+    return out;
+  }
+
   /** Where the nearest placed person (of a role, if given) stands: for "학생 옆으로". */
   nearest(me: THREE.Vector3, role?: string): { x: number; y: number; z: number; yaw: number } | null {
     let best: PeerRt | null = null;

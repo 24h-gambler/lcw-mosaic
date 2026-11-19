@@ -45,7 +45,35 @@ export const TUNING = {
     breadRestore: 35,
     smoothieRestore: 50,
     waterRestore: 30,
-    warmDrinkGraceSec: 300
+    warmDrinkGraceSec: 300,
+    /**
+     * R325 (Dan 11-19): health and warmth next to hunger and thirst, in the icon rows over the hotbar. No death
+     * (docs/03 D1): an empty health bar sends the child back to the square to rest. Health falls only while a gauge
+     * is empty or after a long fall, and comes back by itself while fed, watered and warm.
+     */
+    healthStartPct: 100,
+    /** per empty gauge (hunger, thirst or warmth at 0): 100 -> 0 in 4 minutes */
+    emptyGaugeHealthPerSec: 100 / (4 * 60),
+    /** fed, watered and warm (each at least regenMinPct): 0 -> 100 in 5 minutes */
+    healthRegenPerSec: 100 / (5 * 60),
+    regenMinPct: 50,
+    healthLowSpeedMult: 0.8,
+    /** what eating gives back to health on top of hunger */
+    foodHealthRestore: 10,
+    /** a fall longer than this (m) costs fallHealthPerMeter for each metre past it */
+    fallSafeMeters: 4,
+    fallHealthPerMeter: 8,
+    /** after the rest at the square: health back to this, hunger and thirst at least restMinPct, warm again */
+    restHealthPct: 60,
+    restMinPct: 30,
+    /** a winter world outdoors (no roof over the head) or standing on snow or ice: 100 -> 0 in 6 minutes */
+    winterTempMult: 0.25,
+    /** warming up out of the cold: 0 -> 100 in 40 s; next to a fire (torch, lantern) in 12 s */
+    tempRecoverPerSec: 100 / 40,
+    fireTempPerSec: 100 / 12,
+    /** blocks from the body a torch or a lantern warms */
+    fireRadius: 3,
+    warmDrinkRestore: 40
   },
   building: {
     maxReachMeters: 5,

@@ -4,11 +4,11 @@
  */
 import * as THREE from 'three';
 import { drawState } from './draw-state.js';
-import { VoxelWorld, parseRef } from '@lcw/sim-core';
+import { TUNING, VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
-import { TILE_NAMES, blockLook } from './blocks.js';
+import { COLD_BLOCKS, FIRE_BLOCKS, TILE_NAMES, blockLook, collideHeight } from './blocks.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import { ChunkRenderer } from './chunks.js';
 import { makeBlockMaterials } from './materials.js';
@@ -24,7 +24,7 @@ import { tileAverageColor } from './atlas.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels } from './strings.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels, worldSay } from './strings.js';
 import { PlotBuilder, type Aim, type BuildReason } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
@@ -405,8 +405,43 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     wayfinder.setGround(ground, MINIMAP_AREA.x1 - MINIMAP_AREA.x0, MINIMAP_AREA.z1 - MINIMAP_AREA.z0);
   }
   /** people to talk to on the minimap (read by the wayfinder at its own pace, not per frame) */
-  const mapPeople = (): MapPerson[] =>
-    [...npcs.values()].filter((n) => n.char.root.visible && n.def.id !== TEACHER_NPC_ID).map((n) => ({ id: n.def.id, x: n.pos.x, z: n.pos.z }));
+  /** someone came into the room: say who, and where to look (the minimap pin) */
+  const sayFriendHere = (name: string, role: string): void => {
+    if (role === 'bot' || disposed) return;
+    const who = name.trim() || W.friendDefault;
+    const s = worldSay('friendHere');
+    const line = (t: string): string => t.replace('{name}', who);
+    hud.notice(s.help ? `${line(s.text)}
+${line(s.help)}` : line(s.text), 4000);
+  };
+  /**
+   * R325: everyone starts on the same spawn spot, so two people met inside each other (first person: inside a head).
+   * For a while after someone joins or play starts (the title closes), the one of the two with the larger room id steps 1.6 m aside (one of them only,
+   * else both would step the same way); never while a dialog or a card holds the world or the world walks the child.
+   */
+  const ASIDE_WATCH_MS = 60_000;
+  let myRoomId = '';
+  let asideCheckUntil = 0;
+  const stepAsideIfOnPeer = (): void => {
+    const on = peers.placed().some((q) => myRoomId > q.id && Math.hypot(q.x - body.x, q.z - body.z) < 1);
+    if (!on) return;
+    for (const side of [1, -1, 2, -2]) {
+      const x = body.x - Math.cos(camYaw) * 1.6 * side;
+      const z = body.z + Math.sin(camYaw) * 1.6 * side;
+      const y = standHeight(world, x, z, Math.ceil(body.y) + 2);
+      if (Math.abs(y - body.y) > 1.01) continue;
+      body.x = x;
+      body.z = z;
+      body.y = y;
+      body.vx = body.vz = 0;
+      return;
+    }
+  };
+  const mapPeople = (): MapPerson[] => [
+    ...[...npcs.values()].filter((n) => n.char.root.visible && n.def.id !== TEACHER_NPC_ID).map((n) => ({ id: n.def.id, x: n.pos.x, z: n.pos.z })),
+    // the others in the multi room (R325: two people could not find each other)
+    ...peers.placed().map((p) => ({ id: `peer:${p.id}`, x: p.x, z: p.z, friend: { initial: ([...(p.name || '?').trim()][0] ?? '?').toUpperCase() } }))
+  ];
   await yieldToMain();
 
   // ---- State.
@@ -508,6 +543,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const holdListeners = new Set<(itemKey: string) => void>();
   // picking the slot that is already in hand uses the thing (eat, drink: G01 gauges, frame/gauges.ts)
   const useListeners = new Set<(itemKey: string) => void>();
+  /** R325: falls the child's own movement ended (health gauge), and the teacher's snowstorm (warmth gauge) */
+  const fallListeners = new Set<(meters: number) => void>();
+  let fallTop = Number.NaN;
+  let stormUntil = 0;
   let lastPicked = -1;
   const slotPicked = (i: number): void => {
     const k = hotbar[i];
@@ -1537,6 +1576,14 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       sfx.play('body.jump');
     } else if (!intent.jump && wasGround && !body.onGround && body.vy > 0) counts.unpressedJumps++;
     if (!wasGround && body.onGround && preVy < -6) sfx.play('body.land');
+    // R325 health: the highest point of this time in the air; on landing, the drop goes to the gauges (a walk the world
+    // does, a scene change or a teleport is not the child's fall: those reset it)
+    if (!body.onGround) fallTop = Number.isFinite(fallTop) ? Math.max(fallTop, body.y) : Math.max(preY, body.y);
+    else if (Number.isFinite(fallTop)) {
+      const drop = fallTop - body.y;
+      fallTop = Number.NaN;
+      if (!walking && !paused && drop > 0 && drop < 64) for (const cb of fallListeners) cb(drop);
+    }
     const speed = Math.hypot(body.vx, body.vz);
     if (speed > 0.4) {
       const want = Math.atan2(body.vx, body.vz);
@@ -1678,6 +1725,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       hud.placePlate(p.sx, p.sy, p.vis && camMode !== 'first');
     }
     if (peers.count > 0) peers.update(dt, project, viewDistance, player.root.position, true);
+    if (now < asideCheckUntil && peers.count > 0 && !paused && !attract && autopilot.length === 0) stepAsideIfOnPeer();
     hud.flushBubbles();
     // R2625 ⑤: the talk prompt stays for the NPC to talk to next and for NPCs not met yet in this visit; one already
     // talked to keeps quiet (E and a tap still open the talk), so the same button does not pop up at every corner.
@@ -1901,6 +1949,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       if (attract === on) return;
       attract = on;
       attractT = 0;
+      // play starts on the spawn spot: check once more for someone standing on it (R325)
+      if (!on) asideCheckUntil = performance.now() + ASIDE_WATCH_MS;
       input.keys.clear();
       // Hidden and see-through: a bubble that sets its own visibility still does not show over the title.
       const hudEl = opts.hudRoot ?? hud.root;
@@ -2009,6 +2059,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       switch (kind) {
         case 'weather_shift':
           hud.director('snow');
+          // the snowstorm is cold for real while it lasts (warmth gauge, R325): a reason to ask for a warm drink
+          stormUntil = performance.now() + 20000;
           sfx.play('dir.wind');
           window.setTimeout(() => hud.director(null), 20000);
           break;
@@ -2079,6 +2131,28 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       return () => useListeners.delete(cb);
     },
     setGauges: (g) => hud.setGauges(g),
+    onFall: (cb) => {
+      fallListeners.add(cb);
+      return () => fallListeners.delete(cb);
+    },
+    climate: () => {
+      const fx = Math.floor(body.x);
+      const fz = Math.floor(body.z);
+      const fy = Math.floor(body.y + 0.01);
+      const r = TUNING.gauges.fireRadius;
+      let fire = false;
+      for (let y = fy - 1; y <= fy + 2 && !fire; y++)
+        for (let z = fz - r; z <= fz + r && !fire; z++) for (let x = fx - r; x <= fx + r && !fire; x++) fire = FIRE_BLOCKS.has(world.getBlock(x, y, z));
+      let roof = false;
+      for (let y = fy + 2; y <= fy + 14 && !roof; y++) {
+        const id = world.getBlock(fx, y, fz);
+        if (id !== 0 && collideHeight(id) > 0) roof = true;
+      }
+      const under = world.getBlock(fx, Math.floor(body.y - 0.05), fz);
+      const storm = performance.now() < stormUntil;
+      const cold: 0 | 1 | 2 = storm ? 2 : weather?.season === 'winter' || COLD_BLOCKS.has(under) ? 1 : 0;
+      return { cold, fire, roof };
+    },
     setMove: (mult, run) => {
       moveMult = Math.min(1, Math.max(0.3, Number.isFinite(mult) ? mult : 1));
       canRun = run;
@@ -2125,14 +2199,19 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       return [body.x, body.y + body.stepOffset, body.z, wrapAngle(playerYaw), anim];
     },
     multi: {
-      hello(_you, list) {
+      hello(you, list) {
         peers.clear();
         for (const p of list) peers.add({ id: p.id, name: p.name, role: p.role }, p.pose);
         syncTeacherFigure();
+        myRoomId = you;
+        asideCheckUntil = performance.now() + ASIDE_WATCH_MS;
+        if (list.length > 0) sayFriendHere(list[0]!.name, list[0]!.role);
       },
       join(id, name, role) {
         peers.add({ id, name, role });
         syncTeacherFigure();
+        asideCheckUntil = performance.now() + ASIDE_WATCH_MS;
+        sayFriendHere(name, role);
       },
       leave(id) {
         peers.remove(id);

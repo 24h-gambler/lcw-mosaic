@@ -295,3 +295,7 @@ export function collideHeight(id: number): number {
 /** Named ids used by the town builder, so prefabs read like the palette, not magic numbers. */
 /** Named block ids (shared with the town builder in sim-core). */
 export { BK } from '@lcw/sim-core';
+
+/** R325 warmth gauge: blocks that are cold to stand on (snow, ice brick) and blocks that warm (torch, lantern). */
+export const COLD_BLOCKS: ReadonlySet<number> = new Set([13, 38]);
+export const FIRE_BLOCKS: ReadonlySet<number> = new Set([26, 27]);

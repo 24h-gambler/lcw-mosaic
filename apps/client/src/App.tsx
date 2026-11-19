@@ -542,6 +542,8 @@ export function App(): React.ReactElement {
   // token is read on every (re)connect, so a lesson joined after the world opened is picked up by the next retry.
   const identityRef = useRef(identity);
   identityRef.current = identity;
+  const passTokenRef = useRef(passToken);
+  passTokenRef.current = passToken;
   const [roomClient, setRoomClient] = useState<RoomClient | null>(null);
   useEffect(() => {
     if (!world?.multi || !world.multiPose) return;
@@ -556,6 +558,8 @@ export function App(): React.ReactElement {
         return [st && st.length >= 32 ? st : null, id?.kind === 'child' ? id.token : null];
       },
       ...(teach ? { ticketBody: () => teachTicketBody(teach) } : {}),
+      // a friend on a guest pass sits in the host's room (R325)
+      passToken: () => (teach ? null : passTokenRef.current),
       source: { pose: () => world.multiPose?.() ?? null },
       sink
     });
@@ -575,7 +579,8 @@ export function App(): React.ReactElement {
       setRoomClient(null);
       room.stop();
     };
-  }, [world, identity?.kind, teach]);
+    // a pass starting or ending moves this page to (or out of) the host's room at once
+  }, [world, identity?.kind, teach, passToken]);
 
   // A device that cannot carry 3D even at the lowest resolution hands the lesson to the word cards (same session).
   useEffect(() => {

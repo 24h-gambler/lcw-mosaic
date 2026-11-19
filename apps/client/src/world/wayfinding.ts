@@ -32,6 +32,8 @@ export interface MapPerson {
   id: string;
   x: number;
   z: number;
+  /** another person in the same multi room (R325): a sky-blue pin with their initial, kept on the rim when far */
+  friend?: { initial: string };
 }
 
 /** Town area the minimap covers (block coords), and how many metres the round map shows from its centre. */
@@ -391,6 +393,23 @@ void main() {
     }
     // people to talk to: small dots; the goal person a pulsing star-yellow ring with '!'
     for (const p of people) {
+      if (p.friend) {
+        // R325: where the friend (or the teacher) is, even off the map's edge, so two people can find each other
+        const [x, y] = clampEdge(toMap(p.x, p.z), 14);
+        g.fillStyle = C.sky;
+        g.strokeStyle = INK;
+        g.lineWidth = 4;
+        g.beginPath();
+        g.arc(x, y, 12, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
+        g.fillStyle = INK;
+        g.font = `800 15px ${T.fonts.ui}`;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(p.friend.initial, x, y + 1);
+        continue;
+      }
       const isGoal = goal?.npcId === p.id;
       const [x, y, edge] = clampEdge(toMap(p.x, p.z), isGoal ? 16 : 8);
       if (edge && !isGoal) continue;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROOM_CLOSE, TUNING } from '@lcw/sim-core';
+import { GUEST_PASS_HEADER } from '@lcw/schemas';
 import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
 import { ROOM_HEADERS, WorldRoomDO, routeRoomConnect } from '../room.js';
 import { fakeDurableStorage } from './fake-do.js';
@@ -49,6 +50,58 @@ describe('room tickets (room.ts, docs/02 §11)', () => {
     expect(await seat.json()).toEqual({ room: `lesson-${s.body.lesson_id}`, key: 'kid-1', name: 'Juno', role: 'student' });
     // one use
     expect((await redeem(p, t.body.ticket)).status).toBe(403);
+  });
+
+  /** a linked child (guardian consent, device code, link) with or without a seat; returns the device bearer + guardian */
+  async function linked(p: PlatformDO, kid: string, fam: string, nickname: string, seat = true) {
+    await call(p, 'POST', '/v1/admin/players', { family_id: fam, guardian_id: `g-${fam}`, player_id: kid, nickname, birth_year: 2016, level: 'L1' });
+    const inv = await call(p, 'POST', '/v1/admin/family-invites', { player_id: kid });
+    const sess = await call(p, 'POST', '/v1/family/session', { invite: inv.body.invite_path.split('#k=')[1] }, anon);
+    const g = { authorization: `Bearer ${sess.body.guardian_token}`, 'content-type': 'application/json' };
+    await call(p, 'POST', '/v1/family/service-consent', { granted: true }, g);
+    let sid = '';
+    if (seat) sid = (await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: `g-${fam}`, plan: 'solo', term: 'month', player_ids: [kid] })).body.seat_ids[0];
+    const code = await call(p, 'POST', `/v1/family/children/${kid}/device-code`, {}, g);
+    const link = await call(p, 'POST', '/v1/device/link', { code: code.body.code, label: 't' }, anon);
+    return { dev: { authorization: `Bearer ${link.body.device_token}`, 'content-type': 'application/json' }, g, sid };
+  }
+
+  it('two children on one Duo seat from two families meet in the payer family room (R325: each sat alone)', async () => {
+    const p = platform();
+    const a = await linked(p, 'kid-a', 'fam-a', 'Oreo', false);
+    const b = await linked(p, 'kid-b', 'fam-b', 'Mint', false);
+    const sib = await linked(p, 'kid-c', 'fam-a', 'Sib');
+    const duo = await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-fam-a', plan: 'duo', term: 'month', player_ids: ['kid-a', 'kid-b'] });
+    expect(duo.status).toBe(201);
+    const ta = await call(p, 'POST', '/v1/room/ticket', {}, a.dev);
+    const tb = await call(p, 'POST', '/v1/room/ticket', {}, b.dev);
+    const tc = await call(p, 'POST', '/v1/room/ticket', {}, sib.dev);
+    expect(ta.body.room).toBe('family-fam-a');
+    expect(tb.body.room).toBe('family-fam-a');
+    // the payer's other child keeps meeting their sibling
+    expect(tc.body.room).toBe('family-fam-a');
+    expect(await (await redeem(p, tb.body.ticket)).json()).toEqual({ room: 'family-fam-a', key: 'kid-b', name: 'Mint', role: 'player' });
+    // a solo seat elsewhere: their own family room as before
+    const solo = await linked(p, 'kid-d', 'fam-d', 'Solo');
+    expect((await call(p, 'POST', '/v1/room/ticket', {}, solo.dev)).body.room).toBe('family-fam-d');
+  });
+
+  it('a friend on a running guest pass sits in the host child room; an ended pass has no room (R325)', async () => {
+    const p = platform();
+    const host = await linked(p, 'kid-host', 'fam-host', 'Juno');
+    const code: string = (await call(p, 'POST', `/v1/family/seats/${host.sid}/guest-passes`, {}, host.g)).body.pass.code;
+    const r = await call(p, 'POST', '/v1/guest-pass/redeem', { code, device: 'device-aaaaaaaaaaaaaaaa' }, anon);
+    expect(r.status).toBe(201);
+    const pass = { [GUEST_PASS_HEADER]: r.body.token, 'content-type': 'application/json' };
+    const t = await call(p, 'POST', '/v1/room/ticket', {}, pass);
+    expect(t.body.room).toBe('family-fam-host');
+    const seat = (await (await redeem(p, t.body.ticket)).json()) as { key: string; name: string; role: string };
+    expect(seat).toMatchObject({ room: 'family-fam-host', name: 'Friend', role: 'player' });
+    expect(seat.key.startsWith('pass:')).toBe(true);
+    // the host is in the same room
+    expect((await call(p, 'POST', '/v1/room/ticket', {}, host.dev)).body.room).toBe('family-fam-host');
+    // a pass that is not running seats nobody
+    expect((await call(p, 'POST', '/v1/room/ticket', {}, { [GUEST_PASS_HEADER]: 'x'.repeat(40), 'content-type': 'application/json' })).body.room).toBeNull();
   });
 
   it('the operator names a room; smoke- rooms seat load bots under their own keys', async () => {

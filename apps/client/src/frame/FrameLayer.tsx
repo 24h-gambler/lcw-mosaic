@@ -28,6 +28,8 @@ export interface FrameLayerProps {
   lessonOn?: boolean;
   /** a dialog window is open (solo); the HUD's own `.dlg` mark covers lesson dialogs too */
   dialogOpen?: boolean;
+  /** the teacher in the world (?teach=): no gauges, no rest walk in the middle of a lesson (review R325) */
+  teacher?: boolean;
 }
 
 /** Who the frame asks the server as (same tokens the review and build paths use). */
@@ -105,7 +107,7 @@ export function bagKeys(v: ItemsView): Array<string | null> {
   return Array.from({ length: 5 }, (_, i) => bag[i] ?? null);
 }
 
-export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = false }: FrameLayerProps): React.ReactElement | null {
+export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = false, teacher = false }: FrameLayerProps): React.ReactElement | null {
   const [online, setOnline] = useState(true);
   const [menu, setMenu] = useState<MenuTab | null>(null);
   const [lastTab, setLastTab] = useState<MenuTab>('bag');
@@ -259,7 +261,7 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
   }, [blocked]);
 
   // G01 gauges: the clock stops for a lesson, a dialog and the menu; eating or drinking is a use on the server
-  useGauges(world, lessonOn || blocked || menu !== null, useOnce);
+  useGauges(teacher ? null : world, lessonOn || blocked || menu !== null, useOnce);
 
   ensureMenuStyle();
   if (!world) return null;

@@ -18,7 +18,7 @@ export const PLAYER_H = TUNING.character.collisionBoxMeters[1];
 export const GRAVITY = 28;
 export const JUMP_SPEED = 8.8;
 /**
- * The body moves in fixed small steps (at most 1/120 s each), however long the frame was: the jump height and the path
+ * The body moves in equal small steps (the frame split into n of at most 1/120 s each), however long the frame was: the jump height and the path
  * no longer depend on the device's frame rate, and a frame that runs long does not stretch one Euler step over it (the
  * per-frame wobble of the view in first person, R325 "점프할 때마다 화면이 흔들림"). Frames longer than MAX_FRAME_DT
  * play slower instead of jumping ahead.

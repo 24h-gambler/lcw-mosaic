@@ -94,6 +94,23 @@ describe('health and warmth (R325, Dan 11-19)', () => {
     expect(r).toEqual({ hunger: G.restMinPct, thirst: G.restMinPct, health: G.restHealthPct, warmth: 100 });
     expect(restAtSquare(gs(90, 90, 0, 50))).toMatchObject({ hunger: 90, thirst: 90 });
   });
+  it('a child who never eats or drinks is not sent back to the square over and over: at least 12 min between rests (review R325)', () => {
+    let s = restAtSquare(gs(0, 0, 0, 0));
+    let t = 0;
+    while (s.health > 0 && t < 3600) {
+      s = stepGauges(s, 1, false);
+      t++;
+    }
+    expect(t).toBeGreaterThanOrEqual(12 * 60);
+    // and from a new device (45% hunger and thirst)
+    let n = gs(G.spawnStartPct, G.spawnStartPct);
+    let u = 0;
+    while (n.health > 0 && u < 3600) {
+      n = stepGauges(n, 1, false);
+      u++;
+    }
+    expect(u).toBeGreaterThanOrEqual(12 * 60);
+  });
   it('a warm drink warms and is marked warm; food heals a little; an iced drink does not warm', () => {
     expect(refillOf('hot_chocolate')).toMatchObject({ kind: 'drink', warm: true, warmth: G.warmDrinkRestore });
     expect(refillOf('honey_tea')?.warm).toBe(true);

@@ -283,7 +283,7 @@ export async function roomSeatFor(d: RoomTicketDeps, req: Request, body: { room?
     const host = d.player(visit.host_player_id);
     if (!host) return null;
     // the pass alone names no child: the others see "Friend" (a name the guest typed would be an unchecked label)
-    return { room: `family-${d.playFamily?.(visit.host_player_id) ?? host.family_id}`, key: `pass:${visit.grant_id}`, name: 'Friend', role: 'player' };
+    return { room: `family-${d.playFamily?.(visit.host_player_id) ?? host.family_id}`, key: `pass:${visit.grant_id}`, name: '', role: 'player' }; // '' = the client's own word for a friend
   }
   const device = await d.device(req);
   if (device) {

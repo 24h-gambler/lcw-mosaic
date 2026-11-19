@@ -8,7 +8,7 @@ import { TUNING, VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
-import { COLD_BLOCKS, FIRE_BLOCKS, TILE_NAMES, blockLook, collideHeight } from './blocks.js';
+import { TILE_NAMES, blockLook, collideHeight } from './blocks.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import { ChunkRenderer } from './chunks.js';
 import { makeBlockMaterials } from './materials.js';
@@ -36,7 +36,7 @@ import { PeerAvatars, peerLook } from './peers.js';
 import { Buddy } from './buddy.js';
 import { SeasonWeather } from './season.js';
 import { TEACHER_NPC_ID, disposePlate, makePlate, pickableNpc, plateText, teacherDef, teacherTarget } from './visitor.js';
-import { WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
+import { BLOCK_PALETTE, WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
 import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
@@ -405,9 +405,18 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     wayfinder.setGround(ground, MINIMAP_AREA.x1 - MINIMAP_AREA.x0, MINIMAP_AREA.z1 - MINIMAP_AREA.z0);
   }
   /** people to talk to on the minimap (read by the wayfinder at its own pace, not per frame) */
+  /** R325 warmth gauge: blocks that are cold to stand on and blocks that warm (by key: the ids stay in @lcw/content) */
+  const blockIds = (keys: readonly string[]): ReadonlySet<number> => new Set(BLOCK_PALETTE.filter((b) => keys.includes(b.key)).map((b) => b.id));
+  const COLD_BLOCKS = blockIds(['snow_block', 'ice_brick']);
+  const FIRE_BLOCKS = blockIds(['torch', 'lantern']);
   /** someone came into the room: say who, and where to look (the minimap pin) */
-  const sayFriendHere = (name: string, role: string): void => {
-    if (role === 'bot' || disposed) return;
+  const greeted = new Set<string>();
+  /** a small room (two, three people): a class room of many children gets no line per child and no pins (review R325) */
+  const FRIEND_ROOM_MAX = 3;
+  const sayFriendHere = (id: string, name: string, role: string): void => {
+    if (role === 'bot' || disposed || greeted.has(id)) return;
+    greeted.add(id);
+    if (peers.count > FRIEND_ROOM_MAX) return;
     const who = name.trim() || W.friendDefault;
     const s = worldSay('friendHere');
     const line = (t: string): string => t.replace('{name}', who);
@@ -416,17 +425,28 @@ ${line(s.help)}` : line(s.text), 4000);
   };
   /**
    * R325: everyone starts on the same spawn spot, so two people met inside each other (first person: inside a head).
-   * For a while after someone joins or play starts (the title closes), the one of the two with the larger room id steps 2.2 m ahead and turns round (one of them only,
-   * else both would step the same way); never while a dialog or a card holds the world or the world walks the child.
+   * Once after someone joins or play starts (the title closes): when the other stands within a metre, the one of the two
+   * with the larger room id (one of them only, else both would move) steps 2.2 m ahead and turns round to face them, or
+   * back / to a side when the front is a wall or a drop. Waits while a dialog or a card holds the world or the world
+   * walks the child; gives up after ASIDE_WAIT_MS (not a teleport every time two friends walk close later).
    */
-  const ASIDE_WATCH_MS = 60_000;
+  const ASIDE_WAIT_MS = 10_000;
   let myRoomId = '';
-  let asideCheckUntil = 0;
+  let asideUntil = 0;
+  const clearBetween = (ox: number, oz: number, x: number, z: number, y: number): boolean => {
+    for (let i = 1; i <= 4; i++) {
+      const bx = Math.floor(ox + ((x - ox) * i) / 4);
+      const bz = Math.floor(oz + ((z - oz) * i) / 4);
+      for (let dy = 0; dy < 2; dy++) {
+        const id = world.getBlock(bx, Math.floor(y + 0.05) + dy, bz);
+        if (id !== 0 && collideHeight(id) > 0.5) return false;
+      }
+    }
+    return true;
+  };
   const stepAsideIfOnPeer = (): void => {
-    const on = peers.placed().some((q) => myRoomId > q.id && Math.hypot(q.x - body.x, q.z - body.z) < 1);
-    if (!on) return;
-    // two steps in front of them, turned to face them: both see each other at once (side by side, facing the same
-    // way, neither saw the other in first person); then to either side when the front is a wall or a drop
+    if (!peers.anyWithin(body.x, body.z, 1, myRoomId)) return;
+    asideUntil = 0;
     const fx = Math.sin(camYaw);
     const fz = Math.cos(camYaw);
     const ox = body.x;
@@ -435,7 +455,7 @@ ${line(s.help)}` : line(s.text), 4000);
       const x = ox + fx * f - fz * r;
       const z = oz + fz * f + fx * r;
       const y = standHeight(world, x, z, Math.ceil(body.y) + 2);
-      if (Math.abs(y - body.y) > 1.01) continue;
+      if (Math.abs(y - body.y) > 1.01 || !clearBetween(ox, oz, x, z, Math.max(y, body.y))) continue;
       body.x = x;
       body.z = z;
       body.y = y;
@@ -447,7 +467,7 @@ ${line(s.help)}` : line(s.text), 4000);
   const mapPeople = (): MapPerson[] => [
     ...[...npcs.values()].filter((n) => n.char.root.visible && n.def.id !== TEACHER_NPC_ID).map((n) => ({ id: n.def.id, x: n.pos.x, z: n.pos.z })),
     // the others in the multi room (R325: two people could not find each other)
-    ...peers.placed().map((p) => ({ id: `peer:${p.id}`, x: p.x, z: p.z, friend: { initial: ([...(p.name || '?').trim()][0] ?? '?').toUpperCase() } }))
+    ...(peers.count > FRIEND_ROOM_MAX ? [] : peers.placed()).map((p) => ({ id: `peer:${p.id}`, x: p.x, z: p.z, friend: { initial: ([...(p.name || '?').trim()][0] ?? '?').toUpperCase() } }))
   ];
   await yieldToMain();
 
@@ -553,7 +573,9 @@ ${line(s.help)}` : line(s.text), 4000);
   /** R325: falls the child's own movement ended (health gauge), and the teacher's snowstorm (warmth gauge) */
   const fallListeners = new Set<(meters: number) => void>();
   let fallTop = Number.NaN;
-  let stormUntil = 0;
+  let fallLastX = 0;
+  let fallLastY = 0;
+  let fallLastZ = 0;
   let lastPicked = -1;
   const slotPicked = (i: number): void => {
     const k = hotbar[i];
@@ -1574,6 +1596,8 @@ ${line(s.help)}` : line(s.text), 4000);
     const pushers = [...npcs.values()].filter((n) => n.def.id !== TEACHER_NPC_ID).map((n) => ({ x: n.pos.x, z: n.pos.z, r: npcRing }));
     const preVy = body.vy;
     const preY = body.y;
+    // moved by something other than physics since the last frame (scene change, teleport, a rescue): not a fall
+    if (Math.abs(body.x - fallLastX) + Math.abs(body.z - fallLastZ) > 2 || Math.abs(body.y - fallLastY) > 2) fallTop = Number.NaN;
     // the world's own walks (walk buttons, scene arrivals) still climb a whole block so they never get stuck
     const walking = autopilot.length > 0;
     const stepMax = autoJump || walking ? STEP_UP_MAX : STEP_UP_SMALL;
@@ -1584,13 +1608,16 @@ ${line(s.help)}` : line(s.text), 4000);
     } else if (!intent.jump && wasGround && !body.onGround && body.vy > 0) counts.unpressedJumps++;
     if (!wasGround && body.onGround && preVy < -6) sfx.play('body.land');
     // R325 health: the highest point of this time in the air; on landing, the drop goes to the gauges (a walk the world
-    // does, a scene change or a teleport is not the child's fall: those reset it)
+    // does is not the child's fall; a scene change or a teleport resets it above)
     if (!body.onGround) fallTop = Number.isFinite(fallTop) ? Math.max(fallTop, body.y) : Math.max(preY, body.y);
     else if (Number.isFinite(fallTop)) {
       const drop = fallTop - body.y;
       fallTop = Number.NaN;
       if (!walking && !paused && drop > 0 && drop < 64) for (const cb of fallListeners) cb(drop);
     }
+    fallLastX = body.x;
+    fallLastY = body.y;
+    fallLastZ = body.z;
     const speed = Math.hypot(body.vx, body.vz);
     if (speed > 0.4) {
       const want = Math.atan2(body.vx, body.vz);
@@ -1732,7 +1759,7 @@ ${line(s.help)}` : line(s.text), 4000);
       hud.placePlate(p.sx, p.sy, p.vis && camMode !== 'first');
     }
     if (peers.count > 0) peers.update(dt, project, viewDistance, player.root.position, true);
-    if (now < asideCheckUntil && peers.count > 0 && !paused && !attract && autopilot.length === 0) stepAsideIfOnPeer();
+    if (now < asideUntil && peers.count > 0 && !paused && !attract && autopilot.length === 0) stepAsideIfOnPeer();
     hud.flushBubbles();
     // R2625 ⑤: the talk prompt stays for the NPC to talk to next and for NPCs not met yet in this visit; one already
     // talked to keeps quiet (E and a tap still open the talk), so the same button does not pop up at every corner.
@@ -1957,7 +1984,7 @@ ${line(s.help)}` : line(s.text), 4000);
       attract = on;
       attractT = 0;
       // play starts on the spawn spot: check once more for someone standing on it (R325)
-      if (!on) asideCheckUntil = performance.now() + ASIDE_WATCH_MS;
+      if (!on) asideUntil = performance.now() + ASIDE_WAIT_MS;
       input.keys.clear();
       // Hidden and see-through: a bubble that sets its own visibility still does not show over the title.
       const hudEl = opts.hudRoot ?? hud.root;
@@ -2066,8 +2093,6 @@ ${line(s.help)}` : line(s.text), 4000);
       switch (kind) {
         case 'weather_shift':
           hud.director('snow');
-          // the snowstorm is cold for real while it lasts (warmth gauge, R325): a reason to ask for a warm drink
-          stormUntil = performance.now() + 20000;
           sfx.play('dir.wind');
           window.setTimeout(() => hud.director(null), 20000);
           break;
@@ -2156,8 +2181,7 @@ ${line(s.help)}` : line(s.text), 4000);
         if (id !== 0 && collideHeight(id) > 0) roof = true;
       }
       const under = world.getBlock(fx, Math.floor(body.y - 0.05), fz);
-      const storm = performance.now() < stormUntil;
-      const cold: 0 | 1 | 2 = storm ? 2 : weather?.season === 'winter' || COLD_BLOCKS.has(under) ? 1 : 0;
+      const cold: 0 | 1 | 2 = weather?.season === 'winter' || COLD_BLOCKS.has(under) ? 1 : 0;
       return { cold, fire, roof };
     },
     setMove: (mult, run) => {
@@ -2211,14 +2235,15 @@ ${line(s.help)}` : line(s.text), 4000);
         for (const p of list) peers.add({ id: p.id, name: p.name, role: p.role }, p.pose);
         syncTeacherFigure();
         myRoomId = you;
-        asideCheckUntil = performance.now() + ASIDE_WATCH_MS;
-        if (list.length > 0) sayFriendHere(list[0]!.name, list[0]!.role);
+        asideUntil = performance.now() + ASIDE_WAIT_MS;
+        // a reconnect says nothing again (greeted keeps who was already said)
+        for (const p of list) sayFriendHere(p.id, p.name, p.role);
       },
       join(id, name, role) {
         peers.add({ id, name, role });
         syncTeacherFigure();
-        asideCheckUntil = performance.now() + ASIDE_WATCH_MS;
-        sayFriendHere(name, role);
+        asideUntil = performance.now() + ASIDE_WAIT_MS;
+        sayFriendHere(id, name, role);
       },
       leave(id) {
         peers.remove(id);

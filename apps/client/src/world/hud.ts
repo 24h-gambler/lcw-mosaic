@@ -56,7 +56,7 @@ function css(): string {
 .lw-vit .m.low{animation:lwGzLow 1.6s ease-in-out infinite}
 .lw-vit .m.w{visibility:hidden}
 .lw-vit.cold .m.w{visibility:visible}
-.lw-vit em{display:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-style:normal;font-weight:700;color:${C.sun};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));text-shadow:1px 1px 0 ${C['ink-900']};white-space:nowrap}
+.lw-vit em{display:none;position:absolute;left:50%;bottom:calc(100% + 2px);transform:translateX(-50%);font-style:normal;font-weight:700;color:${C.sun};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));text-shadow:1px 1px 0 ${C['ink-900']};white-space:nowrap}
 .lw-vit.slow em{display:block}
 .lw-hud.gz .lw-cap{bottom:calc(80px + 34px)}
 .lw-hud.gz .lw-toast{bottom:calc(84px + 34px)}

@@ -69,6 +69,14 @@ export class PeerAvatars {
     return out;
   }
 
+  /** Someone placed within `r` m whose room id sorts below `idAbove` (R325 spawn step-aside; no allocation per frame). */
+  anyWithin(x: number, z: number, r: number, idAbove: string): boolean {
+    for (const rt of this.peers.values()) {
+      if (rt.seen && idAbove > rt.info.id && Math.hypot(rt.pos.x - x, rt.pos.z - z) < r) return true;
+    }
+    return false;
+  }
+
   /** Where the nearest placed person (of a role, if given) stands: for "학생 옆으로". */
   nearest(me: THREE.Vector3, role?: string): { x: number; y: number; z: number; yaw: number } | null {
     let best: PeerRt | null = null;

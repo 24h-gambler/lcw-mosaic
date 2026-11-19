@@ -1113,8 +1113,8 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       playFamily: (id) =>
         platform.sql.get<{ family_id: string }>(
           `select g.family_id from seats s join guardians g on g.id = s.payer_id
-           where s.player_id = ? and s.plan = 'duo' and s.status <> 'refunded' and s.ends_at > ? order by s.starts_at desc limit 1`,
-          [id, Date.now()]
+           where s.player_id = ? and s.plan = 'duo' and s.status <> 'refunded' and s.starts_at <= ? and s.ends_at > ? order by s.starts_at desc limit 1`,
+          [id, Date.now(), Date.now()]
         )?.family_id ?? null,
       pass: async (req) => {
         const g = await passVisitor(req);

@@ -52,8 +52,8 @@ export const TUNING = {
      * is empty or after a long fall, and comes back by itself while fed, watered and warm.
      */
     healthStartPct: 100,
-    /** per empty gauge (hunger, thirst or warmth at 0): 100 -> 0 in 4 minutes */
-    emptyGaugeHealthPerSec: 100 / (4 * 60),
+    /** per empty gauge (hunger, thirst or warmth at 0): 100 -> 0 in 10 minutes (a slow nudge, not a race: docs/03 D1) */
+    emptyGaugeHealthPerSec: 100 / (10 * 60),
     /** fed, watered and warm (each at least regenMinPct): 0 -> 100 in 5 minutes */
     healthRegenPerSec: 100 / (5 * 60),
     regenMinPct: 50,
@@ -65,7 +65,7 @@ export const TUNING = {
     fallHealthPerMeter: 8,
     /** after the rest at the square: health back to this, hunger and thirst at least restMinPct, warm again */
     restHealthPct: 60,
-    restMinPct: 30,
+    restMinPct: 60,
     /** a winter world outdoors (no roof over the head) or standing on snow or ice: 100 -> 0 in 6 minutes */
     winterTempMult: 0.25,
     /** warming up out of the cold: 0 -> 100 in 40 s; next to a fire (torch, lantern) in 12 s */

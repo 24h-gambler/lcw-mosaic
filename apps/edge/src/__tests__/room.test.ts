@@ -96,7 +96,7 @@ describe('room tickets (room.ts, docs/02 §11)', () => {
     const t = await call(p, 'POST', '/v1/room/ticket', {}, pass);
     expect(t.body.room).toBe('family-fam-host');
     const seat = (await (await redeem(p, t.body.ticket)).json()) as { key: string; name: string; role: string };
-    expect(seat).toMatchObject({ room: 'family-fam-host', name: 'Friend', role: 'player' });
+    expect(seat).toMatchObject({ room: 'family-fam-host', name: '', role: 'player' });
     expect(seat.key.startsWith('pass:')).toBe(true);
     // the host is in the same room
     expect((await call(p, 'POST', '/v1/room/ticket', {}, host.dev)).body.room).toBe('family-fam-host');

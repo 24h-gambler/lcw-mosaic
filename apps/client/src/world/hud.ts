@@ -103,6 +103,7 @@ function css(): string {
 .lw-cap.on{opacity:1}
 .lw-cap.two{white-space:pre-line;overflow-wrap:anywhere}
 @media (max-height:500px){:root[data-lcw-dlg] [data-hud-col="right"]{visibility:hidden}}
+.lw-hud.floor-notalk .lw-btn.talk{display:none}
 .lw-hud.floor-hide .lw-hotbar,.lw-hud.floor-hide .lw-cap,.lw-hud.floor-hide .lw-help,.lw-hud.floor-hide .lw-toast{display:none}
 @media (pointer:fine) and (min-width:601px){.lw-hud.floor-lift .lw-mini{bottom:calc(24px + var(--lw-floor,0px))}}
 .lw-hud:has(.lw-touch.on) .lw-cap{max-width:max(160px, calc(100% - 2 * var(--lcw-hud-talk-w, 140px)))}
@@ -352,6 +353,12 @@ export class WorldHud {
   private floorLift = 0;
   /** The sheet's side margin (a short screen narrows it between the button columns). */
   private sheetSide = 12;
+  /** The talk button's bottom without the lift: 160, or 96 in the jump row when the sheet leaves little room. */
+  private talkB = 160;
+  private talkHSeen = 0;
+  /** A narrow phone with a tall sheet: the band above the sheet kept for the buttons (y from the top, 0 = none). */
+  private sheetReserve = 0;
+  private needSeen = new WeakMap<HTMLElement, number>();
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -565,7 +572,7 @@ export class WorldHud {
     // the touch layer starts under the connection band while offline: its size changes, the talk button is placed again
     this.chipObs?.observe(this.touch);
     this.chipObs?.observe(this.talkBtn);
-    this.talkBtn.style.bottom = 'calc(160px + var(--lw-floor, 0px))';
+    this.talkBtn.style.bottom = 'calc(var(--lw-talk-b, 160px) + var(--lw-floor, 0px))';
     tapOnly(this.talkBtn, () => this.h.onTalk(), (dx, dy) => this.h.onLook(dx, dy));
     this.bindTouch();
 
@@ -849,10 +856,10 @@ export class WorldHud {
     const width = rr.width;
     const w = Math.max(btn.offsetWidth, S.micButtonPx * 1.6);
     const h = btn.offsetHeight || S.micButtonPx;
-    const top = this.touch.getBoundingClientRect().bottom - rr.top - 160 - this.floorLift - h;
+    const top = this.touch.getBoundingClientRect().bottom - rr.top - this.talkB - this.floorLift - h;
     let right = 96;
     for (let pass = 0; pass < 2; pass++) {
-      for (const col of [this.viewBtn, this.jumpBtn]) {
+      for (const col of [this.viewBtn, this.jumpBtn, ...rightColParts()]) {
         if (!col || col.offsetWidth === 0) continue;
         const b = col.getBoundingClientRect();
         const l = width - right - w;
@@ -936,32 +943,86 @@ export class WorldHud {
       if (b.width > 1 && b.height > 1) topY = Math.min(topY, b.top);
     }
     const floor = topY < rb.bottom ? Math.ceil(rb.bottom - topY + 8) : 0;
-    // room above the sheet for the talk / jump buttons and the bag line under the top cards
-    const lift = floor > 0 && h - floor >= 360;
-    const hide = floor > 0 && !lift;
+    // the room between the top parts (chip, stars, goal card, the right column) and the sheet
+    let topB = 0;
+    // the minimap is a top part on touch and in a narrow window; a wide mouse screen has it at the bottom (it is lifted
+    // with the floor itself: counting it would feed the mode back into itself)
+    const miniTop = this.touchOn || rb.width <= 600 ? this.root.querySelector<HTMLElement>('.lw-mini') : null;
+    for (const e of [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null, this.touchOn ? this.viewBtn : null, miniTop, ...rightColParts()]) {
+      if (!e || e.offsetWidth === 0) continue;
+      const b = e.getBoundingClientRect();
+      if (b.top - rb.top < h / 2) topB = Math.max(topB, b.bottom - rb.top);
+    }
+    const room = h - floor - topB;
+    // what the lifted bottom parts need, from their own place (bottom without the lift) and height
+    // a part the floor mode itself hid (display none) keeps its last measured need: the mode must not feed itself
+    const base = (e: HTMLElement | null): number => {
+      if (!e) return 0;
+      if (e.offsetHeight > 0 && getComputedStyle(e).display !== 'none') {
+        const need = (parseFloat(getComputedStyle(e).bottom) || 0) - this.floorLift + e.offsetHeight + 12;
+        this.needSeen.set(e, need);
+        return need;
+      }
+      return this.needSeen.get(e) ?? 0;
+    };
+    const capOn = this.cap.classList.contains('on');
+    let needFull = Math.max(base(this.hotbarEl), capOn ? base(this.cap) : 0, this.help.classList.contains('off') ? 0 : base(this.help));
+    let needTight = 0;
+    if (this.touchOn) {
+      // the talk button by its full place (160), not where the tight mode put it: the choice must not feed itself
+      // by an NPC (.on): its height, or the last seen one while the floor mode hides it (no feeding back)
+      if (this.talkBtn && this.talkBtn.offsetHeight > 0) this.talkHSeen = this.talkBtn.offsetHeight;
+      const talkH = this.talkBtn?.classList.contains('on') ? this.talkBtn.offsetHeight || this.talkHSeen : 0;
+      needFull = Math.max(needFull, base(this.jumpBtn), talkH > 0 ? 160 + talkH + 12 : 0);
+      // tight: the bag line, caption and help step aside, the talk button goes into the jump row (left of it)
+      needTight = Math.max(base(this.jumpBtn), 96 + talkH + 12);
+    }
+    // a short screen can narrow the sheet between the button columns (talk / jump on touch, the mouse minimap) when
+    // that leaves it a usable width; a narrow phone cannot (review of #181: a 240 px sheet still lay on Talk at 390)
+    let sideN = 12;
+    if (this.touchOn) {
+      if (this.talkBtn && this.talkBtn.offsetWidth > 0) sideN = Math.max(sideN, rb.right - this.talkBtn.getBoundingClientRect().left + 8);
+      if (this.jumpBtn && this.jumpBtn.offsetWidth > 0) sideN = Math.max(sideN, rb.right - this.jumpBtn.getBoundingClientRect().left + 8);
+    } else {
+      const mini = this.root.querySelector<HTMLElement>('.lw-mini');
+      if (mini && mini.offsetWidth > 0) sideN = Math.max(sideN, rb.right - mini.getBoundingClientRect().left + 8);
+    }
+    const canNarrow = rb.width - 2 * sideN >= 320;
+    // lift: everything stands on the sheet. tight (touch): the action buttons stand on it (talk in the jump row), the
+    // bag line, caption, help and menu step aside. hide: no room above it, the sheet narrows between the button columns.
+    // Where it cannot narrow, the sheet is held under a reserved band for the buttons and scrolls (--lcw-hud-sheet-top).
+    // 8 px of slack: a sheet held at the band measures exactly the band, it must keep its mode.
+    const fits = (need: number): boolean => room + 8 >= need;
+    let lift = floor > 0 && fits(needFull);
+    let tight = floor > 0 && !lift && this.touchOn && fits(needTight);
+    let hide = floor > 0 && !lift && !tight && canNarrow;
+    // no room even for the jump row and no width to narrow (a small phone with the folded window and a tall goal card):
+    // the talk button steps aside too; by the lesson NPC the sheet's own button opens the same window (a lesson talks
+    // only to its own NPC, App.tsx), so nothing is lost
+    let noTalk = false;
+    if (floor > 0 && !lift && !tight && !hide) {
+      if (this.touchOn) {
+        tight = true;
+        noTalk = !fits(needTight);
+      } else lift = true;
+    }
+    this.root.classList.toggle('floor-notalk', noTalk);
+    this.sheetReserve = floor > 0 && !canNarrow ? topB + (this.touchOn ? needTight : needFull) : 0;
     this.floorPx = floor;
-    this.floorLift = lift ? floor : 0;
-    this.root.classList.toggle('floor-lift', lift);
-    this.root.classList.toggle('floor-hide', hide);
+    this.floorLift = lift || tight ? floor : 0;
+    this.root.classList.toggle('floor-lift', lift || tight);
+    this.root.classList.toggle('floor-hide', tight || hide);
     this.root.style.setProperty('--lw-floor', `${this.floorLift}px`);
+    this.root.style.setProperty('--lw-talk-b', tight ? '96px' : '160px');
+    this.talkB = tight ? 96 : 160;
     const doc = document.documentElement;
     doc.style.setProperty('--lcw-hud-floor', `${this.floorLift}px`);
-    if (hide) doc.setAttribute('data-lcw-floor', 'hide');
+    if (tight || hide) doc.setAttribute('data-lcw-floor', 'hide');
     else if (lift) doc.setAttribute('data-lcw-floor', 'lift');
     else doc.removeAttribute('data-lcw-floor');
-    // a short screen: the sheet keeps clear of the button columns on both sides (talk / jump on touch, the mouse minimap)
-    let side = 12;
-    if (hide) {
-      if (this.touchOn) {
-        if (this.talkBtn && this.talkBtn.offsetWidth > 0) side = Math.max(side, rb.right - this.talkBtn.getBoundingClientRect().left + 8);
-        if (this.jumpBtn && this.jumpBtn.offsetWidth > 0) side = Math.max(side, rb.right - this.jumpBtn.getBoundingClientRect().left + 8);
-      } else {
-        const mini = this.root.querySelector<HTMLElement>('.lw-mini');
-        if (mini && mini.offsetWidth > 0) side = Math.max(side, rb.right - mini.getBoundingClientRect().left + 8);
-      }
-    }
+    const side = hide ? sideN : 12;
     this.sheetSide = side;
-    doc.style.setProperty('--lcw-hud-sheet-max', `${Math.max(240, Math.floor(rb.width - 2 * side))}px`);
+    doc.style.setProperty('--lcw-hud-sheet-max', `${Math.floor(rb.width - 2 * side)}px`);
   }
 
   private measureStacks(): void {
@@ -999,14 +1060,14 @@ export class WorldHud {
       const sx0 = rr0.left + this.sheetSide;
       const sx1 = rr0.right - this.sheetSide;
       let sheetTop = 0;
-      const tops = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null, this.root.querySelector<HTMLElement>('.lw-mini'), this.touchOn ? this.viewBtn : null, ...rightColParts()];
+      const tops = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null, this.touchOn || rr0.width <= 600 ? this.root.querySelector<HTMLElement>('.lw-mini') : null, this.touchOn ? this.viewBtn : null, ...rightColParts()];
       for (const e of tops) {
         if (!e || e.offsetWidth === 0) continue;
         const b = e.getBoundingClientRect();
         if (b.top - rr0.top > h / 2) continue;
         if (b.right > sx0 && b.left < sx1) sheetTop = Math.max(sheetTop, b.bottom - rr0.top);
       }
-      doc.setProperty('--lcw-hud-sheet-top', `${Math.ceil(sheetTop)}px`);
+      doc.setProperty('--lcw-hud-sheet-top', `${Math.ceil(Math.max(sheetTop, this.sheetReserve))}px`);
     }
     doc.setProperty('--lcw-hud-top-b', `${Math.ceil(top)}px`);
     // the right column under the stars (view button on touch, the minimap when it sits up there): the review dock starts

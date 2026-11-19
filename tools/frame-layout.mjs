@@ -53,7 +53,9 @@ export const LAYOUT_SNAPSHOT = () => {
       // an all-transparent box with no text of its own (an empty holder) is not a part either
       if (!(plain(e) && !(e.textContent || '').trim() && !e.querySelector('img,svg,canvas'))) {
         parts.push(e);
-        return; // what is inside a part belongs to it
+        // what is inside a positioned part belongs to it; a card in the flow (a menu window, the lesson panel) keeps
+        // its own parts in the check (pairs where one holds the other are not compared)
+        if (positioned) return;
       }
     }
     for (const c of e.children) visit(c, depth + 1);
@@ -64,14 +66,21 @@ export const LAYOUT_SNAPSHOT = () => {
   const WORLD = '.lw-plate,.lw-prompt,.lw-bub';
   // what shows of a part: its box cut by every scrolling / clipping holder above it (the lesson panel scrolls on a short
   // screen: the card inside runs past the screen edge but only the holder's window of it shows)
+  const cutBy = new Map();
   const seen = (e) => {
     const b = e.getBoundingClientRect();
     let x0 = b.left, y0 = b.top, x1 = b.right, y1 = b.bottom;
     for (let n = e.parentElement; n && n !== document.documentElement; n = n.parentElement) {
       const cs = getComputedStyle(n);
-      if (!/(auto|scroll|hidden|clip)/.test(cs.overflow + cs.overflowX + cs.overflowY)) continue;
+      const ov = cs.overflow + ' ' + cs.overflowX + ' ' + cs.overflowY;
+      const scrolls = /(auto|scroll)/.test(ov);
+      const clips = /(hidden|clip)/.test(ov);
+      if (!scrolls && !clips) continue;
       const c = n.getBoundingClientRect();
-      if (c.width >= vw * 0.9 && c.height >= vh * 0.9) continue;
+      // a full-screen clipping layer (the HUD root) is the screen edge: the edge check below sees past it
+      if (!scrolls && c.width >= vw * 0.9 && c.height >= vh * 0.9) continue;
+      // a holder that only clips (no scrolling) and cuts the part: the child cannot get to the rest
+      if (!scrolls && (b.left < c.left - 0.5 || b.top < c.top - 0.5 || b.right > c.right + 0.5 || b.bottom > c.bottom + 0.5) && !cutBy.has(e)) cutBy.set(e, n);
       x0 = Math.max(x0, c.left); y0 = Math.max(y0, c.top); x1 = Math.min(x1, c.right); y1 = Math.min(y1, c.bottom);
     }
     return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
@@ -79,7 +88,8 @@ export const LAYOUT_SNAPSHOT = () => {
   const boxes = parts
     .map((e) => ({ e, ...seen(e), name: label(e), world: e.matches(WORLD) }))
     .filter((b) => b.w > 1 && b.h > 1);
-  const problems = [];
+  const cutProblems = [...cutBy.entries()].filter(([e]) => boxes.some((b) => b.e === e)).map(([e, n]) => `cut by its holder: ${label(e)} in ${label(n)}`);
+  const problems = [...cutProblems];
   const inter = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
   for (let i = 0; i < boxes.length; i++) {
     const a = boxes[i];

@@ -330,7 +330,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
         {/* Second child in both live layouts, so opening the dialog does not remount (and lock) the 1PC panel. */}
         <TeacherPanel lessonId={view.lessonId} planId={view.planId} stageId={view.stageId} />
         {folded ? (
-          <div data-hud-floor="" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: SP[3], display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
+          <div data-hud-floor="" data-hud-part="" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: SP[3], display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
             <div style={{ width: '100%', maxWidth: SHEET_MAX, display: 'flex', justifyContent: 'flex-end' }}>
               <StatusPill view={view} onLeave={() => ctl.leave()} />
             </div>
@@ -395,7 +395,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
             <EventBanner view={view} />
           </div>
         )}
-        <div {...(props.world ? { 'data-hud-floor': '' } : {})} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[1], flex: '0 1 auto', minHeight: 0 }}>
+        <div {...(props.world ? { 'data-hud-floor': '', 'data-hud-part': '' } : {})} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[1], flex: '0 1 auto', minHeight: 0 }}>
           {props.world ? (
             <div style={{ width: '100%', maxWidth: SHEET_MAX, display: 'flex', justifyContent: 'flex-end' }}>
               <StatusPill view={view} onLeave={() => ctl.leave()} />

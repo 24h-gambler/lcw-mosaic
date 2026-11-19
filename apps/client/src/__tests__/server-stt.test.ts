@@ -4,7 +4,7 @@ import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { MicController, type Clock } from '../dialog/mic-controller.js';
 import { readMicIssue, readMicTurns, resetMicStatusForTest } from '../dialog/mic-status.js';
-import { createDialogSpeechEngine, createServerSpeechEngine, pickRecorderType, METER_MIN_FRAMES, SERVER_STT_PATH, VOICE_RMS, VOICE_RMS_BORDER, type ServerSttEnv } from '../dialog/server-stt.js';
+import { createDialogSpeechEngine, createServerSpeechEngine, pickRecorderType, HALLUCINATION_NO_SPEECH_PROB, HALLUCINATION_PEAK_RMS, hallucinationKey, METER_MIN_FRAMES, SERVER_STT_PATH, VOICE_RMS, VOICE_RMS_BORDER, WHISPER_HALLUCINATIONS, type ServerSttEnv } from '../dialog/server-stt.js';
 
 /**
  * The Workers AI Whisper rung from the child's side: the mic controller drives the server engine, the recorded turn
@@ -178,27 +178,73 @@ describe('server Whisper engine through the mic controller and the real route', 
     expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'vad_quiet' });
   });
 
-  it('"thank you" from a child the meter could not hear is an answer, not silence: only an empty transcript is (11-19)', async () => {
-    const h = await harness({ level: () => 0, running: () => false, ai: { run: async () => ({ text: 'Thank you.', segments: [] }) } as unknown as LcwEnv['AI'] });
+  const says = (text: string, noSpeech?: number) =>
+    ({ run: async () => ({ text, segments: [{ avg_logprob: -0.2, ...(noSpeech === undefined ? {} : { no_speech_prob: noSpeech }) }] }) }) as unknown as LcwEnv['AI'];
+
+  it("Whisper's silence line (Thank you.) with no speech in the turn is no_speech stt_hallucination: no answer, no pass (11-19)", async () => {
+    // a meter that never ran: no sign of speech at all
+    const blind = await harness({ level: () => 0, running: () => false, ai: says('Thank you.') });
+    blind.ctrl.tap();
+    await settle();
+    blind.clock.advance(2000);
+    blind.ctrl.tap();
+    await settle();
+    expect(blind.requests).toHaveLength(1);
+    expect(blind.finals).toEqual([]);
+    expect(readMicIssue()).toMatchObject({ issue: 'no_speech', raw: 'stt_hallucination' });
+    expect(readMicTurns()).toMatchObject({ started: 1, sent: 0, lost: 1, lastLost: { cause: 'no_speech' } });
+  });
+
+  it('noise near the voice level that Whisper turns into a silence line is not an answer either', async () => {
+    for (const text of ['Thank you.', 'Thanks for watching!', 'you', 'Bye.']) {
+      const h = await harness({ level: () => (VOICE_RMS_BORDER + VOICE_RMS) / 2, ai: says(text) });
+      h.ctrl.tap();
+      await settle();
+      h.clock.advance(2000);
+      h.ctrl.tap();
+      await settle();
+      expect(h.requests).toHaveLength(1);
+      expect(h.finals).toEqual([]);
+      expect(readMicIssue()).toMatchObject({ raw: 'stt_hallucination' });
+    }
+  });
+
+  it('a real "Thank you." (voiced frames at the voice level) is an answer; Whisper saying the turn had no speech still drops it', async () => {
+    const h = await harness({ level: () => HALLUCINATION_PEAK_RMS * 3, ai: says('Thank you.', 0.05) });
     h.ctrl.tap();
     await settle();
-    h.clock.advance(2000);
+    h.clock.advance(1500);
     h.ctrl.tap();
     await settle();
-    expect(h.requests).toHaveLength(1);
     expect(h.finals).toEqual([{ transcript: 'Thank you.', confidence: expect.any(Number) }]);
-    expect(readMicTurns()).toMatchObject({ started: 1, lost: 0 });
+    const ns = await harness({ level: () => HALLUCINATION_PEAK_RMS * 3, ai: says('Thank you.', HALLUCINATION_NO_SPEECH_PROB + 0.1) });
+    ns.ctrl.tap();
+    await settle();
+    ns.clock.advance(1500);
+    ns.ctrl.tap();
+    await settle();
+    expect(ns.finals).toEqual([]);
+    expect(readMicIssue()).toMatchObject({ raw: 'stt_hallucination' });
+    // any other sentence is words, even from a quiet turn
+    const other = await harness({ level: () => 0, running: () => false, ai: says('Thank you for the tea.') });
+    other.ctrl.tap();
+    await settle();
+    other.clock.advance(2000);
+    other.ctrl.tap();
+    await settle();
+    expect(other.finals).toEqual([{ transcript: 'Thank you for the tea.', confidence: expect.any(Number) }]);
+    expect([...WHISPER_HALLUCINATIONS].every((l) => l === hallucinationKey(l))).toBe(true);
   });
 
   it('a soft voice near the voice level (between VOICE_RMS_BORDER and VOICE_RMS) is not called quiet by the meter: it goes to Whisper', async () => {
-    const h = await harness({ level: () => (VOICE_RMS_BORDER + VOICE_RMS) / 2, ai: { run: async () => ({ text: 'Thank you.', segments: [] }) } as unknown as LcwEnv['AI'] });
+    const h = await harness({ level: () => (VOICE_RMS_BORDER + VOICE_RMS) / 2, ai: says('Can I have tea?') });
     h.ctrl.tap();
     await settle();
     h.clock.advance(2000);
     h.ctrl.tap();
     await settle();
     expect(h.requests).toHaveLength(1);
-    expect(h.finals).toEqual([{ transcript: 'Thank you.', confidence: expect.any(Number) }]);
+    expect(h.finals).toEqual([{ transcript: 'Can I have tea?', confidence: expect.any(Number) }]);
   });
 
   it('a meter that ran too briefly to judge (under METER_MIN_FRAMES) sends the turn; Whisper hearing nothing is the silence verdict', async () => {

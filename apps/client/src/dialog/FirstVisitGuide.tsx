@@ -1,5 +1,6 @@
 import { MIC_STATUS_KEY as LIVE_MIC_STATUS_KEY } from './mic-status.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { biLine, live, npcShortName } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
@@ -11,6 +12,7 @@ import { createDialogSpeechEngine } from './server-stt.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
 import { currentGoal, goalLine, goalToast, goalWalkLabel, onGoalChange, type GoalDef } from './goals.js';
 import { onLearnLang } from '../world/lang.js';
+import { LESSON_STAGE_EVENT } from '../world/events.js';
 
 /** Re-render on a change of the learning language or the Korean help (settings), so the goal line and walk button follow at once. */
 function useLangTick(): number {
@@ -332,6 +334,60 @@ function sessionSet(k: string, v: string): void {
   }
 }
 
+function localGet(k: string): string | null {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+}
+function localSet(k: string, v: string): void {
+  try {
+    localStorage.setItem(k, v);
+  } catch {
+    /* private mode: this tab's sessionStorage still holds it */
+  }
+}
+
+/**
+ * Checked for this lesson: in this tab, or on this device (a reload, a second tab, the link opened again): the card is
+ * once per lesson, not once per tab (lesson lane 11-18).
+ */
+function lessonChecked(keys: readonly string[]): boolean {
+  return keys.some((k) => sessionGet(k) === '1' || localGet(k) === '1');
+}
+function markLessonChecked(keys: readonly string[]): void {
+  for (const k of keys) {
+    sessionSet(k, '1');
+    localSet(k, '1');
+  }
+}
+
+/**
+ * The lesson moved on while the card was still open (nobody touched it): close it for good, as skipped unless a mic
+ * turn already left a status. A new stage's dialog never sits under the card (production smoke 11-18: the card stayed
+ * over the cafe and trade dialogs). Returns whether it closed a pending check.
+ */
+export function closeMicCheckOnStageMove(identityKind: string, lessonCode?: string): boolean {
+  const who = micCheckAudience(identityKind, lessonCode);
+  if (who?.audience !== 'lesson' || lessonChecked(who.keys)) return false;
+  if (readMicStatus() === null) sessionSet(MIC_STATUS_KEY, 'skipped');
+  markLessonChecked(who.keys);
+  return true;
+}
+
+/**
+ * What the gate shows: the card (first time for this lesson / guest, or the child tapped the chip), the small HUD mic
+ * chip (a lesson student after the check: the status only, never the card again by itself), or nothing.
+ */
+export function micGateView(identityKind: string, lessonCode: string | undefined, o: { hidden?: boolean; closed?: boolean; reopen?: boolean }): 'card' | 'chip' | null {
+  const who = micCheckAudience(identityKind, lessonCode);
+  if (!who || o.hidden) return null;
+  if (who.audience === 'guest') return o.closed || seen() ? null : 'card';
+  if (o.reopen) return 'card';
+  return !o.closed && !lessonChecked(who.keys) ? 'card' : 'chip';
+}
+
 /** The mic status of the last check in this tab (null: not checked yet). */
 export function readMicStatus(): MicCheckStatus | null {
   const v = sessionGet(MIC_STATUS_KEY);
@@ -344,32 +400,109 @@ export function readMicStatus(): MicCheckStatus | null {
  * lesson state poll), a guest once on this device. Children with a device see it inside the first-visit intro.
  */
 export function MicCheckGate(props: { identityKind: string; lessonCode?: string; hidden?: boolean; speech?: SpeechEngine }): React.ReactElement | null {
-  // The student session can appear while the page is open ("🎓 수업 코드 넣기" on a bare /world/): look again now and then.
+  // The student session can appear while the page is open ("🎓 수업 코드 넣기" on a bare /world/): look again now and then
+  // (also keeps the chip's status fresh: every mic turn updates it, dialog/mic-status.ts).
   const [, setTick] = useState(0);
   const [closed, setClosed] = useState(false);
+  const [reopen, setReopen] = useState(false);
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1500);
     return () => clearInterval(id);
   }, []);
-  const who = micCheckAudience(props.identityKind, props.lessonCode);
-  if (!who || closed || props.hidden) return null;
-  const pending = who.audience === 'lesson' ? !who.keys.some((k) => sessionGet(k) === '1') : !seen();
-  if (!pending) return null;
+  const { identityKind, lessonCode } = props;
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onStage = () => {
+      closeMicCheckOnStageMove(identityKind, lessonCode);
+      setReopen(false);
+      setTick((t) => t + 1);
+    };
+    window.addEventListener(LESSON_STAGE_EVENT, onStage);
+    return () => window.removeEventListener(LESSON_STAGE_EVENT, onStage);
+  }, [identityKind, lessonCode]);
+  const view = micGateView(identityKind, lessonCode, { hidden: props.hidden, closed, reopen });
+  if (view === 'chip') return <MicChip status={readMicStatus()} onTap={() => setReopen(true)} />;
+  if (view !== 'card') return null;
+  const who = micCheckAudience(identityKind, lessonCode);
   return (
     <IntroCard
       speech={props.speech}
-      title={who.audience === 'lesson' ? F.lessonMicTitle : F.title}
-      tips={who.audience === 'guest'}
+      title={who?.audience === 'lesson' ? F.lessonMicTitle : F.title}
+      tips={who?.audience === 'guest'}
       onDone={(status) => {
-        sessionSet(MIC_STATUS_KEY, status);
+        // checking again from the chip and skipping keeps what the mic turns already found
+        if (!(reopen && status === 'skipped')) sessionSet(MIC_STATUS_KEY, status);
         // a ?code= student joins while the card is open: remember the lesson id too, so both ways in agree
-        const now = micCheckAudience(props.identityKind, props.lessonCode);
-        if (now?.audience === 'lesson') for (const k of now.keys) sessionSet(k, '1');
+        const now = micCheckAudience(identityKind, lessonCode);
+        if (now?.audience === 'lesson') markLessonChecked(now.keys);
         else markSeen();
         setClosed(true);
+        setReopen(false);
       }}
     />
   );
+}
+
+/** The chip's words for each mic status (null: not checked, same as skipped). */
+export function micChipText(status: MicCheckStatus | null): string {
+  if (status === 'ok') return F.micChipOk;
+  if (status === 'quiet') return F.micChipQuiet;
+  if (status === 'none') return F.micChipNone;
+  return F.micChipSkipped;
+}
+
+/**
+ * Where the mic chip lives: inside the world HUD's top-left status chip (`.lw-chip`, world/hud.ts), next to the lesson
+ * tag. It flows and wraps with it, so it never covers the touch view button or the 1PC teacher button (top right), it
+ * moves down with the status chip when offline, and the goal card keeps clear of it (the HUD measures `.lw-chip`).
+ * Review of PR 161: a fixed top-right chip covered all three.
+ */
+export const MIC_CHIP_HOST = '.lw-chip';
+export function micChipHost(doc: { querySelector(sel: string): Element | null } | null = typeof document === 'undefined' ? null : document): Element | null {
+  return doc?.querySelector(MIC_CHIP_HOST) ?? null;
+}
+
+/** The small HUD mic status for a lesson student after the check, in the top-left status chip. */
+function MicChip(props: { status: MicCheckStatus | null; onTap: () => void }): React.ReactElement | null {
+  const good = props.status === 'ok';
+  const chip = (
+    <button
+      type="button"
+      className="lcw-mic-chip"
+      data-status={props.status ?? 'skipped'}
+      title={F.micChipHint}
+      aria-label={`${micChipText(props.status)} · ${F.micChipHint}`}
+      onClick={props.onTap}
+      style={{
+        pointerEvents: 'auto',
+        // above the touch view layer (.lw-touch, inset 0, later in the HUD) so a tap on a phone reaches the chip
+        position: 'relative',
+        zIndex: 1,
+        display: 'inline-flex',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        gap: 4,
+        padding: '2px 10px',
+        minHeight: 30,
+        background: C['paper-0'],
+        color: good ? C['leaf-d'] : C['ink-700'],
+        border: `${S.borderWidthPx}px solid ${C['ink-900']}`,
+        borderRadius: 999,
+        fontFamily: T.fonts.ui,
+        fontSize: T.scale.micro.sizePx,
+        fontWeight: 700,
+        whiteSpace: 'nowrap',
+        cursor: 'pointer'
+      }}
+    >
+      <span aria-hidden>🎤</span>
+      {micChipText(props.status)}
+    </button>
+  );
+  // server render (tests): the chip itself; in the page only inside the HUD's status chip, never floating over others
+  if (typeof document === 'undefined') return chip;
+  const host = micChipHost();
+  return host ? createPortal(chip, host) : null;
 }
 
 /** Student session keys the lesson client writes (lesson/api.ts STUDENT_TOKEN_KEY / STUDENT_LESSON_KEY). */

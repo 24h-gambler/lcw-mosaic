@@ -1,0 +1,159 @@
+{
+ "what": "production /adventure/ (build 84fe3e4) smoke run as smoke-adv, one island per viewport, 2026-11-19 KST; day file read from /oreo/ (read only)",
+ "runs": {
+  "p390-touch": {
+   "report": [
+    {
+     "vp": "p390-touch",
+     "ch": 1,
+     "seconds": 49,
+     "stars": 3,
+     "outcome": "spared",
+     "sent": "sending",
+     "lines": 7,
+     "words": 3,
+     "talks": 6
+    },
+    {
+     "vp": "p390-touch",
+     "fpsMin": 137.4,
+     "fpsAvg": 163.2,
+     "fpsP10": 159.5,
+     "fpsSamples": 19,
+     "errors": 0,
+     "koWithHelpOff": "",
+     "talkModes": [
+      "say",
+      "pick",
+      "spell",
+      "build"
+     ],
+     "beacons": 1,
+     "live": {
+      "origin": "https://engday.pages.dev",
+      "results": [
+       {
+        "status": 200,
+        "acao": "*"
+       }
+      ],
+      "dayNote": {
+       "note": "document",
+       "words": [
+        "puppy",
+        "eagle",
+        "turtle"
+       ]
+      }
+     },
+     "envelope": {
+      "bytes": 1105,
+      "acts": [
+       "ch1:3★ 7/7 w3"
+      ],
+      "summaryKo": "모험 1장: 말로 친구가 되어 끝냄, 별 3/3, 문장 7/7개 성공(말·타이핑 4개), 낱말 3개 중 1개 잡음"
+     },
+     "dayFetches": [
+      "https://engday.pages.dev/smoke-adv/today.json"
+     ]
+    }
+   ],
+   "fails": []
+  },
+  "d1440-keys": {
+   "report": [
+    {
+     "vp": "d1440-keys",
+     "ch": 1,
+     "seconds": 53,
+     "stars": 3,
+     "outcome": "spared",
+     "sent": "sending",
+     "lines": 7,
+     "words": 3,
+     "talks": 6
+    },
+    {
+     "vp": "d1440-keys",
+     "fpsMin": 160.4,
+     "fpsAvg": 164,
+     "fpsP10": 161.5,
+     "fpsSamples": 17,
+     "errors": 0,
+     "koWithHelpOff": "",
+     "talkModes": [
+      "say",
+      "pick",
+      "spell",
+      "build"
+     ],
+     "beacons": 1,
+     "live": {
+      "origin": "https://engday.pages.dev",
+      "results": [
+       {
+        "status": 200,
+        "acao": "*"
+       }
+      ],
+      "dayNote": {
+       "note": "document",
+       "words": [
+        "puppy",
+        "eagle",
+        "turtle"
+       ]
+      }
+     },
+     "envelope": {
+      "bytes": 1105,
+      "acts": [
+       "ch1:3★ 7/7 w3"
+      ],
+      "summaryKo": "모험 1장: 말로 친구가 되어 끝냄, 별 3/3, 문장 7/7개 성공(말·타이핑 4개), 낱말 3개 중 1개 잡음"
+     },
+     "dayFetches": [
+      "https://engday.pages.dev/smoke-adv/today.json"
+     ]
+    }
+   ],
+   "fails": []
+  }
+ },
+ "apiDay": {
+  "student": "smoke-adv",
+  "date": "2026-11-16",
+  "totals": {
+   "activities": 1,
+   "seconds": 52,
+   "correct": 7,
+   "total": 7,
+   "stars": 3,
+   "starsMax": 3,
+   "wordsRight": [
+    "eagle"
+   ],
+   "wordsWrong": [
+    "puppy",
+    "turtle"
+   ]
+  },
+  "ch1": {
+   "label": "모험 1장",
+   "startedAt": "2026-11-19T12:05:22+09:00",
+   "endedAt": "2026-11-19T12:06:13+09:00",
+   "seconds": 52,
+   "correct": 7,
+   "total": 7,
+   "stars": 3,
+   "starsMax": 3,
+   "extra": {
+    "outcome": "spared",
+    "hp_lost": 6,
+    "level": "L1"
+   }
+  },
+  "summaryKo": "모험 1장: 말로 친구가 되어 끝냄, 별 3/3, 문장 7/7개 성공(말·타이핑 4개), 낱말 3개 중 1개 잡음",
+  "updatedAt": "2026-11-19T03:06:13.340Z"
+ }
+}

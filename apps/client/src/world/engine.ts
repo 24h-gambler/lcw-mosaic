@@ -3,6 +3,7 @@
  * Rendering is Three.js (AGENTS 2); every block change goes through VoxelWorld.setBlock (AGENTS 4.1).
  */
 import * as THREE from 'three';
+import { drawState } from './draw-state.js';
 import { VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
@@ -16,6 +17,10 @@ import { Effects } from './effects.js';
 import { WorldHud } from './hud.js';
 import { STEP_UP_MAX, STEP_UP_SMALL, makeBody, makeJumpView, pickVoxel, raycastDistance, stepBody, stepJumpView, type Body, type MoveIntent } from './physics.js';
 import { Butterflies, Windmill, makeItemModel } from './props.js';
+import { Storefronts } from './storefront.js';
+import { MINIMAP_AREA, Wayfinder, minimapSteps, type MapPerson } from './wayfinding.js';
+import { TILE_LAYER, BLOCK_LOOKS } from './blocks.js';
+import { tileAverageColor } from './atlas.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
@@ -156,6 +161,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const hudParent = opts.hudRoot ?? canvas.parentElement ?? document.body;
   const touch = isTouchDevice();
   let reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** headless picture runs (?shots=1) and dev builds get the debugPose hook */
+  const shotsMode = import.meta.env.DEV || (typeof location !== 'undefined' && /[?&]shots=1(?:&|$)/.test(location.search));
   // G14 look settings (setLookSettings): mouse and touch drag speed, up/down inversion (-1).
   let lookMouse = 1;
   let lookTouch = 1;
@@ -323,7 +330,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     scene,
     hud.root,
     (p) => (p.role === 'teacher' ? teacherDef(p.name).look : peerLook(p.id, PLAYER_LOOK, peerShirts)),
-    (p) => (p.role === 'teacher' ? plateText(p.name) : p.name)
+    (p) => (p.role === 'teacher' ? plateText(p.name) : p.name),
+    (plate, sx, sy) => hud.fadePlate(plate, sx, sy)
   );
   /** The lesson's last teacher presence; the visiting figure stays away while the real teacher is in the room. */
   let teacherWanted: { present: boolean; name: string | null } | null = null;
@@ -376,6 +384,30 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     [163, 1, 129]
   ]);
   scene.add(butterflies.root);
+  // Store fronts, signs and landmark badges (storefront.ts) and the way-finding minimap / goal arrow (wayfinding.ts), R2627.
+  const storefronts = new Storefronts(world, opts.tier === 'high' ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1, opts.tier === 'low');
+  scene.add(storefronts.root);
+  const wayfinder = new Wayfinder(hud.root);
+  scene.add(wayfinder.beam);
+  {
+    const topColor = new Map<number, readonly [number, number, number] | null>();
+    const colorOf = (id: number): readonly [number, number, number] | null => {
+      let c = topColor.get(id);
+      if (c === undefined) {
+        const look = BLOCK_LOOKS[id];
+        c = !look || look.shape === 'plant' || look.shape === 'none' ? null : (tileAverageColor(atlasPixels, TILE_LAYER[look.top] ?? 0).map((v) => v * 255) as [number, number, number]);
+        topColor.set(id, c);
+      }
+      return c;
+    };
+    // ~300k block reads: sliced so the start-up has no long task on a slow phone
+    const ground = await runSliced(minimapSteps((x, y, z) => world.getBlock(x, y, z), colorOf));
+    wayfinder.setGround(ground, MINIMAP_AREA.x1 - MINIMAP_AREA.x0, MINIMAP_AREA.z1 - MINIMAP_AREA.z0);
+  }
+  /** people to talk to on the minimap (read by the wayfinder at its own pace, not per frame) */
+  const mapPeople = (): MapPerson[] =>
+    [...npcs.values()].filter((n) => n.char.root.visible && n.def.id !== TEACHER_NPC_ID).map((n) => ({ id: n.def.id, x: n.pos.x, z: n.pos.z }));
+  await yieldToMain();
 
   // ---- State.
   let currentScene: SceneId = startScene.id;
@@ -386,6 +418,10 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   let buddy: Buddy | null = null;
   let greetPending = false;
   let teacherPlate: THREE.Sprite | null = null;
+  /** Where the teacher's name plate (a sprite in the 3D view) is on the screen this frame, for the layout check. */
+  let teacherLabel: { name: string; x: number; y: number; w: number; h: number; opacity: number } | null = null;
+  const plateWorld = new THREE.Vector3();
+  const plateScale = new THREE.Vector3();
   /** Where the child looks (first and third person: the camera; mirror: the body), for who stands in view. */
   const viewYaw = (): number => (camMode === 'mirror' ? playerYaw : camYaw);
   /** The teacher's avatar near the child (NPC 'teacher' with a name plate); null removes it. The same name: kept. */
@@ -420,6 +456,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         disposePlate(teacherPlate);
       }
       teacherPlate = makePlate(plateText(name));
+      teacherPlate.name = plateText(name);
       teacherPlate.position.set(0, CHAR_HEIGHT + 0.3, 0);
       t.char.root.add(teacherPlate);
     }
@@ -453,7 +490,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   /** the scene spot the child is at (within VISIT_R), however they got there: a new one starts a new visit */
   let visitScene: SceneId | null = null;
   /** For the real-play check (getStats().interact / motion): talks opened by E, by a click or tap, jumps and climbs */
-  const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0 };
+  const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0, passerTaps: 0 };
   let promptOn = false;
   /** when the child last turned the view by hand (ms): the walk's view pull and arrival turn wait for it */
   let lookAt = -Infinity;
@@ -836,7 +873,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         hold = null;
         buildView.showBreak(null, 0);
       }
-      counts.talkTap++;
+      if (!isPasser(npc)) counts.talkTap++;
       interact(npc);
       return;
     }
@@ -862,7 +899,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   function tapPick(cx: number, cy: number): boolean {
     const n = npcAt(cx, cy);
     if (!n) return false;
-    counts.talkTap++;
+    if (!isPasser(n)) counts.talkTap++;
     interact(n);
     return true;
   }
@@ -892,8 +929,19 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     return d <= TALK_RANGE + 2.5 ? best : null;
   }
 
+  /** a lesson is live and this is not its NPC: taps and E on it stay quiet, and talk counts leave it out */
+  function isPasser(n: NpcRt): boolean {
+    return lessonMode && !!goalNpcId && n.def.id !== goalNpcId;
+  }
+
   function interact(n: NpcRt): void {
     if (paused) return;
+    // In a lesson only the lesson's NPC talks: a tap on a passer-by is quiet (no open sound, no turn, no wave), as the
+    // lesson window does not open for it either (review of #139).
+    if (isPasser(n)) {
+      counts.passerTaps++;
+      return;
+    }
     talkedTo.add(n.def.id);
     sfx.play('ui.open');
     focusNpc = n;
@@ -911,7 +959,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   tryTalk = () => {
     const n = nearNpc ?? npcAt(viewW / 2, viewH / 2);
     if (!n) return;
-    counts.talkE++;
+    if (!isPasser(n)) counts.talkE++;
     interact(n);
   };
 
@@ -1564,7 +1612,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       // R2625 ④: among NPCs in reach, the one in front of the view wins over one just behind the child's back
       const off = Math.abs(wrapAngle(Math.atan2(n.pos.x - body.x, n.pos.z - body.z) - viewYaw()));
       const score = pd + (off > 1.2 ? 2.5 : off * 0.6);
-      if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode)) {
+      // in a lesson only the lesson's NPC is "near": no talk prompt or E on a passer-by that would then do nothing
+      if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode) && !isPasser(n)) {
         nearD = score;
         nearNpc = n;
       }
@@ -1598,6 +1647,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
 
     windmill.update(dt);
     butterflies.update(dt);
+    storefronts.update(dt, sky.hour, reduceMotion);
     if (player.root.position.distanceTo(fountain) < viewDistance) effects.spray(fountain.x, fountain.y, fountain.z, dt);
     effects.update(dt);
     sky.update(dt, player.root.position);
@@ -1663,10 +1713,46 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       hud.showPrompt(p.vis, p.sx, p.sy, touch);
     } else hud.showPrompt(false, 0, 0, touch);
     const goal = goalNpcId && !paused ? npcs.get(goalNpcId) : undefined;
-    if (goal && goal.char.root.visible && !(promptOn && nearNpc === goal)) {
+    const goalShown = !!goal && goal.char.root.visible;
+    if (goal && goalShown && !(promptOn && nearNpc === goal)) {
       const g = project(goal.pos.x, goal.pos.y + CHAR_HEIGHT + 0.55, goal.pos.z);
       hud.showGoalMark(g.vis, g.sx, g.sy);
     } else hud.showGoalMark(false);
+    // the way to the goal NPC (wayfinding.ts, R2627): its store's pin, an arrow at the screen edge while it is out of
+    // view, a beam over it that fades out up close where the mark above takes over
+    wayfinder.update(
+      dt,
+      camera,
+      body,
+      viewYaw(),
+      goal && goalShown ? { x: goal.pos.x, y: goal.pos.y, z: goal.pos.z, npcId: goal.def.id } : null,
+      mapPeople,
+      viewW,
+      viewH,
+      paused || attract,
+      nowMs,
+      reduceMotion
+    );
+
+    // the teacher's name plate is drawn in the 3D view: under a HUD card (status chip, goal card) it fades instead of
+    // showing through the card (prod shot 11-18, 'Teacher' behind the chip)
+    if (teacherPlate && teacherRt?.char.root.visible) {
+      teacherPlate.getWorldPosition(plateWorld);
+      teacherPlate.getWorldScale(plateScale);
+      const p = project(plateWorld.x, plateWorld.y, plateWorld.z);
+      const depth = -plateWorld.applyMatrix4(camera.matrixWorldInverse).z;
+      const mat = teacherPlate.material;
+      if (p.vis && depth > 0.05) {
+        const px = viewH / (2 * Math.tan((camera.fov * Math.PI) / 360) * depth);
+        const w = plateScale.x * px;
+        const h = plateScale.y * px;
+        const x = p.sx - w / 2;
+        const y = p.sy - h / 2;
+        const target = hud.underHud(x, y, x + w, y + h) ? 0.12 : 1;
+        mat.opacity += (target - mat.opacity) * Math.min(1, dt * 14);
+        teacherLabel = { name: teacherPlate.name || 'teacher', x, y, w, h, opacity: mat.opacity };
+      } else teacherLabel = null;
+    } else teacherLabel = null;
 
     renderer.render(scene, camera);
     lastStats = { draw: renderer.info.render.calls, tris: renderer.info.render.triangles };
@@ -1823,6 +1909,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         if (greetPending) greetByName();
       }
     },
+    screenLabels() {
+      return teacherLabel ? [{ ...teacherLabel }] : [];
+    },
     setTeacher(t) {
       // The tag next to the lesson tag (hud, the lesson layer's teacher presence) and, while the teacher is with the
       // child, the teacher's avatar in the child's world (visitor.ts, Dan 11-16 12:10).
@@ -1902,6 +1991,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       builder.dispose();
       buildHud?.dispose();
       buildView.dispose();
+      storefronts.dispose();
+      wayfinder.dispose();
       chunks.dispose();
       VoxelCharacter.shadows = null;
       sfx.dispose();
@@ -2084,6 +2175,24 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       });
       return true;
     },
+    // headless pictures only (tools/visual-shots.mjs with ?shots=1, or a dev build): the same spot, view and hour
+    // before and after a change. Not on the handle of a normal visit (no jumping around from the console).
+    debugPose: !shotsMode
+      ? undefined
+      : (p) => {
+      autopilot = [];
+      body.x = p.x;
+      body.z = p.z;
+      body.y = standHeight(world, p.x, p.z, Math.ceil(p.y ?? 40));
+      body.vx = body.vy = body.vz = 0;
+      playerYaw = camYaw = p.yaw;
+      camPitch = p.pitch ?? 0.3;
+      camInit = false;
+      if (p.hour !== undefined) {
+        sky.hour = p.hour;
+        sky.apply();
+      }
+    },
     getStats(): WorldStats {
       return {
         fps,
@@ -2100,7 +2209,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         arrival: lastArrival ?? undefined,
         ground: { near: chunks.outstanding(body.x, body.z, FIRST_RING), view: chunks.outstanding(body.x, body.z, viewChunks) },
         scene: currentScene,
-        player: { x: body.x, y: body.y, z: body.z },
+        // yaw: where the view looks (the real-play check tells a look input that did not turn the view from a bot miss)
+        player: { x: body.x, y: body.y, z: body.z, yaw: Math.round(camYaw * 1000) / 1000 },
         dialogShot: dialogShotStats(),
         interact: {
           near: nearNpc?.def.id ?? null,
@@ -2112,7 +2222,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
           walking: autopilot.length > 0 || travel !== null,
           talked: [...talkedTo],
           byKey: counts.talkE,
-          byTap: counts.talkTap
+          byTap: counts.talkTap,
+          passerTaps: counts.passerTaps
         },
         npcView: [...npcs.values()]
           .filter((n) => n.char.root.visible && pickableNpc(n.def, lessonMode))
@@ -2130,6 +2241,16 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
               dist: Math.round(Math.hypot(n.pos.x - body.x, n.pos.z - body.z) * 10) / 10
             };
           }),
+        npcScene: [...npcs.values()].map((n) => {
+          return {
+            id: n.def.id,
+            ...drawState(n.char.root, scene),
+            x: Math.round(n.pos.x * 10) / 10,
+            y: Math.round(n.pos.y * 10) / 10,
+            z: Math.round(n.pos.z * 10) / 10,
+            dist: Math.round(Math.hypot(n.pos.x - body.x, n.pos.z - body.z) * 10) / 10
+          };
+        }),
         motion: {
           jumps: counts.jumps,
           unpressedJumps: counts.unpressedJumps,

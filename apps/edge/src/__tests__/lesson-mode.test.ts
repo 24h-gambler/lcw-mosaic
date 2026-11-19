@@ -46,7 +46,8 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
   it('lesson stars go into the ledger once per utterance; lesson, solo dialog and /join all read the same balance', async () => {
     const p = platform();
     const { lessonId, st } = await startLesson(p);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    // two sentences on screen: one passed sentence does not move the stage on yet (docs/18 §9), so saying it again is a repeat
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?', 'Honey tea, please.'] });
     const say = (stars: 1 | 2 | 3, transcript = 'can I have a warm honey tea') =>
       call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript, chosen_stars: stars, dur_ms: 2000 }, st);
 
@@ -73,9 +74,12 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
     );
     expect(order.body.coins_total).toBe(240 - starPrice(water.basePrice, 3));
 
-    // back in the lesson (3D client or /join send the same request): balance continues from there
-    const b = await say(2);
-    expect(b.body.coins_total).toBe(240 - starPrice(water.basePrice, 3) + 20);
+    // back in the lesson (3D client or /join send the same request): balance continues from there; the same ★★
+    // sentence again earns nothing (R2627 stars once per goal), a new ★ sentence earns its star
+    const again = await say(2);
+    expect(again.body).toMatchObject({ stars: 0, repeat: true, coins_total: 240 - starPrice(water.basePrice, 3) });
+    const b = await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Honey tea, please.', transcript: 'honey tea please', chosen_stars: 1, dur_ms: 2000 }, st);
+    expect(b.body.coins_total).toBe(240 - starPrice(water.basePrice, 3) + 10);
     expect(p.coinBalance('kid-1')).toBe(b.body.coins_total);
   });
 
@@ -95,12 +99,14 @@ describe('one coin balance: the home-world ledger (coordinator 11-16)', () => {
     const ans = await call(p, 'POST', '/v1/lesson/utterance', { target_text: 'Can I have a warm honey tea?', transcript: 'can I have a warm honey tea', chosen_stars: 2, dur_ms: 2000 }, st);
     // the answer carries the lesson's star sum right after it was stored (the HUD takes it as is)
     expect(ans.body.lesson_stars).toBe(2);
+    // the one sentence on screen passed: the stage moved on by itself (docs/18 §9)
+    expect(ans.body.auto_advanced).toEqual({ from: 'cafe_order', to: 'trade_roleplay', why: 'passes' });
     const after = await call(p, 'GET', `/v1/lesson/state?cursor=${first.body.cursor}`, undefined, st);
     expect(typeof after.body.stage_started_at).toBe('number');
     expect(after.body.stage_started_at).toBeGreaterThanOrEqual(first.body.stage_started_at);
     expect(after.body.coins_balance).toBe(220);
     expect(after.body.lesson_stars).toBe(2);
-    expect(after.body.npc_line_en).toBe('Welcome to the honey cafe! What would you like today?');
+    expect(after.body.npc_line_en).toBe('I have a shiny red helmet. What will you give me for it, and why?');
   });
 
   it("a reload's first poll still names the teacher's newest line as this stage's NPC (older than the 20 s window)", async () => {
@@ -231,7 +237,8 @@ describe('lesson mode (docs/18)', () => {
 
     const feed = await call(p, 'GET', `/v1/admin/lessons/${lessonId}/feed`);
     expect(feed.body.lesson.nickname).toBe('Juno');
-    expect(feed.body.lesson.stage_id).toBe('cafe_order');
+    // the one sentence on screen passed, so the stage moved on by itself (docs/18 §9)
+    expect(feed.body.lesson.stage_id).toBe('trade_roleplay');
     expect(feed.body.utterances).toHaveLength(3);
     expect(feed.body.live.utterances).toBe(3);
     expect(feed.body.live.passes).toBe(1);

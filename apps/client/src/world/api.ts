@@ -33,7 +33,7 @@ export interface WorldStats {
   chunksMeshed: number;
   chunksVisible: number;
   scene: SceneId;
-  player: { x: number; y: number; z: number };
+  player: { x: number; y: number; z: number; yaw?: number };
   /** While a dialog pauses the world: the NPC and where its face lands on screen (CSS px). */
   dialogShot?: { npc: string; face: [number, number] } | null;
   /** current dynamic-resolution scale (1 = tier scale x devicePixelRatio) */
@@ -61,9 +61,15 @@ export interface WorldStats {
    * Talking to NPCs (R2625 real-play check): the NPC E would talk to, the goal NPC (errand step), whether the talk prompt
    * shows, NPCs talked to in this visit, talks opened by E / the talk button and by a click or tap.
    */
-  interact?: { near: string | null; goal: string | null; prompt: boolean; promptWhy: string; paused: boolean; walking: boolean; talked: string[]; byKey: number; byTap: number };
+  interact?: { near: string | null; goal: string | null; prompt: boolean; promptWhy: string; paused: boolean; walking: boolean; talked: string[]; byKey: number; byTap: number; passerTaps?: number };
   /** Talkable NPCs drawn now: where their body centre lands on screen (CSS px) and how far they stand (m). */
   npcView?: Array<{ id: string; sx: number; sy: number; vis: boolean; dist: number }>;
+  /**
+   * Every NPC in this scene's scene graph, drawn or not: attached to the scene, shown (itself and every parent), shown
+   * meshes with vertices, where it stands and how far. Tells "not drawn" (a product fault) from "the bot did not get it
+   * on screen" (real-play check).
+   */
+  npcScene?: Array<{ id: string; inScene: boolean; shown: boolean; meshes: number; x: number; y: number; z: number; dist: number }>;
   /** Jumps pressed, jumps nobody pressed, whole-block climbs without a jump, the eye height of body and camera. */
   motion?: { jumps: number; unpressedJumps: number; autoClimbs: number; autoJump: boolean; bodyY: number; camY: number };
 }
@@ -118,6 +124,11 @@ export interface WorldHandle {
    */
   setTeacher?(t: { present: boolean; name: string | null } | null): void;
   /**
+   * Labels drawn inside the 3D view (the teacher's name plate) where they are on the screen now, with their opacity:
+   * the frame's layout check (tools/frame-layout.mjs) holds them against the HUD parts. HTML plates are DOM and seen there.
+   */
+  screenLabels?(): ReadonlyArray<{ name: string; x: number; y: number; w: number; h: number; opacity: number }>;
+  /**
    * Walk up to an NPC and face it, about 1.5 m in front (inside the talk range): the NPC's scene first when it is
    * far. Resolves on arrival (a dialog pausing the world ends the walk where it is). Unknown or hidden NPCs: no-op.
    */
@@ -152,6 +163,8 @@ export interface WorldHandle {
    * 3 x 3 sectors), the walkable places, and where the player stands. World coordinates in metres.
    */
   getMap?(): WorldMapInfo;
+  /** Headless screenshot tools only: stand at (x, z), look along yaw (first person pitch 0.3 = level), at an hour. */
+  debugPose?(p: { x: number; z: number; y?: number; yaw: number; pitch?: number; hour?: number }): void;
   /**
    * Star chip from an outside count (a lesson's stars, server-summed): the chip shows this number and celebrate()
    * no longer adds to it, so a star is never counted twice. null hands the chip back to celebrate().

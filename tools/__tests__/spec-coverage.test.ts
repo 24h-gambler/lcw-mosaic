@@ -58,7 +58,9 @@ describe('the repository coverage list (docs/spec-coverage.json)', () => {
     const ids = (specIds() as Doc[]).filter((d) => d.kind === 'screen').map((d) => d.id);
     for (let n = 1; n <= 15; n++) expect(ids).toContain(`G${String(n).padStart(2, '0')}`);
     for (const id of ['T01', 'T02', 'T03', 'T04', 'P01', 'P07', 'W01', 'W09']) expect(ids).toContain(id);
-    expect(ids).toHaveLength(35);
+    // docs/22 adds the adventure screens A01–A06 (their own ID | 화면 table)
+    for (let n = 1; n <= 6; n++) expect(ids).toContain(`A0${n}`);
+    expect(ids).toHaveLength(41);
   });
 
   it('extracts the docs/10 flows and the docs/01–02 promises (the login row included)', () => {
@@ -71,7 +73,8 @@ describe('the repository coverage list (docs/spec-coverage.json)', () => {
   it('extracts the empty/error states, the docs/10 §1 role edges and the docs/11 work packages', () => {
     const all = specIds() as Doc[];
     const ids = all.map((d) => d.id);
-    expect(all.filter((d) => d.kind === 'state').length).toBe(11);
+    expect(all.filter((d) => d.kind === 'state').length).toBe(17);
+    expect(ids).toContain('A06.state');
     for (const id of ['G07.state', 'P04.state', 'F10.1.S-F', 'F10.1.F-W', 'WP-001', 'WP-503', 'WP-706']) expect(ids).toContain(id);
     expect(all.filter((d) => d.kind === 'wp').length).toBe(72);
   });

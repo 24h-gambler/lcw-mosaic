@@ -35,7 +35,8 @@ describe('lesson answers through a disconnect (client_id, stage_id)', () => {
   it('a resend with the same client_id is the same answer: one utterance, one credit, the same stars', async () => {
     const p = platform();
     const { lessonId, st, join } = await startLesson(p);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?'] });
+    // two sentences on screen: one passed sentence does not move the stage on yet (docs/18 §9), so saying it again is a repeat
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'cafe_order', targets: ['Can I have a warm honey tea?', 'Honey tea, please.'] });
     const first = await call(p, 'POST', '/v1/lesson/utterance', answer({ client_id: 'uabc12345' }), st);
     expect(first.status).toBe(200);
     expect(first.body.coins_total).toBe(220);
@@ -47,10 +48,11 @@ describe('lesson answers through a disconnect (client_id, stage_id)', () => {
     const state = await call(p, 'GET', '/v1/lesson/state', undefined, st2);
     expect(state.body.lesson_stars).toBe(2);
     expect(state.body.coins_balance).toBe(220);
-    // a different id is a new answer
+    // a different id is a new answer (stored, not replayed) — the same sentence again, so a repeat: no stars, no coins
+    // (R2627 stars once per goal)
     const other = await call(p, 'POST', '/v1/lesson/utterance', answer({ client_id: 'uabc99999' }), st2);
-    expect(other.body.coins_total).toBe(240);
-    expect(other.body.lesson_stars).toBe(4);
+    expect(other.body.replayed).toBeUndefined();
+    expect(other.body).toMatchObject({ repeat: true, stars: 0, coins_total: 220, lesson_stars: 2 });
     // two copies arriving together (a retry racing the lost first send) are stored once
     const [x, y] = await Promise.all([
       call(p, 'POST', '/v1/lesson/utterance', answer({ client_id: 'urace0001' }), st2),

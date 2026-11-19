@@ -1,6 +1,8 @@
 import { ECHO_TRANSITION_LINE, FIRST_ERRAND, NPC_GENERIC_REACTIONS, NPC_OPENING_LINES, NPC_REVISIT_LINES, OPEN_ENDED_PROMPTS, PHRASE_BANK } from './lang-en-ko.js';
-import { npcCast, voiceForCtx, type NpcVoice } from './npc-cast.js';
+import { isLocalTtsEngine, npcCast, voiceForCtx, type NpcVoice } from './npc-cast.js';
+import { chunkPhrases } from './echo-chunks.js';
 import { TRY_CAFE_OFFERS } from './try-order.js';
+import { adventureFixedLines } from './adventure.js';
 import { LESSON_PLANS, getLessonNpc } from './lesson-plans.js';
 
 /**
@@ -97,5 +99,18 @@ export function fixedTtsLines(lang: string = 'en', opts: { priorityOnly?: boolea
   const cafe = voiceForCtx('cafe', lang);
   for (const line of SITE_SPOKEN_LINES.npc) add(line, cafe);
   for (const line of SITE_SPOKEN_LINES.model) add(line, model);
+  // The echo step's pieces (DialogPanel 🔊 on each piece, chunkPhrases) of every sentence the model voice reads.
+  const modelLines = out.filter((l) => l.voice === model).map((l) => l.text);
+  for (const text of modelLines) for (const piece of chunkPhrases(text)) add(piece, model);
+  // The /adventure/ islanders and its built-in sentences (docs/22 3장), last so the prebuild reaches the world first.
+  for (const l of adventureFixedLines(lang)) add(l.text, l.voice);
   return out;
+}
+
+/**
+ * The fixed lines a local open-weights engine speaks (npc-cast.ts LOCAL_TTS_ENGINES): the operator's GPU makes these
+ * and uploads them (tools/tts-local), and the edge accepts an upload only for a line in this list.
+ */
+export function localTtsLines(lang: string = 'en'): TtsLine[] {
+  return fixedTtsLines(lang).filter((l) => isLocalTtsEngine(l.voice.engine));
 }

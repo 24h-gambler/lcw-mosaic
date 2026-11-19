@@ -9,11 +9,31 @@
 
 export type CastLang = 'en';
 
-/** Workers AI neural voice (edge tts.ts): Deepgram Aura speakers, or MeloTTS as the cheap fallback engine. */
+/** Workers AI neural engines (edge tts.ts makes their lines through the quota meter). */
+export type WorkersAiTtsEngine = 'aura' | 'aura2' | 'melo';
+
+/**
+ * Open-weights engines run on the operator's own GPU (tools/tts-local, R2625): their lines are made ahead and uploaded
+ * by the operator (edge `PUT /v1/admin/tts/line`), never made at the edge, and cost no neurons.
+ */
+export type LocalTtsEngine = 'kokoro';
+export const LOCAL_TTS_ENGINES: readonly LocalTtsEngine[] = ['kokoro'];
+
+export function isLocalTtsEngine(engine: string): engine is LocalTtsEngine {
+  return (LOCAL_TTS_ENGINES as readonly string[]).includes(engine);
+}
+
+/** A neural voice (edge tts.ts): a Workers AI speaker (Aura, MeloTTS) or a local open-weights speaker (Kokoro). */
 export interface NpcVoice {
-  engine: 'aura' | 'aura2' | 'melo';
-  /** Aura speaker id (asteria, luna, stella, athena, hera, orion, arcas, perseus, angus, orpheus, helios, zeus). */
+  engine: WorkersAiTtsEngine | LocalTtsEngine;
+  /** Speaker id: Aura (athena, hera, luna...) or Kokoro (af_sarah...). */
   speaker: string;
+  /**
+   * Local engines only: the Workers AI voice that reads a line the local engine has not made yet (a sentence added
+   * during the day, before the nightly upload). The edge stores and labels that audio under the stand-in's own key, so
+   * a file is always named by the engine that spoke it; the uploaded local line wins from then on.
+   */
+  standIn?: NpcVoice;
 }
 
 export interface NpcPersona {
@@ -34,6 +54,12 @@ export interface NpcCastPack {
   modelVoice: NpcVoice;
   /** Dialog ctx -> the world NPC who speaks it (ctxs without a world NPC yet speak in the guide's voice). */
   ctxNpc: Readonly<Record<string, string>>;
+  /**
+   * The /adventure/ islanders' own voices, one per character (creature id, or a villager's English name), the one
+   * table the game, the edge and the nightly GPU job read (adventure.ts islanderVoice). Kokoro voices: made on the
+   * operator's GPU and uploaded (0 neurons, like the model voice); the prebuild and cron skip them.
+   */
+  islanders: Readonly<Record<string, NpcVoice>>;
 }
 
 /*
@@ -53,8 +79,32 @@ const EN: NpcCastPack = {
     shop_owner: { nameEn: 'Toby', nameKo: '상점 주인 토비', nameKoShort: '토비', age: 'adult', voice: { engine: 'aura2', speaker: 'apollo' } },
     errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura2', speaker: 'delia' } }
   },
-  modelVoice: { engine: 'aura2', speaker: 'luna' },
-  ctxNpc: { cafe: 'cafe_owner', trade_shop: 'shop_owner', guide: 'guide', errand: 'errand_neighbor' }
+  modelVoice: { engine: 'kokoro', speaker: 'af_sarah', standIn: { engine: 'aura2', speaker: 'luna' } },
+  ctxNpc: { cafe: 'cafe_owner', trade_shop: 'shop_owner', guide: 'guide', errand: 'errand_neighbor' },
+  // R2625 (11-19, coordinator): every islander a voice of its own, none shared with another islander or the model
+  // voice (af_sarah). Kokoro-82M American (a*) and British (b*) speakers.
+  islanders: {
+    // island 1 (forest)
+    rootle: { engine: 'kokoro', speaker: 'am_puck' },
+    conekin: { engine: 'kokoro', speaker: 'af_nova' },
+    bramblebun: { engine: 'kokoro', speaker: 'af_bella' },
+    'Old Fern': { engine: 'kokoro', speaker: 'bf_isabella' },
+    // island 2 (beach)
+    bubblit: { engine: 'kokoro', speaker: 'af_sky' },
+    shellbop: { engine: 'kokoro', speaker: 'am_echo' },
+    clatterclaw: { engine: 'kokoro', speaker: 'bm_george' },
+    Dune: { engine: 'kokoro', speaker: 'am_fenrir' },
+    // island 3 (bakery)
+    doughdot: { engine: 'kokoro', speaker: 'af_alloy' },
+    sugarfly: { engine: 'kokoro', speaker: 'bf_emma' },
+    ovenna: { engine: 'kokoro', speaker: 'af_heart' },
+    'Pip Toast': { engine: 'kokoro', speaker: 'af_nicole' },
+    // island 4 (library tower)
+    blotling: { engine: 'kokoro', speaker: 'am_michael' },
+    paperkite: { engine: 'kokoro', speaker: 'af_kore' },
+    hushwind: { engine: 'kokoro', speaker: 'bm_fable' },
+    'Nim the Lamplighter': { engine: 'kokoro', speaker: 'bm_lewis' }
+  }
 };
 
 export const NPC_CAST_PACKS: Readonly<Record<CastLang, NpcCastPack>> = { en: EN };
@@ -70,10 +120,11 @@ export function voiceForCtx(ctx: string, lang: string = 'en'): NpcVoice {
   return (pack.npcs[pack.ctxNpc[ctx] ?? 'guide'] ?? pack.npcs.guide!).voice;
 }
 
-/** Every voice a pack may speak with (the edge refuses others). */
+/** Every voice a pack may speak with, stand-ins included (the edge refuses others). */
 export function castVoices(lang: string = 'en'): NpcVoice[] {
   const pack = npcCast(lang);
-  const all = [...Object.values(pack.npcs).map((p) => p.voice), pack.modelVoice];
+  const base = [...Object.values(pack.npcs).map((p) => p.voice), pack.modelVoice, ...Object.values(pack.islanders)];
+  const all = base.flatMap((v) => (v.standIn ? [v, v.standIn] : [v]));
   return all.filter((v, i) => all.findIndex((w) => w.engine === v.engine && w.speaker === v.speaker) === i);
 }
 

@@ -28,6 +28,13 @@ describe('dialog result player', () => {
     expect(w.log).toEqual(['stars:3']);
   });
 
+  it('a lesson goal said again (server repeat) flies no star; the balance still shows (R2627)', () => {
+    const w = fakeWorld();
+    createResultPlayer(w)({ pass: true, stars: 0, feedbackKo: '', repeat: true, coinsTotal: 260 });
+    expect(w.log).toEqual(['coins:260']);
+    expect(w.adds).toEqual([]);
+  });
+
   it('puts the server-named item in hand once, even when the window reports again on close', () => {
     const w = fakeWorld();
     const play = createResultPlayer(w);

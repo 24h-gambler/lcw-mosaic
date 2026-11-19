@@ -43,10 +43,16 @@ export interface LessonDialogConfig {
   hint: LessonHintLevel;
   /** Takes the dialog panel's UtteranceSubmit (unknown shape on purpose: see readUtteranceSubmit). */
   submit: (u: unknown) => Promise<DialogResult>;
-  onDone: (r: DialogResult) => void;
+  /**
+   * "완료" on a result. `info` comes only from a window given `followUps` (talk lane): followUpsDone = the NPC asked
+   * the last follow-up (or there were none); then the stage is done and the server moves on (docs/18 §9).
+   */
+  onDone: (r: DialogResult, info?: { followUpsDone: boolean }) => void;
   onClose?: () => void;
   /** The NPC's opening line: the stage script (App passes it to the panel as npcLine). */
   npcLine?: string;
+  /** The stage NPC's follow-up questions, asked in the same window after the opening line passes (stage.followUpsEn). */
+  followUps?: readonly string[];
 }
 
 export interface LessonLayerProps {
@@ -147,6 +153,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   // App decides WebGL once (canRunWorld) and never mounts the layer without it; no probing here on every render.
   const lowTier = props.canRender3d === false;
   const live = view.phase === 'live';
+  const hasStage = view.stageId !== null;
   // Again when the world arrives: App's callback reaches the world's "수업 중" badge only once the world exists.
   const ended = view.phase === 'ended';
   // The lesson's NPC is the one to talk to: the world marks it while the lesson runs (R2625 ⑤), and lets go after.
@@ -154,7 +161,9 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   useEffect(() => {
     const w = props.world;
     if (!w?.setGoalNpc) return;
-    if (live) {
+    // only once the first stage has come: before it npcId is the default 'guide', and the world would keep the real
+    // lesson NPC quiet for one poll (review of #152)
+    if (live && hasStage) {
       w.setGoalNpc(view.npcId);
       goalSet.current = true;
     } else if (goalSet.current) {
@@ -162,7 +171,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
       w.setGoalNpc(null);
       goalSet.current = false;
     }
-  }, [props.world, live, view.npcId]);
+  }, [props.world, live, hasStage, view.npcId]);
   useEffect(() => {
     onActive.current?.(live);
     // In a lesson the chip shows this lesson's stars from the start (0 before the first). When it ends the chip keeps
@@ -296,8 +305,13 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     // After an answer the window opens again: then it says what the teacher last said as this NPC in this stage, so
     // the script is not asked (and read aloud) again over a follow-up line.
     ...(firstLine ? { npcLine: firstLine } : {}),
-    // "완료" on a result: the window starts over for the next sentence (free talk takes many in one stage).
-    onDone: () => setDoneSeq((n) => n + 1),
+    ...(view.followUpsEn.length ? { followUps: view.followUpsEn } : {}),
+    // "완료" on a result: the window starts over for the next sentence (free talk takes many in one stage). When the
+    // NPC has asked its last follow-up the stage is done: the server moves on and the next stage opens (docs/18 §9).
+    onDone: (_r, info) => {
+      if (info?.followUpsDone) void ctl.stageDone(view.stageId);
+      setDoneSeq((n) => n + 1);
+    },
     // ✕ on the dialog window folds it away so the child can look at the world; "말하기" brings it back.
     onClose: () => setFoldedKey(panelKey)
   };
@@ -517,7 +531,21 @@ function bigButton(bg: string): React.CSSProperties {
 function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }) {
   const ok = view.connection === 'ok';
   const [asking, setAsking] = useState(false);
+  const [toAdventure, setToAdventure] = useState(false);
   const small: React.CSSProperties = { ...card, boxShadow: 'none', padding: `${SP[1]}px ${SP[2]}px`, fontSize: T.scale.small.sizePx, cursor: 'pointer', minHeight: TOKENS.shape.touchTargetMinPx, color: C['ink-900'] };
+  if (toAdventure) {
+    // Two taps here too: the link leaves the lesson screen (the lesson token goes along in this tab, /world/ brings the
+    // child back into the same lesson), so a stray tap must not take the child away.
+    return (
+      <div role="group" aria-label={S.status.adventureAsk} style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: SP[1], alignItems: 'center', padding: SP[1], pointerEvents: 'auto', marginLeft: 'auto' }}>
+        <span style={{ fontSize: T.scale.small.sizePx, fontWeight: 700, padding: `0 ${SP[1]}px` }}>{S.status.adventureAsk}</span>
+        <button type="button" onClick={() => setToAdventure(false)} style={{ ...small, background: C['leaf-d'], color: C['paper-0'], fontWeight: 800 }}>{S.status.leaveNo}</button>
+        <a href="/adventure/" data-testid="lesson-adventure-go" style={{ ...small, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+          {S.status.adventureGo}
+        </a>
+      </div>
+    );
+  }
   if (asking) {
     // Two taps to leave: a stray tap on a phone must not drop the child out of the lesson.
     return (
@@ -529,7 +557,7 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
     );
   }
   return (
-    <div style={{ display: 'flex', gap: SP[1], pointerEvents: 'auto', marginLeft: 'auto' }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: SP[1], pointerEvents: 'auto', marginLeft: 'auto' }}>
       <span
         role="status"
         style={{
@@ -553,6 +581,10 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
               ? S.status.ok(view.nickname, view.teacher.name)
               : S.status.alone(view.nickname)}
       </span>
+      {/* same tab on purpose: the lesson token (sessionStorage) goes along, so the adventure's 🎤 works at once */}
+      <button type="button" data-testid="lesson-adventure" onClick={() => setToAdventure(true)} style={small}>
+        {S.status.adventure}
+      </button>
       <button type="button" onClick={() => setAsking(true)} style={small}>
         {S.status.leave}
       </button>

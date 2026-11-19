@@ -55,6 +55,13 @@ export interface LessonEventRow {
   detail: string;
 }
 
+/** The server moved the stage on by itself (docs/18 §9): enough passes, the follow-ups done, or the planned minutes. */
+export interface LessonAutoAdvance {
+  from: string;
+  to: string;
+  why: 'passes' | 'followups' | 'time';
+}
+
 export interface StudentLessonState {
   lesson_id: string;
   stage_id: string | null;
@@ -83,6 +90,10 @@ export interface StudentLessonState {
   stage_started_at?: number | null;
   /** The teacher's newest line as the stage NPC in this stage (any age), or null. */
   stage_last_line_en?: string | null;
+  /** The stage NPC's follow-up questions in order (dialog followUps, talk lane); absent on an older server. */
+  follow_ups_en?: string[];
+  /** The stage moved on by itself on this poll (docs/18 §9), else null; absent on an older server. */
+  auto_advanced?: LessonAutoAdvance | null;
   /** With the teacher now (console heartbeat), or alone ("혼자 놀기"). Absent on an older server = with the teacher. */
   teacher?: { present: boolean; name: string | null; since: number | null };
   /** The lesson's plan (the 1PC teacher panel shows that plan's stages); absent on an older server. */
@@ -115,6 +126,29 @@ export function readLessonMicIssue(store: { getItem(k: string): string | null } 
     return v && MIC_ISSUE_RE.test(v) ? v : null;
   } catch {
     return null;
+  }
+}
+/**
+ * Every mic turn's fate on this device (talk lane dialog/mic-status.ts, sessionStorage 'lcw.micTurns' =
+ * "<started>.<sent>.<lost>|<cause>:<epoch ms>", R2627). Sent as it is with the state poll; the console shows
+ * started / sent / lost and the last lost turn's cause. Same key and format as the talk lane (a test pins both).
+ */
+export const LESSON_MIC_TURNS_KEY = 'lcw.micTurns';
+export const MIC_TURNS_RE = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})(?:\|([a-z_]{1,20}):(\d{10,14}))?$/;
+export function readLessonMicTurns(store: { getItem(k: string): string | null } | null = safeSessionStorage()): string | null {
+  try {
+    const v = store?.getItem(LESSON_MIC_TURNS_KEY) ?? null;
+    return v && MIC_TURNS_RE.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+/** A lesson joined on this device counts its own turns. */
+export function clearLessonMicTurns(): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(LESSON_MIC_TURNS_KEY);
+  } catch {
+    /* nothing kept */
   }
 }
 function safeSessionStorage(): { getItem(k: string): string | null } | null {
@@ -164,6 +198,8 @@ export interface UtteranceResult {
   /** This lesson's star sum after this answer (server); absent on an older server. */
   lesson_stars?: number;
   utterances_today: number;
+  /** This goal already had its stars in the stage: 0 stars, say something new (R2627, edge lesson-stars.ts). */
+  repeat?: boolean;
 }
 
 export class LessonHttpError extends Error {
@@ -270,7 +306,14 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
     join: (code: string) => request<JoinResult>('POST', '/v1/join', null, { code }),
     state: (
       token: string,
-      q: { cursor?: number | null; scene?: string; ui?: '3d' | 'cards'; mic?: LessonMicStatus | null; micIssue?: string | null } = {}
+      q: {
+        cursor?: number | null;
+        scene?: string;
+        ui?: '3d' | 'cards';
+        mic?: LessonMicStatus | null;
+        micIssue?: string | null;
+        micTurns?: string | null;
+      } = {}
     ) => {
       const p = new URLSearchParams();
       if (q.cursor !== undefined && q.cursor !== null) p.set('cursor', String(Math.floor(q.cursor)));
@@ -278,12 +321,18 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
       if (q.ui) p.set('ui', q.ui);
       if (q.mic) p.set('mic', q.mic);
       if (q.micIssue) p.set('mic_issue', q.micIssue);
+      if (q.micTurns) p.set('mic_turns', q.micTurns);
       const qs = p.toString();
       return request<StudentLessonState>('GET', `/v1/lesson/state${qs ? `?${qs}` : ''}`, token);
     },
     // Whatever the caller hands in, only the strict lesson body goes out (no echo/attempt/dialogId).
     utterance: (token: string, u: UtteranceSubmit | LessonUtteranceBody) =>
-      request<UtteranceResult>('POST', '/v1/lesson/utterance', token, readUtteranceSubmit(u))
+      request<UtteranceResult & { auto_advanced?: LessonAutoAdvance }>('POST', '/v1/lesson/utterance', token, readUtteranceSubmit(u)),
+    // The dialog asked all the stage NPC's follow-up questions: the server moves the stage on (if it is still that one).
+    stageDone: (token: string, stageId: string) =>
+      request<{ ok: true; auto_advanced: LessonAutoAdvance | null; stage_id: string | null }>('POST', '/v1/lesson/stage-done', token, {
+        stage_id: stageId
+      })
   };
 }
 

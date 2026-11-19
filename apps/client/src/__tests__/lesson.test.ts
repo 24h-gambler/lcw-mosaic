@@ -2,6 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
+import { FIRST_LESSON_PLAN } from '@lcw/content';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
@@ -162,7 +163,8 @@ describe('client lesson module (docs/19 §4)', () => {
       attempt: 2,
       dialogId: 'dlg_lesson_1'
     });
-    expect(viaPanel).toMatchObject({ pass: true, coinsTotal: 240 });
+    // the same sentence again is a repeat (R2627 stars once per goal): passed, no stars, the balance unchanged
+    expect(viaPanel).toMatchObject({ pass: true, stars: 0, repeat: true, coinsTotal: 220 });
     // the panel that shows the result celebrates (App's DialogHost or the layer's own), not the controller: no double stars
     expect(calls.filter((c) => c.startsWith('celebrate:'))).toEqual([]);
     expect(ctl.state.lastResult?.utterancesToday).toBe(2);
@@ -176,7 +178,8 @@ describe('client lesson module (docs/19 §4)', () => {
     const ctl2 = new LessonController({ api: createStudentLessonApi({ fetch }), world: w2, store, timers: fakeTimers(clock) });
     await ctl2.start(null);
     expect(ctl2.state.phase).toBe('live');
-    expect(c2).toContain('scene:honey_cafe');
+    // the cafe's one sentence on screen passed, so the server moved on by itself (docs/18 §9): the reload opens the next stage
+    expect(c2).toContain(`scene:${FIRST_LESSON_PLAN.stages[2]!.sceneId}`);
     expect(c2.filter((c) => c.startsWith('event:'))).toEqual([]);
     ctl2.stop();
 

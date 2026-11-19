@@ -221,7 +221,7 @@ describe('/v1/converse/score uses the server price table (WP-108)', () => {
     const a = await e.score({ dialog_id: 'det-a', chosen_stars: 2, target_text: L2_2STAR, transcript: 'can I get cold smoothie' });
     const b = await e.score({ dialog_id: 'det-b', chosen_stars: 2, target_text: L2_2STAR, transcript: 'can I get cold smoothie' });
     // the same sentence pays its coins once a day (R326 ⑤), so only the score parts are compared
-    expect(a).toEqual({ ...b, coins_total: a.coins_total, coins_earned: a.coins_earned, memory_card: a.memory_card });
+    expect(a).toEqual({ ...b, coins_total: a.coins_total, coins_earned: (a as { coins_earned?: number }).coins_earned, memory_card: a.memory_card });
     for (let i = 0; i < 5; i++) await e.score({ dialog_id: `det-${i}`, chosen_stars: 3, target_text: L2_3STAR, transcript: L2_3STAR });
     expect(e.world.getPlayerBalance('kid')).toBe(e.ledgerSum());
   });

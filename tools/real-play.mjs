@@ -12,6 +12,10 @@
 //   click/tap talk success rate, E-key / talk-button success rate (the right NPC's dialog opened within 1.5 s)
 //   camera rise during a pressed jump (first person view must stay steady, R2625 ①)
 //   repeated first lines when the same NPC is visited again (dialog lane, R2625)
+//   the hill: down the half-step ramp and back up by keys / stick only, no jump (LCW_REAL_PLAY_HILL=0 skips it)
+//   in a lesson: the lesson NPC reopens the folded window by click and E; a passer-by stays quiet (#152)
+//   failed requests by path; cached-only voice 404s (/v1/tts?…&c=1, by design under automation) counted apart
+// The nightly audit (tools/nightly-audit.mjs) runs it on production and judges it with tools/real-play-judge.mjs.
 //
 //   PLAYWRIGHT_CORE=<playwright-core/index.mjs> node tools/real-play.mjs <base> <outDir> <pc|touch> [dev.json]
 //
@@ -32,8 +36,23 @@ mkdirSync(out, { recursive: true });
 const touch = view === 'touch';
 const [W, H] = touch ? [390, 844] : [1440, 900];
 
+// Stall watchdog: no progress line for LCW_REAL_PLAY_STALL_MIN (10) minutes -> say after which step and stop, so the
+// night audit keeps its time for the screens and knows where it stopped (11-18: a touch run sat 24 min with no line).
+const STALL_MS = Number(process.env.LCW_REAL_PLAY_STALL_MIN ?? 10) * 60_000;
+const P0 = Date.now();
+let lastStep = { name: 'start', at: P0 };
+const progress = (name) => {
+  lastStep = { name, at: Date.now() };
+};
+setInterval(() => {
+  if (Date.now() - lastStep.at < STALL_MS) return;
+  console.log(JSON.stringify({ name: 'stalled', after: lastStep.name, t: Math.round((Date.now() - P0) / 1000) }));
+  process.exit(3);
+}, 15_000).unref();
+
 async function call(method, p, body, token) {
   const r = await fetch(base + p, {
+    signal: AbortSignal.timeout(30_000),
     method,
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body)
@@ -67,6 +86,8 @@ async function newChild() {
 }
 
 const dev = devFile ? JSON.parse(readFileSync(devFile, 'utf8')) : await newChild();
+progress('child');
+console.log(JSON.stringify({ name: 'child', t: Math.round((Date.now() - P0) / 1000) }));
 const browser = await chromium.launch({
   channel: 'chrome',
   headless: true,
@@ -82,16 +103,50 @@ await ctx.addInitScript(([t]) => {
   localStorage.setItem('lcw.deviceNickname', 'Juno');
 }, [dev.device_token]);
 const page = await ctx.newPage();
+progress('browser');
 const errs = [];
 page.on('pageerror', (e) => errs.push(String(e.message).slice(0, 200)));
 page.on('console', (m) => {
-  if (m.type() === 'error') errs.push(m.text().slice(0, 200));
+  // the browser's own "Failed to load resource" line names no URL: the response listener below records those instead
+  if (m.type() === 'error' && !/^Failed to load resource/.test(m.text())) errs.push(m.text().slice(0, 200));
+});
+// Failed requests by path (never the query: tts lines carry the sentence). A cached-only voice line that is not cached
+// (`/v1/tts?...&c=1` -> 404, edge tts.ts) is by design under automation and smoke students: the device voice reads it, a
+// child's browser never asks with c=1. Those are counted apart, everything else is an error.
+const httpFails = [];
+let ttsCacheMiss = 0;
+const ttsJudging = [];
+page.on('response', (r) => {
+  const st = r.status();
+  if (st < 400) return;
+  let u;
+  try {
+    u = new URL(r.url());
+  } catch {
+    return;
+  }
+  const fail = (why = '') => {
+    httpFails.push(`${st} ${u.host}${u.pathname}${why}`);
+    errs.push(`http ${st} ${u.host}${u.pathname}${why}`);
+  };
+  // only `tts_not_cached` is the by-design miss: `tts_not_made` / `tts_off` would reach a child too (review of #158)
+  if (st === 404 && u.pathname === '/v1/tts' && u.searchParams.get('c') === '1') {
+    ttsJudging.push(
+      r
+        .json()
+        .then((b) => (b?.error === 'tts_not_cached' ? ttsCacheMiss++ : fail(` ${b?.error ?? ''}`)))
+        .catch(() => fail())
+    );
+    return;
+  }
+  fail();
 });
 const T0 = Date.now();
 const log = [];
 const mark = (name, extra = {}) => {
   const s = { name, t: Math.round((Date.now() - T0) / 100) / 10, ...extra };
   log.push(s);
+  progress(name);
   console.log(JSON.stringify(s));
 };
 const shot = (name) => page.screenshot({ path: `${out}/${view}-${name}.png` }).catch(() => {});
@@ -175,6 +230,7 @@ const FOCAL = H / 2 / Math.tan((70 * Math.PI) / 360);
 /** Face the NPC: turn until its body is near the middle of the screen. */
 let faceMiss = null;
 async function face(id) {
+  progress('face');
   for (let i = 0; i < 16; i++) {
     const s = await stats();
     const n = s?.npcView?.find((v) => v.id === id);
@@ -234,7 +290,8 @@ let lastClick = null;
 /** One talk opened by a click/tap on the NPC's body. */
 async function tryClick(id) {
   const n = await face(id);
-  if (!n) return false;
+  // null: the bot never got the NPC on screen, so nothing was tried (not checked; review 2 of #158)
+  if (!n) return null;
   counts.clickTry++;
   const s = await stats();
   const v = s?.npcView?.find((x) => x.id === id) ?? n;
@@ -253,8 +310,9 @@ async function tryClick(id) {
 
 /** One talk opened by the E key (PC) or the talk button (touch), facing the NPC in reach. */
 async function tryKey(id) {
-  await face(id);
-  counts.keyTry++;
+  // like tryClick: a try counts once the NPC is on screen, or when the dialog opens anyway (E reads the NPC in reach),
+  // so the bot missing the NPC on screen is not a failed talk (review of #158)
+  const faced = await face(id);
   const s = await stats();
   let button = null;
   if (touch) {
@@ -267,12 +325,13 @@ async function tryKey(id) {
   } else await page.keyboard.press('KeyE');
   await page.waitForSelector('.lcw-dlg', { timeout: 1500 }).catch(() => {});
   const ok = (await dlgOpen()) && (await rightNpc(id));
+  if (faced || ok) counts.keyTry++;
   if (ok) counts.keyOk++;
   else if (await dlgOpen()) {
     counts.wrongNpc++;
     await closeDlg();
   }
-  return { ok, near: s?.interact?.near ?? null, goal: s?.interact?.goal ?? null, prompt: s?.interact?.prompt ?? null, why: s?.interact?.promptWhy, paused: s?.interact?.paused, walking: s?.interact?.walking, ...(touch ? { button } : {}) };
+  return { ok, faced: !!faced, near: s?.interact?.near ?? null, goal: s?.interact?.goal ?? null, prompt: s?.interact?.prompt ?? null, why: s?.interact?.promptWhy, paused: s?.interact?.paused, walking: s?.interact?.walking, ...(touch ? { button } : {}) };
 }
 
 async function answer(stars) {
@@ -329,6 +388,7 @@ async function jumpCheck() {
 
 // ---- play
 await page.goto(`${base}/world/`, { waitUntil: 'domcontentloaded' });
+progress('page');
 await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 300000 });
 await page.waitForFunction(() => (window.__lcwWorld.getStats?.()?.ground?.near ?? 1) === 0, null, { timeout: 120000 }).catch(() => {});
 mark('spawn', { scene: (await stats())?.scene });
@@ -384,7 +444,9 @@ for (let round = 0; round < 9; round++) {
   const near = await approach(goal, 2.6);
   const t = { goal, walked, reached: !!near, ...(near ? {} : { faceMiss }), dist: near?.dist ?? null, promptOnGoal: (await stats())?.interact?.prompt ?? null };
   t.click = await tryClick(goal);
-  if (!t.click) t.clickMiss = lastClick;
+  // not on screen (null): the face miss explains it; the last click would point at an earlier talk
+  if (t.click === null) t.clickMiss = { notOnScreen: faceMiss };
+  else if (!t.click) t.clickMiss = lastClick;
   if (t.click) {
     t.lineClick = await firstLine();
     await closeDlg();
@@ -424,6 +486,112 @@ const quiet = [];
 }
 mark('quiet', { quiet });
 
+// The hill (R2625: no automatic hop onto a whole block any more): from the top down the half-step ramp and back up by
+// keys or the stick only, never pressing jump. The scene walk takes the child to the top (the walk button's own path).
+/**
+ * Walk by keys/stick along the line x = lineX toward z = endZ, steering every step from the heading the last steps
+ * measured. It aims at the line a few metres ahead, not at the far end: the ramp is 3 cells wide, and aiming at the top
+ * from the side walked the bot onto the whole-block slope next to it (11-18 runs: stuck at x 151..157).
+ */
+async function walkTo(lineX, endZ, done) {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let stuck = 0;
+  const trace = [];
+  for (let i = 0; i < 40; i++) {
+    progress('hill-walk');
+    const a = (await stats()).player;
+    if (done(a)) break;
+    await forward(350);
+    const b = (await stats()).player;
+    minY = Math.min(minY, b.y);
+    maxY = Math.max(maxY, b.y);
+    const moved = Math.hypot(b.x - a.x, b.z - a.z);
+    if (done(b)) break;
+    if (moved > 0.15) {
+      stuck = 0;
+      const dir = Math.sign(endZ - b.z) || 1;
+      const tx = lineX;
+      const tz = Math.abs(endZ - b.z) < 3 ? endZ : b.z + dir * 3;
+      let err = Math.atan2(tx - b.x, tz - b.z) - Math.atan2(b.x - a.x, b.z - a.z);
+      while (err > Math.PI) err -= 2 * Math.PI;
+      while (err < -Math.PI) err += 2 * Math.PI;
+      trace.push([+b.x.toFixed(1), +b.y.toFixed(1), +b.z.toFixed(1), +err.toFixed(2)]);
+      // the view turns by -dx * k (engine onLook): a positive yaw error is a drag to the left; big turns in two goes
+      if (Math.abs(err) > 0.08) await turn(-Math.max(-1.6, Math.min(1.6, err)) / RAD_PER_PX);
+      // a big turn (turning round at the bottom) is only turned, then measured again: walking on would carry the bot
+      // sideways off the line (11-18: 7 m west of the ramp)
+      if (Math.abs(err) > 1.2) continue;
+    } else {
+      // against a block or an NPC: step back, turn ~40 degrees and aim again from the next step's heading
+      // (turning blind kept the bot on the ramp's side wall; backing alone walked into the hill guide 8 times, 11-18)
+      trace.push(['stuck', +b.x.toFixed(1), +b.y.toFixed(1), +b.z.toFixed(1)]);
+      if (++stuck > 8) break;
+      await back(400);
+      await turn(0.7 / RAD_PER_PX);
+      continue;
+    }
+    // shorter steps while off the line, so a correction lands before the bot leaves the ramp
+    await forward(Math.abs(b.x - lineX) > 0.8 ? 450 : 900);
+    const c = (await stats()).player;
+    minY = Math.min(minY, c.y);
+    maxY = Math.max(maxY, c.y);
+  }
+  const e = (await stats()).player;
+  return { end: { x: +e.x.toFixed(2), y: +e.y.toFixed(2), z: +e.z.toFixed(2) }, minY: +minY.toFixed(2), maxY: +maxY.toFixed(2), trace };
+}
+// the ramp (packages/sim-core town.ts): x 143..145, half a block a cell from z 126 (ground) to z 109 (the top, y 10)
+// down along x 143.6 (still on the ramp): the hill scene's spot faces the guide standing on the centre line 2.3 m south
+const HILL_RAMP = { x: 144.5, downX: 143.6, bottomZ: 131, topZ: 103, topY: 10 };
+const hill = { ran: false };
+if (process.env.LCW_REAL_PLAY_HILL !== '0') {
+  await closeDlg();
+  await page.evaluate(() => window.__lcwWorld.goToScene('open_hill'));
+  await page
+    .waitForFunction(() => { const s = window.__lcwWorld.getStats(); return s.scene === 'open_hill' && !s.interact.walking; }, null, { timeout: 60000 })
+    .catch(() => {});
+  await wait(1200);
+  const top = (await stats()).player;
+  // a few tries: the bot's steering can leave the 3-wide ramp on a big turn at the bottom (11-18 run 1), a child's does not
+  let climbed = null; // a try that got down and climbed (to the top or not)
+  const sums = { pressedJumpsUp: 0, unwantedJumpsUp: 0, autoClimbsUp: 0 };
+  for (let tryNo = 1; tryNo <= 3 && !hill.reachedTop; tryNo++) {
+    const down = await walkTo(HILL_RAMP.downX, HILL_RAMP.bottomZ, (p) => p.z > HILL_RAMP.bottomZ - 2);
+    // the climb counts only from the bottom: a walk that never got down "reaches the top" without climbing (11-18)
+    const reachedBottom = down.end.y < 2 && down.end.z > HILL_RAMP.bottomZ - 3;
+    const mUp = (await stats()).motion;
+    const up = reachedBottom ? await walkTo(HILL_RAMP.x, HILL_RAMP.topZ, (p) => p.z < HILL_RAMP.topZ + 3.5) : { end: down.end, trace: [] };
+    const mTop = (await stats()).motion;
+    const cur = {
+      ran: true,
+      tries: tryNo,
+      startY: top.y,
+      bottomY: down.end.y,
+      reachedBottom,
+      downTrace: reachedBottom ? undefined : down.trace,
+      topY: up.end.y,
+      reachedTop: reachedBottom && up.end.z < HILL_RAMP.topZ + 3.5 && up.end.y > HILL_RAMP.topY - 0.6,
+      pressedJumpsUp: mTop.jumps - mUp.jumps,
+      unwantedJumpsUp: mTop.unpressedJumps - mUp.unpressedJumps,
+      autoClimbsUp: mTop.autoClimbs - mUp.autoClimbs,
+      camOverBody: +(mTop.camY - mTop.bodyY).toFixed(2),
+      upTrace: up.trace
+    };
+    if (reachedBottom) {
+      for (const k of Object.keys(sums)) sums[k] += cur[k];
+      climbed = cur;
+    }
+    // a later try that never got down must not hide an earlier failed climb (review 2 of #158)
+    Object.assign(hill, climbed && !reachedBottom ? { ...climbed, tries: tryNo } : cur);
+  }
+  // jumps / climbs on the way up over every try that climbed: one jump on a failed try still counts
+  if (climbed) Object.assign(hill, sums);
+  await shot('70-hill-top');
+  await page.evaluate(() => window.__lcwWorld.goToScene('plaza'));
+  await page.waitForFunction(() => !window.__lcwWorld.getStats().interact.walking, null, { timeout: 60000 }).catch(() => {});
+  mark('hill', { ...hill, upTrace: undefined, downTrace: undefined });
+}
+
 // Lesson part (R2625 ③④: in Dan's lesson a click or E on an NPC did nothing): the operator starts a lesson for this
 // child (the world joins it by itself), the child folds the lesson's dialog with ✕, then a click/tap on the lesson NPC
 // and E / the talk button must each bring the dialog back.
@@ -449,10 +617,41 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
       return page.waitForSelector('[data-testid="lesson-reopen"]', { timeout: 5000 }).then(() => true).catch(() => false);
     };
     if (open && lesson.npc && (await fold())) {
+      // a passer-by in the lesson (#152): no talk prompt or talk button over them, a tap and E stay quiet (no dialog,
+      // the lesson window stays folded), and the lesson NPC still reopens it afterwards (the click/E checks below)
+      const passerId = ['cafe_owner', 'shop_owner', 'guide'].find((id) => id !== lesson.npc);
+      const walkToNpc = (id) => page.evaluate((n) => (window.__lcwWorld.walkToNpc ? window.__lcwWorld.walkToNpc(n) : null), id).catch(() => null);
+      await walkToNpc(passerId);
+      await page.waitForFunction(() => !window.__lcwWorld.getStats().interact.walking, null, { timeout: 60000 }).catch(() => {});
+      await wait(1000);
+      const pn = await approach(passerId, 2.4);
+      const s0 = await stats();
+      const passer = { id: passerId, dist: pn?.dist ?? null, near: s0?.interact?.near ?? null, prompt: s0?.interact?.prompt ?? null };
+      if (touch) passer.talkButton = (await page.$('.lw-btn.talk.on')) !== null;
+      const pv = await face(passerId);
+      passer.faced = !!pv;
+      const t0 = s0?.interact?.passerTaps ?? 0;
+      if (pv) {
+        if (touch) await page.touchscreen.tap(pv.sx, pv.sy);
+        else await page.mouse.click(pv.sx, pv.sy);
+      }
+      await wait(1500);
+      if (!touch) await page.keyboard.press('KeyE');
+      await wait(1200);
+      const s1 = await stats();
+      passer.quietTaps = (s1?.interact?.passerTaps ?? 0) - t0;
+      passer.dialogOpened = await dlgOpen();
+      passer.stillFolded = (await page.$('[data-testid="lesson-reopen"]')) !== null;
+      // null when the bot could not get the passer-by on screen: not checked, not a failure (review of #158)
+      passer.ok = !passer.faced ? null : passer.near !== passerId && !passer.prompt && !passer.talkButton && passer.quietTaps >= 1 && !passer.dialogOpened && passer.stillFolded;
+      lesson.passer = passer;
+      await shot('80b-lesson-passer');
+      if (passer.dialogOpened) await fold();
+      await walkToNpc(lesson.npc);
+      await page.waitForFunction(() => !window.__lcwWorld.getStats().interact.walking, null, { timeout: 60000 }).catch(() => {});
       await approach(lesson.npc, 2.4);
-      const c0 = counts.clickOk;
-      await tryClick(lesson.npc);
-      lesson.reopenByClick = counts.clickOk > c0;
+      // null when the bot could not get the lesson NPC on screen: not checked, not a failure (review 2 of #158)
+      lesson.reopenByClick = await tryClick(lesson.npc);
       await shot('81-lesson-click');
       if (await fold()) {
         await approach(lesson.npc, 2.4);
@@ -467,7 +666,7 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
         lesson.promptOnShare = seq.filter((q) => q[1] === 'P').length / seq.length;
         lesson.promptSeq = seq.join(' ');
         const k = await tryKey(lesson.npc);
-        lesson.reopenByKey = k.ok;
+        lesson.reopenByKey = k.faced || k.ok ? k.ok : null;
         lesson.key = k;
       }
     }
@@ -480,6 +679,7 @@ const end = await stats();
 const motion = end?.motion ?? {};
 const errand = await call('GET', '/v1/errand', undefined, dev.device_token);
 const repeats = [...lines.entries()].map(([id, ls]) => ({ id, visits: ls.length, distinct: new Set(ls).size }));
+await Promise.allSettled(ttsJudging);
 const report = {
   view,
   size: `${W}x${H}`,
@@ -495,10 +695,13 @@ const report = {
   talks,
   repeats,
   quietAfterTalk: quiet,
+  hill,
   lesson,
   errand: { status: errand.status, state: errand.body?.state ?? null },
   talked: end?.interact?.talked ?? [],
   errs: errs.slice(0, 20),
+  httpFails: httpFails.slice(0, 20),
+  ttsCacheMiss,
   seconds: Math.round((Date.now() - T0) / 1000)
 };
 writeFileSync(`${out}/real-play-${view}.json`, JSON.stringify(report, null, 1));
@@ -512,7 +715,10 @@ console.log(
     goals: seenGoals,
     errand: report.errand.state,
     camRise: jumpView.map((j) => `${j.camRise}/${j.bodyRise}`).join(' '),
-    errs: errs.length
+    hill: hill.ran ? { bottom: hill.reachedBottom, top: hill.reachedTop, y: hill.topY, jumps: hill.pressedJumpsUp + hill.unwantedJumpsUp, tries: hill.tries } : 'skipped',
+    passer: lesson.passer ? lesson.passer.ok : null,
+    errs: errs.length,
+    ttsCacheMiss
   })
 );
 await browser.close();

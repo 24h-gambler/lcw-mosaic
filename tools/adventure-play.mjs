@@ -5,8 +5,8 @@
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core/index.mjs> node tools/adventure-play.mjs http://127.0.0.1:8994/adventure/ shots/adventure [viewport]
 //
-// Live smoke (after the document site is deployed): ADV_LIVE_SECRET=<english-day.secret file> runs the 1440 viewport
-// against the real https://engday.pages.dev as the smoke student `smoke-adv` (reports and teacher screens skip smoke-
+// Live smoke (after the document site is deployed): ADV_LIVE_SECRET=<english-day.secret file> runs any viewport
+// (every viewport carries the document link in this mode, 390 touch included) against the real https://engday.pages.dev as the smoke student `smoke-adv` (reports and teacher screens skip smoke-
 // students). The write key is HMAC-SHA256(secret, "w:smoke-adv")[:24], made here and never printed. The day file is
 // read from the document's own student page named by ADV_LIVE_DAY_FROM (read only; smoke-adv has no page), and only
 // the result POST goes out, as smoke-adv. Real Oreo data is never written.
@@ -21,6 +21,12 @@ const LIVE = process.env.ADV_LIVE_SECRET
       dayFrom: (process.env.ADV_LIVE_DAY_FROM ?? '').replace(/[^a-z0-9_-]/g, '')
     }
   : null;
+// Everything this tool prints or writes goes through hide(): a console or crash message can quote the result URL
+// (?k=) or the page URL (&edk=), and the write key must never reach a log, a report or the terminal.
+const hide = (s) => {
+  const t = String(s).replace(/([?&](?:k|edk)=)[^&\s'"]+/g, '$1***');
+  return LIVE ? t.split(LIVE.key).join('***') : t;
+};
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8994/adventure/';
 const out = process.argv[3] ?? 'shots/adventure';
@@ -76,9 +82,9 @@ async function run(vp) {
   const errors = [];
   const beacons = [];
   const dayFetches = [];
-  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+  page.on('pageerror', (e) => errors.push(hide(`pageerror: ${e.message}`)));
   page.on('console', (m) => {
-    if (m.type() === 'error' && !/Failed to load resource|tts|net::ERR/.test(m.text())) errors.push(`console: ${m.text()}`);
+    if (m.type() === 'error' && !/Failed to load resource|tts|net::ERR/.test(m.text())) errors.push(hide(`console: ${m.text()}`));
   });
   const results = [];
   if (LIVE) {
@@ -112,7 +118,7 @@ async function run(vp) {
   await page.route('**/v1/**', (route) => route.fulfill({ status: 404, body: '' }));
 
   const q = new URLSearchParams({ unlock: 'all', autopilot: '1' });
-  if (vp.ed) {
+  if (vp.ed || LIVE) {
     q.set('ed', 'smoke-adv');
     q.set('edd', '2026-11-16');
     q.set('edk', LIVE ? LIVE.key : 'smoke-key');
@@ -439,7 +445,7 @@ async function run(vp) {
   if (fpsMin !== null && fpsMin < 30) fails.push(`${vp.name}: fps min ${fpsMin.toFixed(1)}`);
   if (errors.length) fails.push(`${vp.name}: ${errors.length} page errors: ${errors.slice(0, 3).join(' | ')}`);
   let envelope = null;
-  if (vp.ed) {
+  if (vp.ed || LIVE) {
     const last = beacons.at(-1);
     envelope = last ? JSON.parse(last.body) : null;
     if (!envelope) fails.push(`${vp.name}: no result sent`);
@@ -470,11 +476,11 @@ for (const vp of VIEWPORTS) {
   try {
     await run(vp);
   } catch (e) {
-    fails.push(`${vp.name}: crashed ${e.message}`);
+    fails.push(hide(`${vp.name}: crashed ${e.message}`));
   }
-  console.log(JSON.stringify(report.filter((r) => r.vp === vp.name), null, 1));
+  console.log(hide(JSON.stringify(report.filter((r) => r.vp === vp.name), null, 1)));
 }
 await browser.close();
-writeFileSync(`${out}/report.json`, JSON.stringify({ report, fails }, null, 1));
-console.log('FAILS', JSON.stringify(fails, null, 1));
+writeFileSync(`${out}/report.json`, hide(JSON.stringify({ report, fails }, null, 1)));
+console.log('FAILS', hide(JSON.stringify(fails, null, 1)));
 process.exit(fails.length ? 1 : 0);

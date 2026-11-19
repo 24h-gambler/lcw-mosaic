@@ -81,7 +81,18 @@ export const TUNING = {
     undoHistoryMax: 20,
     roomMaxVolume: 400,
     roomMinVolume: 18,
-    roomMinCeiling: 2
+    roomMinCeiling: 2,
+    /**
+     * R326 free build (docs/03 D13 자유 건축): outside the plot a child digs down to this layer (the town ground is
+     * y = -2 .. surface; the bottom layer stays as the floor, there is no hole into the void) and stacks up to freeMaxY.
+     */
+    freeMinY: -1,
+    freeMaxY: 40,
+    /**
+     * Cells outside the plot that may differ from the town at once in one world (placed or dug). Bounds the server's
+     * per-world delta (~1 MB at the cap, apps/edge/src/plot.ts) and the snapshot a device loads (~300 KB of JSON).
+     */
+    freeMaxCells: 20000
   },
   economy: {
     errandRewardCoins: 50,

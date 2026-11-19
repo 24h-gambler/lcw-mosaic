@@ -391,3 +391,28 @@ describe('room client (docs/03 D11, docs/02 §11 request budget)', () => {
     expect([10, 20, 30]).toContain(peerLook('zz', base, [10, 20, 30]).shirt);
   });
 });
+
+describe('room client block relay (R326)', () => {
+  it('sends a block frame only with someone else in the room, and hands received ones to the sink', async () => {
+    const { client, sockets } = setup();
+    const got: unknown[] = [];
+    const sink = (client as unknown as { o: { sink: RoomSink } }).o.sink;
+    sink.blocks = (id, tag, cells, furniture) => got.push([id, tag, cells, furniture]);
+    client.start();
+    await flush();
+    const ws = sockets[0]!;
+    ws.frame({ t: 'hello', you: 'me', cap: 8, peers: [] });
+    expect(client.sendBlocks('wabc123', [[210, 3, 214, 18]])).toBe(false); // alone: nothing goes out
+    ws.frame({ t: 'join', id: 'friend', name: 'F', role: 'player', v: 2 });
+    expect(client.sendBlocks('wabc123', [[210, 3, 214, 18]], [[126, 1, 170, 'furn_chair_wood', 1]])).toBe(true);
+    expect(ws.sent.filter((s) => s.startsWith('{"t":"b"')).map((s) => JSON.parse(s))).toEqual([
+      { t: 'b', w: 'wabc123', c: [[210, 3, 214, 18]], f: [[126, 1, 170, 'furn_chair_wood', 1]] }
+    ]);
+    // too many cells for one room frame: refused here, never a strike at the room
+    expect(client.sendBlocks('wabc123', Array.from({ length: 17 }, () => [1, 1, 1, 1] as const))).toBe(false);
+    ws.frame({ t: 'b', id: 'friend', w: 'wabc123', c: [[211, 3, 214, 4]], f: [] });
+    ws.frame({ t: 'b', id: 'friend', w: 'BAD TAG', c: [[211, 3, 214, 4]] });
+    expect(got).toEqual([['friend', 'wabc123', [[211, 3, 214, 4]], []]]);
+    client.stop();
+  });
+});

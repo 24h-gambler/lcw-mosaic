@@ -123,13 +123,18 @@
       },
       "tests": [
         "apps/client/src/world/__tests__/build.test.ts::aims within 5 m and names the reason when it cannot (red outline + reason)",
-        "apps/client/src/world/__tests__/build.test.ts::runs the room check when a nameplate goes up, then 1 s after the room changes"
+        "apps/client/src/world/__tests__/build.test.ts::runs the room check when a nameplate goes up, then 1 s after the room changes",
+        "apps/client/src/world/__tests__/free-build.test.ts::builds and digs on the meadow, shows the controls there, refuses the plaza with its own reason",
+        "apps/client/src/world/__tests__/free-build.test.ts::every scene stand, NPC spot, walk and wanderer route is protected or on the plot",
+        "packages/sim-core/src/__tests__/free-build.test.ts::protects every block the town builder put up outside the plot (only nature is left free)",
+        "apps/edge/src/__tests__/free-build.test.ts::builds a tower on the meadow, digs a hole, refuses the shop; all of it is there after a restart"
       ],
       "evidence": [
         "apps/client/src/world/build.ts:310",
-        "apps/client/src/world/build-hud.ts:4"
+        "apps/client/src/world/build-hud.ts:4",
+        "packages/sim-core/src/town-guard.ts:1"
       ],
-      "note": "블록 놓기·부수기·사유 한 줄·방 판정은 있음. 8.3 의 설치 수·코인 줄, R 회전·Z 회수, 주민 입주 없음(감사: 일부)"
+      "note": "블록 놓기·부수기·사유 한 줄·방 판정은 있음. R326 자유 건축: 내 월드 어디서나(부지 밖 들판·언덕 포함) 놓기·맨손 부수기, 마을 보호 표(town-guard.ts), 서버 델타 저장. 8.3 의 설치 수·코인 줄, R 회전·Z 회수, 주민 입주 없음(감사: 일부)"
     },
     "G06": {
       "kind": "screen",

@@ -967,10 +967,12 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       return forwardSolo(c.req.url, { player_id: g.player_id, session_id: `pass-${g.grant_id}` }, null, (p) => ({
         player_id: p.player_id,
         world_id: p.world_id,
-        guest_grant: g.grant_id
+        guest_grant: g.grant_id,
+        plot_only: ''
       }));
     }
-    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id, guest_grant: '' }));
+    // R326: a lesson token builds on the plot only (the class shares the lesson town); the child's device token anywhere
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id, guest_grant: '', plot_only: s.device ? '' : '1' }));
   });
   app.post('/v1/plot/ops', async (c, next) => {
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();
@@ -985,7 +987,8 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
       return forwardSolo(c.req.url, { player_id: g.player_id, session_id: `pass-${g.grant_id}` }, { ops: body.ops, batch: body.batch }, (p) => ({
         player_id: p.player_id,
         world_id: p.world_id,
-        guest_grant: g.grant_id
+        guest_grant: g.grant_id,
+        plot_only: false
       }));
     }
     // Read the body first: answering a POST before draining it breaks the next request on a kept-alive connection (workerd).
@@ -993,7 +996,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     const blocked = seatBlocked(s);
     if (blocked) return blocked;
     if (!body) return c.json({ error: 'invalid_plot_ops' }, 400);
-    return forwardSolo(c.req.url, s, { ops: body.ops, batch: body.batch }, (p) => ({ player_id: p.player_id, world_id: p.world_id }));
+    return forwardSolo(c.req.url, s, { ops: body.ops, batch: body.batch }, (p) => ({ player_id: p.player_id, world_id: p.world_id, plot_only: !s.device }));
   });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();

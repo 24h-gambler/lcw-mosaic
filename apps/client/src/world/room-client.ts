@@ -7,7 +7,7 @@
  * child plays alone, and the connection retries with a growing pause. A full room says "방이 가득 찼어요" once and
  * stops trying for a while.
  */
-import { MAX_TURN_RATE, TUNING, predictPose } from '@lcw/sim-core';
+import { MAX_TURN_RATE, TUNING, parseBlockRelay, predictPose } from '@lcw/sim-core';
 import { GUEST_PASS_HEADER } from '@lcw/schemas';
 import { peerMotionOf } from './peer-motion.js';
 
@@ -23,6 +23,8 @@ export interface RoomSink {
   /** vx, vz: ground velocity (m/s) to carry the figure along until the next pose (0 when standing or an old client) */
   pose(id: string, x: number, y: number, z: number, yaw: number, anim: number, vx?: number, vz?: number, w?: number): void;
   emote(id: string, e: string): void;
+  /** R326: blocks someone changed in world `tag` (the receiver draws them only when it has that world open) */
+  blocks?(id: string, tag: string, cells: Array<[number, number, number, number]>, furniture: Array<[number, number, number, string, number]>): void;
   full(cap: number): void;
   /** this person opened the world in another tab, which now holds the seat (close 4009): this tab stays alone */
   replaced?(): void;
@@ -309,6 +311,12 @@ export class RoomClient {
       case 'e':
         sink.emote(String(f.id), String(f.e));
         break;
+      case 'b': {
+        // the room checked the shape (sim-core parseBlockRelay); the builder checks every cell again before drawing
+        const b = parseBlockRelay(f as { w?: unknown; c?: unknown; f?: unknown });
+        if (b) sink.blocks?.(String(f.id), b.w, b.c, b.f);
+        break;
+      }
       case 'pong':
         if (typeof f.c === 'number') this.rttMs = Math.round(this.now - f.c);
         break;
@@ -432,4 +440,22 @@ export class RoomClient {
   emote(e: string): void {
     if (this.ws?.readyState === 1 && TUNING.multi.emotes.includes(e)) this.ws.send(JSON.stringify({ t: 'e', e }));
   }
+
+  /**
+   * R326 block relay: cells (and furniture, key '' = removed) this child changed in world `tag`. Sent only when someone
+   * else is in the room and the frame fits the room's limits; a frame that does not fit is dropped (the others see it
+   * on their next load). Returns whether it went out.
+   */
+  sendBlocks(tag: string, cells: ReadonlyArray<readonly [number, number, number, number]>, furniture: ReadonlyArray<readonly [number, number, number, string, number]> = []): boolean {
+    if (this.ws?.readyState !== 1 || this.others.size === 0) return false;
+    const msg = { t: 'b', w: tag, c: cells, f: furniture };
+    if (!parseBlockRelay(msg)) return false;
+    const frame = JSON.stringify(msg);
+    if (frame.length > TUNING.multi.maxMsgBytes) return false;
+    this.ws.send(frame);
+    this.blocksSent++;
+    return true;
+  }
+  /** block relay frames sent (stats) */
+  blocksSent = 0;
 }

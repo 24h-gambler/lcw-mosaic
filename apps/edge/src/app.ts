@@ -43,7 +43,7 @@ import {
 import { listCollection } from './collection.js';
 import { readSettings, validateSettings, writeSettings } from './settings.js';
 import { applyErrandStep, getErrand } from './errand.js';
-import { plotStoreFor } from './plot.js';
+import { plotStoreFor, worldTag } from './plot.js';
 import { OPS_PER_REQUEST_MAX } from '@lcw/sim-core';
 
 export interface EdgeRuntimeDeps {
@@ -588,10 +588,13 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const store = plotStoreFor(world, world.sql, playerId, deps.nowMs());
     // set only by the platform's guest-pass gate (a child's own request has it cleared there)
     const guest = c.req.query('guest_grant') ?? '';
-    return c.json(guest ? { ...store.snapshot(), guest_cells: store.guestCells(guest) } : store.snapshot());
+    // R326: where this caller may build (a lesson token: the plot only) and the world's relay tag
+    const scope = c.req.query('plot_only') === '1' ? 'plot' : 'world';
+    const snap = { ...store.snapshot(), scope, world_tag: worldTag(c.req.query('world_id') ?? '') };
+    return c.json(guest ? { ...snap, guest_cells: store.guestCells(guest) } : snap);
   });
   app.post('/v1/plot/ops', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { player_id?: unknown; world_id?: unknown; ops?: unknown; batch?: unknown; guest_grant?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as { player_id?: unknown; world_id?: unknown; ops?: unknown; batch?: unknown; guest_grant?: unknown; plot_only?: unknown } | null;
     const playerId = typeof body?.player_id === 'string' ? body.player_id : '';
     const world = deps.worlds.get(typeof body?.world_id === 'string' ? body.world_id : '');
     if (!playerId || !world) return c.json({ error: 'plot_not_found' }, 404);
@@ -601,7 +604,9 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const batch = typeof body.batch === 'string' ? body.batch : undefined;
     // set only by the platform's guest-pass gate (platform.ts), never by a child's body: that is overwritten there
     const guestGrant = typeof body.guest_grant === 'string' && body.guest_grant ? body.guest_grant : undefined;
-    return c.json(plotStoreFor(world, world.sql, playerId, deps.nowMs()).applyOps(body.ops, deps.nowMs(), { batch, guestGrant }));
+    // set only by the platform from the token (a lesson builds on the plot only, R326), never by a child's body
+    const scope = body.plot_only === true ? 'plot' : 'world';
+    return c.json(plotStoreFor(world, world.sql, playerId, deps.nowMs()).applyOps(body.ops, deps.nowMs(), { batch, guestGrant, scope }));
   });
 
   app.post('/v1/review/attempt', async (c) => {

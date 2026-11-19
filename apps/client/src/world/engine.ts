@@ -24,8 +24,8 @@ import { tileAverageColor } from './atlas.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels, worldSay } from './strings.js';
-import { PlotBuilder, type Aim, type BuildReason } from './build.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, buildHelpWorldDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels, worldSay } from './strings.js';
+import { PlotBuilder, type Aim, type BuildReason, type CellChange } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
 import { PlotSync } from './plot-sync.js';
@@ -578,6 +578,8 @@ ${line(s.help)}` : line(s.text), 4000);
   let fallLastZ = 0;
   let lastPicked = -1;
   const slotPicked = (i: number): void => {
+    // R326: while the hotbar shows the carried blocks, picking a slot picks a block, never eats what the bag holds there
+    if (blockBarShown()) return;
     const k = hotbar[i];
     const again = i === lastPicked;
     lastPicked = i;
@@ -622,7 +624,35 @@ ${line(s.help)}` : line(s.text), 4000);
   if (startup.mesh! - startup.characters! > FIRST_SCREEN_CAP_MS) startup.slowGround = 1;
 
   // ---- Building controls.
+  /** R326: here the child can build (the plot, or the open ground of their own world): the build controls show */
   let buildActive = false;
+  /** R326: the hotbar shows the carried blocks (true) or the bag; the child flips it, a new thing in the bag shows the bag */
+  let blockBar = true;
+  let wasInPlot = false;
+  const blockBarShown = (): boolean => buildActive && blockBar;
+  // ---- R326 block relay: what I change goes to the others in this world through the room (display only there).
+  const relayListeners = new Set<(tag: string, c: CellChange) => void>();
+  let relayOut: CellChange = { cells: [], furniture: [] };
+  let relayTimer: ReturnType<typeof setTimeout> | null = null;
+  const relayFlush = (): void => {
+    relayTimer = null;
+    const out = relayOut;
+    relayOut = { cells: [], furniture: [] };
+    if (!builder.worldTag || relayListeners.size === 0) return;
+    // a room message stays small (sim-core room.ts: 512 bytes, 16 cells, 4 furniture): 12 cells / 2 furniture a frame
+    for (let i = 0, j = 0; i < out.cells.length || j < out.furniture.length; i += 12, j += 2) {
+      const part = { cells: out.cells.slice(i, i + 12), furniture: out.furniture.slice(j, j + 2) };
+      for (const cb of relayListeners) cb(builder.worldTag, part);
+    }
+  };
+  const relayCells = (c: CellChange): void => {
+    if (relayListeners.size === 0) return;
+    relayOut.cells.push(...c.cells);
+    relayOut.furniture.push(...c.furniture);
+    // a held place repeats 4 a second: one frame for a short burst
+    relayTimer ??= setTimeout(relayFlush, 150);
+  };
+  builder.onCells = relayCells;
   let tool: 'place' | 'break' = 'place';
   let aim: Aim | null = null;
   let mouseAt: { x: number; y: number } | null = null;
@@ -632,9 +662,10 @@ ${line(s.help)}` : line(s.text), 4000);
   const selectedRef = (): string | null => builder.inv.slots[hud.selectedSlot]?.ref ?? null;
   const refreshBuildSlots = (): void => {
     if (!buildHud) return;
-    if (buildActive) {
+    buildHud.setBar(blockBar);
+    if (buildActive && blockBar) {
       hud.setBuildSlots(builder.inv.slots.map((s) => (s ? { icon: icons.icon(s.ref), count: s.n, name: refNameKo(s.ref) } : null)));
-    }
+    } else hud.setBuildSlots(null);
     const ref = selectedRef();
     buildHud.setRotateVisible(!!ref && parseRef(ref)?.kind === 'furniture');
     buildHud.renderChest(builder.inv, hud.selectedSlot);
@@ -643,6 +674,13 @@ ${line(s.help)}` : line(s.text), 4000);
     if (!reason || !buildHud) return;
     buildHud.say(reason);
     if (reason !== 'rate') sfx.play('ui.click', { pitch: -6 });
+  };
+  /** the selected build slot holds nothing to place (R326 bare hands: a press breaks, by the block's hardness) */
+  const handEmpty = (): boolean => !blockBar || !builder.inv.slots[hud.selectedSlot];
+  const helpText = (): string => {
+    if (builder.guestCells) return touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints);
+    if (builder.inPlot(body.x, body.z)) return touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints);
+    return touch ? W.buildHelpWorldTouch : buildHelpWorldDesktopFor(keyHints);
   };
   const doPlace = (): boolean => {
     if (!aim) return false;
@@ -713,6 +751,11 @@ ${line(s.help)}` : line(s.text), 4000);
         else sfx.play('ui.click');
       },
       onCloseChest: () => buildHud?.closeChest(),
+      onBar: () => {
+        blockBar = !blockBar;
+        sfx.play('ui.click');
+        refreshBuildSlots();
+      },
       onShowroom: async (title) => {
         if (!buildToken) return { ok: false, reason: 'unlinked' };
         tokenOf ??= blockTokenMap(atlasPixels);
@@ -795,8 +838,10 @@ ${line(s.help)}` : line(s.text), 4000);
   let lastX = 0;
   let lastY = 0;
   /** Start a build press (mouse button or finger) when standing on my plot. */
-  const buildPress = (e: PointerEvent, kind: 'place' | 'break'): void => {
+  const buildPress = (e: PointerEvent, pressKind: 'place' | 'break'): void => {
     if (!buildActive || paused || buildHud?.chestOpen) return;
+    // R326: nothing to place in hand (the bag shows, or an empty slot): the press is bare hands, holding breaks
+    const kind = pressKind === 'place' && handEmpty() ? 'break' : pressKind;
     const now = performance.now();
     hold = { kind, id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, t0: now, moved: false, cell: '', progress: 0, lastPlace: 0 };
     aim = aimAt(e.clientX, e.clientY);
@@ -1369,11 +1414,21 @@ ${line(s.help)}` : line(s.text), 4000);
 
   // ---- Building, per frame: plot entry/exit, aim outline, held break / place.
   function updateBuild(dt: number, now: number): void {
-    const want = builder.inPlot(body.x, body.z) && !paused && autopilot.length === 0;
+    // R326: anywhere the child can build (the plot, the open ground of their own world), not only inside the fence
+    const want = builder.canBuildNear(body.x, body.z) && !paused && autopilot.length === 0;
+    const inPlot = builder.inPlot(body.x, body.z);
+    if (inPlot !== wasInPlot) {
+      wasInPlot = inPlot;
+      // stepping onto the plot is coming to build: the blocks come up (the help line says where I am)
+      if (inPlot && !blockBar) {
+        blockBar = true;
+        if (buildActive) refreshBuildSlots();
+      }
+      if (buildActive && want) buildHud?.setActive(true, helpText());
+    }
     if (want !== buildActive) {
       buildActive = want;
-      const guest = !!builder.guestCells;
-      buildHud?.setActive(want, guest ? (touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints)) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
+      buildHud?.setActive(want, helpText());
       buildHud?.setSync(buildAccess === 'saved' ? (plotSync?.status === 'offline' ? 'offline' : plotSync && plotSync.pending > 0 ? 'saving' : 'saved') : buildAccess === 'loading' ? 'loading' : buildAccess === 'local' ? 'local' : 'idle');
       if (want) refreshBuildSlots();
       else {
@@ -1389,7 +1444,7 @@ ${line(s.help)}` : line(s.text), 4000);
     // aim: the held press first, else the mouse hover (desktop shows the outline before any click)
     const at = hold ? { x: hold.x, y: hold.y } : !touch ? mouseAt : null;
     aim = at ? aimAt(at.x, at.y) : null;
-    const mode: 'place' | 'break' = hold ? hold.kind : touch ? tool : 'place';
+    const mode: 'place' | 'break' = hold ? hold.kind : (touch ? tool : 'place') === 'place' && !handEmpty() ? 'place' : 'break';
     if (!aim) buildView.showAim(null, false);
     else if (mode === 'place') buildView.showAim(aim.place, !!aim.placeReason);
     else buildView.showAim(aim.hit, !!aim.breakReason);
@@ -1434,9 +1489,12 @@ ${line(s.help)}` : line(s.text), 4000);
     const own = a.kind === 'saved' && !('lesson' in a && a.lesson) && !('pass' in a && a.pass);
     // a friend on a guest pass: place freely, break only their own cells, leave the chest and slots alone
     builder.guestCells = a.kind === 'saved' && 'pass' in a && a.pass ? new Set() : null;
+    // R326: a lesson builds on the plot only (the class shares the lesson's town); everyone else in the whole world
+    builder.scope = a.kind === 'saved' && 'lesson' in a && a.lesson ? 'plot' : 'world';
+    builder.worldTag = '';
     if (currentScene === 'build_plot') hud.setScene(sceneTitle(currentScene));
     // the help line follows who owns the plot (shown again on the next entry)
-    if (buildActive) buildHud?.setActive(true, builder.guestCells ? (touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints)) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
+    if (buildActive) buildHud?.setActive(true, helpText());
     buildToken = own ? { token: a.token, base: a.base } : null;
     // the showroom is the plot owner's (a lesson student's and a guest's never)
     buildHud?.setShowroomVisible(own);
@@ -1461,7 +1519,11 @@ ${line(s.help)}` : line(s.text), 4000);
       pass: 'pass' in a && a.pass === true,
       base: a.base,
       store: browserStore(),
-      onResync: (snap) => builder.applySnapshot(snap),
+      onResync: (snap) => {
+        // the server's answer replaced what this device showed: tell the others in this world the corrected cells
+        const fixed = builder.applySnapshot(snap);
+        if (fixed.length > 0 && fixed.length <= 64) relayCells({ cells: fixed, furniture: [] });
+      },
       onStatus: (st) => {
         if (buildActive && buildAccess === 'saved') buildHud?.setSync(st);
       },
@@ -1919,6 +1981,11 @@ ${line(s.help)}` : line(s.text), 4000);
       sfx.play('mp.bubble');
     },
     giveItem(itemKey) {
+      // a new thing in the bag: the hotbar shows the bag so the child sees it land (R326 bar switch)
+      if (blockBar) {
+        blockBar = false;
+        refreshBuildSlots();
+      }
       let slot = hotbar.indexOf(null);
       if (slot < 0) slot = hud.selectedSlot;
       hotbar[slot] = itemKey;
@@ -2128,6 +2195,12 @@ ${line(s.help)}` : line(s.text), 4000);
       holdListeners.add(cb);
       return () => holdListeners.delete(cb);
     },
+    onBlockRelay(cb) {
+      relayListeners.add(cb);
+      return () => {
+        relayListeners.delete(cb);
+      };
+    },
     onRoomCheck(cb) {
       roomCbs.add(cb);
       return () => {
@@ -2254,6 +2327,10 @@ ${line(s.help)}` : line(s.text), 4000);
       },
       emote(id, e) {
         peers.emote(id, e);
+      },
+      blocks(_id, tag, cells, furniture) {
+        // R326: someone in this world (a friend on a pass, or the host while I visit) changed blocks
+        builder.applyRemote(tag, cells, furniture);
       },
       full() {
         hud.bubble('player', '', W.roomFull, { me: true }, performance.now());
@@ -2390,7 +2467,14 @@ ${line(s.help)}` : line(s.text), 4000);
           aim: aim ? { hit: aim.hit, place: aim.place, placeReason: aim.placeReason, breakReason: aim.breakReason } : null,
           tip: buildHud?.tipText ?? '',
           room: lastRoom,
-          chestOpen: buildHud?.chestOpen ?? false
+          chestOpen: buildHud?.chestOpen ?? false,
+          // R326 free build
+          scope: builder.scope,
+          blockBar,
+          changed: builder.delta.size,
+          changedOutside: builder.delta.used,
+          worldTag: builder.worldTag ? 'set' : '',
+          remoteCells: builder.remoteCells
         }
       };
     }

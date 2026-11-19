@@ -62,7 +62,8 @@ describe('PlotBuilder: aim, one input one block, undo (WP-201)', () => {
     expect(ok.placeReason).toBeNull();
     expect(ok.place).toEqual({ x: X, y: 1, z: Z });
     expect(b.aim(hitFloor(X, Z + 9), me, 0).placeReason).toBe('far');
-    expect(b.aim(hitFloor(140, 140), { x: 140, y: 1, z: 137 }, 0).placeReason).toBe('not_my_plot');
+    // the plaza stays as the town built it (R326: refused as a protected place, not as someone else's plot)
+    expect(b.aim(hitFloor(140, 140), { x: 140, y: 1, z: 137 }, 0).placeReason).toBe('protected');
     // the cell the child stands in
     expect(b.aim(hitFloor(X, Z - 3), me, 0).placeReason).toBe('self');
     b.access = 'paused';

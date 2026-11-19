@@ -1,8 +1,11 @@
 /**
- * My plot, saved by the server (WP-201/205/207, docs/03 D13; AGENTS 4: the client is never trusted for saves).
+ * My plot and my world's free build, saved by the server (WP-201/205/207, docs/03 D13, R326; AGENTS 4: the client is
+ * never trusted for saves).
  *
- * The child's home world keeps the plot: only the cells that differ from the town builder's plot (a delta), the
- * furniture on cells, the five carried slots and the chest. Every request's ops are re-run through the same
+ * The child's home world keeps every cell that differs from the town builder's town (a delta, the plot and — R326 —
+ * the open ground the child dug or built on, at most TUNING.building.freeMaxCells outside the plot), the furniture
+ * on cells, the five carried slots and the chest. In memory the world is an OverlayWorld over one shared town per
+ * isolate, so a resident world costs its changed cells, not a copy of the town. Every request's ops are re-run through the same
  * sim-core rules the client ran (`applyPlotOp`), then the touched rows are written in one SQLite transaction with
  * a journal entry; if the write fails the in-memory plot is rebuilt from the database, so memory and disk never
  * drift apart (crash-safe).
@@ -10,16 +13,17 @@
 import {
   EditBucket,
   OPS_PER_REQUEST_MAX,
+  OverlayWorld,
   VoxelWorld,
   applyPlotOp,
+  buildCellRule,
   buildTown,
   cellKey,
   cleanInventory,
-  createPlotWorld,
   parsePlotOp,
   parseRef,
-  plotRegion,
   starterInventory,
+  type BuildScope,
   type FurnitureKey,
   type ItemRef,
   type PlotFurniture,
@@ -37,19 +41,40 @@ create table if not exists plot_journal (seq integer primary key autoincrement, 
 create table if not exists plot_guest_cells (grant_id text not null, x integer not null, y integer not null, z integer not null, primary key (grant_id, x, y, z))
 `;
 
-let basePlot: VoxelWorld | null = null;
-/** The town builder's plot (the same `buildTown` the client runs), built once per isolate. */
-export function baseTownPlot(): VoxelWorld {
-  if (!basePlot) {
+let baseTown: VoxelWorld | null = null;
+/**
+ * The town builder's town (the same `buildTown` the client runs), built once per isolate and never written again:
+ * every child's world reads through it (measured: 516 chunks, ~6.7 MB, ~65 ms to build).
+ */
+export function baseTownWorld(): VoxelWorld {
+  if (!baseTown) {
     const town = new VoxelWorld();
     buildTown(town);
-    basePlot = createPlotWorld(town);
+    baseTown = town;
   }
-  return basePlot;
+  return baseTown;
+}
+/** @deprecated name kept for callers from before R326: the plot is part of the whole town now. */
+export const baseTownPlot = baseTownWorld;
+
+/**
+ * A short tag naming one world on the wire (R326 block relay): the host and a friend on a guest pass in that world get
+ * the same tag from their snapshots, siblings in one family room get different ones. FNV-1a of the world id, so the id
+ * itself never reaches a device.
+ */
+export function worldTag(worldId: string): string {
+  let h = 0x811c9dc5;
+  let g = 0x01000193;
+  for (let i = 0; i < worldId.length; i++) {
+    const c = worldId.charCodeAt(i);
+    h = Math.imul(h ^ c, 0x01000193) >>> 0;
+    g = Math.imul(g ^ c, 0x85ebca6b) >>> 0;
+  }
+  return `w${h.toString(36)}${g.toString(36)}`;
 }
 
 export interface PlotSnapshot {
-  /** cells that differ from the town's plot: [x, y, z, blockId] */
+  /** cells that differ from the town (plot and open ground): [x, y, z, blockId] */
   cells: Array<[number, number, number, number]>;
   furniture: Array<[number, number, number, FurnitureKey, number]>;
   inv: PlotInventory;
@@ -87,10 +112,16 @@ export class PlotStore {
   }
 
   private load(): PlotState {
-    const world = createPlotWorld(baseTownPlot());
+    const base = baseTownWorld();
+    const world = new OverlayWorld(base);
     const sys = { id: 'plot_load', isSystemGen: true };
     for (const r of this.sql.all<{ x: number; y: number; z: number; id: number }>('select x, y, z, id from plot_cells')) {
-      world.setBlock(sys, Number(r.x), Number(r.y), Number(r.z), Number(r.id));
+      const x = Number(r.x);
+      const y = Number(r.y);
+      const z = Number(r.z);
+      // a cell the town rules no longer allow (a place made protected later) stays out, here and in the snapshot
+      if (buildCellRule(world, x, y, z, 'world')) continue;
+      world.setBlock(sys, x, y, z, Number(r.id));
     }
     const furniture = new Map<string, PlotFurniture>();
     for (const r of this.sql.all<{ x: number; y: number; z: number; k: string; rot: number }>('select x, y, z, k, rot from plot_furniture')) {
@@ -112,18 +143,17 @@ export class PlotStore {
       this.sql.run('insert or replace into plot_inv (player, data, rev) values (?, ?, ?)', [this.playerId, JSON.stringify(inv), 0]);
       this.rev = 0;
     }
-    return { world, furniture, inv };
+    return { world, furniture, inv, scope: 'world', budget: { townAt: (x, y, z) => base.getBlock(x, y, z), get used() { return world.changedOutsidePlot; } } };
   }
 
   snapshot(): PlotSnapshot {
-    const base = baseTownPlot();
-    const r = plotRegion(base);
     const cells: Array<[number, number, number, number]> = [];
+    const world = this.state.world;
     for (const row of this.sql.all<{ x: number; y: number; z: number; id: number }>('select x, y, z, id from plot_cells order by y, z, x')) {
       const x = Number(row.x);
       const y = Number(row.y);
       const z = Number(row.z);
-      if (x < r.x0 || x >= r.x1 || z < r.z0 || z >= r.z1) continue;
+      if (buildCellRule(world, x, y, z, 'world')) continue;
       cells.push([x, y, z, Number(row.id)]);
     }
     const furniture: PlotSnapshot['furniture'] = [];
@@ -142,7 +172,7 @@ export class PlotStore {
    * the host's carried blocks and may break only what they placed under this pass: the host's own build, the chest
    * and the slots are never theirs to change ('not_yours'). Their cells are remembered per pass.
    */
-  applyOps(rawOps: unknown[], nowMs: number, opts: { simulateCrashMidTx?: boolean; batch?: string; guestGrant?: string } = {}): PlotOpsResult {
+  applyOps(rawOps: unknown[], nowMs: number, opts: { simulateCrashMidTx?: boolean; batch?: string; guestGrant?: string; scope?: BuildScope } = {}): PlotOpsResult {
     const batch = typeof opts.batch === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(opts.batch) ? opts.batch : null;
     if (batch) {
       // The same batch sent again (the reply was lost, or the app closed mid-request): answer what it did then.
@@ -154,6 +184,8 @@ export class PlotStore {
       }
     }
     const ops = rawOps.slice(0, OPS_PER_REQUEST_MAX);
+    // R326: a lesson builds on the plot only (the platform sets the scope from the token, never the body)
+    this.state.scope = opts.scope ?? 'world';
     const results: PlotOpsResult['results'] = [];
     const touched = new Set<string>();
     const touchedFurniture = new Set<string>();
@@ -187,7 +219,7 @@ export class PlotStore {
     const processed = results.length;
     const changed = results.some((r) => r.ok);
     if (!changed) return { results, processed, inv: this.state.inv, rev: this.rev };
-    const base = baseTownPlot();
+    const base = baseTownWorld();
     try {
       runInTransaction(this.sql, () => {
         for (const k of touched) {

@@ -9,6 +9,7 @@
  */
 import { BLOCK_PALETTE, FURNITURE_REGISTRY, RESIDENT_REGISTRY, type FurnitureDef, type ResidentDef } from '@lcw/content';
 import { BK } from './town.js';
+import { FREE_BUILD_AREA, townProtected } from './town-guard.js';
 import { TUNING } from './tuning.js';
 import { VoxelWorld } from './world.js';
 
@@ -124,7 +125,34 @@ export type PlotEditReason =
   | 'bad_op'
   | 'rate'
   /** a guest-pass visitor tried to break what the host built, or to use the host's chest (docs/19 §8) */
-  | 'not_yours';
+  | 'not_yours'
+  /** R326 free build: one of the town's places (town-guard.ts) */
+  | 'protected'
+  /** R326: past the generated ground (no building over the void) */
+  | 'edge'
+  /** R326: this world already holds TUNING.building.freeMaxCells changed cells outside the plot */
+  | 'too_many';
+
+/**
+ * Where an edit may land (R326, docs/03 D13 자유 건축): 'world' = anywhere in the child's own world the town rules
+ * allow (the plot by the plot rules, the open ground by town-guard.ts); 'plot' = inside the plot fence only (a
+ * lesson: the class shares one town and the lesson needs its places as the teacher set them).
+ */
+export type BuildScope = 'plot' | 'world';
+
+/**
+ * The free-build budget (R326): how many cells outside the plot differ from the town now, and the town's block at a
+ * cell. The server reads both from its OverlayWorld, the client from its TownDelta; applyPlotOp refuses an edit that
+ * would make one more changed cell past TUNING.building.freeMaxCells ('too_many'). Undoing a change is always allowed.
+ */
+export interface FreeBuildBudget {
+  townAt(x: number, y: number, z: number): number;
+  readonly used: number;
+}
+
+export const FREE_MIN_Y = TUNING.building.freeMinY;
+export const FREE_MAX_Y = TUNING.building.freeMaxY;
+export const FREE_MAX_CELLS = TUNING.building.freeMaxCells;
 
 export function isInPlot(world: VoxelWorld, x: number, z: number): boolean {
   const p = world.plot;
@@ -143,11 +171,37 @@ export function plotCellRule(world: VoxelWorld, x: number, y: number, z: number)
   return null;
 }
 
-/** The plot's editable state: blocks (a VoxelWorld holding the plot region), furniture on cells, the inventory. */
+/**
+ * Can this cell be edited by the town rules (R326)? Inside the plot the plot rules; outside it, with scope 'world',
+ * the generated ground away from the town's protected places, between FREE_MIN_Y and FREE_MAX_Y.
+ */
+export function buildCellRule(world: VoxelWorld, x: number, y: number, z: number, scope: BuildScope): PlotEditReason | null {
+  if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(z)) return 'bad_op';
+  if (isInPlot(world, x, z)) return plotCellRule(world, x, y, z);
+  // a lesson builds on the plot only (docs/03 D13 수업 중 건축): the same answer as outside anyone's plot before R326
+  if (scope === 'plot') return 'not_my_plot';
+  if (x < FREE_BUILD_AREA.x0 || x >= FREE_BUILD_AREA.x1 || z < FREE_BUILD_AREA.z0 || z >= FREE_BUILD_AREA.z1) return 'edge';
+  if (townProtected(x, z)) return 'protected';
+  if (y < FREE_MIN_Y) return 'too_low';
+  if (y > FREE_MAX_Y) return 'too_high';
+  return null;
+}
+
+/** Cells a placed block may take: open air, a grass tuft, water (building out over the water's edge). */
+export function isReplaceableCell(id: number): boolean {
+  return id === 0 || id === BK.tallGrass || id === BK.water;
+}
+
+/**
+ * The editable state: blocks (the child's world, or a VoxelWorld holding only the plot region in older callers),
+ * furniture on cells, the inventory. `scope` (default 'plot') and `budget` are the R326 free-build parts.
+ */
 export interface PlotState {
   world: VoxelWorld;
   furniture: Map<string, PlotFurniture>;
   inv: PlotInventory;
+  scope?: BuildScope;
+  budget?: FreeBuildBudget;
 }
 
 export const cellKey = (x: number, y: number, z: number): string => `${x},${y},${z}`;
@@ -171,6 +225,17 @@ export interface PlotOpResult {
   /** break: the recovered thing went to the chest because every slot was full */
   toChest?: boolean;
 }
+
+/** Would writing `next` at this cell make one changed cell too many outside the plot? */
+function overBudget(state: PlotState, x: number, y: number, z: number, prev: number, next: number): boolean {
+  const b = state.budget;
+  if (!b || isInPlot(state.world, x, z)) return false;
+  const town = b.townAt(x, y, z);
+  return prev === town && next !== town && b.used >= FREE_MAX_CELLS;
+}
+
+/** The actor for a child's edit: the owner of their own world, judged by the town rules (R326). */
+const editor = (id: string) => ({ id, isOwner: true, townRules: true });
 
 const slotOk = (s: unknown): s is number => typeof s === 'number' && Number.isInteger(s) && s >= 0 && s < SLOT_COUNT;
 
@@ -226,7 +291,7 @@ export function applyPlotOp(state: PlotState, actorId: string, op: PlotOp): Plot
   switch (op.op) {
     case 'place': {
       if (!slotOk(op.slot)) return { ok: false, reason: 'bad_op' };
-      const rule = plotCellRule(world, op.x, op.y, op.z);
+      const rule = buildCellRule(world, op.x, op.y, op.z, state.scope ?? 'plot');
       if (rule) return { ok: false, reason: rule };
       const stack = inv.slots[op.slot];
       if (!stack || stack.n <= 0) return { ok: false, reason: 'empty_slot' };
@@ -236,9 +301,10 @@ export function applyPlotOp(state: PlotState, actorId: string, op: PlotOp): Plot
       const prev = world.getBlock(op.x, op.y, op.z);
       if (furniture.has(k)) return { ok: false, reason: 'occupied' };
       if (what.kind === 'block') {
-        if (prev !== 0 && prev !== BK.tallGrass) return { ok: false, reason: 'occupied' };
-        const res = world.setBlock({ id: actorId, isOwner: true }, op.x, op.y, op.z, what.id);
-        if (!res.ok) return { ok: false, reason: 'not_my_plot' };
+        if (!isReplaceableCell(prev)) return { ok: false, reason: 'occupied' };
+        if (overBudget(state, op.x, op.y, op.z, prev, what.id)) return { ok: false, reason: 'too_many' };
+        const res = world.setBlock(editor(actorId), op.x, op.y, op.z, what.id);
+        if (!res.ok) return { ok: false, reason: 'protected' };
         consume(inv, op.slot);
         return { ok: true, prev };
       }
@@ -250,7 +316,7 @@ export function applyPlotOp(state: PlotState, actorId: string, op: PlotOp): Plot
       return { ok: true, prev: 0 };
     }
     case 'break': {
-      const rule = plotCellRule(world, op.x, op.y, op.z);
+      const rule = buildCellRule(world, op.x, op.y, op.z, state.scope ?? 'plot');
       if (rule) return { ok: false, reason: rule };
       const k = cellKey(op.x, op.y, op.z);
       const f = furniture.get(k);
@@ -264,8 +330,9 @@ export function applyPlotOp(state: PlotState, actorId: string, op: PlotOp): Plot
       if (!Number.isFinite(breakSeconds(prev))) return { ok: false, reason: 'unbreakable' };
       // furniture standing on this block would float
       if (furniture.has(cellKey(op.x, op.y + 1, op.z))) return { ok: false, reason: 'occupied' };
-      const res = world.setBlock({ id: actorId, isOwner: true }, op.x, op.y, op.z, 0);
-      if (!res.ok) return { ok: false, reason: 'not_my_plot' };
+      if (overBudget(state, op.x, op.y, op.z, prev, 0)) return { ok: false, reason: 'too_many' };
+      const res = world.setBlock(editor(actorId), op.x, op.y, op.z, 0);
+      if (!res.ok) return { ok: false, reason: 'protected' };
       // Every palette block comes back as itself (D13 회수 100%); a dirt path gives dirt, flowers and grass tufts nothing.
       const back = recoveredBlock(prev);
       const toChest = back === null ? false : recover(inv, blockRef(back), 1);

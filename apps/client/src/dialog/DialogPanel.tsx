@@ -588,7 +588,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const titleKey =
     phase === 'echo' ? 'echoTitle' : phase === 'board' ? 'boardTitle' : followTurn ? 'followUpHint' : freeTalk || needsUnderstand ? 'freePrompt' : 'chooseTitle';
   return (
-    <div className="lcw-dlg" style={style} role="dialog" aria-modal="true" aria-label={`${learnLang() === 'en' ? npc.nameEn : npc.nameKo} ${S.chooseTitle}`}>
+    <div className="lcw-dlg" data-npc={npc.id} style={style} role="dialog" aria-modal="true" aria-label={`${learnLang() === 'en' ? npc.nameEn : npc.nameKo} ${S.chooseTitle}`}>
       <style>{DIALOG_CSS}</style>
       <div className="lcw-dlg__win">
         <section className="lcw-dlg__side">

@@ -1,5 +1,5 @@
 import { NEURAL_TTS, ttsNeurons, type QuotaMeter, type TtsEngine } from '@lcw/quota';
-import { castVoices, fixedTtsLines, isLocalTtsEngine, localTtsLines, normalizeTtsText, ttsVoiceId, type NpcVoice } from '@lcw/content';
+import { castVoices, fixedTtsLines, isLocalTtsEngine, localTtsLines, normalizeTtsText, npcCast, ttsVoiceId, type NpcVoice } from '@lcw/content';
 
 /**
  * Neural NPC voice (docs/04 4.8, Dan 11-16 "목소리 자연스러움"): `GET /v1/tts?v=<engine-speaker>&t=<text>` answers
@@ -223,9 +223,15 @@ export async function handleTtsUpload(url: URL, body: Uint8Array, deps: Pick<Tts
   return json({ ok: true, key, bytes: body.length });
 }
 
-/** The lines a local engine speaks, for the operator's nightly generator (`GET /v1/admin/tts/local-lines`). */
-export function localLinesList(): { lines: Array<{ v: string; t: string }> } {
-  return { lines: localTtsLines().map((l) => ({ v: ttsVoiceId(l.voice), t: l.text })) };
+/**
+ * The lines a local engine speaks, for the operator's nightly generator (`GET /v1/admin/tts/local-lines`), and the
+ * cast's names: the generator hears each new line back through Whisper and re-makes a misheard one, and a name like
+ * Rootle (also a real word) must not count as misheard when Whisper writes "riddle".
+ */
+export function localLinesList(): { lines: Array<{ v: string; t: string }>; names: string[] } {
+  const cast = npcCast('en');
+  const names = new Set([...Object.keys(cast.islanders), ...Object.values(cast.npcs).map((p) => p.nameEn)]);
+  return { lines: localTtsLines().map((l) => ({ v: ttsVoiceId(l.voice), t: l.text })), names: [...names].sort() };
 }
 
 /**

@@ -85,7 +85,7 @@ const USE_TOUCH_MS = 60_000;
  * seat gate ('play'), a student in a lesson (GET /v1/lesson/state: 'lesson', tutoring seats only).
  */
 export function markSeatUse(sql: SqliteExecutor, playerId: string, nowMs: number, via: SeatUseVia): void {
-  // Hot path (play writes, lesson/state every 3 s): the tables exist since mountSeatRoutes ran in this object.
+  // Hot path (play writes, lesson/state every 1.2 s): the tables exist since mountSeatRoutes ran in this object.
   const s = sql.get<{ id: string; plan: string }>(
     "select id, plan from seats where player_id = ? and status <> 'refunded' and starts_at <= ? and ends_at > ? order by starts_at desc limit 1",
     [playerId, nowMs, nowMs]

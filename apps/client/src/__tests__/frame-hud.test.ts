@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bandOf, clockLabel, hotbarCaption, placeLabel } from '../frame/status.js';
 import { SERVER_UNREACHABLE_EVENT, watchConnection } from '../frame/connection.js';
 import { WORLD_STRINGS as W } from '../world/strings.js';
+import { coverHits } from '../world/cover.js';
 
 describe('status line', () => {
   it('names the vertical band of docs/03 3.2 by height', () => {
@@ -103,5 +104,21 @@ describe('connection band', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(states).toEqual([false]);
     stop();
+  });
+});
+
+describe('world labels under the HUD', () => {
+  const chip: [number, number, number, number] = [12, 12, 172, 72];
+  const goal: [number, number, number, number] = [456, 12, 824, 112];
+  it('a name plate behind the status chip or the goal card counts as covered', () => {
+    // prod 11-18: the teacher's plate stood behind the chip at the top left
+    expect(coverHits([chip, goal], 150, 20, 300, 50)).toBe(true);
+    expect(coverHits([chip, goal], 500, 90, 600, 130)).toBe(true);
+  });
+  it('a plate clear of every part, or only touching an edge, stays', () => {
+    expect(coverHits([chip, goal], 200, 200, 320, 240)).toBe(false);
+    // a 2 px sliver (shadow, rounding) is not covering
+    expect(coverHits([chip], 170, 20, 260, 50)).toBe(false);
+    expect(coverHits([], 0, 0, 100, 100)).toBe(false);
   });
 });

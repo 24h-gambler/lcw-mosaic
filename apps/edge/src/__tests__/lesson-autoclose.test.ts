@@ -105,6 +105,8 @@ describe('abandoned lessons close by themselves (cron sweep)', () => {
       { type: 'open', url: `${ORIGIN}/director?auto=${lessonId}&next=continue`, label: '이어 하기' },
       { type: 'dismiss' }
     ]);
+    // an action card: the spine keeps it open (not folded, never expired) until the teacher sends or continues (11-18)
+    expect(summary.keep).toBe('until_acted');
     expect(box.body.cards.some((c: any) => c.ref === 'outsourcing:lcw:student:kid-1:2026-11-16')).toBe(true);
     expect(JSON.stringify(box.body)).not.toMatch(/share_token|\/r\//);
 
@@ -167,6 +169,82 @@ describe('abandoned lessons close by themselves (cron sweep)', () => {
       expect((await cron(p)).body.lessons.closed).toEqual([]);
     }
     expect(count(p, 'select count(*) as n from lessons where ended_at is null')).toBe(1);
+  });
+
+  it('the child on /adventure/ (away=adventure poll) keeps the lesson open, the console sees it, the stage clock does not run', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    const stage0 = sqlOf(p).get<{ stage_id: string; child_ms: number }>('select stage_id, child_ms from lesson_state where lesson_id = ?', [lessonId]);
+    for (let i = 0; i < 6; i++) {
+      now += 10 * 60_000;
+      const r = await call(p, 'GET', '/v1/lesson/state?away=adventure', undefined, st);
+      expect(r.status).toBe(200);
+      expect(r.body.auto_advanced).toBeNull();
+      expect((await cron(p)).body.lessons.closed).toEqual([]);
+    }
+    const after = sqlOf(p).get<{ stage_id: string; child_ms: number }>('select stage_id, child_ms from lesson_state where lesson_id = ?', [lessonId]);
+    expect(after).toEqual(stage0);
+    expect(sqlOf(p).get<{ scene_id: string }>('select scene_id from lesson_presence where lesson_id = ?', [lessonId])?.scene_id).toBe('adventure');
+    // no poll at all: closed after the idle time as before
+    now += 16 * 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+  });
+
+  it('a card that went out before keep (11-16 Oreo, folded on the hub) goes again once with keep on the next hourly cron (review of PR 162)', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await say(p, st);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+    const outbox = () =>
+      sqlOf(p).get<{ ref: string; card: string; acked_at: number | null }>('select ref, card, acked_at from ops_card_outbox where ref like ?', [
+        `%:lcw:lesson:${lessonId}:summary`
+      ])!;
+    const first = outbox();
+    const card = JSON.parse(first.card);
+    expect(card.keep).toBe('until_acted');
+    // what went out before PR 162: the same card without keep, posted and acked by the relay
+    delete card.keep;
+    sqlOf(p).all('update ops_card_outbox set card = ?, acked_at = ? where ref = ?', [JSON.stringify(card), now, first.ref]);
+    now += 60 * 60_000;
+    const h1 = await cron(p, '0 * * * *');
+    expect(h1.body.detail.auto_close_cards).toBe(1);
+    const again = outbox();
+    expect(JSON.parse(again.card).keep).toBe('until_acted');
+    expect(JSON.parse(again.card).title).toContain('⏸');
+    expect(again.acked_at).toBeNull();
+    // the relay posts it; every later hour leaves the unchanged card alone
+    sqlOf(p).all('update ops_card_outbox set acked_at = ? where ref = ?', [now, again.ref]);
+    for (let hour = 0; hour < 3; hour++) {
+      now += 60 * 60_000;
+      expect((await cron(p, '0 * * * *')).body.detail.auto_close_cards).toBe(0);
+    }
+    expect(outbox().acked_at).not.toBeNull();
+    // once the teacher sends the report it is no longer waiting: the hourly pass never touches it again
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { send: true })).status).toBe(200);
+    const sentCard = JSON.parse(outbox().card);
+    sqlOf(p).all('update ops_card_outbox set acked_at = ? where ref = ?', [now, outbox().ref]);
+    now += 60 * 60_000;
+    expect((await cron(p, '0 * * * *')).body.detail.auto_close_cards).toBe(0);
+    expect(JSON.parse(outbox().card)).toEqual(sentCard);
+  });
+
+  it('the hourly resend never makes a card for a lesson that had none (smoke student, stale close)', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p, 'smoke-hr', 'Smoke');
+    const s = await startLesson(p, 'smoke-hr');
+    await say(p, s.st);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([s.lessonId]);
+    now += 60 * 60_000;
+    expect((await cron(p, '0 * * * *')).body.detail.auto_close_cards).toBe(0);
+    expect(sqlOf(p).get<{ n: number }>("select count(*) as n from ops_card_outbox where ref like '%:lcw:lesson:%'")!.n).toBe(0);
   });
 
   it('smoke students close too but make no hub card; every cron sweeps, the hourly tasks still run', async () => {
@@ -301,21 +379,123 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(last);
   });
 
-  it("1PC '선생님 나가기': a console still open on the lesson keeps it open even with the child's screen gone", async () => {
+  it('a console that is only open is not activity: it closes 15 min after the last real activity and ends there (Oreo 11-16)', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    now = T0 + 2 * 60_000;
+    await say(p, st);
+    now = T0 + 25 * 60_000; // the child's last poll (17:03 KST)
+    await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    const lastReal = now;
+    // the console tab stays open all evening and beats every minute (before and after a 1PC leave)
+    for (let m = 26; m <= 60; m++) {
+      now = T0 + m * 60_000;
+      if (m === 40) await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {});
+      await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { source: 'console' });
+      if (m === 39) expect((await cron(p)).body.lessons.closed).toEqual([]);
+      if (m === 41) expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+    }
+    const l = sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!;
+    expect(l.ended_at).toBe(lastReal);
+    const draft = JSON.parse(sqlOf(p).get<{ draft: string }>('select draft from lesson_auto_close where lesson_id = ?', [lessonId])!.draft);
+    expect(draft.facts.duration_min).toBe(25);
+  });
+
+  it("the teacher's own acts are activity: a line to the child, a pin", async () => {
     now = T0;
     const p = platform();
     await addStudent(p);
     const { lessonId, st } = await startLesson(p);
     await say(p, st);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence/leave`, {});
-    for (let m = 1; m <= 30; m++) {
-      now = T0 + m * 60_000;
-      const b = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { source: 'console' });
-      expect(b.body.left).toBe(true); // still not 'present' for the child's screen
-    }
+    now += LESSON_IDLE_CLOSE_MS - 60_000;
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/npc-say`, { npc_id: 'cafe_owner', text: 'Are you still there?' })).status).toBeLessThan(300);
+    now += 2 * 60_000;
     expect((await cron(p)).body.lessons.closed).toEqual([]);
+    now += LESSON_IDLE_CLOSE_MS - 60_000;
+    const atMs = now - T0;
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'coaching', at_ms: atMs, note: 'slow down' })).status).toBe(201);
+    now += 2 * 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([]);
+    now += LESSON_IDLE_CLOSE_MS;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+  });
+
+  it("the teacher's 'show on the child's screen' for the same stage is activity (review of PR 159)", async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await say(p, st);
+    const stage = sqlOf(p).get<{ stage_id: string }>('select stage_id from lesson_state where lesson_id = ?', [lessonId])!.stage_id;
+    now += LESSON_IDLE_CLOSE_MS - 60_000;
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: stage, targets: ['Can I have a warm honey tea?'] })).status).toBeLessThan(300);
+    expect(sqlOf(p).get<{ n: number }>('select count(*) as n from lesson_stage_log where lesson_id = ?', [lessonId])!.n).toBe(1);
+    now += 2 * 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([]);
+    now += LESSON_IDLE_CLOSE_MS;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+  });
+
+  it('a pin with a wrong or future time never keeps a lesson open (review of PR 159)', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await say(p, st);
+    expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/pins`, { kind: 'coaching', at_ms: 30 * 86_400_000, note: 'typo' })).status).toBe(201);
     now += LESSON_IDLE_CLOSE_MS + 60_000;
     expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+    // the pin was cut to the time it was put (the start here), and the lesson ends at the child's answer, not 30 days ahead
+    expect(sqlOf(p).get<{ at_ms: number }>('select at_ms from pins where lesson_id = ?', [lessonId])!.at_ms).toBe(0);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(T0);
+    // an old row with an impossible time (before the route cut it) is left out too
+    const q = platform();
+    await addStudent(q);
+    now = T0;
+    const second = await startLesson(q);
+    await say(q, second.st);
+    sqlOf(q).all("insert into pins (id, lesson_id, at_ms, kind, note) values ('pin-old', ?, ?, 'coaching', 'x')", [second.lessonId, 30 * 86_400_000]);
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(q)).body.lessons.closed).toEqual([second.lessonId]);
+  });
+
+  it('an unsent auto-closed lesson closed while console beats counted is pulled back to its last real activity', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    now = T0 + 3 * 60_000;
+    await say(p, st);
+    now = T0 + 25 * 60_000;
+    await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    const lastReal = now;
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    await cron(p);
+    // what the old rule wrote: the console's beat dragged the end to 23:40 KST (422 minutes after the start)
+    const late = T0 + 422 * 60_000;
+    sqlOf(p).all('update lessons set ended_at = ? where id = ?', [late, lessonId]);
+    sqlOf(p).all('update lesson_auto_close set last_activity_at = ? where lesson_id = ?', [late, lessonId]);
+    now = late + 30 * 60_000;
+    const dry = await call(p, 'POST', '/v1/admin/lessons/sweep-idle', { dry_run: true });
+    expect(dry.body.reclamped).toEqual([{ lesson_id: lessonId, ended_at: lastReal, was: late }]);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(late);
+    const r = await cron(p);
+    expect(r.body.lessons.reclamped).toEqual([{ lesson_id: lessonId, ended_at: lastReal, was: late }]);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(lastReal);
+    const a = sqlOf(p).get<{ draft: string; last_activity_at: number }>('select draft, last_activity_at from lesson_auto_close where lesson_id = ?', [lessonId])!;
+    expect(a.last_activity_at).toBe(lastReal);
+    expect(JSON.parse(a.draft).facts.duration_min).toBe(25);
+    // the hub card that went out with the old minutes goes out again with the corrected ones
+    const card = sqlOf(p).get<{ card: string; acked_at: number | null }>("select card, acked_at from ops_card_outbox where ref like ?", [`%:lcw:lesson:${lessonId}:summary`])!;
+    expect(JSON.parse(card.card).title).toContain('· 25분 ·');
+    expect(card.acked_at).toBeNull();
+    // the next sweep leaves it alone; the teacher's send reports 25 minutes
+    expect((await cron(p)).body.lessons.reclamped).toEqual([]);
+    const sent = await call(p, 'POST', `/v1/admin/lessons/${lessonId}/end`, { send: true });
+    expect(sent.status).toBe(200);
+    expect(sent.body.facts.lesson.duration_min).toBe(25);
   });
 
   it('a possession is a sign of life', async () => {
@@ -380,7 +560,9 @@ describe('the same student back the same day continues the auto-closed lesson', 
 
     const end = await call(p, 'POST', `/v1/admin/lessons/${second.lessonId}/end`, { teacher_comment: '이어서 잘했어요' });
     expect(end.status).toBe(200);
-    // both parts' answers, both parts' minutes (5 + 4), not the gap between them
+    // both parts' answers, both parts' minutes (5 + 4), not the gap between them. The first pass moved the stage on
+    // (one sentence on screen), so the second telling is in the next stage, where the goals start over (R2627 stars
+    // once per goal counts per stage): three passes
     expect(end.body.facts.lesson).toMatchObject({ utterances: 3, passes: 3, duration_min: 9 });
     expect(count(p, 'select count(*) as n from report_deliveries')).toBe(1);
     // the first part shows the one report it went out in; ending it again hands that report back

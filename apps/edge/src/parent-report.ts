@@ -7,7 +7,9 @@ import {
   LEXICON_L1_KO_EN,
   NAME_LIKE_WORDS
 } from '@lcw/content';
+import * as CONTENT from '@lcw/content';
 import { filterSpeechBubble } from '@lcw/converse';
+import { reportNameKeys } from './name-keys.js';
 import { meaningfulExpression } from '@lcw/metrics';
 import type { SqliteExecutor } from './storage.js';
 
@@ -146,6 +148,69 @@ const COMMON_CAPITALISED = new Set(
  * a script has no sentence to quote (#131 review: 11 of 25 ordinary sentences were dropped by a lesson-only list).
  */
 const NAME_LIKE = new Set(NAME_LIKE_WORDS);
+
+/**
+ * Words our own English content writes in lowercase inside a phrase (menus, shop goods, NPC lines, UI: "table lamp",
+ * "Tap the word cards", "Sounds like a great plan"): ordinary words of the world the child plays in. A name is never
+ * written in lowercase there, and a word that also appears capitalised mid-phrase is left out (it may be a name).
+ * Single-token strings are skipped (ids and voice names such as 'athena').
+ */
+function contentWords(root: unknown): string[] {
+  const lower = new Set<string>();
+  const names = new Set<string>();
+  const seen = new Set<unknown>();
+  const wordsOf = (t: string) =>
+    t
+      .trim()
+      .split(/\s+/)
+      .map((raw) => raw.replace(/[^A-Za-z']/g, '').replace(/'/g, ''))
+      .filter(Boolean);
+  const walk = (v: unknown, depth: number, inName: boolean) => {
+    if (depth > 10 || v == null || seen.has(v)) return;
+    if (typeof v === 'string') {
+      // A name field (nameEn 'Mason Theo', title …): every capitalised word in it is a name wherever it sits, so the
+      // same word written 'the mason' in a line does not make 'Mason likes cookies' ordinary (#165 review). Things
+      // named in lowercase ('table lamp', 'bunk bed') stay ordinary words.
+      if (inName) {
+        for (const w of wordsOf(v)) {
+          if (/^[A-Z]/.test(w)) names.add(w.toLowerCase());
+          else if (/^[a-z]+$/.test(w) && v.trim().includes(' ')) lower.add(w);
+        }
+        return;
+      }
+      const words = v.trim().split(/\s+/);
+      if (words.length < 2 || !/^[A-Za-z][A-Za-z' ,.!?-]*$/.test(v.trim())) return;
+      wordsOf(v).forEach((w, i) => {
+        if (/^[a-z]+$/.test(w)) lower.add(w);
+        else if (i > 0 && /^[A-Z]/.test(w)) names.add(w.toLowerCase());
+      });
+      return;
+    }
+    if (typeof v !== 'object') return;
+    seen.add(v);
+    if (v instanceof Map || v instanceof Set || Array.isArray(v)) {
+      for (const x of v instanceof Map || v instanceof Set ? [...v.values()] : v) walk(x, depth + 1, inName);
+      return;
+    }
+    for (const [k, x] of Object.entries(v as object)) walk(x, depth + 1, inName || /name|title|speaker|voice/i.test(k));
+  };
+  walk(root, 0, false);
+  // At least 3 letters: 'ho' ('Ho ho!') and the like are names as often as words.
+  return [...lower].filter((w) => w.length >= 3 && !names.has(w));
+}
+
+/**
+ * Words that are also names when someone is called with them: months, will/art/young/won, pet names, given-name words.
+ * "May, look at this" calls a person; "Cookie, please." orders a cookie — so the call is blocked unless only a please
+ * or a thanks follows (#165 review: removing the comma rule let these through).
+ */
+const CALL_NAME_WORDS = new Set([
+  ...NAME_LIKE_WORDS,
+  ...'january february march april may june july august september october november december'.split(' '),
+  ...'will art young won mason honey cookie lucky star bear king prince princess buddy angel baby sugar peanut coco max'.split(' ')
+]);
+const ORDER_TAIL = /^(?:please|thanks|thank you)[.!?]*$/i;
+
 const SENTENCE_STARTERS = new Set(
   [
     ...COMMON_WORDS_EN,
@@ -155,7 +220,8 @@ const SENTENCE_STARTERS = new Set(
     ...CAFE_MENU.map((d) => d.label),
     ...LESSON_PLANS.flatMap((pl) =>
       pl.stages.flatMap((st) => [st.teacherScriptEn, st.studentGoalEn, ...(st.followUpsEn ?? []), ...st.targets.map((t) => t.text)])
-    )
+    ),
+    ...contentWords(CONTENT)
   ]
     .flatMap((x) => x.toLowerCase().split(/[^a-z']+/).map((w) => w.replace(/'/g, '')).filter(Boolean))
     .filter((w) => !NAME_LIKE.has(w))
@@ -168,17 +234,28 @@ function isSentenceStarter(w: string): boolean {
   return singular.some((s) => SENTENCE_STARTERS.has(s) && !NAME_LIKE.has(s));
 }
 
+const NAME_SETS = new WeakMap<readonly string[], Set<string>>();
+
 /**
- * "Minji, can I …" / "Joy, look!": a first word followed by a comma is usually someone being called. Only these may
- * come before that comma.
+ * Whether the normalised text holds one of the name keys on word edges. Keys are looked up one to four words at a time
+ * in a set (a class gives thousands of keys; scanning each of them per sentence made a lesson end take seconds).
  */
-const VOCATIVE_SAFE = new Set(
-  (
-    'yes yeah yep no nope okay ok alright well so oh ah um uh hmm wow oops yay hi hello hey bye goodbye please thanks ' +
-    'sorry wait look listen teacher mom mommy dad daddy first then now and but also actually maybe today tonight ' +
-    'yesterday tomorrow sometimes right fine sure cool great good nice really excuse here there'
-  ).split(' ')
-);
+function hasNameKey(n: string, names: readonly string[]): boolean {
+  if (!names.length) return false;
+  let set = NAME_SETS.get(names);
+  if (!set) {
+    set = new Set(names.map(norm).filter((x) => x.length >= 2));
+    NAME_SETS.set(names, set);
+  }
+  const words = n.trim().split(' ');
+  for (let i = 0; i < words.length; i++)
+    for (let len = 1; len <= 4 && i + len <= words.length; len++) {
+      const span = words.slice(i, i + len);
+      // 'seo yeon' / 'seo-yeon' for a child registered as Seoyeon: the words of one name, spaced or joined.
+      if (set.has(span.join(' ')) || (len > 1 && set.has(span.join('')))) return true;
+    }
+  return false;
+}
 
 /** Text that may appear on the public report: English, no PII/profanity, no names, no self-introduction. */
 export function publicSafeText(text: string, names: string[]): boolean {
@@ -189,11 +266,14 @@ export function publicSafeText(text: string, names: string[]): boolean {
   const n = ` ${norm(t)} `;
   if (SELF_IDENTIFYING_PATTERN.test(n)) return false;
   for (const m of n.matchAll(INTRO_OPENER)) if (!INTRO_SAFE_NEXT.has(m[1]!)) return false;
-  if (names.some((x) => x.length >= 2 && n.includes(` ${x} `))) return false;
+  if (hasNameKey(n, names)) return false;
+  // "Minji, can I …" is stopped here too: a name is not a starter. A word that is also a name ("May,", "Cookie,")
+  // before a comma is a call, unless an order's please/thanks follows; other words before a comma are fine
+  // ("Water, please.", "Great, thanks"). Registered names are blocked anywhere (name-keys.ts).
   const firstToken = t.split(/\s+/)[0] ?? '';
   const first = norm(firstToken).replace(/ /g, '');
   if (first && !isSentenceStarter(first)) return false;
-  if (/,$/.test(firstToken) && !VOCATIVE_SAFE.has(first)) return false;
+  if (/,$/.test(firstToken) && CALL_NAME_WORDS.has(first) && !ORDER_TAIL.test(t.slice(firstToken.length).trim())) return false;
   const words = t.split(/\s+/).slice(1);
   if (words.some((w) => /^[A-Z]/.test(w) && !COMMON_CAPITALISED.has(norm(w).replace(/ /g, '')))) return false;
   const f = filterSpeechBubble(t);
@@ -257,12 +337,6 @@ export function lessonSummaryKo(f: Pick<LessonParentFacts, 'utterances' | 'passe
   return `이번 수업에서 영어로 ${f.utterances}번 말했고 그중 ${f.passes}번 통과했습니다. 직접 말한 시간은 ${time}입니다.${free}`;
 }
 
-/** The child's nickname and each of its words: none of them may appear in a public quote. */
-function childNames(sql: SqliteExecutor, playerId: string): string[] {
-  const nick = sql.get<{ nickname: string }>('select nickname from players where id = ?', [playerId])?.nickname ?? '';
-  return [nick, ...nick.split(/\s+/)].filter((x) => x.trim().length >= 2);
-}
-
 /** The first MAX_HOME_PRACTICE candidates, in order, with a sentence inside another counted once. */
 function pickHomePractice(candidates: readonly string[]): string[] {
   const out: string[] = [];
@@ -319,7 +393,8 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
   );
   const ended = lesson.ended_at ?? nowMs;
 
-  const names = childNames(sql, lesson.player_id).map(norm).filter(Boolean);
+  // Every name tied to this child (family, class, sign-up, guardian, teacher), any case, anywhere in a sentence.
+  const names = reportNameKeys(sql, lesson.player_id, lessonId);
   const exprSeen = new Set<string>();
   const expressions: string[] = [];
   const targets = plan.stages.flatMap((s) => s.targets);

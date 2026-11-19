@@ -20,6 +20,7 @@ import {
 } from './hints.js';
 import { createMediaClipRecorder } from '@lcw/audio';
 import { MicController, type MicView } from './mic-controller.js';
+import { noteTurnLost, noteTurnRecovered, noteTurnSent } from './mic-status.js';
 import { isKakaoInApp, kakaoOpenExternalUrl, type MicIssue, type SpeechEngine } from './speech.js';
 import { createDialogSpeechEngine } from './server-stt.js';
 import { cancelMicCue, micClosed, micCue, playAgain, playPass, playSfx, speakEnglish, stopSpeaking, unlockDialogAudio } from './sound.js';
@@ -62,6 +63,8 @@ function micIssueText(issue: MicIssue): string {
   if (issue === 'denied') return S.micDenied;
   if (issue === 'no_speech') return S.noSpeech;
   if (issue === 'network') return S.networkError;
+  if (issue === 'quota') return S.sttQuota;
+  if (issue === 'stt_failed') return S.sttFailed;
   return S.micUnsupported;
 }
 
@@ -183,6 +186,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   // world the item the server already granted and charged for.
   const bestPass = useRef<DialogResult | null>(null);
   const noSpeechRun = useRef(0);
+  /** The spoken answer whose send failed (counted lost); its "try again" resend is the same turn (R2627). */
+  const lostSend = useRef<UtteranceSubmit | null>(null);
   const readyAt = useRef(Date.now());
   const micStartAt = useRef(0);
   const ctrl = useRef<MicController | null>(null);
@@ -218,15 +223,27 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       setSlow(false);
       setNotice(null);
       const slowTimer = setTimeout(() => setSlow(true), SLOW_PROCESSING_MS);
+      // R2627: a spoken turn is counted sent once the server answered it, lost when the send failed for good.
+      const spoken = u.stt_source !== 'board' && u.stt_source !== 'keyboard';
       try {
         const r = await (followTurn ? followSubmit : submit)({ ...u, dialogId: dialogId.current });
+        if (spoken) {
+          if (lostSend.current === u) noteTurnRecovered();
+          else noteTurnSent();
+          lostSend.current = null;
+        }
         setResult(r);
         onResultRef.current?.(r);
         setLastTarget(r.matchedText ?? u.target_text);
         setLastSpoken(u.transcript);
         setPending(null);
         const key = u.chosen_stars;
-        if (r.pass && followTurn) {
+        if (r.pass && r.repeat) {
+          // Said again: it already had its stars (lesson, R2627). No star sound, no new best; the card asks for new words.
+          playAgain();
+          setMissedWords(new Set());
+          if (!bestPass.current) bestPass.current = r;
+        } else if (r.pass && followTurn) {
           // A follow-up answer sells nothing: the window's best (the item the server granted) stays the opening's.
           playPass(Math.max(1, r.stars));
           setMissedWords(new Set());
@@ -262,6 +279,18 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
       } catch (err) {
         const auth = err instanceof SubmitError && err.kind === 'auth';
         const queued = err instanceof SubmitError && err.kind === 'queued';
+        // Kept in the lesson outbox, it reaches the server later; anything else lost this turn (a resend is a new try).
+        if (spoken) {
+          if (queued) {
+            // in the outbox: sent (a resend of a turn counted lost moves it back from lost)
+            if (lostSend.current === u) noteTurnRecovered();
+            else noteTurnSent();
+            lostSend.current = null;
+          } else if (lostSend.current !== u) {
+            noteTurnLost('submit_failed');
+            lostSend.current = u;
+          }
+        }
         setAuthLost(auth);
         // Kept on the device (lesson outbox): no "try again" — a second send would be a second answer.
         if (queued) setPending(null);
@@ -390,8 +419,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
           setPhase(echoRef.current ? 'echo' : 'choose');
           return;
         }
-        if (issue === 'network' || issue === 'aborted') {
-          setNotice(S.networkError);
+        if (issue === 'network' || issue === 'aborted' || issue === 'stt_failed') {
+          setNotice(issue === 'stt_failed' ? S.sttFailed : S.networkError);
           setPhase(echoRef.current ? 'echo' : 'choose');
           return;
         }
@@ -410,7 +439,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
     };
   }, [engine, recordClip]);
 
-  const micDisabled = !!micIssue || phase === 'scoring' || (!followTurn && offers.length === 0 && !needsUnderstand);
+  const micDisabled = !!micIssue || phase === 'scoring' || !!mic.processing || (!followTurn && offers.length === 0 && !needsUnderstand);
   const toggleMic = useCallback(() => {
     unlockDialogAudio();
     if (micIssue) return;
@@ -559,7 +588,7 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
   const titleKey =
     phase === 'echo' ? 'echoTitle' : phase === 'board' ? 'boardTitle' : followTurn ? 'followUpHint' : freeTalk || needsUnderstand ? 'freePrompt' : 'chooseTitle';
   return (
-    <div className="lcw-dlg" style={style} role="dialog" aria-modal="true" aria-label={`${learnLang() === 'en' ? npc.nameEn : npc.nameKo} ${S.chooseTitle}`}>
+    <div className="lcw-dlg" data-npc={npc.id} style={style} role="dialog" aria-modal="true" aria-label={`${learnLang() === 'en' ? npc.nameEn : npc.nameKo} ${S.chooseTitle}`}>
       <style>{DIALOG_CSS}</style>
       <div className="lcw-dlg__win">
         <section className="lcw-dlg__side">
@@ -635,9 +664,15 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
             </div>
           ) : null}
           {notice ? <div className="lcw-note" role="status">{notice}</div> : null}
+          {mic.processing && phase === 'listening' ? (
+            <div className="lcw-res" aria-live="polite" data-testid="dlg-processing">
+              <span className="lcw-dots" aria-hidden="true"><i /><i /><i /></span>
+              <div className="lcw-res__fb">{S.processing}</div>
+            </div>
+          ) : null}
 
           {phase === 'result' && result ? (
-            <div className="lcw-res" aria-live="polite">
+            <div className="lcw-res" aria-live="polite" data-repeat={result.repeat ? 'true' : undefined}>
               <div className="lcw-res__stars" aria-label={S.starsAria.replace('{n}', String(result.stars))}>
                 {[1, 2, 3].map((n) => <span key={n} className={n <= result.stars ? '' : 'off'}>★</span>)}
               </div>
@@ -654,7 +689,12 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
               {result.practice ? <div className="lcw-dlg__name">{S.practiceNote}</div> : null}
               {typeof result.coinsTotal === 'number' ? <div className="lcw-res__coins">🪙 {result.coinsTotal} {S.coins}</div> : null}
               <div className="lcw-row">
-                {result.pass ? (
+                {result.pass && result.repeat ? (
+                  <>
+                    <button type="button" className="lcw-cta lcw-cta--again" data-repeat="true" onClick={retry}>{S.retry}</button>
+                    <button type="button" className="lcw-cta lcw-cta--go" onClick={() => finish(bestPass.current ?? result)}>{S.done}</button>
+                  </>
+                ) : result.pass ? (
                   <>
                     {higherExists ? <button type="button" className="lcw-cta lcw-cta--up" onClick={tryHigher}>{S.tryHigher}</button> : null}
                     <button type="button" className="lcw-cta lcw-cta--go" onClick={() => finish(result)}>{S.done}</button>

@@ -56,6 +56,8 @@ describe('dialog preview: what the sentence buys and what it costs (G02)', () =>
   it('asking the way shows the NPC face, no price', () => {
     const html = renderToStaticMarkup(<DialogPanel {...base} npc={guide} />);
     expect(html).toContain('lcw-dlg__face');
+    // the dialog says which NPC it is with: the real-play check reads it instead of the cast name
+    expect(html).toContain('data-npc="guide"');
     expect(html).not.toContain('🪙');
   });
 });

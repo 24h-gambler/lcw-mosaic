@@ -33,7 +33,7 @@ export interface WorldStats {
   chunksMeshed: number;
   chunksVisible: number;
   scene: SceneId;
-  player: { x: number; y: number; z: number };
+  player: { x: number; y: number; z: number; yaw?: number };
   /** While a dialog pauses the world: the NPC and where its face lands on screen (CSS px). */
   dialogShot?: { npc: string; face: [number, number] } | null;
   /** current dynamic-resolution scale (1 = tier scale x devicePixelRatio) */
@@ -64,6 +64,12 @@ export interface WorldStats {
   interact?: { near: string | null; goal: string | null; prompt: boolean; promptWhy: string; paused: boolean; walking: boolean; talked: string[]; byKey: number; byTap: number; passerTaps?: number };
   /** Talkable NPCs drawn now: where their body centre lands on screen (CSS px) and how far they stand (m). */
   npcView?: Array<{ id: string; sx: number; sy: number; vis: boolean; dist: number }>;
+  /**
+   * Every NPC in this scene's scene graph, drawn or not: attached to the scene, shown (itself and every parent), shown
+   * meshes with vertices, where it stands and how far. Tells "not drawn" (a product fault) from "the bot did not get it
+   * on screen" (real-play check).
+   */
+  npcScene?: Array<{ id: string; inScene: boolean; shown: boolean; meshes: number; x: number; y: number; z: number; dist: number }>;
   /** Jumps pressed, jumps nobody pressed, whole-block climbs without a jump, the eye height of body and camera. */
   motion?: { jumps: number; unpressedJumps: number; autoClimbs: number; autoJump: boolean; bodyY: number; camY: number };
 }
@@ -117,6 +123,11 @@ export interface WorldHandle {
    * and dialogs).
    */
   setTeacher?(t: { present: boolean; name: string | null } | null): void;
+  /**
+   * Labels drawn inside the 3D view (the teacher's name plate) where they are on the screen now, with their opacity:
+   * the frame's layout check (tools/frame-layout.mjs) holds them against the HUD parts. HTML plates are DOM and seen there.
+   */
+  screenLabels?(): ReadonlyArray<{ name: string; x: number; y: number; w: number; h: number; opacity: number }>;
   /**
    * Walk up to an NPC and face it, about 1.5 m in front (inside the talk range): the NPC's scene first when it is
    * far. Resolves on arrival (a dialog pausing the world ends the walk where it is). Unknown or hidden NPCs: no-op.

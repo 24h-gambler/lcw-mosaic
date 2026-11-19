@@ -2,12 +2,15 @@ import { normalizeTtsText, ttsVoiceId, type NpcVoice } from '@lcw/content';
 import { BUS_LUFS_TARGETS } from '@lcw/audio';
 import { readStudentToken } from './submit.js';
 import { frameSettings } from '../frame/settings.js';
+import { browserVoice } from '@lcw/audio';
+import { codeFromSearch, loadStudentSession } from '../lesson/api.js';
 
 /**
  * The neural NPC voice on the client (edge tts.ts, docs/04 4.8): asks `/v1/tts/status` once; while the server says
  * it is on, NPC lines and model sentences come as mp3 from `/v1/tts` (R2-cached, the same sentence is made once) and
- * play on the NPC voice bus, loudness-matched to the bus target. Anything that is off, slow or failing falls back to
- * the device voice (sound.ts), so a dialog never waits on it.
+ * play on the NPC voice bus, loudness-matched to the bus target. Anything that is off, slow or failing is read by the
+ * browser voice (Kokoro on the device, @lcw/audio browser-voice.ts) and only where that cannot run by the device voice
+ * (sound.ts), so a dialog never waits on it.
  */
 
 export const NEURAL_VOICE = {
@@ -40,6 +43,8 @@ function override(): 'device' | 'neural' | null {
 
 let statusP: Promise<boolean> | null = null;
 let statusKnown: boolean | null = null;
+/** true once the server itself answered the status (on or off); false when asking failed (5xx, offline). */
+let statusAnswered = false;
 
 export function neuralVoiceStatus(base = '', fetchImpl: typeof fetch = (i, init) => fetch(i, init)): Promise<boolean> {
   const o = override();
@@ -47,10 +52,41 @@ export function neuralVoiceStatus(base = '', fetchImpl: typeof fetch = (i, init)
   if (!statusP) {
     statusP = fetchImpl(`${base}/v1/tts/status`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { enabled?: boolean } | null) => (statusKnown = Boolean(j?.enabled)))
+      .then((j: { enabled?: boolean } | null) => {
+        statusAnswered = j !== null && typeof j === 'object';
+        return (statusKnown = Boolean(j?.enabled));
+      })
       .catch(() => (statusKnown = false));
   }
   return statusP;
+}
+
+/**
+ * May this page start the browser voice's first model download (326 MB WebGPU / 92 MB WASM)? Only when a line really
+ * needs it: the server itself said its voice is off, or the server just missed a line. Never during a lesson (a class
+ * of PCs would pull it through the school line while the 3D world shares the GPU; a model already in the browser's
+ * cache is still used), never for a line without a cast voice (the settings' volume try), never because asking the
+ * status failed (a 5xx or a dropped connection is not "off").
+ */
+export function browserVoiceMayDownload(why: 'server_off' | 'server_missed' | 'other'): boolean {
+  if (why === 'other') return false;
+  if (why === 'server_off' && !statusAnswered) return false;
+  return !lessonPage();
+}
+
+/** A teacher's lesson on this page: a ?code= link or a saved student session (lesson/LessonLayer isLessonPage). */
+export function lessonPage(): boolean {
+  try {
+    return Boolean(codeFromSearch(typeof location === 'undefined' ? '' : location.search) ?? loadStudentSession());
+  } catch {
+    return false;
+  }
+}
+
+/** The browser voice can read a line now without a first download (loaded, or the model is in this browser's cache). */
+export function browserVoiceReadyOrCached(): boolean {
+  const bv = browserVoice();
+  return bv.available() && (bv.state() === 'ready' || bv.modelCached());
 }
 
 /** Sync view: true only once the server said on. */
@@ -70,6 +106,7 @@ export function resetNeuralVoice(): void {
   failedUntil.clear();
   statusP = null;
   statusKnown = null;
+  statusAnswered = false;
   cache.clear();
 }
 
@@ -137,10 +174,26 @@ export function loadLine(voice: NpcVoice, text: string, base = '', fetchImpl: ty
   return p;
 }
 
-/** Warm the lines a dialog is about to speak (its NPC line, the offers' model sentences). */
+/**
+ * Warm the lines a dialog is about to speak (its NPC line, the offers' model sentences). A line the server will not
+ * make (off, refused by the meter, failed) is made by the browser voice in the background instead, so its 🔊 tap
+ * plays at once.
+ */
 export function prefetchLines(lines: Array<{ voice: NpcVoice; text: string }>): void {
-  if (!neuralVoiceOn()) return;
-  for (const l of lines) if (l.text.trim()) void loadLine(l.voice, l.text);
+  const pref = frameSettings();
+  if (!pref.neuralVoice) return;
+  // making a line in the background loads the model first, so it follows the same first-download rule as speaking
+  const warm = (l: { voice: NpcVoice; text: string }, why: 'server_off' | 'server_missed') => {
+    const bv = browserVoice();
+    if (!bv.available()) return;
+    if (!browserVoiceReadyOrCached() && !browserVoiceMayDownload(why)) return;
+    void bv.speak(l.text, l.voice, pref.voiceRate, 60_000, { background: true });
+  };
+  if (!neuralVoiceOn()) {
+    if (neuralVoiceStatusKnown() === false) for (const l of lines) if (l.text.trim()) warm(l, 'server_off');
+    return;
+  }
+  for (const l of lines) if (l.text.trim()) void loadLine(l.voice, l.text).then((b) => (b ? undefined : warm(l, 'server_missed')));
 }
 
 /** Resolves the bytes if they arrive within `ms`, else null (the caller reads with the device voice). */

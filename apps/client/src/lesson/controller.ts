@@ -1,5 +1,5 @@
 /**
- * Lesson controller (docs/19 §4): joins with the code, polls /v1/lesson/state every 3 s and turns what changed into
+ * Lesson controller (docs/19 §4): joins with the code, polls /v1/lesson/state every 1.2 s and turns what changed into
  * world calls — scene change, goal line, possession sparkle, NPC bubbles, director events. Pure apart from the
  * injected api, world and timers, so it is tested without a browser.
  */
@@ -21,6 +21,8 @@ import {
   LessonHttpError,
   loadStudentSession,
   readLessonMicIssue,
+  readLessonMicTurns,
+  clearLessonMicTurns,
   readLessonMicStatus,
   readUtteranceSubmit,
   saveStudentSession,
@@ -33,8 +35,15 @@ import {
   type UtteranceSubmit
 } from './api.js';
 import { childNpcName, lessonGoal } from './strings.js';
+import { LESSON_STAGE_EVENT } from '../world/events.js';
 
-export const LESSON_POLL_MS = 3_000;
+/**
+ * The state poll, counted from the start of the last one (not its answer): a move the child's screen did not cause
+ * (the teacher's button, the planned minutes, the console) shows within this plus one round trip, under 2 s (11-19).
+ */
+export const LESSON_POLL_MS = 1_200;
+/** A failed poll waits this long first, doubling up to LESSON_RETRY_MAX_MS (a lost connection is not hammered). */
+export const LESSON_RETRY_START_MS = 3_000;
 /** After an answer that finished the stage, the next poll comes this soon (the next stage shows at once, docs/18 §9). */
 export const LESSON_ADVANCE_POLL_MS = 300;
 export const LESSON_RETRY_MAX_MS = 15_000;
@@ -195,7 +204,7 @@ export class LessonController {
   private bannerTimer: unknown = null;
   /** The world got the teacher tag at least once (the first poll always sets it). */
   private teacherShown = false;
-  private retryMs = LESSON_POLL_MS;
+  private retryMs = LESSON_RETRY_START_MS;
   private readonly seenLines = new Set<string>();
   private readonly seenEvents = new Set<string>();
   private stopped = false;
@@ -241,6 +250,8 @@ export class LessonController {
         this.seenLines.clear();
         this.seenEvents.clear();
       }
+      // The mic turn count (R2627) is this lesson's: solo play or another lesson in this tab before it does not count.
+      if (this.session?.lessonId !== r.lesson_id) clearLessonMicTurns();
       this.session = { token: r.student_token, lessonId: r.lesson_id, nickname: r.nickname, level: r.level, voiceStore: r.voice_store === true };
       saveStudentSession(this.session, this.store());
       this.cursor = null;
@@ -275,7 +286,14 @@ export class LessonController {
       }
       throw e;
     }
-    const result: DialogResult = { pass: r.pass, stars: r.stars, feedbackKo: r.feedback_ko, ...(r.feedback_en ? { feedbackEn: r.feedback_en } : {}), coinsTotal: r.coins_total };
+    const result: DialogResult = {
+      pass: r.pass,
+      stars: r.stars,
+      feedbackKo: r.feedback_ko,
+      ...(r.feedback_en ? { feedbackEn: r.feedback_en } : {}),
+      coinsTotal: r.coins_total,
+      ...(r.repeat === true ? { repeat: true } : {})
+    };
     // An answer that lands after "나가기", a new code or stop belongs to a lesson this screen no longer shows: the
     // panel still gets its result, the HUD chips do not move.
     if (run !== this.run || this.session !== s) return result;
@@ -342,16 +360,18 @@ export class LessonController {
     const run = this.run;
     this.polling = true;
     this.soon = false;
+    const startedAt = this.timers.now();
     try {
       const st = await this.opts.api.state(s.token, {
         cursor: this.cursor,
         scene: this.view.sceneId ?? undefined,
         ui: this.opts.ui ?? '3d',
         mic: readLessonMicStatus(),
-        micIssue: readLessonMicIssue()
+        micIssue: readLessonMicIssue(),
+        micTurns: readLessonMicTurns()
       });
       if (run !== this.run) return;
-      this.retryMs = LESSON_POLL_MS;
+      this.retryMs = LESSON_RETRY_START_MS;
       this.apply(st);
       if (this.view.connection !== 'ok' || this.view.errorCode) this.set({ connection: 'ok', errorCode: null });
       // Back online: what the child said meanwhile goes now, in order.
@@ -371,8 +391,10 @@ export class LessonController {
       if (run === this.run) this.polling = false;
     }
     if (run !== this.run || this.view.phase === 'ended' || this.stopped || !this.session) return;
-    // A stage move that came in while this poll was in flight still gets its quick poll (not the 3 s one).
-    this.schedulePoll(this.soon ? LESSON_ADVANCE_POLL_MS : this.view.connection === 'ok' ? LESSON_POLL_MS : this.retryMs);
+    // A stage move that came in while this poll was in flight still gets its quick poll (not the regular one). The
+    // regular one counts from this poll's start, so a slow answer does not stretch the time a move takes to show.
+    const regular = Math.max(0, LESSON_POLL_MS - (this.timers.now() - startedAt));
+    this.schedulePoll(this.soon ? LESSON_ADVANCE_POLL_MS : this.view.connection === 'ok' ? regular : this.retryMs);
     this.soon = false;
   }
 
@@ -449,6 +471,8 @@ export class LessonController {
       (typeof st.stage_started_at === 'number' && this.view.stageStartedAt > 0 && st.stage_started_at > this.view.stageStartedAt);
     const targetsChanged = JSON.stringify(st.offers) !== JSON.stringify(this.view.offers);
     if (stageChanged) {
+      // a move (not the first state): the mic check card must not stay over the new stage (world/events.ts)
+      if (this.view.stageId !== null && st.stage_id) announceStageMove(st.stage_id);
       patch.stageId = st.stage_id;
       patch.sceneId = st.scene_id;
       patch.stageSeq = this.view.stageSeq + 1;
@@ -540,5 +564,15 @@ export class LessonController {
 
   private emit(): void {
     this.opts.onChange?.(this.view);
+  }
+}
+
+/** Tells the mic check gate (dialog/FirstVisitGuide.tsx) that the lesson moved on; nothing outside a browser. */
+function announceStageMove(stageId: string): void {
+  try {
+    const w = (globalThis as { window?: { dispatchEvent?: (e: Event) => boolean } }).window;
+    if (w?.dispatchEvent && typeof CustomEvent === 'function') w.dispatchEvent(new CustomEvent(LESSON_STAGE_EVENT, { detail: { stageId } }));
+  } catch {
+    /* a world shell without window events: the card still closes on its own buttons */
   }
 }

@@ -25,7 +25,9 @@ export function StudentScreenBox(p: { live: DirectorLiveView; localNow: number; 
   const ago = v?.last_seen_at ? Math.max(0, Math.round((serverNow - v.last_seen_at) / 1000)) : null;
   const connected = Boolean(v?.connected) && ago !== null && ago <= 10;
   const sceneName = (id: string | null | undefined) => (id ? (L.sceneNames[id] ?? id) : '—');
-  const mismatch = v && v.expected_scene_id && v.scene_id && v.scene_id !== v.expected_scene_id;
+  // On /adventure/ the child is not on the way to the stage scene: say where they are instead (docs/22 수업 유지).
+  const onAdventure = v?.scene_id === 'adventure';
+  const mismatch = v && v.expected_scene_id && v.scene_id && v.scene_id !== v.expected_scene_id && !onAdventure;
   const possessed = getLessonNpc(p.live.possessedNpcId);
   // The child's last mic error with what to do, until a turn hears words again (talk lane PR 122 sets mic 'ok' then).
   const micLine = v?.mic_issue && v.mic !== 'ok' ? micIssueLine(v.mic_issue.issue, v.mic_issue.raw) : null;
@@ -58,6 +60,7 @@ export function StudentScreenBox(p: { live: DirectorLiveView; localNow: number; 
           </div>
         ) : null}
         {mismatch ? <Notice kind="info">{L.sceneMismatch(sceneName(v?.expected_scene_id))}</Notice> : null}
+        {onAdventure ? <Notice kind="info">{L.onAdventure}</Notice> : null}
         {v?.goal_ko ? (
           <div>
             <span style={{ fontSize: `${T.scale.small.sizePx}px`, color: C['ink-700'] }}>{L.goal}</span>

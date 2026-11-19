@@ -66,13 +66,23 @@ export function wordHit(r: ChapterRecord, w: string, kind: 'caught' | 'missed'):
   if (r.words.has(w) || r.words.size < ADV.recordMax.words) r.words.set(w, x);
 }
 
-/** Lowercase words of a sentence, punctuation gone ("I'm fine. Thank you!" → im fine thank you). */
+/**
+ * Lowercase words, punctuation gone, a contraction cut to its first word ("I'm fine. She'll swim!" → i fine she swim):
+ * she'll is not "shell", we're is not "were". The day word goes through the same cut.
+ */
 function tokens(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[‘’']/g, '')
+    .replace(/[‘’]/g, "'")
+    .replace(/([a-z])'[a-z]+/g, '$1')
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
+}
+
+/** A sentence's word is the day word or its plural (shell → shells, box → boxes, puppy → puppies). */
+function sameWord(tok: string | undefined, base: string): boolean {
+  if (tok === undefined) return false;
+  return tok === base || tok === `${base}s` || tok === `${base}es` || (base.endsWith('y') && tok === `${base.slice(0, -1)}ies`);
 }
 
 /** Does the sentence hold this word or phrase as whole words ("good bye" also counts for goodbye)? */
@@ -82,7 +92,7 @@ export function saysWord(sentence: string, word: string): boolean {
   if (!w.length) return false;
   const joined = w.join('');
   for (let i = 0; i < t.length; i++) {
-    if (w.every((x, k) => t[i + k] === x)) return true;
+    if (w.every((x, k) => (k === w.length - 1 ? sameWord(t[i + k], x) : t[i + k] === x))) return true;
     // a word heard split in two or a phrase heard as one ("good bye", "thankyou")
     if (t[i] === joined || (i + 1 < t.length && t[i]! + t[i + 1]! === joined)) return true;
   }

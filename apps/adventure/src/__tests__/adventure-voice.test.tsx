@@ -141,6 +141,14 @@ describe('A04 voice: the LCW server Whisper path and the class code', () => {
     expect(saysWord('thankyou', 'thank you')).toBe(true);
     expect(saysWord('Othello is here', 'hello')).toBe(false);
     expect(saysWord('I thank them', 'thank you')).toBe(false);
+    // contractions are not other words; plurals are the word
+    expect(saysWord("She'll swim", 'shell')).toBe(false);
+    expect(saysWord("We're here, we'll go", 'were')).toBe(false);
+    expect(saysWord("We'll go", 'well')).toBe(false);
+    expect(saysWord('These shells are mine!', 'shell')).toBe(true);
+    expect(saysWord('I like puppies', 'puppy')).toBe(true);
+    expect(saysWord('Two boxes', 'box')).toBe(true);
+    expect(saysWord("Let's be friends", "let's")).toBe(true);
     const r = startRecord(1, 1, ['hello', 'goodbye', 'thank you', 'puppy'], 0);
     expect(wordsSaid(r, ['Hello. Nice to meet you.'])).toEqual(['hello']);
     wordsSaid(r, ["I'm fine. Thank you."]);
@@ -162,6 +170,17 @@ describe('A04 voice: the LCW server Whisper path and the class code', () => {
     new Listener().start(() => {}, () => {});
     expect(session['lcw.micTurns']).toMatch(/^2\.1\.1\|stt_failed:\d+$/);
     expect(session['lcw.micIssue']).toMatch(/^stt_failed:http_502\|\d+$/);
+    // a refused token is not a mic problem; a turn cut by closing the panel is 'closed', not left open
+    setSpeechEngineFactory(() => fakeEngine({ ok: true }, (cb) => cb.onError('unsupported', 'http_401')));
+    new Listener().start(() => {}, () => {});
+    expect(session['lcw.micStatus']).toBe('ok');
+    expect(session['lcw.micTurns']).toMatch(/^3\.1\.2\|token_refused:\d+$/);
+    setSpeechEngineFactory(() => fakeEngine({ ok: true }));
+    const cut = new Listener();
+    cut.start(() => {}, () => {});
+    cut.abort();
+    expect(session['lcw.micTurns']).toMatch(/^4\.1\.3\|closed:\d+$/);
+    resetListenMemory();
     const urls: string[] = [];
     await pingLesson((async (url: string) => (urls.push(url), new Response('{}', { status: 200 }))) as unknown as typeof fetch);
     const q = new URLSearchParams(urls[0]!.split('?')[1]);

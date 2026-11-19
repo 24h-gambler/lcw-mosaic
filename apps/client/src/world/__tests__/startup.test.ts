@@ -80,6 +80,32 @@ describe('block material follows the tier (shadows on any world)', () => {
   });
 });
 
+describe('remeshing after a build (R2627 review)', () => {
+  it('a roof placed two chunks up remeshes every chunk below it in the column (sky light), not just the next one', () => {
+    const r = new ChunkRenderer(town, mats, 0);
+    const ys = [...town.chunks.values()].map((c) => c.cy);
+    const top = Math.max(...ys);
+    const bottom = Math.min(...ys);
+    expect(top - bottom).toBeGreaterThanOrEqual(2);
+    const col = [...town.chunks.values()].find((c) => c.cy === top)!;
+    const entries = (r as unknown as { entries: Map<string, { version: number }> }).entries;
+    const track = (r as unknown as { track: (a: number, b: number, c: number) => unknown }).track.bind(r);
+    for (let cy = bottom; cy <= top; cy++) if (town.chunks.has(`${col.cx},${cy},${col.cz}`)) track(col.cx, cy, col.cz);
+    const before = new Map([...entries].map(([k, e]) => [k, e.version]));
+    // a block in the middle of the top chunk (no sideways neighbours touched)
+    r.markDirtyAt(col.cx * CHUNK_SIZE + 8, top * CHUNK_SIZE + 2, col.cz * CHUNK_SIZE + 8);
+    for (let cy = bottom; cy <= top; cy++) {
+      const k = `${col.cx},${cy},${col.cz}`;
+      if (!town.chunks.has(k)) continue;
+      expect(entries.get(k)!.version, k).toBeGreaterThan(before.get(k)!);
+    }
+    // the changed chunk is meshed first, before the light updates of the chunks around it
+    const own = entries.get(`${col.cx},${top},${col.cz}`) as unknown as { version: number; meshedVersion: number };
+    r.update(col.cx * CHUNK_SIZE + 40, col.cz * CHUNK_SIZE + 40, 8, 1);
+    expect(own.meshedVersion).toBe(own.version);
+  });
+});
+
 describe('HTML splash', () => {
   it('uses the @lcw/ui token colours (index.html cannot import them)', () => {
     const html = readFileSync(fileURLToPath(new URL('../../../index.html', import.meta.url)), 'utf8');

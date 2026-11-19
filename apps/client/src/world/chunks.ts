@@ -20,6 +20,8 @@ interface ChunkEntry {
   meshedVersion: number;
   inFlight: boolean;
   empty: boolean;
+  /** the chunk a build changed: meshed before its neighbours' light updates so the block shows at once */
+  first?: boolean;
 }
 
 export interface ChunkMaterials {
@@ -85,68 +87,95 @@ export function extractLit(world: VoxelWorld, cx: number, cy: number, cz: number
   const P = LIGHT_PAD;
   const vox = new Uint16Array(n * n * n);
   const skyAbove = new Uint8Array(n * n).fill(1);
-  const x0 = cx * S - P;
-  const y0 = cy * S - P;
-  const z0 = cz * S - P;
   type Src = ReturnType<VoxelWorld['chunks']['get']>;
-  // the grid spans at most 2 x 2 x 2 chunks per axis pair around this one (P < S): look each chunk up once
-  const cache = new Map<string, Src>();
-  const chunkAt = (a: number, b: number, c: number): Src => {
-    const k = `${a},${b},${c}`;
-    let ch = cache.get(k);
-    if (ch === undefined && !cache.has(k)) {
-      ch = world.chunks.get(k);
-      cache.set(k, ch);
+  // P < S: the grid touches at most 3 x 3 x 3 chunks. Look each up once (27 map reads, no key per voxel), then copy
+  // rows straight from the chunk's palette array by the per-axis slot (0 = previous chunk, 1 = this one, 2 = next).
+  const src: Src[] = new Array<Src>(27);
+  for (let dy = 0; dy < 3; dy++) {
+    for (let dz = 0; dz < 3; dz++) {
+      for (let dx = 0; dx < 3; dx++) src[dy * 9 + dz * 3 + dx] = world.chunks.get(`${cx + dx - 1},${cy + dy - 1},${cz + dz - 1}`);
     }
-    return ch;
-  };
+  }
+  const slot = new Uint8Array(n);
+  const loc = new Uint8Array(n);
+  for (let p = 0; p < n; p++) {
+    const lp = p - P;
+    const sl = lp < 0 ? 0 : lp >= S ? 2 : 1;
+    slot[p] = sl;
+    loc[p] = lp - (sl - 1) * S;
+  }
+  // the three runs of x that fall in one chunk each
+  const runs: Array<[number, number, number]> = [
+    [0, P, 0],
+    [P, P + S, 1],
+    [P + S, n, 2]
+  ];
   let i = 0;
   for (let py = 0; py < n; py++) {
-    const wy = y0 + py;
-    const ccy = Math.floor(wy / S);
-    const ly = wy - ccy * S;
+    const sy = slot[py]! * 9;
+    const ly = loc[py]!;
     for (let pz = 0; pz < n; pz++) {
-      const wz = z0 + pz;
-      const ccz = Math.floor(wz / S);
-      const lz = wz - ccz * S;
-      for (let px = 0; px < n; px++) {
-        const wx = x0 + px;
-        const ccx = Math.floor(wx / S);
-        const ch = chunkAt(ccx, ccy, ccz);
-        vox[i++] = ch ? ch.getVoxel(wx - ccx * S, ly, lz) : 0;
+      const syz = sy + slot[pz]! * 3;
+      const rowBase = (ly * S + loc[pz]!) * S;
+      for (const [a, b, sx] of runs) {
+        const ch = src[syz + sx];
+        if (!ch) {
+          i += b - a;
+          continue;
+        }
+        const v = ch.voxels;
+        const pal = ch.palette;
+        for (let px = a; px < b; px++) vox[i++] = pal[v[rowBase + loc[px]!]!] ?? 0;
       }
     }
   }
-  // columns shaded from above the grid: scan the chunks stacked above (towns are a few chunks tall)
-  const topY = y0 + n; // first world y above the grid
-  let maxCy = cy;
-  for (const k of world.chunks.keys()) {
-    const c = Number(k.split(',')[1]);
-    if (c > maxCy) maxCy = c;
-  }
-  for (let pz = 0; pz < n; pz++) {
-    const wz = z0 + pz;
-    const ccz = Math.floor(wz / S);
-    const lz = wz - ccz * S;
-    for (let px = 0; px < n; px++) {
-      const wx = x0 + px;
-      const ccx = Math.floor(wx / S);
-      const lx = wx - ccx * S;
-      scan: for (let wy = topY; wy < (maxCy + 1) * S; wy++) {
-        const ccy = Math.floor(wy / S);
-        const ch = chunkAt(ccx, ccy, ccz);
-        if (!ch) {
-          wy = (ccy + 1) * S - 1;
-          continue;
-        }
-        if (blocksLight(ch.getVoxel(lx, wy - ccy * S, lz))) {
-          skyAbove[pz * n + px] = 0;
-          break scan;
+  // columns shaded from above the grid: the grid's top lies in chunk cy + 1 (at local y P); then the chunks above it
+  const top = chunkYRange(world).top;
+  for (let sz = 0; sz < 3; sz++) {
+    for (let sx = 0; sx < 3; sx++) {
+      const col: Src[] = [];
+      for (let c = cy + 1; c <= top; c++) col.push(c === cy + 1 ? src[18 + sz * 3 + sx] : world.chunks.get(`${cx + sx - 1},${c},${cz + sz - 1}`));
+      if (!col.some((c) => c)) continue;
+      for (let pz = 0; pz < n; pz++) {
+        if (slot[pz] !== sz) continue;
+        const lz = loc[pz]!;
+        for (let px = 0; px < n; px++) {
+          if (slot[px] !== sx) continue;
+          const lx = loc[px]!;
+          scan: for (let k = 0; k < col.length; k++) {
+            const ch = col[k];
+            if (!ch) continue;
+            const pal = ch.palette;
+            const v = ch.voxels;
+            for (let ly = k === 0 ? P : 0; ly < S; ly++) {
+              if (blocksLight(pal[v[(ly * S + lz) * S + lx]!] ?? 0)) {
+                skyAbove[pz * n + px] = 0;
+                break scan;
+              }
+            }
+          }
         }
       }
     }
   }
   return { vox, skyAbove };
+}
+
+/** The lowest and highest chunk y in the world, recounted only when the number of chunks changes. */
+const rangeCache = new WeakMap<VoxelWorld, { size: number; bottom: number; top: number }>();
+export function chunkYRange(world: VoxelWorld): { bottom: number; top: number } {
+  const c = rangeCache.get(world);
+  if (c && c.size === world.chunks.size) return c;
+  let top = -Infinity;
+  let bottom = Infinity;
+  for (const k of world.chunks.keys()) {
+    const y = Number(k.slice(k.indexOf(',') + 1, k.lastIndexOf(',')));
+    if (y > top) top = y;
+    if (y < bottom) bottom = y;
+  }
+  const r = { size: world.chunks.size, bottom, top };
+  rangeCache.set(world, r);
+  return r;
 }
 
 /** Concatenate chunk buffers (each offset by its chunk origin relative to the region origin) into one geometry. */
@@ -270,17 +299,19 @@ export class ChunkRenderer {
       e.empty = false;
     };
     touch(cx, cy, cz);
+    this.track(cx, cy, cz).first = true;
+    // the light of a chunk sees LIGHT_PAD blocks into its neighbours (sideways and up), and a block shades every
+    // chunk below it in the column (sky light), however far down
+    const bottom = Math.min(cy - 1, chunkYRange(this.world).bottom);
     for (const dx of [-1, 0, 1]) {
-      for (const dy of [-1, 0, 1]) {
-        for (const dz of [-1, 0, 1]) {
-          if (dx === 0 && dy === 0 && dz === 0) continue;
-          // the light of a chunk sees LIGHT_PAD blocks into its neighbours, and a block shades every chunk below it
-          if (dx === -1 && lx >= LIGHT_PAD) continue;
-          if (dx === 1 && lx < S - LIGHT_PAD) continue;
-          if (dy === 1 && ly < S - LIGHT_PAD) continue;
-          if (dz === -1 && lz >= LIGHT_PAD) continue;
-          if (dz === 1 && lz < S - LIGHT_PAD) continue;
-          if (this.world.chunks.has(`${cx + dx},${cy + dy},${cz + dz}`)) touch(cx + dx, cy + dy, cz + dz);
+      if (dx === -1 && lx >= LIGHT_PAD) continue;
+      if (dx === 1 && lx < S - LIGHT_PAD) continue;
+      for (const dz of [-1, 0, 1]) {
+        if (dz === -1 && lz >= LIGHT_PAD) continue;
+        if (dz === 1 && lz < S - LIGHT_PAD) continue;
+        for (let c = cy + (ly >= S - LIGHT_PAD ? 1 : 0); c >= bottom; c--) {
+          if (dx === 0 && dz === 0 && c === cy) continue;
+          if (this.world.chunks.has(`${cx + dx},${c},${cz + dz}`)) touch(cx + dx, c, cz + dz);
         }
       }
     }
@@ -359,7 +390,7 @@ export class ChunkRenderer {
     const want: Array<{ e: ChunkEntry; d: number }> = [];
     for (const e of this.entries.values()) {
       const d = Math.max(Math.abs(e.cx - pcx), Math.abs(e.cz - pcz));
-      if (d <= radius && !e.inFlight && e.meshedVersion < e.version) want.push({ e, d });
+      if (d <= radius && !e.inFlight && e.meshedVersion < e.version) want.push({ e, d: e.first ? -1 : d });
     }
     want.sort((a, b) => a.d - b.d);
     if (this.workers.length > 0) {
@@ -370,6 +401,7 @@ export class ChunkRenderer {
       }
     } else {
       for (const { e } of want.slice(0, budget)) {
+        e.first = false;
         const { vox, skyAbove } = extractLit(this.world, e.cx, e.cy, e.cz);
         this.install(e, meshChunk(vox, [e.cx * CHUNK_SIZE, e.cy * CHUNK_SIZE, e.cz * CHUNK_SIZE], { n: LIT_N, skyAbove }), e.version);
       }
@@ -419,6 +451,7 @@ export class ChunkRenderer {
   }
 
   private dispatch(e: ChunkEntry): void {
+    e.first = false;
     const { vox, skyAbove } = extractLit(this.world, e.cx, e.cy, e.cz);
     const id = ++this.jobId;
     this.pending.set(id, { key: e.key, version: e.version });

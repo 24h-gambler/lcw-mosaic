@@ -398,7 +398,7 @@ export class Storefronts {
       paintBadge(bc.getContext('2d') as CanvasRenderingContext2D, def, BADGE);
       const btex = new THREE.CanvasTexture(bc as HTMLCanvasElement);
       btex.colorSpace = THREE.SRGBColorSpace;
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: btex, transparent: true, depthWrite: false, fog: false }));
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: btex, transparent: true, depthWrite: false, fog: false, toneMapped: false }));
       sprite.scale.set(3.4, 3.4, 1);
       sprite.position.set(def.badge.x, def.badge.y, def.badge.z);
       sprite.name = `badge.${def.id}`;

@@ -1999,6 +1999,12 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       wayfinder.dispose();
       post?.dispose();
       chunks.dispose();
+      for (const m of Object.values(matsByMode)) {
+        m.opaque.dispose();
+        m.translucent.dispose();
+      }
+      atlas.dispose();
+      atlasMat.dispose();
       VoxelCharacter.shadows = null;
       sfx.dispose();
       hud.dispose();

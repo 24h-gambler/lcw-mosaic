@@ -64,7 +64,8 @@ export class PostChain {
   }
 
   dispose(): void {
-    this.bloom.dispose();
+    // every pass's own materials and targets (the grade and output quads), not only the composer's targets
+    for (const p of this.composer.passes) (p as { dispose?: () => void }).dispose?.();
     this.composer.dispose();
   }
 }

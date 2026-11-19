@@ -31,8 +31,11 @@ uniform float uWind[${TILE_NAMES.length}];
 uniform float uTime;
 uniform float uWaterLayer;
 uniform vec3 uLampCol;
-float lcwSkyB(float s) { return max(0.025, pow(0.8, 15.0 * (1.0 - s))); }
-float lcwLampB(float b) { return b > 0.0 ? pow(0.76, 15.0 * (1.0 - b)) : 0.0; }
+// sky light falls off per block away from the open sky; the floor stands for light bounced around a room, so an
+// interior in daytime reads as a dim room, not a black one
+float lcwSkyB(float s) { return max(0.12, pow(0.84, 15.0 * (1.0 - s))); }
+// a lantern's pool: bright under it, about a third left five blocks away
+float lcwLampB(float b) { return b > 0.0 ? pow(0.8, 15.0 * (1.0 - b)) : 0.0; }
 /** direct sun reaches places open to the sky (no shadow map): roofs and rooms keep it out */
 float lcwSunVis(vec3 vox) { return smoothstep(0.78, 0.97, vox.g) * mix(0.55, 1.0, vox.r); }
 float lcwIsWater(vec3 tile) { return abs(tile.z - uWaterLayer) < 0.5 ? 1.0 : 0.0; }

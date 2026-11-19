@@ -213,10 +213,13 @@ varying vec3 vN;
 varying vec3 vV;
 void main() {
   float rim = pow(1.0 - abs(dot(vN, vV)), 1.5);
-  float fade = (1.0 - vH) * (1.0 - vH);
+  // clear around the person (the first 2.6 m), strongest just above the head, fading up; mostly its rim, so the
+  // person stays visible through it
+  float rise = smoothstep(0.06, 0.16, vH);
+  float fade = (1.0 - vH) * (1.0 - vH) * rise;
   float band = 0.75 + 0.25 * uFlow * sin(vH * 18.0 - uT * 3.0);
-  float a = uA * fade * (0.35 + 0.65 * rim) * band;
-  gl_FragColor = vec4(uCol * (1.2 + rim), a);
+  float a = uA * fade * (0.12 + 0.6 * rim) * band;
+  gl_FragColor = vec4(uCol * (0.9 + rim), a);
 }`,
       transparent: true,
       depthWrite: false,

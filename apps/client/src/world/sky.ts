@@ -219,13 +219,15 @@ export class Sky {
     this.cloudMat?.emissive.copy(s.horizon).lerp(s.top, 0.3);
     if (this.cloudMat) this.cloudMat.emissiveIntensity = 0.12 + (1 - night) * 0.3;
     this.exposure = 1.05 + night * 0.35;
-    this.lamp = 1 + night * 0.7;
+    // lanterns carry the night: warm pools on the pavement against a dim moonlit fill
+    this.lamp = 1 + night * 1.5;
     // Sun arc: rises east (+x), sets west; a bit south so building fronts are lit.
     const a = ((this.hour - 6) / 12) * Math.PI;
     const dir = new THREE.Vector3(Math.cos(a) * 0.75, Math.max(0.12, Math.sin(a)), 0.45).normalize();
     if (this.hour < 5 || this.hour > 19) dir.set(-0.3, 0.8, 0.4).normalize();
     this.mat.uniforms.uSunDir!.value.copy(dir);
-    this.sun.intensity = night > 0.5 ? 0.5 : s.ambient * 3.1;
+    // the moon: a faint cool key light, so lamp pools and lit windows read at night
+    this.sun.intensity = night > 0.5 ? 0.22 : s.ambient * 3.1;
     this.sunDir.copy(dir);
   }
 

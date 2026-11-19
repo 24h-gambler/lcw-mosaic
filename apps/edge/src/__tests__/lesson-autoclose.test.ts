@@ -171,6 +171,28 @@ describe('abandoned lessons close by themselves (cron sweep)', () => {
     expect(count(p, 'select count(*) as n from lessons where ended_at is null')).toBe(1);
   });
 
+  it('the child on /adventure/ (away=adventure poll) keeps the lesson open, the console sees it, the stage clock does not run', async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    const stage0 = sqlOf(p).get<{ stage_id: string; child_ms: number }>('select stage_id, child_ms from lesson_state where lesson_id = ?', [lessonId]);
+    for (let i = 0; i < 6; i++) {
+      now += 10 * 60_000;
+      const r = await call(p, 'GET', '/v1/lesson/state?away=adventure', undefined, st);
+      expect(r.status).toBe(200);
+      expect(r.body.auto_advanced).toBeNull();
+      expect((await cron(p)).body.lessons.closed).toEqual([]);
+    }
+    const after = sqlOf(p).get<{ stage_id: string; child_ms: number }>('select stage_id, child_ms from lesson_state where lesson_id = ?', [lessonId]);
+    expect(after).toEqual(stage0);
+    expect(sqlOf(p).get<{ scene_id: string }>('select scene_id from lesson_presence where lesson_id = ?', [lessonId])?.scene_id).toBe('adventure');
+    // no poll at all: closed after the idle time as before
+    now += 16 * 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+  });
+
   it('a card that went out before keep (11-16 Oreo, folded on the hub) goes again once with keep on the next hourly cron (review of PR 162)', async () => {
     now = T0;
     const p = platform();

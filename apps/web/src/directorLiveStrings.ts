@@ -63,5 +63,12 @@ export const DIRECTOR_LIVE_STRINGS_KO = {
   colStage: '단계',
   nextLessonTitle: '다음 수업 예고',
   nextLessonBody: (when: string, plan: string) => `${when} · ${plan}`,
-  nextLessonNone: '다음 수업안은 수업 끝 화면에서 날짜와 함께 적어 주세요.'
+  nextLessonNone: '다음 수업안은 수업 끝 화면에서 날짜와 함께 적어 주세요.',
+  teachMore: '🎤 선생님이 직접 하기 · NPC 로 말하기 · 내 문장 띄우기 · 이벤트',
+  teachMoreHelp: '자동 진행은 그대로 돌아요. 여기서 하는 것은 그 위에 선생님이 얹는 것이에요(선생님이 이깁니다).',
+  ownTargetTitle: '학생 화면에 내 문장 띄우기',
+  ownTargetHelp: '지금 단계의 목표 문장 대신 이 문장을 띄워요. 아이가 말하면 이 문장으로 채점해요.',
+  ownTargetPlaceholder: '영어 문장 (예: Can I have two cookies, please?)',
+  ownTargetSend: '띄우기',
+  ownTargetFailed: '띄우지 못했어요. 다시 눌러 주세요.'
 } as const;

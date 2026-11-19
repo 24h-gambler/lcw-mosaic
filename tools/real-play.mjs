@@ -13,7 +13,7 @@
 //   camera rise during a pressed jump (first person view must stay steady, R2625 ①)
 //   repeated first lines when the same NPC is visited again (dialog lane, R2625)
 //   the hill: down the half-step ramp and back up by keys / stick only, no jump (LCW_REAL_PLAY_HILL=0 skips it)
-//   in a lesson: the lesson NPC reopens the folded window by click and E; a passer-by stays quiet (#152)
+//   in a lesson: the lesson NPC reopens the folded window by click and E; a passer-by opens a free talk of its own (Dan 11-19)
 //   failed requests by path; cached-only voice 404s (/v1/tts?…&c=1, by design under automation) counted apart
 // The nightly audit (tools/nightly-audit.mjs) runs it on production and judges it with tools/real-play-judge.mjs.
 //
@@ -668,8 +668,9 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
       return page.waitForSelector('[data-testid="lesson-reopen"]', { timeout: 5000 }).then(() => true).catch(() => false);
     };
     if (open && lesson.npc && (await fold())) {
-      // a passer-by in the lesson (#152): no talk prompt or talk button over them, a tap and E stay quiet (no dialog,
-      // the lesson window stays folded), and the lesson NPC still reopens it afterwards (the click/E checks below)
+      // a passer-by in the lesson (Dan 11-19 "자유도도 없앴다", undoing #152's quiet passer-by): a tap or E opens a free
+      // talk with that NPC (its own window, data-npc = the passer-by) while the lesson window stays folded, and the
+      // lesson NPC still reopens the lesson window afterwards (the click/E checks below)
       const passerId = ['cafe_owner', 'shop_owner', 'guide'].find((id) => id !== lesson.npc);
       const walkToNpc = (id) => page.evaluate((n) => (window.__lcwWorld.walkToNpc ? window.__lcwWorld.walkToNpc(n) : null), id).catch(() => null);
       await walkToNpc(passerId);
@@ -692,12 +693,17 @@ if (process.env.LCW_OPERATOR_TOKEN && dev.kid && process.env.LCW_REAL_PLAY_LESSO
       const s1 = await stats();
       passer.quietTaps = (s1?.interact?.passerTaps ?? 0) - t0;
       passer.dialogOpened = await dlgOpen();
-      passer.stillFolded = (await page.$('[data-testid="lesson-reopen"]')) !== null;
+      passer.dialogNpc = await page.$eval('.lcw-dlg', (d) => d.getAttribute('data-npc')).catch(() => null);
+      passer.lessonWindowOpen = (await page.$('[data-testid="lesson-dialog"]')) !== null;
       // null when the bot could not get the passer-by on screen: not checked, not a failure (review of #158)
-      passer.ok = !passer.faced ? null : passer.near !== passerId && !passer.prompt && !passer.talkButton && passer.quietTaps >= 1 && !passer.dialogOpened && passer.stillFolded;
+      passer.ok = !passer.faced ? null : passer.quietTaps >= 1 && passer.dialogOpened && passer.dialogNpc === passerId && !passer.lessonWindowOpen;
+      passer.stillFolded = !passer.lessonWindowOpen;
       lesson.passer = passer;
       await shot('80b-lesson-passer');
-      if (passer.dialogOpened) await fold();
+      if (passer.dialogOpened) {
+        await page.click('.lcw-dlg__x', { timeout: 3000 }).catch(() => {});
+        await page.waitForSelector('[data-testid="lesson-reopen"]', { timeout: 5000 }).catch(() => {});
+      }
       await walkToNpc(lesson.npc);
       await page.waitForFunction(() => !window.__lcwWorld.getStats().interact.walking, null, { timeout: 60000 }).catch(() => {});
       await approach(lesson.npc, 2.4);

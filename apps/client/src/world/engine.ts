@@ -929,19 +929,18 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     return d <= TALK_RANGE + 2.5 ? best : null;
   }
 
-  /** a lesson is live and this is not its NPC: taps and E on it stay quiet, and talk counts leave it out */
+  /**
+   * A lesson is live and this is not its NPC. Talking to it stays possible (Dan 11-19 "자유도도 없앴다": #152 had made
+   * passers-by quiet in a lesson): the app opens a free talk with it while the lesson window folds. Talks with it are
+   * counted apart (passerTaps), so the lesson NPC's click/E counts stay the lesson's.
+   */
   function isPasser(n: NpcRt): boolean {
     return lessonMode && !!goalNpcId && n.def.id !== goalNpcId;
   }
 
   function interact(n: NpcRt): void {
     if (paused) return;
-    // In a lesson only the lesson's NPC talks: a tap on a passer-by is quiet (no open sound, no turn, no wave), as the
-    // lesson window does not open for it either (review of #139).
-    if (isPasser(n)) {
-      counts.passerTaps++;
-      return;
-    }
+    if (isPasser(n)) counts.passerTaps++;
     talkedTo.add(n.def.id);
     sfx.play('ui.open');
     focusNpc = n;
@@ -1612,8 +1611,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
       // R2625 ④: among NPCs in reach, the one in front of the view wins over one just behind the child's back
       const off = Math.abs(wrapAngle(Math.atan2(n.pos.x - body.x, n.pos.z - body.z) - viewYaw()));
       const score = pd + (off > 1.2 ? 2.5 : off * 0.6);
-      // in a lesson only the lesson's NPC is "near": no talk prompt or E on a passer-by that would then do nothing
-      if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode) && !isPasser(n)) {
+      // in a lesson a passer-by is "near" too: E and the talk prompt open a free talk with them (Dan 11-19)
+      if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode)) {
         nearD = score;
         nearNpc = n;
       }

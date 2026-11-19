@@ -23,7 +23,7 @@ import { LESSON_STRINGS as S, childNpcName, helpLine, lessonGoal } from './strin
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
 import { SubmitError } from '../dialog/submit.js';
 import { TeacherPanel } from './TeacherPanel.js';
-import { LESSON_TALK_EVENT } from '../world/events.js';
+import { LESSON_FREE_TALK_EVENT, LESSON_TALK_EVENT } from '../world/events.js';
 
 const C = TOKENS.colors;
 const T = TOKENS.typography;
@@ -59,7 +59,12 @@ export interface LessonLayerProps {
   world: LessonWorld | null;
   /** The dialog domain's panel; returns null when it is not available, then the layer's own panel is used. */
   renderDialog?: (npc: LessonNpcRef, cfg: LessonDialogConfig) => React.ReactNode;
-  /** True while a lesson is live: App shows the "수업 중" badge and stops opening solo dialogs on NPC taps. */
+  /**
+   * True while the app shows a free talk with a passer-by during the lesson (Dan 11-19): the lesson's own window and
+   * its reopen button stay off the screen (not mounted, so no second microphone or voice) until it closes.
+   */
+  freeTalkOpen?: boolean;
+  /** True while a lesson is live: App shows the "수업 중" badge; NPC taps reach the lesson layer first. */
   onLessonActive?: (active: boolean) => void;
   api?: StudentLessonApi;
   search?: string;
@@ -129,13 +134,20 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   const [foldedKey, setFoldedKey] = useState<string | null>(null);
   const [doneSeq, setDoneSeq] = useState(0);
   // A click, tap or E on an NPC in the world during the lesson opens the folded dialog window again (Dan 11-16 R2625).
-  // Only the lesson's own NPC: a tap on a passer-by must not reopen the lesson window framed on someone else (review).
+  // The lesson's own NPC reopens the lesson window. A passer-by gets a free talk of its own (Dan 11-19 "자유도도
+  // 없앴다"): the lesson window folds and the app opens the passer-by's window; the lesson NPC brings it back.
   const lessonNpc = useRef(view.npcId);
   lessonNpc.current = view.npcId;
+  const panelKeyRef = useRef('');
   useEffect(() => {
     const open = (e: Event): void => {
       const id = (e as CustomEvent<{ npcId?: string }>).detail?.npcId;
-      if (!id || id === lessonNpc.current) setFoldedKey(null);
+      if (!id || id === lessonNpc.current) {
+        setFoldedKey(null);
+        return;
+      }
+      setFoldedKey(panelKeyRef.current);
+      window.dispatchEvent(new CustomEvent(LESSON_FREE_TALK_EVENT, { detail: { npcId: id } }));
     };
     window.addEventListener(LESSON_TALK_EVENT, open);
     return () => window.removeEventListener(LESSON_TALK_EVENT, open);
@@ -143,6 +155,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   // New stage or new sentences from the teacher: the panel starts fresh (selection, heard text, open microphone),
   // and a folded dialog window opens again.
   const panelKey = `${view.stageSeq}:${view.offers.map((o) => o.text).join('|')}`;
+  panelKeyRef.current = panelKey;
   // The dialog window's first NPC line is fixed while that window is open (review of #26): a teacher line arriving
   // mid-answer must not swap the question and be read aloud over the open microphone. A new window (new stage or
   // sentences, "완료", reopening after ✕) takes the newest line again.
@@ -328,7 +341,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
         <EventEffect kind={view.banner?.kind ?? null} id={view.banner?.id ?? null} handledByWorld={Boolean(props.world?.playDirectorEvent)} />
         {/* Second child in both live layouts, so opening the dialog does not remount (and lock) the 1PC panel. */}
         <TeacherPanel lessonId={view.lessonId} planId={view.planId} stageId={view.stageId} />
-        {folded ? (
+        {props.freeTalkOpen ? null : folded ? (
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: SP[3], display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
             <div style={{ width: '100%', maxWidth: 720, display: 'flex', justifyContent: 'flex-end' }}>
               <StatusPill view={view} onLeave={() => ctl.leave()} />

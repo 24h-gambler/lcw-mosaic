@@ -54,7 +54,14 @@ export const ADV = {
   /** Solid boxes on the island (pixels): critters fill their three-tile gate, the guardian is big, the rest small. */
   entityBox: { small: { w: 14, h: 12 }, critter: { w: 14, h: 44, below: 14 }, guardian: { w: 28, h: 40 } },
   /** The server settings row's key limit (docs/19 3장). */
-  settingsMaxKeys: 40
+  settingsMaxKeys: 40,
+  /**
+   * The 🎤 turn on the server Whisper path (docs/22 1.3, the same /v1/converse/stt as the LCW dialog): it ends this long
+   * after the child's voice stops, or when nobody spoke for `noVoiceMs`, and never runs past `maxMs`.
+   */
+  listen: { silenceStopMs: 1400, noVoiceMs: 7000, maxMs: 15000 },
+  /** A class code is 6 digits (edge makeJoinCode). */
+  joinCodeDigits: 6
 } as const;
 
 export type CreatureClass = 'critter' | 'guardian' | 'final';

@@ -7,7 +7,7 @@ import { COLOR_TOKENS as C, MOTION_TOKENS as M, SHAPE_TOKENS as S, TYPOGRAPHY_TO
 import { WORLD_STRINGS as W, itemGotText, itemTitle, itemTitleBi, controlsDesktopBi, controlsDesktopFor, DEFAULT_KEY_HINTS, worldSay, type KeyHintLabels } from './strings.js';
 import { onLearnLang } from './lang.js';
 import { bandOf, clockLabel, isNight, placeBi, type BandId } from '../frame/status.js';
-import { coverHits } from './cover.js';
+import { HUD_PART_EVENT, coverHits } from './cover.js';
 import { refillOf } from '../frame/gauges.js';
 
 const STYLE_ID = 'lcw-world-hud-style';
@@ -102,7 +102,7 @@ function css(): string {
 .lw-cap{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:${night};color:${C['paper-0']};padding:4px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));text-align:center;opacity:0;transition:opacity ${M.baseMs}ms ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lw-cap.on{opacity:1}
 .lw-cap.two{white-space:pre-line;overflow-wrap:anywhere}
-.lw-hud:has(.lw-touch.on) .lw-cap{max-width:calc(100% - 2 * var(--lcw-hud-talk-w, 140px))}
+.lw-hud:has(.lw-touch.on) .lw-cap{max-width:max(160px, calc(100% - 2 * var(--lcw-hud-talk-w, 140px)))}
 .lw-hud:has(.lw-cap.on.two) .lw-help{opacity:0}
 .lw-hud.dlg .lw-cap{opacity:0}
 .lw-slot img{width:36px;height:36px;image-rendering:pixelated}
@@ -273,6 +273,11 @@ function tapOnly(b: HTMLElement, fire: () => void, look: (dx: number, dy: number
   });
 }
 
+/** Frame parts that stand in the HUD's top-right column, under its own parts (the 1PC teacher button). */
+function rightColParts(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-hud-col="right"]'));
+}
+
 export class WorldHud {
   readonly root: HTMLDivElement;
   private goal: HTMLDivElement;
@@ -331,6 +336,9 @@ export class WorldHud {
   private chipBox: HTMLElement | null = null;
   private hotbarEl: HTMLElement | null = null;
   private miniSeen = false;
+  private walkSeen: HTMLElement | null = null;
+  private onPart: (() => void) | null = null;
+  private partsSeen = new Set<HTMLElement>();
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -407,12 +415,15 @@ export class WorldHud {
           if (!this.miniSeen) {
             this.miniSeen = true;
             this.chipObs?.observe(mini);
-            // it slides when the connection band comes and goes: place the walk button again where it stops
-            mini.addEventListener('transitionend', () => this.measureStacks());
           }
           const rr = this.root.getBoundingClientRect();
           const b = mini.getBoundingClientRect();
           if (b.left - rr.left > rr.width / 2 && b.top - rr.top < rr.height / 2) colW = Math.max(colW, rr.right - b.left - 12);
+        }
+        // parts the frame puts in this column (the 1PC teacher button, lesson/TeacherPanel.tsx: data-hud-col="right")
+        for (const e of rightColParts()) {
+          const b = e.getBoundingClientRect();
+          if (b.width > 0) colW = Math.max(colW, this.root.getBoundingClientRect().right - b.left - 12);
         }
         const viewR = colW > 0 ? 12 + colW + 8 : 12;
         const talkR = this.placeTalk();
@@ -438,6 +449,15 @@ export class WorldHud {
       this.chipObs.observe(chip);
       this.chipObs.observe(stars);
       this.chipObs.observe(this.root);
+      // a frame part placed by these measures came or went (TeacherPanel): measure, and follow its size from now on
+      this.onPart = () => {
+        const now = new Set(rightColParts());
+        for (const e of this.partsSeen) if (!now.has(e)) this.chipObs?.unobserve(e);
+        for (const e of now) if (!this.partsSeen.has(e)) this.chipObs?.observe(e);
+        this.partsSeen = now;
+        measure();
+      };
+      window.addEventListener(HUD_PART_EVENT, this.onPart);
     }
 
     const si = el('span', '', this.starsEl);
@@ -456,6 +476,13 @@ export class WorldHud {
     el('i', '', this.goalMark).textContent = '!';
     this.prompt = el('div', 'lw-prompt', this.root);
     this.prompt.innerHTML = '';
+    // its size is cached for the per-frame placement; a text size or key change resizes it: read it again then
+    if (typeof ResizeObserver !== 'undefined') {
+      this.promptObs = new ResizeObserver(() => {
+        this.promptSize = null;
+      });
+      this.promptObs.observe(this.prompt);
+    }
     const kbd = el('kbd', '', this.prompt);
     kbd.textContent = W.talkKey;
     this.talkKbd = kbd;
@@ -867,6 +894,7 @@ export class WorldHud {
   /** A panel covers the bottom (dialog window): the goal card steps aside so the NPC's face shows in the strip. */
   setDialogOpen(on: boolean): void {
     this.root.classList.toggle('dlg', on);
+    this.measureStacks();
   }
 
   /**
@@ -911,14 +939,26 @@ export class WorldHud {
       const b = e.getBoundingClientRect();
       if (b.left - rb.left > rb.width / 2 && b.top - rb.top < rb.height / 2) right = Math.max(right, b.bottom - rb.top);
     }
+    // the HUD's own column ends here: the frame's parts in it (1PC teacher button) stack under it, the dock under them
+    doc.setProperty('--lcw-hud-col-b', `${Math.ceil(right)}px`);
+    for (const e of rightColParts()) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0) right = Math.max(right, b.bottom - rb.top);
+    }
     doc.setProperty('--lcw-hud-right-b', `${Math.ceil(right)}px`);
     // the dialog walk button (left, above the bottom stack) steps right of a minimap that sits top-left on a short
     // landscape screen when they would meet (667x375 with the lesson tag)
     let walkL = 12;
     const mini = this.root.querySelector<HTMLElement>('.lw-mini');
-    if (mini && mini.offsetWidth > 0) {
+    const walk = document.querySelector<HTMLElement>('.lcw-goal-walk, .lcw-errand-walk');
+    // nit 3: the walk button wraps to two lines once it steps right; follow its height (it is React's, it comes and goes)
+    if (walk !== this.walkSeen) {
+      if (this.walkSeen) this.chipObs?.unobserve(this.walkSeen);
+      if (walk) this.chipObs?.observe(walk);
+      this.walkSeen = walk;
+    }
+    if (mini && mini.offsetWidth > 0 && !this.root.classList.contains('dlg')) {
       const b = mini.getBoundingClientRect();
-      const walk = document.querySelector<HTMLElement>('.lcw-goal-walk, .lcw-errand-walk');
       const walkTop = h - stack - 12 - (walk?.offsetHeight || 48);
       // a minimap on the left half is the landscape one (portrait and mouse put it right); the band pushes it below
       // the middle of a short screen, so no top-half test
@@ -1278,6 +1318,7 @@ export class WorldHud {
   }
 
   private promptSize: { w: number; h: number } | null = null;
+  private promptObs: ResizeObserver | null = null;
 
   director(kind: 'blackout' | 'snow' | null): void {
     this.dirLayer.className = `lw-dir${kind ? ` on ${kind}` : ''}`;
@@ -1317,6 +1358,9 @@ export class WorldHud {
     this.offLang?.();
 
     this.chipObs?.disconnect();
+    this.promptObs?.disconnect();
+    for (const v of ['--lcw-hud-stack', '--lcw-hud-top-b', '--lcw-hud-col-b', '--lcw-hud-right-b', '--lcw-hud-talk-w', '--lcw-hud-walk-l']) document.documentElement.style.removeProperty(v);
+    if (this.onPart) window.removeEventListener(HUD_PART_EVENT, this.onPart);
     window.removeEventListener('resize', this.onResizeNet);
     this.root.remove();
   }

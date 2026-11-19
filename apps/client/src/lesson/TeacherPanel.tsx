@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { LESSON_PLANS, getLessonPlan, type LessonStage } from '@lcw/content';
 import { TOKENS } from '@lcw/ui';
 import { helpLine } from './strings.js';
+import { HUD_PART_EVENT } from '../world/cover.js';
 
 export const OPERATOR_TOKEN_KEY = 'lcw.operatorToken';
 export const PANEL_BEAT_MS = 15_000;
@@ -166,6 +167,18 @@ export function TeacherPanel({
     setPin('');
   }, []);
 
+  // the button stands in the HUD's top-right column: the HUD measures the column again when it comes and goes
+  // (world/hud.ts listens)
+  useEffect(() => {
+    if (!op) return undefined;
+    const tell = () => window.dispatchEvent(new Event(HUD_PART_EVENT));
+    const t = requestAnimationFrame(tell);
+    return () => {
+      cancelAnimationFrame(t);
+      queueMicrotask(tell);
+    };
+  }, [op]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Ctrl+Alt+T, not Ctrl+Shift+T: browsers keep that one for "reopen closed tab", which could bring the console
@@ -214,13 +227,14 @@ export function TeacherPanel({
     setPhase('locked');
   };
 
+  // under the toggle button (the HUD's top-right column, measured), so the open panel never covers its own button
   const box: React.CSSProperties = {
     position: 'fixed',
-    top: 100,
+    top: 'calc(var(--lcw-hud-right-b, 92px) + 8px)',
     right: 12,
     zIndex: 70,
     width: 'min(420px, calc(100vw - 24px))',
-    maxHeight: 'calc(100vh - 124px)',
+    maxHeight: 'calc(100vh - var(--lcw-hud-right-b, 92px) - 32px)',
     overflowY: 'auto',
     background: C['paper-0'],
     color: C['ink-900'],
@@ -244,7 +258,12 @@ export function TeacherPanel({
         data-testid="teacher-panel-toggle"
         aria-label={S.open}
         onClick={toggle}
-        style={{ position: 'fixed', top: 60, right: 12, zIndex: 70, ...btn, minHeight: 32, padding: '2px 8px', fontSize: 12, opacity: 0.75, pointerEvents: 'auto' }}
+        // a part of the HUD's top-right column (world/hud.ts measures it): under the stars, the view button and a minimap
+        // up there, never over them (1280 touch: it lay on the view button); the review dock and the goal card keep
+        // clear of it. 60px is the old place, for a screen without the HUD's measures.
+        data-hud-part=""
+        data-hud-col="right"
+        style={{ position: 'fixed', top: 'calc(var(--lcw-hud-col-b, 52px) + 8px)', right: 12, zIndex: 70, ...btn, minHeight: 32, padding: '2px 8px', fontSize: 12, opacity: 0.75, pointerEvents: 'auto' }}
       >
         {S.open}
       </button>

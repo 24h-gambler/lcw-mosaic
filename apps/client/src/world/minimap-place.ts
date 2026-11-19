@@ -2,7 +2,8 @@
  * Where the minimap sits on screen (CSS px), per kind of screen (docs/08 7.3). Its own module without three.js so the
  * app layer (the review dock) can keep clear of it without pulling the renderer in.
  *
- *  - mouse: bottom-right corner;
+ *  - mouse: bottom-right corner; a narrow window (600 px or less) like a phone, the right column (1PC check at 390
+ *    with a mouse: the corner one lay on the hotbar, the caption and the controls help);
  *  - touch: the right column under the view button (72 px; 96 px on a tablet);
  *  - touch landscape phone (height 500 or less): top-left under the status chip (its measured bottom, --lw-chip-b);
  *    the right side there is full (view, talk, jump and the two-column build tools).

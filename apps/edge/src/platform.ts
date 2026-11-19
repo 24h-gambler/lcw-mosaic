@@ -49,7 +49,7 @@ import {
 } from './do-sqlite.js';
 import { EdgePlatformDb, LessonDO, WorldDO, type SqliteExecutor } from './storage.js';
 import { ROOM_CONNECT_PATH, ROOM_TICKET_SCHEMA, buildRoomApp, redeemRoomTicket, routeRoomConnect } from './room.js';
-import { OPS_CARD_ORIGIN, enqueueRecentStudentDays } from './ops-cards.js';
+import { OPS_CARD_ORIGIN, enqueuePendingAutoCloseCards, enqueueRecentStudentDays } from './ops-cards.js';
 
 /**
  * Production platform (entry module: worker.ts). One SQLite Durable Object ("platform") holds the relational
@@ -569,10 +569,18 @@ export class PlatformDO {
           studentCards = { error: err instanceof Error ? err.message : String(err) };
           this.recordRun('hourly_student_cards', false, studentCards);
         }
+        // Auto-closed lessons still waiting for the teacher: their card goes again only when it changed (keep, PR 162).
+        let autoCards: unknown;
+        try {
+          autoCards = enqueuePendingAutoCloseCards(this.sql, now, this.env.LCW_PUBLIC_ORIGIN ?? null).length;
+        } catch (err) {
+          autoCards = { error: err instanceof Error ? err.message : String(err) };
+          this.recordRun('hourly_auto_close_cards', false, autoCards);
+        }
         const r = this.db.processPendingReportReminders(now);
         // docs/09 P9: the day's stage; a day that reached 85% is kept as an alert day.
         const quota = rollupQuota(this.sql, this.quota, now);
-        detail = { reminded: r.remindedCount, seat_notices: seats, quota, student_cards: studentCards };
+        detail = { reminded: r.remindedCount, seat_notices: seats, quota, student_cards: studentCards, auto_close_cards: autoCards };
       }
       this.recordRun(task, true, detail);
       return { task, ok: true, detail };

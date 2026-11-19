@@ -1,10 +1,32 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Listener, canListen, type ListenEnd } from '../audio/listen.js';
+import { joinWithCode, cleanCode, type JoinEnd } from '../audio/join.js';
+import { Listener, listenState, type ListenEnd, type ListenState } from '../audio/listen.js';
+import { ADV } from '../core/tuning.js';
 import { S } from './strings.js';
 
+type Note = { en: string; ko: string };
+
+const NOTE_OF: Record<Exclude<ListenEnd['kind'], 'heard'>, Note> = {
+  silent: S.micSilent,
+  retry: S.micRetry,
+  denied: S.micDenied,
+  quota: S.micQuota,
+  unsupported: S.micUnavailable,
+  need_code: S.joinTitle
+};
+
+const JOIN_NOTE: Record<Extract<JoinEnd, { ok: false }>['reason'], Note> = {
+  format: S.joinFormat,
+  invalid: S.joinInvalid,
+  busy: S.joinBusy,
+  network: S.joinNetwork
+};
+
 /**
- * 🎤 + ⌨ for one spoken line (A04): the mic when the browser can listen, typing at once when it cannot or when the
- * mic is refused or silent. `onAnswer(transcripts, mode)` gets what was heard or typed.
+ * 🎤 + ⌨ for one spoken line (A04). The mic is the LCW server Whisper path (audio/listen.ts). A child with no token
+ * gets the class code box right here (audio/join.ts), not a silent switch to typing. "Say it again" after a turn that
+ * was not heard or not understood; typing when there is no microphone, it is refused, or the meter is resting.
+ * `onAnswer(transcripts, mode)` gets what was heard or typed.
  */
 export function Speak({
   help,
@@ -19,12 +41,16 @@ export function Speak({
   autoType?: boolean;
   testid?: string;
 }) {
-  const [mic] = useState(() => canListen());
+  const [state, setState] = useState<ListenState>(() => listenState());
+  const mic = state === 'ok';
   const [on, setOn] = useState(false);
-  const [interim, setInterim] = useState('');
-  const [note, setNote] = useState<null | { en: string; ko: string }>(mic ? null : S.micUnavailable);
-  const [typing, setTyping] = useState(!mic || autoType);
+  const [sending, setSending] = useState(false);
+  const [level, setLevel] = useState('');
+  const [note, setNote] = useState<Note | null>(state === 'unsupported' ? S.micUnavailable : null);
+  const [typing, setTyping] = useState(state === 'unsupported' || autoType);
   const [text, setText] = useState('');
+  const [code, setCode] = useState('');
+  const [joining, setJoining] = useState(false);
   const lis = useRef<Listener | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -34,26 +60,48 @@ export function Speak({
   }, [typing]);
 
   const start = () => {
+    if (sending) return;
     if (on) {
+      setSending(true);
       lis.current?.stop();
       return;
     }
     const l = new Listener();
     lis.current = l;
     setOn(true);
-    setInterim('');
+    setSending(false);
+    setLevel('');
     setNote(null);
     l.start(
-      (t) => setInterim(t),
+      (dots) => setLevel(dots),
       (r: ListenEnd) => {
         setOn(false);
-        if (r.kind === 'heard') onAnswer(r.alternatives, 'voice');
-        else {
-          setNote(r.kind === 'denied' ? S.micDenied : r.kind === 'silent' ? S.micSilent : S.micUnavailable);
-          if (r.kind !== 'silent') setTyping(true);
+        setSending(false);
+        setLevel('');
+        if (r.kind === 'heard') {
+          onAnswer(r.alternatives, 'voice');
+          return;
+        }
+        setNote(NOTE_OF[r.kind]);
+        if (r.kind === 'need_code') setState('need_code');
+        else if (r.kind === 'denied' || r.kind === 'unsupported' || r.kind === 'quota') {
+          setState('unsupported');
+          setTyping(true);
         }
       }
     );
+  };
+
+  const join = async () => {
+    if (joining) return;
+    setJoining(true);
+    const r = await joinWithCode(code);
+    setJoining(false);
+    if (r.ok) {
+      setCode('');
+      setState(listenState());
+      setNote(S.joinOk);
+    } else setNote(JOIN_NOTE[r.reason]);
   };
 
   const submit = () => {
@@ -67,21 +115,61 @@ export function Speak({
     <div className="row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
       {mic && (
         <div className="row">
-          <button type="button" className={`mic ${on ? 'on' : ''}`} onClick={start} aria-pressed={on} data-testid="adv-mic">
+          <button type="button" className={`mic ${on ? 'on' : ''}`} onClick={start} aria-pressed={on} disabled={sending} data-testid="adv-mic">
             {on ? S.stop.en : `🎤 ${S.speak.en}`}
           </button>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {on && <div className="hintline">{S.listening.en}{help && <div className="ko">{S.listening.ko}</div>}</div>}
-            {interim && (
+          <div style={{ flex: 1, minWidth: 0 }} data-testid="adv-mic-state">
+            {on && !sending && (
               <div className="hintline">
-                {S.heard.en}: “{interim}”
+                {S.listening.en} {level && <span aria-hidden="true">🎙{level}</span>}
+                {help && <div className="ko">{S.listening.ko}</div>}
+              </div>
+            )}
+            {sending && (
+              <div className="hintline">
+                {S.micSending.en}
+                {help && <div className="ko">{S.micSending.ko}</div>}
               </div>
             )}
           </div>
         </div>
       )}
+      {state === 'need_code' && (
+        <form
+          className="row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void join();
+          }}
+          data-testid="adv-join"
+        >
+          <div className="hintline" style={{ flexBasis: '100%' }}>
+            <strong>{S.joinTitle.en}</strong> {S.joinHint.en}
+            {help && (
+              <div className="ko">
+                {S.joinTitle.ko} {S.joinHint.ko}
+              </div>
+            )}
+          </div>
+          <input
+            className="type"
+            value={code}
+            onChange={(e) => setCode(cleanCode(e.target.value))}
+            placeholder={S.joinLabel.en}
+            aria-label={S.joinLabel.en}
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={ADV.joinCodeDigits}
+            data-testid="adv-join-code"
+          />
+          <button type="submit" className="btn primary" disabled={joining} data-testid="adv-join-ok">
+            {S.joinGo.en}
+            {help && <span className="ko">{S.joinGo.ko}</span>}
+          </button>
+        </form>
+      )}
       {note && (
-        <div className="hintline" role="status">
+        <div className="hintline" role="status" data-testid="adv-mic-note">
           {note.en}
           {help && <div className="ko">{note.ko}</div>}
         </div>

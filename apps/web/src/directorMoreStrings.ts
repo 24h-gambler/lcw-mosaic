@@ -4,6 +4,9 @@
  * lanes editing it do not collide. What was removed and why: docs/18 §8.
  */
 export const M = {
+  /** `/director?prep=<student>` (the hub's day-record card '다음 수업 준비', 11-18): that student's row is marked. */
+  prepHere: (nick: string) => `다음 수업 준비 · ${nick} — 위에서 오늘 수업안을 고르고 이 학생의 「수업 시작」을 누르세요.`,
+  prepMissing: '카드의 학생이 목록에 없어요. 「새로 고침」을 누르거나 가입 승인을 확인하세요.',
   keyMore: '선생님 열쇠 · 로그인',
   csvMore: '오늘 기록 내려받기 (CSV)',
   modeMore: '1PC · 2PC 로 하는 법',

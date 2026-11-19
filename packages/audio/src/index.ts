@@ -734,3 +734,4 @@ export function createAudioEngine(initialMs = 0): AudioEngine {
 }
 
 export * from './clip-recorder.js';
+export * from './browser-voice.js';

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { COMMON_WORDS_EN, NAME_LIKE_WORDS } from '@lcw/content';
+import { COMMON_WORDS_EN, NAME_LIKE_WORDS, NPC_CAST_PACKS, RESIDENT_REGISTRY } from '@lcw/content';
 import { PlatformDO, isPublicRoute, type LcwEnv } from '../platform.js';
 import { FAMILY_FAILS_PER_HOUR } from '../family.js';
 import { maskNickname, pickQuotes, publicFacts, publicSafeText } from '../parent-report.js';
@@ -121,6 +121,52 @@ describe('public text filter (quotes, expressions)', () => {
   it('keeps ordinary children\'s sentences (at most 1 in 40 over-blocked)', () => {
     const dropped = ORDINARY.filter((t) => !publicSafeText(t, names));
     expect(dropped.length, `dropped: ${dropped.join(' | ')}`).toBeLessThanOrEqual(1);
+  });
+
+  // #154 review: 9 of 15 new sentences were dropped (words not on the list); and a comma rule dropped the child's café
+  // orders ('Water, please.'). Neither set was used to build the list.
+  it.each([
+    'Unicorns are my favorite',
+    'Spaghetti is yummy',
+    'Lego is fun to build',
+    'Kimbap is my favorite lunch',
+    'Jellyfish are so soft',
+    'Octopus has eight legs',
+    'Bubble tea please',
+    'Water, please.',
+    'Milk, please.',
+    'Lemonade, please.',
+    'Great, thank you',
+    'Awesome, I did it',
+    'Sounds like a great plan',
+    'Tap the word cards',
+    'Table lamp please'
+  ])('allows %s', (t) => {
+    expect(publicSafeText(t, names)).toBe(true);
+  });
+
+  it('names in our own content never become sentence starters (NPCs, voices)', () => {
+    for (const n of ['Hannah', 'Luna', 'Mia', 'Toby', 'Athena', 'Hera', 'Apollo', 'Delia'])
+      expect(publicSafeText(`${n} likes cookies`, names), n).toBe(false);
+  });
+
+  // #165 review: 'Mason Theo' (a resident's nameEn) and 'the mason' (a line) made 'Mason likes cookies' ordinary.
+  it('every resident and NPC name word stays a name, in every form (job words like Chef may pass)', () => {
+    const everyday = new Set(COMMON_WORDS_EN);
+    const nameEns = [...RESIDENT_REGISTRY.map((r) => r.nameEn), ...Object.values(NPC_CAST_PACKS).flatMap((pk) => JSON.stringify(pk).match(/"nameEn":"[^"]+"/g) ?? []).map((m) => m.slice(10, -1))];
+    const words = [...new Set(nameEns.flatMap((n) => n.split(/[^A-Za-z]+/)).filter((w) => w.length >= 2 && !everyday.has(w.toLowerCase())))];
+    expect(words).toEqual(expect.arrayContaining(['Mason', 'Theo', 'Leo', 'Hannah']));
+    const leaks = words
+      .flatMap((n) => [`${n} likes cookies`, `${n.toLowerCase()} likes cookies`, `${n}, look at this`, `${n.toLowerCase()}, look at this`])
+      .filter((t) => publicSafeText(t, names));
+    expect(leaks).toEqual([]);
+  });
+
+  it('a word that is also a name before a comma is a call (blocked); an order is not', () => {
+    for (const t of ['May, look at this', 'June, come here', 'Will, can you help me', 'Honey, look', 'Cookie, sit down', 'Lucky, come here', 'Mason, look at this'])
+      expect(publicSafeText(t, names), t).toBe(false);
+    for (const t of ['Cookie, please.', 'Honey, please', 'Water, please.', 'Great, thanks', 'Awesome, I did it', 'Okay, let me try'])
+      expect(publicSafeText(t, names), t).toBe(true);
   });
 
   it('the everyday word list holds no given names and only plain lowercase words', () => {

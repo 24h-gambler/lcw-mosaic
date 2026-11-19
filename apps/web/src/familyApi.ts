@@ -209,9 +209,27 @@ export interface SeatInboxItem {
   first_used_at: number | null;
   awaiting_payer_choice: boolean;
 }
+/** R326 online order waiting for the operator (billing.ts): a transfer to confirm, or a paid order without a seat yet. */
+export interface BillingOrderItem {
+  id: string;
+  plan: 'solo' | 'duo';
+  term: 'month' | 'year';
+  amount_krw: number;
+  player_id: string | null;
+  nickname: string | null;
+  payer_name: string;
+  contact: string;
+  origin: string;
+  mode: 'test' | 'live';
+  status: 'transfer_wait' | 'paid';
+  created_at: number;
+  paid_at: number | null;
+}
 export interface SeatInbox {
   requests: SeatInboxItem[];
   expiring: Array<{ id: string; player_id: string; nickname: string; plan: string; term: string; ends_at: number }>;
+  /** absent on an older server */
+  orders?: BillingOrderItem[];
 }
 export interface IssueSeatInput {
   payer_player_id: string;
@@ -337,6 +355,8 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
     // operator (lcw.operatorToken)
     adminSeats: (op: string) => request<AdminSeat[]>('GET', '/v1/admin/seats', op),
     adminSeatInbox: (op: string) => request<SeatInbox>('GET', '/v1/admin/seat-inbox', op),
+    adminCloseBillingOrder: (op: string, orderId: string, outcome: 'seat_issued' | 'failed') =>
+      request<{ ok: true }>('POST', `/v1/admin/billing/orders/${enc(orderId)}/close`, op, { outcome }),
     adminIssueSeat: (op: string, input: IssueSeatInput) =>
       request<{ order_id: string; seat_ids: string[]; amount_krw: number; ends_at: number; refund_until: number }>('POST', '/v1/admin/seats', op, input),
     adminExtendSeat: (op: string, seatId: string, input: { days: number; amount_krw?: number; paid_at?: number }) =>

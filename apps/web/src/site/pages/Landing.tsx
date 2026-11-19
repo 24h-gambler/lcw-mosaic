@@ -1,7 +1,7 @@
 import React from 'react';
 import { HERO, LANDING, LOOP, LOOP_OFFERS, STEPS, STEP_GROW } from '../copy.js';
 import { GameClip } from '../GameMedia.js';
-import { SLink } from '../SiteShell.js';
+import { SLink, WORLD_START } from '../SiteShell.js';
 import { track } from '../track.js';
 import { LANDING_NOW as N } from '../copyNow.js';
 import { liveOr } from '../featureStatus.js';
@@ -37,6 +37,12 @@ export function LandingPage(): React.ReactElement {
             <span className="s-eyebrow">{HERO.eyebrow}</span>
             <h1 className="s-display">{HERO.title}</h1>
             <p className="s-lead">{liveOr(N.heroBody, HERO.body as string)}</p>
+            <div className="s-stack" style={{ gap: 6, marginBottom: 16 }}>
+              <SLink to={WORLD_START} className="s-btn s-btn-brand s-btn-lg" data-cta="play" onClick={() => track('entrance_play')}>
+                {HERO.playCta}
+              </SLink>
+              <small className="s-muted">{HERO.playSub}</small>
+            </div>
             <div className="s-entrances">
               <SLink to="/parents" className="s-btn s-btn-brand s-entrance" onClick={() => track('entrance_parents')}>
                 <span>{HERO.parents}</span>

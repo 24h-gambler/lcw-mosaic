@@ -36,6 +36,9 @@ import {
   type BillingTerm,
   type DuoRefundMode
 } from '@lcw/quota';
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
+import { isTestPlayerId } from './nickname.js';
+import { BILLING_SCHEMA } from './billing.js';
 import { runInTransaction, type SqliteExecutor } from './storage.js';
 
 const DAY = 86_400_000;
@@ -71,6 +74,7 @@ create table if not exists seat_order_periods (order_id text primary key, period
 create table if not exists seat_order_usage (order_id text primary key, first_used_at integer not null);
 create table if not exists seat_changes (id text primary key, seat_id text not null, kind text not null, by text not null, at integer not null, before_json text not null, after_json text not null, note text not null default '');
 create index if not exists seat_changes_seat on seat_changes (seat_id, at);
+create table if not exists free_trial (player_id text primary key, used_ms integer not null, last_beat_at integer not null, started_at integer not null);
 `;
 
 /** How a seat was first used (kept for the operator: "first used 11-16 15:02 in a lesson"). */
@@ -181,19 +185,84 @@ export function seatState(s: Pick<SeatRow, 'ends_at' | 'status'>, nowMs: number)
   return nowMs < s.ends_at + SEAT_READ_ONLY_MS ? 'read_only' : 'archived';
 }
 
+export type TrialState = 'running' | 'ended';
+export interface PlayGate {
+  allowed: boolean;
+  seat: { state: SeatState; ends_at: number } | null;
+  /** R326: only for a child with no seat ever who is not exempt; null = no free-trial clock applies. */
+  trial: TrialState | null;
+}
+
+const TRIAL_MS = FREE_PLAY_LIMITS.worldTrialMinutes * 60_000;
+
+/**
+ * Who never runs on the free-trial clock (R326): smoke/demo players and tutoring students (the teacher issues them a
+ * 0-won seat, R2588; a tutoring student whose seat is not typed in yet must not hit a pay screen). Teachers and lesson
+ * tokens never reach this gate (lesson paths do not look at seats).
+ */
+function trialExempt(sql: SqliteExecutor, playerId: string): boolean {
+  if (isTestPlayerId(playerId)) return true;
+  const p = sql.get<{ tutor_student: number }>('select tutor_student from players where id = ?', [playerId]);
+  return Number(p?.tutor_student ?? 0) === 1;
+}
+
+function trialUsed(sql: SqliteExecutor, playerId: string): number {
+  return Number(sql.get<{ used_ms: number }>('select used_ms from free_trial where player_id = ?', [playerId])?.used_ms ?? 0);
+}
+
 /**
  * Server-side play gate. The newest seat decides: active/expiring → play; read-only/archived/refunded → no solo play.
- * A child who never had a seat (pre-sale, lesson-only) keeps playing.
+ * A child who never had a seat plays on the free-trial clock (R326): `worldTrialMinutes` of server-counted world time,
+ * then `allowed` is false with `trial: 'ended'`. Reads only (the clock moves in `beatTrial`).
  */
-export function playAllowed(sql: SqliteExecutor, playerId: string, nowMs: number): { allowed: boolean; seat: { state: SeatState; ends_at: number } | null } {
+export function playAllowed(sql: SqliteExecutor, playerId: string, nowMs: number): PlayGate {
   // A live seat always decides (an older seat whose start date was edited later must not hide it), then the newest.
   const s = sql.get<SeatRow>(
     "select * from seats where player_id = ? order by (status <> 'refunded' and ends_at > ?) desc, starts_at desc, ends_at desc limit 1",
     [playerId, nowMs]
   );
-  if (!s) return { allowed: true, seat: null };
+  if (!s) {
+    if (trialExempt(sql, playerId)) return { allowed: true, seat: null, trial: null };
+    const ended = trialUsed(sql, playerId) >= TRIAL_MS;
+    return { allowed: !ended, seat: null, trial: ended ? 'ended' : 'running' };
+  }
   const state = seatState(s, nowMs);
-  return { allowed: state === 'active' || state === 'expiring', seat: { state, ends_at: s.ends_at } };
+  return { allowed: state === 'active' || state === 'expiring', seat: { state, ends_at: s.ends_at }, trial: null };
+}
+
+/**
+ * One beat of the free-trial clock (R326): adds the time since the last beat, at most `worldTrialBeatMaxAddMs`, or 0
+ * after a break longer than `worldTrialBreakMs` (a new stretch). One upsert, capped at the trial length. Callers: the
+ * trial child's device beat (POST /v1/device/heartbeat, every `worldTrialBeatMs` while the world is visible) and every
+ * solo write of a trial child that passed the gate (a request that was coming anyway — no extra round trip).
+ */
+export function beatTrial(sql: SqliteExecutor, playerId: string, nowMs: number): TrialState {
+  const L = FREE_PLAY_LIMITS;
+  sql.run(
+    `insert into free_trial (player_id, used_ms, last_beat_at, started_at) values (?, 0, ?, ?)
+     on conflict(player_id) do update set
+       used_ms = min(?, used_ms + case when ? - last_beat_at between 0 and ? then min(? - last_beat_at, ?) else 0 end),
+       last_beat_at = max(last_beat_at, ?)`,
+    [playerId, nowMs, nowMs, TRIAL_MS, nowMs, L.worldTrialBreakMs, nowMs, L.worldTrialBeatMaxAddMs, nowMs]
+  );
+  return trialUsed(sql, playerId) >= TRIAL_MS ? 'ended' : 'running';
+}
+
+/**
+ * The gate of a device-token solo write (platform.ts `seatBlocked`): seat → as before (and the seat's use is marked);
+ * free trial → the write is a beat, refused once the clock is spent. Returns the 403 body or null.
+ */
+export function soloWriteGate(sql: SqliteExecutor, playerId: string, nowMs: number): Record<string, unknown> | null {
+  const gate = playAllowed(sql, playerId, nowMs);
+  if (gate.trial === 'running') {
+    return beatTrial(sql, playerId, nowMs) === 'ended' ? { error: 'trial_ended', trial: 'ended' } : null;
+  }
+  if (gate.trial === 'ended') return { error: 'trial_ended', trial: 'ended' };
+  if (gate.allowed) {
+    markSeatUse(sql, playerId, nowMs, 'play');
+    return null;
+  }
+  return { error: 'seat_inactive', seat: { state: gate.seat?.state ?? null } };
 }
 
 /** Hourly: record 7-day / 1-day / expired notices once per seat (shown on /family and in the operator inbox). */
@@ -270,6 +339,79 @@ export interface GuardianRef {
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 type Out = { status: 200 | 201 | 400 | 404 | 409; body: Record<string, unknown> };
+
+export type IssueInput = z.infer<typeof IssueSchema>;
+
+/**
+ * First issue of a seat (Solo/tutoring one child, Duo two) as one payment: `seat_orders` + `seats` + links + audit in
+ * one transaction. The operator's issue button (`POST /v1/admin/seats`, after a bank transfer) and a confirmed online
+ * payment (billing.ts, `by: 'billing'`) both come here, so the refund rule and first-use rule see the same rows.
+ */
+export function issueSeats(d: SeatDeps, q: IssueInput, by: 'operator' | 'billing'): Out {
+  const id = (p: string) => `${p}-${hex(d.randomBytes(6))}`;
+  const familyOfPlayer = (pid: string) => d.sql.get<{ family_id: string }>('select family_id from players where id = ?', [pid])?.family_id;
+  const need = q.plan === 'duo' ? 2 : 1;
+  if (q.player_ids.length !== need || new Set(q.player_ids).size !== need) return { status: 400, body: { error: 'seat_count_mismatch', need } };
+  const payerFamily = q.payer_player_id ? familyOfPlayer(q.payer_player_id) : undefined;
+  const payer = q.payer_guardian_id
+    ? d.sql.get<{ id: string; family_id: string }>('select id, family_id from guardians where id = ?', [q.payer_guardian_id])
+    : payerFamily
+      ? d.sql.get<{ id: string; family_id: string }>('select id, family_id from guardians where family_id = ? order by id limit 1', [payerFamily])
+      : undefined;
+  if (!payer) return { status: 404, body: { error: 'payer_not_found' } };
+  const fams = q.player_ids.map(familyOfPlayer);
+  if (fams.some((f) => !f)) return { status: 404, body: { error: 'player_not_found' } };
+  // A minor seat lives under a guardian account (docs/16 #1): the payer's own child must be among the seats.
+  if (!fams.includes(payer.family_id)) return { status: 400, body: { error: 'payer_not_guardian_of_any_seat' } };
+  const now = d.nowMs();
+  if (q.paid_at !== undefined && q.paid_at > now + PAID_AT_FUTURE_SLACK_MS) return { status: 400, body: { error: 'paid_at_in_future' } };
+  for (const pid of q.player_ids) {
+    const live = d.sql.get<SeatRow>("select * from seats where player_id = ? and status <> 'refunded' and ends_at > ?", [pid, now]);
+    if (live) return { status: 409, body: { error: 'seat_exists', seat_id: live.id } };
+  }
+  const paidAt = q.paid_at ?? now;
+  const amount = q.amount_krw ?? (q.plan === 'tutoring' ? 0 : PLAN_PRICES_KRW[q.plan][q.term]);
+  const oid = id('ord');
+  const ends = paidAt + TERM_DAYS[q.term] * DAY;
+  const seats = runInTransaction(d.sql, () => {
+    d.sql.run('insert into seat_orders (id, payer_id, plan, term, amount_krw, paid_at, created_at, note) values (?, ?, ?, ?, ?, ?, ?, ?)', [
+      oid,
+      payer.id,
+      q.plan,
+      q.term,
+      amount,
+      paidAt,
+      now,
+      q.note ?? ''
+    ]);
+    return q.player_ids.map((pid) => {
+      const sid = id('seat');
+      d.sql.run('insert into seats (id, payer_id, player_id, plan, period, starts_at, ends_at, status) values (?, ?, ?, ?, ?, ?, ?, ?)', [
+        sid,
+        payer.id,
+        pid,
+        q.plan,
+        q.term,
+        paidAt,
+        ends,
+        'active'
+      ]);
+      d.sql.run("insert into seat_order_links (seat_id, order_id, kind, days, refunded_at) values (?, ?, 'issue', null, null)", [sid, oid]);
+      d.sql.run('insert into seat_changes (id, seat_id, kind, by, at, before_json, after_json, note) values (?, ?, ?, ?, ?, ?, ?, ?)', [
+        id('sc'),
+        sid,
+        'issue',
+        by,
+        now,
+        JSON.stringify(null),
+        JSON.stringify({ starts_at: paidAt, ends_at: ends, status: 'active', plan: q.plan, term: q.term, order_id: oid, amount_krw: amount }),
+        q.note ?? ''
+      ]);
+      return sid;
+    });
+  });
+  return { status: 201, body: { order_id: oid, seat_ids: seats, amount_krw: amount, ends_at: ends, refund_until: refundDeadlineMs(paidAt) } };
+}
 
 /** Operator routes (behind the operator gate) and guardian routes (behind `withGuardian`). */
 export function mountSeatRoutes(
@@ -479,59 +621,8 @@ export function mountSeatRoutes(
   app.post('/v1/admin/seats', async (c) => {
     const p = IssueSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
-    const q = p.data;
-    const need = q.plan === 'duo' ? 2 : 1;
-    if (q.player_ids.length !== need || new Set(q.player_ids).size !== need) return c.json({ error: 'seat_count_mismatch', need }, 400);
-    const payerFamily = q.payer_player_id ? familyOfPlayer(q.payer_player_id) : undefined;
-    const payer = q.payer_guardian_id
-      ? d.sql.get<{ id: string; family_id: string }>('select id, family_id from guardians where id = ?', [q.payer_guardian_id])
-      : payerFamily
-        ? d.sql.get<{ id: string; family_id: string }>('select id, family_id from guardians where family_id = ? order by id limit 1', [payerFamily])
-        : undefined;
-    if (!payer) return c.json({ error: 'payer_not_found' }, 404);
-    const fams = q.player_ids.map(familyOfPlayer);
-    if (fams.some((f) => !f)) return c.json({ error: 'player_not_found' }, 404);
-    // A minor seat lives under a guardian account (docs/16 #1): the payer's own child must be among the seats.
-    if (!fams.includes(payer.family_id)) return c.json({ error: 'payer_not_guardian_of_any_seat' }, 400);
-    const now = d.nowMs();
-    if (q.paid_at !== undefined && q.paid_at > now + PAID_AT_FUTURE_SLACK_MS) return c.json({ error: 'paid_at_in_future' }, 400);
-    for (const pid of q.player_ids) {
-      const live = d.sql.get<SeatRow>("select * from seats where player_id = ? and status <> 'refunded' and ends_at > ?", [pid, now]);
-      if (live) return c.json({ error: 'seat_exists', seat_id: live.id }, 409);
-    }
-    const paidAt = q.paid_at ?? now;
-    const amount = q.amount_krw ?? (q.plan === 'tutoring' ? 0 : PLAN_PRICES_KRW[q.plan][q.term]);
-    const oid = id('ord');
-    const ends = paidAt + TERM_DAYS[q.term] * DAY;
-    const seats = runInTransaction(d.sql, () => {
-      d.sql.run('insert into seat_orders (id, payer_id, plan, term, amount_krw, paid_at, created_at, note) values (?, ?, ?, ?, ?, ?, ?, ?)', [
-        oid,
-        payer.id,
-        q.plan,
-        q.term,
-        amount,
-        paidAt,
-        now,
-        q.note ?? ''
-      ]);
-      return q.player_ids.map((pid) => {
-        const sid = id('seat');
-        d.sql.run('insert into seats (id, payer_id, player_id, plan, period, starts_at, ends_at, status) values (?, ?, ?, ?, ?, ?, ?, ?)', [
-          sid,
-          payer.id,
-          pid,
-          q.plan,
-          q.term,
-          paidAt,
-          ends,
-          'active'
-        ]);
-        d.sql.run("insert into seat_order_links (seat_id, order_id, kind, days, refunded_at) values (?, ?, 'issue', null, null)", [sid, oid]);
-        recordChange(sid, 'issue', now, null, { starts_at: paidAt, ends_at: ends, status: 'active', plan: q.plan, term: q.term, order_id: oid, amount_krw: amount }, q.note ?? '');
-        return sid;
-      });
-    });
-    return c.json({ order_id: oid, seat_ids: seats, amount_krw: amount, ends_at: ends, refund_until: refundDeadlineMs(paidAt) }, 201);
+    const r = issueSeats(d, p.data, 'operator');
+    return c.json(r.body, r.status);
   });
 
   /** A paid (or free) extension of one seat: recorded as its own payment with its own refund window. */
@@ -760,7 +851,14 @@ export function mountSeatRoutes(
     const expiring = d.sql
       .all<SeatRow>("select * from seats where status <> 'refunded' and ends_at > ? and ends_at <= ? order by ends_at", [now, now + SEAT_EXPIRING_MS])
       .map((s) => ({ id: s.id, player_id: s.player_id, nickname: nickOf(s.player_id), plan: s.plan, term: s.period, ends_at: s.ends_at }));
-    return c.json({ requests, expiring });
+    // R326: online orders waiting for the operator — a test-mode order waits for the transfer ('transfer_wait'), a paid
+    // one the seat could not open by itself ('paid': Duo, no guardian yet). The issue form below opens the seat.
+    d.sql.exec(BILLING_SCHEMA);
+    const orders = d.sql.all<Record<string, unknown>>(
+      `select o.id, o.plan, o.term, o.amount_krw, o.player_id, p.nickname, o.payer_name, o.contact, o.origin, o.mode, o.status, o.created_at, o.paid_at
+       from billing_orders o left join players p on p.id = o.player_id where o.status in ('transfer_wait', 'paid') order by o.created_at limit 100`
+    );
+    return c.json({ requests, expiring, orders });
   });
 
   /* ---------- guardian ---------- */

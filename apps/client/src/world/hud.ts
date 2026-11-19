@@ -93,15 +93,18 @@ function css(): string {
 .lw-plate{transition:opacity 120ms linear}.lw-plate.under{opacity:.12}
 .lw-prompt kbd{font-family:${T.fonts.pixel};background:${C['paper-0']};color:${C['ink-900']};border-radius:2px;padding:0 6px;font-size:12px}
 .lw-prompt:active{box-shadow:${S.shadowPressed};transform:translate(-50%,-100%) translate(3px,3px)}
-.lw-hotbar{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:4px;align-items:center}
+.lw-hotbar{position:absolute;bottom:calc(12px + var(--lw-floor,0px));left:50%;transform:translateX(-50%);display:flex;gap:4px;align-items:center}
 .lw-slot{width:56px;height:56px;background:${night};border:2px solid ${C['night-700']};border-radius:${S.radiusHudSlotPx}px;display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer}
 .lw-slot.empty{background:${C['night-900']}73}
 .lw-slot.empty::after{content:"";position:absolute;inset:16px;border:2px dashed ${C.silver}8C;border-radius:${S.radiusHudSlotPx}px}
 .lw-slot.sel{border-color:${C['paper-0']};box-shadow:0 0 0 2px ${C['ink-900']}}
 .lw-slot .i{font-family:${T.fonts.pixel};font-size:12px;position:absolute;left:3px;top:2px;color:${C.silver}}
-.lw-cap{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:${night};color:${C['paper-0']};padding:4px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));text-align:center;opacity:0;transition:opacity ${M.baseMs}ms ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lw-cap{position:absolute;bottom:calc(80px + var(--lw-floor,0px));left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:${night};color:${C['paper-0']};padding:4px 12px;border-radius:${S.radiusButtonPx}px;font-weight:700;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.small.lineHeightPx}px * var(--lcw-hs,1));text-align:center;opacity:0;transition:opacity ${M.baseMs}ms ease-out;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lw-cap.on{opacity:1}
 .lw-cap.two{white-space:pre-line;overflow-wrap:anywhere}
+@media (max-height:500px){:root[data-lcw-dlg] [data-hud-col="right"]{visibility:hidden}}
+.lw-hud.floor-hide .lw-hotbar,.lw-hud.floor-hide .lw-cap,.lw-hud.floor-hide .lw-help,.lw-hud.floor-hide .lw-toast{display:none}
+@media (pointer:fine) and (min-width:601px){.lw-hud.floor-lift .lw-mini{bottom:calc(24px + var(--lw-floor,0px))}}
 .lw-hud:has(.lw-touch.on) .lw-cap{max-width:max(160px, calc(100% - 2 * var(--lcw-hud-talk-w, 140px)))}
 .lw-hud:has(.lw-cap.on.two) .lw-help{opacity:0}
 .lw-hud.dlg .lw-cap{opacity:0}
@@ -109,7 +112,7 @@ function css(): string {
 .lw-slot.pop{animation:lwpop ${M.popMs}ms ease-out}
 .lw-slot .c{position:absolute;right:3px;bottom:1px;font-family:${T.fonts.pixel};font-size:12px;color:${C['paper-0']};text-shadow:1px 1px 0 ${C['ink-900']}}
 .lw-slot.build img{width:40px;height:40px;image-rendering:auto}
-.lw-toast{position:absolute;bottom:84px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;padding:8px 16px;font-weight:700;transition:all ${M.baseMs}ms ease-out;display:flex;gap:8px;align-items:center}
+.lw-toast{position:absolute;bottom:calc(84px + var(--lw-floor,0px));left:50%;transform:translateX(-50%) translateY(20px);opacity:0;padding:8px 16px;font-weight:700;transition:all ${M.baseMs}ms ease-out;display:flex;gap:8px;align-items:center}
 .lw-toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .lw-toast img{width:28px;height:28px;image-rendering:pixelated}
 .lw-cele{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
@@ -138,7 +141,7 @@ function css(): string {
 .lw-load .cubes span:nth-child(3){background:var(--c-leaf,${C.leaf});animation-delay:300ms}
 .lw-load .cubes span:nth-child(4){background:${C.sky};animation-delay:450ms}
 @keyframes lwhop{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
-.lw-help{position:absolute;bottom:calc(80px + 240px * (var(--lcw-hs,1) - 1));left:12px;white-space:pre-line;color:${C['paper-0']};background:${night};padding:6px 10px;border-radius:${S.radiusButtonPx}px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));transition:opacity 600ms}
+.lw-help{position:absolute;bottom:calc(80px + 240px * (var(--lcw-hs,1) - 1) + var(--lw-floor,0px));left:12px;white-space:pre-line;color:${C['paper-0']};background:${night};padding:6px 10px;border-radius:${S.radiusButtonPx}px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));transition:opacity 600ms}
 .lw-help.off{opacity:0}
 .lw-touch{position:absolute;inset:0;display:none}
 .lw-touch.on{display:block}
@@ -167,7 +170,7 @@ function css(): string {
 /* short landscape: the goal card sits between the status chip and the stars, with a smaller line so it stays short */
 @media (max-height:500px){.lw-hud .lw-goal{max-width:calc(100% - 2 * var(--lw-side,200px));padding:6px 10px}.lw-hud .lw-goal .t{font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale['body-l'].lineHeightPx}px * var(--lcw-hs,1))}.lw-hud .lw-goal .g{font-size:calc(${T.scale.body.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.body.lineHeightPx}px * var(--lcw-hs,1))}}
 @media (max-width:600px) and (max-height:500px){.lw-hud .lw-goal{max-width:none}}
-@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:64px;font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
+@media (max-width:600px){.lw-slot{width:44px;height:44px}.lw-slot.empty::after{inset:13px}.lw-slot img{width:28px;height:28px}.lw-cap{bottom:calc(64px + var(--lw-floor,0px));font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.micro.lineHeightPx}px * var(--lcw-hs,1))}.lw-help{bottom:calc(96px + 100px * (var(--lcw-hs,1) - 1) + var(--lw-floor,0px))}.lw-goal .t{font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1))}.lw-chip .s{font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1))}
 .lw-goal{top:calc(68px + 56px * (var(--lcw-hs,1) - 1));left:12px;right:var(--lw-view-r,84px);max-width:none;transform:translate(0,-240%)}.lw-goal.on{transform:translate(0,0)}.lw-hud.off .lw-goal.on{transform:translate(0,calc(var(--lw-net-h,30px) + 2px))}}
 @media (prefers-reduced-motion:reduce){.lw-chip .gz .low{animation:none}.lw-cele .st.go{animation:none;transform:scale(1)}.lw-dir.snow{animation:none}}
 `;
@@ -277,6 +280,10 @@ function tapOnly(b: HTMLElement, fire: () => void, look: (dx: number, dy: number
 function rightColParts(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>('[data-hud-col="right"]'));
 }
+/** The frame's bottom sheet the HUD stands on (lesson/LessonLayer.tsx data-hud-floor). */
+function floorParts(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-hud-floor]'));
+}
 
 export class WorldHud {
   readonly root: HTMLDivElement;
@@ -339,6 +346,12 @@ export class WorldHud {
   private walkSeen: HTMLElement | null = null;
   private onPart: (() => void) | null = null;
   private partsSeen = new Set<HTMLElement>();
+  /** The frame's bottom sheet (lesson panel / folded lesson window, data-hud-floor): its height from the screen bottom. */
+  private floorPx = 0;
+  /** How far the HUD's bottom parts are lifted (the sheet's height on a tall screen, 0 on a short one). */
+  private floorLift = 0;
+  /** The sheet's side margin (a short screen narrows it between the button columns). */
+  private sheetSide = 12;
   private touch: HTMLDivElement;
   private stick: HTMLDivElement;
   private stickKnob: HTMLElement;
@@ -401,6 +414,7 @@ export class WorldHud {
     if (typeof ResizeObserver !== 'undefined') {
       const stars = this.starsEl;
       const measure = (): void => {
+        this.measureFloor();
         this.root.style.setProperty('--lw-chip-b', `${Math.ceil(12 + chip.offsetHeight)}px`);
         // the status box's own width: a long lesson / teacher tag under it wraps there instead of widening the chip
         // (667x375 with the teacher's name: the goal card between chip and stars fell to 61 px)
@@ -451,7 +465,7 @@ export class WorldHud {
       this.chipObs.observe(this.root);
       // a frame part placed by these measures came or went (TeacherPanel): measure, and follow its size from now on
       this.onPart = () => {
-        const now = new Set(rightColParts());
+        const now = new Set([...rightColParts(), ...floorParts()]);
         for (const e of this.partsSeen) if (!now.has(e)) this.chipObs?.unobserve(e);
         for (const e of now) if (!this.partsSeen.has(e)) this.chipObs?.observe(e);
         this.partsSeen = now;
@@ -523,7 +537,7 @@ export class WorldHud {
     this.chipObs?.observe(jump);
     jump.textContent = W.jump;
     jump.style.right = '24px';
-    jump.style.bottom = '96px';
+    jump.style.bottom = 'calc(96px + var(--lw-floor, 0px))';
     jump.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       jump.classList.add('down');
@@ -551,7 +565,7 @@ export class WorldHud {
     // the touch layer starts under the connection band while offline: its size changes, the talk button is placed again
     this.chipObs?.observe(this.touch);
     this.chipObs?.observe(this.talkBtn);
-    this.talkBtn.style.bottom = '160px';
+    this.talkBtn.style.bottom = 'calc(160px + var(--lw-floor, 0px))';
     tapOnly(this.talkBtn, () => this.h.onTalk(), (dx, dy) => this.h.onLook(dx, dy));
     this.bindTouch();
 
@@ -835,7 +849,7 @@ export class WorldHud {
     const width = rr.width;
     const w = Math.max(btn.offsetWidth, S.micButtonPx * 1.6);
     const h = btn.offsetHeight || S.micButtonPx;
-    const top = this.touch.getBoundingClientRect().bottom - rr.top - 160 - h;
+    const top = this.touch.getBoundingClientRect().bottom - rr.top - 160 - this.floorLift - h;
     let right = 96;
     for (let pass = 0; pass < 2; pass++) {
       for (const col of [this.viewBtn, this.jumpBtn]) {
@@ -894,6 +908,9 @@ export class WorldHud {
   /** A panel covers the bottom (dialog window): the goal card steps aside so the NPC's face shows in the strip. */
   setDialogOpen(on: boolean): void {
     this.root.classList.toggle('dlg', on);
+    // the frame's parts outside the HUD root follow too (a short screen's dialog window takes the right side)
+    if (on) document.documentElement.setAttribute('data-lcw-dlg', '');
+    else document.documentElement.removeAttribute('data-lcw-dlg');
     this.measureStacks();
   }
 
@@ -903,6 +920,50 @@ export class WorldHud {
    * button sits above it; --lcw-hud-top-b = where the top stack ends (the goal card when it shows, else the status
    * chip and the stars), so a toast sits under it. Measured on resize, text changes and goal changes.
    */
+  /**
+   * The frame's bottom sheet (lesson/LessonLayer.tsx: the speak panel or the folded window with the status row,
+   * data-hud-floor). On a tall screen the HUD's bottom parts (bag line, caption, help, menu, jump, talk, mouse minimap)
+   * stand on it (--lw-floor); on a short one there is no room above it: the bag line, caption and help step aside and
+   * the sheet narrows between the button columns (--lcw-hud-sheet-max). 11-19: the status row lay on Talk at 390.
+   */
+  private measureFloor(): void {
+    const rb = this.root.getBoundingClientRect();
+    const h = rb.height;
+    if (!h) return;
+    let topY = rb.bottom;
+    for (const e of floorParts()) {
+      const b = e.getBoundingClientRect();
+      if (b.width > 1 && b.height > 1) topY = Math.min(topY, b.top);
+    }
+    const floor = topY < rb.bottom ? Math.ceil(rb.bottom - topY + 8) : 0;
+    // room above the sheet for the talk / jump buttons and the bag line under the top cards
+    const lift = floor > 0 && h - floor >= 360;
+    const hide = floor > 0 && !lift;
+    this.floorPx = floor;
+    this.floorLift = lift ? floor : 0;
+    this.root.classList.toggle('floor-lift', lift);
+    this.root.classList.toggle('floor-hide', hide);
+    this.root.style.setProperty('--lw-floor', `${this.floorLift}px`);
+    const doc = document.documentElement;
+    doc.style.setProperty('--lcw-hud-floor', `${this.floorLift}px`);
+    if (hide) doc.setAttribute('data-lcw-floor', 'hide');
+    else if (lift) doc.setAttribute('data-lcw-floor', 'lift');
+    else doc.removeAttribute('data-lcw-floor');
+    // a short screen: the sheet keeps clear of the button columns on both sides (talk / jump on touch, the mouse minimap)
+    let side = 12;
+    if (hide) {
+      if (this.touchOn) {
+        if (this.talkBtn && this.talkBtn.offsetWidth > 0) side = Math.max(side, rb.right - this.talkBtn.getBoundingClientRect().left + 8);
+        if (this.jumpBtn && this.jumpBtn.offsetWidth > 0) side = Math.max(side, rb.right - this.jumpBtn.getBoundingClientRect().left + 8);
+      } else {
+        const mini = this.root.querySelector<HTMLElement>('.lw-mini');
+        if (mini && mini.offsetWidth > 0) side = Math.max(side, rb.right - mini.getBoundingClientRect().left + 8);
+      }
+    }
+    this.sheetSide = side;
+    doc.style.setProperty('--lcw-hud-sheet-max', `${Math.max(240, Math.floor(rb.width - 2 * side))}px`);
+  }
+
   private measureStacks(): void {
     const h = this.root.clientHeight;
     if (!h) return;
@@ -922,6 +983,8 @@ export class WorldHud {
       const b = e.getBoundingClientRect();
       if (b.height > 0 && b.top > rr.top + h / 2) stack = Math.max(stack, rr.bottom - b.top);
     }
+    // the frame's bottom sheet (lesson): what stacks from the bottom starts above it
+    stack = Math.max(stack, this.floorPx);
     let top = [this.chipBox, this.starsEl].reduce((m, e) => (e && e.offsetHeight > 0 ? Math.max(m, e.offsetTop + e.offsetHeight) : m), 0);
     // the goal card moves down under the connection band by a transform, which offsetTop does not see
     const off = this.root.classList.contains('off');
@@ -929,6 +992,22 @@ export class WorldHud {
     if (this.goal.classList.contains('on') && this.goal.offsetHeight > 0) top = Math.max(top, this.goal.offsetTop + this.goal.offsetHeight + (off ? netH + 2 : 0));
     const doc = document.documentElement.style;
     doc.setProperty('--lcw-hud-stack', `${Math.ceil(stack)}px`);
+    // the sheet's top limit: the top parts over its width (a short screen's narrow sheet passes the chip and the stars,
+    // only the goal card between them is over it); the lesson sheet keeps under it and scrolls when short
+    {
+      const rr0 = this.root.getBoundingClientRect();
+      const sx0 = rr0.left + this.sheetSide;
+      const sx1 = rr0.right - this.sheetSide;
+      let sheetTop = 0;
+      const tops = [this.chipBox, this.starsEl, this.goal.classList.contains('on') ? this.goal : null, this.root.querySelector<HTMLElement>('.lw-mini'), this.touchOn ? this.viewBtn : null, ...rightColParts()];
+      for (const e of tops) {
+        if (!e || e.offsetWidth === 0) continue;
+        const b = e.getBoundingClientRect();
+        if (b.top - rr0.top > h / 2) continue;
+        if (b.right > sx0 && b.left < sx1) sheetTop = Math.max(sheetTop, b.bottom - rr0.top);
+      }
+      doc.setProperty('--lcw-hud-sheet-top', `${Math.ceil(sheetTop)}px`);
+    }
     doc.setProperty('--lcw-hud-top-b', `${Math.ceil(top)}px`);
     // the right column under the stars (view button on touch, the minimap when it sits up there): the review dock starts
     // under it and under the goal card (R2722 / the frame check: the dock lay over the stars, minimap and goal card)
@@ -1359,7 +1438,9 @@ export class WorldHud {
 
     this.chipObs?.disconnect();
     this.promptObs?.disconnect();
-    for (const v of ['--lcw-hud-stack', '--lcw-hud-top-b', '--lcw-hud-col-b', '--lcw-hud-right-b', '--lcw-hud-talk-w', '--lcw-hud-walk-l']) document.documentElement.style.removeProperty(v);
+    for (const v of ['--lcw-hud-stack', '--lcw-hud-top-b', '--lcw-hud-col-b', '--lcw-hud-right-b', '--lcw-hud-talk-w', '--lcw-hud-walk-l', '--lcw-hud-floor', '--lcw-hud-sheet-max', '--lcw-hud-sheet-top']) document.documentElement.style.removeProperty(v);
+    document.documentElement.removeAttribute('data-lcw-floor');
+    document.documentElement.removeAttribute('data-lcw-dlg');
     if (this.onPart) window.removeEventListener(HUD_PART_EVENT, this.onPart);
     window.removeEventListener('resize', this.onResizeNet);
     this.root.remove();

@@ -5,7 +5,7 @@
  * /v1/lesson/utterance. App only mounts it when the device runs the world (else App shows the /join card itself).
  * Until the world handle arrives it draws its own goal bar and bubbles.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import {
   getLessonNpc,
   type LessonDirectorEventKind,
@@ -22,6 +22,7 @@ import { MIC_BLOCKING_ERRORS, maskTarget, micUnreliable, pickHeard, type HeardAl
 import { LESSON_STRINGS as S, childNpcName, helpLine, lessonGoal } from './strings.js';
 import { playLessonSfx, unlockLessonAudio } from './sfx.js';
 import { SubmitError } from '../dialog/submit.js';
+import { HUD_PART_EVENT } from '../world/cover.js';
 import { TeacherPanel } from './TeacherPanel.js';
 import { LESSON_TALK_EVENT } from '../world/events.js';
 
@@ -329,8 +330,8 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
         {/* Second child in both live layouts, so opening the dialog does not remount (and lock) the 1PC panel. */}
         <TeacherPanel lessonId={view.lessonId} planId={view.planId} stageId={view.stageId} />
         {folded ? (
-          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: SP[3], display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
-            <div style={{ width: '100%', maxWidth: 720, display: 'flex', justifyContent: 'flex-end' }}>
+          <div data-hud-floor="" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: SP[3], display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[2] }}>
+            <div style={{ width: '100%', maxWidth: SHEET_MAX, display: 'flex', justifyContent: 'flex-end' }}>
               <StatusPill view={view} onLeave={() => ctl.leave()} />
             </div>
             <button
@@ -338,7 +339,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
               data-testid="lesson-reopen"
               onClick={() => setFoldedKey(null)}
               className="lcw-btn"
-              style={{ ...bigButton(C['brand-d']), pointerEvents: 'auto', width: '100%', maxWidth: 720, minHeight: TOKENS.shape.micButtonPx, fontSize: T.scale.h3.sizePx }}
+              style={{ ...bigButton(C['brand-d']), pointerEvents: 'auto', width: '100%', maxWidth: SHEET_MAX, minHeight: TOKENS.shape.micButtonPx, fontSize: T.scale.h3.sizePx }}
             >
               🎤 {S.speak.title(npcRef)}
             </button>
@@ -378,7 +379,8 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
       {/* One column that shares the height (the panel scrolls when short), so nothing covers anything on a phone.
           With the world: its HUD owns the top (scene chip, goal, bubbles over NPCs), so the banner sits just above our
           status row and panel. Without it: our own goal bar, status and the teacher's bubbles go on top. */}
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: SP[2], padding: SP[2] }}>
+      {/* with the world the sheet keeps under the HUD's top cards over it (--lcw-hud-sheet-top): when short it scrolls */}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: SP[2], padding: SP[2], ...(props.world ? { paddingTop: `calc(var(--lcw-hud-sheet-top, 0px) + ${SP[2]}px)` } : {}) }}>
         {props.world ? (
           <div style={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflow: 'hidden' }}>
             <EventBanner view={view} />
@@ -393,13 +395,13 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
             <EventBanner view={view} />
           </div>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[1], flex: '0 1 auto', minHeight: 0 }}>
+        <div {...(props.world ? { 'data-hud-floor': '' } : {})} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[1], flex: '0 1 auto', minHeight: 0 }}>
           {props.world ? (
-            <div style={{ width: '100%', maxWidth: 720, display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ width: '100%', maxWidth: SHEET_MAX, display: 'flex', justifyContent: 'flex-end' }}>
               <StatusPill view={view} onLeave={() => ctl.leave()} />
             </div>
           ) : null}
-          <div className="lcw-panel" style={{ width: '100%', maxWidth: 720, pointerEvents: 'auto', overflowY: 'auto', minHeight: 0 }}>
+          <div className="lcw-panel" style={{ width: '100%', maxWidth: props.world ? SHEET_MAX : 720, pointerEvents: 'auto', overflowY: 'auto', minHeight: 0 }}>
             {external ?? (
               <SpeakPanel
                 key={panelKey}
@@ -430,7 +432,23 @@ const card: React.CSSProperties = {
   boxShadow: TOKENS.shape.shadowDefault
 };
 
+/**
+ * The lesson's bottom sheet (speak panel, or the folded window with the status row) is the floor the world HUD stands on
+ * (data-hud-floor, world/hud.ts measureFloor): on a tall screen the HUD's bottom parts go above it, on a short one it
+ * narrows between the HUD's button columns to this width. 11-19: the status row lay on the HUD's Talk at 390.
+ */
+const SHEET_MAX = 'min(720px, var(--lcw-hud-sheet-max, 720px))';
+
 function Shell({ children }: { children: React.ReactNode }) {
+  // the sheet comes and goes with the lesson's layouts: the HUD measures its floor again (world/cover.ts HUD_PART_EVENT)
+  useLayoutEffect(() => {
+    const tell = () => window.dispatchEvent(new Event(HUD_PART_EVENT));
+    const t = requestAnimationFrame(tell);
+    return () => {
+      cancelAnimationFrame(t);
+      queueMicrotask(tell);
+    };
+  });
   return (
     <div data-lcw-lesson style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 40, fontFamily: T.fonts.ui }}>
       <style>{LESSON_CSS}</style>

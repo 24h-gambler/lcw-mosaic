@@ -79,8 +79,9 @@ export const MENU_CSS = `
 .lcw-hudbtn .ko{font-size:10px;font-weight:700;line-height:1;opacity:.8}
 /* left of the hotbar (5 x 56 + 4 x 4 = 296 wide, centred, 12 from the bottom): the bag and the menu belong together;
    held by its right edge so a wider label grows away from the hotbar */
-.lcw-hudbtn--bag{right:calc(50% + 148px + 8px);bottom:12px}
-@media (max-width:600px){.lcw-hudbtn--bag{right:calc(50% + 118px + 6px);min-width:48px;height:48px;bottom:10px;font-size:${t.micro.sizePx}px;padding:0 4px}.lcw-hudbtn--bag .ic{font-size:18px}}
+.lcw-hudbtn--bag{right:calc(50% + 148px + 8px);bottom:calc(12px + var(--lcw-hud-floor, 0px))}
+:root[data-lcw-floor="hide"] .lcw-hudbtn--bag{display:none}
+@media (max-width:600px){.lcw-hudbtn--bag{right:calc(50% + 118px + 6px);min-width:48px;height:48px;bottom:calc(10px + var(--lcw-hud-floor, 0px));font-size:${t.micro.sizePx}px;padding:0 4px}.lcw-hudbtn--bag .ic{font-size:18px}}
 .lcw-hudbtn:active{box-shadow:${S.shadowPressed};transform:translate(3px,3px)}
 `;
 

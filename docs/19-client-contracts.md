@@ -74,7 +74,13 @@ export interface WorldHandle {
 // 오른쪽 위 열: --lcw-hud-col-b(별·시점 버튼·위쪽 미니맵이 끝나는 y), --lcw-hud-right-b(그 아래 틀 부품까지 끝나는 y, 복습 도크가 그 아래).
 // 틀이 그 열에 세우는 부품(1PC 선생님 버튼, lesson/TeacherPanel.tsx)은 data-hud-col="right" 를 붙이고 top 을 --lcw-hud-col-b 아래로 두며,
 // 나타나고 사라질 때 window 에 HUD_PART_EVENT(world/cover.ts) 를 보냅니다 — HUD 가 열을 다시 재고 목표 카드·도크가 비켜 갑니다.
-// tools/frame-onepc.mjs 가 1PC 수업 화면(선생님 버튼 있음)을 터치·마우스 × 390·1280·1440 에서 같은 검사로 봅니다.
+// tools/frame-onepc.mjs 가 1PC 수업 화면(선생님 버튼 있음)을 터치·마우스 × 390·844×390·1280·1440, 말하기 패널과 접힌 창 두 단계에서
+// 같은 검사·탭 확인(elementFromPoint, Talk 실제 탭)으로 봅니다.
+// 아래 판(바닥): 수업 층의 말하기 패널·접힌 창(상태 줄 포함)은 data-hud-floor 를 붙이고, HUD 가 그 높이를 잽니다(measureFloor). 키 큰
+// 화면은 HUD 아래 부품(핫바·캡션·도움말·Menu·Jump·Talk·마우스 미니맵·복습 알약)이 판 위로 올라가고(--lw-floor·--lcw-hud-floor), 낮은
+// 화면(판 위가 360px 미만)은 핫바·캡션·도움말·Menu 를 접고 판을 좌우 버튼 열 사이로 좁힙니다(--lcw-hud-sheet-max). 판의 위 한계는
+// 그 폭 위에 있는 HUD 위 부품의 아래 끝입니다(--lcw-hud-sheet-top). 겹침 검사는 흐름 속 카드·버튼도 부품으로 세고, 스크롤 상자 안은
+// 보이는 만큼만 잽니다.
 export function createWorld(opts: { canvas: HTMLCanvasElement; tier: 'low' | 'mid' | 'high'; startScene?: SceneId; hudRoot?: HTMLElement }): Promise<WorldHandle>;
 export function canRunWorld(): boolean;             // WebGL2 가 없으면 false → /join 단어 카드
 ```

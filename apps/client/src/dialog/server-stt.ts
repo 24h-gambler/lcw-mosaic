@@ -34,6 +34,51 @@ const FRAME_MS = 100;
  */
 export const VOICE_RMS_BORDER = 0.005;
 export const METER_MIN_FRAMES = 10;
+/**
+ * What Whisper is known to write over silence and noise (its training subtitles), lowercased without punctuation.
+ * Coordinator 11-19: "thank you" is a day word, so a made-up "Thank you." must never become a caught word, a pass or
+ * stars. Such a transcript counts only when the turn really had speech in it: a meter that ran, at least
+ * HALLUCINATION_MIN_VOICED_FRAMES frames at the voice level, a loudest frame at HALLUCINATION_PEAK_RMS or more, and the
+ * server's no-speech probability (when Whisper gives one) under HALLUCINATION_NO_SPEECH_PROB. Otherwise it is
+ * 'no_speech' 'stt_hallucination' (the child is asked to say it again).
+ */
+export const WHISPER_HALLUCINATIONS: ReadonlySet<string> = new Set([
+  'thank you',
+  'thank you so much',
+  'thank you very much',
+  'thanks',
+  'thanks for watching',
+  'thank you for watching',
+  'thanks for watching and see you next time',
+  'please subscribe',
+  'you',
+  'bye',
+  'bye bye',
+  'okay',
+  'ok',
+  'so',
+  'oh',
+  'hmm',
+  'the end'
+]);
+export const HALLUCINATION_PEAK_RMS = 0.02;
+export const HALLUCINATION_MIN_VOICED_FRAMES = 3;
+export const HALLUCINATION_NO_SPEECH_PROB = 0.6;
+/** Every sentence of the transcript is a silence line ("Thank you. Thank you." is one too). */
+export function isHallucinationLine(text: string): boolean {
+  const parts = text
+    .split(/[.!?。]+/)
+    .map(hallucinationKey)
+    .filter(Boolean);
+  return parts.length > 0 && parts.every((p) => WHISPER_HALLUCINATIONS.has(p));
+}
+export function hallucinationKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 interface RecorderLike {
   state: string;
@@ -157,6 +202,7 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
       let voiced = false;
       let meterRan = false;
       let meteredFrames = 0;
+      let voicedFrames = 0;
       let peak = 0;
       let tick = 0;
       let startedAt = 0;
@@ -203,12 +249,23 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
         if (res.status === 429) return fail('quota', code);
         if (res.status === 503 || res.status === 401 || res.status === 403 || res.status === 415) return fail('unsupported', code);
         if (res.status === 413 || res.status >= 500 || !res.ok) return fail('stt_failed', code);
-        const j = (await res.json().catch(() => null)) as { transcript?: unknown; confidence?: unknown } | null;
+        const j = (await res.json().catch(() => null)) as { transcript?: unknown; confidence?: unknown; no_speech_prob?: unknown } | null;
         const text = typeof j?.transcript === 'string' ? j.transcript.trim() : '';
         const confidence = typeof j?.confidence === 'number' ? j.confidence : 0.7;
         // Whisper heard no words: a no-speech turn the console can tell from a quiet mic. Words are words, whatever the
         // meter said ("thank you" is an answer; VOICE_RMS_BORDER).
         if (!text) return fail('no_speech', 'stt_empty');
+        // ...except Whisper's own silence lines when the turn had no real speech in it (WHISPER_HALLUCINATIONS)
+        if (isHallucinationLine(text)) {
+          const noSpeech = typeof j?.no_speech_prob === 'number' ? j.no_speech_prob : null;
+          // A meter that ran is the evidence; a device whose meter never ran (R2627 suspended AudioContext) leans on
+          // Whisper's own no-speech probability, and with none of either the line is not taken as words.
+          const spoke =
+            meteredFrames > 0
+              ? voicedFrames >= HALLUCINATION_MIN_VOICED_FRAMES && peak >= HALLUCINATION_PEAK_RMS && (noSpeech ?? 0) < HALLUCINATION_NO_SPEECH_PROB
+              : noSpeech !== null && noSpeech < HALLUCINATION_NO_SPEECH_PROB;
+          if (!spoke) return fail('no_speech', 'stt_hallucination');
+        }
         cb.onEnd({ transcript: text, confidence });
       };
 
@@ -261,6 +318,7 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
             if (level > peak) peak = level;
           }
           const loud = running ? !meter || level >= VOICE_RMS : true;
+          if (meter && running && level >= VOICE_RMS) voicedFrames += 1;
           if (!loud) return;
           if (running) voiced = true;
           tick += 1;

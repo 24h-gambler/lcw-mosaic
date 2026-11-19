@@ -122,6 +122,13 @@ describe('POST /v1/converse/stt', () => {
     expect(boom.p.quota.getStatus(Date.now()).neuronsUsed).toBe(serverSttNeurons(0.5) * (1 + STT_RETRIES));
   });
 
+  it("Whisper's no-speech probability goes to the client (the highest segment), so a silence line can be told from words", async () => {
+    const h = await setup({ run: async () => ({ text: 'Thank you.', segments: [{ avg_logprob: -0.3, no_speech_prob: 0.12 }, { avg_logprob: -0.4, no_speech_prob: 0.71 }] }) } as unknown as LcwEnv['AI']);
+    expect(await (await h.stt(audio(1))).json()).toMatchObject({ transcript: 'Thank you.', no_speech_prob: 0.71 });
+    const none = await setup();
+    expect((await (await none.stt(audio(1))).json()) as Record<string, unknown>).not.toHaveProperty('no_speech_prob');
+  });
+
   it('a Workers AI failure is tried once more on the server: the child gets the words, not "say it again" (11-19)', async () => {
     const calls: number[] = [];
     const flaky = await setup({

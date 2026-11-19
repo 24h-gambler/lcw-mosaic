@@ -7,7 +7,7 @@
 //
 // Live smoke (after the document site is deployed): ADV_LIVE_SECRET=<english-day.secret file> runs any viewport
 // (every viewport carries the document link in this mode, 390 touch included) against the real https://engday.pages.dev as the smoke student `smoke-adv` (reports and teacher screens skip smoke-
-// students). The write key is HMAC-SHA256(secret, "w:smoke-adv")[:24], made here and never printed. The day file is
+// students). The write key is the adventure key the document puts in its link, HMAC-SHA256(secret, "a:smoke-adv")[:24] (lcw-adventure writes only), made here and never printed. The day file is
 // read from the document's own student page named by ADV_LIVE_DAY_FROM (read only; smoke-adv has no page), and only
 // the result POST goes out, as smoke-adv. Real Oreo data is never written.
 import { createHash, createHmac } from 'node:crypto';
@@ -19,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const LIVE = process.env.ADV_LIVE_SECRET
   ? {
-      key: createHmac('sha256', readFileSync(process.env.ADV_LIVE_SECRET, 'utf8').trim()).update('w:smoke-adv').digest('hex').slice(0, 24),
+      key: createHmac('sha256', readFileSync(process.env.ADV_LIVE_SECRET, 'utf8').trim()).update('a:smoke-adv').digest('hex').slice(0, 24),
       origin: 'https://engday.pages.dev',
       dayFrom: (process.env.ADV_LIVE_DAY_FROM ?? '').replace(/[^a-z0-9_-]/g, '')
     }

@@ -231,7 +231,8 @@ export interface ReportClip {
 
 /**
  * Clips under one report: a lesson report covers that lesson's turns, a weekly report the 7 days before it was made.
- * Best turns first (stars, then longer sentences), at most REPORT_CLIPS_MAX.
+ * Best turns first (stars, then longer sentences), at most REPORT_CLIPS_MAX. Only the child's own lines: a clip left with
+ * him under a line marked as a test session (lesson-mode.ts mark-test moves the line, not the clip) stays out.
  */
 export async function reportClips(
   d: Pick<VoiceDeps, 'sql' | 'randomBytes'>,
@@ -244,7 +245,7 @@ export async function reportClips(
       : { where: 'u.created_at >= ?', arg: report.created_at - 7 * DAY };
   const rows = d.sql.all<{ id: string; final_text: string; created_at: number; dur_ms: number; stars: number }>(
     `select c.id, u.final_text, u.created_at, u.dur_ms, u.stars from voice_clips c join utterances u on u.id = c.utterance_id
-     where c.player_id = ? and ${scope.where} and u.created_at <= ?
+     where c.player_id = ? and u.player_id = c.player_id and ${scope.where} and u.created_at <= ?
      order by u.stars desc, u.words desc, u.created_at asc limit ?`,
     [report.player_id, scope.arg, report.created_at + DAY, REPORT_CLIPS_MAX]
   );

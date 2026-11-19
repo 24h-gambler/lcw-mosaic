@@ -122,14 +122,18 @@ export function lintPrTextFull(text) {
 //     the spaced-repetition feature too (#17)
 //   - a PR that adds or changes a probe test: a test file named zz-*, or one with "probe" or "verify" in its name
 // Deleting such a file (a revert) is allowed.
-export const REVIEW_TITLE = /검토|리뷰/;
-export const FIXES_TITLE = /고침|고쳐|반영|수정|되돌|\bfix(?:es|ed)?\b|\brevert/i;
+export const REVIEW_TITLE = /검토|리뷰|독립\s*검증|\bindependent\s+(?:review|check)\b/i;
+// a fix, a follow-up or a feature: '검토 지적 고치기', '검토 후속', '리뷰 지적 처리', '리포트 검토 단계 추가' (review of #153)
+export const FIXES_TITLE = /고침|고쳐|고치(?!지\s*(?:않|말))|고칠|반영|수정|되돌|후속|처리|대응|보완|추가|만들|\bfix(?:es|ed)?\b|\brevert|\baddress|\badd\b/i;
 // strong markers are refused even next to a fix word ("검토 — 읽기 전용, 고치지 않고 판정만" contains "고치")
 // '읽기 전용'·'read-only' alone names a feature too (#39 "live-lesson watch (read-only, …)"): it counts only next to a review word
 const REVIEW_ONLY_STRONG =
-  /판정만|고치지\s*(?:않고|말고)|검토만|\breview[-_\s]*only\b|(?:검토|리뷰|\breview)[^\n]{0,30}(?:읽기\s*전용|\bread[-_\s]*only\b)|(?:읽기\s*전용|\bread[-_\s]*only\b)[^\n]{0,30}(?:검토|리뷰|\breview)/i;
-const TEST_FILE = /(?:^|\/)__tests__\/|\.(?:test|spec)\.[cm]?[jt]sx?$/;
-const PROBE_NAME = /^zz-|probe|verify/i;
+  /판정만|고치지\s*(?:않고|말고)|검토만|\breview[-_\s]*only\b|\bverdict[-_\s]*only\b|(?:검토|리뷰|검증|\breview)[^\n]{0,30}(?:읽기\s*전용|\bread[-_\s]*only\b)|(?:읽기\s*전용|\bread[-_\s]*only\b)[^\n]{0,30}(?:검토|리뷰|검증|\breview)/i;
+// code in tests: *.test/*.spec files and helpers under __tests__/; fixtures there ('probe-data.json') are data (review of #153)
+const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)__tests__\/.*\.[cm]?[jt]sx?$/;
+const PROBE_NAME = /^zz-|probe/i;
+// 'verify' names real features too (receipt-verify, oauth verify): refused only in a test file this PR adds
+const VERIFY_NAME = /verify/i;
 
 /** Review-lane output that must not become a PR: [{ id, phrase, text }]. `files`: gh `--json files` rows ({ path, changeType }). */
 export function lintPrMeta({ title = '', files = [] } = {}) {
@@ -144,7 +148,10 @@ export function lintPrMeta({ title = '', files = [] } = {}) {
     const p = String(f?.path ?? f ?? '').replace(/\\/g, '/');
     const base = p.split('/').pop() ?? '';
     if (String(f?.changeType ?? '').toUpperCase() === 'DELETED') continue;
-    if (TEST_FILE.test(p) && PROBE_NAME.test(base)) out.push({ line: 0, id: 'probe-test', phrase: base, text: p });
+    const added = String(f?.changeType ?? '').toUpperCase() === 'ADDED';
+    if (TEST_FILE.test(p) && (PROBE_NAME.test(base) || (added && VERIFY_NAME.test(base)))) {
+      out.push({ line: 0, id: 'probe-test', phrase: base, text: p });
+    }
   }
   return out;
 }
@@ -175,7 +182,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   for (const f of meta) console.log(`${label} [${f.id}] "${f.phrase}" — ${f.text}`);
   if (meta.length) {
     console.log(
-      `\n검토·판정(읽기 전용) 레인의 결과물은 PR 이 아니라 판정 글(카드·PR 댓글)입니다. 검토 제목의 PR 과 zz-*·probe·verify 시험 파일은 머지하지 않습니다 (AGENTS.md 5장, 2026-11-17 #147).`
+      `\n검토·판정(읽기 전용) 레인의 결과물은 PR 이 아니라 판정 글(카드·PR 댓글)입니다. 검토 제목의 PR 과 zz-*·probe·(새로 더한) verify 시험 파일은 머지하지 않습니다 (AGENTS.md 5장, 2026-11-17 #147). 검토 지적을 고치는 PR 이면 제목에 '반영'·'고침'·'후속'·fix 를 넣으세요.`
     );
   }
   const { hits: found, cited } = lintPrTextFull(text);

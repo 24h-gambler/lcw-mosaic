@@ -103,7 +103,11 @@ describe('pr-lint: a review lane makes a verdict, not a PR', () => {
     expect(meta('LCW #131 검토 — 읽기 전용')).toEqual(['review-title']);
     expect(meta('review only: guardian page')).toEqual(['review-title']);
     expect(meta('lesson fix', [{ path: 'apps/edge/src/lesson-probe.test.ts', changeType: 'ADDED' }])).toEqual(['probe-test']);
-    expect(meta('lesson fix', [{ path: 'apps/web/src/__tests__/opus-verify2.test.ts', changeType: 'MODIFIED' }])).toEqual(['probe-test']);
+    expect(meta('lesson fix', [{ path: 'apps/web/src/__tests__/opus-verify2.test.ts', changeType: 'ADDED' }])).toEqual(['probe-test']);
+    // review of #153: titles that slipped through
+    expect(meta('LCW PR #131 독립 검증(읽기 전용)')).toEqual(['review-title']);
+    expect(meta('Independent review of PR #131 (verdict only)')).toEqual(['review-title']);
+    expect(meta('Opus independent check of #131, no changes')).toEqual(['review-title']);
     expect(meta('lesson fix', [{ path: 'apps/edge/src/__tests__/helpers/zz-x.ts' }])).toEqual(['probe-test']);
   });
 
@@ -119,5 +123,11 @@ describe('pr-lint: a review lane makes a verdict, not a PR', () => {
     expect(meta('Dialog preview: item, price per sentence, NPC face (audit G02)')).toEqual([]);
     expect(meta('perf: faster world load', [{ path: 'tools/perf-probe.mjs', changeType: 'MODIFIED' }])).toEqual([]);
     expect(meta('ops: student day cards catch up (2-day window)', [{ path: 'apps/edge/src/ops-cards.test.ts' }])).toEqual([]);
+    // review of #153: fixes and follow-ups of a review, and review-named features
+    for (const t of ['#131 검토 지적 고치기', '보호자 화면 검토 후속: 쉼표 규칙', '리뷰 지적 처리 (#154)', '검토 의견 대응',
+      '교사용 리포트 검토 단계 추가', '보호자 화면 독립 검토 지적 반영']) expect(meta(t)).toEqual([]);
+    // 'verify' in a test that already exists is a real feature test; fixtures under __tests__ are data
+    expect(meta('pay: receipts', [{ path: 'apps/edge/src/__tests__/receipt-verify.test.ts', changeType: 'MODIFIED' }])).toEqual([]);
+    expect(meta('world: data', [{ path: 'apps/web/src/__tests__/fixtures/probe-data.json', changeType: 'ADDED' }])).toEqual([]);
   });
 });

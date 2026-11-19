@@ -416,7 +416,7 @@ ${line(s.help)}` : line(s.text), 4000);
   };
   /**
    * R325: everyone starts on the same spawn spot, so two people met inside each other (first person: inside a head).
-   * For a while after someone joins or play starts (the title closes), the one of the two with the larger room id steps 1.6 m aside (one of them only,
+   * For a while after someone joins or play starts (the title closes), the one of the two with the larger room id steps 2.2 m ahead and turns round (one of them only,
    * else both would step the same way); never while a dialog or a card holds the world or the world walks the child.
    */
   const ASIDE_WATCH_MS = 60_000;
@@ -425,15 +425,22 @@ ${line(s.help)}` : line(s.text), 4000);
   const stepAsideIfOnPeer = (): void => {
     const on = peers.placed().some((q) => myRoomId > q.id && Math.hypot(q.x - body.x, q.z - body.z) < 1);
     if (!on) return;
-    for (const side of [1, -1, 2, -2]) {
-      const x = body.x - Math.cos(camYaw) * 1.6 * side;
-      const z = body.z + Math.sin(camYaw) * 1.6 * side;
+    // two steps in front of them, turned to face them: both see each other at once (side by side, facing the same
+    // way, neither saw the other in first person); then to either side when the front is a wall or a drop
+    const fx = Math.sin(camYaw);
+    const fz = Math.cos(camYaw);
+    const ox = body.x;
+    const oz = body.z;
+    for (const [f, r] of [[2.2, 0], [-2.2, 0], [0, 1.8], [0, -1.8]] as const) {
+      const x = ox + fx * f - fz * r;
+      const z = oz + fz * f + fx * r;
       const y = standHeight(world, x, z, Math.ceil(body.y) + 2);
       if (Math.abs(y - body.y) > 1.01) continue;
       body.x = x;
       body.z = z;
       body.y = y;
       body.vx = body.vz = 0;
+      playerYaw = camYaw = Math.atan2(ox - x, oz - z);
       return;
     }
   };

@@ -13,28 +13,14 @@
  * through the blocks, re-checked 4 times a second) closes a low-pass down to 900 Hz. Inside (a store, or a roof over
  * the head) the wind is muffled and, on the high tier, effects get a short room reverb.
  *
- * Every sound is synthesized in code (sound-synth.ts); buffers are built one per tick after the audio unlocks, so the
- * first tap never stalls. Pure decisions (inside?, occluded?, which bed) are exported for tests.
+ * Every sound is synthesized in code (sound-synth.ts) in a worker (sound.worker.ts) after the audio unlocks, so the game
+ * never stalls. Pure decisions (inside?, occluded?, which bed) are exported for tests.
  */
 import type * as THREE from 'three';
 import type { VoxelWorld } from '@lcw/sim-core';
 import { isOpaqueCube } from './blocks.js';
 import { STORES } from './storefront.js';
-import {
-  STEP_MATERIALS,
-  STEP_VARIANTS,
-  birdCall,
-  coinClink,
-  cricketChirp,
-  cupClink,
-  footstep,
-  fountainLoop,
-  roomImpulse,
-  shopBell,
-  windLoop,
-  woodCreak,
-  type StepMaterial
-} from './sound-synth.js';
+import { SOUND_JOBS, STEP_VARIANTS, buildSoundJob, type StepMaterial } from './sound-synth.js';
 
 /** docs/12 8장: full level to 2 m, nothing at 32 m */
 export const REF_DISTANCE = 2;
@@ -143,6 +129,8 @@ export class Soundscape {
   private out: SoundscapeOutputs | null = null;
   private readonly buf: Buffers = { steps: new Map(), birds: [], crickets: [], cups: [], coins: [], creaks: [], millCreaks: [] };
   private building = false;
+  private worker: Worker | null = null;
+  private readonly done = new Set<string>();
   private readonly emitters: Emitter[] = [];
   private fountain: Emitter | null = null;
   private cafe: Emitter | null = null;
@@ -240,68 +228,114 @@ export class Soundscape {
     return e;
   }
 
-  /** Builds the sounds one per tick (a few ms each on a phone) so the first tap never stalls. */
+  /**
+   * Builds the sounds in a worker (sound.worker.ts) and takes each group as it arrives, so the game never stalls; where
+   * workers are missing, one group per tick on the main thread.
+   */
   private buildSteps(): void {
     if (this.building || !this.ctx) return;
     this.building = true;
-    const ctx = this.ctx;
-    const sr = ctx.sampleRate;
-    const mk = (x: Float32Array): AudioBuffer => {
-      const b = ctx.createBuffer(1, x.length, sr);
-      b.getChannelData(0).set(x);
-      return b;
-    };
-    const jobs: (() => void)[] = [];
-    for (const m of STEP_MATERIALS) {
-      jobs.push(() => {
-        const list: AudioBuffer[] = [];
-        for (let v = 0; v < STEP_VARIANTS; v++) list.push(mk(footstep(m, v, sr)));
-        this.buf.steps.set(m, list);
-      });
+    const sr = this.ctx.sampleRate;
+    let worker: Worker | null = null;
+    try {
+      worker = typeof Worker !== 'undefined' ? new Worker(new URL('./sound.worker.ts', import.meta.url), { type: 'module' }) : null;
+    } catch {
+      worker = null;
     }
-    jobs.push(() => {
-      this.buf.wind = mk(windLoop(sr));
-      this.startWind();
-    });
-    jobs.push(() => {
-      this.buf.fountain = mk(fountainLoop(sr));
-      this.startLoop(this.fountain, this.buf.fountain);
-    });
-    jobs.push(() => {
-      for (let v = 0; v < 4; v++) this.buf.birds.push(mk(birdCall(v, sr)));
-      for (let v = 0; v < 3; v++) this.buf.crickets.push(mk(cricketChirp(v, sr)));
-    });
-    jobs.push(() => {
-      for (let v = 0; v < 3; v++) this.buf.cups.push(mk(cupClink(v, sr)));
-      for (let v = 0; v < 3; v++) this.buf.coins.push(mk(coinClink(v, sr)));
-    });
-    jobs.push(() => {
-      for (let v = 0; v < 3; v++) this.buf.creaks.push(mk(woodCreak(v, sr)));
-      for (let v = 0; v < 2; v++) this.buf.millCreaks.push(mk(woodCreak(v, sr, true)));
-      this.buf.bell = mk(shopBell(sr));
-    });
-    if (this.reverb) {
-      jobs.push(() => {
-        const [l, r] = roomImpulse(sr);
-        const b = ctx.createBuffer(2, l.length, sr);
-        b.getChannelData(0).set(l);
-        b.getChannelData(1).set(r);
-        this.buf.room = b;
-        this.reverb!.buffer = b;
-      });
+    if (worker) {
+      this.worker = worker;
+      let got = 0;
+      worker.onmessage = (ev: MessageEvent<{ key: string; data: Float32Array[] }>) => {
+        this.take(ev.data.key, ev.data.data);
+        if (++got >= SOUND_JOBS.length) this.endWorker();
+      };
+      worker.onerror = () => {
+        // the worker could not load: build the rest here
+        this.endWorker();
+        this.buildHere(SOUND_JOBS.filter((k) => !this.done.has(k)));
+      };
+      worker.postMessage({ sr });
+      return;
     }
+    this.buildHere([...SOUND_JOBS]);
+  }
+
+  private endWorker(): void {
+    this.worker?.terminate();
+    this.worker = null;
+  }
+
+  private buildHere(jobs: string[]): void {
+    const sr = this.ctx?.sampleRate ?? 48000;
     const next = (): void => {
       if (this.disposed) return;
-      const job = jobs.shift();
-      if (!job) return;
+      const key = jobs.shift();
+      if (!key) return;
       try {
-        job();
+        this.take(key, buildSoundJob(key, sr));
       } catch {
         // a sound that fails to build stays silent; the game does not depend on it
       }
       setTimeout(next, 16);
     };
     setTimeout(next, 0);
+  }
+
+  /** One built group: into AudioBuffers, and start what loops. */
+  private take(key: string, data: Float32Array[]): void {
+    const ctx = this.ctx;
+    if (!ctx || this.disposed || !data.length) return;
+    this.done.add(key);
+    const sr = ctx.sampleRate;
+    const mk = (x: Float32Array): AudioBuffer => {
+      const b = ctx.createBuffer(1, x.length, sr);
+      b.getChannelData(0).set(x);
+      return b;
+    };
+    if (key.startsWith('step:')) {
+      this.buf.steps.set(key.slice(5) as StepMaterial, data.map(mk));
+      return;
+    }
+    switch (key) {
+      case 'wind':
+        this.buf.wind = mk(data[0]!);
+        this.startWind();
+        return;
+      case 'fountain':
+        this.buf.fountain = mk(data[0]!);
+        this.startLoop(this.fountain, this.buf.fountain);
+        return;
+      case 'birds':
+        this.buf.birds = data.map(mk);
+        return;
+      case 'crickets':
+        this.buf.crickets = data.map(mk);
+        return;
+      case 'cups':
+        this.buf.cups = data.map(mk);
+        return;
+      case 'coins':
+        this.buf.coins = data.map(mk);
+        return;
+      case 'creaks':
+        this.buf.creaks = data.map(mk);
+        return;
+      case 'mill':
+        this.buf.millCreaks = data.map(mk);
+        return;
+      case 'bell':
+        this.buf.bell = mk(data[0]!);
+        return;
+      case 'room': {
+        if (!this.reverb || data.length < 2) return;
+        const b = ctx.createBuffer(2, data[0]!.length, sr);
+        b.getChannelData(0).set(data[0]!);
+        b.getChannelData(1).set(data[1]!);
+        this.buf.room = b;
+        this.reverb.buffer = b;
+        return;
+      }
+    }
   }
 
   private startWind(): void {
@@ -487,6 +521,7 @@ export class Soundscape {
 
   dispose(): void {
     this.disposed = true;
+    this.endWorker();
     for (const s of this.loops) {
       try {
         s.stop();

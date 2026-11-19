@@ -121,7 +121,7 @@ export function normalize(x: Float32Array, peak: number): Float32Array {
 }
 
 /** Short fade in and out so a buffer never starts or ends on a step. */
-function edges(x: Float32Array, sr: number, inS = 0.0015, outS = 0.01): Float32Array {
+function edges(x: Float32Array, sr: number, inS = 0.0005, outS = 0.01): Float32Array {
   const a = Math.floor(inS * sr);
   const b = Math.floor(outS * sr);
   for (let i = 0; i < a && i < x.length; i++) x[i]! *= i / a;
@@ -235,7 +235,7 @@ export function footstep(m: StepMaterial, variant: number, sr: number): Float32A
   const r = rng(0x5eed + STEP_MATERIALS.indexOf(m) * 131 + variant * 7919);
   const ring = m === 'metal' ? 0.6 : m === 'glass' ? 0.35 : m === 'sand' || m === 'plant' ? 0.3 : 0.22;
   const out = new Float32Array(Math.ceil(ring * sr));
-  strike(out, 0, m, 1, r, sr);
+  strike(out, Math.floor(0.001 * sr), m, 1, r, sr);
   strike(out, Math.floor((0.045 + r() * 0.03) * sr), m, 0.45 + r() * 0.2, r, sr);
   // the lowest rumble below 40 Hz is cut (docs/12 4장)
   biquad(out, 'hp', 45, 0.7, sr);
@@ -450,4 +450,54 @@ export function roomImpulse(sr: number, seconds = 0.55): [Float32Array, Float32A
     return normalize(x, 0.5);
   };
   return [mk(0x1a), mk(0x2b)];
+}
+
+/**
+ * The sound groups the soundscape needs, in the order they are built (footsteps first: the child walks at once).
+ * `step:<material>` = its variants; the rest as named.
+ */
+export const SOUND_JOBS: readonly string[] = [
+  ...STEP_MATERIALS.map((m) => `step:${m}`),
+  'wind',
+  'fountain',
+  'birds',
+  'crickets',
+  'cups',
+  'coins',
+  'creaks',
+  'mill',
+  'bell',
+  'room'
+];
+
+/** Builds one group (sound.worker.ts, or the main thread where workers are missing). */
+export function buildSoundJob(key: string, sr: number): Float32Array[] {
+  if (key.startsWith('step:')) {
+    const m = key.slice(5) as StepMaterial;
+    return Array.from({ length: STEP_VARIANTS }, (_, v) => footstep(m, v, sr));
+  }
+  switch (key) {
+    case 'wind':
+      return [windLoop(sr)];
+    case 'fountain':
+      return [fountainLoop(sr)];
+    case 'birds':
+      return [0, 1, 2, 3].map((v) => birdCall(v, sr));
+    case 'crickets':
+      return [0, 1, 2].map((v) => cricketChirp(v, sr));
+    case 'cups':
+      return [0, 1, 2].map((v) => cupClink(v, sr));
+    case 'coins':
+      return [0, 1, 2].map((v) => coinClink(v, sr));
+    case 'creaks':
+      return [0, 1, 2].map((v) => woodCreak(v, sr));
+    case 'mill':
+      return [0, 1].map((v) => woodCreak(v, sr, true));
+    case 'bell':
+      return [shopBell(sr)];
+    case 'room':
+      return roomImpulse(sr);
+    default:
+      return [];
+  }
 }

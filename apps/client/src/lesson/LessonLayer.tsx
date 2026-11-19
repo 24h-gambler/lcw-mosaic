@@ -7,6 +7,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ADVENTURE_STAGE_ID,
   getLessonNpc,
   type LessonDirectorEventKind,
   type LessonHintLevel,
@@ -335,6 +336,9 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     onDone: (_r, info) => {
       if (info?.followUpsDone) void ctl.stageDone(view.stageId);
       setDoneSeq((n) => n + 1);
+      // The adventure's goal is the 🗺 button, not more talk: a finished answer (✕ or 완료) folds the window so the
+      // status bar with 🗺 shows at once, instead of a fresh window that needs a second ✕.
+      if (view.stageId === ADVENTURE_STAGE_ID) setFoldedKey(panelKey);
     },
     // ✕ on the dialog window folds it away so the child can look at the world; "말하기" brings it back.
     onClose: () => setFoldedKey(panelKey)
@@ -391,6 +395,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
             <EventBanner view={view} />
           </div>
         </div>
+        {!folded && view.stageId === ADVENTURE_STAGE_ID ? <FoldHint /> : null}
       </Shell>
     );
   }
@@ -553,10 +558,92 @@ function bigButton(bg: string): React.CSSProperties {
   };
 }
 
-function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }) {
+/** Where the fold card goes, as close to the dialog window's ✕ as it can sit without covering the NPC's line: just
+ * left of it on the same row (the window's generic "say it in English" line is under it), else above it, else below
+ * it near the top, and top right when there is no ✕ to point at. Measured 11-19 at 390: above the ✕ it covered the
+ * NPC's line in the bottom sheet. */
+export function foldHintPlace(
+  x: { top: number; bottom: number; left: number; right: number } | null,
+  viewportW: number
+): { top: number; right: number; side: 'left' | 'above' | 'below' | 'none' } {
+  if (!x) return { top: 64, right: SP[3], side: 'none' };
+  if (x.left >= FOLD_HINT_MIN_LEFT_PX) return { top: Math.round((x.top + x.bottom) / 2), right: Math.round(viewportW - x.left + SP[0]), side: 'left' };
+  const right = Math.max(SP[1], Math.round(viewportW - x.right));
+  if (x.top >= FOLD_HINT_ROOM_PX) return { top: Math.round(x.top - SP[1]), right, side: 'above' };
+  return { top: Math.round(x.bottom + SP[1]), right, side: 'below' };
+}
+
+/** Room the card needs left of the ✕ (the card with its arrow is about 230 px wide at 15 px text). */
+export const FOLD_HINT_MIN_LEFT_PX = 240;
+/** Room the card needs above the ✕ (one line of text plus the arrow). */
+export const FOLD_HINT_ROOM_PX = 72;
+
+/**
+ * The adventure stage with the dialog window open (coordinator 11-19 17:05): the 🗺 button lives in the status bar,
+ * which shows only while the window is folded (same as 나가기), so this card points at the window's ✕ first.
+ * It never takes taps (the ✕ beside the arrow must stay tappable); it follows the ✕ while the window slides in.
+ */
+export function FoldHint(): React.ReactElement {
+  const [x, setX] = useState<{ top: number; bottom: number; left: number; right: number } | null>(null);
+  const [vw, setVw] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth));
+  useEffect(() => {
+    let tries = 0;
+    const place = () => {
+      const el = document.querySelector('.lcw-dlg__x');
+      const r = el?.getBoundingClientRect();
+      setX(r && r.width > 0 ? { top: r.top, bottom: r.bottom, left: r.left, right: r.right } : null);
+      setVw(window.innerWidth);
+    };
+    place();
+    // the window slides in (and remounts after an answer): settle for a few seconds, then only on resize
+    const t = window.setInterval(() => {
+      place();
+      if (++tries >= 12) window.clearInterval(t);
+    }, 250);
+    window.addEventListener('resize', place);
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener('resize', place);
+    };
+  }, []);
+  const at = foldHintPlace(x, vw);
+  const arrow = { left: '➡', above: '⬇', below: '⬆', none: '' }[at.side];
+  const dir = { left: 'row', above: 'column', below: 'column-reverse', none: 'column' }[at.side] as React.CSSProperties['flexDirection'];
+  return (
+    <div
+      role="status"
+      data-testid="lesson-adventure-fold"
+      data-side={at.side}
+      style={{
+        position: 'fixed',
+        top: at.top,
+        right: at.right,
+        transform: at.side === 'left' ? 'translateY(-50%)' : at.side === 'above' ? 'translateY(-100%)' : undefined,
+        zIndex: 46,
+        pointerEvents: 'none',
+        display: 'flex',
+        flexDirection: dir,
+        alignItems: at.side === 'left' ? 'center' : 'flex-end',
+        gap: 2
+      }}
+    >
+      <div style={{ ...card, background: C.sun, fontWeight: 800, padding: `${SP[1]}px ${SP[2]}px`, fontSize: T.scale.small.sizePx, whiteSpace: 'nowrap' }}>
+        {S.status.adventureFold}
+      </div>
+      {arrow ? (
+        <span className="lcw-blink" aria-hidden style={{ fontSize: 22, lineHeight: '24px', paddingRight: at.side === 'left' ? 0 : 6 }}>
+          {arrow}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+export function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }) {
   const ok = view.connection === 'ok';
   const [asking, setAsking] = useState(false);
   const [toAdventure, setToAdventure] = useState(false);
+  const adventureNow = view.stageId === ADVENTURE_STAGE_ID;
   const small: React.CSSProperties = { ...card, boxShadow: 'none', padding: `${SP[1]}px ${SP[2]}px`, fontSize: T.scale.small.sizePx, cursor: 'pointer', minHeight: TOKENS.shape.touchTargetMinPx, color: C['ink-900'] };
   if (toAdventure) {
     // Two taps here too: the link leaves the lesson screen (the lesson token goes along in this tab, /world/ brings the
@@ -607,7 +694,14 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
               : S.status.alone(view.nickname)}
       </span>
       {/* same tab on purpose: the lesson token (sessionStorage) goes along, so the adventure's 🎤 works at once */}
-      <button type="button" data-testid="lesson-adventure" onClick={() => setToAdventure(true)} style={small}>
+      {/* the adventure stage (the day's last box): the goal card says 'Tap 🗺 Adventure', and the button lights up */}
+      <button
+        type="button"
+        data-testid="lesson-adventure"
+        data-now={adventureNow ? '1' : undefined}
+        onClick={() => setToAdventure(true)}
+        style={adventureNow ? { ...small, background: C.sun } : small}
+      >
         {S.status.adventure}
       </button>
       <button type="button" onClick={() => setAsking(true)} style={small}>

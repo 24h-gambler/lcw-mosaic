@@ -499,6 +499,47 @@ describe('review of PR 129: the card never goes missing, old and empty lessons a
     expect(sent.body.facts.lesson.duration_min).toBe(25);
   });
 
+  it("in the adventure both ways keep the lesson alive by the same presence rule: the away poll (#172) and a 🎤 turn (R2625 last box)", async () => {
+    now = T0;
+    const p = platform();
+    await addStudent(p);
+    const { lessonId, st } = await startLesson(p);
+    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: 'adventure', targets: [] });
+    await call(p, 'GET', '/v1/lesson/state?scene=plaza&ui=3d', undefined, st);
+    const presence = () =>
+      sqlOf(p).get<{ last_seen_at: number; scene_id: string | null }>('select last_seen_at, scene_id from lesson_presence where lesson_id = ?', [lessonId])!;
+    const lessonState = () => sqlOf(p).get<{ stage_id: string; child_ms: number }>('select stage_id, child_ms from lesson_state where lesson_id = ?', [lessonId])!;
+    const before = lessonState();
+    // the child leaves the town for /adventure/ (same tab): the adventure's turns, and its away poll every minute
+    const turn = () =>
+      p.fetch(
+        new Request(`${host}/v1/converse/stt`, {
+          method: 'POST',
+          headers: { authorization: st.authorization!, 'content-type': 'audio/webm;codecs=opus' },
+          body: new Uint8Array(64).buffer as ArrayBuffer
+        })
+      );
+    now = T0 + 5 * 60_000;
+    await call(p, 'GET', '/v1/lesson/state?away=adventure', undefined, st);
+    expect(presence()).toEqual({ last_seen_at: now, scene_id: 'adventure' });
+    // a turn moves the same time column, nothing else (the console keeps saying 'adventure')
+    for (let m = 10; m <= 40; m += 5) {
+      now = T0 + m * 60_000;
+      await turn();
+      expect(presence(), `minute ${m}`).toEqual({ last_seen_at: now, scene_id: 'adventure' });
+      expect((await cron(p)).body.lessons.closed, `minute ${m}`).toEqual([]);
+    }
+    // neither way runs the town stage's own minutes or moves the stage
+    expect(lessonState().stage_id).toBe(before.stage_id);
+    expect(lessonState().child_ms).toBe(before.child_ms);
+    expect(sqlOf(p).get<{ ended_at: number | null }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBeNull();
+    // once the child is really gone, the sweep closes it at the last turn
+    const lastTurn = now;
+    now += LESSON_IDLE_CLOSE_MS + 60_000;
+    expect((await cron(p)).body.lessons.closed).toEqual([lessonId]);
+    expect(sqlOf(p).get<{ ended_at: number }>('select ended_at from lessons where id = ?', [lessonId])!.ended_at).toBe(lastTurn);
+  });
+
   it('the reclamp only looks at real students closed by the old rule (each sweep re-read every unsent close)', async () => {
     // closed by the old rule, but a smoke student: never recomputed
     now = T0;

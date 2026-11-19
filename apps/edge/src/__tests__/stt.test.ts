@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { SEAT_FAIR_USE_LIMITS, SERVER_STT, serverSttNeurons } from '@lcw/quota';
 import { PlatformDO, type LcwEnv } from '../platform.js';
-import { sttSeconds, whisperConfidence } from '../stt.js';
+import { STT_RETRIES, sttSeconds, whisperConfidence } from '../stt.js';
 import { fakeDurableStorage } from './fake-do.js';
 
 /** Server speech recognition (docs/02 6장): child tokens only, Workers AI through the quota meter, audio never kept. */
@@ -110,14 +110,38 @@ describe('POST /v1/converse/stt', () => {
     expect(seen).toHaveLength(1);
   });
 
-  it('a model failure or a malformed answer is a 502 with the fallback (the neurons stay counted)', async () => {
-    const bad = await setup({ run: async () => ({ nope: true }) } as LcwEnv['AI']);
+  it('a model failure or a malformed answer, twice, is a 502 with the fallback (both calls stay counted)', async () => {
+    let badCalls = 0;
+    const bad = await setup({ run: async () => (badCalls++, { nope: true }) } as unknown as LcwEnv['AI']);
     expect((await bad.stt(audio(1))).status).toBe(502);
+    expect(badCalls).toBe(1 + STT_RETRIES);
     const boom = await setup({ run: async () => { throw new Error('down'); } } as LcwEnv['AI']);
     const r = await boom.stt(audio(1));
     expect(r.status).toBe(502);
-    expect(await r.json()).toMatchObject({ fallback: 'board' });
-    expect(boom.p.quota.getStatus(Date.now()).neuronsUsed).toBe(serverSttNeurons(0.5));
+    expect(await r.json()).toMatchObject({ fallback: 'board', retried: true });
+    expect(boom.p.quota.getStatus(Date.now()).neuronsUsed).toBe(serverSttNeurons(0.5) * (1 + STT_RETRIES));
+  });
+
+  it('a Workers AI failure is tried once more on the server: the child gets the words, not "say it again" (11-19)', async () => {
+    const calls: number[] = [];
+    const flaky = await setup({
+      run: async () => {
+        calls.push(1);
+        if (calls.length === 1) throw new Error('InferenceUpstreamError');
+        return { text: 'Thank you.', segments: [{ avg_logprob: -0.1 }] };
+      }
+    } as unknown as LcwEnv['AI']);
+    const r = await flaky.stt(audio(1));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ transcript: 'Thank you.', retried: true });
+    expect(calls).toHaveLength(2);
+    // the second call went through the meter too
+    expect(flaky.p.quota.getStatus(Date.now()).neuronsUsed).toBe(serverSttNeurons(0.5) * 2);
+    // a first call that works is never repeated
+    const ok = await setup();
+    const j = (await (await ok.stt(audio(1))).json()) as Record<string, unknown>;
+    expect(j.retried).toBeUndefined();
+    expect(ok.seen).toHaveLength(1);
   });
 
   it('no AI binding: 503 so the client falls back', async () => {

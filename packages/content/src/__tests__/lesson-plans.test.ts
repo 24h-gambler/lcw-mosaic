@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FIRST_LESSON_PLAN, getLessonNpc, getLessonPlan, LESSON_DIRECTOR_EVENTS, LESSON_PLANS, SECOND_LESSON_PLAN } from '../index.js';
+import { ADVENTURE_STAGE_ID, FIRST_LESSON_PLAN, getLessonNpc, getLessonPlan, LESSON_DIRECTOR_EVENTS, LESSON_JOIN_CODE_SLOT, LESSON_PLANS, SECOND_LESSON_PLAN } from '../index.js';
 
 // Who stands in each 3D scene (apps/client/src/world/town.ts SCENES): a stage's NPC must be the one the world spawns there.
 const EVENT_KEYS: Record<string, string> = Object.fromEntries(LESSON_DIRECTOR_EVENTS.map((e) => [e.labelKo, e.hotkey]));
@@ -43,6 +43,23 @@ describe('lesson plans', () => {
             }
           }
         }
+      });
+
+      it("ends with the adventure (R2625: … EC Play → LCW → adventure), after the wrap-up, with the report step there", () => {
+        const last = plan.stages.at(-1)!;
+        expect(last.id).toBe(ADVENTURE_STAGE_ID);
+        expect(plan.stages.filter((s) => s.id === ADVENTURE_STAGE_ID)).toHaveLength(1);
+        expect(plan.stages.at(-2)!.id).toBe('wrap_up');
+        // the teacher sees the same-tab button and this lesson's code for a new tab; the child's goal points at the button
+        expect(last.teacherGuideKo).toContain('🗺 모험');
+        expect(last.teacherGuideKo).toContain(LESSON_JOIN_CODE_SLOT);
+        expect(last.stepsKo![0]).toContain(LESSON_JOIN_CODE_SLOT);
+        expect(last.studentGoalEn).toContain('🗺 Adventure');
+        expect(last.titleKo.startsWith(String.fromCharCode(0x2460 + last.order - 1))).toBe(true);
+        // 「수업 끝」 comes after the adventure now, so the wrap-up hands over instead of ending
+        expect(last.stepsKo!.at(-1)).toContain('「수업 끝」');
+        expect(plan.stages.at(-2)!.stepsKo!.at(-1)).toContain('모험');
+        expect(last.parentMain).toBeFalsy();
       });
 
       it('every stage happens where its NPC stands', () => {

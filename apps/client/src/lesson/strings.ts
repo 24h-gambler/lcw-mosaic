@@ -27,6 +27,8 @@ export const LESSON_STRINGS_KO = {
     adventure: '🗺 모험',
     adventureAsk: '모험으로 갈까요? 다 하면 마을로 돌아와요',
     adventureGo: '🗺 모험 가기',
+    /** The adventure stage with the dialog window open: 🗺 shows in the status bar only once the window is folded. */
+    adventureFold: '✕ 로 접고 → 🗺 모험',
     leave: '나가기',
     leaveAsk: '수업에서 나갈까요?',
     leaveYes: '나가기',
@@ -104,6 +106,7 @@ export const LESSON_STRINGS_EN: LessonStrings = {
     adventure: '🗺 Adventure',
     adventureAsk: 'Go to the adventure? Come back to the town after',
     adventureGo: '🗺 Go',
+    adventureFold: 'Close with ✕ → 🗺 Adventure',
     leave: '🚪 Leave',
     leaveAsk: 'Leave the lesson?',
     leaveYes: '🚪 Leave',

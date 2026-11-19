@@ -63,11 +63,11 @@
 
 **리포트**: 「수업 끝」은 이번 수업만의 `progress`(숫자만)를 `facts`에 붙이고, `pin_windows`(핀마다 앞뒤 30초의 학생 발화·빙의 대사와 F2 표현 후보, `extractBookmarkWindows`)는 교사에게만 돌려줍니다(`end` 응답·`pin-windows`) — 공개 링크 리포트에 아이 발화 원문·코칭 메모가 나가지 않게(1절 "사실표와 같은 숫자만"). F2 핀은 영어 메모(없거나 한글뿐이면 첫 후보)로 수업 유래 표현(`expressions`, WP-310)에 등록됩니다. 진행 중인 분은 침묵 분으로 세지 않습니다. 학부모용 이번 수업 사실표(`facts.lesson`)는 보호자 도메인이 같은 자리에 붙입니다.
 
-**자동 마무리(7절)**: `lesson` 에 `end_reason`(`auto_idle`·null), `report_pending`(보낼 리포트가 선생님 확인을 기다림), `draft_summary_ko`(초안 한 줄), `continues_from`(이어 가는 앞 수업)이 붙습니다. `student_view.mic_issue` = `{issue, raw, at}` 또는 null. `student_view.mic_turns` = `{started, sent, lost, last_lost:{cause, at}|null}` 또는 null — 아이 기기의 마이크 턴 장부(대화 레인 `lcw.micTurns` = `"<시작>.<보냄>.<잃음>|<원인>:<ms>"`, state 조회의 `mic_turns` 로 옴, R2627). 잃은 턴 원인: `no_speech`(raw `vad_quiet` 음량 못 넘음·`stt_empty` Whisper 가 낱말 못 들음·`no_audio` 녹음 자료 없음) · `quota`(서버 인식 하루 몫, http_429 — '마이크 없음'이 아님) · `stt_failed`(http_413·5xx) · `network` · `denied`·`unsupported`(raw `gum_*`) · `submit_failed`(채점 보내기 실패) · `closed`(턴 도중 창 닫음).
+**자동 마무리(7절)**: `lesson` 에 `end_reason`(`auto_idle`·null), `report_pending`(보낼 리포트가 선생님 확인을 기다림), `draft_summary_ko`(초안 한 줄), `continues_from`(이어 가는 앞 수업)이 붙습니다. `student_view.mic_issue` = `{issue, raw, at}` 또는 null. `student_view.mic_turns` = `{started, sent, lost, last_lost:{cause, at}|null}` 또는 null — 아이 기기의 마이크 턴 장부(대화 레인 `lcw.micTurns` = `"<시작>.<보냄>.<잃음>|<원인>:<ms>"`, state 조회의 `mic_turns` 로 옴, R2627). 잃은 턴 원인: `no_speech`(raw `vad_quiet` 미터가 1초 넘게 돌며 경계 `VOICE_RMS_BORDER` 아래만 들음·`stt_empty` Whisper 가 빈 글자를 돌려줌, 조용함은 이 둘뿐·`no_audio` 녹음 자료 없음) · `quota`(서버 인식 하루 몫, http_429 — '마이크 없음'이 아님) · `stt_failed`(http_413·5xx, 5xx 는 서버가 Workers AI 를 한 번 더 부른 뒤에도 실패한 것) · `network` · `denied`·`unsupported`(raw `gum_*`) · `submit_failed`(채점 보내기 실패) · `closed`(턴 도중 창 닫음).
 
 ## 4. 첫 수업안 (`plan_id = first_lesson_v1`, 120분 대면)
 
-`packages/content/src/lesson-plans.ts`의 `LESSON_PLANS`가 단계·목표 문장·교사 대본을 담습니다. 단계: ① 인사·고정 과제(자유 발화, 4주 비교 기준선) ② 카페 주문(L1→L3 문장 뱅크) ③ 선생님과 물물교환 역할극 ④ 열린 질문 ⑤ 오늘 표현 회상(힌트 없이) ⑥ 마무리·다음 수업 예고. 단계마다 교사는 목표 문장을 고르거나 직접 써서 학생 화면에 띄웁니다.
+`packages/content/src/lesson-plans.ts`의 `LESSON_PLANS`가 단계·목표 문장·교사 대본을 담습니다. 단계: ① 인사·고정 과제(자유 발화, 4주 비교 기준선) ② 카페 주문(L1→L3 문장 뱅크) ③ 선생님과 물물교환 역할극 ④ 열린 질문 ⑤ 오늘 표현 회상(힌트 없이) ⑥ 마무리·다음 수업 예고 ⑦ 모험. 단계마다 교사는 목표 문장을 고르거나 직접 써서 학생 화면에 띄웁니다.
 
 ## 5. 저장되는 것
 
@@ -120,6 +120,14 @@ Dan(선생님) 수업 뒤 말: 「쓸데없는 기능이나 버튼들이 많이 
 | 진행 중 | 「다음 수업」 상자 | 뺌 | 0번 씀 |
 
 시험: `apps/web/src/__tests__/directorLive.test.ts`(뺀 것이 없고 접은 것이 있는지), `lesson.test.ts`(단계 패널). 화면 규칙: 접은 부분은 `<details>` 이고 `data-testid` 는 `director-key-more`·`director-csv-more`·`director-new-student-more`·`director-audio-more`·`teacher-more` 입니다.
+
+## 10. 마지막 칸: 모험 (2026-11-19, R2625)
+
+수업 날의 순서는 … EC Play → LCW → 모험입니다. 두 수업 계획 모두 마무리 뒤에 `adventure` 단계(`ADVENTURE_STAGE_ID`)로 끝납니다.
+- **선생님 콘솔**: 단계 안내가 '아이 화면 상태줄의 「🗺 모험」을 같은 탭에서 — 새 탭·다른 기기면 수업 코드 ○○○○'라고 말합니다. 계획 글의 `{code}`(`LESSON_JOIN_CODE_SLOT`)를 콘솔이 그 수업의 코드로 채웁니다. 「수업 끝」·리포트는 이 칸에서 합니다(마무리는 모험으로 넘기며 끝).
+- **아이 화면**: 목표 카드는 `Close the chat with ✕, then tap 🗺 Adventure`이고(🗺 는 대화창을 ✕ 로 접어야 보이는 상태줄에 있습니다 — 나가기와 같은 설계), 대화창이 열려 있는 동안은 노란 카드 `lesson-adventure-fold`가 창의 ✕ 바로 왼쪽 같은 줄에서 ➡ 로 ✕ 를 가리킵니다(NPC 말을 덮지 않게 — 위에 두면 390 바닥 창에서 NPC 말을 덮었음. 왼쪽 자리가 없으면 위, 위쪽에 붙으면 아래. 탭은 받지 않음). 이 단계에서는 답을 마치면(✕·완료) 새 창 대신 창이 접혀 상태줄이 바로 보입니다. 상태줄의 🗺 단추(`lesson-adventure`)가 노랗게 켜집니다(`data-now="1"`, 크기는 그대로 — 상태줄의 자리·크기는 틀 레인 몫). 같은 탭이라 수업 토큰(sessionStorage)이 따라가 모험의 🎤가 바로 됩니다.
+- **활동**: 모험에서는 월드 조회가 멈춥니다. 두 길이 같은 규칙으로 살아 있음을 셉니다 — 모험이 1분마다 보내는 `GET /v1/lesson/state?away=adventure`(PR 172, 콘솔 장면을 'adventure'로)와, 같은 수업 토큰으로 온 `/v1/converse/stt` 한 번(시각만). 둘 다 `lesson_presence.last_seen_at` 만 움직이고 월드 단계의 분·자동 넘김은 멈춥니다. 그래서 모험 중에 자동 마무리(15분)가 수업을 닫지 않습니다. 모험에서도 아이가 떠난 지 15분이면 마지막 말한 때로 닫힙니다.
+- 아이가 월드에 없으니 이 칸의 계획한 분은 저절로 차지 않습니다. 선생님이 「수업 끝」으로 마칩니다.
 
 ## 9. 단계 자동 진행 (2026-11-16, R2625·R2627)
 

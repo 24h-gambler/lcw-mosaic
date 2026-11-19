@@ -32,7 +32,7 @@ export const STT_RETRIES = 1;
 const WhisperOut = z
   .object({
     text: z.string(),
-    segments: z.array(z.object({ avg_logprob: z.number().optional() }).passthrough()).optional()
+    segments: z.array(z.object({ avg_logprob: z.number().optional(), no_speech_prob: z.number().optional() }).passthrough()).optional()
   })
   .passthrough();
 
@@ -107,5 +107,15 @@ export async function handleServerStt(req: Request, who: SttCaller, deps: SttDep
   }
   if (!out) return json({ error: 'stt_failed', fallback: 'board', retried }, 502);
   const transcript = out.text.replace(/\s+/g, ' ').trim().slice(0, SERVER_STT.maxTranscriptChars);
-  return json({ transcript, confidence: transcript ? whisperConfidence(out.segments) : 0, stt_sec: sec, source: 'workers_ai', ...(retried ? { retried: true } : {}) });
+  // Whisper's own "was there speech at all" per segment (the highest), when the model gives it: the client keeps a
+  // silence line ("Thank you.") from becoming an answer with it (server-stt.ts WHISPER_HALLUCINATIONS).
+  const noSpeech = (out.segments ?? []).map((x) => x.no_speech_prob).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  return json({
+    transcript,
+    confidence: transcript ? whisperConfidence(out.segments) : 0,
+    stt_sec: sec,
+    source: 'workers_ai',
+    ...(noSpeech.length ? { no_speech_prob: Number(Math.max(...noSpeech).toFixed(3)) } : {}),
+    ...(retried ? { retried: true } : {})
+  });
 }

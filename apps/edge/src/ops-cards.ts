@@ -195,6 +195,30 @@ export function enqueueCard(sql: SqliteExecutor, card: OpsCard, nowMs: number): 
   return true;
 }
 
+/**
+ * A session marked as a test (lesson-mode.ts mark-test) after its summary card went out as the child's lesson: the same
+ * card ref says so once, without keep (the hub may fold it), and points nowhere to send. No card went out: none now.
+ */
+export function enqueueTestSessionCard(sql: SqliteExecutor, lessonId: string, playerId: string, nowMs: number, origin: string): string | null {
+  const ref = `${OPS_CARD_SOURCE}:lcw:lesson:${lessonId}:summary`;
+  if (!sql.get('select 1 from ops_card_outbox where ref = ?', [ref])) return null;
+  const l = sql.get<{ started_at: number; ended_at: number | null }>('select started_at, ended_at from lessons where id = ?', [lessonId]);
+  const nick = sql.get<{ nickname: string }>('select nickname from players where id = ?', [playerId])?.nickname ?? playerId;
+  const when = l ? `${kstDay(l.started_at)} ${kstClock(l.started_at)}${l.ended_at ? `–${kstClock(l.ended_at)}` : ''}` : '';
+  const card: OpsCard = {
+    source: OPS_CARD_SOURCE,
+    ref,
+    title: `🧪 LCW 시험 세션으로 표시함 · ${nick} · ${when} · 리포트 보내지 마세요`,
+    body: [
+      `수업 ${lessonId} 은 ${nick} 의 수업이 아니라 실학생 id 로 돈 시험 세션이라 시험 id 로 옮겼습니다.`,
+      `${nick} 의 리포트·하루 기록·코인·'지난 수업' 비교에서 빠졌고, 이어 하기 대상도 아닙니다. 이 카드로 보낼 리포트는 없습니다.`
+    ].join('\n'),
+    importance: STUDENT_DAILY_IMPORTANCE,
+    actions: consoleActions(origin)
+  };
+  return enqueueCard(sql, card, nowMs) ? ref : null;
+}
+
 /** A lesson ended: its summary and the student's record for that day. */
 export function enqueueLessonEnd(sql: SqliteExecutor, lessonId: string, nowMs: number, origin: string): string[] {
   const out: string[] = [];

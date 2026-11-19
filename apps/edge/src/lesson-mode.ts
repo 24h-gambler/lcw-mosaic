@@ -19,11 +19,11 @@ import {
   type LessonMinuteInput,
   type UtteranceMetricInput
 } from '@lcw/metrics';
-import { LessonDO, type DirectorEventKind, type EdgePlatformDb, type SqliteExecutor } from './storage.js';
+import { LessonDO, runInTransaction, type DirectorEventKind, type EdgePlatformDb, type SqliteExecutor } from './storage.js';
 import { markSeatUse } from './seats.js';
 import { buildLessonParentFacts, mergeLessonParentFacts } from './parent-report.js';
 import { createMemoryCard } from './review.js';
-import { enqueueLessonEnd, mountOpsCardRoutes, OPS_CARD_SOURCE } from './ops-cards.js';
+import { enqueueLessonEnd, enqueueRecentStudentDays, mountOpsCardRoutes, OPS_CARD_SOURCE } from './ops-cards.js';
 import { isTestPlayerId } from './nickname.js';
 import { starsOnce, type PassedBefore } from './lesson-stars.js';
 
@@ -182,7 +182,8 @@ create table if not exists lesson_teacher (lesson_id text primary key, first_bea
 create table if not exists lesson_panel_lock (lesson_id text primary key, pin_hash text not null, set_at integer not null, fails integer not null default 0, fail_since integer);
 create table if not exists lesson_auto_close (lesson_id text primary key, closed_at integer not null, last_activity_at integer not null, draft text not null, sent_at integer, folded_into text, empty integer not null default 0);
 create table if not exists lesson_continuations (lesson_id text primary key, continues_from text not null, at integer not null);
-create table if not exists lesson_origins (lesson_id text primary key, origin text not null)
+create table if not exists lesson_origins (lesson_id text primary key, origin text not null);
+create table if not exists lesson_test_marks (lesson_id text primary key, player_id text not null, test_player_id text not null, at integer not null, note text not null, moved text not null)
 `;
 
 export interface LessonModeDeps {
@@ -358,6 +359,7 @@ const EndSchema = z
   })
   .strict();
 const SweepSchema = z.object({ dry_run: z.boolean().default(false) }).strict();
+const MarkTestSchema = z.object({ note: z.string().trim().min(1).max(200), dry_run: z.boolean().default(false) }).strict();
 const NpcIdSchema = z.enum(LESSON_NPCS.map((n) => n.id) as [string, ...string[]]);
 const NpcSaySchema = z.object({ npc_id: NpcIdSchema, text: z.string().trim().min(1).max(200) }).strict();
 const PossessSchema = z.object({ npc_id: NpcIdSchema.nullable() }).strict();
@@ -812,12 +814,27 @@ export function buildLessonModeApp(
   /** The earlier parts this lesson's report also covers: auto-closed, not sent and not folded yet, oldest first. */
   const unsentPartsBefore = (id: string): string[] => {
     const out: string[] = [];
+    const who = lessonRow(id)?.player_id;
     for (let cur = continuesFromOf(id); cur && out.length < 10 && !out.includes(cur); cur = continuesFromOf(cur)) {
       const a = autoOf(cur);
       if (!a || a.sent_at !== null || a.folded_into !== null) break;
+      // a part marked as a test session (mark-test) belongs to a test id now: never in this child's report
+      if (lessonRow(cur)?.player_id !== who) break;
       out.unshift(cur);
     }
     return out;
+  };
+  /** The parts one sent report covers: the earlier parts folded into it (same child), oldest first, then the lesson. */
+  const reportParts = (id: string): string[] => {
+    const who = lessonRow(id)?.player_id;
+    const folded = d.sql
+      .all<{ id: string; player_id: string }>(
+        'select l.id, l.player_id from lesson_auto_close a join lessons l on l.id = a.lesson_id where a.folded_into = ? order by l.started_at',
+        [id]
+      )
+      .filter((r) => r.player_id === who)
+      .map((r) => r.id);
+    return [...folded, id];
   };
   /** Talk balance over several parts of one lesson (each part's own minutes; the gap between parts is not counted). */
   const progressOfParts = (id: string, ids: readonly string[]) => {
@@ -1391,6 +1408,38 @@ export function buildLessonModeApp(
     });
   });
 
+  /** The one place a lesson report is written (the end, and the rebuild after a part is marked as a test). */
+  const writeLessonReport = (
+    id: string,
+    playerId: string,
+    parts: readonly string[],
+    o: { token: string; teacherComment: string; nextLessonAt: string }
+  ): Promise<Response> => {
+    const guardian = d.sql.get<{ id: string }>(
+      'select g.id from guardians g join players p on p.family_id = g.family_id where p.id = ? limit 1',
+      [playerId]
+    );
+    const factsOfParts =
+      parts.length > 1
+        ? mergeLessonParentFacts(parts.flatMap((x) => buildLessonParentFacts(d.sql, x, d.nowMs()) ?? []))
+        : buildLessonParentFacts(d.sql, id, d.nowMs());
+    return d.completeLesson(id, {
+      report_id: `rep-${id}`,
+      player_id: playerId,
+      guardian_id: guardian?.id ?? 'guardian-unknown',
+      ref_id: id,
+      draft_body: '',
+      teacher_comment: o.teacherComment,
+      next_lesson_at: o.nextLessonAt,
+      share_token: o.token,
+      share_url: `/r/${o.token}`,
+      clips: [],
+      // Numbers only on the public report (docs/18 §1, 07 §5); pin transcripts go back to the teacher below.
+      lesson_extra: { progress: progressOfParts(id, [...parts]) },
+      lesson_facts: factsOfParts ?? undefined
+    });
+  };
+
   app.post('/v1/admin/lessons/:id/end', async (c) => {
     const id = c.req.param('id');
     const l = lessonRow(id);
@@ -1423,33 +1472,15 @@ export function buildLessonModeApp(
         return c.json({ error: 'auto_closed_unsent', draft_summary_ko: draftSummaryOf(auto), ended_at: l.ended_at }, 409);
       }
     }
-    const guardian = d.sql.get<{ id: string }>(
-      'select g.id from guardians g join players p on p.family_id = g.family_id where p.id = ? limit 1',
-      [l.player_id]
-    );
     const token = hex(d.randomBytes(16));
     const pinWindows = pinWindowsOf(id);
     registerPinExpressions(id, l.player_id, pinWindows);
     // A continued lesson: the auto-closed parts before it that were never sent go out in this one report.
     const parts = [...unsentPartsBefore(id), id];
-    const factsOfParts =
-      parts.length > 1
-        ? mergeLessonParentFacts(parts.flatMap((x) => buildLessonParentFacts(d.sql, x, d.nowMs()) ?? []))
-        : buildLessonParentFacts(d.sql, id, d.nowMs());
-    const res = await d.completeLesson(id, {
-      report_id: `rep-${id}`,
-      player_id: l.player_id,
-      guardian_id: guardian?.id ?? 'guardian-unknown',
-      ref_id: id,
-      draft_body: '',
-      teacher_comment: p.data.teacher_comment,
-      next_lesson_at: p.data.next_lesson_at || '다음 수업 때 알려 드려요',
-      share_token: token,
-      share_url: `/r/${token}`,
-      clips: [],
-      // Numbers only on the public report (docs/18 §1, 07 §5); pin transcripts go back to the teacher below.
-      lesson_extra: { progress: progressOfParts(id, parts) },
-      lesson_facts: factsOfParts ?? undefined
+    const res = await writeLessonReport(id, l.player_id, parts, {
+      token,
+      teacherComment: p.data.teacher_comment,
+      nextLessonAt: p.data.next_lesson_at || '다음 수업 때 알려 드려요'
     });
     const body = (await res.json()) as { facts?: unknown; error?: string };
     if (!res.ok) return c.json({ error: body.error ?? 'report_failed' }, 500);
@@ -1467,6 +1498,112 @@ export function buildLessonModeApp(
       /* the next end or daily refresh writes the cards again */
     }
     return c.json({ report_path: `/r/${token}`, share_token: token, facts: body.facts, pin_windows: pinWindows });
+  });
+
+  /**
+   * A session someone ran on a real child's id (11-19: les-20261119-517e4021 on Oreo, 15:55, no teacher, 9 of 11 lines
+   * typed, a plan the child had finished) is marked as a test: its lesson, lines, lesson-born expressions, memory cards
+   * and voice clips move to a test id (`smoke-test-<lesson>`), so every place that leaves test students out (the
+   * console box, the continuation, the hub cards and their hourly resend, the daily record, the 'previous lesson' of
+   * the next report, the weekly numbers) leaves it out too. Its coins come back off the child's balance (a reversal row
+   * per line, never a delete). A report it was folded into is written again without it under the same share token, so
+   * a link the teacher already sent shows the right numbers. Nothing is deleted: every moved id and the original
+   * child are kept in lesson_test_marks. dry_run lists what would move.
+   */
+  app.post('/v1/admin/lessons/:id/mark-test', async (c) => {
+    const id = c.req.param('id');
+    const l = lessonRow(id);
+    if (!l) return c.json({ error: 'lesson_not_found' }, 404);
+    const p = MarkTestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
+    const done = d.sql.get<{ player_id: string; test_player_id: string; at: number; moved: string }>(
+      'select player_id, test_player_id, at, moved from lesson_test_marks where lesson_id = ?',
+      [id]
+    );
+    if (done) return c.json({ lesson_id: id, already: true, ...done, moved: JSON.parse(done.moved) as unknown });
+    if (isTestPlayerId(l.player_id)) return c.json({ error: 'already_test_student' }, 409);
+    if (!l.ended_at) return c.json({ error: 'lesson_live' }, 409);
+    // its own report went out to the guardian: that is not a test session to hide afterwards
+    if (d.sql.get("select 1 from report_deliveries where report_id = ?", [`rep-${id}`])) return c.json({ error: 'report_sent' }, 409);
+    const testId = `smoke-test-${id}`;
+    const utts = d.sql.all<{ id: string; stars: number }>('select id, stars from utterances where session_id = ? and player_id = ?', [id, l.player_id]);
+    const uttIds = utts.map((u) => u.id);
+    const inUtts = (col: string) => (uttIds.length ? `${col} in (${uttIds.map(() => '?').join(', ')})` : '0');
+    const idsOf = (q: string, args: unknown[]) => {
+      try {
+        return d.sql.all<{ id: string }>(q, args).map((r) => String(r.id));
+      } catch {
+        return []; // a table this deploy does not have
+      }
+    };
+    const auto = autoOf(id);
+    const foldedInto = auto?.folded_into ?? null;
+    const moved = {
+      utterances: uttIds,
+      expressions: idsOf('select id from expressions where lesson_id = ? and player_id = ?', [id, l.player_id]),
+      memory_cards: idsOf(`select id from memory_cards where player_id = ? and ${inUtts('utterance_id')}`, [l.player_id, ...uttIds]),
+      voice_clips: idsOf(`select id from voice_clips where player_id = ? and ${inUtts('utterance_id')}`, [l.player_id, ...uttIds]),
+      coins: utts.reduce((n, u) => n + Math.max(0, Number(u.stars)) * COINS_PER_STAR, 0),
+      folded_into: foldedInto
+    };
+    if (p.data.dry_run) return c.json({ lesson_id: id, player_id: l.player_id, test_player_id: testId, dry_run: true, moved });
+    const now = d.nowMs();
+    runInTransaction(d.sql, () => {
+      d.sql.run('update lessons set player_id = ? where id = ?', [testId, id]);
+      d.sql.run('update utterances set player_id = ? where session_id = ? and player_id = ?', [testId, id, l.player_id]);
+      const move = (table: string, col: string, ids: string[]) => {
+        if (ids.length) d.sql.run(`update ${table} set ${col} = ? where id in (${ids.map(() => '?').join(', ')})`, [testId, ...ids]);
+      };
+      move('expressions', 'player_id', moved.expressions);
+      move('memory_cards', 'player_id', moved.memory_cards);
+      move('voice_clips', 'player_id', moved.voice_clips);
+      d.sql.run('update student_tokens set player_id = ?, expires_at = min(expires_at, ?) where lesson_id = ?', [testId, now, id]);
+      d.sql.run('delete from lesson_joins where lesson_id = ?', [id]);
+      // out of the report it was folded into (rewritten below); its own row stays as the record of the close
+      if (foldedInto) d.sql.run('update lesson_auto_close set folded_into = null where lesson_id = ?', [id]);
+      d.sql.run('insert into lesson_test_marks (lesson_id, player_id, test_player_id, at, note, moved) values (?, ?, ?, ?, ?, ?)', [
+        id,
+        l.player_id,
+        testId,
+        now,
+        p.data.note,
+        JSON.stringify(moved)
+      ]);
+    });
+    // coins: a reversal row per line on the child's balance (the ledger is in the home world; never deleted)
+    for (const u of utts) if (u.stars > 0) d.coins?.credit(l.player_id, -u.stars * COINS_PER_STAR, `test-lesson:${u.id}`, now);
+    // the report it was folded into: the same share token, numbers without this part, the delivery as it was
+    let report: { rebuilt: string; report_path: string } | { error: string } | null = null;
+    if (foldedInto) {
+      const host = lessonRow(foldedInto);
+      const del = d.sql.get<Record<string, unknown> & { share_token: string; teacher_comment: string | null; next_lesson_at: string | null }>(
+        'select * from report_deliveries where report_id = ?',
+        [`rep-${foldedInto}`]
+      );
+      const openedReport = d.sql.get<{ opened_at: number | null }>('select opened_at from reports where id = ?', [`rep-${foldedInto}`])?.opened_at ?? null;
+      if (host && del) {
+        const res = await writeLessonReport(foldedInto, host.player_id, reportParts(foldedInto), {
+          token: del.share_token,
+          teacherComment: del.teacher_comment ?? '',
+          nextLessonAt: del.next_lesson_at ?? ''
+        });
+        if (res.ok) {
+          d.sql.run(
+            'update report_deliveries set status = ?, sent_at = ?, opened_at = ?, reminder_sent_at = ? where report_id = ?',
+            [del.status, del.sent_at, del.opened_at, del.reminder_sent_at, `rep-${foldedInto}`]
+          );
+          d.sql.run('update reports set opened_at = ? where id = ?', [openedReport, `rep-${foldedInto}`]);
+          report = { rebuilt: foldedInto, report_path: `/r/${del.share_token}` };
+        } else report = { error: `report_rebuild_failed:${res.status}` };
+      }
+    }
+    // the child's daily record card for that day is written again without the test lines (the cards leave test ids out)
+    try {
+      enqueueRecentStudentDays(d.sql, now, LCW_SITE_ORIGIN);
+    } catch {
+      /* the hourly cron writes it again */
+    }
+    return c.json({ lesson_id: id, player_id: l.player_id, test_player_id: testId, moved, report });
   });
 
   const dailyRows = (where: string, params: unknown[]) =>

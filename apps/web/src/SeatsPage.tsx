@@ -13,6 +13,7 @@ import {
   type AdminSeat,
   type FamilyApi,
   type FamilySeat,
+  type BillingOrderItem,
   type SeatInbox,
   type SeatInboxItem,
   type SeatPayment,
@@ -452,6 +453,18 @@ export function SeatsAdminPage({ api, initialToken, now = Date.now }: { api?: Fa
               )
             }
           />
+          {load.inbox.orders && load.inbox.orders.length > 0 ? (
+            <OrdersBox
+              orders={load.inbox.orders}
+              busy={busy}
+              onClose={(id, outcome) =>
+                run(async (op) => {
+                  await apiRef.current.adminCloseBillingOrder(op, id, outcome);
+                  return A.orderClosed;
+                })
+              }
+            />
+          ) : null}
           <IssueForm
             kids={load.kids}
             busy={busy}
@@ -485,6 +498,41 @@ export function SeatsAdminPage({ api, initialToken, now = Date.now }: { api?: Fa
         </>
       ) : null}
     </main>
+  );
+}
+
+/** R326 online orders (billing.ts): who ordered what; the seat itself is opened with the issue form below. */
+function OrdersBox({
+  orders,
+  busy,
+  onClose
+}: {
+  orders: BillingOrderItem[];
+  busy: boolean;
+  onClose: (id: string, outcome: 'seat_issued' | 'failed') => void;
+}): React.ReactElement {
+  return (
+    <Box title={A.ordersTitle} tone="tinted" testId="seats-orders">
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: sp(2) }}>
+        {orders.map((o) => (
+          <li key={o.id} data-testid={`order-${o.id}`} style={{ background: C['paper-0'], border: `1px solid ${C['line-200']}`, borderRadius: px(TOKENS.shape.radiusButtonPx), padding: sp(3), display: 'grid', gap: sp(1) }}>
+            <strong>{o.status === 'paid' ? A.orderPaid : A.orderWait}</strong>
+            <span style={small}>{A.orderMeta(o.plan === 'duo' ? 'Duo' : 'Solo', o.term === 'year' ? '1년' : '1개월', won(o.amount_krw), day(o.created_at))}</span>
+            <span style={small}>{A.orderWho(o.payer_name, o.contact, o.nickname ?? A.orderNoChild)}</span>
+            <span style={{ display: 'flex', gap: sp(2), flexWrap: 'wrap' }}>
+              <button type="button" disabled={busy} onClick={() => onClose(o.id, 'seat_issued')}>
+                {A.orderIssued}
+              </button>
+              {o.status === 'transfer_wait' ? (
+                <button type="button" disabled={busy} onClick={() => onClose(o.id, 'failed')}>
+                  {A.orderFailed}
+                </button>
+              ) : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Box>
   );
 }
 

@@ -13,7 +13,11 @@ export const SITE_EVENTS = [
   'save_no',
   'send_to_parent',
   'pricing_view',
-  'consult_submit'
+  'consult_submit',
+  // R326: the world entrance and the paid step
+  'entrance_play',
+  'checkout_start',
+  'checkout_done'
 ] as const;
 
 export type SiteEvent = (typeof SITE_EVENTS)[number];

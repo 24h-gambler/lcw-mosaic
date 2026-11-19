@@ -7,6 +7,9 @@
  */
 import { CAFE_MENU, FURNITURE_SHOP_GOODS, GUIDE_PLACES, TRADE_SHOP_GOODS, teacherLabel } from '@lcw/content';
 import { helpKoOn, say, type Bi } from './lang.js';
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
+
+const TRIAL_MIN = FREE_PLAY_LIMITS.worldTrialMinutes;
 
 /** "en · ko" when the Korean help is on and the two differ, else the English. Shared with the frame (frame/strings.ts). */
 export function joinHelp(en: string, ko: string | undefined): string {
@@ -80,6 +83,11 @@ const WORLD_STRINGS_KO = {
   seatPausedBody: '마을은 둘러볼 수 있어요. 다시 같이 놀고 싶으면 보호자에게 말해 주세요.',
   seatPausedOk: '알겠어요',
   seatPausedChip: '둘러보기만',
+  // R326 free trial over: the card sends the grown-up to the plans page; no price, payment word or time on this screen.
+  trialEndedTitle: `무료 ${TRIAL_MIN}분 체험이 끝났어요`,
+  trialEndedBody: '마을은 계속 둘러볼 수 있어요. 계속 놀려면 보호자와 함께 이용권을 골라 주세요.',
+  trialEndedCta: '보호자와 이용권 고르기',
+  trialEndedLater: '둘러보기',
   hunger: '배고픔',
   thirst: '목마름',
   slowed: '느려짐',
@@ -190,6 +198,10 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   seatPausedBody: 'You can still look around the town. Tell your grown-up if you want to play again.',
   seatPausedOk: 'OK',
   seatPausedChip: 'Look only',
+  trialEndedTitle: `Your free ${TRIAL_MIN} minutes are over`,
+  trialEndedBody: 'You can still look around the town. To keep playing, choose a plan with your grown-up.',
+  trialEndedCta: 'Choose a plan with your grown-up',
+  trialEndedLater: 'Look around',
   hunger: 'Hunger',
   thirst: 'Thirst',
   slowed: 'Slow',

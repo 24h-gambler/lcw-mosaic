@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { LESSON_SWEEP_CRON, buildLessonModeApp, studentFromRequest, type IdleSweepResult } from './lesson-mode.js';
 import { buildExportApp } from './export-csv.js';
-import { markSeatUse, playAllowed, sweepSeatNotices } from './seats.js';
+import { soloWriteGate, sweepSeatNotices } from './seats.js';
 import { legacyWorldRedirect } from './world-path.js';
 import {
   VOICE_PUBLIC_ROUTES,
@@ -23,6 +23,7 @@ import { STUDENT_PUBLIC_ROUTES, buildStudentAccountApp } from './student-account
 import { ED_LINK_PUBLIC_ROUTES, buildEdLinkApp } from './ed-link.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
+import { BILLING_PUBLIC_ROUTES, buildBillingApp } from './billing.js';
 import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp, guestPassFromRequest, sweepEndedGuestCells } from './free-play.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp, readMyWorld } from './my-world.js';
@@ -79,6 +80,12 @@ export interface LcwEnv {
   WORLD_ROOM?: DoNamespace;
   ASSETS?: AssetsBinding;
   AI?: AiBinding;
+  /**
+   * Toss Payments (billing.ts, R326). Both set → online card payment ('live'); either unset → test mode (orders wait for a
+   * bank transfer in the operator inbox). Secrets: `wrangler secret put TOSS_CLIENT_KEY` / `TOSS_SECRET_KEY`.
+   */
+  TOSS_CLIENT_KEY?: string;
+  TOSS_SECRET_KEY?: string;
   /** Operator (teacher) token — `wrangler secret put LCW_OPERATOR_TOKEN`. Unset → gated routes fail closed. */
   LCW_OPERATOR_TOKEN?: string;
   /** Secret: teacher/operator Google emails, comma separated (operator-login.ts). Never in the repository. */
@@ -147,6 +154,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (ED_LINK_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Public site (docs/14): cookie-free counters and the tutoring consult form, see site.ts.
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // Paid step after the free trial (R326, billing.ts): plan config, checkout and the Toss confirm check their own input.
+  if (BILLING_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
   if (SHOWROOM_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Multi room tickets (room.ts): lesson, device or operator token, checked inside.
@@ -740,10 +749,9 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
    */
   const seatBlocked = (s: { player_id: string; device: boolean }): Response | null => {
     if (!s.device) return null;
-    const now = Date.now();
-    const gate = playAllowed(platform.sql, s.player_id, now);
-    if (gate.allowed) markSeatUse(platform.sql, s.player_id, now, 'play');
-    return gate.allowed ? null : Response.json({ error: 'seat_inactive', seat: { state: gate.seat?.state ?? null } }, { status: 403 });
+    // R326: a child with no seat plays on the server's free-trial clock; this write is one of its beats (seats.ts).
+    const refused = soloWriteGate(platform.sql, s.player_id, Date.now());
+    return refused ? Response.json(refused, { status: 403 }) : null;
   };
   /** Forwards a child's own request to the inner app with who/which world/level filled in by the server. */
   const forwardSolo = (
@@ -1162,6 +1170,17 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   app.route('/', buildVoiceApp({ ...familyDeps, store: () => platform.voiceStore() }));
   app.route('/', buildLessonAudioApp(familyDeps));
   app.route('/', buildSiteApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
+  app.route(
+    '/',
+    buildBillingApp({
+      sql: platform.sql,
+      nowMs: familyDeps.nowMs,
+      randomBytes: familyDeps.randomBytes,
+      sha256Hex,
+      toss: { clientKey: env.TOSS_CLIENT_KEY, secretKey: env.TOSS_SECRET_KEY },
+      deviceChild: async (req) => (await platform.deviceFromRequest(req))?.player_id ?? null
+    })
+  );
   app.route('/', buildFreePlayApp({ sql: platform.sql, nowMs: familyDeps.nowMs, randomBytes: familyDeps.randomBytes, sha256Hex }));
   app.route('/', buildShowroomApp({ ...familyDeps, isOperator: (req) => isOperator(req, env.LCW_OPERATOR_TOKEN) }));
   app.route(

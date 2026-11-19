@@ -7,7 +7,7 @@ import { REPORT_SHARE_TTL_MS, kstDayOf, publicFacts, type PublicReportView } fro
 import { buildLessonWindow } from './lesson-window.js';
 import { answerListening, closeListeners, lessonAudioState, listenerOf, startListening, touchListener, type RealtimeClient } from './lesson-audio.js';
 import { buildDashboard } from './dashboard.js';
-import { markSeatUse, mountSeatRoutes, playAllowed } from './seats.js';
+import { beatTrial, markSeatUse, mountSeatRoutes, playAllowed } from './seats.js';
 import { GUEST_PASS_GUARDIAN_ROUTES, mountGuestPassGuardianRoutes } from './free-play.js';
 import { drainVoicePurge, reportClips, type VoiceBlobStore } from './voice.js';
 import { SubscribeSchema, deliverPush, enqueueTest, familyPushState, subscribe, unsubscribe, vapidKeys, type PushSender } from './push.js';
@@ -52,6 +52,7 @@ export const FAMILY_PUBLIC_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', /^\/v1\/family\/seats\/[^/]+\/refund-request$/],
   ['POST', /^\/v1\/device\/link$/],
   ['GET', /^\/v1\/device\/me$/],
+  ['POST', /^\/v1\/device\/heartbeat$/],
   // Guest passes a seat issues (free-play.ts), behind the same guardian session.
   ...GUEST_PASS_GUARDIAN_ROUTES
 ];
@@ -604,29 +605,52 @@ export function buildFamilyApp(d: FamilyDeps): Hono {
     return c.json({ device_token: token, nickname: kid?.nickname ?? '', level: kid?.level ?? 'L1', expires_at: now + DEVICE_TOKEN_TTL_MS });
   });
 
-  app.get('/v1/device/me', async (c) => {
-    const token = bearer(c.req.raw);
-    if (token.length < 32) return c.json({ error: 'device_only' }, 401);
-    const now = d.nowMs();
+  /** The linked child device behind a bearer token (null = not a live device token). */
+  const deviceOf = async (req: Request): Promise<{ id: string; player_id: string } | null> => {
+    const token = bearer(req);
+    if (token.length < 32) return null;
     const dev = d.sql.get<{ id: string; player_id: string; created_at: number }>(
       'select id, player_id, created_at from devices where token_hash = ? and revoked_at is null',
       [await d.sha256Hex(token)]
     );
-    if (!dev || now - dev.created_at > DEVICE_TOKEN_TTL_MS) return c.json({ error: 'device_only' }, 401);
+    return dev && d.nowMs() - dev.created_at <= DEVICE_TOKEN_TTL_MS ? dev : null;
+  };
+
+  app.get('/v1/device/me', async (c) => {
+    const dev = await deviceOf(c.req.raw);
+    if (!dev) return c.json({ error: 'device_only' }, 401);
+    const now = d.nowMs();
     d.sql.run('update devices set last_seen_at = ? where id = ?', [now, dev.id]);
     const kid = d.sql.get<{ nickname: string; level: string }>('select nickname, level from players where id = ?', [dev.player_id]);
     // Seat gate for solo play (docs/09 5): read-only/archived/refunded seat -> play_allowed false; lessons are not gated.
     // The child device gets the state only, never a date (AGENTS 4.9: no deadlines on child screens).
     const seat = playAllowed(d.sql, dev.player_id, now);
     // The child's world opened on a linked device: the seat is in use from now (its paid period is no longer refunded).
-    if (seat.allowed) markSeatUse(d.sql, dev.player_id, now, 'world');
+    if (seat.seat && seat.allowed) markSeatUse(d.sql, dev.player_id, now, 'world');
     return c.json({
       nickname: kid?.nickname ?? '',
       level: kid?.level ?? 'L1',
       voice_store: d.db.hasActiveConsent(dev.player_id, 'voice_store'),
       play_allowed: seat.allowed,
-      seat: seat.seat ? { state: seat.seat.state } : null
+      seat: seat.seat ? { state: seat.seat.state } : null,
+      // R326: 'running' = this device beats POST /v1/device/heartbeat while the world is open; 'ended' = pay screen.
+      // No minutes or end time on the child device (AGENTS 4.9); null = no free-trial clock (a seat, a tutoring student).
+      trial: seat.trial
     });
+  });
+
+  /**
+   * R326 free-trial beat: only a trial child's device sends it (every FREE_PLAY_LIMITS.worldTrialBeatMs while the
+   * world is visible). Anyone else gets the gate back without a write.
+   */
+  app.post('/v1/device/heartbeat', async (c) => {
+    const dev = await deviceOf(c.req.raw);
+    if (c.req.raw.body && !c.req.raw.bodyUsed) await c.req.raw.body.cancel().catch(() => undefined);
+    if (!dev) return c.json({ error: 'device_only' }, 401);
+    const now = d.nowMs();
+    const gate = playAllowed(d.sql, dev.player_id, now);
+    const trial = gate.trial === 'running' ? beatTrial(d.sql, dev.player_id, now) : gate.trial;
+    return c.json({ play_allowed: trial === null ? gate.allowed : trial === 'running', trial });
   });
 
   mountSeatRoutes(app, d, withGuardian);

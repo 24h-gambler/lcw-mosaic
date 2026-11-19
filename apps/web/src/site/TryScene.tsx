@@ -471,7 +471,7 @@ export function TryScene({ initial, pathOverride }: TrySceneProps): React.ReactE
   return (
     <div className="s-try" data-testid="try-scene" data-phase={s.phase}>
       <div className="s-try-top">
-        <SLink to="/" className="s-btn s-btn-ghost" aria-label="LCW 처음으로">
+        <SLink to="/about" className="s-btn s-btn-ghost" aria-label="LCW 소개">
           {TRY.back}
         </SLink>
         <span className="s-try-goal" aria-live="polite">
@@ -599,6 +599,9 @@ interface PanelProps {
 }
 
 /** Shown instead of the steps when the server says the session is over, used today, or out of reach. */
+/** R326: where the try's end sends the visitor (the plans step of /pricing). */
+export const TRY_PLANS_PATH = '/pricing?from=try#plans';
+
 function GatePanel({ gate, onShare, onRetry }: { gate: 'used_today' | 'ended' | 'error'; onShare: () => void; onRetry: () => void }): React.ReactElement {
   const t = TRY.gate[gate];
   return (
@@ -610,9 +613,14 @@ function GatePanel({ gate, onShare, onRetry }: { gate: 'used_today' | 'ended' | 
           {TRY.retry}
         </button>
       ) : (
-        <button type="button" className="s-btn s-btn-brand s-btn-mic" onClick={onShare}>
-          {TRY.sendParent}
-        </button>
+        <>
+          <a href={TRY_PLANS_PATH} className="s-btn s-btn-brand s-btn-mic" data-cta="plans">
+            {TRY.choosePlan}
+          </a>
+          <button type="button" className="s-btn s-btn-mic" onClick={onShare}>
+            {TRY.sendParent}
+          </button>
+        </>
       )}
       <div className="s-row" style={{ gap: 8, marginTop: 8 }}>
         <SLink to="/parents" className="s-btn s-btn-ghost">
@@ -774,7 +782,10 @@ function Panel(p: PanelProps): React.ReactElement {
         ) : null}
       </div>
       <p className="s-muted">{s.saved ? TRY.endSavedYes : TRY.endSavedNo}</p>
-      <button type="button" className="s-btn s-btn-brand s-btn-mic" onClick={p.onShare}>
+      <a href={TRY_PLANS_PATH} className="s-btn s-btn-brand s-btn-mic" data-cta="plans">
+        {TRY.choosePlan}
+      </a>
+      <button type="button" className="s-btn s-btn-mic" onClick={p.onShare}>
         {TRY.sendParent}
       </button>
       <div className="s-row" style={{ gap: 8, marginTop: 8 }}>

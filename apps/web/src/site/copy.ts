@@ -33,6 +33,8 @@ export const NAV = {
   tutoring: '과외',
   pricing: '요금',
   try: `${TRY_MIN}분 체험`,
+  /** R326: the world itself (/world/ start screen: sign up, sign in, the 3-minute try, a friend's code). */
+  playNow: '지금 플레이 ▶',
   menu: '메뉴',
   close: '닫기',
   skip: '본문으로 건너뛰기'
@@ -46,6 +48,9 @@ export const HERO = {
   parentsSub: '성장이 어떻게 보이는지',
   players: '플레이어세요?',
   playersSub: '무엇을 할 수 있는지',
+  /** R326: the main way in is the world itself (its start screen holds sign-up, sign-in, the try and a friend's code). */
+  playCta: '지금 플레이 ▶',
+  playSub: '가입·로그인·3분 체험이 모두 월드 첫 화면에 있어요',
   tryCta: `지금 ${TRY_MIN}분 체험`,
   tryCtaLong: '설치도 가입도 없이 음료 한 잔 주문해 보기',
   trySub: '브라우저에서 바로 시작해요. 목소리는 저장되지 않아요.'
@@ -355,9 +360,42 @@ export const PRICING = {
     { k: '해지 뒤 월드', v: '30일 동안 읽기 전용으로 남고, 그 뒤에는 보관됩니다.' }
   ],
   startTitle: '시작하기',
-  startBody: '지금은 선생님이 직접 좌석을 열어 드려요. 상담 신청에 "좌석 문의"라고 남겨 주세요.',
+  startBody: '요금제는 위에서 바로 고를 수 있어요. 과외나 여러 좌석이 궁금하면 상담 신청에 "좌석 문의"라고 남겨 주세요.',
   startCta: '좌석 문의하기',
   faqTitle: '자주 묻는 질문'
+} as const;
+
+/**
+ * R326 plans step (/pricing#plans): the guardian picks a plan, leaves a name and a contact, and pays. Test mode (no Toss
+ * shop approved yet) takes the order and the teacher confirms the transfer; live mode opens the Toss card window.
+ */
+export const CHECKOUT = {
+  title: '요금제 고르기',
+  fromWorld: '무료 체험이 끝났어요. 아이가 계속 놀 수 있게 보호자께서 요금제를 골라 주세요.',
+  fromTry: '체험은 어떠셨나요? 아이 좌석을 열면 내 월드에서 계속 놀 수 있어요.',
+  pick: '요금제',
+  term: '결제 주기',
+  month: '월 결제',
+  year: '연 결제',
+  fName: '보호자 이름',
+  fContact: '연락처 (휴대전화 또는 이메일)',
+  total: '결제 금액',
+  refund: `${REFUND_RULE.short}. 아이 기기에서 월드를 열거나 수업에 들어가 이용을 시작하면 환불되지 않습니다.`,
+  agree: '위 환불 조건을 확인했어요',
+  testBand: '시험 모드 — 실제 돈이 나가지 않아요',
+  testBody: '지금은 온라인 카드 결제를 준비 중이라 주문을 받고, 선생님이 입금 안내를 연락처로 보내 드려요. 입금이 확인되면 좌석을 열어 드립니다.',
+  submitTest: '주문 넣기 (시험 모드)',
+  submitLive: '결제하기',
+  sending: '보내는 중…',
+  invalid: '이름과 연락처(휴대전화 또는 이메일)를 확인하고, 환불 조건에 체크해 주세요.',
+  error: '지금은 주문을 받지 못했어요. 잠시 뒤 다시 해 주세요.',
+  tooMany: '주문을 너무 여러 번 보냈어요. 한 시간 뒤 다시 해 주세요.',
+  doneTest: (no: string): string => `주문을 받았어요 (주문 번호 ${no}). 시험 모드라 돈은 나가지 않았어요. 선생님이 입금 안내를 보내 드리고, 입금이 확인되면 좌석을 열어 드려요.`,
+  doneLive: '결제가 끝났어요. 좌석이 열렸어요 — 아이 기기에서 월드를 다시 열면 바로 이어서 놀 수 있어요.',
+  donePaid: '결제가 끝났어요. 선생님이 확인하고 좌석을 열어 드려요(두 번째 아이 연결 등).',
+  failLive: '결제가 끝나지 않았어요. 카드나 결제 수단을 바꿔 다시 해 주세요.',
+  backToWorld: '월드로 돌아가기',
+  childBound: '이 기기의 아이 좌석으로 주문해요.'
 } as const;
 
 /** docs/14 §6 FAQ. Answers describe how it is measured, never promise outcomes. */
@@ -615,7 +653,7 @@ export const FOOTER = {
 } as const;
 
 export const META: Readonly<Record<string, { title: string; description: string }>> = {
-  '/': { title: 'LCW — 말하면 생기는 세계', description: `영어로 말해야 물건이 생기는 3D 블록 월드. 설치·가입 없이 ${TRY_MIN}분 체험.` },
+  '/about': { title: 'LCW — 말하면 생기는 세계', description: `영어로 말해야 물건이 생기는 3D 블록 월드. 설치·가입 없이 ${TRY_MIN}분 체험.` },
   '/parents': { title: '학부모님께 — LCW', description: '아이가 대본 없이 영어로 말한 양과 길이를 매주 숫자와 육성으로 확인하세요.' },
   '/play': { title: '플레이어에게 — LCW', description: '네 월드는 네가 만든다. 짓고, 터뜨리고, 하늘섬까지. 필요한 건 영어 한 문장.' },
   '/tutoring': { title: '과외 수업 — LCW', description: '선생님이 아이의 월드에 NPC로 들어가는 120분 영어 회화 수업과 수업 리포트.' },

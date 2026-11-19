@@ -39,6 +39,9 @@ export function SLink({
   );
 }
 
+/** R326: the world's start screen (sign up, sign in, the 3-minute try). A plain link: it is not a site page. */
+export const WORLD_START = '/world/';
+
 export function LogoMark(): React.ReactElement {
   return (
     <span className="s-logo-mark" aria-hidden="true">
@@ -65,7 +68,7 @@ export function SiteHeader(): React.ReactElement {
         {NAV.skip}
       </a>
       <div className="s-wrap s-head-in">
-        <SLink to="/" className="s-logo" aria-label="LCW 처음으로">
+        <SLink to="/about" className="s-logo" aria-label="LCW 소개">
           <LogoMark />
           <span className="s-pixel">LCW</span>
         </SLink>
@@ -75,8 +78,11 @@ export function SiteHeader(): React.ReactElement {
               {n.label}
             </SLink>
           ))}
-          <SLink to="/try" className="s-btn s-btn-brand" style={{ marginLeft: 8 }}>
+          <SLink to="/try" className="s-btn" style={{ marginLeft: 8 }}>
             {NAV.try}
+          </SLink>
+          <SLink to={WORLD_START} className="s-btn s-btn-brand" data-cta="play" style={{ marginLeft: 8 }}>
+            {NAV.playNow}
           </SLink>
         </nav>
         <button
@@ -97,6 +103,9 @@ export function SiteHeader(): React.ReactElement {
         ))}
         <SLink to="/try" onClick={() => setOpen(false)}>
           {NAV.try}
+        </SLink>
+        <SLink to={WORLD_START} data-cta="play" onClick={() => setOpen(false)}>
+          {NAV.playNow}
         </SLink>
       </nav>
     </header>

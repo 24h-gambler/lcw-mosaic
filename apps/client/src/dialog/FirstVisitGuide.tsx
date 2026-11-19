@@ -469,6 +469,9 @@ function MicChip(props: { status: MicCheckStatus | null; onTap: () => void }): R
       onClick={props.onTap}
       style={{
         pointerEvents: 'auto',
+        // above the touch view layer (.lw-touch, inset 0, later in the HUD) so a tap on a phone reaches the chip
+        position: 'relative',
+        zIndex: 1,
         display: 'inline-flex',
         alignItems: 'center',
         alignSelf: 'flex-start',

@@ -147,6 +147,26 @@ describe('mic check gate (lesson students, guests)', () => {
     expect(html).not.toMatch(/(top|right):\s*\d/);
   });
 
+  it('on a touch device the tap reaches the chip, not the touch view layer drawn over the status chip (review of PR 161)', () => {
+    g.sessionStorage!.setItem('lcw.lessonMicChecked:K7Q2', '1');
+    const html = renderToStaticMarkup(<MicCheckGate identityKind="lesson" lessonCode="K7Q2" speech={speech} />);
+    // the chip stacks itself above its z-index-auto siblings
+    expect(html).toMatch(/position:\s*relative/);
+    const z = Number(/z-index:\s*(\d+)/.exec(html)?.[1] ?? 0);
+    expect(z).toBeGreaterThanOrEqual(1);
+    expect(html).toMatch(/pointer-events:\s*auto/);
+    // the HUD: the touch layer covers the whole view after the status chip, and neither makes a stacking context
+    // of its own that would put the chip back under it
+    const hud = readFileSync(new URL('../world/hud.ts', import.meta.url), 'utf8');
+    expect(hud.indexOf("el('div', 'lw-chip', this.root)")).toBeLessThan(hud.indexOf("el('div', 'lw-touch', this.root)"));
+    const rules = (sel: string) => [...hud.matchAll(new RegExp(`\\${sel}(?:\\.on)?\\{([^}]*)\\}`, 'g'))].map((m) => m[1]!);
+    expect(rules('.lw-touch').some((r) => r.includes('inset:0'))).toBe(true);
+    for (const r of [...rules('.lw-touch'), ...rules('.lw-chip')]) {
+      const zi = /z-index:\s*(-?\d+)/.exec(r);
+      expect(zi ? Number(zi[1]) : 0).toBeLessThan(z);
+    }
+  });
+
   it('a child with a device gets the check inside the first-visit intro, not here', () => {
     expect(micCheckAudience('child')).toBeNull();
     expect(renderToStaticMarkup(<MicCheckGate identityKind="child" speech={speech} />)).toBe('');

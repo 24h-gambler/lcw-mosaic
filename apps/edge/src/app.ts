@@ -386,7 +386,7 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     // Dan R326 ⑤: a passed solo sentence earns coins (once per window, daily cap; shop.ts creditSoloEarn).
     const coinsEarned =
       decision.pass && worldDo && req.session_kind !== 'lesson'
-        ? creditSoloEarn(worldDo, { playerId: req.player_id, dialogId: req.dialog_id, stars: decision.stars, nowMs, sentence: req.target_text ?? req.transcript })
+        ? creditSoloEarn(worldDo, { playerId: req.player_id, dialogId: req.dialog_id, stars: decision.stars, nowMs, sentence: decision.targetText || req.transcript })
         : 0;
     if (worldDo) coinsTotal = worldDo.getPlayerBalance(req.player_id);
 

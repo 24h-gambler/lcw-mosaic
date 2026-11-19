@@ -73,6 +73,10 @@ describe('town shop and coins (R326)', { timeout: 60_000 }, () => {
     const fresh = await say(p, dev, 'win-2', 3);
     expect(fresh.body.pass).toBe(true);
     expect(fresh.body.coins_earned).toBeUndefined();
+    // also with no target sentence sent (the server finds the bank sentence; the tag is the server's sentence)
+    const noTarget = await call(p, 'POST', '/v1/converse/score', { dialog_id: 'win-3', chosen_stars: 3, hint_level: 'keyword', transcript: GUIDE.offers[2]!.text, npc_ctx: 'guide', target_text: '', mode: 'guided', stt_source: 'device', confidence: 0.95, dur_ms: 2000, latency_ms: 800 }, dev);
+    expect(noTarget.body.pass).toBe(true);
+    expect(noTarget.body.coins_earned).toBeUndefined();
     // many windows of different sentences: never more than the cap a day
     const cafe = bankEntriesFor('cafe', 'L2');
     for (let i = 0; i < 14; i++) await say(p, dev, `cap-${i}`, 3, 'cafe', cafe[i]!.offers[2].text);

@@ -421,7 +421,6 @@ export function mountShopRoutes(app: Hono, deps: ShopDeps): void {
       if (!row || !item) return { status: 404 as const, body: { error: 'item_not_found' } };
       // one thing sells once, even if it came back some other way (review of PR 189)
       if (world.sql.get('select 1 as x from ledger where player = ? and ref = ?', [playerId, `sell:${itemId}`])) {
-        world.sql.run('delete from items where id = ? and owner = ?', [itemId, playerId]);
         return { status: 409 as const, body: { error: 'already_sold' } };
       }
       const pay = sellBackPay(row.spec, item);

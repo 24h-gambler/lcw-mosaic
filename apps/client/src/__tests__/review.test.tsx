@@ -90,5 +90,7 @@ describe('ReviewDock place on the HUD (docs/19 5장)', () => {
     // world HUD: star+coin chip top 12, 36 high; touch view button about 60~116px.
     expect(reviewDockTop(false)).toBeGreaterThanOrEqual(12 + 36 + 8);
     expect(reviewDockTop(true)).toBeGreaterThanOrEqual(116 + 8);
+    // and under the touch minimap (R2627): 124 + 96 on a tablet
+    expect(reviewDockTop(true)).toBeGreaterThanOrEqual(124 + 96 + 8);
   });
 });

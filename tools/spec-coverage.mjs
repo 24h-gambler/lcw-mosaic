@@ -48,7 +48,7 @@ export const GAP_WORDS = new RegExp(
  * Real-screen tools a test reference may name without an it() title (they open the live site or a browser and fail
  * on a broken screen). A new one is added here, where review sees it — a comment saying "playwright" is not enough.
  */
-export const REAL_SCREEN_TOOLS = ['tools/smoke-live.mjs', 'tools/errand-bot.mjs', 'tools/frame-shots.mjs'];
+export const REAL_SCREEN_TOOLS = ['tools/smoke-live.mjs', 'tools/errand-bot.mjs', 'tools/frame-shots.mjs', 'tools/adventure-play.mjs'];
 /** e2e markers the nightly audit understands; `text:`/`testid:` need at least 2 characters, and one positive marker is required. */
 const MARKER = /^(?:canvas|(?:text|testid):\S.+|notext:\S.+)$/;
 /** Fields that move work to a later time. Any of them, on an id or a feature, needs `decision` (postponing = narrowing). */

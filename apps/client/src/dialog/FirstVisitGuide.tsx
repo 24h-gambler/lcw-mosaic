@@ -1,15 +1,23 @@
 import { MIC_STATUS_KEY as LIVE_MIC_STATUS_KEY } from './mic-status.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { live } from './strings.js';
+import { biLine, live, npcShortName } from './strings.js';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as S, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from '../world/api.js';
-import { errandGiverNameKo, errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
+import { errandGoalKo, fetchErrand, type ErrandView } from './errand.js';
 import { MicController, type MicView } from './mic-controller.js';
 import { micClosed, micCue, playSfx, unlockDialogAudio } from './sound.js';
 import type { SpeechEngine } from './speech.js';
 import { createDialogSpeechEngine } from './server-stt.js';
 import { readStudentToken, SubmitError, type SoloPlayerRef } from './submit.js';
-import { currentGoal, goalLine, goalWalkLabel, onGoalChange, type GoalDef } from './goals.js';
+import { currentGoal, goalLine, goalToast, goalWalkLabel, onGoalChange, type GoalDef } from './goals.js';
+import { onLearnLang } from '../world/lang.js';
+
+/** Re-render on a change of the learning language or the Korean help (settings), so the goal line and walk button follow at once. */
+function useLangTick(): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => onLearnLang(() => setTick((n) => n + 1)), []);
+  return tick;
+}
 
 /**
  * docs/08 G15 첫 접속 안내: mic check -> move -> first order within 3 minutes (docs/01 활성화, docs/09 첫 문장까지
@@ -66,6 +74,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
   const onErrandRef = useRef(onErrand);
   onErrandRef.current = onErrand;
   const state = errand?.state ?? null;
+  const langTick = useLangTick();
 
   // Fetch the errand (the first call starts the activation clock on the server), and again when a dialog moved it.
   useEffect(() => {
@@ -105,7 +114,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
           return undefined;
         }
         rewardAt.current = Date.now();
-        setToast(F.rewardToast.replace('{coins}', String(errand.reward_coins || 50)));
+        setToast(biLine((_lang, t) => t.firstVisit.rewardToast.replace('{coins}', String(errand.reward_coins || 50))));
         playSfx('coin.drop');
       }
       // The refetch after the hand-over brings a new errand object and runs this again: the reward line keeps its
@@ -117,7 +126,7 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
       return () => clearTimeout(id);
     }
     return undefined;
-  }, [errand, world, hidden, errandOver]);
+  }, [errand, world, hidden, errandOver, langTick]);
 
   // Guests have no errand (it needs a linked device): they start on the town goals at once.
   if (!token || errandOver) return <TownGoals world={world} hidden={hidden} />;
@@ -139,9 +148,13 @@ export function FirstVisitGuide(props: FirstVisitGuideProps): React.ReactElement
   // over, to the counter to order. A world without walkToNpc walks to the scene.
   const walk =
     errand.state === 'accepted'
-      ? { label: `☕ ${F.walkCafe}`, scene: 'honey_cafe' as const, npcId: null }
+      ? { label: `☕ ${biLine((_lang, t) => t.firstVisit.walkCafe)}`, scene: 'honey_cafe' as const, npcId: null }
       : errand.state === 'offered' || errand.state === 'carrying'
-        ? { label: `🙋 ${F.walkGiver.replace('{giver}', errandGiverNameKo())}`, scene: 'honey_cafe' as const, npcId: ERRAND_GIVER_NPC_ID }
+        ? {
+            label: `🙋 ${biLine((lang, t) => t.firstVisit.walkGiver.replace('{giver}', npcShortName('errand_neighbor', lang)))}`,
+            scene: 'honey_cafe' as const,
+            npcId: ERRAND_GIVER_NPC_ID
+          }
         : null;
   return (
     <>
@@ -203,7 +216,12 @@ const TOAST_STYLE: React.CSSProperties = {
   borderRadius: S.radiusCardPx,
   boxShadow: S.shadowDefault,
   padding: '8px 16px',
-  whiteSpace: 'nowrap',
+  // 'English · 한국어' with the help on is ~90 characters: wrap inside the phone width instead of running off it
+  width: 'max-content',
+  maxWidth: 'calc(100vw - 32px)',
+  boxSizing: 'border-box',
+  whiteSpace: 'normal',
+  textAlign: 'center',
   fontFamily: T.fonts.ui,
   fontWeight: 800,
   fontSize: T.scale.body.sizePx
@@ -225,12 +243,13 @@ export function TownGoals(props: { world: WorldHandle | null; hidden?: boolean }
   const [toast, setToast] = useState<string | null>(null);
   /** The tour ended in this visit: its "seen the whole town" line stays up with the toast. */
   const [tourDone, setTourDone] = useState(false);
+  const langTick = useLangTick();
   useEffect(
     () =>
       onGoalChange((next, finished) => {
         setGoalState(next);
         if (!finished) return;
-        setToast(next ? F.goalStepToast : F.goalTourDone);
+        setToast(goalToast(next ? 'goalStepToast' : 'goalTourDone'));
         if (!next) setTourDone(true);
         playSfx('coin.drop');
       }),
@@ -253,10 +272,10 @@ export function TownGoals(props: { world: WorldHandle | null; hidden?: boolean }
       world.setGoal(goalLine(goal));
       setGoalNpc(world, goal.npcId);
     } else if (tourDone) {
-      world.setGoal(F.goalTourDone);
+      world.setGoal(goalToast('goalTourDone'));
       setGoalNpc(world, null);
     }
-  }, [world, goal, hidden, tourDone]);
+  }, [world, goal, hidden, tourDone, langTick]);
   if (hidden) return null;
   return (
     <>

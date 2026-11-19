@@ -16,9 +16,17 @@ import { readStudentToken } from './submit.js';
 export const SERVER_STT_PATH = '/v1/converse/stt';
 /** RMS of a voiced 100 ms frame (0..1 float samples); quieter frames count as silence. */
 export const VOICE_RMS = 0.02;
-/** Upload + model time the mic controller waits for after the turn ends. */
-export const SERVER_STT_STOP_GRACE_MS = 9000;
+/**
+ * Upload + model time the mic controller waits for after the turn ends. R2627: at 9 s a slow answer (a cold model, a
+ * 40 s turn on school wifi) came back after the turn had been given up as "not heard" — the words were transcribed and
+ * paid for, and thrown away. The upload now has its own deadline (SERVER_STT_UPLOAD_TIMEOUT_MS, then 'stt_failed'
+ * 'timeout' with a say-again line), and the controller's grace only backs that up.
+ */
+export const SERVER_STT_UPLOAD_TIMEOUT_MS = 40_000;
+export const SERVER_STT_STOP_GRACE_MS = SERVER_STT_UPLOAD_TIMEOUT_MS + 5_000;
 const FRAME_MS = 100;
+/** What Whisper says over silence (its training subtitles), lowercased without punctuation. */
+export const WHISPER_SILENCE_LINES: ReadonlySet<string> = new Set(['thank you', 'thanks for watching', 'thank you for watching', 'you', 'bye', 'okay']);
 
 interface RecorderLike {
   state: string;
@@ -38,7 +46,7 @@ export interface ServerSttEnv {
   getUserMedia?: (c: MediaStreamConstraints) => Promise<MediaStream>;
   MediaRecorder?: RecorderCtor;
   /** Level meter for the auto-stop; without it every frame counts as speech until the 12 s turn cap. */
-  createLevelMeter?: (stream: MediaStream) => { rms(): number; close(): void } | null;
+  createLevelMeter?: (stream: MediaStream) => LevelMeter | null;
   fetch: typeof fetch;
   token: () => string;
   now: () => number;
@@ -53,12 +61,25 @@ function readDeviceToken(): string {
   }
 }
 
-function browserLevelMeter(stream: MediaStream): { rms(): number; close(): void } | null {
+/**
+ * `running() === false`: the meter cannot hear (its AudioContext is suspended, so it reads 0 whatever the child says).
+ * The turn then goes on as if there were no meter (every frame counts as speech, the child taps to finish), so the
+ * words are sent instead of dropped as "quiet" (R2627 lost turns).
+ */
+export interface LevelMeter {
+  rms(): number;
+  close(): void;
+  running?(): boolean;
+}
+
+function browserLevelMeter(stream: MediaStream): LevelMeter | null {
   const Ctx = (globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ??
     (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!Ctx) return null;
   try {
     const ctx = new Ctx();
+    // Made after getUserMedia resolved, outside the tap: some browsers start it suspended and it then reads 0.
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
     const src = ctx.createMediaStreamSource(stream);
     const an = ctx.createAnalyser();
     an.fftSize = 1024;
@@ -71,6 +92,7 @@ function browserLevelMeter(stream: MediaStream): { rms(): number; close(): void 
         for (let i = 0; i < buf.length; i++) s += buf[i]! * buf[i]!;
         return Math.sqrt(s / buf.length);
       },
+      running: () => ctx.state === 'running',
       close() {
         src.disconnect();
         void ctx.close().catch(() => undefined);
@@ -123,9 +145,11 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
       let stopRequested = false;
       let rec: RecorderLike | null = null;
       let stream: MediaStream | null = null;
-      let meter: { rms(): number; close(): void } | null = null;
+      let meter: LevelMeter | null = null;
       let stopTick: (() => void) | null = null;
       let voiced = false;
+      let meterRan = false;
+      let blind = false;
       let tick = 0;
       let startedAt = 0;
       const chunks: Blob[] = [];
@@ -137,15 +161,19 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
         for (const t of stream?.getTracks() ?? []) t.stop();
         stream = null;
       };
-      const fail = (issue: MicIssue) => {
+      // `raw` names what failed (the console and lcw.micIssue keep it): 'http_429', 'fetch', 'vad_quiet', ...
+      const fail = (issue: MicIssue, raw?: string) => {
         release();
-        if (!aborted) cb.onError(issue);
+        if (!aborted) cb.onError(issue, raw);
       };
       const upload = async (blob: Blob, ms: number) => {
         let res: Response;
+        const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = ctl ? setTimeout(() => ctl.abort(), SERVER_STT_UPLOAD_TIMEOUT_MS) : null;
         try {
           res = await env.fetch(`${opts.baseUrl ?? ''}${SERVER_STT_PATH}`, {
             method: 'POST',
+            ...(ctl ? { signal: ctl.signal } : {}),
             headers: {
               authorization: `Bearer ${env.token()}`,
               'content-type': blob.type || 'audio/webm',
@@ -155,16 +183,25 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
             body: blob
           });
         } catch {
-          return fail('network');
+          return fail(ctl?.signal.aborted ? 'stt_failed' : 'network', ctl?.signal.aborted ? 'timeout' : 'fetch');
+        } finally {
+          if (timer) clearTimeout(timer);
         }
         if (aborted) return;
-        // Refused by the meter, no model, or not a child's token: the server path is closed for now → word cards.
-        if (res.status === 429 || res.status === 503 || res.status === 401 || res.status === 403 || res.status === 413 || res.status === 415) return fail('unsupported');
-        if (!res.ok) return fail('network');
+        // R2627: each refusal says what it was. The daily meter (429) is a pause, not "no mic": word cards for this
+        // window, and the console reads 'quota' rather than "no mic". No model / not a child's token / a format the
+        // server does not take: the server path is closed here → word cards. Too long or a failed model call: say again.
+        const code = `http_${res.status}`;
+        if (res.status === 429) return fail('quota', code);
+        if (res.status === 503 || res.status === 401 || res.status === 403 || res.status === 415) return fail('unsupported', code);
+        if (res.status === 413 || res.status >= 500 || !res.ok) return fail('stt_failed', code);
         const j = (await res.json().catch(() => null)) as { transcript?: unknown; confidence?: unknown } | null;
         const text = typeof j?.transcript === 'string' ? j.transcript.trim() : '';
         const confidence = typeof j?.confidence === 'number' ? j.confidence : 0.7;
-        cb.onEnd(text ? { transcript: text, confidence } : null);
+        // Whisper heard no words in a voiced recording: a no-speech turn the console can tell from a quiet mic. A turn
+        // sent without a working meter may be silence, which Whisper fills with its stock lines: those are not words.
+        if (!text || (blind && WHISPER_SILENCE_LINES.has(text.toLowerCase().replace(/[^a-z ]/g, '').trim()))) return fail('no_speech', 'stt_empty');
+        cb.onEnd({ transcript: text, confidence });
       };
 
       void (async () => {
@@ -172,7 +209,8 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
           stream = await env.getUserMedia!({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
         } catch (err) {
           const name = (err as { name?: string })?.name ?? '';
-          return fail(name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : 'unsupported');
+          const raw = `gum_${name.replace(/[^A-Za-z]/g, '').toLowerCase().slice(0, 30) || 'error'}`;
+          return fail(name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : 'unsupported', raw);
         }
         if (aborted) return release();
         const R = env.MediaRecorder!;
@@ -180,7 +218,7 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
         try {
           rec = new R(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 16_000 });
         } catch {
-          return fail('unsupported');
+          return fail('unsupported', 'recorder');
         }
         rec.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -188,19 +226,29 @@ export function createServerSpeechEngine(opts: { baseUrl?: string; env?: Partial
         rec.onstop = () => {
           const ms = env.now() - startedAt;
           const type = rec?.mimeType || mimeType || 'audio/webm';
+          // read before release() drops the meter: a meter that never ran this turn could not tell quiet from speech
+          const unmetered = !!meter && !meterRan;
           release();
           if (aborted) return;
-          // Nothing above the voice level: no upload, nothing charged (the panel says it did not hear).
-          if (!voiced || chunks.length === 0) return cb.onEnd(null);
+          // Nothing recorded at all: the recorder gave no data (a broken capture), not a quiet child.
+          if (chunks.length === 0) return fail('no_speech', 'no_audio');
+          // Nothing above the voice level: no upload, nothing charged (the panel says it did not hear). A meter that never
+          // ran this turn could not tell: the turn goes up and Whisper's own VAD decides (unheard = no_speech stt_empty).
+          if (!voiced && !unmetered) return fail('no_speech', 'vad_quiet');
+          blind = unmetered;
           void upload(new Blob(chunks, { type }), ms);
         };
         meter = env.createLevelMeter?.(stream) ?? null;
         startedAt = env.now();
         rec.start();
         stopTick = env.every(FRAME_MS, () => {
-          const loud = meter ? meter.rms() >= VOICE_RMS : true;
+          // A meter that is not running (yet) decides nothing: its frames keep the turn open (dots, so the child is not
+          // cut at the first-speech wait) but never mark it voiced. Once it runs, its level is the verdict.
+          const running = !meter || meter.running?.() !== false;
+          if (meter && running) meterRan = true;
+          const loud = running ? !meter || meter.rms() >= VOICE_RMS : true;
           if (!loud) return;
-          voiced = true;
+          if (running) voiced = true;
           tick += 1;
           cb.onInterim('·'.repeat(1 + (tick % 3)));
         });
@@ -238,9 +286,9 @@ export function createDialogSpeechEngine(): SpeechEngine {
     start(cb) {
       return server.start({
         ...cb,
-        onError(issue) {
-          if (issue === 'unsupported') clearRecognitionCuts();
-          cb.onError(issue);
+        onError(issue, raw) {
+          if (issue === 'unsupported' || issue === 'quota') clearRecognitionCuts();
+          cb.onError(issue, raw);
         }
       });
     }

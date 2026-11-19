@@ -1,0 +1,19 @@
+{
+  "name": "@lcw/adventure",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@lcw/audio": "workspace:*",
+    "@lcw/content": "workspace:*",
+    "@lcw/converse": "workspace:*",
+    "@lcw/schemas": "workspace:*",
+    "@lcw/ui": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

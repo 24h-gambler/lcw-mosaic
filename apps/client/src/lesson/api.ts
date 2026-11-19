@@ -128,6 +128,29 @@ export function readLessonMicIssue(store: { getItem(k: string): string | null } 
     return null;
   }
 }
+/**
+ * Every mic turn's fate on this device (talk lane dialog/mic-status.ts, sessionStorage 'lcw.micTurns' =
+ * "<started>.<sent>.<lost>|<cause>:<epoch ms>", R2627). Sent as it is with the state poll; the console shows
+ * started / sent / lost and the last lost turn's cause. Same key and format as the talk lane (a test pins both).
+ */
+export const LESSON_MIC_TURNS_KEY = 'lcw.micTurns';
+export const MIC_TURNS_RE = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})(?:\|([a-z_]{1,20}):(\d{10,14}))?$/;
+export function readLessonMicTurns(store: { getItem(k: string): string | null } | null = safeSessionStorage()): string | null {
+  try {
+    const v = store?.getItem(LESSON_MIC_TURNS_KEY) ?? null;
+    return v && MIC_TURNS_RE.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+/** A lesson joined on this device counts its own turns. */
+export function clearLessonMicTurns(): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(LESSON_MIC_TURNS_KEY);
+  } catch {
+    /* nothing kept */
+  }
+}
 function safeSessionStorage(): { getItem(k: string): string | null } | null {
   try {
     return typeof sessionStorage === 'undefined' ? null : sessionStorage;
@@ -175,6 +198,8 @@ export interface UtteranceResult {
   /** This lesson's star sum after this answer (server); absent on an older server. */
   lesson_stars?: number;
   utterances_today: number;
+  /** This goal already had its stars in the stage: 0 stars, say something new (R2627, edge lesson-stars.ts). */
+  repeat?: boolean;
 }
 
 export class LessonHttpError extends Error {
@@ -281,7 +306,14 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
     join: (code: string) => request<JoinResult>('POST', '/v1/join', null, { code }),
     state: (
       token: string,
-      q: { cursor?: number | null; scene?: string; ui?: '3d' | 'cards'; mic?: LessonMicStatus | null; micIssue?: string | null } = {}
+      q: {
+        cursor?: number | null;
+        scene?: string;
+        ui?: '3d' | 'cards';
+        mic?: LessonMicStatus | null;
+        micIssue?: string | null;
+        micTurns?: string | null;
+      } = {}
     ) => {
       const p = new URLSearchParams();
       if (q.cursor !== undefined && q.cursor !== null) p.set('cursor', String(Math.floor(q.cursor)));
@@ -289,6 +321,7 @@ export function createStudentLessonApi(opts: { fetch?: FetchLike; base?: string 
       if (q.ui) p.set('ui', q.ui);
       if (q.mic) p.set('mic', q.mic);
       if (q.micIssue) p.set('mic_issue', q.micIssue);
+      if (q.micTurns) p.set('mic_turns', q.micTurns);
       const qs = p.toString();
       return request<StudentLessonState>('GET', `/v1/lesson/state${qs ? `?${qs}` : ''}`, token);
     },

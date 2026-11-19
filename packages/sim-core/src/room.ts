@@ -12,6 +12,10 @@
  *                                                        receivers' prediction (pose + velocity × age) would be off,
  *                                                        within a per-sender budget (TUNING.multi.poseBudgetHz)
  *                   {"t":"e","e":"wave"}                    emote from TUNING.multi.emotes
+ *                   {"t":"h","to":id}                       a hit on another player (R326 PvP): only when play fighting is
+ *                                                        on in the room, the target is a person (not a bot) within
+ *                                                        hitReachM of the hitter's last pose, at most one per hitCooldownMs
+ *                   {"t":"pvp","on":bool}                   the teacher turns play fighting on / off for the room
  *                   {"t":"ping","c":<client ms>}            round trip through the room (load bots, latency read-out)
  *                   "ping"                                  keep-alive, answered "pong" by the platform without waking the room
  *   room → client   {"t":"hello","you":id,"cap":8,"peers":[[id,name,role,x,y,z,yaw,anim,proto,vx,vz,w,ageMs],...]}
@@ -20,6 +24,8 @@
  *                   steady 5 Hz while anyone with proto 1 (a page loaded before the change) is in the room
  *                   {"t":"poses","p":[[id,x,y,z,yaw,anim,seq,vx,vz,w],...]}  every changed pose, batched per broadcastMs
  *                   {"t":"e","id","e"} / {"t":"pong","c"}
+ *                   {"t":"h","from","to","d":[dx,dz]}        a hit (everyone draws it; the target takes it, d = push direction)
+ *                   {"t":"pvp","on"}                        play fighting on / off (also in hello as "pvp")
  *                   {"t":"full","cap"} then close 4003     the room is at capacity ("방이 가득 찼어요")
  */
 import { TUNING } from './tuning.js';
@@ -72,6 +78,8 @@ export interface RoomMember {
   winCount: number;
   invalid: number;
   dirty: boolean;
+  /** last hit this member gave (ms, server clock), for hitCooldownMs */
+  hitAt?: number;
 }
 
 export interface RoomCounters {
@@ -126,6 +134,8 @@ export function parseRoomPose(p: unknown, limit = TUNING.multi.coordLimit): Room
 export class RoomCore {
   readonly members = new Map<string, RoomMember>();
   readonly counters: RoomCounters = { joins: 0, full: 0, msgsIn: 0, framesOut: 0, bytesOut: 0, dropped: 0, closedRate: 0 };
+  /** play fighting (R326 PvP): on unless the teacher turned it off; kept in each socket's attachment over hibernation */
+  pvp = true;
 
   constructor(
     readonly capacity: number = TUNING.multi.roomCapacity,
@@ -175,7 +185,7 @@ export class RoomCore {
     const peers = [...this.members.values()].filter((o) => o.id !== m.id).map((o) => [o.id, o.name, o.role, ...o.pose.slice(0, 5), o.proto, o.pose[6], o.pose[7], o.pose[8], Math.min(Math.max(0, now - o.poseAt), 60_000)]);
     return {
       ok: true,
-      hello: JSON.stringify({ t: 'hello', you: m.id, cap: this.capacity, peers }),
+      hello: JSON.stringify({ t: 'hello', you: m.id, cap: this.capacity, pvp: this.pvp, peers }),
       joinFrame: JSON.stringify({ t: 'join', id: m.id, name: m.name, role: m.role, v: m.proto }),
       replaces: old?.id ?? null
     };
@@ -223,6 +233,23 @@ export class RoomCore {
     if (msg.t === 'ping') {
       const c = typeof msg.c === 'number' && Number.isFinite(msg.c) ? msg.c : 0;
       return { kind: 'reply', frame: JSON.stringify({ t: 'pong', c }) };
+    }
+    if (msg.t === 'h') {
+      const to = typeof (msg as { to?: unknown }).to === 'string' ? this.members.get((msg as { to: string }).to) : undefined;
+      if (!to || to.id === id) return this.bad(m);
+      if (!this.pvp || m.role === 'bot' || to.role === 'bot' || to.role === 'teacher' || m.role === 'teacher') return { kind: 'none' };
+      if (m.hitAt !== undefined && now - m.hitAt < this.t.hitCooldownMs) return { kind: 'none' };
+      const dx = to.pose[0] - m.pose[0];
+      const dz = to.pose[2] - m.pose[2];
+      const d = Math.hypot(dx, dz);
+      if (d > this.t.hitReachM || Math.abs(to.pose[1] - m.pose[1]) > 3) return { kind: 'none' };
+      m.hitAt = now;
+      return { kind: 'broadcast', frame: JSON.stringify({ t: 'h', from: id, to: to.id, d: d > 1e-3 ? [r2(dx / d), r2(dz / d)] : [0, 0] }), exceptSelf: false };
+    }
+    if (msg.t === 'pvp') {
+      if (m.role !== 'teacher' || typeof (msg as { on?: unknown }).on !== 'boolean') return this.bad(m);
+      this.pvp = (msg as { on: boolean }).on;
+      return { kind: 'broadcast', frame: JSON.stringify({ t: 'pvp', on: this.pvp }), exceptSelf: false };
     }
     if (msg.t === 'e') {
       if (typeof msg.e !== 'string' || !this.t.emotes.includes(msg.e)) return this.bad(m);

@@ -160,6 +160,10 @@ function css(): string {
 .lw-btn.talk{height:${S.micButtonPx}px;min-width:${S.micButtonPx * 1.6}px;background:${C['brand-d']};color:${C['paper-0']};font-size:calc(${T.scale['body-l'].sizePx}px * var(--lcw-hs,1));display:none}
 .lw-btn.talk.on{display:flex}
 .lw-dir{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity 800ms}
+.lw-hurt{position:absolute;inset:0;pointer-events:none;opacity:0;box-shadow:inset 0 0 120px 40px ${C.danger};transition:opacity 450ms ease-out}
+.lw-hurt.on{opacity:.55;transition:none}
+.lw-lockhint{position:absolute;left:50%;top:calc(50% + 22px);transform:translateX(-50%);display:none;pointer-events:none;padding:4px 10px;border-radius:${S.radiusCardPx}px;background:${C['ink-900']}B3;color:${C['paper-0']};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));font-weight:600;white-space:nowrap}
+.lw-lockhint.on{display:block}
 .lw-dir.on{opacity:1}
 .lw-dir.blackout{background:${C['night-900']}A6}
 .lw-dir.snow{background:radial-gradient(circle at 20% 30%,${C['paper-0']}CC 0 2px,transparent 3px) 0 0/48px 48px,radial-gradient(circle at 70% 60%,${C['paper-0']}AA 0 2px,transparent 3px) 0 0/64px 64px;animation:lwsnow 3s linear infinite}
@@ -354,6 +358,10 @@ export class WorldHud {
   private stickKnob: HTMLElement;
   private talkBtn: HTMLDivElement;
   private dirLayer: HTMLDivElement;
+  /** R326: a red edge for a moment when the child is hit */
+  private hurtLayer: HTMLDivElement;
+  /** R326: "click to look with the mouse" under the crosshair while the pointer is free on a desktop */
+  private lockHint: HTMLDivElement;
   private fpsEl: HTMLDivElement;
   private bubbles = new Map<
     string,
@@ -377,6 +385,8 @@ export class WorldHud {
     this.root = el('div', 'lw-hud', parent);
 
     this.dirLayer = el('div', 'lw-dir', this.root);
+    this.hurtLayer = el('div', 'lw-hurt', this.root);
+    this.lockHint = el('div', 'lw-lockhint', this.root);
     this.goal = el('div', 'lw-goal lw-card', this.root);
     const k = el('div', 'k', this.goal);
     k.textContent = W.goalLabel;
@@ -1355,6 +1365,20 @@ export class WorldHud {
     this.dirLayer.className = `lw-dir${kind ? ` on ${kind}` : ''}`;
     this.weather = kind === 'snow' ? 'snow' : 'clear';
     this.clockKey = '';
+  }
+
+  /** R326 play fighting: the red edge of a hit (fades out by itself). */
+  hurt(): void {
+    const h = this.hurtLayer;
+    h.classList.add('on');
+    void h.offsetWidth;
+    requestAnimationFrame(() => h.classList.remove('on'));
+  }
+
+  /** R326 pointer lock: the hint shows while the mouse is free during play (desktop only). */
+  setLockHint(on: boolean): void {
+    if (on) this.lockHint.textContent = W.lookHint;
+    this.lockHint.classList.toggle('on', on);
   }
 
   setFps(text: string | null): void {

@@ -63,6 +63,16 @@ export const TUNING = {
     /** a fall longer than this (m) costs fallHealthPerMeter for each metre past it */
     fallSafeMeters: 4,
     fallHealthPerMeter: 8,
+    /** R326 play fighting: health one hit takes (ten hits from full knock a child out: back at the square, never death) */
+    pvpHitDamage: 10,
+    /** how hard a hit pushes (m/s along the ground, and up) */
+    pvpKnockback: 7,
+    pvpKnockUp: 4,
+    /** after a knock-out rest, hits do nothing for this long (ms) */
+    pvpRestShieldMs: 4000,
+    /** R326 drinking from water (a pond, a fountain, the river): thirst per sip, one sip per waterSipMs, no limit */
+    waterSipRestore: 12,
+    waterSipMs: 700,
     /** after the rest at the square: health back to this, hunger and thirst at least restMinPct, warm again */
     restHealthPct: 60,
     restMinPct: 60,
@@ -252,6 +262,10 @@ export const TUNING = {
     ticketTtlMs: 60000,
     /** |x|, |y|, |z| bound for a relayed pose (worlds are 288 m; slack for plots and docking gates) */
     coordLimit: 2048,
-    emotes: ['wave', 'clap', 'cheer', 'jump'] as readonly string[]
+    emotes: ['wave', 'clap', 'cheer', 'jump'] as readonly string[],
+    /** R326 play fighting: how far a hit reaches (m, between the two last poses: poses lag, so a little over arm's length) */
+    hitReachM: 4.5,
+    /** at most one hit per this long from one player */
+    hitCooldownMs: 400
   }
 } as const;

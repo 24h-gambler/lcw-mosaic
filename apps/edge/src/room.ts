@@ -32,6 +32,8 @@ interface RoomState {
   getWebSocketAutoResponseTimestamp?(ws: WsLike): Date | null;
 }
 interface Attachment {
+  /** R326: the room's play fighting was turned off (kept on every socket, so it survives hibernation) */
+  pvpOff?: boolean;
   id: string;
   key: string;
   name: string;
@@ -76,6 +78,7 @@ export class WorldRoomDO {
     for (const ws of state.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null;
       if (a?.id) this.core.restore(a, now);
+      if (a?.pvpOff) this.core.pvp = false;
     }
   }
 
@@ -102,7 +105,7 @@ export class WorldRoomDO {
       return new Response(null, { status: 101, webSocket: client } as ResponseInit);
     }
     const m = this.core.members.get(id)!;
-    server.serializeAttachment({ id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt } satisfies Attachment);
+    server.serializeAttachment({ id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt, ...(this.core.pvp ? {} : { pvpOff: true }) } satisfies Attachment);
     if (res.replaces) {
       for (const old of this.state.getWebSockets(res.replaces)) old.close(ROOM_CLOSE.replaced, 'replaced');
       this.broadcast(JSON.stringify({ t: 'leave', id: res.replaces }), id);
@@ -126,6 +129,7 @@ export class WorldRoomDO {
         break;
       case 'broadcast':
         this.broadcast(r.frame, r.exceptSelf ? a.id : null);
+        if (r.frame.startsWith('{"t":"pvp"')) this.keepPvp();
         break;
       case 'dirty':
         this.scheduleFlush();
@@ -133,6 +137,16 @@ export class WorldRoomDO {
       case 'close':
         this.drop(ws, a.id, r.code, r.reason);
         break;
+    }
+  }
+
+  /** the teacher's play-fighting switch onto every socket (the room may sleep and wake from them) */
+  private keepPvp(): void {
+    for (const ws of this.state.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null;
+      if (!a?.id) continue;
+      const { pvpOff: _old, ...rest } = a;
+      ws.serializeAttachment(this.core.pvp ? rest : { ...rest, pvpOff: true });
     }
   }
 
@@ -180,7 +194,7 @@ export class WorldRoomDO {
     if (out) {
       // The attachment carries the last pose so a room that hibernates can still greet a newcomer with it.
       for (const m of out.moved) {
-        for (const ws of this.state.getWebSockets(m.id)) ws.serializeAttachment({ id: m.id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt } satisfies Attachment);
+        for (const ws of this.state.getWebSockets(m.id)) ws.serializeAttachment({ id: m.id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt, ...(this.core.pvp ? {} : { pvpOff: true }) } satisfies Attachment);
       }
       this.broadcast(out.frame, null);
     }

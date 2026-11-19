@@ -9,6 +9,7 @@ import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettin
 import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
 import { TILE_NAMES, blockLook, collideHeight } from './blocks.js';
+import type { RoomOut } from './room-client.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import { ChunkRenderer } from './chunks.js';
 import { makeBlockMaterials } from './materials.js';
@@ -485,7 +486,7 @@ ${line(s.help)}` : line(s.text), 4000);
   const plateWorld = new THREE.Vector3();
   const plateScale = new THREE.Vector3();
   /** Where the child looks (first and third person: the camera; mirror: the body), for who stands in view. */
-  const viewYaw = (): number => (camMode === 'mirror' ? playerYaw : camYaw);
+  const viewYaw = (): number => camYaw;
   /** The teacher's avatar near the child (NPC 'teacher' with a name plate); null removes it. The same name: kept. */
   // One teacher figure for the page (a character claims a blob-shadow slot for good): shown and hidden, renamed by
   // its plate only (review of #86: re-creating it on every presence beat leaked shadow slots and meshes).
@@ -552,7 +553,7 @@ ${line(s.help)}` : line(s.text), 4000);
   /** the scene spot the child is at (within VISIT_R), however they got there: a new one starts a new visit */
   let visitScene: SceneId | null = null;
   /** For the real-play check (getStats().interact / motion): talks opened by E, by a click or tap, jumps and climbs */
-  const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0, passerTaps: 0 };
+  const counts = { talkE: 0, talkTap: 0, jumps: 0, unpressedJumps: 0, autoClimbs: 0, passerTaps: 0, sips: 0, hitsSent: 0, hitsTaken: 0 };
   let promptOn = false;
   /** when the child last turned the view by hand (ms): the walk's view pull and arrival turn wait for it */
   let lookAt = -Infinity;
@@ -740,9 +741,28 @@ ${line(s.help)}` : line(s.text), 4000);
   const keyDown = (e: KeyboardEvent): void => {
     sfx.unlock();
     const t = e.target as HTMLElement | null;
+    // R326 ⑫: F5 never reloads the world (a reload put the child back on the title), and while playing Tab is the
+    // mirror wherever focus is (a focused HUD button let the browser move focus on, and the next Tab landed in the page)
+    const typing = keyIsTyping(t);
+    if (e.code === 'F5') {
+      e.preventDefault();
+      if (!typing && !paused && !attract) {
+        camMode = toggleThirdPerson(camMode);
+        enterView();
+      }
+      return;
+    }
+    if (e.code === 'Tab' && !typing && !paused && !attract) {
+      e.preventDefault();
+      if (camMode !== 'mirror') camBeforeMirror = camMode;
+      camMode = toggleMirror(camMode, camBeforeMirror);
+      enterView();
+      if (t && t !== canvas && keyIsPressable(t)) focusWorld();
+      return;
+    }
     // A text box takes every key (typing "wasd" must not walk). A focused button or link keeps only the keys that
     // press or leave it (Space, Enter, Tab); walking, E, digits and the build keys still play (review M1).
-    if (keyIsTyping(t)) return;
+    if (typing) return;
     if (keyIsPressable(t) && PAGE_KEYS_ON_BUTTONS.has(e.code)) return;
     if (attract) return;
     input.keys.add(e.code);
@@ -758,18 +778,9 @@ ${line(s.help)}` : line(s.text), 4000);
       if (e.code === 'KeyC' && !e.repeat) openChest();
     }
     if (e.code === 'Escape' && buildHud?.chestOpen) buildHud.closeChest();
+    // Esc frees the mouse (the browser does it too; a key the page sends itself does not reach the browser)
+    if (e.code === 'Escape' && locked()) document.exitPointerLock?.();
     if (e.code === 'KeyE') tryTalk();
-    if (e.code === 'F5') {
-      e.preventDefault();
-      camMode = toggleThirdPerson(camMode);
-      hud.setCamMode(camMode);
-    }
-    if (e.code === 'Tab' && !paused) {
-      e.preventDefault();
-      if (camMode !== 'mirror') camBeforeMirror = camMode;
-      camMode = toggleMirror(camMode, camBeforeMirror);
-      hud.setCamMode(camMode);
-    }
     if (e.code.startsWith('Digit') && !paused) {
       const n = Number(e.code.slice(5)) - 1;
       if (n >= 0 && n < 5) {
@@ -784,10 +795,15 @@ ${line(s.help)}` : line(s.text), 4000);
   const keyUp = (e: KeyboardEvent): void => {
     input.keys.delete(e.code);
   };
+  /** A new view: the mirror starts looking at the child's face (its yaw is the camera's, see the walk above). */
+  function enterView(): void {
+    if (camMode === 'mirror') camYaw = playerYaw;
+    hud.setCamMode(camMode);
+  }
   const cycleView = (): void => {
     camMode = cycleCamMode(camMode);
     if (camMode !== 'mirror') camBeforeMirror = camMode;
-    hud.setCamMode(camMode);
+    enterView();
     sfx.play('ui.click');
   };
   let dragging = false;
@@ -840,6 +856,122 @@ ${line(s.help)}` : line(s.text), 4000);
       doPlace();
     }
   };
+  // ---- R326 ⑦⑩⑫: pointer lock, and what a click does at the crosshair.
+  // Desktop: the first click on the world locks the pointer (the usual block-game feel): the mouse alone turns the view and clicks act
+  // at the crosshair: left = hit a friend / talk to a townsperson / hold to break a block (an empty hand punches),
+  // right = drink water / place a block / use the thing in hand. Esc frees the mouse (the browser's own); a dialog, a
+  // menu or any modal window frees it while it is open and the world takes it back when it closes. Touch keeps its
+  // sticks and taps (a tap on a friend hits, on water drinks).
+  const canLock = !touch && typeof canvas.requestPointerLock === 'function';
+  const locked = (): boolean => typeof document !== 'undefined' && document.pointerLockElement === canvas;
+  /** the world freed the mouse for a window: take it back when the window closes */
+  let relock = false;
+  const lockNow = (): void => {
+    if (!canLock || locked() || paused || attract || disposed) return;
+    try {
+      const r = canvas.requestPointerLock() as unknown;
+      if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => undefined);
+    } catch {
+      /* not allowed right now (no gesture): the hint stays, the next click locks */
+    }
+  };
+  const uiHoldsMouse = (): boolean => paused || attract || (typeof document !== 'undefined' && !!document.querySelector('[aria-modal="true"]'));
+  const centre = (): { x: number; y: number } => {
+    const r = canvas.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  };
+  const onLockChange = (): void => {
+    const on = locked();
+    if (on) mouseAt = centre();
+    hud.setLockHint(canLock && !on && !uiHoldsMouse());
+  };
+  document.addEventListener('pointerlockchange', onLockChange);
+  const lockWatch = window.setInterval(() => {
+    if (!canLock || disposed) return;
+    const ui = uiHoldsMouse();
+    if (locked() && ui) {
+      relock = true;
+      document.exitPointerLock?.();
+    } else if (!locked() && relock && !ui) {
+      relock = false;
+      lockNow();
+    }
+    hud.setLockHint(!locked() && !ui);
+  }, 250);
+  /** the same press, at the crosshair (pointer lock) */
+  const atCentre = (e: PointerEvent): PointerEvent => {
+    const c = centre();
+    return { pointerId: e.pointerId, pointerType: e.pointerType, button: e.button, clientX: c.x, clientY: c.y } as PointerEvent;
+  };
+
+  // play fighting (R326 ⑩): the room says when a hit lands (multi.hit); the gauges take the health (useGauges)
+  let roomOut: RoomOut | null = null;
+  let pvpOn = true;
+  let myHitShieldUntil = 0;
+  const hitListeners = new Set<(from: string) => void>();
+  const HIT_REACH_M = 3.5;
+  let pvpToldAt = -1e9;
+  const peerAt = (cx: number, cy: number): string | null => (peers.count === 0 ? null : peers.pick(rayAt(cx, cy), body, HIT_REACH_M));
+  const tryHit = (id: string): void => {
+    hands.swing();
+    if (!pvpOn) {
+      if (performance.now() - pvpToldAt > 4000) hud.notice(W.pvpOff);
+      pvpToldAt = performance.now();
+      return;
+    }
+    roomOut?.hit(id);
+    counts.hitsSent++;
+    sfx.play('blk.dig', { pitch: 6 });
+  };
+
+  // drinking (R326 ⑧): water under the crosshair (or a tap) or right at the feet (E), as many sips as wanted
+  const WATER_IDS = blockIds(['water']);
+  const drinkListeners = new Set<() => void>();
+  let lastSip = -1e9;
+  const waterAt = (cx: number, cy: number): boolean => {
+    const r = rayAt(cx, cy);
+    for (let t = 0.2; t <= 6; t += 0.15) {
+      const x = r.origin.x + r.direction.x * t;
+      const y = r.origin.y + r.direction.y * t;
+      const z = r.origin.z + r.direction.z * t;
+      if (Math.hypot(x - body.x, z - body.z) > 4.5) return false;
+      const id = world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z));
+      if (WATER_IDS.has(id)) return true;
+      if (id !== 0 && collideHeight(id) > 0) return false;
+    }
+    return false;
+  };
+  const waterNear = (): boolean => {
+    const fx = Math.floor(body.x);
+    const fz = Math.floor(body.z);
+    const fy = Math.floor(body.y + 0.01);
+    for (let y = fy - 1; y <= fy + 1; y++)
+      for (let z = fz - 1; z <= fz + 1; z++) for (let x = fx - 1; x <= fx + 1; x++) if (WATER_IDS.has(world.getBlock(x, y, z))) return true;
+    return false;
+  };
+  const sip = (): void => {
+    const now = performance.now();
+    if (now - lastSip < TUNING.gauges.waterSipMs) return;
+    lastSip = now;
+    counts.sips++;
+    hands.swing();
+    sfx.play('item.get', { pitch: 8 });
+    for (const cb of drinkListeners) cb();
+  };
+  /** the thing in hand, used (a food or a drink fills the gauges; useGauges ignores anything else) */
+  const useHeld = (): void => {
+    const k = hotbar[hud.selectedSlot];
+    if (!k) return;
+    hands.swing();
+    for (const cb of useListeners) cb(k);
+  };
+  /** right click: water first, then a block to place (where building is on), then the thing in hand */
+  const rightAction = (e: PointerEvent): void => {
+    if (waterAt(e.clientX, e.clientY)) return sip();
+    if (buildActive) return buildPress(e, 'place');
+    useHeld();
+  };
+
   const pointerDown = (e: PointerEvent): void => {
     sfx.unlock();
     sfx.startAmbient();
@@ -850,8 +982,23 @@ ${line(s.help)}` : line(s.text), 4000);
       if (!tapPick(e.clientX, e.clientY)) buildPress(e, tool);
       return;
     }
+    if (locked()) {
+      // at the crosshair, at once (no drag to tell a click from a look any more)
+      const c = atCentre(e);
+      if (e.button === 2) return rightAction(c);
+      if (e.button !== 0) return;
+      const friend = peerAt(c.clientX, c.clientY);
+      if (friend) return tryHit(friend);
+      if (tapPick(c.clientX, c.clientY)) return;
+      // an empty hand punches: the arm swings, and a block under the crosshair starts breaking where building is on
+      hands.swing();
+      buildPress(c, 'break');
+      return;
+    }
+    // the first click takes the pointer; it still acts where it is (an NPC under it talks on release)
+    lockNow();
     if (e.button === 2) {
-      buildPress(e, 'place');
+      rightAction(e);
       return;
     }
     if (e.button === 0) buildPress(e, 'break');
@@ -859,9 +1006,20 @@ ${line(s.help)}` : line(s.text), 4000);
     dragMoved = 0;
     lastX = e.clientX;
     lastY = e.clientY;
-    canvas.setPointerCapture?.(e.pointerId);
+    try {
+      canvas.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* the pointer lock taken on this same press owns the pointer now */
+    }
   };
   const pointerMove = (e: PointerEvent): void => {
+    if (locked()) {
+      if (paused || attract) return;
+      camYaw -= (e.movementX || 0) * 0.0028 * lookMouse;
+      camPitch = Math.max(-0.35, Math.min(1.25, camPitch + (e.movementY || 0) * 0.0024 * lookMouse * lookY));
+      lookAt = performance.now();
+      return;
+    }
     if (e.pointerType === 'mouse') mouseAt = { x: e.clientX, y: e.clientY };
     buildMove(e);
     if (!dragging) return;
@@ -875,19 +1033,37 @@ ${line(s.help)}` : line(s.text), 4000);
     camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005 * lookMouse * lookY));
   };
   const pointerUp = (e: PointerEvent): void => {
-    // a click (no camera drag) on an NPC in reach talks to it and is not also a block click behind it (R2625 ③)
+    if (locked() && e.pointerType === 'mouse') {
+      dragging = false;
+      buildRelease(atCentre(e));
+      return;
+    }
+    // a click (no camera drag) on an NPC or a friend in reach talks / hits and is not also a block click behind it
+    // (R2625 ③)
     const click = dragging && dragMoved < 6 && e.button === 0;
     dragging = false;
-    if (click && npcAt(e.clientX, e.clientY)) {
+    const friend = click ? peerAt(e.clientX, e.clientY) : null;
+    if (click && (friend || npcAt(e.clientX, e.clientY))) {
       if (hold && hold.id === e.pointerId) {
         hold = null;
         buildView.showBreak(null, 0);
       }
-      tapPick(e.clientX, e.clientY);
+      if (friend) tryHit(friend);
+      else tapPick(e.clientX, e.clientY);
       return;
     }
     buildRelease(e);
   };
+  // a key held while the window loses focus never gets its keyup (walking went on by itself); R326 ⑫
+  const dropKeys = (): void => {
+    input.keys.clear();
+    input.jump = false;
+  };
+  const onHidden = (): void => {
+    if (document.visibilityState === 'hidden') dropKeys();
+  };
+  window.addEventListener('blur', dropKeys);
+  document.addEventListener('visibilitychange', onHidden);
   const contextMenu = (e: Event): void => e.preventDefault();
   const wheel = (e: WheelEvent): void => {
     e.preventDefault();
@@ -936,6 +1112,17 @@ ${line(s.help)}` : line(s.text), 4000);
     touchDown.delete(e.pointerId);
     const still = !!down && !down.far && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 12 && performance.now() - down.t < 600;
     const npc = still && !own?.moved ? npcAt(e.clientX, e.clientY) : null;
+    const friend = still && !own?.moved && !npc ? peerAt(e.clientX, e.clientY) : null;
+    const water = still && !own?.moved && !npc && !friend && waterAt(e.clientX, e.clientY);
+    if (friend || water) {
+      if (own) {
+        hold = null;
+        buildView.showBreak(null, 0);
+      }
+      if (friend) tryHit(friend);
+      else sip();
+      return;
+    }
     if (npc) {
       if (own) {
         hold = null;
@@ -963,6 +1150,13 @@ ${line(s.help)}` : line(s.text), 4000);
   const ndc = new THREE.Vector2();
   const pickFoot = new THREE.Vector3();
   const pickHead = new THREE.Vector3();
+  /** The view ray through a screen point (crosshair picks: friends, water). */
+  function rayAt(cx: number, cy: number): THREE.Ray {
+    const rect = canvas.getBoundingClientRect();
+    ndc.set(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    return raycaster.ray;
+  }
   /** A click or tap at (cx, cy): talks to the NPC there when one is in reach; false = nobody there. */
   function tapPick(cx: number, cy: number): boolean {
     const n = npcAt(cx, cy);
@@ -1025,7 +1219,10 @@ ${line(s.help)}` : line(s.text), 4000);
   }
   tryTalk = () => {
     const n = nearNpc ?? npcAt(viewW / 2, viewH / 2);
-    if (!n) return;
+    if (!n) {
+      if (waterAt(viewW / 2, viewH / 2) || waterNear()) sip();
+      return;
+    }
     if (!isPasser(n)) counts.talkE++;
     interact(n);
   };
@@ -1275,7 +1472,7 @@ ${line(s.help)}` : line(s.text), 4000);
       wantLook = wantPos.clone().add(new THREE.Vector3(f.x * Math.cos(camPitch), -Math.sin(camPitch - 0.3), f.z * Math.cos(camPitch)));
     } else {
       const sign = camMode === 'mirror' ? -1 : 1;
-      const yaw = camMode === 'mirror' ? playerYaw : camYaw;
+      const yaw = camYaw;
       const dirX = -Math.sin(yaw) * Math.cos(camPitch) * sign;
       const dirZ = -Math.cos(yaw) * Math.cos(camPitch) * sign;
       const dirY = Math.sin(camPitch);
@@ -1572,7 +1769,9 @@ ${line(s.help)}` : line(s.text), 4000);
         f = -input.stickZ;
         s = input.stickX;
       }
-      const yaw = camMode === 'mirror' ? playerYaw + Math.PI : camYaw;
+      // R326 ⑫: every view walks along camYaw. The mirror walked along playerYaw + π while the body turned toward its
+      // own walk (playerYaw follows the velocity), so W spun the child on the spot (measured: 0.11 m in 1.5 s after Tab)
+      const yaw = camYaw;
       const fx = Math.sin(yaw);
       const fz = Math.cos(yaw);
       // right vector = (-cos, 0, sin) for this yaw convention
@@ -2035,6 +2234,10 @@ ${line(s.help)}` : line(s.text), 4000);
     },
     setPaused(p) {
       paused = p;
+      if (p && locked()) {
+        relock = true;
+        document.exitPointerLock?.();
+      }
       if (p) {
         autopilot = [];
         body.vx = 0;
@@ -2065,6 +2268,11 @@ ${line(s.help)}` : line(s.text), 4000);
       weather?.dispose();
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', keyDown);
+      window.removeEventListener('blur', dropKeys);
+      document.removeEventListener('visibilitychange', onHidden);
+      document.removeEventListener('pointerlockchange', onLockChange);
+      window.clearInterval(lockWatch);
+      if (locked()) document.exitPointerLock?.();
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('pointermove', pointerMove);
       window.removeEventListener('pointerup', pointerUp);
@@ -2144,7 +2352,7 @@ ${line(s.help)}` : line(s.text), 4000);
     setCoins: (total) => hud.setCoins(total),
     // Map screen (docs/08 G06): read once when the menu opens (the menu pauses the world). The arrow follows the view;
     // in the mirror view the camera faces the child, so the body's facing is the one that means "where I look".
-    getMap: () => buildMapInfo({ player: { x: body.x, z: body.z, yaw: camMode === 'mirror' ? playerYaw : camYaw }, plot: world.plot }),
+    getMap: () => buildMapInfo({ player: { x: body.x, z: body.z, yaw: camYaw }, plot: world.plot }),
     setOnline: (on) => hud.setOnline(on),
     setLookSettings: (o) => {
       lookMouse = Math.max(0.1, o.mouse);
@@ -2163,6 +2371,19 @@ ${line(s.help)}` : line(s.text), 4000);
       return () => useListeners.delete(cb);
     },
     setGauges: (g) => hud.setGauges(g),
+    onHit: (cb) => {
+      hitListeners.add(cb);
+      return () => hitListeners.delete(cb);
+    },
+    onDrinkWater: (cb) => {
+      drinkListeners.add(cb);
+      return () => drinkListeners.delete(cb);
+    },
+    shieldHits: (ms) => {
+      myHitShieldUntil = performance.now() + ms;
+    },
+    setRoomPvp: (on) => roomOut?.setPvp(on),
+    roomPvp: () => pvpOn,
     onFall: (cb) => {
       fallListeners.add(cb);
       return () => fallListeners.delete(cb);
@@ -2244,6 +2465,28 @@ ${line(s.help)}` : line(s.text), 4000);
         syncTeacherFigure();
         asideUntil = performance.now() + ASIDE_WAIT_MS;
         sayFriendHere(id, name, role);
+      },
+      bind(out) {
+        roomOut = out;
+      },
+      pvp(on) {
+        if (on !== pvpOn && peers.count > 0) hud.notice(on ? W.pvpOn : W.pvpOffNow, 3000);
+        pvpOn = on;
+      },
+      hit(from, to, d) {
+        if (to !== myRoomId) {
+          peers.hurt(to);
+          return;
+        }
+        if (paused || attract || disposed || performance.now() < myHitShieldUntil) return;
+        // knocked back along the hitter's line and a little up, a red edge, and the gauges take the health
+        body.vx += d[0] * TUNING.gauges.pvpKnockback;
+        body.vz += d[1] * TUNING.gauges.pvpKnockback;
+        if (body.onGround) body.vy = TUNING.gauges.pvpKnockUp;
+        hud.hurt();
+        counts.hitsTaken++;
+        sfx.play('body.land', { pitch: 4 });
+        for (const cb of hitListeners) cb(from);
       },
       leave(id) {
         peers.remove(id);
@@ -2337,7 +2580,13 @@ ${line(s.help)}` : line(s.text), 4000);
           talked: [...talkedTo],
           byKey: counts.talkE,
           byTap: counts.talkTap,
-          passerTaps: counts.passerTaps
+          passerTaps: counts.passerTaps,
+          sips: counts.sips,
+          hitsSent: counts.hitsSent,
+          hitsTaken: counts.hitsTaken,
+          pointerLocked: locked(),
+          pvp: pvpOn,
+          camMode
         },
         npcView: [...npcs.values()]
           .filter((n) => n.char.root.visible && pickableNpc(n.def, lessonMode))

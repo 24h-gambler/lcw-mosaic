@@ -87,6 +87,16 @@ export function afterFall(s: GaugeState, meters: number): GaugeState {
   return { ...s, health: clamp(s.health - over * G.fallHealthPerMeter) };
 }
 
+/** R326 play fighting: one hit takes pvpHitDamage health. */
+export function afterHit(s: GaugeState): GaugeState {
+  return { ...s, health: clamp(s.health - G.pvpHitDamage) };
+}
+
+/** R326: a sip of water (a pond, a fountain): thirst back by waterSipRestore, as often as the child likes. */
+export function afterSip(s: GaugeState): GaugeState {
+  return { ...s, thirst: clamp(s.thirst + G.waterSipRestore) };
+}
+
 /** The rest at the square after health ran out: never death (docs/03 D1), and not straight back to empty. */
 export function restAtSquare(s: GaugeState): GaugeState {
   return {

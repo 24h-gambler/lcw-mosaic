@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { TUNING } from '@lcw/sim-core';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
-import { GAUGES_KEY, NO_CLIMATE, REFILL_EVERY_MS, afterFall, gaugeEffects, loadGauges, refillOf, restAtSquare, saveGauges, startGauges, stepGauges, useForGauges, type Climate, type GaugeState } from '../frame/gauges.js';
+import { GAUGES_KEY, NO_CLIMATE, REFILL_EVERY_MS, afterFall, afterHit, afterSip, gaugeEffects, loadGauges, refillOf, restAtSquare, saveGauges, startGauges, stepGauges, useForGauges, type Climate, type GaugeState } from '../frame/gauges.js';
 
 /** hunger and thirst as given, health and warmth full (the two R325 added) */
 const gs = (hunger: number, thirst: number, health = 100, warmth = 100): GaugeState => ({ hunger, thirst, health, warmth });
@@ -141,5 +141,14 @@ describe('device record', () => {
     const words = [W.hunger, W.thirst, W.health, W.warmth, W.slowed, W.useAgainFood, W.useAgainDrink, W.ate, W.drank, W.restLater, W.lowHunger, W.lowThirst, W.lowHealth, W.lowWarmth, W.rested, W.ouch, W.warmedUp].join(' ');
     for (const p of FORBIDDEN_PLAYER_UI_PATTERNS) expect(words).not.toContain(p);
     expect(words).not.toMatch(/게임/);
+  });
+  it('a hit takes pvpHitDamage health (ten from full is a knock-out rest), a sip of water gives thirst back (R326)', () => {
+    const G = TUNING.gauges;
+    let s = gs(50, 50, 100);
+    for (let i = 0; i < 9; i++) s = afterHit(s);
+    expect(s.health).toBe(100 - 9 * G.pvpHitDamage);
+    expect(afterHit(s).health).toBe(0);
+    expect(afterSip(gs(50, 10)).thirst).toBe(10 + G.waterSipRestore);
+    expect(afterSip(gs(50, 99)).thirst).toBe(100);
   });
 });

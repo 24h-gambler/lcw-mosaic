@@ -55,6 +55,9 @@ export const TS = {
   title: '선생님 · 1인칭으로 수업 중',
   students: (n: number) => (n > 0 ? `학생 ${n}명이 같은 곳에 있어요` : '학생이 아직 월드에 없어요'),
   goNear: '학생 옆으로',
+  /** R326 play fighting switch for the room (the label says what a press does) */
+  pvpOff: '때리기 끄기',
+  pvpOn: '때리기 켜기',
   console: '콘솔로',
   ended: '수업이 끝났어요. 콘솔로 돌아가세요',
   signIn: '콘솔 로그인이 끝났어요. 콘솔에서 다시 들어와 주세요',
@@ -84,6 +87,7 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole }: Teach
   const [peers, setPeers] = useState(0);
   const [state, setState] = useState<'live' | 'ended' | 'signin'>('live');
   const [replaced, setReplaced] = useState(room?.status === 'replaced');
+  const [pvp, setPvp] = useState(() => world.roomPvp?.() ?? true);
   const autoWent = useRef(false);
 
   // Presence beat while the teacher is in the world (the console's tab is this one now).
@@ -195,6 +199,19 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole }: Teach
       {state === 'live' && !replaced ? (
         <button type="button" style={btn} disabled={peers === 0} onClick={() => void world.goNearPeer?.('student')}>
           {TS.goNear}
+        </button>
+      ) : null}
+      {state === 'live' && !replaced && world.setRoomPvp ? (
+        <button
+          type="button"
+          style={btn}
+          aria-pressed={!pvp}
+          onClick={() => {
+            world.setRoomPvp?.(!pvp);
+            setPvp(!pvp);
+          }}
+        >
+          {pvp ? TS.pvpOff : TS.pvpOn}
         </button>
       ) : null}
       <button type="button" style={btn} onClick={back}>

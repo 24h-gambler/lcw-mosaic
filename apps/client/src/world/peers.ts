@@ -27,6 +27,8 @@ interface PeerRt {
   plate: HTMLDivElement;
   plateKey: string;
   seen: boolean;
+  /** R326: seconds left of the hit hop */
+  hurtT?: number;
 }
 
 type Project = (x: number, y: number, z: number) => { sx: number; sy: number; vis: boolean };
@@ -41,6 +43,8 @@ export function peerLook(id: string, base: NpcLook, shirts: readonly number[]): 
 export class PeerAvatars {
   private readonly peers = new Map<string, PeerRt>();
   private readonly tmp = new THREE.Vector3();
+  private readonly footTmp = new THREE.Vector3();
+  private readonly headTmp = new THREE.Vector3();
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -67,6 +71,33 @@ export class PeerAvatars {
     const out: Array<{ id: string; name: string; role: string; x: number; z: number }> = [];
     for (const rt of this.peers.values()) if (rt.seen) out.push({ id: rt.info.id, name: rt.info.name, role: rt.info.role, x: rt.pos.x, z: rt.pos.z });
     return out;
+  }
+
+  /**
+   * R326 play fighting: the placed person a ray (the crosshair) points at, whose feet stand within `reach` m of `me`;
+   * the whole body from the knees to the head counts, like an NPC pick. Null: nobody there.
+   */
+  pick(ray: THREE.Ray, me: { x: number; z: number }, reach: number): string | null {
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const rt of this.peers.values()) {
+      if (!rt.seen || !rt.char.root.visible || rt.info.role === 'bot') continue;
+      if (Math.hypot(rt.pos.x - me.x, rt.pos.z - me.z) > reach) continue;
+      this.footTmp.set(rt.pos.x, rt.pos.y + 0.2, rt.pos.z);
+      this.headTmp.set(rt.pos.x, rt.pos.y + CHAR_HEIGHT, rt.pos.z);
+      const along = ray.origin.distanceTo(rt.pos);
+      if (ray.distanceSqToSegment(this.footTmp, this.headTmp) < 0.36 && along < bestD) {
+        best = rt.info.id;
+        bestD = along;
+      }
+    }
+    return best;
+  }
+
+  /** R326: a hit lands on this person (a short hop on every screen). */
+  hurt(id: string): void {
+    const rt = this.peers.get(id);
+    if (rt) rt.hurtT = 0.35;
   }
 
   /** Someone placed within `r` m whose room id sorts below `idAbove` (R325 spawn step-aside; no allocation per frame). */
@@ -162,6 +193,10 @@ export class PeerAvatars {
       rt.char.root.visible = visible;
       if (visible) {
         rt.char.root.position.copy(rt.pos);
+        if (rt.hurtT && rt.hurtT > 0) {
+          rt.hurtT = Math.max(0, rt.hurtT - dt);
+          rt.char.root.position.y += Math.sin((rt.hurtT / 0.35) * Math.PI) * 0.35;
+        }
         rt.char.root.rotation.y = rt.yaw;
         rt.char.update(dt, { speed: rt.speed, talking: false, lookYaw: 0 });
       }

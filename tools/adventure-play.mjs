@@ -21,6 +21,12 @@ const LIVE = process.env.ADV_LIVE_SECRET
       dayFrom: (process.env.ADV_LIVE_DAY_FROM ?? '').replace(/[^a-z0-9_-]/g, '')
     }
   : null;
+// Everything this tool prints or writes goes through hide(): a console or crash message can quote the result URL
+// (?k=) or the page URL (&edk=), and the write key must never reach a log, a report or the terminal.
+const hide = (s) => {
+  const t = String(s).replace(/([?&](?:k|edk)=)[^&\s'"]+/g, '$1***');
+  return LIVE ? t.split(LIVE.key).join('***') : t;
+};
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8994/adventure/';
 const out = process.argv[3] ?? 'shots/adventure';
@@ -76,9 +82,9 @@ async function run(vp) {
   const errors = [];
   const beacons = [];
   const dayFetches = [];
-  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+  page.on('pageerror', (e) => errors.push(hide(`pageerror: ${e.message}`)));
   page.on('console', (m) => {
-    if (m.type() === 'error' && !/Failed to load resource|tts|net::ERR/.test(m.text())) errors.push(`console: ${m.text()}`);
+    if (m.type() === 'error' && !/Failed to load resource|tts|net::ERR/.test(m.text())) errors.push(hide(`console: ${m.text()}`));
   });
   const results = [];
   if (LIVE) {
@@ -470,11 +476,11 @@ for (const vp of VIEWPORTS) {
   try {
     await run(vp);
   } catch (e) {
-    fails.push(`${vp.name}: crashed ${e.message}`);
+    fails.push(hide(`${vp.name}: crashed ${e.message}`));
   }
-  console.log(JSON.stringify(report.filter((r) => r.vp === vp.name), null, 1));
+  console.log(hide(JSON.stringify(report.filter((r) => r.vp === vp.name), null, 1)));
 }
 await browser.close();
-writeFileSync(`${out}/report.json`, JSON.stringify({ report, fails }, null, 1));
-console.log('FAILS', JSON.stringify(fails, null, 1));
+writeFileSync(`${out}/report.json`, hide(JSON.stringify({ report, fails }, null, 1)));
+console.log('FAILS', hide(JSON.stringify(fails, null, 1)));
 process.exit(fails.length ? 1 : 0);

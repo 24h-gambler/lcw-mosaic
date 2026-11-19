@@ -18,6 +18,7 @@
  * no money and no learning record.
  */
 import { TUNING } from '@lcw/sim-core';
+import { shopItem } from '@lcw/content';
 
 export interface GaugeState {
   hunger: number;
@@ -147,6 +148,12 @@ export function refillOf(itemKey: string): Refill | null {
   const k = itemKey.toLowerCase();
   const warm = WARM.test(k) && !/iced|cold/.test(k);
   const warmth = warm ? G.warmDrinkRestore : 0;
+  // a thing bought in the town shop says what it fills itself (docs/19 §9 `food {hunger, thirst}`, R326)
+  const sold = shopItem(itemKey)?.food;
+  if (sold && (sold.hunger > 0 || sold.thirst > 0)) {
+    const drink = sold.thirst > sold.hunger;
+    return { kind: drink ? 'drink' : 'food', hunger: sold.hunger, thirst: sold.thirst, health: sold.hunger > 0 ? G.foodHealthRestore : 0, warmth, warm };
+  }
   if (DRINK.test(k)) return { kind: 'drink', hunger: 0, thirst: k.includes('smoothie') ? G.smoothieRestore : G.waterRestore, health: 0, warmth, warm };
   if (FOOD.test(k)) return { kind: 'food', hunger: G.breadRestore, thirst: 0, health: G.foodHealthRestore, warmth, warm };
   return null;

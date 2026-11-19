@@ -4,12 +4,13 @@
  */
 import * as THREE from 'three';
 import { drawState } from './draw-state.js';
-import { TUNING, VoxelWorld, parseRef } from '@lcw/sim-core';
+import { TRADE_COUNTER, TUNING, VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
 import { TILE_NAMES, blockLook, collideHeight } from './blocks.js';
 import type { RoomOut } from './room-client.js';
+import { OPEN_SHOP_EVENT, OPEN_TRADE_EVENT } from '../frame/shop-api.js';
 import { BlobShadows, CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import { ChunkRenderer } from './chunks.js';
 import { makeBlockMaterials } from './materials.js';
@@ -978,9 +979,39 @@ ${line(s.help)}` : line(s.text), 4000);
     hands.swing();
     for (const cb of useListeners) cb(k);
   };
-  /** right click: water first, then a block to place (where building is on), then the thing in hand */
+  // docs/19 §9 (R326): the trade shop's counter opens the town shop window; another child opens the trade window
+  /** the shop shelf a screen point looks at on the trade shop counter (within reach): a category, '' = all, null = no */
+  const counterAt = (cx: number, cy: number): string | null => {
+    const r = rayAt(cx, cy);
+    for (let t = 0.2; t <= 6; t += 0.15) {
+      const x = Math.floor(r.origin.x + r.direction.x * t);
+      const y = Math.floor(r.origin.y + r.direction.y * t);
+      const z = Math.floor(r.origin.z + r.direction.z * t);
+      const id = world.getBlock(x, y, z);
+      if (id === 0 || collideHeight(id) <= 0) continue;
+      const k = TRADE_COUNTER;
+      if (x !== k.x || z < k.z0 || z > k.z1 || y > k.yMax || Math.hypot(x + 0.5 - body.x, z + 0.5 - body.z) > 4.5) return null;
+      return k.shelf[z] ?? '';
+    }
+    return null;
+  };
+  const openShop = (cat: string): void => {
+    hands.swing();
+    sfx.play('ui.open');
+    window.dispatchEvent(new CustomEvent(OPEN_SHOP_EVENT, { detail: cat ? { cat } : {} }));
+  };
+  /** E or a right click on another child: the trade window (a left click / tap on them is play fighting) */
+  const openTrade = (id: string): void => {
+    const p = peers.placed().find((q) => q.id === id);
+    window.dispatchEvent(new CustomEvent(OPEN_TRADE_EVENT, { detail: { peerId: id, name: p?.name ?? '' } }));
+  };
+  /** right click: water first, a friend (trade), the shop counter, then a block to place (where building is on), then the thing in hand */
   const rightAction = (e: PointerEvent): void => {
     if (waterAt(e.clientX, e.clientY)) return sip();
+    const friend = peerAt(e.clientX, e.clientY);
+    if (friend) return openTrade(friend);
+    const shelf = counterAt(e.clientX, e.clientY);
+    if (shelf !== null) return openShop(shelf);
     if (buildActive) return buildPress(e, 'place');
     useHeld();
   };
@@ -1003,6 +1034,8 @@ ${line(s.help)}` : line(s.text), 4000);
       const friend = peerAt(c.clientX, c.clientY);
       if (friend) return tryHit(friend);
       if (tapPick(c.clientX, c.clientY)) return;
+      const shelf = counterAt(c.clientX, c.clientY);
+      if (shelf !== null) return openShop(shelf);
       // an empty hand punches: the arm swings, and a block under the crosshair starts breaking where building is on
       hands.swing();
       buildPress(c, 'break');
@@ -1063,6 +1096,15 @@ ${line(s.help)}` : line(s.text), 4000);
       }
       if (friend) tryHit(friend);
       else tapPick(e.clientX, e.clientY);
+      return;
+    }
+    const shelf = click ? counterAt(e.clientX, e.clientY) : null;
+    if (shelf !== null) {
+      if (hold && hold.id === e.pointerId) {
+        hold = null;
+        buildView.showBreak(null, 0);
+      }
+      openShop(shelf);
       return;
     }
     buildRelease(e);
@@ -1127,13 +1169,15 @@ ${line(s.help)}` : line(s.text), 4000);
     const npc = still && !own?.moved ? npcAt(e.clientX, e.clientY) : null;
     const friend = still && !own?.moved && !npc ? peerAt(e.clientX, e.clientY) : null;
     const water = still && !own?.moved && !npc && !friend && waterAt(e.clientX, e.clientY);
-    if (friend || water) {
+    const shelf = still && !own?.moved && !npc && !friend && !water ? counterAt(e.clientX, e.clientY) : null;
+    if (friend || water || shelf !== null) {
       if (own) {
         hold = null;
         buildView.showBreak(null, 0);
       }
       if (friend) tryHit(friend);
-      else sip();
+      else if (water) sip();
+      else openShop(shelf ?? '');
       return;
     }
     if (npc) {
@@ -1231,8 +1275,12 @@ ${line(s.help)}` : line(s.text), 4000);
     for (const cb of interactCbs) cb(n.ref);
   }
   tryTalk = () => {
+    const friend = peerAt(viewW / 2, viewH / 2);
+    if (friend) return openTrade(friend);
     const n = nearNpc ?? npcAt(viewW / 2, viewH / 2);
     if (!n) {
+      const shelf = counterAt(viewW / 2, viewH / 2);
+      if (shelf !== null) return openShop(shelf);
       if (waterAt(viewW / 2, viewH / 2) || waterNear()) sip();
       return;
     }

@@ -567,6 +567,10 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
               ? S.status.ok(view.nickname, view.teacher.name)
               : S.status.alone(view.nickname)}
       </span>
+      {/* same tab on purpose: the lesson token (sessionStorage) goes along, so the adventure's 🎤 works at once */}
+      <a href="/adventure/" data-testid="lesson-adventure" style={{ ...small, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+        {S.status.adventure}
+      </a>
       <button type="button" onClick={() => setAsking(true)} style={small}>
         {S.status.leave}
       </button>

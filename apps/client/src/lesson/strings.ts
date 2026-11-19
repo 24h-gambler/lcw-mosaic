@@ -23,6 +23,8 @@ export const LESSON_STRINGS_KO = {
     alone: (nickname: string) => `${nickname ? `${nickname} · ` : ''}혼자 놀기 — 선생님이 잠깐 자리를 비웠어요`,
     retrying: '다시 연결하는 중…',
     queued: (n: number) => `보낼 말 ${n}개 · 연결되면 보내요`,
+    /** Same-tab link to the talk-to-befriend adventure (/adventure/): the lesson token in this tab goes along (docs/22). */
+    adventure: '🗺 모험',
     leave: '나가기',
     leaveAsk: '수업에서 나갈까요?',
     leaveYes: '나가기',
@@ -97,6 +99,7 @@ export const LESSON_STRINGS_EN: LessonStrings = {
     alone: (nickname: string) => `${nickname ? `${nickname} · ` : ''}Playing alone — your teacher stepped away`,
     retrying: 'Connecting again…',
     queued: (n: number) => `${n} to send · sends when online`,
+    adventure: '🗺 Adventure',
     leave: '🚪 Leave',
     leaveAsk: 'Leave the lesson?',
     leaveYes: '🚪 Leave',

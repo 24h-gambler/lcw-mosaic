@@ -26,17 +26,41 @@ const ratio = (s) => {
  * limit, or the bot stopped) is not judged here: like a screen the audit had no time for, it is "not checked", never a
  * regression (playNotRun).
  */
+/** A face miss whose NPC the scene graph did not draw: not in the scene, hidden, or no mesh. */
+export function notDrawn(m) {
+  return !!m?.sceneKnown && (!m.drawn || !m.drawn.inScene || !m.drawn.shown || m.drawn.meshes === 0);
+}
+
+/**
+ * The bot missed NPCs that were drawn (scene graph: in the scene, shown, meshes), and never one that was not: a talk
+ * count with no tries is the bot's miss, not checked. Without the scene graph (a page from before) it cannot tell.
+ */
+export function botMissedOnly(r) {
+  const misses = r?.faceMisses ?? [];
+  return misses.length > 0 && misses.every((m) => m.sceneKnown && !notDrawn(m));
+}
+
 export function judgeView(r) {
   const f = [];
   const add = (id, why, owner = 'world') => f.push({ id: `play:${id}`, owner, why });
   if (!r) return f;
   if ((r.unwantedJumps ?? 0) > 0) add('unwanted-jumps', `누르지 않은 점프·자동 오르기 ${r.unwantedJumps}번`);
+  const gone = (r.faceMisses ?? []).filter(notDrawn);
+  if (gone.length) {
+    const why = (m) =>
+      !m.drawn ? '씬에 없음' : !m.drawn.inScene ? '씬 그래프에 안 붙음' : !m.drawn.shown ? '숨김' : '메시 0';
+    const ids = [...new Map(gone.map((m) => [m.id, `${m.id}(${why(m)}${m.drawn ? ` @${m.drawn.x},${m.drawn.y},${m.drawn.z}` : ''})`])).values()];
+    add('npc-not-drawn', `말 걸 NPC 가 화면에 안 그려짐: ${ids.join(', ')}`);
+  }
+  const missedOnly = botMissedOnly(r);
   const click = ratio(r.clickSuccess);
-  if (!click || click.tried === 0) add('click-talk', `클릭·탭 대화를 한 번도 못 해 봄 (${r.clickSuccess ?? '없음'})`);
-  else if (click.ok < click.tried) add('click-talk', `클릭·탭 대화 ${r.clickSuccess}`);
+  if (!click || click.tried === 0) {
+    if (!missedOnly) add('click-talk', `클릭·탭 대화를 한 번도 못 해 봄 (${r.clickSuccess ?? '없음'})`);
+  } else if (click.ok < click.tried) add('click-talk', `클릭·탭 대화 ${r.clickSuccess}`);
   const key = ratio(r.keySuccess);
-  if (!key || key.tried === 0) add('key-talk', `E·말하기 버튼 대화를 한 번도 못 해 봄 (${r.keySuccess ?? '없음'})`);
-  else if (key.ok < key.tried) add('key-talk', `E·말하기 버튼 대화 ${r.keySuccess}`);
+  if (!key || key.tried === 0) {
+    if (!missedOnly) add('key-talk', `E·말하기 버튼 대화를 한 번도 못 해 봄 (${r.keySuccess ?? '없음'})`);
+  } else if (key.ok < key.tried) add('key-talk', `E·말하기 버튼 대화 ${r.keySuccess}`);
   if ((r.wrongNpc ?? 0) > 0) add('wrong-npc', `다른 NPC 대화가 열림 ${r.wrongNpc}번`);
   const high = (r.jumpView ?? []).filter((j) => j.bodyRise > 0.5 && j.camRise > MAX_JUMP_CAM_RISE);
   if (high.length) add('jump-view', `점프 때 시점이 ${high.map((j) => `${j.camRise}/${j.bodyRise}m`).join(', ')} 올라감 (한도 ${MAX_JUMP_CAM_RISE}m)`);
@@ -106,6 +130,8 @@ export function playLines(reports) {
     const p = r.lesson?.passer ? `지나가는 NPC ${r.lesson.passer.ok === null ? '확인 안 됨(화면에 못 잡음)' : r.lesson.passer.ok ? '조용' : '문제'}` : '';
     const yn = (v) => (v === null || v === undefined ? '확인 안 됨' : v ? '됨' : '안 됨');
     const les = r.lesson?.started ? `수업 다시 열기 클릭 ${yn(r.lesson.reopenByClick)}·E ${yn(r.lesson.reopenByKey)}` : '수업 안 봄';
-    return `- ${view} ${r.size ?? ''}: 클릭 ${r.clickSuccess} · E ${r.keySuccess} · 다른 NPC ${r.wrongNpc ?? 0} · 원치 않은 점프 ${r.unwantedJumps ?? 0} · 점프 시점 ${cam}m · 심부름 ${r.errand?.state ?? '?'} · ${h} · ${les}${p ? ` · ${p}` : ''} · 오류 ${(r.errs ?? []).length} (캐시 전용 음성 404 ${r.ttsCacheMiss ?? 0}, 설계대로) · ${r.seconds ?? '?'}초`;
+    const zero = (x) => ratio(x)?.tried === 0 && botMissedOnly(r);
+    const talk = (x) => (zero(x) ? `${x} 확인 안 됨(NPC 는 그려져 있고 봇이 화면에 못 잡음)` : x);
+    return `- ${view} ${r.size ?? ''}: 클릭 ${talk(r.clickSuccess)} · E ${talk(r.keySuccess)} · 다른 NPC ${r.wrongNpc ?? 0} · 원치 않은 점프 ${r.unwantedJumps ?? 0} · 점프 시점 ${cam}m · 심부름 ${r.errand?.state ?? '?'} · ${h} · ${les}${p ? ` · ${p}` : ''} · 오류 ${(r.errs ?? []).length} (캐시 전용 음성 404 ${r.ttsCacheMiss ?? 0}, 설계대로) · ${r.seconds ?? '?'}초`;
   });
 }

@@ -229,6 +229,9 @@ const FOCAL = H / 2 / Math.tan((70 * Math.PI) / 360);
 
 /** Face the NPC: turn until its body is near the middle of the screen. */
 let faceMiss = null;
+// every face miss with what the scene graph had for that NPC (engine getStats().npcScene): the judge tells "not drawn"
+// (a product fault) from "drawn, the bot did not get it on screen" (not checked)
+const faceMisses = [];
 async function face(id) {
   progress('face');
   for (let i = 0; i < 16; i++) {
@@ -241,7 +244,17 @@ async function face(id) {
   }
   const s = await stats();
   const n = s?.npcView?.find((v) => v.id === id);
-  faceMiss = { id, view: n ? { vis: n.vis, sx: Math.round(n.sx), dist: n.dist } : null, walking: s?.interact?.walking ?? null, paused: s?.interact?.paused ?? null, dlg: await dlgOpen().catch(() => null) };
+  faceMiss = {
+    id,
+    step: lastStep.name,
+    view: n ? { vis: n.vis, sx: Math.round(n.sx), dist: n.dist } : null,
+    sceneKnown: Array.isArray(s?.npcScene),
+    drawn: s?.npcScene?.find((x) => x.id === id) ?? null,
+    walking: s?.interact?.walking ?? null,
+    paused: s?.interact?.paused ?? null,
+    dlg: await dlgOpen().catch(() => null)
+  };
+  faceMisses.push(faceMiss);
   return null;
 }
 
@@ -281,7 +294,15 @@ async function approach(id, want) {
 }
 
 const nameOf = { guide: /Luna|루나/, cafe_owner: /Hannah|해나/, shop_owner: /Toby|토비/, errand_neighbor: /Mia|미아/ };
+// the dialog says which NPC it is with (DialogPanel data-npc); the cast name is only the fallback for a page from before
+const dlgJudgedBy = { attr: 0, name: 0 };
 const rightNpc = async (id) => {
+  const dn = await page.$eval('.lcw-dlg', (d) => d.getAttribute('data-npc')).catch(() => null);
+  if (dn) {
+    dlgJudgedBy.attr++;
+    return dn === id;
+  }
+  dlgJudgedBy.name++;
   const head = await dlgHead();
   return nameOf[id] ? nameOf[id].test(head) : head.length > 0;
 };
@@ -391,7 +412,9 @@ await page.goto(`${base}/world/`, { waitUntil: 'domcontentloaded' });
 progress('page');
 await page.waitForFunction(() => !!window.__lcwWorld, null, { timeout: 300000 });
 await page.waitForFunction(() => (window.__lcwWorld.getStats?.()?.ground?.near ?? 1) === 0, null, { timeout: 120000 }).catch(() => {});
-mark('spawn', { scene: (await stats())?.scene });
+const s0 = await stats();
+const npcSceneAtSpawn = s0?.npcScene ?? null;
+mark('spawn', { scene: s0?.scene, npcs: npcSceneAtSpawn?.filter((x) => x.shown).map((x) => x.id) ?? null });
 mark('start_cards', { clicked: await passStart() });
 await wait(1500);
 await shot('01-start');
@@ -681,6 +704,9 @@ const errand = await call('GET', '/v1/errand', undefined, dev.device_token);
 const repeats = [...lines.entries()].map(([id, ls]) => ({ id, visits: ls.length, distinct: new Set(ls).size }));
 await Promise.allSettled(ttsJudging);
 const report = {
+  faceMisses,
+  dlgJudgedBy,
+  npcSceneAtSpawn,
   view,
   size: `${W}x${H}`,
   kid: dev.kid ?? null,

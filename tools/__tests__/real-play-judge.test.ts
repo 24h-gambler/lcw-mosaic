@@ -93,6 +93,22 @@ describe('real-play judgement for the nightly audit', () => {
     expect(judgeView(r).map((x: { id: string }) => x.id)).toEqual(['play:lesson-reopen']);
   });
 
+  it('an NPC the scene did not draw is a regression; one drawn that the bot missed leaves zero talks not checked', () => {
+    const drawn = { inScene: true, shown: true, meshes: 12, x: 167.5, y: 1, z: 134.5, dist: 9 };
+    const miss = (d: object | null) => ({ id: 'cafe_owner', step: 'talk', sceneKnown: true, drawn: d });
+    const r = { ...clean(), clickSuccess: '0/0', keySuccess: '0/0', faceMisses: [miss(drawn)] };
+    expect(judgeView(r)).toEqual([]);
+    expect(playLines({ pc: r })[0]).toContain('0/0 확인 안 됨(NPC 는 그려져 있고 봇이 화면에 못 잡음)');
+    const hidden = { ...r, faceMisses: [miss({ ...drawn, shown: false })] };
+    expect(judgeView(hidden).map((x: { id: string }) => x.id)).toEqual(['play:npc-not-drawn', 'play:click-talk', 'play:key-talk']);
+    expect(judgeView({ ...r, faceMisses: [miss(null)] })[0].why).toContain('cafe_owner(씬에 없음)');
+    expect(judgeView({ ...r, faceMisses: [miss({ ...drawn, meshes: 0 })] })[0].why).toContain('메시 0');
+    // a page from before the scene graph was read cannot tell: zero talks stay a regression
+    expect(judgeView({ ...r, faceMisses: [{ id: 'cafe_owner', sceneKnown: false, drawn: null }] }).map((x: { id: string }) => x.id)).toEqual(['play:click-talk', 'play:key-talk']);
+    // a drawn NPC missed on one talk does not hide the talks that were tried
+    expect(judgeView({ ...clean(), clickSuccess: '5/6', faceMisses: [miss(drawn)] }).map((x: { id: string }) => x.id)).toEqual(['play:click-talk']);
+  });
+
   it('a short night skips the play so the screens keep their time', () => {
     expect(playBudget(10 * 60000)).toBe(0);
     expect(playBudget(40 * 60000)).toBe(24 * 60000);

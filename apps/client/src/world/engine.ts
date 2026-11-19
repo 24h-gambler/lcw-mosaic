@@ -3,6 +3,7 @@
  * Rendering is Three.js (AGENTS 2); every block change goes through VoxelWorld.setBlock (AGENTS 4.1).
  */
 import * as THREE from 'three';
+import { drawState } from './draw-state.js';
 import { VoxelWorld, parseRef } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
@@ -2179,7 +2180,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
         arrival: lastArrival ?? undefined,
         ground: { near: chunks.outstanding(body.x, body.z, FIRST_RING), view: chunks.outstanding(body.x, body.z, viewChunks) },
         scene: currentScene,
-        player: { x: body.x, y: body.y, z: body.z },
+        // yaw: where the view looks (the real-play check tells a look input that did not turn the view from a bot miss)
+        player: { x: body.x, y: body.y, z: body.z, yaw: Math.round(camYaw * 1000) / 1000 },
         dialogShot: dialogShotStats(),
         interact: {
           near: nearNpc?.def.id ?? null,
@@ -2210,6 +2212,16 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
               dist: Math.round(Math.hypot(n.pos.x - body.x, n.pos.z - body.z) * 10) / 10
             };
           }),
+        npcScene: [...npcs.values()].map((n) => {
+          return {
+            id: n.def.id,
+            ...drawState(n.char.root, scene),
+            x: Math.round(n.pos.x * 10) / 10,
+            y: Math.round(n.pos.y * 10) / 10,
+            z: Math.round(n.pos.z * 10) / 10,
+            dist: Math.round(Math.hypot(n.pos.x - body.x, n.pos.z - body.z) * 10) / 10
+          };
+        }),
         motion: {
           jumps: counts.jumps,
           unpressedJumps: counts.unpressedJumps,

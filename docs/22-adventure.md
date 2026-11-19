@@ -71,7 +71,7 @@
   - 문서로는 아이 별명·문장만 갑니다. 마이크 말하기는 LCW 대화와 같은 하나의 경로입니다(`apps/client/src/dialog/server-stt.ts` `createServerSpeechEngine` 를 그대로 씀): 한 차례를 Opus 16kbps 로 녹음해 아이 토큰과 함께 `POST /v1/converse/stt`(Workers AI Whisper, 한도 계기 통과)로 한 번 보내고, 서버도 이 페이지도 소리를 남기지 않습니다(edge `stt.ts`). 브라우저 자체 음성 인식(`SpeechRecognition`)은 쓰지 않습니다. 소리가 그친 뒤 1.4초면 차례가 끝나고, 7초 동안 아무 말이 없거나 15초가 넘으면 멈춥니다(`ADV.listen`). 문서로는 인식된 글자만 갑니다. 마이크를 쓰고 싶지 않으면 늘 타이핑으로 답할 수 있습니다.
   - 토큰: 이 탭의 수업 토큰(`sessionStorage lcw.studentToken`) 또는 연결된 기기 토큰(`localStorage lcw.deviceToken`), LCW 와 같은 키와 순서입니다. 둘 다 없으면 말하기 자리에 **수업 코드 칸**이 나옵니다. 선생님 콘솔의 6자리 코드를 넣으면 LCW 와 같은 `POST /v1/join` 으로 학생 토큰을 받아 같은 키(`saveStudentSession`)에 둡니다. 코드는 남기지 않고, 토큰은 그 탭 밖으로 나가지 않습니다. 문서 링크에는 토큰을 싣지 않습니다(공개 링크).
   - 실패: 아무 소리가 없으면 "I did not hear anything", 업로드·모델 실패면 "I could not catch that. Tap 🎤 and say it again!", 한도가 쉬면 타이핑으로 넘어갑니다.
-- **신경망 목소리**: 섬 주민 대사는 배역 팩 목소리(`ADVENTURE_CAST` → `npc-cast.ts` 의 기존 목소리), 아이 문장은 `modelVoice`. 고정 대사와 내장 낱말 문장은 `fixedTtsLines()` 에 들어 있어 손님도 신경망 목소리를 듣고, 문서 자료에서 온 새 문장은 아이 토큰이 있을 때만 서버가 만듭니다(없으면 기기 목소리).
+- **신경망 목소리**: 섬 주민은 인물마다 자기 Kokoro 목소리가 있습니다(`npc-cast.ts` 배역 팩의 `islanders` 표 하나, 인물 id 또는 마을 사람 영어 이름 → 목소리, `islanderVoice`). 16명 모두 서로 다르고 모범 문장 목소리(af_sarah)와도 다릅니다. 모범 문장처럼 집 PC GPU 가 만들어 올리고(0 뉴런, 매일 밤 Dan-LCW-TTS-Local), Workers AI 사전 생성·크론은 건너뜁니다(R2625, 11-19: 섬 3·4 대사 55줄이 밤 크론을 기다리며 기계음이던 것). 아이 문장은 `modelVoice`. 고정 대사와 내장 낱말 문장은 `fixedTtsLines()` 에 들어 있어 손님도 신경망 목소리를 듣고, 문서 자료에서 온 새 문장은 아이 토큰이 있을 때만 서버가 만듭니다(없으면 기기 목소리).
 - **LCW 월드**: 장마다 같은 상황의 문장 뱅크 문장을 써서, 모험에서 연습한 문장을 `/world/` 카페·상점·안내인에게 그대로 씁니다. 장 끝 화면에 `/world/` 로 가는 단추가 있습니다.
 
 ## 4. 숫자 (`apps/adventure/src/core/tuning.ts` 한 곳)

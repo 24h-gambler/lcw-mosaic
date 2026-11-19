@@ -7,6 +7,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ADVENTURE_STAGE_ID,
   getLessonNpc,
   type LessonDirectorEventKind,
   type LessonHintLevel,
@@ -528,10 +529,11 @@ function bigButton(bg: string): React.CSSProperties {
   };
 }
 
-function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }) {
+export function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }) {
   const ok = view.connection === 'ok';
   const [asking, setAsking] = useState(false);
   const [toAdventure, setToAdventure] = useState(false);
+  const adventureNow = view.stageId === ADVENTURE_STAGE_ID;
   const small: React.CSSProperties = { ...card, boxShadow: 'none', padding: `${SP[1]}px ${SP[2]}px`, fontSize: T.scale.small.sizePx, cursor: 'pointer', minHeight: TOKENS.shape.touchTargetMinPx, color: C['ink-900'] };
   if (toAdventure) {
     // Two taps here too: the link leaves the lesson screen (the lesson token goes along in this tab, /world/ brings the
@@ -582,7 +584,14 @@ function StatusPill({ view, onLeave }: { view: LessonView; onLeave: () => void }
               : S.status.alone(view.nickname)}
       </span>
       {/* same tab on purpose: the lesson token (sessionStorage) goes along, so the adventure's 🎤 works at once */}
-      <button type="button" data-testid="lesson-adventure" onClick={() => setToAdventure(true)} style={small}>
+      {/* the adventure stage (the day's last box): the goal card says 'Tap 🗺 Adventure', and the button lights up */}
+      <button
+        type="button"
+        data-testid="lesson-adventure"
+        data-now={adventureNow ? '1' : undefined}
+        onClick={() => setToAdventure(true)}
+        style={adventureNow ? { ...small, background: C.sun, fontWeight: 800 } : small}
+      >
         {S.status.adventure}
       </button>
       <button type="button" onClick={() => setAsking(true)} style={small}>

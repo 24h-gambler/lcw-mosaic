@@ -77,6 +77,44 @@ export interface LessonPlan {
   stages: LessonStage[];
 }
 
+/**
+ * The day's last box (R2625: … EC Play → LCW → adventure): the child leaves the town for the talk-to-befriend adventure
+ * (/adventure/, docs/22) from the lesson status bar's same-tab 🗺 link, so the lesson token goes along and the
+ * adventure's 🎤 works at once; on another tab or device the adventure asks for the class code. `{code}` in the teacher
+ * copy is the lesson's join code (the console fills it in). The child is off the town screen here, so the stage's
+ * minutes do not run out by themselves; the teacher ends the lesson after it.
+ */
+export const ADVENTURE_STAGE_ID = 'adventure';
+/** Where the console puts the lesson's join code in a stage's teacher copy. */
+export const LESSON_JOIN_CODE_SLOT = '{code}';
+
+function adventureStage(order: number, minutes: number, playUntil: number): LessonStage {
+  const circled = String.fromCharCode(0x2460 + order - 1);
+  return {
+    id: ADVENTURE_STAGE_ID,
+    order,
+    titleKo: `${circled} 모험 (오늘 낱말로 이야기 따라가기)`,
+    parentKo: '모험 이야기 속에서 영어로 말하기',
+    minutes,
+    mode: 'free',
+    teacherGuideKo:
+      '오늘의 마지막 칸, 모험입니다. 아이 화면 상태줄의 「🗺 모험」을 같은 탭에서 누르게 하세요 — 수업 토큰이 따라가 🎤가 바로 됩니다. 새 탭·다른 기기면 수업 코드 {code} 를 넣으면 됩니다. 끝나면 「수업 끝」으로 리포트를 만드세요.',
+    teacherScriptEn: "Now it's adventure time! Tap the map at the top of your screen.",
+    studentGoalKo: '위쪽 상태줄의 🗺 모험을 눌러 모험을 떠나요',
+    studentGoalEn: 'Tap 🗺 Adventure at the top',
+    sceneId: 'plaza',
+    npcId: 'guide',
+    hint: 'none',
+    stepsKo: [
+      '0–2분 · 아이 화면 상태줄의 「🗺 모험」을 같은 탭에서 누르게 해요. 새 탭이면 수업 코드 {code}.',
+      `2–${playUntil}분 · 모험에서 🎤로 오늘 낱말을 말하며 이야기를 따라가요. 막히면 첫 낱말만 알려 줘요.`,
+      `${playUntil}–${minutes}분 · 마을로 돌아오면 「수업 끝」에 한마디와 다음 수업 날짜를 쓰고, 리포트를 미리보기 뒤 보내요.`
+    ],
+    followUpsEn: ['Are you ready for the adventure?', 'Tap the map at the top of your screen.', 'Come back to the town when you finish!'],
+    targets: [{ stars: 1, text: "Let's go on an adventure!", hintTags: ['adventure'] }]
+  };
+}
+
 export const FIRST_LESSON_PLAN: LessonPlan = {
   id: 'first_lesson_v1',
   titleKo: '첫 수업 · 카페에서 시작하는 영어 (대면 120분)',
@@ -232,10 +270,10 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       order: 6,
       titleKo: '⑥ 마무리와 다음 수업 예고',
       parentKo: '마무리',
-      minutes: 15,
+      minutes: 5,
       mode: 'free',
       teacherGuideKo:
-        '오늘 가장 잘한 문장 하나를 칭찬하고 다음 수업을 예고하세요. 「수업 끝」을 누르면 숫자가 검증된 부모 리포트 링크가 만들어집니다 — 문자로 보내기 전에 한 번 읽어 보세요.',
+        '오늘 가장 잘한 문장 하나를 칭찬하고 다음 수업을 예고하세요. 그다음 ⑦ 모험으로 넘깁니다 — 「수업 끝」과 부모 리포트는 모험 뒤에 만듭니다(숫자가 검증된 링크, 보내기 전에 한 번 읽어 보세요).',
       teacherScriptEn: 'Great job today! Next time, we will build our own shop. See you!',
       studentGoalKo: '오늘 제일 잘한 문장을 한 번 더 말해요',
       studentGoalEn: "Say your best sentence one more time",
@@ -243,13 +281,13 @@ export const FIRST_LESSON_PLAN: LessonPlan = {
       npcId: 'guide',
       hint: 'full',
       stepsKo: [
-        '0–5분 · 오늘 가장 잘한 문장을 칭찬하고 한 번 더 말하게 해요.',
-        '5–10분 · 다음 수업(내 가게 만들기)을 예고하고 인사 문장을 말하게 해요.',
-        '10–15분 · 「수업 끝」 칸에 한마디와 다음 수업 날짜를 쓰고 리포트를 만들어요. 미리보기로 읽은 뒤 링크를 보내요.'
+        '0–3분 · 오늘 가장 잘한 문장을 칭찬하고 한 번 더 말하게 해요.',
+        '3–5분 · 다음 수업(내 가게 만들기)을 예고하고 ⑦ 모험으로 넘겨요. 「수업 끝」은 모험 뒤에.'
       ],
       followUpsEn: ['You did a great job today!', 'Next time, we will build our own shop.', 'See you next time!'],
       targets: [{ stars: 1, text: 'Thank you! See you next time.', hintTags: ['see you'] }]
-    }
+    },
+    adventureStage(7, 10, 8)
   ]
 };
 
@@ -383,7 +421,7 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       order: 5,
       titleKo: '⑤ 열린 질문',
       parentKo: '질문에 자유롭게 대답하기',
-      minutes: 15,
+      minutes: 10,
       mode: 'free',
       teacherGuideKo:
         '정답이 없는 질문을 하고 5초 이상 기다려 주세요. 첫 수업 ④와 같은 방식입니다 — 말이 길어질수록 생각말하기 지수가 오르고, 한국어 단어를 섞어도 화면이 영어로 바꿔 보여 줍니다.',
@@ -395,8 +433,8 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       hint: 'none',
       stepsKo: [
         '0–3분 · 언덕에서 열린 질문을 보내고 5초 이상 기다려요.',
-        '3–12분 · "What else?" "Why?"로 이어 가요. 「눈보라」(1)로 "What would you do?"를 물어도 좋아요.',
-        '12–15분 · 가장 긴 설명에 F2, ⑥으로.'
+        '3–8분 · "What else?" "Why?"로 이어 가요. 「눈보라」(1)로 "What would you do?"를 물어도 좋아요.',
+        '8–10분 · 가장 긴 설명에 F2, ⑥으로.'
       ],
       followUpsEn: ['What else makes it special?', 'Who will come first?', 'What would you do if it snowed?'],
       targets: [
@@ -435,10 +473,10 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       order: 7,
       titleKo: '⑦ 마무리와 다음 수업 예고',
       parentKo: '마무리',
-      minutes: 8,
+      minutes: 5,
       mode: 'free',
       teacherGuideKo:
-        '오늘 가장 잘한 문장 하나를 칭찬하고 다음 수업을 예고하세요. 「수업 끝」을 누르면 숫자가 검증된 부모 리포트 링크가 만들어집니다 — 문자로 보내기 전에 한 번 읽어 보세요.',
+        '오늘 가장 잘한 문장 하나를 칭찬하고 다음 수업을 예고하세요. 그다음 ⑧ 모험으로 넘깁니다 — 「수업 끝」과 부모 리포트는 모험 뒤에 만듭니다(숫자가 검증된 링크, 보내기 전에 한 번 읽어 보세요).',
       teacherScriptEn: 'Great job today! Next time, friends will visit your shop. See you!',
       studentGoalKo: '오늘 제일 잘한 문장을 한 번 더 말해요',
       studentGoalEn: "Say your best sentence one more time",
@@ -447,12 +485,12 @@ export const SECOND_LESSON_PLAN: LessonPlan = {
       hint: 'full',
       stepsKo: [
         '0–3분 · 오늘 가장 잘한 문장을 칭찬하고 한 번 더 말하게 해요.',
-        '3–5분 · 다음 수업을 예고하고 인사해요.',
-        '5–8분 · 「수업 끝」에 한마디와 다음 수업 날짜를 쓰고 리포트 링크를 만들어 미리보기 뒤 보내요.'
+        '3–5분 · 다음 수업을 예고하고 ⑧ 모험으로 넘겨요. 「수업 끝」은 모험 뒤에.'
       ],
       followUpsEn: ['You did a great job today!', 'Next time, friends will visit your shop.', 'See you next time!'],
       targets: [{ stars: 1, text: 'Thank you! See you next time.', hintTags: ['see you'] }]
-    }
+    },
+    adventureStage(8, 8, 6)
   ]
 };
 

@@ -2,13 +2,13 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
-import { FIRST_LESSON_PLAN } from '@lcw/content';
+import { ADVENTURE_STAGE_ID, FIRST_LESSON_PLAN, LESSON_PLANS } from '@lcw/content';
 import { PlatformDO, type LcwEnv } from '../../../edge/src/platform.js';
 import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
-import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LessonController, goalTargetEn, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
+import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LessonController, goalTargetEn, initialLessonView, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
-import { LessonLayer, goToSceneChecked, lessonGoneInWorld, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
+import { LessonLayer, StatusPill, goToSceneChecked, lessonGoneInWorld, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
 import { SubmitError } from '../dialog/submit.js';
 
@@ -467,6 +467,19 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(goalTargetEn('full', offers)).toBe('Can I have a warm honey tea?');
     for (const h of ['keyword', 'initial', 'picture', 'none'] as const) expect(goalTargetEn(h, offers)).toBeUndefined();
     expect(goalTargetEn('full', [])).toBeUndefined();
+  });
+
+  it("the adventure stage (the day's last box) lights the status bar's same-tab 🗺 button; other stages leave it plain", () => {
+    const view = (stageId: string) => ({ ...initialLessonView(), phase: 'live' as const, connection: 'ok' as const, nickname: 'Oreo', stageId });
+    const now = renderToStaticMarkup(React.createElement(StatusPill, { view: view(ADVENTURE_STAGE_ID), onLeave: () => undefined }));
+    expect(now).toContain('data-testid="lesson-adventure"');
+    expect(now).toContain('data-now="1"');
+    expect(now).toContain(LESSON_STRINGS.status.adventure);
+    const cafe = renderToStaticMarkup(React.createElement(StatusPill, { view: view('cafe_order'), onLeave: () => undefined }));
+    expect(cafe).toContain('data-testid="lesson-adventure"');
+    expect(cafe).not.toContain('data-now');
+    // the goal card the world shows for that stage points at the same button
+    for (const plan of LESSON_PLANS) expect(plan.stages.at(-1)!.studentGoalEn).toContain('🗺 Adventure');
   });
 
   it('hints follow the stage ladder and the layer draws nothing outside a lesson', () => {

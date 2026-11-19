@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, TOKENS } from '@lcw/ui';
-import { LESSON_PLANS, type LessonStage } from '@lcw/content';
+import { LESSON_JOIN_CODE_SLOT, LESSON_PLANS, type LessonStage } from '@lcw/content';
 import {
   TEACHER_SIGN_IN_PATH,
   createLessonApi,
@@ -1321,6 +1321,11 @@ function autoMoveOf(log: FeedLiveExtra['stage_log'], skewMs: number): { stageId:
   return last?.source?.startsWith('auto:') ? { stageId: last.stage_id, why: last.source.slice(5), at: last.at - skewMs } : null;
 }
 
+/** A stage's teacher copy with the lesson's join code in its slot (the adventure stage: "새 탭이면 수업 코드 ○○○○"). */
+export function withJoinCode(text: string, code: string | null | undefined): string {
+  return text.split(LESSON_JOIN_CODE_SLOT).join(code || '—');
+}
+
 function StagePanel({
   api,
   token,
@@ -1405,7 +1410,7 @@ function StagePanel({
         <div style={{ backgroundColor: C['paper-100'], border, borderRadius: `${TOKENS.shape.radiusButtonPx}px`, padding: sp(2) }}>
           <strong style={{ display: 'block', marginBottom: sp(1) }}>{S.guideLabel}</strong>
           <p style={{ margin: 0, fontSize: `${T.scale['body-l'].sizePx}px`, lineHeight: `${T.scale['body-l'].lineHeightPx}px` }}>
-            {stage.teacherGuideKo}
+            {withJoinCode(stage.teacherGuideKo, lesson.join_code)}
           </p>
           {stage.stepsKo?.length ? (
             <details style={{ marginTop: sp(2) }}>
@@ -1413,7 +1418,7 @@ function StagePanel({
               <ol data-testid="stage-steps" style={{ margin: `${sp(2)} 0 0`, paddingLeft: sp(4), display: 'grid', gap: sp(1) }}>
                 {stage.stepsKo.map((step) => (
                   <li key={step} style={{ fontSize: `${T.scale.body.sizePx}px`, lineHeight: `${T.scale.body.lineHeightPx}px` }}>
-                    {step}
+                    {withJoinCode(step, lesson.join_code)}
                   </li>
                 ))}
               </ol>

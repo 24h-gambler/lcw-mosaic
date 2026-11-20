@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { LESSON_SWEEP_CRON, buildLessonModeApp, studentFromRequest, type IdleSweepResult } from './lesson-mode.js';
 import { buildExportApp } from './export-csv.js';
-import { soloWriteGate, sweepSeatNotices } from './seats.js';
+import { playAllowed, soloWriteGate, sweepSeatNotices } from './seats.js';
 import { legacyWorldRedirect } from './world-path.js';
 import {
   VOICE_PUBLIC_ROUTES,

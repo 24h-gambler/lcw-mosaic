@@ -942,6 +942,8 @@ ${line(s.help)}` : line(s.text), 4000);
   let pvpToldAt = -1e9;
   const peerAt = (cx: number, cy: number): string | null => (peers.count === 0 ? null : peers.pick(rayAt(cx, cy), body, TUNING.multi.hitPickM));
   let lastHitSentAt = -Infinity;
+  /** a little over the room's gap, so network jitter never lands a sent hit inside it (swing shown, hit dropped) */
+  const HIT_SEND_SLACK_MS = 50;
   /** "play fighting is off" is said again only after this quiet gap of clicks (ms) */
   const PVP_TOLD_GAP_MS = 4000;
   /** a friend on the crosshair unless an NPC there stands nearer (the click then talks) */
@@ -965,7 +967,7 @@ ${line(s.help)}` : line(s.text), 4000);
     // the room takes one hit per hitCooldownMs from each child: a quicker click is only the swing (and a child who
     // clicks very fast never runs the socket into the room's message limit)
     const now = performance.now();
-    if (now - lastHitSentAt < TUNING.multi.hitCooldownMs) return;
+    if (now - lastHitSentAt < TUNING.multi.hitCooldownMs + HIT_SEND_SLACK_MS) return;
     lastHitSentAt = now;
     roomOut?.hit(id);
     counts.hitsSent++;
@@ -1190,6 +1192,8 @@ ${line(s.help)}` : line(s.text), 4000);
   hud.root.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse') return;
     touchDown.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now(), far: false });
+    // a press on a classmate is a hit or (held) a trade, never also a block broken behind them
+    if (peers.count > 0 && peerAt(e.clientX, e.clientY)) return;
     buildPress(e, tool);
   });
   hud.root.addEventListener('pointermove', (e) => {
@@ -1209,7 +1213,8 @@ ${line(s.help)}` : line(s.text), 4000);
     const still = !!down && !down.far && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 12 && held < 600;
     // a long still press on a classmate is a trade (a short tap hits): the phone's way to lcw:open-trade
     if (down && !down.far && !own?.moved && held >= TUNING.multi.tradeHoldMs && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 12) {
-      const mate = peerAt(e.clientX, e.clientY);
+      // an NPC under the finger wins here too (as for a short tap)
+      const mate = npcAt(e.clientX, e.clientY) ? null : peerAt(e.clientX, e.clientY);
       if (mate) {
         if (own) {
           hold = null;

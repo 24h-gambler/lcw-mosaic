@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PLAN_PRICES_KRW } from '@lcw/quota';
 import { PlatformDO, type LcwEnv } from '../platform.js';
-import { TOSS_CONFIRM_URL } from '../billing.js';
+import { BILLING_CONTACT_RETENTION_MS, TOSS_CONFIRM_URL, sweepBillingContacts } from '../billing.js';
 import { fakeDurableStorage } from './fake-do.js';
 
 const TOKEN = 'op-token-0123456789abcdef';
@@ -51,7 +51,7 @@ describe('R326 billing: plan choice → order at the server price', () => {
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ mode: 'test', plans: PLAN_PRICES_KRW });
     expect(r.body.client_key).toBeUndefined();
-    expect(r.headers.get('cache-control')).toContain('max-age=3600');
+    expect(r.headers.get('cache-control')).toContain('max-age=300');
     expect((await call(platform(true), 'GET', '/v1/billing/config', undefined, anon)).body).toMatchObject({ mode: 'live', client_key: 'test_ck_unit' });
   });
 
@@ -132,6 +132,61 @@ describe('R326 billing live: Toss confirm', () => {
     const c2 = (await call(p, 'POST', '/v1/billing/checkout', checkout, dev)).body;
     expect((await call(p, 'POST', '/v1/billing/confirm', { order_id: c2.order_id, payment_key: 'pk_live_cccccc', amount: 14_900 }, anon)).status).toBe(402);
     expect(seatsOf(p, 'kid-m')).toBe(0);
+  });
+
+  it('paying again while the seat is live extends that seat by the term (money is never taken for nothing)', async () => {
+    const p = platform(true);
+    const dev = await kid(p, 'kid-x', 'fam-x');
+    await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-fam-x', plan: 'solo', term: 'month', player_ids: ['kid-x'] });
+    const before = Number(sqlOf(p).get('select ends_at from seats where player_id = ?', ['kid-x']).ends_at);
+    const o = (await call(p, 'POST', '/v1/billing/checkout', checkout, dev)).body;
+    vi.stubGlobal('fetch', async () => tossOk(14_900, o.order_id));
+    const confirm = { order_id: o.order_id, payment_key: 'pk_live_xxxxxx', amount: 14_900 };
+    const r = await call(p, 'POST', '/v1/billing/confirm', confirm, anon);
+    expect(r.body).toMatchObject({ ok: true, status: 'seat_issued', seat: 'seat_extended' });
+    expect(seatsOf(p, 'kid-x')).toBe(1);
+    const after = Number(sqlOf(p).get('select ends_at from seats where player_id = ?', ['kid-x']).ends_at);
+    expect(after - before).toBe(30 * 86_400_000);
+    expect(sqlOf(p).get("select by from seat_changes where kind = 'extend'")).toMatchObject({ by: 'billing' });
+    // a reload of the done page says the same
+    expect((await call(p, 'POST', '/v1/billing/confirm', confirm, anon)).body).toMatchObject({ seat: 'seat_extended' });
+  });
+
+  it('two confirms of one payment at once open one seat; a Toss 5xx keeps the order payable', async () => {
+    const p = platform(true);
+    const dev = await kid(p, 'kid-c', 'fam-c');
+    const o = (await call(p, 'POST', '/v1/billing/checkout', checkout, dev)).body;
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ code: 'PROVIDER_ERROR' }), { status: 500 }));
+    const confirm = { order_id: o.order_id, payment_key: 'pk_live_cccccc', amount: 14_900 };
+    expect(await call(p, 'POST', '/v1/billing/confirm', confirm, anon)).toMatchObject({ status: 502, body: { error: 'toss_unavailable' } });
+    expect(sqlOf(p).get('select status from billing_orders where id = ?', [o.order_id])).toMatchObject({ status: 'pending_payment' });
+    // the second tab's confirm lands while the first one still waits on Toss
+    let started = false;
+    let inner: any = null;
+    vi.stubGlobal('fetch', async () => {
+      if (!started) {
+        started = true;
+        inner = await call(p, 'POST', '/v1/billing/confirm', confirm, anon);
+      }
+      return tossOk(14_900, o.order_id);
+    });
+    const outer = await call(p, 'POST', '/v1/billing/confirm', confirm, anon);
+    expect(inner.body).toMatchObject({ ok: true, status: 'seat_issued', seat: 'seat_issued' });
+    expect(outer.body).toMatchObject({ ok: true, status: 'seat_issued', seat: 'seat_issued' });
+    expect(seatsOf(p, 'kid-c')).toBe(1);
+    expect(Number(sqlOf(p).get('select count(*) as n from seat_orders').n)).toBe(1);
+  });
+
+  it('a closed or abandoned order loses the name and contact after the retention; an open one keeps them', async () => {
+    const p = platform(true);
+    const dev = await kid(p, 'kid-r', 'fam-r');
+    const old = (await call(p, 'POST', '/v1/billing/checkout', checkout, dev)).body;
+    const open = (await call(p, 'POST', '/v1/billing/checkout', { ...checkout, plan: 'duo' }, anon)).body;
+    sqlOf(p).run('update billing_orders set created_at = ?', [Date.now() - BILLING_CONTACT_RETENTION_MS - 1000]);
+    sqlOf(p).run("update billing_orders set status = 'paid' where id = ?", [open.order_id]);
+    sweepBillingContacts(sqlOf(p), Date.now());
+    expect(sqlOf(p).get('select payer_name, contact from billing_orders where id = ?', [old.order_id])).toEqual({ payer_name: '', contact: '' });
+    expect(sqlOf(p).get('select contact from billing_orders where id = ?', [open.order_id])).toEqual({ contact: checkout.contact });
   });
 
   it('a paid Duo (or an order without a child) waits in the inbox as paid, no seat guessed', async () => {

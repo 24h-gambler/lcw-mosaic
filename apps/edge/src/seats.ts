@@ -203,7 +203,15 @@ const TRIAL_MS = FREE_PLAY_LIMITS.worldTrialMinutes * 60_000;
 function trialExempt(sql: SqliteExecutor, playerId: string): boolean {
   if (isTestPlayerId(playerId)) return true;
   const p = sql.get<{ tutor_student: number }>('select tutor_student from players where id = ?', [playerId]);
-  return Number(p?.tutor_student ?? 0) === 1;
+  if (Number(p?.tutor_student ?? 0) === 1) return true;
+  // What the product really records (review of the R326 paid step: tutor_student is set by no product code): a child
+  // who has had a lesson with the teacher, or ever held a tutoring seat (name-keys.ts reads the class the same way).
+  if (sql.get("select 1 as x from seats where player_id = ? and plan = 'tutoring' limit 1", [playerId])) return true;
+  try {
+    return Boolean(sql.get('select 1 as x from lessons where player_id = ? limit 1', [playerId]));
+  } catch {
+    return false; // no lessons table yet (a fresh store)
+  }
 }
 
 function trialUsed(sql: SqliteExecutor, playerId: string): number {
@@ -231,8 +239,9 @@ export function playAllowed(sql: SqliteExecutor, playerId: string, nowMs: number
 }
 
 /**
- * One beat of the free-trial clock (R326): adds the time since the last beat, at most `worldTrialBeatMaxAddMs`, or 0
- * after a break longer than `worldTrialBreakMs` (a new stretch). One upsert, capped at the trial length. Callers: the
+ * One beat of the free-trial clock (R326): adds the time since the last beat, at most `worldTrialBeatMaxAddMs`, or
+ * `worldTrialStretchMinMs` after a break longer than `worldTrialBreakMs` (a new stretch) — so writes spaced past the
+ * break with the heartbeat blocked still run the clock down (review of the R326 paid step). One upsert, capped. Callers: the
  * trial child's device beat (POST /v1/device/heartbeat, every `worldTrialBeatMs` while the world is visible) and every
  * solo write of a trial child that passed the gate (a request that was coming anyway — no extra round trip).
  */
@@ -241,9 +250,9 @@ export function beatTrial(sql: SqliteExecutor, playerId: string, nowMs: number):
   sql.run(
     `insert into free_trial (player_id, used_ms, last_beat_at, started_at) values (?, 0, ?, ?)
      on conflict(player_id) do update set
-       used_ms = min(?, used_ms + case when ? - last_beat_at between 0 and ? then min(? - last_beat_at, ?) else 0 end),
+       used_ms = min(?, used_ms + case when ? - last_beat_at between 0 and ? then min(? - last_beat_at, ?) when ? > last_beat_at then ? else 0 end),
        last_beat_at = max(last_beat_at, ?)`,
-    [playerId, nowMs, nowMs, TRIAL_MS, nowMs, L.worldTrialBreakMs, nowMs, L.worldTrialBeatMaxAddMs, nowMs]
+    [playerId, nowMs, nowMs, TRIAL_MS, nowMs, L.worldTrialBreakMs, nowMs, L.worldTrialBeatMaxAddMs, nowMs, L.worldTrialStretchMinMs, nowMs]
   );
   return trialUsed(sql, playerId) >= TRIAL_MS ? 'ended' : 'running';
 }
@@ -411,6 +420,56 @@ export function issueSeats(d: SeatDeps, q: IssueInput, by: 'operator' | 'billing
     });
   });
   return { status: 201, body: { order_id: oid, seat_ids: seats, amount_krw: amount, ends_at: ends, refund_until: refundDeadlineMs(paidAt) } };
+}
+
+/**
+ * A paid extension of one seat (the operator's extend button, or an online payment for a child who already has a live
+ * seat — review of the R326 paid step: paying again must add the days, never take the money and do nothing). Its own
+ * payment row and refund window; the end moves to max(now, end) + days.
+ */
+export function extendSeatPaid(
+  d: SeatDeps,
+  seatId: string,
+  q: { days: number; amount_krw?: number; paid_at?: number; note?: string },
+  by: 'operator' | 'billing'
+): Out {
+  const s = d.sql.get<SeatRow>('select * from seats where id = ?', [seatId]);
+  if (!s) return { status: 404, body: { error: 'seat_not_found' } };
+  if (s.status === 'refunded') return { status: 409, body: { error: 'already_refunded' } };
+  const now = d.nowMs();
+  if (q.paid_at !== undefined && q.paid_at > now + PAID_AT_FUTURE_SLACK_MS) return { status: 400, body: { error: 'paid_at_in_future' } };
+  const paidAt = q.paid_at ?? now;
+  const amount = q.amount_krw ?? extensionPriceKrw(s.plan, q.days);
+  const ends = Math.max(now, s.ends_at) + q.days * DAY;
+  const oid = `ord-${hex(d.randomBytes(6))}`;
+  runInTransaction(d.sql, () => {
+    d.sql.run('insert into seat_orders (id, payer_id, plan, term, amount_krw, paid_at, created_at, note) values (?, ?, ?, ?, ?, ?, ?, ?)', [
+      oid,
+      s.payer_id,
+      s.plan,
+      q.days >= TERM_DAYS.year ? 'year' : 'month',
+      amount,
+      paidAt,
+      now,
+      q.note ?? ''
+    ]);
+    d.sql.run("insert into seat_order_links (seat_id, order_id, kind, days, refunded_at) values (?, ?, 'extend', ?, null)", [s.id, oid, q.days]);
+    // The extension's days begin where the seat ended (or now, if it had already ended): its own "first use" line.
+    d.sql.run('insert or replace into seat_order_periods (order_id, period_from) values (?, ?)', [oid, Math.max(now, s.ends_at)]);
+    d.sql.run("update seats set ends_at = ?, status = 'active' where id = ?", [ends, s.id]);
+    d.sql.run('delete from seat_notices where seat_id = ?', [s.id]);
+    d.sql.run('insert into seat_changes (id, seat_id, kind, by, at, before_json, after_json, note) values (?, ?, ?, ?, ?, ?, ?, ?)', [
+      `sc-${hex(d.randomBytes(6))}`,
+      s.id,
+      'extend',
+      by,
+      now,
+      JSON.stringify({ starts_at: s.starts_at, ends_at: s.ends_at, status: s.status }),
+      JSON.stringify({ starts_at: s.starts_at, ends_at: ends, status: 'active', days: q.days, order_id: oid, amount_krw: amount }),
+      q.note ?? ''
+    ]);
+  });
+  return { status: 200, body: { id: s.id, order_id: oid, amount_krw: amount, ends_at: ends, refund_until: refundDeadlineMs(paidAt), state: seatState({ ends_at: ends, status: 'active' }, now) } };
 }
 
 /** Operator routes (behind the operator gate) and guardian routes (behind `withGuardian`). */
@@ -627,36 +686,10 @@ export function mountSeatRoutes(
 
   /** A paid (or free) extension of one seat: recorded as its own payment with its own refund window. */
   app.post('/v1/admin/seats/:id/extend', async (c) => {
-    const s = seatRow(c.req.param('id'));
-    if (!s) return c.json({ error: 'seat_not_found' }, 404);
-    if (s.status === 'refunded') return c.json({ error: 'already_refunded' }, 409);
     const p = ExtendSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: 'invalid', issues: p.error.issues }, 400);
-    const now = d.nowMs();
-    if (p.data.paid_at !== undefined && p.data.paid_at > now + PAID_AT_FUTURE_SLACK_MS) return c.json({ error: 'paid_at_in_future' }, 400);
-    const paidAt = p.data.paid_at ?? now;
-    const amount = p.data.amount_krw ?? extensionPriceKrw(s.plan, p.data.days);
-    const ends = Math.max(now, s.ends_at) + p.data.days * DAY;
-    const oid = id('ord');
-    runInTransaction(d.sql, () => {
-      d.sql.run('insert into seat_orders (id, payer_id, plan, term, amount_krw, paid_at, created_at, note) values (?, ?, ?, ?, ?, ?, ?, ?)', [
-        oid,
-        s.payer_id,
-        s.plan,
-        p.data.days >= TERM_DAYS.year ? 'year' : 'month',
-        amount,
-        paidAt,
-        now,
-        p.data.note ?? ''
-      ]);
-      d.sql.run("insert into seat_order_links (seat_id, order_id, kind, days, refunded_at) values (?, ?, 'extend', ?, null)", [s.id, oid, p.data.days]);
-      // The extension's days begin where the seat ended (or now, if it had already ended): its own "first use" line.
-      d.sql.run('insert or replace into seat_order_periods (order_id, period_from) values (?, ?)', [oid, Math.max(now, s.ends_at)]);
-      d.sql.run("update seats set ends_at = ?, status = 'active' where id = ?", [ends, s.id]);
-      d.sql.run('delete from seat_notices where seat_id = ?', [s.id]);
-      recordChange(s.id, 'extend', now, periodOf(s), { starts_at: s.starts_at, ends_at: ends, status: 'active', days: p.data.days, order_id: oid, amount_krw: amount }, p.data.note ?? '');
-    });
-    return c.json({ id: s.id, order_id: oid, amount_krw: amount, ends_at: ends, refund_until: refundDeadlineMs(paidAt), state: seatState({ ends_at: ends, status: 'active' }, now) });
+    const r = extendSeatPaid(d, c.req.param('id'), p.data, 'operator');
+    return c.json(r.body, r.status);
   });
 
   /**

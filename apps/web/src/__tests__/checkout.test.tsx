@@ -44,14 +44,14 @@ describe('R326 plans step on /pricing', () => {
     const html = renderToStaticMarkup(<CheckoutSection config={cfg} initialSearch="?from=world" />);
     expect(html).toContain('id="plans"');
     expect(html).toContain('data-mode="test"');
-    expect(html).toContain('시험 모드 — 실제 돈이 나가지 않아요');
+    expect(html).toContain('카드 결제 준비 중 — 지금은 계좌이체로 받아요');
     expect(html).toContain('14,900원');
     expect(html).toContain('무료 체험이 끝났어요');
-    expect(html).toContain('주문 넣기 (시험 모드)');
+    expect(html).toContain('주문 넣기 (계좌이체)');
     // the refund rule is shown before payment (docs/16 #10)
     expect(html).toContain('이용을 시작하면 환불되지 않습니다');
     const live = renderToStaticMarkup(<CheckoutSection config={{ ...cfg, mode: 'live', client_key: 'test_ck_x' }} />);
-    expect(live).not.toContain('시험 모드');
+    expect(live).not.toContain('계좌이체');
     expect(live).toContain('결제하기');
     expect(render('/pricing')).toContain('id="plans"');
   });

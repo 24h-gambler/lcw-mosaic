@@ -82,7 +82,7 @@ export function CheckoutSection(props: { initialSearch?: string; fetchImpl?: Fet
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [agree, setAgree] = useState(false);
-  const [state, setState] = useState<{ k: 'idle' | 'sending' | 'invalid' | 'error' | 'too_many' | 'fail' } | { k: 'done_test'; no: string } | { k: 'done_live' | 'done_paid' }>(
+  const [state, setState] = useState<{ k: 'idle' | 'sending' | 'invalid' | 'error' | 'too_many' | 'fail' } | { k: 'done_test'; no: string } | { k: 'done_live' | 'done_extended' | 'done_paid' }>(
     ret?.kind === 'fail' ? { k: 'fail' } : { k: 'idle' }
   );
 
@@ -111,10 +111,10 @@ export function CheckoutSection(props: { initialSearch?: string; fetchImpl?: Fet
       body: JSON.stringify({ order_id: ret.orderId, payment_key: ret.paymentKey, amount: ret.amount })
     })
       .then(async (r) => {
-        const j = (await r.json().catch(() => ({}))) as { status?: string };
+        const j = (await r.json().catch(() => ({}))) as { status?: string; seat?: string };
         if (!r.ok) return setState({ k: 'fail' });
         track('checkout_done');
-        setState({ k: j.status === 'seat_issued' ? 'done_live' : 'done_paid' });
+        setState({ k: j.status === 'seat_issued' ? (j.seat === 'seat_extended' ? 'done_extended' : 'done_live') : 'done_paid' });
       })
       .catch(() => setState({ k: 'fail' }));
   }, [ret]);
@@ -168,7 +168,7 @@ export function CheckoutSection(props: { initialSearch?: string; fetchImpl?: Fet
   };
 
   const mode = cfg?.mode ?? 'test';
-  const done = state.k === 'done_test' || state.k === 'done_live' || state.k === 'done_paid';
+  const done = state.k === 'done_test' || state.k === 'done_live' || state.k === 'done_extended' || state.k === 'done_paid';
   return (
     <section className="s-sec" id="plans" data-testid="checkout" data-mode={mode}>
       <div className="s-wrap s-stack" style={{ gap: 16, maxWidth: 760 }}>
@@ -183,7 +183,7 @@ export function CheckoutSection(props: { initialSearch?: string; fetchImpl?: Fet
         ) : null}
         {done ? (
           <div className="s-note s-ok" role="status" style={{ fontSize: 18, lineHeight: '28px' }}>
-            {state.k === 'done_test' ? K.doneTest(state.no) : state.k === 'done_live' ? K.doneLive : K.donePaid}
+            {state.k === 'done_test' ? K.doneTest(state.no) : state.k === 'done_live' ? K.doneLive : state.k === 'done_extended' ? K.doneExtended : K.donePaid}
             {from === 'world' || state.k === 'done_live' ? (
               <>
                 <br />

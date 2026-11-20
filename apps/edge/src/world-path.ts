@@ -20,8 +20,17 @@ export function legacyWorldLocation(url: URL): string | null {
   return `${WORLD_PATH}${rest}${url.search}`;
 }
 
+/**
+ * R326 (Dan 11-19 "왜 소개 페이지와 연결돼 있고 메인으로 넘어갈 수 없게"): the service address is the world. `/` goes to
+ * the world's start screen (sign up · sign in · the 3-minute try · a friend's code) with its query; the introduction
+ * moved to /about (the company site's /ko/lcw links here too). 302 like the /game move, so it stays reversible.
+ */
+export function rootWorldLocation(url: URL): string | null {
+  return url.pathname === '/' ? `${WORLD_PATH}${url.search}` : null;
+}
+
 export function legacyWorldRedirect(url: URL): Response | null {
-  const location = legacyWorldLocation(url);
+  const location = legacyWorldLocation(url) ?? rootWorldLocation(url);
   if (location === null) return null;
   return new Response(null, { status: 302, headers: { location, 'cache-control': 'no-store' } });
 }

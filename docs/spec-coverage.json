@@ -363,13 +363,14 @@
         ]
       },
       "tests": [
-        "apps/web/src/__tests__/seats-page.test.ts::route is known and renders the seats page; without a key it points to the director console"
+        "apps/web/src/__tests__/seats-page.test.ts::route is known and renders the seats page; without a key it points to the director console",
+        "apps/web/src/__tests__/checkout.test.tsx::shows a test-mode order waiting for the transfer"
       ],
       "evidence": [
         "apps/web/src/SeatsPage.tsx:37",
         "apps/edge/src/platform.ts:452"
       ],
-      "note": "좌석·결제 확인함(/seats)만. 신고·한도·격리 개체 확인함과 빈 상태 \"처리할 일이 없어요\" 없음"
+      "note": "좌석·결제 확인함(/seats): 환불 요청·만료 임박·R326 온라인 주문(입금 확인 대기·결제 완료). 신고·한도·격리 개체 확인함과 빈 상태 \"처리할 일이 없어요\" 없음"
     },
     "P01": {
       "kind": "screen",
@@ -517,34 +518,38 @@
         ]
       },
       "tests": [
-        "apps/edge/src/__tests__/seats.test.ts::Solo: manual issue at list price, one seat per child, 7-day full refund, then play stops"
+        "apps/edge/src/__tests__/seats.test.ts::Solo: manual issue at list price, one seat per child, 7-day full refund, then play stops",
+        "apps/edge/src/__tests__/billing.test.ts::confirms the server amount with the secret key, issues the Solo seat once, and a reload is the same answer"
       ],
       "evidence": [
         "apps/web/src/SeatsPage.tsx:37",
         "apps/edge/src/seats.ts:310"
       ],
-      "note": "운영자가 좌석을 수동 발급·연장·환불. 보호자 쪽 요금제 선택·결제 내역·해지 화면 없음"
+      "note": "운영자가 좌석을 수동 발급·연장·환불. R326: 보호자 요금제 선택·주문은 /pricing#plans(시험 모드, 실결제 켜기 = 토스 MID + 키 등록, 운영자 결정). 보호자 화면의 결제 내역·해지 화면 없음"
     },
     "W01": {
       "kind": "screen",
-      "title": "무엇인지 10초 안에 이해, 두 입구로 분기 (`/`)",
+      "title": "무엇인지 10초 안에 이해, 두 입구로 분기, '지금 플레이' → `/world/` (`/about`)",
       "status": "done",
       "owner": "outsider",
-      "route": "/",
+      "route": "/about",
       "e2e": {
-        "route": "/",
+        "route": "/about",
         "expect": [
-          "text:말하면 생기는 세계"
+          "text:말하면 생기는 세계",
+          "text:지금 플레이"
         ]
       },
       "tests": [
         "apps/web/src/__tests__/site.test.tsx::shows the one-line title, the captioned real-game clip, both entrances and the try CTA",
-        "tools/smoke-live.mjs"
+        "tools/smoke-live.mjs",
+        "apps/web/src/__tests__/checkout.test.tsx::the intro lives at /about (and an in-app `/` shows it); its header and hero go to /world/",
+        "apps/edge/src/__tests__/world-path.test.ts::`/` answers 302 to /world/ with its query, /about and other pages are left alone"
       ],
       "evidence": [
         "apps/web/src/site/pages/Landing.tsx:20"
       ],
-      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+      "note": "소개 사이트 페이지(14). R326: 서비스 주소 `/` 는 월드 시작 화면으로 302, 소개는 `/about`, 머리글·히어로 '지금 플레이' → /world/"
     },
     "W02": {
       "kind": "screen",
@@ -611,24 +616,28 @@
     },
     "W05": {
       "kind": "screen",
-      "title": "요금제, 환불, 자주 묻는 질문 (`/pricing`)",
+      "title": "요금제, 환불, 자주 묻는 질문, 요금제 고르기·결제(`#plans`) (`/pricing`)",
       "status": "done",
       "owner": "outsider",
       "route": "/pricing",
       "e2e": {
         "route": "/pricing",
         "expect": [
-          "text:Solo"
+          "text:Solo",
+          "text:요금제 고르기",
+          "text:시험 모드"
         ]
       },
       "tests": [
         "apps/web/src/__tests__/site.test.tsx::shows plans, refund and cancellation on one screen, plus the ten FAQ answers",
-        "tools/smoke-live.mjs"
+        "tools/smoke-live.mjs",
+        "apps/web/src/__tests__/checkout.test.tsx::renders at #plans with the server price and the test-mode band",
+        "apps/edge/src/__tests__/billing.test.ts::test mode: the order waits for a transfer in the operator inbox, bound to the child, and opens no seat"
       ],
       "evidence": [
         "apps/web/src/site/pages/Pricing.tsx:28"
       ],
-      "note": "소개 사이트 페이지(14). 사전 렌더 + 운영 200"
+      "note": "소개 사이트 페이지(14). R326 결제 단계: 시험 모드(토스 MID 승인·키 등록 전) 주문 → 확인함 입금 확인 대기; live 확인 경로는 단위 시험(가짜 토스)까지"
     },
     "W06": {
       "kind": "screen",
@@ -4002,6 +4011,24 @@
       ],
       "note": "설계서가 3분·주문 1회·기기당 하루 1회(서버 판정)로 바뀜(main). /v1/try/start·/v1/try/order 가 서버 시계와 주문 수를 셈(free-play.ts), 사이트 체험 씬이 그 세션을 씀(trySession.ts)"
     },
+    "C01.3.월드_무료_체험": {
+      "kind": "promise",
+      "title": "월드 무료 체험 (R326) · 가입했지만 좌석이 없는 아이 · 내 월드 전 기능을 `FREE_PLAY_LIMITS.worldTrialMinutes`(3분) 동안. 시간은 서버가 기기 박동(1분마다, 체험 중인 아이만)과 혼자 놀기 쓰기로 셉니다. 끝나면 둘러보기만 되고 카드 '보호자와",
+      "status": "partial",
+      "owner": "world",
+      "route": "/world/",
+      "tests": [
+        "apps/edge/src/__tests__/free-trial.test.ts::beats add the time between them; after the trial length play stops and writes answer 403 trial_ended",
+        "apps/edge/src/__tests__/free-trial.test.ts::one beat adds at most 75 s, and a break over 90 s starts a new stretch that adds nothing",
+        "apps/edge/src/__tests__/free-trial.test.ts::a child with a seat, a tutoring student and a smoke player never run on the clock (heartbeat writes nothing)",
+        "apps/edge/src/__tests__/free-trial.test.ts::a seat issued after the trial ended opens play again at once"
+      ],
+      "evidence": [
+        "apps/edge/src/seats.ts:239",
+        "apps/client/src/world/SeatNotice.tsx:99"
+      ],
+      "note": "서버 시계·끝 카드·요금제 고르기 연결 동작. 실결제 켜기 = 토스 가맹(MID) 승인 + TOSS_CLIENT_KEY/TOSS_SECRET_KEY 비밀 등록 = Dan 결정"
+    },
     "C01.3.게스트_패스": {
       "kind": "promise",
       "title": "게스트 패스 · 유료 플레이어의 친구 · 친구 월드에 30분 입장, 전 기능. 좌석당 한 달(KST, 친구가 처음 들어온 달 기준) 2장, 그 아이의 가족 보호자가 발급(Duo 결제자라도 다른 가족 아이 좌석은 불가). 시계는 처음 입장한 때 서버가 찍고, 코드 하나는 기기 하나에 묶입",
@@ -6084,7 +6111,7 @@
         "apps/edge/src/seats.ts:44",
         "apps/web/src/SeatsPage.tsx:37"
       ],
-      "note": "좌석 수동 발급·만료 30일 읽기 전용·Duo 부분 환불 시 Solo 전환·payer_id 1명 동작. 결제·보호자 요금제 선택·3번째 좌석(extra) 발급 없음"
+      "note": "좌석 수동 발급·만료 30일 읽기 전용·Duo 부분 환불 시 Solo 전환·payer_id 1명 동작. R326: 요금제 고르기·주문(시험 모드)·토스 승인 경로(단위 시험)·Solo 자동 발급, 무료 체험 3분 서버 시계. 3번째 좌석(extra) 발급 없음"
     },
     "WP-705": {
       "kind": "wp",

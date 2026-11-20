@@ -71,3 +71,19 @@ describe('/game/ redirects to /world/ with the query intact', () => {
     expect(codeFromSearch(landed.search)).toBe('123456');
   });
 });
+
+describe('R326: the service address opens the world', () => {
+  it('`/` answers 302 to /world/ with its query, /about and other pages are left alone', async () => {
+    const { e, hits } = env();
+    const res = await worker.fetch(new Request('https://lcw.worldwidesomething.com/?from=wws'), e);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/world/?from=wws');
+    const bare = await worker.fetch(new Request('https://lcw.worldwidesomething.com/'), e);
+    expect(bare.headers.get('location')).toBe('/world/');
+    expect(hits).toEqual([]);
+    for (const p of ['/about', '/pricing', '/try', '/world/']) {
+      const r = await worker.fetch(new Request(`https://lcw.worldwidesomething.com${p}`), e);
+      expect(r.status, p).toBe(200);
+    }
+  });
+});

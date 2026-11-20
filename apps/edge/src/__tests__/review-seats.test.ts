@@ -204,7 +204,7 @@ describe('review WP-704 (R1–R10)', () => {
     await call(p, 'POST', `/v1/family/seats/${b}/refund-request`, { note: 'Mina 엄마 010-1234-5678' }, gb);
     // the child device payload: state only (opened after the request, so the refund is still judged as of the request)
     const me = (await call(p, 'GET', '/v1/device/me', undefined, devB)).body;
-    expect(me).toEqual({ nickname: 'Mina', level: 'L2', voice_store: false, play_allowed: true, seat: { state: 'active' } });
+    expect(me).toEqual({ nickname: 'Mina', level: 'L2', voice_store: false, play_allowed: true, seat: { state: 'active' }, trial: null });
     const fa2 = JSON.stringify((await call(p, 'GET', '/v1/family/seats', undefined, ga)).body);
     expect(fa2).not.toContain('010-1234');
     expect(fa2).not.toContain('g-fam-b');

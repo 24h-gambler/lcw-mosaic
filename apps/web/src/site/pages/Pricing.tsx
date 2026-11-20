@@ -4,10 +4,15 @@ import { FAQ, PRICING, REFUND_RULE } from '../copy.js';
 import { SLink } from '../SiteShell.js';
 import { track } from '../track.js';
 import { FaqList } from '../widgets.js';
+import { CheckoutSection } from '../Checkout.js';
 
 export function PricingPage(): React.ReactElement {
   const [yearly, setYearly] = useState(false);
-  useEffect(() => track('pricing_view'), []);
+  useEffect(() => {
+    track('pricing_view');
+    // /pricing?from=world#plans: the browser cannot jump to #plans before the page renders it (SPA, pre-render)
+    if (location.hash === '#plans') requestAnimationFrame(() => document.getElementById('plans')?.scrollIntoView());
+  }, []);
   return (
     <>
       <section className="s-hero">
@@ -55,6 +60,9 @@ export function PricingPage(): React.ReactElement {
           <p className="s-muted">{PRICING.tutoringPlan}</p>
         </div>
       </section>
+
+      {/* R326: the plans step — the free trial's end and the /try end land here (#plans) */}
+      <CheckoutSection />
 
       <section className="s-sec s-sec-tint">
         <div className="s-wrap s-split" style={{ alignItems: 'start' }}>

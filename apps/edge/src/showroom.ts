@@ -4,7 +4,7 @@ import { filterSpeechBubble } from '@lcw/converse';
 // Token file only (no React): the showroom palette is the design-system color names, same as the web parser.
 import { COLOR_TOKENS } from '../../../packages/ui/src/tokens.js';
 import type { EdgePlatformDb, SqliteExecutor } from './storage.js';
-import { playAllowed } from './seats.js';
+import { soloWriteGate } from './seats.js';
 import { DEVICE_TOKEN_TTL_MS } from './family.js';
 
 /**
@@ -96,8 +96,8 @@ export function buildShowroomApp(d: ShowroomDeps): Hono {
     // Seat gate (WP-704): publishing is a write; a read-only/archived/refunded seat cannot publish (removing still can).
     // The body is read first so the request stream is drained before an early answer.
     if (fromDevice) {
-      const gate = playAllowed(d.sql, fromDevice, d.nowMs());
-      if (!gate.allowed) return c.json({ error: 'seat_inactive', seat: { state: gate.seat?.state ?? null } }, 403);
+      const refused = soloWriteGate(d.sql, fromDevice, d.nowMs());
+      if (refused) return c.json(refused, 403);
     }
     const p = PublishSchema.safeParse(raw);
     if (!p.success) return c.json({ error: 'invalid', fields: p.error.issues.slice(0, 5).map((i) => i.path.join('.')) }, 400);

@@ -318,14 +318,16 @@ describe('static pages for crawlers and first paint (docs/14 §11)', () => {
   });
 
   it('clears the pre-rendered page before paint when the file is served for another address', () => {
-    const html = fillShell(shell, prerenderPage('/'));
+    // R326: the introduction is /about (the Worker sends `/` to /world/); index.html stays the bare SPA shell.
+    const html = fillShell(shell, prerenderPage('/about'));
     const guard = /<script>(\(function[\s\S]*?)<\/script>/.exec(html)![1]!;
     const run = (pathname: string) => {
       const root = { innerHTML: 'landing' };
       new Function('location', 'document', guard)({ pathname }, { getElementById: () => root });
       return root.innerHTML;
     };
-    expect(run('/')).toBe('landing');
+    expect(run('/about')).toBe('landing');
+    expect(run('/')).toBe('');
     expect(run('/director')).toBe('');
     expect(run('/r/abc')).toBe('');
   });

@@ -238,6 +238,23 @@ describe('PlotSync: server answers win, nothing lost (WP-205/207)', () => {
     expect(sync.refused).toBe(1);
   });
 
+  it('is settled only with nothing on its way and no snapshot being read (R326: the block relay waits for it)', async () => {
+    const seen: boolean[] = [];
+    let sync: PlotSync | null = null;
+    const srv = fakeServer((c) => {
+      seen.push(sync!.settled);
+      return c.url.endsWith('/v1/plot') ? { status: 200, body: snap } : { status: 200, body: { results: [{ ok: false, reason: 'occupied' }], processed: 1 } };
+    });
+    sync = new PlotSync({ token: 't'.repeat(40), store: new MemStore(), fetchFn: srv.fetchFn, onResync: () => seen.push(sync!.settled) });
+    expect(sync.settled).toBe(true);
+    sync.push({ op: 'place', x: 110, y: 1, z: 170, slot: 0 });
+    expect(sync.settled).toBe(false);
+    await sync.flush();
+    // the ops post (in flight), the snapshot read after the refusal, and onResync itself: none settled
+    expect(seen).toEqual([false, false, false]);
+    expect(sync.settled).toBe(true);
+  });
+
   it('403 seat_inactive stops building, remembers the seat and tells the shell (no error)', async () => {
     const store = new MemStore();
     const seen = vi.fn();

@@ -150,6 +150,8 @@ describe('PlotBuilder in the open world (R326)', () => {
     const { b } = builder();
     b.applySnapshot({ cells: [], furniture: [], inv: null, rev: 1, world_tag: 'wtag1' });
     const max = TUNING.building.relay.remoteCellsMax;
+    let full = 0;
+    b.onRemoteFull = () => full++;
     let drawn = 0;
     for (let x = 200; x < 262 && drawn < max + 50; x++) {
       for (let z = 200; z < 262; z += 1) {
@@ -158,6 +160,8 @@ describe('PlotBuilder in the open world (R326)', () => {
     }
     expect(drawn).toBe(max);
     expect(b.applyRemote('wtag1', [[MX, H + 3, MZ, BK.brick]])).toBe(0);
+    // reaching the cap asks the engine once to read the plot again (the engine also spaces those reads)
+    expect(full).toBe(1);
     // the next server read puts the relayed cells back to the saved truth and opens the relay again
     b.applySnapshot({ cells: [], furniture: [], inv: null, rev: 2, world_tag: 'wtag1' });
     expect(b.delta.used).toBe(0);

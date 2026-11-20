@@ -186,6 +186,9 @@ export class PlotBuilder {
    * puts every relayed cell back to the saved truth.
    */
   private remoteSinceRead = 0;
+  /** the relay cap was reached: the engine reads the plot again (the friend's view then comes from the server) */
+  onRemoteFull: (() => void) | null = null;
+  private remoteFullSaid = false;
 
   /** `world` must be the town as the builder made it: the delta takes every unchanged cell as the town's. */
   constructor(
@@ -413,6 +416,7 @@ export class PlotBuilder {
   applySnapshot(snap: PlotSnapshotLike): Array<[number, number, number, number]> {
     if (snap.scope === 'plot' || snap.scope === 'world') this.scope = snap.scope;
     this.remoteSinceRead = 0;
+    this.remoteFullSaid = false;
     if (typeof snap.world_tag === 'string') this.worldTag = snap.world_tag;
     const want = new Map<number, number>();
     for (const c of snap.cells ?? []) {
@@ -475,7 +479,12 @@ export class PlotBuilder {
     const sys = { id: 'plot_relay', isSystemGen: true };
     let n = 0;
     for (const [x, y, z, id] of cells) {
-      if (this.remoteSinceRead + n >= TUNING.building.relay.remoteCellsMax) break;
+      if (this.remoteSinceRead + n >= TUNING.building.relay.remoteCellsMax) {
+        // once per read: the engine reads the plot again, which resets the count
+        if (!this.remoteFullSaid) this.onRemoteFull?.();
+        this.remoteFullSaid = true;
+        break;
+      }
       if (buildCellRule(this.world, x, y, z, this.scope)) continue;
       if (id !== 0 && !BLOCK_IDS.has(id)) continue;
       const before = this.world.getBlock(x, y, z);

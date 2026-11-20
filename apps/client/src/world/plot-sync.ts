@@ -144,6 +144,12 @@ export class PlotSync {
     return this.queue.length + (this.inFlight?.ops.length ?? 0);
   }
 
+  /** Nothing on its way and no snapshot being read: what this device shows is what the server holds (R326 relay). */
+  get settled(): boolean {
+    return this.pending === 0 && !this.reading;
+  }
+  private reading = false;
+
   /** Send what a closed tab left behind, then fetch the plot. null: no plot for this token (guest from now on). */
   async start(): Promise<PlotSnapshotLike | null> {
     for (let tries = 0; this.inFlight || this.queue.length > 0; tries++) {
@@ -296,8 +302,13 @@ export class PlotSync {
   }
 
   private async resync(): Promise<void> {
-    const snap = await this.load();
-    if (snap) this.o.onResync(snap);
+    this.reading = true;
+    try {
+      const snap = await this.load();
+      if (snap) this.o.onResync(snap);
+    } finally {
+      this.reading = false;
+    }
   }
 
   private passOver(): void {

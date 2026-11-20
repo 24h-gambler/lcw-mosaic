@@ -642,32 +642,55 @@ ${line(s.help)}` : line(s.text), 4000);
   const blockBarShown = (): boolean => buildActive && blockBar;
   // ---- R326 block relay: what I change goes to the others in this world through the room (display only there).
   const relayListeners = new Set<(tag: string, c: CellChange) => void>();
-  let relayOut: CellChange = { cells: [], furniture: [] };
-  let relayTimer: ReturnType<typeof setTimeout> | null = null;
   const RELAY = TUNING.building.relay;
+  // held until the server took them, one entry per cell / furniture spot (the latest wins), at most resyncCellsMax:
+  // a long offline stretch does not grow it without end (the others then see the rest at their next server read)
+  const relayHeld = new Map<string, [number, number, number, number]>();
+  const relayHeldFurniture = new Map<string, [number, number, number, string, number]>();
+  let relayTimer: ReturnType<typeof setTimeout> | null = null;
+  const relaySchedule = (ms: number): void => {
+    relayTimer ??= setTimeout(relayFlush, ms);
+  };
   const relayFlush = (): void => {
     relayTimer = null;
-    // only what the server has taken goes out: while my edits are still on their way the burst waits (a refused one
-    // comes back through onResync, which swaps the held cells for the server's values)
-    if (plotSync && plotSync.pending > 0) {
-      relayTimer = setTimeout(relayFlush, RELAY.holdMs);
+    if (relayHeld.size === 0 && relayHeldFurniture.size === 0) return;
+    // only what the server has taken goes out: while my edits are on their way (or a snapshot is being read after a
+    // refusal) the burst waits; onResync then gives the held cells the server's values
+    if (plotSync && !plotSync.settled) return relaySchedule(RELAY.holdMs * 4);
+    if (!builder.worldTag || relayListeners.size === 0) {
+      relayHeld.clear();
+      relayHeldFurniture.clear();
       return;
     }
-    const out = relayOut;
-    relayOut = { cells: [], furniture: [] };
-    if (!builder.worldTag || relayListeners.size === 0) return;
-    // a room message stays small (sim-core room.ts: 512 bytes, frameCells / frameFurniture): sendCells a frame
-    for (let i = 0, j = 0; i < out.cells.length || j < out.furniture.length; i += RELAY.sendCells, j += RELAY.sendFurniture) {
-      const part = { cells: out.cells.slice(i, i + RELAY.sendCells), furniture: out.furniture.slice(j, j + RELAY.sendFurniture) };
+    // the room closes a sender past its message rate (sim-core room.ts ROOM_CLOSE.rate, poses share it): a few frames
+    // a flush, the rest at the next one
+    for (let f = 0; f < RELAY.framesPerFlush && (relayHeld.size > 0 || relayHeldFurniture.size > 0); f++) {
+      const cells = [...relayHeld.entries()].slice(0, RELAY.sendCells);
+      const furniture = [...relayHeldFurniture.entries()].slice(0, RELAY.sendFurniture);
+      for (const [k] of cells) relayHeld.delete(k);
+      for (const [k] of furniture) relayHeldFurniture.delete(k);
+      const part = { cells: cells.map(([, c]) => c), furniture: furniture.map(([, c]) => c) };
       for (const cb of relayListeners) cb(builder.worldTag, part);
     }
+    if (relayHeld.size > 0 || relayHeldFurniture.size > 0) relaySchedule(RELAY.holdMs);
   };
   const relayCells = (c: CellChange): void => {
     if (relayListeners.size === 0) return;
-    relayOut.cells.push(...c.cells);
-    relayOut.furniture.push(...c.furniture);
+    for (const cell of c.cells) {
+      const k = `${cell[0]},${cell[1]},${cell[2]}`;
+      if (relayHeld.has(k) || relayHeld.size < RELAY.resyncCellsMax) relayHeld.set(k, [cell[0], cell[1], cell[2], cell[3]]);
+    }
+    for (const f of c.furniture) relayHeldFurniture.set(`${f[0]},${f[1]},${f[2]}`, [f[0], f[1], f[2], f[3], f[4]]);
     // a held place repeats 4 a second: one frame for a short burst
-    relayTimer ??= setTimeout(relayFlush, RELAY.holdMs);
+    relaySchedule(RELAY.holdMs);
+  };
+  // R326: the relay cap on this screen was reached: read the plot again (at most once per remoteRefreshMinMs)
+  let remoteRefreshAt = -Infinity;
+  builder.onRemoteFull = () => {
+    const now = performance.now();
+    if (now - remoteRefreshAt < RELAY.remoteRefreshMinMs) return;
+    remoteRefreshAt = now;
+    void plotSync?.refresh();
   };
   builder.onCells = relayCells;
   // R326: a block bundle bought in the shop opened into the stock on the server: read the hand and the chest again
@@ -1540,19 +1563,15 @@ ${line(s.help)}` : line(s.text), 4000);
       base: a.base,
       store: browserStore(),
       onResync: (snap) => {
-        // the server's answer replaced what this device showed: tell the others in this world the corrected cells
-        const fixed = builder.applySnapshot(snap);
-        // the held cells (not sent yet) and the corrected ones go out with the server's value now on screen
-        const seen = new Set<string>();
-        const cells: Array<[number, number, number, number]> = [];
-        for (const [x, y, z] of [...relayOut.cells, ...fixed]) {
-          const k = `${x},${y},${z}`;
-          if (seen.has(k) || cells.length >= RELAY.resyncCellsMax) continue;
-          seen.add(k);
-          cells.push([x, y, z, builder.world.getBlock(x, y, z)]);
+        builder.applySnapshot(snap);
+        // my held edits (never sent: the relay waits for the server) go out with the server's value now on screen; a
+        // cell another person changed is theirs to relay, never mine (no echo of a friend's build after a refresh)
+        for (const [k, c] of relayHeld) relayHeld.set(k, [c[0], c[1], c[2], builder.world.getBlock(c[0], c[1], c[2])]);
+        for (const [k, f] of relayHeldFurniture) {
+          const now = builder.state.furniture.get(k);
+          relayHeldFurniture.set(k, [f[0], f[1], f[2], now?.key ?? '', now?.rot ?? 0]);
         }
-        relayOut = { cells: [], furniture: relayOut.furniture.filter(([x, y, z, key]) => builder.state.furniture.get(`${x},${y},${z}`)?.key === key) };
-        if (cells.length > 0) relayCells({ cells, furniture: [] });
+        if (relayHeld.size > 0 || relayHeldFurniture.size > 0) relaySchedule(RELAY.holdMs);
       },
       onStatus: (st) => {
         if (buildActive && buildAccess === 'saved') buildHud?.setSync(st);

@@ -175,25 +175,29 @@ describe('applyPlotOp in the open world (R326)', () => {
   });
 
   it('breaking a block set into the town water or a grass tuft gives the water or the tuft back, off the cap', () => {
-    const s = worldState();
-    const water = s.world as OverlayWorld;
-    // a town pond cell and a tuft: what the shared town holds there (OverlayWorld base)
+    // a town of its own with a pond cell and a tuft on the meadow (the shared one stays as built)
+    const town = new VoxelWorld();
+    buildTown(town);
     const h = terrainHeight(MX, MZ);
     const pond = { x: MX, y: h + 1, z: MZ };
     const tuft = { x: MX + 2, y: h + 1, z: MZ };
-    const townAt = (x: number, y: number, z: number): number => (x === pond.x && y === pond.y && z === pond.z ? BK.water : x === tuft.x && y === tuft.y && z === tuft.z ? BK.tallGrass : water.getBlock(x, y, z));
-    const st: PlotState = { ...s, budget: { townAt, get used() { return water.changedOutsidePlot; } } };
-    s.world.setBlock({ id: 'sys', isSystemGen: true }, pond.x, pond.y, pond.z, BK.water);
-    s.world.setBlock({ id: 'sys', isSystemGen: true }, tuft.x, tuft.y, tuft.z, BK.tallGrass);
+    town.setBlock({ id: 'sys', isSystemGen: true }, pond.x, pond.y, pond.z, BK.water);
+    town.setBlock({ id: 'sys', isSystemGen: true }, tuft.x, tuft.y, tuft.z, BK.tallGrass);
+    const world = new OverlayWorld(town);
+    const st: PlotState = { world, furniture: new Map(), inv: starterInventory(), scope: 'world', budget: { townAt: (x, y, z) => town.getBlock(x, y, z), get used() { return world.changedOutsidePlot; } } };
     expect(applyPlotOp(st, ME, { op: 'place', ...pond, slot: 1 }).ok).toBe(true);
+    expect(world.changedOutsidePlot).toBe(1);
     expect(applyPlotOp(st, ME, { op: 'break', ...pond }).ok).toBe(true);
-    expect(s.world.getBlock(pond.x, pond.y, pond.z)).toBe(BK.water);
+    expect(world.getBlock(pond.x, pond.y, pond.z)).toBe(BK.water);
+    expect(world.changedOutsidePlot).toBe(0);
     expect(applyPlotOp(st, ME, { op: 'place', ...tuft, slot: 1 }).ok).toBe(true);
     expect(applyPlotOp(st, ME, { op: 'break', ...tuft }).ok).toBe(true);
-    expect(s.world.getBlock(tuft.x, tuft.y, tuft.z)).toBe(BK.tallGrass);
-    // the tuft itself broken: gone
+    expect(world.getBlock(tuft.x, tuft.y, tuft.z)).toBe(BK.tallGrass);
+    expect(world.changedOutsidePlot).toBe(0);
+    // the tuft itself broken: gone (one cell off the town now)
     expect(applyPlotOp(st, ME, { op: 'break', ...tuft }).ok).toBe(true);
-    expect(s.world.getBlock(tuft.x, tuft.y, tuft.z)).toBe(0);
+    expect(world.getBlock(tuft.x, tuft.y, tuft.z)).toBe(0);
+    expect(world.changedOutsidePlot).toBe(1);
   });
 });
 

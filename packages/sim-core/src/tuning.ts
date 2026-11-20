@@ -96,10 +96,12 @@ export const TUNING = {
     /**
      * R326 block relay through the room ('b', sim-core room.ts): what one frame may carry (the room refuses more),
      * what a device puts in one frame (under the 512-byte message cap), how long it gathers a burst, how many cells
-     * a resync passes on, and how many cells others may draw into my view before my next server read (a forged
-     * relay from someone who learned my world tag cannot fill my cap; the next read wipes it anyway).
+     * at most a flush sends (2 frames each 150 ms = 13/s beside 10 poses/s, under the room's 30/s close), how many held
+     * cells wait at most (the rest the others see at their next read), and how many cells others may draw into my view
+     * before my next server read (a forged relay from someone who learned my world tag cannot fill my cap); reaching it
+     * reads the plot again, at most once per remoteRefreshMinMs.
      */
-    relay: { frameCells: 16, frameFurniture: 4, sendCells: 12, sendFurniture: 2, holdMs: 150, resyncCellsMax: 512, remoteCellsMax: 2000 }
+    relay: { frameCells: 16, frameFurniture: 4, sendCells: 12, sendFurniture: 2, holdMs: 150, framesPerFlush: 2, resyncCellsMax: 512, remoteCellsMax: 2000, remoteRefreshMinMs: 30000 }
   },
   economy: {
     errandRewardCoins: 50,

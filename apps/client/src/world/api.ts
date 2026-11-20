@@ -240,6 +240,11 @@ export interface WorldHandle {
    * read-aloud discount line under it. Returns an unsubscribe.
    */
   onRoomCheck?(cb: (r: RoomCheckInfo) => void): () => void;
+  /**
+   * R326 block relay: blocks this child just changed in the world named by `tag` (the plot snapshot's world_tag), for
+   * the room (room-client sendBlocks). Display only for the others: the plot store saved them. Returns an unsubscribe.
+   */
+  onBlockRelay?(cb: (tag: string, c: import('./build.js').CellChange) => void): () => void;
   /** Performance and position read-out (headless checks, tier auto-detect). */
   getStats?(): WorldStats;
   /**

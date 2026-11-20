@@ -602,6 +602,8 @@ export function App(): React.ReactElement {
       sink
     });
     room.start();
+    // R326: blocks changed here reach the others in this world (a friend on a pass and the host)
+    const offRelay = world.onBlockRelay?.((tag, c) => room.sendBlocks(tag, c.cells, c.furniture));
     (window as unknown as { __lcwRoom?: RoomClient }).__lcwRoom = room;
     setRoomClient(room);
     // The same person in two tabs holds one seat (the newer tab wins, close 4009): coming back to this tab takes
@@ -614,6 +616,7 @@ export function App(): React.ReactElement {
     return () => {
       window.removeEventListener('focus', back);
       document.removeEventListener('visibilitychange', back);
+      offRelay?.();
       setRoomClient(null);
       room.stop();
     };

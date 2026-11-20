@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { drawState } from './draw-state.js';
-import { TRADE_COUNTER, TUNING, VoxelWorld, parseRef } from '@lcw/sim-core';
+import { TRADE_COUNTER, TUNING, VoxelWorld, parseRef, type PlotOp } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
@@ -26,11 +26,11 @@ import { tileAverageColor } from './atlas.js';
 import { Sfx } from './sfx.js';
 import { onPageActivation } from '../audio/runtime.js';
 import { Sky } from './sky.js';
-import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels, worldSay } from './strings.js';
-import { PlotBuilder, type Aim, type BuildReason } from './build.js';
+import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcomeBackEn, buildHelpDesktopFor, buildHelpGuestDesktopFor, buildHelpWorldDesktopFor, DEFAULT_KEY_HINTS, type KeyHintLabels, worldSay } from './strings.js';
+import { PlotBuilder, type Aim, type BuildReason, type CellChange } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
-import { PlotSync } from './plot-sync.js';
+import { PLOT_REFRESH_EVENT, PlotSync } from './plot-sync.js';
 import { buildMapInfo } from './map-info.js';
 import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMirror, toggleThirdPerson, type CamMode } from './dialog-shot.js';
 import { FirstPersonHands } from './viewmodel.js';
@@ -590,6 +590,8 @@ ${line(s.help)}` : line(s.text), 4000);
   let fallLastZ = 0;
   let lastPicked = -1;
   const slotPicked = (i: number): void => {
+    // R326: while the hotbar shows the carried blocks, picking a slot picks a block, never eats what the bag holds there
+    if (blockBarShown()) return;
     const k = hotbar[i];
     const again = i === lastPicked;
     lastPicked = i;
@@ -634,7 +636,76 @@ ${line(s.help)}` : line(s.text), 4000);
   if (startup.mesh! - startup.characters! > FIRST_SCREEN_CAP_MS) startup.slowGround = 1;
 
   // ---- Building controls.
+  /** R326: here the child can build (the plot, or the open ground of their own world): the build controls show */
   let buildActive = false;
+  /** R326: the hotbar shows the carried blocks (true) or the bag; the child flips it, a new thing in the bag shows the bag */
+  let blockBar = true;
+  let wasInPlot = false;
+  const blockBarShown = (): boolean => buildActive && blockBar;
+  // ---- R326 block relay: what I change goes to the others in this world through the room (display only there).
+  const relayListeners = new Set<(tag: string, c: CellChange) => void>();
+  const RELAY = TUNING.building.relay;
+  // R326: what my edit made of a cell, kept with the op until the server answers it ok (PlotSync onSaved); then it
+  // waits here for the room, one entry per cell / furniture spot (the latest wins), at most resyncCellsMax. An op the
+  // server refused, or one never answered (pass ended, seat stopped, offline), is never relayed.
+  const relayOfOp = new WeakMap<PlotOp, CellChange>();
+  const relayHeld = new Map<string, [number, number, number, number]>();
+  const relayHeldFurniture = new Map<string, [number, number, number, string, number]>();
+  let relayTimer: ReturnType<typeof setTimeout> | null = null;
+  const relaySchedule = (ms: number): void => {
+    relayTimer ??= setTimeout(relayFlush, ms);
+  };
+  const relayFlush = (): void => {
+    relayTimer = null;
+    if (relayHeld.size === 0 && relayHeldFurniture.size === 0) return;
+    if (!builder.worldTag || relayListeners.size === 0) {
+      relayHeld.clear();
+      relayHeldFurniture.clear();
+      return;
+    }
+    // the room closes a sender past its message rate (sim-core room.ts ROOM_CLOSE.rate, poses share it): a few frames
+    // a flush, the rest at the next one
+    for (let f = 0; f < RELAY.framesPerFlush && (relayHeld.size > 0 || relayHeldFurniture.size > 0); f++) {
+      const cells = [...relayHeld.entries()].slice(0, RELAY.sendCells);
+      const furniture = [...relayHeldFurniture.entries()].slice(0, RELAY.sendFurniture);
+      for (const [k] of cells) relayHeld.delete(k);
+      for (const [k] of furniture) relayHeldFurniture.delete(k);
+      const part = { cells: cells.map(([, c]) => c), furniture: furniture.map(([, c]) => c) };
+      for (const cb of relayListeners) cb(builder.worldTag, part);
+    }
+    if (relayHeld.size > 0 || relayHeldFurniture.size > 0) relaySchedule(RELAY.holdMs);
+  };
+  const relayCells = (c: CellChange): void => {
+    if (relayListeners.size === 0) return;
+    for (const cell of c.cells) {
+      const k = `${cell[0]},${cell[1]},${cell[2]}`;
+      if (relayHeld.has(k) || relayHeld.size < RELAY.resyncCellsMax) relayHeld.set(k, [cell[0], cell[1], cell[2], cell[3]]);
+    }
+    for (const f of c.furniture) relayHeldFurniture.set(`${f[0]},${f[1]},${f[2]}`, [f[0], f[1], f[2], f[3], f[4]]);
+    // a held place repeats 4 a second: one frame for a short burst
+    relaySchedule(RELAY.holdMs);
+  };
+  const relayDrop = (): void => {
+    relayHeld.clear();
+    relayHeldFurniture.clear();
+  };
+  // R326: the relay cap on this screen was reached: read the plot again, at most once per remoteRefreshMinMs (one
+  // asked inside that time waits for it instead of being lost)
+  let remoteRefreshAt = -Infinity;
+  let remoteRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  builder.onRemoteFull = () => {
+    if (remoteRefreshTimer) return;
+    const wait = Math.max(0, remoteRefreshAt + RELAY.remoteRefreshMinMs - performance.now());
+    remoteRefreshTimer = setTimeout(() => {
+      remoteRefreshTimer = null;
+      remoteRefreshAt = performance.now();
+      void plotSync?.refresh();
+    }, wait);
+  };
+  builder.onCells = (c, op) => relayOfOp.set(op, c);
+  // R326: a block bundle bought in the shop opened into the stock on the server: read the hand and the chest again
+  const onPlotRefresh = (): void => void plotSync?.refresh();
+  window.addEventListener(PLOT_REFRESH_EVENT, onPlotRefresh);
   let tool: 'place' | 'break' = 'place';
   let aim: Aim | null = null;
   let mouseAt: { x: number; y: number } | null = null;
@@ -644,9 +715,10 @@ ${line(s.help)}` : line(s.text), 4000);
   const selectedRef = (): string | null => builder.inv.slots[hud.selectedSlot]?.ref ?? null;
   const refreshBuildSlots = (): void => {
     if (!buildHud) return;
-    if (buildActive) {
+    buildHud.setBar(blockBar);
+    if (buildActive && blockBar) {
       hud.setBuildSlots(builder.inv.slots.map((s) => (s ? { icon: icons.icon(s.ref), count: s.n, name: refNameKo(s.ref) } : null)));
-    }
+    } else hud.setBuildSlots(null);
     const ref = selectedRef();
     buildHud.setRotateVisible(!!ref && parseRef(ref)?.kind === 'furniture');
     buildHud.renderChest(builder.inv, hud.selectedSlot);
@@ -655,6 +727,13 @@ ${line(s.help)}` : line(s.text), 4000);
     if (!reason || !buildHud) return;
     buildHud.say(reason);
     if (reason !== 'rate') sfx.play('ui.click', { pitch: -6 });
+  };
+  /** the selected build slot holds nothing to place (R326 bare hands: a press breaks, by the block's hardness) */
+  const handEmpty = (): boolean => !blockBar || !builder.inv.slots[hud.selectedSlot];
+  const helpText = (): string => {
+    if (builder.guestCells) return touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints);
+    if (builder.inPlot(body.x, body.z)) return touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints);
+    return touch ? W.buildHelpWorldTouch : buildHelpWorldDesktopFor(keyHints);
   };
   const doPlace = (): boolean => {
     if (!aim) return false;
@@ -725,6 +804,11 @@ ${line(s.help)}` : line(s.text), 4000);
         else sfx.play('ui.click');
       },
       onCloseChest: () => buildHud?.closeChest(),
+      onBar: () => {
+        blockBar = !blockBar;
+        sfx.play('ui.click');
+        refreshBuildSlots();
+      },
       onShowroom: async (title) => {
         if (!buildToken) return { ok: false, reason: 'unlinked' };
         tokenOf ??= blockTokenMap(atlasPixels);
@@ -823,8 +907,10 @@ ${line(s.help)}` : line(s.text), 4000);
   let lastX = 0;
   let lastY = 0;
   /** Start a build press (mouse button or finger) when standing on my plot. */
-  const buildPress = (e: PointerEvent, kind: 'place' | 'break'): void => {
+  const buildPress = (e: PointerEvent, pressKind: 'place' | 'break'): void => {
     if (!buildActive || paused || buildHud?.chestOpen) return;
+    // R326: nothing to place in hand (the bag shows, or an empty slot): the press is bare hands, holding breaks
+    const kind = pressKind === 'place' && handEmpty() ? 'break' : pressKind;
     const now = performance.now();
     hold = { kind, id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, t0: now, moved: false, cell: '', progress: 0, lastPlace: 0 };
     aim = aimAt(e.clientX, e.clientY);
@@ -1689,11 +1775,21 @@ ${line(s.help)}` : line(s.text), 4000);
 
   // ---- Building, per frame: plot entry/exit, aim outline, held break / place.
   function updateBuild(dt: number, now: number): void {
-    const want = builder.inPlot(body.x, body.z) && !paused && autopilot.length === 0;
+    // R326: anywhere the child can build (the plot, the open ground of their own world), not only inside the fence
+    const want = builder.canBuildNear(body.x, body.z) && !paused && autopilot.length === 0;
+    const inPlot = builder.inPlot(body.x, body.z);
+    if (inPlot !== wasInPlot) {
+      wasInPlot = inPlot;
+      // stepping onto the plot is coming to build: the blocks come up (the help line says where I am)
+      if (inPlot && !blockBar) {
+        blockBar = true;
+        if (buildActive) refreshBuildSlots();
+      }
+      if (buildActive && want) buildHud?.setActive(true, helpText());
+    }
     if (want !== buildActive) {
       buildActive = want;
-      const guest = !!builder.guestCells;
-      buildHud?.setActive(want, guest ? (touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints)) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
+      buildHud?.setActive(want, helpText());
       buildHud?.setSync(buildAccess === 'saved' ? (plotSync?.status === 'offline' ? 'offline' : plotSync && plotSync.pending > 0 ? 'saving' : 'saved') : buildAccess === 'loading' ? 'loading' : buildAccess === 'local' ? 'local' : 'idle');
       if (want) refreshBuildSlots();
       else {
@@ -1709,7 +1805,7 @@ ${line(s.help)}` : line(s.text), 4000);
     // aim: the held press first, else the mouse hover (desktop shows the outline before any click)
     const at = hold ? { x: hold.x, y: hold.y } : !touch ? mouseAt : null;
     aim = at ? aimAt(at.x, at.y) : null;
-    const mode: 'place' | 'break' = hold ? hold.kind : touch ? tool : 'place';
+    const mode: 'place' | 'break' = hold ? hold.kind : (touch ? tool : 'place') === 'place' && !handEmpty() ? 'place' : 'break';
     if (!aim) buildView.showAim(null, false);
     else if (mode === 'place') buildView.showAim(aim.place, !!aim.placeReason);
     else buildView.showAim(aim.hit, !!aim.breakReason);
@@ -1754,9 +1850,14 @@ ${line(s.help)}` : line(s.text), 4000);
     const own = a.kind === 'saved' && !('lesson' in a && a.lesson) && !('pass' in a && a.pass);
     // a friend on a guest pass: place freely, break only their own cells, leave the chest and slots alone
     builder.guestCells = a.kind === 'saved' && 'pass' in a && a.pass ? new Set() : null;
+    // R326: a lesson builds on the plot only (the class shares the lesson's town); everyone else in the whole world
+    builder.scope = a.kind === 'saved' && 'lesson' in a && a.lesson ? 'plot' : 'world';
+    builder.worldTag = '';
+    // edits of the world left behind never go out under the next world's tag
+    relayDrop();
     if (currentScene === 'build_plot') hud.setScene(sceneTitle(currentScene));
     // the help line follows who owns the plot (shown again on the next entry)
-    if (buildActive) buildHud?.setActive(true, builder.guestCells ? (touch ? W.buildHelpGuestTouch : buildHelpGuestDesktopFor(keyHints)) : touch ? W.buildHelpTouch : buildHelpDesktopFor(keyHints));
+    if (buildActive) buildHud?.setActive(true, helpText());
     buildToken = own ? { token: a.token, base: a.base } : null;
     // the showroom is the plot owner's (a lesson student's and a guest's never)
     buildHud?.setShowroomVisible(own);
@@ -1781,7 +1882,17 @@ ${line(s.help)}` : line(s.text), 4000);
       pass: 'pass' in a && a.pass === true,
       base: a.base,
       store: browserStore(),
-      onResync: (snap) => builder.applySnapshot(snap),
+      onResync: (snap) => {
+        builder.applySnapshot(snap);
+      },
+      // the server took these: what they made goes to the others in this world (never a refused or unanswered edit)
+      onSaved: (ops) => {
+        if (plotSync !== sync) return;
+        for (const op of ops) {
+          const c = relayOfOp.get(op);
+          if (c) relayCells(c);
+        }
+      },
       onStatus: (st) => {
         if (buildActive && buildAccess === 'saved') buildHud?.setSync(st);
       },
@@ -2271,6 +2382,11 @@ ${line(s.help)}` : line(s.text), 4000);
       sfx.play('mp.bubble');
     },
     giveItem(itemKey) {
+      // a new thing in the bag: the hotbar shows the bag so the child sees it land (R326 bar switch)
+      if (blockBar) {
+        blockBar = false;
+        refreshBuildSlots();
+      }
       let slot = hotbar.indexOf(null);
       if (slot < 0) slot = hud.selectedSlot;
       hotbar[slot] = itemKey;
@@ -2437,6 +2553,9 @@ ${line(s.help)}` : line(s.text), 4000);
       canvas.removeEventListener('contextmenu', contextMenu);
       plotSync?.stop();
       builder.dispose();
+      window.removeEventListener(PLOT_REFRESH_EVENT, onPlotRefresh);
+      if (relayTimer) clearTimeout(relayTimer);
+      if (remoteRefreshTimer) clearTimeout(remoteRefreshTimer);
       buildHud?.dispose();
       buildView.dispose();
       storefronts.dispose();
@@ -2488,6 +2607,12 @@ ${line(s.help)}` : line(s.text), 4000);
     onHold(cb) {
       holdListeners.add(cb);
       return () => holdListeners.delete(cb);
+    },
+    onBlockRelay(cb) {
+      relayListeners.add(cb);
+      return () => {
+        relayListeners.delete(cb);
+      };
     },
     onRoomCheck(cb) {
       roomCbs.add(cb);
@@ -2667,6 +2792,10 @@ ${line(s.help)}` : line(s.text), 4000);
       emote(id, e) {
         peers.emote(id, e);
       },
+      blocks(_id, tag, cells, furniture) {
+        // R326: someone in this world (a friend on a pass, or the host while I visit) changed blocks
+        builder.applyRemote(tag, cells, furniture);
+      },
       full() {
         hud.bubble('player', '', W.roomFull, { me: true }, performance.now());
       },
@@ -2837,7 +2966,14 @@ ${line(s.help)}` : line(s.text), 4000);
           aim: aim ? { hit: aim.hit, place: aim.place, placeReason: aim.placeReason, breakReason: aim.breakReason } : null,
           tip: buildHud?.tipText ?? '',
           room: lastRoom,
-          chestOpen: buildHud?.chestOpen ?? false
+          chestOpen: buildHud?.chestOpen ?? false,
+          // R326 free build
+          scope: builder.scope,
+          blockBar,
+          changed: builder.delta.size,
+          changedOutside: builder.delta.used,
+          worldTag: builder.worldTag ? 'set' : '',
+          remoteCells: builder.remoteCells
         }
       };
     }

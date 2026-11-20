@@ -108,6 +108,10 @@ const WORLD_STRINGS_KO = {
   buildHelpGuestTouch: '친구 부지예요! 톡 누르면 놓기 · 내가 놓은 것만 부수기',
   toolPlace: '놓기',
   toolBreak: '부수기',
+  /** R326: the hotbar shows the carried blocks / the bag (food, things from errands) */
+  barBlocks: '🧱 블록',
+  barBag: '🎒 가방',
+  buildHelpWorldTouch: '내 월드예요! 블록을 톡 눌러 놓기 · 빈손으로 길게 누르면 부수기 · 가게와 길은 그대로예요',
   chest: '상자',
   undo: '되돌리기',
   rotate: '돌리기',
@@ -212,6 +216,9 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   buildHelpGuestTouch: "Your friend's plot! Tap to place · Break only what you placed",
   toolPlace: 'Place',
   toolBreak: 'Break',
+  barBlocks: '🧱 Blocks',
+  barBag: '🎒 Bag',
+  buildHelpWorldTouch: 'Your world! Tap a block to place · Hold with an empty hand to break · Shops and roads stay',
   chest: 'Chest',
   undo: 'Undo',
   rotate: 'Rotate',
@@ -287,7 +294,10 @@ const BUILD_REASONS_KO_SRC: Readonly<Record<string, string>> = {
   paused: '지금은 혼자 놀기가 쉬는 중이에요',
   loading: '내 부지를 불러오는 중이에요',
   not_yours: '친구 땅이에요 · 내가 놓은 것만 부술 수 있어요',
-  pass_over: '친구 집 놀러 가기가 끝났어요'
+  pass_over: '친구 집 놀러 가기가 끝났어요',
+  protected: '마을의 소중한 곳이에요 · 그대로 둬요',
+  edge: '월드 끝이에요',
+  too_many: '이 월드에 블록을 너무 많이 바꿨어요 · 몇 개 부숴서 정리해요'
 };
 const BUILD_REASONS_KO_EN: Readonly<Record<string, string>> = {
   not_my_plot: 'You can build only on your plot',
@@ -309,7 +319,10 @@ const BUILD_REASONS_KO_EN: Readonly<Record<string, string>> = {
   paused: 'Free play is resting for now',
   loading: 'Loading your plot',
   not_yours: "It's your friend's land · You can break only what you placed",
-  pass_over: 'Your visit is over'
+  pass_over: 'Your visit is over',
+  protected: 'A special place in town · Leave it as it is',
+  edge: 'The edge of the world',
+  too_many: 'You changed lots of blocks in this world · Break a few to tidy up'
 };
 export const BUILD_REASONS_KO = biTable(BUILD_REASONS_KO_EN, BUILD_REASONS_KO_SRC);
 
@@ -575,6 +588,14 @@ export function buildHelpDesktopFor(k: Readonly<KeyHintLabels>): string {
   return joinHelp(
     `Your plot! Right-click place · Hold left-click break · 1-5 pick · ${k.undo} undo · ${k.rotate} rotate`,
     `내 부지예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기 · 1~5 고르기 · ${k.undo} 되돌리기 · ${k.rotate} 돌리기`
+  );
+}
+
+/** R326: building on the open ground of my world (or a friend's on a pass) with the player's own keys. */
+export function buildHelpWorldDesktopFor(k: Readonly<KeyHintLabels>): string {
+  return joinHelp(
+    `Your world! Right-click place · Hold left-click break (bare hands too) · 1-5 pick · ${k.undo} undo · Shops and roads stay`,
+    `내 월드예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기(맨손도) · 1~5 고르기 · ${k.undo} 되돌리기 · 가게와 길은 그대로예요`
   );
 }
 

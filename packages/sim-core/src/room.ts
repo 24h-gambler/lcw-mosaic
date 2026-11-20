@@ -17,6 +17,11 @@
  *                                                        hitReachM of the hitter's last pose, at most one per hitCooldownMs
  *                   {"t":"pvp","on":bool}                   the teacher turns play fighting on / off for the room
  *                   {"t":"ping","c":<client ms>}            round trip through the room (load bots, latency read-out)
+ *                   {"t":"b","w":tag,"c":[[x,y,z,id],...],"f":[[x,y,z,key,rot],...]}  R326: blocks (and furniture,
+ *                                                        key '' = removed) the sender just changed in the world `w`
+ *                                                        (the plot snapshot's world_tag); display only, sent once
+ *                                                        the plot store answered the edit ok (client PlotSync
+ *                                                        onSaved) and bounded on the receiver (docs/03 D13)
  *                   "ping"                                  keep-alive, answered "pong" by the platform without waking the room
  *   room → client   {"t":"hello","you":id,"cap":8,"peers":[[id,name,role,x,y,z,yaw,anim,proto,vx,vz,w,ageMs],...]}
  *                   {"t":"join","id","name","role","v":proto} / {"t":"leave","id"}
@@ -24,6 +29,9 @@
  *                   steady 5 Hz while anyone with proto 1 (a page loaded before the change) is in the room
  *                   {"t":"poses","p":[[id,x,y,z,yaw,anim,seq,vx,vz,w],...]}  every changed pose, batched per broadcastMs
  *                   {"t":"e","id","e"} / {"t":"pong","c"}
+ *                   {"t":"b","id","w","c","f"}             R326 block relay to everyone else in the room; a receiver
+ *                                                        applies it only when `w` is the world it has open (a friend
+ *                                                        on a guest pass and the host; siblings each have their own)
  *                   {"t":"h","from","to","d":[dx,dz]}        a hit (everyone draws it; the target takes it, d = push direction)
  *                   {"t":"pvp","on"}                        play fighting on / off (also in hello as "pvp")
  *                   {"t":"full","cap"} then close 4003     the room is at capacity ("방이 가득 찼어요")
@@ -133,6 +141,46 @@ export function parseRoomPose(p: unknown, limit = TUNING.multi.coordLimit): Room
   return [r2(x!), r2(y!), r2(z!), r3(yaw!), anim!, seq, r2(vx), r2(vz), r3(w)];
 }
 
+/** R326 block relay limits: one message carries at most this many cells and furniture changes. */
+export const BLOCK_RELAY_MAX_CELLS = TUNING.building.relay.frameCells;
+export const BLOCK_RELAY_MAX_FURNITURE = TUNING.building.relay.frameFurniture;
+const RELAY_TAG_RE = /^[a-z0-9]{4,24}$/;
+const FURN_KEY_RE = /^[a-z0-9_]{0,48}$/;
+
+export interface BlockRelay {
+  w: string;
+  c: Array<[number, number, number, number]>;
+  f: Array<[number, number, number, string, number]>;
+}
+
+/**
+ * A block relay from the wire (R326), or null when anything is off. Display only (AGENTS 4.7): every cell was judged
+ * and saved by the plot store; a receiver still runs its own build rule over each cell before drawing it.
+ */
+export function parseBlockRelay(msg: { w?: unknown; c?: unknown; f?: unknown }, limit = TUNING.multi.coordLimit): BlockRelay | null {
+  if (typeof msg.w !== 'string' || !RELAY_TAG_RE.test(msg.w)) return null;
+  const cells = msg.c === undefined ? [] : msg.c;
+  const furn = msg.f === undefined ? [] : msg.f;
+  if (!Array.isArray(cells) || !Array.isArray(furn) || cells.length > BLOCK_RELAY_MAX_CELLS || furn.length > BLOCK_RELAY_MAX_FURNITURE) return null;
+  if (cells.length === 0 && furn.length === 0) return null;
+  const int = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
+  const c: BlockRelay['c'] = [];
+  for (const e of cells) {
+    if (!Array.isArray(e) || e.length !== 4) return null;
+    const [x, y, z, id] = e as unknown[];
+    if (!int(x, -limit, limit) || !int(y, -limit, limit) || !int(z, -limit, limit) || !int(id, 0, 255)) return null;
+    c.push([x, y, z, id]);
+  }
+  const f: BlockRelay['f'] = [];
+  for (const e of furn) {
+    if (!Array.isArray(e) || e.length !== 5) return null;
+    const [x, y, z, key, rot] = e as unknown[];
+    if (!int(x, -limit, limit) || !int(y, -limit, limit) || !int(z, -limit, limit) || typeof key !== 'string' || !FURN_KEY_RE.test(key) || !int(rot, 0, 3)) return null;
+    f.push([x, y, z, key, rot]);
+  }
+  return { w: msg.w, c, f };
+}
+
 export class RoomCore {
   readonly members = new Map<string, RoomMember>();
   readonly counters: RoomCounters = { joins: 0, full: 0, msgsIn: 0, framesOut: 0, bytesOut: 0, dropped: 0, closedRate: 0 };
@@ -235,6 +283,11 @@ export class RoomCore {
     if (msg.t === 'ping') {
       const c = typeof msg.c === 'number' && Number.isFinite(msg.c) ? msg.c : 0;
       return { kind: 'reply', frame: JSON.stringify({ t: 'pong', c }) };
+    }
+    if (msg.t === 'b') {
+      const b = parseBlockRelay(msg as { w?: unknown; c?: unknown; f?: unknown }, this.t.coordLimit);
+      if (!b) return this.bad(m);
+      return { kind: 'broadcast', frame: JSON.stringify({ t: 'b', id, w: b.w, c: b.c, f: b.f }), exceptSelf: true };
     }
     if (msg.t === 'h') {
       const to = typeof (msg as { to?: unknown }).to === 'string' ? this.members.get((msg as { to: string }).to) : undefined;

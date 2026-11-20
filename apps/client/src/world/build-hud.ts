@@ -63,6 +63,8 @@ function css(): string {
 .lb-room .e{font-family:${T.fonts.target};font-size:calc(${T.scale.h3.sizePx}px * var(--lcw-hs,1));line-height:calc(${T.scale.h3.lineHeightPx}px * var(--lcw-hs,1));font-weight:800;color:${C['sky-d']}}
 .lb-room .g{font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));color:${C['ink-700']}}
 @media (max-width:600px){.lb-tools{bottom:168px}.lb-grid{grid-template-columns:repeat(auto-fill,minmax(56px,1fr))}}
+/* R326: a phone on its side (about 390 high) has no room for three stacked rows under the star/coin chip: the rows stand side by side, place/break nearest the thumb */
+@media (max-height:520px){.lb-tools{flex-direction:row-reverse;align-items:flex-end;bottom:160px}.lb-row{flex-direction:column}}
 `;
 }
 
@@ -177,11 +179,14 @@ export interface BuildHudHandlers {
   onCloseChest(): void;
   /** 쇼룸 공개 with this title (linked child only) */
   onShowroom(title: string): Promise<ShowroomResult>;
+  /** R326: switch the hotbar between the carried blocks and the bag */
+  onBar?(): void;
 }
 
 export class BuildHud {
   private tools: HTMLDivElement;
   private placeBtn: HTMLButtonElement;
+  private barBtn: HTMLButtonElement;
   private breakBtn: HTMLButtonElement;
   private rotateBtn: HTMLButtonElement;
   private tip: HTMLDivElement;
@@ -236,6 +241,8 @@ export class BuildHud {
     this.button(row2, 'lb-btn', W.undo, () => h.onUndo());
     this.button(row2, 'lb-btn', W.chest, () => h.onChest());
     const row3 = el('div', 'lb-row', this.tools);
+    // R326: the hotbar holds the carried blocks or the bag (food, errand things); this flips it, the label names the other
+    this.barBtn = this.button(row3, 'lb-btn', W.barBag, () => h.onBar?.());
     this.showroomBtn = this.button(row3, 'lb-btn off', W.showroomBtn, () => this.openShare());
 
     this.tip = el('div', 'lb-tip', root);
@@ -372,6 +379,12 @@ export class BuildHud {
   setTool(tool: 'place' | 'break'): void {
     this.placeBtn.classList.toggle('sel', tool === 'place');
     this.breakBtn.classList.toggle('sel', tool === 'break');
+  }
+
+  /** R326: which bar the hotbar shows now (the button offers the other one). */
+  setBar(blocks: boolean): void {
+    this.barBtn.textContent = blocks ? W.barBag : W.barBlocks;
+    this.barBtn.classList.toggle('sel', !blocks);
   }
 
   setRotateVisible(on: boolean): void {

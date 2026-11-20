@@ -3,7 +3,9 @@
  * prices, coins and things; this file reads them and asks for moves. One GET when a window opens, one POST per press
  * (Cloudflare request budget, coordinator 11-19): nothing here polls.
  */
+import { shopItem } from '@lcw/content';
 import { noteSeatResponse } from '../world/seat.js';
+import { PLOT_REFRESH_EVENT } from '../world/plot-sync.js';
 import { reportServerUnreachable } from './connection.js';
 import type { FrameAuth, Fetch } from './menu/types.js';
 
@@ -85,8 +87,15 @@ export function newRequestId(): string {
 }
 
 export const fetchShop = (auth: FrameAuth, f?: Fetch) => call<ShopView>(auth, '/v1/shop', undefined, f);
-export const buyThing = (auth: FrameAuth, itemKey: string, requestId: string, f?: Fetch) =>
-  call<{ ok: true; item_id: string; paid: number; coins_total: number; location?: 'bag' | 'chest' }>(auth, '/v1/shop/buy', { item_key: itemKey, request_id: requestId }, f);
+/**
+ * R326: a block bundle bought opens into the build stock on the server at the next plot read (edge plot.ts
+ * unpackShopBlocks); this event asks the world to read it now (world/plot-sync.ts PLOT_REFRESH_EVENT).
+ */
+export const buyThing = async (auth: FrameAuth, itemKey: string, requestId: string, f?: Fetch) => {
+  const r = await call<{ ok: true; item_id: string; paid: number; coins_total: number; location?: 'bag' | 'chest' }>(auth, '/v1/shop/buy', { item_key: itemKey, request_id: requestId }, f);
+  if (r.ok && shopItem(itemKey)?.block && typeof window !== 'undefined') window.dispatchEvent(new Event(PLOT_REFRESH_EVENT));
+  return r;
+};
 export const sellThing = (auth: FrameAuth, itemId: string, f?: Fetch) =>
   call<{ ok: true; paid: number; coins_total: number }>(auth, '/v1/shop/sell', { item_id: itemId }, f);
 export const claimQuest = (auth: FrameAuth, quest: QuestView['key'], f?: Fetch) =>

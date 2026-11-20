@@ -43,6 +43,8 @@ export interface PlotSyncOptions {
   /** The server refused an op the client had already shown: reload the plot from the server. */
   onResync(snapshot: PlotSnapshotLike): void;
   onStatus?(s: SyncStatus): void;
+  /** R326 block relay: these ops (the same objects that were pushed) the server answered ok, in order. */
+  onSaved?(ops: PlotOp[]): void;
   /** Building is paused for this device (seat stopped) or the token no longer works. */
   onDenied?(kind: 'paused' | 'unlinked'): void;
 }
@@ -59,6 +61,12 @@ function batchId(): string {
   for (const b of a) s += (b % 36).toString(36);
   return `${Date.now().toString(36)}-${s}`;
 }
+
+/**
+ * R326: something outside the build screen changed this child's build stock on the server (a block bundle bought in
+ * the shop, frame/shop-api.ts): the world reads its plot again once nothing is waiting to go up.
+ */
+export const PLOT_REFRESH_EVENT = 'lcw:plot-refresh';
 
 export class PlotSync {
   private queue: PlotOp[] = [];
@@ -137,6 +145,12 @@ export class PlotSync {
   get pending(): number {
     return this.queue.length + (this.inFlight?.ops.length ?? 0);
   }
+
+  /** Nothing on its way and no snapshot being read: what this device shows is what the server holds (R326 relay). */
+  get settled(): boolean {
+    return this.pending === 0 && !this.reading;
+  }
+  private reading = false;
 
   /** Send what a closed tab left behind, then fetch the plot. null: no plot for this token (guest from now on). */
   async start(): Promise<PlotSnapshotLike | null> {
@@ -240,7 +254,7 @@ export class PlotSync {
       return true;
     }
     if (res.status >= 500 || res.status === 429) return false;
-    const body = (await res.json().catch(() => null)) as { results?: Array<{ ok: boolean; reason?: string }>; processed?: number } | null;
+    const body = (await res.json().catch(() => null)) as { results?: Array<{ ok: boolean; reason?: string }>; processed?: number; unpacked?: number } | null;
     this.inFlight = null;
     if (!body || !Array.isArray(body.results)) {
       // 400: the batch itself was malformed; drop it and take the server's plot
@@ -251,6 +265,8 @@ export class PlotSync {
     }
     const processed = typeof body.processed === 'number' ? body.processed : body.results.length;
     this.sent += processed;
+    const saved = batch.ops.slice(0, processed).filter((_, i) => body.results![i]?.ok === true);
+    if (saved.length > 0) this.o.onSaved?.(saved);
     if (processed < batch.ops.length) {
       // the server's pace ran out: the rest goes again shortly, in the same order
       this.queue.unshift(...batch.ops.slice(processed));
@@ -265,13 +281,38 @@ export class PlotSync {
       this.queue = [];
       this.persist();
       await this.resync();
+    } else if (typeof body.unpacked === 'number' && body.unpacked > 0) this.refreshWanted = true;
+    if (this.refreshWanted && !this.inFlight && this.queue.length === 0) {
+      // a bundle opened into the stock on the server (R326): the hand and the chest come from the server again
+      this.refreshWanted = false;
+      await this.resync();
     }
     return true;
   }
 
+  private refreshWanted = false;
+
+  /**
+   * Read the plot again for a change made elsewhere (R326 shop bundles). With edits still waiting, after they went up:
+   * a snapshot read in between would hide them on this device.
+   */
+  async refresh(): Promise<void> {
+    if (this.stopped) return;
+    if (this.inFlight || this.queue.length > 0) {
+      this.refreshWanted = true;
+      return;
+    }
+    await this.resync();
+  }
+
   private async resync(): Promise<void> {
-    const snap = await this.load();
-    if (snap) this.o.onResync(snap);
+    this.reading = true;
+    try {
+      const snap = await this.load();
+      if (snap) this.o.onResync(snap);
+    } finally {
+      this.reading = false;
+    }
   }
 
   private passOver(): void {

@@ -496,7 +496,7 @@ ${line(s.help)}` : line(s.text), 4000);
   let teacherLabel: { name: string; x: number; y: number; w: number; h: number; opacity: number } | null = null;
   const plateWorld = new THREE.Vector3();
   const plateScale = new THREE.Vector3();
-  /** Where the child looks (first and third person: the camera; mirror: the body), for who stands in view. */
+  /** Where the child looks (camYaw in every view, R326), for who stands in view. */
   const viewYaw = (): number => camYaw;
   /** The teacher's avatar near the child (NPC 'teacher' with a name plate); null removes it. The same name: kept. */
   // One teacher figure for the page (a character claims a blob-shadow slot for good): shown and hidden, renamed by
@@ -874,11 +874,14 @@ ${line(s.help)}` : line(s.text), 4000);
   // menu or any modal window frees it while it is open and the world takes it back when it closes. Touch keeps its
   // sticks and taps (a tap on a friend hits, on water drinks).
   const canLock = !touch && typeof canvas.requestPointerLock === 'function';
+  /** the teacher's page (TeacherBar mounted): a free mouse for the bar all lesson long, and no hitting */
+  const teacherPage = (): boolean => typeof document !== 'undefined' && !!document.querySelector('.lcw-teachbar');
   const locked = (): boolean => typeof document !== 'undefined' && document.pointerLockElement === canvas;
   /** the world freed the mouse for a window: take it back when the window closes */
   let relock = false;
   const lockNow = (): void => {
-    if (!canLock || locked() || paused || attract || disposed) return;
+    // the teacher's page keeps a free mouse: the bar (roster, follow, switches) is clicked all lesson long
+    if (!canLock || locked() || paused || attract || disposed || teacherPage()) return;
     try {
       const r = canvas.requestPointerLock() as unknown;
       if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => undefined);
@@ -887,7 +890,10 @@ ${line(s.help)}` : line(s.text), 4000);
     }
   };
   const uiHoldsMouse = (): boolean =>
-    paused || attract || !!buildHud?.chestOpen || (typeof document !== 'undefined' && !!document.querySelector('[aria-modal="true"]'));
+    paused ||
+    attract ||
+    !!buildHud?.chestOpen ||
+    (typeof document !== 'undefined' && !!document.querySelector('.lw-hud.dlg, .lcw-dlg, [aria-modal="true"], [role="dialog"], [role="alertdialog"]'));
   const centre = (): { x: number; y: number } => {
     const r = canvas.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -895,7 +901,7 @@ ${line(s.help)}` : line(s.text), 4000);
   const onLockChange = (): void => {
     const on = locked();
     if (on) mouseAt = centre();
-    hud.setLockHint(canLock && !on && !uiHoldsMouse());
+    hud.setLockHint(canLock && !on && !uiHoldsMouse() && !teacherPage());
   };
   document.addEventListener('pointerlockchange', onLockChange);
   const lockWatch = window.setInterval(() => {
@@ -908,8 +914,10 @@ ${line(s.help)}` : line(s.text), 4000);
       relock = false;
       lockNow();
     }
-    hud.setLockHint(!locked() && !ui);
+    hud.setLockHint(!locked() && !ui && !teacherPage());
   }, 250);
+  /** the press that just went down was made with the pointer locked (its release goes the same way) */
+  let lockedAtDown = false;
   /** the same press, at the crosshair (pointer lock) */
   const atCentre = (e: PointerEvent): PointerEvent => {
     const c = centre();
@@ -921,12 +929,23 @@ ${line(s.help)}` : line(s.text), 4000);
   let pvpOn = true;
   /** this screen pressed the teacher's switch (its own echo is not news) */
   let pvpMine = false;
+  const pvpListeners = new Set<(on: boolean) => void>();
   let myHitShieldUntil = 0;
   const hitListeners = new Set<(from: string) => void>();
-  const HIT_REACH_M = 3.5;
   let pvpToldAt = -1e9;
-  const peerAt = (cx: number, cy: number): string | null => (peers.count === 0 ? null : peers.pick(rayAt(cx, cy), body, HIT_REACH_M));
+  const peerAt = (cx: number, cy: number): string | null => (peers.count === 0 ? null : peers.pick(rayAt(cx, cy), body, TUNING.multi.hitPickM));
+  /** a friend on the crosshair unless an NPC there stands nearer (the click then talks) */
+  const nearerFriend = (cx: number, cy: number): string | null => {
+    const id = peerAt(cx, cy);
+    if (!id) return null;
+    const n = npcAt(cx, cy);
+    if (!n) return id;
+    const f = peers.placed().find((q) => q.id === id);
+    return f && Math.hypot(f.x - body.x, f.z - body.z) < Math.hypot(n.pos.x - body.x, n.pos.z - body.z) ? id : null;
+  };
   const tryHit = (id: string): void => {
+    // the teacher's page never hits (the room drops it): no swing that looks like one
+    if (teacherPage()) return;
     hands.swing();
     if (!pvpOn) {
       if (performance.now() - pvpToldAt > 4000) hud.notice(W.pvpOff);
@@ -944,11 +963,11 @@ ${line(s.help)}` : line(s.text), 4000);
   let lastSip = -1e9;
   const waterAt = (cx: number, cy: number): boolean => {
     const r = rayAt(cx, cy);
-    for (let t = 0.2; t <= 6; t += 0.15) {
+    for (let t = 0.2; t <= TUNING.multi.useRayM; t += 0.15) {
       const x = r.origin.x + r.direction.x * t;
       const y = r.origin.y + r.direction.y * t;
       const z = r.origin.z + r.direction.z * t;
-      if (Math.hypot(x - body.x, z - body.z) > 4.5) return false;
+      if (Math.hypot(x - body.x, z - body.z) > TUNING.multi.useReachM) return false;
       const id = world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z));
       if (WATER_IDS.has(id)) return true;
       if (id !== 0 && collideHeight(id) > 0) return false;
@@ -983,14 +1002,14 @@ ${line(s.help)}` : line(s.text), 4000);
   /** the shop shelf a screen point looks at on the trade shop counter (within reach): a category, '' = all, null = no */
   const counterAt = (cx: number, cy: number): string | null => {
     const r = rayAt(cx, cy);
-    for (let t = 0.2; t <= 6; t += 0.15) {
+    for (let t = 0.2; t <= TUNING.multi.useRayM; t += 0.15) {
       const x = Math.floor(r.origin.x + r.direction.x * t);
       const y = Math.floor(r.origin.y + r.direction.y * t);
       const z = Math.floor(r.origin.z + r.direction.z * t);
       const id = world.getBlock(x, y, z);
       if (id === 0 || collideHeight(id) <= 0) continue;
       const k = TRADE_COUNTER;
-      if (x !== k.x || z < k.z0 || z > k.z1 || y > k.yMax || Math.hypot(x + 0.5 - body.x, z + 0.5 - body.z) > 4.5) return null;
+      if (x !== k.x || z < k.z0 || z > k.z1 || y > k.yMax || Math.hypot(x + 0.5 - body.x, z + 0.5 - body.z) > TUNING.multi.useReachM) return null;
       return k.shelf[z] ?? '';
     }
     return null;
@@ -1027,11 +1046,12 @@ ${line(s.help)}` : line(s.text), 4000);
       return;
     }
     if (locked()) {
+      lockedAtDown = true;
       // at the crosshair, at once (no drag to tell a click from a look any more)
       const c = atCentre(e);
       if (e.button === 2) return rightAction(c);
       if (e.button !== 0) return;
-      const friend = peerAt(c.clientX, c.clientY);
+      const friend = nearerFriend(c.clientX, c.clientY);
       if (friend) return tryHit(friend);
       if (tapPick(c.clientX, c.clientY)) return;
       const shelf = counterAt(c.clientX, c.clientY);
@@ -1041,7 +1061,9 @@ ${line(s.help)}` : line(s.text), 4000);
       buildPress(c, 'break');
       return;
     }
-    // the first click takes the pointer; it still acts where it is (an NPC under it talks on release)
+    // the first click takes the pointer; it still acts where it is (an NPC under it talks on release, which follows
+    // the state at the press: the lock usually lands before the button comes up)
+    lockedAtDown = false;
     lockNow();
     if (e.button === 2) {
       rightAction(e);
@@ -1079,7 +1101,7 @@ ${line(s.help)}` : line(s.text), 4000);
     camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005 * lookMouse * lookY));
   };
   const pointerUp = (e: PointerEvent): void => {
-    if (locked() && e.pointerType === 'mouse') {
+    if (lockedAtDown && locked() && e.pointerType === 'mouse') {
       dragging = false;
       buildRelease(atCentre(e));
       return;
@@ -1088,7 +1110,7 @@ ${line(s.help)}` : line(s.text), 4000);
     // (R2625 ③)
     const click = dragging && dragMoved < 6 && e.button === 0;
     dragging = false;
-    const friend = click ? peerAt(e.clientX, e.clientY) : null;
+    const friend = click ? nearerFriend(e.clientX, e.clientY) : null;
     if (click && (friend || npcAt(e.clientX, e.clientY))) {
       if (hold && hold.id === e.pointerId) {
         hold = null;
@@ -1168,6 +1190,7 @@ ${line(s.help)}` : line(s.text), 4000);
     const still = !!down && !down.far && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 12 && performance.now() - down.t < 600;
     const npc = still && !own?.moved ? npcAt(e.clientX, e.clientY) : null;
     const friend = still && !own?.moved && !npc ? peerAt(e.clientX, e.clientY) : null;
+    // (an NPC under the finger wins: a talk is never a hit on a classmate standing behind)
     const water = still && !own?.moved && !npc && !friend && waterAt(e.clientX, e.clientY);
     const shelf = still && !own?.moved && !npc && !friend && !water ? counterAt(e.clientX, e.clientY) : null;
     if (friend || water || shelf !== null) {
@@ -1275,10 +1298,11 @@ ${line(s.help)}` : line(s.text), 4000);
     for (const cb of interactCbs) cb(n.ref);
   }
   tryTalk = () => {
-    const friend = peerAt(viewW / 2, viewH / 2);
-    if (friend) return openTrade(friend);
+    // the townsperson in talk reach first (a lesson NPC with a classmate in front of it stays a talk), then a friend
     const n = nearNpc ?? npcAt(viewW / 2, viewH / 2);
     if (!n) {
+      const friend = peerAt(viewW / 2, viewH / 2);
+      if (friend) return openTrade(friend);
       const shelf = counterAt(viewW / 2, viewH / 2);
       if (shelf !== null) return openShop(shelf);
       if (waterAt(viewW / 2, viewH / 2) || waterNear()) sip();
@@ -1585,6 +1609,8 @@ ${line(s.help)}` : line(s.text), 4000);
     camera.fov = camera.aspect < 0.8 ? 80 : 70;
     applyViewInset();
     camera.updateProjectionMatrix();
+    // under the pointer lock the aim is the crosshair, which moved with the window
+    if (locked()) mouseAt = centre();
   };
   resize();
   window.addEventListener('resize', resize);
@@ -2442,7 +2468,7 @@ ${line(s.help)}` : line(s.text), 4000);
     },
     setCoins: (total) => hud.setCoins(total),
     // Map screen (docs/08 G06): read once when the menu opens (the menu pauses the world). The arrow follows the view;
-    // in the mirror view the camera faces the child, so the body's facing is the one that means "where I look".
+    // every view (the mirror too, R326) keeps its heading in camYaw.
     getMap: () => buildMapInfo({ player: { x: body.x, z: body.z, yaw: camYaw }, plot: world.plot }),
     setOnline: (on) => hud.setOnline(on),
     setLookSettings: (o) => {
@@ -2474,8 +2500,13 @@ ${line(s.help)}` : line(s.text), 4000);
       myHitShieldUntil = performance.now() + ms;
     },
     setRoomPvp: (on) => {
-      pvpMine = true;
-      roomOut?.setPvp(on);
+      pvpMine = !!roomOut?.setPvp(on);
+      return pvpMine;
+    },
+    onRoomPvp: (cb) => {
+      pvpListeners.add(cb);
+      cb(pvpOn);
+      return () => pvpListeners.delete(cb);
     },
     roomPvp: () => pvpOn,
     onFall: (cb) => {
@@ -2564,6 +2595,7 @@ ${line(s.help)}` : line(s.text), 4000);
         roomOut = out;
       },
       pvp(on) {
+        for (const cb of pvpListeners) cb(on);
         // the children hear it; the teacher who pressed the switch sees it on the button
         if (on !== pvpOn && peers.count > 0 && !pvpMine) hud.notice(on ? W.pvpOn : W.pvpOffNow, 3000);
         pvpMine = false;
@@ -2578,6 +2610,11 @@ ${line(s.help)}` : line(s.text), 4000);
         // knocked back along the hitter's line and a little up, a red edge, and the gauges take the health
         body.vx += d[0] * TUNING.gauges.pvpKnockback;
         body.vz += d[1] * TUNING.gauges.pvpKnockback;
+        const sp = Math.hypot(body.vx, body.vz);
+        if (sp > TUNING.gauges.pvpKnockback) {
+          body.vx *= TUNING.gauges.pvpKnockback / sp;
+          body.vz *= TUNING.gauges.pvpKnockback / sp;
+        }
         if (body.onGround) body.vy = TUNING.gauges.pvpKnockUp;
         hud.hurt();
         counts.hitsTaken++;

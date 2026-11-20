@@ -80,6 +80,8 @@ export interface RoomMember {
   dirty: boolean;
   /** last hit this member gave (ms, server clock), for hitCooldownMs */
   hitAt?: number;
+  /** last hit this member took, for hitTakenGapMs (many hitting one child) */
+  hurtAt?: number;
 }
 
 export interface RoomCounters {
@@ -243,7 +245,9 @@ export class RoomCore {
       const dz = to.pose[2] - m.pose[2];
       const d = Math.hypot(dx, dz);
       if (d > this.t.hitReachM || Math.abs(to.pose[1] - m.pose[1]) > 3) return { kind: 'none' };
+      if (to.hurtAt !== undefined && now - to.hurtAt < this.t.hitTakenGapMs) return { kind: 'none' };
       m.hitAt = now;
+      to.hurtAt = now;
       return { kind: 'broadcast', frame: JSON.stringify({ t: 'h', from: id, to: to.id, d: d > 1e-3 ? [r2(dx / d), r2(dz / d)] : [0, 0] }), exceptSelf: false };
     }
     if (msg.t === 'pvp') {

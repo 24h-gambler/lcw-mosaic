@@ -39,7 +39,8 @@ export interface RoomSink {
 /** What the world sends to the room besides its pose. */
 export interface RoomOut {
   hit(to: string): void;
-  setPvp(on: boolean): void;
+  /** false: the room is not connected, nothing was sent */
+  setPvp(on: boolean): boolean;
 }
 
 interface SocketLike {
@@ -457,8 +458,10 @@ export class RoomClient {
     if (this.ws?.readyState === 1 && to) this.ws.send(JSON.stringify({ t: 'h', to }));
   }
 
-  setPvp(on: boolean): void {
-    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'pvp', on }));
+  setPvp(on: boolean): boolean {
+    if (this.ws?.readyState !== 1) return false;
+    this.ws.send(JSON.stringify({ t: 'pvp', on }));
+    return true;
   }
 
   emote(e: string): void {

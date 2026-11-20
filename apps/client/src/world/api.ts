@@ -189,7 +189,9 @@ export interface WorldHandle {
   /** R326: hits do nothing for this long (after a knock-out rest) */
   shieldHits?(ms: number): void;
   /** R326: the teacher turns play fighting on / off for the room */
-  setRoomPvp?(on: boolean): void;
+  setRoomPvp?(on: boolean): boolean;
+  /** R326: the room's play-fighting state now and whenever it changes (hello, the teacher's switch) */
+  onRoomPvp?(cb: (on: boolean) => void): () => void;
   /** R326: is play fighting on in this room */
   roomPvp?(): boolean;
   onFall?(cb: (meters: number) => void): () => void;

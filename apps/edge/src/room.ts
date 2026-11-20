@@ -77,8 +77,10 @@ export class WorldRoomDO {
     const now = Date.now();
     for (const ws of state.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null;
-      if (a?.id) this.core.restore(a, now);
-      if (a?.pvpOff) this.core.pvp = false;
+      if (!a?.id) continue;
+      const { pvpOff, ...member } = a;
+      this.core.restore(member, now);
+      if (pvpOff) this.core.pvp = false;
     }
   }
 
@@ -129,7 +131,7 @@ export class WorldRoomDO {
         break;
       case 'broadcast':
         this.broadcast(r.frame, r.exceptSelf ? a.id : null);
-        if (r.frame.startsWith('{"t":"pvp"')) this.keepPvp();
+        if ((JSON.parse(r.frame) as { t?: string }).t === 'pvp') this.keepPvp();
         break;
       case 'dirty':
         this.scheduleFlush();

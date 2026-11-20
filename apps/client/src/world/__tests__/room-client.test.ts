@@ -396,7 +396,7 @@ describe('play fighting through the room (R326)', () => {
   it('hands the world its way back, sends a hit and the teacher switch, and passes hits and the switch to the world', async () => {
     const { client, sockets, log } = setup();
     const got: string[] = [];
-    let out: { hit(to: string): void; setPvp(on: boolean): void } | null = null;
+    let out: { hit(to: string): void; setPvp(on: boolean): boolean } | null = null;
     // the sink of setup() with the R326 parts on top
     const sink = (client as unknown as { o: { sink: RoomSink } }).o.sink;
     sink.bind = (o) => (out = o);
@@ -409,12 +409,17 @@ describe('play fighting through the room (R326)', () => {
     s.frame({ t: 'hello', you: 'me', cap: 8, pvp: false, peers: [['p1', 'Mina', 'player', 0, 0, 0, 0, 0, 2, 0, 0, 0, 0]] });
     expect(got).toContain('pvp false');
     out!.hit('p1');
-    out!.setPvp(true);
+    expect(out!.setPvp(true)).toBe(true);
     expect(s.sent).toContain('{"t":"h","to":"p1"}');
     expect(s.sent).toContain('{"t":"pvp","on":true}');
     s.frame({ t: 'h', from: 'p1', to: 'me', d: [0.6, -0.8] });
     s.frame({ t: 'pvp', on: true });
     expect(got).toEqual(['pvp false', 'hit p1>me 0.6,-0.8', 'pvp true']);
+    // a closed socket sends nothing and says so (the teacher's button then shows "could not send")
+    const before = s.sent.length;
+    s.readyState = 3;
+    expect(client.setPvp(false)).toBe(false);
+    expect(s.sent.length).toBe(before);
     client.stop();
     expect(out).toBeNull();
     expect(log[0]).toMatch(/^hello me/);

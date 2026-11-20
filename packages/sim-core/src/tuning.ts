@@ -263,6 +263,13 @@ export const TUNING = {
     /** |x|, |y|, |z| bound for a relayed pose (worlds are 288 m; slack for plots and docking gates) */
     coordLimit: 2048,
     emotes: ['wave', 'clap', 'cheer', 'jump'] as readonly string[],
+    /** R326: how far the crosshair picks a friend to hit or trade with (m, from the feet; the room allows hitReachM) */
+    hitPickM: 3.5,
+    /** R326: a hit lands on one child at most once per this long, however many hit (no pile-on knock-out) */
+    hitTakenGapMs: 500,
+    /** R326: water and the shop counter answer the crosshair this far from the feet (m), along a ray of rayM */
+    useReachM: 4.5,
+    useRayM: 6,
     /** R326 play fighting: how far a hit reaches (m, between the two last poses: poses lag, so a little over arm's length) */
     hitReachM: 4.5,
     /** at most one hit per this long from one player */

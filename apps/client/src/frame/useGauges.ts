@@ -126,16 +126,17 @@ export function useGauges(world: WorldHandle | null, frozen: boolean, onUse: (it
       if (g.health <= 0) rest();
       else world.notice?.(noticeLine('ouch'));
     });
-    // R326: a hit takes health even in a lesson (the teacher turns play fighting off there); never while resting
+    // R326: a hit takes health in free play; in a lesson (gauges frozen: nothing comes back either) it is only the push
+    // and the red edge, so a hit never walks a child out of the lesson; never while resting
     const offHit = world.onHit?.(() => {
-      if (resting) return;
+      if (resting || frozenRef.current) return;
       g = afterHit(g);
       show();
       if (g.health <= 0) rest('knockedOut');
     });
     let sipToldAt = -1e9;
     const offSip = world.onDrinkWater?.(() => {
-      if (resting) return;
+      if (resting || frozenRef.current) return;
       g = afterSip(g);
       show();
       const now = performance.now();

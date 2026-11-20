@@ -153,6 +153,8 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
   const [msg, setMsg] = useState<string | null>(null);
   const [following, setFollowing] = useState(false);
   const [pvp, setPvp] = useState(() => world.roomPvp?.() ?? true);
+  // the button shows what the room says (hello, a reconnect, the switch's own echo), not what was last pressed
+  useEffect(() => world.onRoomPvp?.(setPvp), [world]);
   const [listening, setListening] = useState(false);
   const autoWent = useRef(false);
   const lookKey = useRef('');
@@ -387,8 +389,7 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
               aria-pressed={!pvp}
               style={btn}
               onClick={() => {
-                world.setRoomPvp?.(!pvp);
-                setPvp(!pvp);
+                if (!world.setRoomPvp?.(!pvp)) setMsg(TS.failed);
               }}
             >
               {pvp ? TS.pvpOff : TS.pvpOn}

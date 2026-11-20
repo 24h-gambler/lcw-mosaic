@@ -140,11 +140,16 @@ describe('play fighting (R326 PvP)', () => {
     kid(core, 1, 0);
     kid(core, 2, 2);
     kid(core, 3, 20);
+    kid(core, 4, 3);
     const r = core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 1000);
     expect(r).toEqual({ kind: 'broadcast', frame: JSON.stringify({ t: 'h', from: 'k1', to: 'k2', d: [1, 0] }), exceptSelf: false });
     // the cooldown
     expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 1000 + TUNING.multi.hitCooldownMs - 1)).toEqual({ kind: 'none' });
-    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 1000 + TUNING.multi.hitCooldownMs).kind).toBe('broadcast');
+    // one child takes at most one hit per hitTakenGapMs, however many hit (k4 stands as near as k1)
+    expect(core.receive('k4', JSON.stringify({ t: 'h', to: 'k2' }), 1000 + TUNING.multi.hitTakenGapMs - 1)).toEqual({ kind: 'none' });
+    const gap = Math.max(TUNING.multi.hitCooldownMs, TUNING.multi.hitTakenGapMs);
+    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 1000 + gap).kind).toBe('broadcast');
+    expect(core.receive('k4', JSON.stringify({ t: 'h', to: 'k2' }), 1000 + 2 * gap).kind).toBe('broadcast');
     // too far
     expect(core.receive('k2', JSON.stringify({ t: 'h', to: 'k3' }), 5000)).toEqual({ kind: 'none' });
     // nobody / oneself is junk

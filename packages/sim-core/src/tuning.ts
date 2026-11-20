@@ -63,6 +63,16 @@ export const TUNING = {
     /** a fall longer than this (m) costs fallHealthPerMeter for each metre past it */
     fallSafeMeters: 4,
     fallHealthPerMeter: 8,
+    /** R326 play fighting: health one hit takes (ten hits from full knock a child out: back at the square, never death) */
+    pvpHitDamage: 10,
+    /** how hard a hit pushes (m/s along the ground, and up) */
+    pvpKnockback: 7,
+    pvpKnockUp: 4,
+    /** after a knock-out rest, hits do nothing for this long (ms) */
+    pvpRestShieldMs: 4000,
+    /** R326 drinking from water (a pond, a fountain, the river): thirst per sip, one sip per waterSipMs, no limit */
+    waterSipRestore: 12,
+    waterSipMs: 700,
     /** after the rest at the square: health back to this, hunger and thirst at least restMinPct, warm again */
     restHealthPct: 60,
     restMinPct: 60,
@@ -252,6 +262,23 @@ export const TUNING = {
     ticketTtlMs: 60000,
     /** |x|, |y|, |z| bound for a relayed pose (worlds are 288 m; slack for plots and docking gates) */
     coordLimit: 2048,
-    emotes: ['wave', 'clap', 'cheer', 'jump'] as readonly string[]
+    emotes: ['wave', 'clap', 'cheer', 'jump'] as readonly string[],
+    /** R326: how far the crosshair picks a friend to hit or trade with (m, from the feet; the room allows hitReachM) */
+    hitPickM: 3.5,
+    /** R326: a hit lands on one child at most once per this long, however many hit (no pile-on knock-out) */
+    hitTakenGapMs: 500,
+    /** R326: a hit only lands between children this close in height (m: a child on a roof cannot hit one below) */
+    hitHeightM: 3,
+    /** R326: a touch held this long and still on a classmate opens the trade (a short tap hits) */
+    tradeHoldMs: 600,
+    /** R326: after the pointer locks, "Esc frees the mouse" shows this long under the crosshair */
+    escHintMs: 4000,
+    /** R326: water and the shop counter answer the crosshair this far from the feet (m), along a ray of rayM */
+    useReachM: 4.5,
+    useRayM: 6,
+    /** R326 play fighting: how far a hit reaches (m, between the two last poses: poses lag, so a little over arm's length) */
+    hitReachM: 4.5,
+    /** at most one hit per this long from one player */
+    hitCooldownMs: 400
   }
 } as const;

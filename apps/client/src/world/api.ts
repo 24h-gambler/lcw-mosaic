@@ -61,7 +61,7 @@ export interface WorldStats {
    * Talking to NPCs (R2625 real-play check): the NPC E would talk to, the goal NPC (errand step), whether the talk prompt
    * shows, NPCs talked to in this visit, talks opened by E / the talk button and by a click or tap.
    */
-  interact?: { near: string | null; goal: string | null; prompt: boolean; promptWhy: string; paused: boolean; walking: boolean; talked: string[]; byKey: number; byTap: number; passerTaps?: number };
+  interact?: { near: string | null; goal: string | null; prompt: boolean; promptWhy: string; paused: boolean; walking: boolean; talked: string[]; byKey: number; byTap: number; passerTaps?: number; sips?: number; hitsSent?: number; hitsTaken?: number; pointerLocked?: boolean; pvp?: boolean; camMode?: string };
   /** Talkable NPCs drawn now: where their body centre lands on screen (CSS px) and how far they stand (m). */
   npcView?: Array<{ id: string; sx: number; sy: number; vis: boolean; dist: number }>;
   /**
@@ -181,6 +181,18 @@ export interface WorldHandle {
   setGauges?(g: GaugeView | null): void;
   /** where the child stands this second for the warmth gauge (cold, a fire near, a roof over the head; R325) */
   climate?(): { cold: 0 | 1 | 2; fire: boolean; roof: boolean };
+  /** R326 play fighting: someone in the room hit this child (the knock-back and the red edge are drawn already) */
+  onHit?(cb: (from: string) => void): () => void;
+  /** R326: a sip of water (a pond, a fountain): the gauges add thirst */
+  onDrinkWater?(cb: () => void): () => void;
+  /** R326: hits do nothing for this long (after a knock-out rest) */
+  shieldHits?(ms: number): void;
+  /** R326: the teacher turns play fighting on / off for the room */
+  setRoomPvp?(on: boolean): boolean;
+  /** R326: the room's play-fighting state now and whenever it changes (hello, the teacher's switch) */
+  onRoomPvp?(cb: (on: boolean) => void): () => void;
+  /** R326: is play fighting on in this room */
+  roomPvp?(): boolean;
   /** the child landed after a fall of `meters` (the player's own movement; not a scene change or a walk) */
   onFall?(cb: (meters: number) => void): () => void;
   /** walking speed multiplier (0.3..1) and whether running is allowed (G01 low gauges, docs/03 D1) */

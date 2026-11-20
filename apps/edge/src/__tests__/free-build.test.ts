@@ -155,6 +155,7 @@ describe('shop block bundles become build stock (R326, docs/19 9장)', () => {
     const after = await call(p, 'GET', '/v1/plot', undefined, dev);
     expect(total(after.body.inv, blockRef(BK.plank)) - total(before.body.inv, blockRef(BK.plank))).toBe(16);
     expect(after.body.rev).toBe(before.body.rev + 1);
+    expect(after.body.inv.slots.some((x: { ref: string } | null) => x?.ref === blockRef(BK.plank))).toBe(true); // in the hotbar
     // read again (and a resent purchase): nothing opens twice
     await call(p, 'POST', '/v1/shop/buy', { item_key: 'mat_plank', request_id: 'req-plank-001' }, dev);
     const again = await call(p, 'GET', '/v1/plot', undefined, dev);

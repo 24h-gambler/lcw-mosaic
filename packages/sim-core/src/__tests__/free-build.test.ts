@@ -17,6 +17,7 @@ import {
   isInPlot,
   parseBlockRelay,
   starterInventory,
+  stowInInventory,
   terrainHeight,
   townGuardAt,
   townProtected,
@@ -171,6 +172,25 @@ describe('applyPlotOp in the open world (R326)', () => {
     s.world.setBlock({ id: 'sys', isSystemGen: true }, MX, h + 1, MZ, BK.water);
     expect(applyPlotOp(s, ME, { op: 'place', x: MX, y: h + 1, z: MZ, slot: 1 }).ok).toBe(true);
     expect(applyPlotOp(s, ME, { op: 'place', x: MX, y: h + 1, z: MZ, slot: 1 })).toMatchObject({ ok: false, reason: 'occupied' });
+  });
+});
+
+describe('a shop bundle lands in the hand (R326, docs/19 9장)', () => {
+  it('fills the same stack, then an empty slot; a full hand sends its last stack to the chest and nothing is lost', () => {
+    const inv = starterInventory();
+    const count = (ref: string) => inv.slots.reduce((n, x) => n + (x?.ref === ref ? x.n : 0), 0) + (inv.chest[ref as never] ?? 0);
+    const torch = count(blockRef(BK.torch));
+    const plank = count(blockRef(BK.plank));
+    stowInInventory(inv, blockRef(BK.plank), 16);
+    expect(inv.slots[4]).toEqual({ ref: blockRef(BK.plank), n: 16 });
+    expect(count(blockRef(BK.torch))).toBe(torch);
+    expect(count(blockRef(BK.plank))).toBe(plank + 16);
+    stowInInventory(inv, blockRef(BK.plank), 16); // held already: stacks, no second eviction
+    expect(inv.slots[4]).toEqual({ ref: blockRef(BK.plank), n: 32 });
+    expect(inv.slots[3]?.ref).toBe(blockRef(BK.roofRed));
+    inv.slots[2] = null;
+    stowInInventory(inv, blockRef(BK.stone), 8); // an empty slot is used first
+    expect(inv.slots[2]).toEqual({ ref: blockRef(BK.stone), n: 8 });
   });
 });
 

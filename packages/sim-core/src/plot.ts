@@ -240,11 +240,19 @@ const editor = (id: string) => ({ id, isOwner: true, townRules: true });
 const slotOk = (s: unknown): s is number => typeof s === 'number' && Number.isInteger(s) && s >= 0 && s < SLOT_COUNT;
 
 /**
- * Put n of ref into the hand (same stack first, then an empty slot); what does not fit goes to the chest. Also the way
- * a shop's block bundle lands in the build stock (edge plot.ts unpackShopBlocks). True when some went to the chest.
+ * A shop's block bundle lands in the build stock (edge plot.ts unpackShopBlocks) where the child sees it: the hand.
+ * Same stack first, then an empty slot; when the hand is full and holds none of it, the last slot's stack goes to the
+ * chest (nothing is lost) and the bundle takes that slot. What still does not fit goes to the chest.
  */
-export function stowInInventory(inv: PlotInventory, ref: ItemRef, n: number): boolean {
-  return recover(inv, ref, n);
+export function stowInInventory(inv: PlotInventory, ref: ItemRef, n: number): void {
+  const slots: Array<Stack | null> = inv.slots;
+  const held = slots.some((s) => s?.ref === ref);
+  const out = slots[slots.length - 1];
+  if (!held && n > 0 && out && !slots.includes(null)) {
+    inv.chest[out.ref] = (inv.chest[out.ref] ?? 0) + out.n;
+    slots[slots.length - 1] = null;
+  }
+  recover(inv, ref, n);
 }
 
 function recover(inv: PlotInventory, ref: ItemRef, n: number): boolean {

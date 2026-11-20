@@ -476,6 +476,14 @@ function honeyCafe(set: Setter): void {
   set(179, 1, 132, BK.hay);
 }
 
+/**
+ * The trade shop's counter (the crate row on its east wall, x 122, z 131..137, the crates and the goods on top;
+ * not the floor below nor the doorway at z 130): pressing it
+ * opens the town shop window (R326, docs/19 §9), on the shelf the goods there show (red wool = clothes, honeycomb =
+ * food, flower pot = home).
+ */
+export const TRADE_COUNTER = { x: 122, z0: 131, z1: 137, yMin: 1, yMax: 2, shelf: { 131: 'clothes', 133: 'food', 137: 'home' } as Readonly<Record<number, string>> } as const;
+
 function tradeShop(set: Setter): void {
   const x0 = 110;
   const x1 = 122;

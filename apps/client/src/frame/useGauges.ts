@@ -12,6 +12,8 @@ import { worldSay } from '../world/strings.js';
 import {
   NO_CLIMATE,
   afterFall,
+  afterHit,
+  afterSip,
   gaugeEffects,
   loadGauges,
   refillOf,
@@ -22,7 +24,7 @@ import {
   type GaugeState
 } from './gauges.js';
 
-export type GaugeNotice = 'lowHunger' | 'lowThirst' | 'lowHealth' | 'lowWarmth' | 'rested' | 'ouch' | 'ate' | 'drank' | 'warmedUp' | 'restLater';
+export type GaugeNotice = 'lowHunger' | 'lowThirst' | 'lowHealth' | 'lowWarmth' | 'rested' | 'ouch' | 'ate' | 'drank' | 'warmedUp' | 'restLater' | 'knockedOut' | 'drankWater';
 
 /** A one-off line over the bar: English, and the Korean help on a line of its own (a dot join was cut on a phone). */
 export function noticeLine(key: GaugeNotice): string {
@@ -81,14 +83,15 @@ export function useGauges(world: WorldHandle | null, frozen: boolean, onUse: (it
       was.hp = fx.lowHealth;
       was.w = fx.lowWarmth;
     };
-    /** health ran out: a rest at the square, never death (docs/03 D1) */
-    const rest = (): void => {
+    /** health ran out: a rest at the square, never death (docs/03 D1); knocked out in play fighting: the same, shielded */
+    const rest = (why: 'rested' | 'knockedOut' = 'rested'): void => {
       if (resting || g.health > 0) return;
       resting = true;
       g = restAtSquare(g);
       saveGauges(store, g, used, Date.now());
       show();
-      world.notice?.(noticeLine('rested'));
+      if (why === 'knockedOut') world.shieldHits?.(TUNING.gauges.pvpRestShieldMs);
+      world.notice?.(noticeLine(why));
       void Promise.resolve(world.goToScene('plaza')).finally(() => {
         resting = false;
       });
@@ -123,6 +126,23 @@ export function useGauges(world: WorldHandle | null, frozen: boolean, onUse: (it
       if (g.health <= 0) rest();
       else world.notice?.(noticeLine('ouch'));
     });
+    // R326: a hit takes health in free play; in a lesson (gauges frozen: nothing comes back either) it is only the push
+    // and the red edge, so a hit never walks a child out of the lesson; never while resting
+    const offHit = world.onHit?.(() => {
+      if (resting || frozenRef.current) return;
+      g = afterHit(g);
+      show();
+      if (g.health <= 0) rest('knockedOut');
+    });
+    let sipToldAt = -1e9;
+    const offSip = world.onDrinkWater?.(() => {
+      if (resting || frozenRef.current) return;
+      g = afterSip(g);
+      show();
+      const now = performance.now();
+      if (now - sipToldAt > 8000) world.notice?.(noticeLine('drankWater'));
+      sipToldAt = now;
+    });
     const off = world.onUse?.((key) => {
       const r = refillOf(key);
       if (!r || frozenRef.current) return;
@@ -153,6 +173,8 @@ export function useGauges(world: WorldHandle | null, frozen: boolean, onUse: (it
       document.removeEventListener('visibilitychange', onHidden);
       off?.();
       offFall?.();
+      offHit?.();
+      offSip?.();
       save();
       world.setMove?.(1, true);
     };

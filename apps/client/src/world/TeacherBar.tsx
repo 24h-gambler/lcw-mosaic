@@ -68,6 +68,9 @@ export const TS = {
   unfold: '선생님 패널',
   goNear: '학생 옆으로',
   follow: '같이 걷기',
+  /** R326 play fighting switch for the room (the label says what a press does) */
+  pvpOff: '때리기 끄기',
+  pvpOn: '때리기 켜기',
   following: '같이 걷는 중 · 멈추기',
   console: '콘솔로',
   say: '말하기',
@@ -149,6 +152,9 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
   const [line, setLine] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [following, setFollowing] = useState(false);
+  const [pvp, setPvp] = useState(() => world.roomPvp?.() ?? true);
+  // the button shows what the room says (hello, a reconnect, the switch's own echo), not what was last pressed
+  useEffect(() => world.onRoomPvp?.(setPvp), [world]);
   const [listening, setListening] = useState(false);
   const autoWent = useRef(false);
   const lookKey = useRef('');
@@ -376,6 +382,19 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
           >
             {following ? TS.following : TS.follow}
           </button>
+          {world.setRoomPvp ? (
+            <button
+              type="button"
+              data-testid="teach-pvp"
+              aria-pressed={!pvp}
+              style={btn}
+              onClick={() => {
+                if (!world.setRoomPvp?.(!pvp)) setMsg(TS.failed);
+              }}
+            >
+              {pvp ? TS.pvpOff : TS.pvpOn}
+            </button>
+          ) : null}
           <button type="button" style={btn} onClick={back}>
             {TS.console}
           </button>

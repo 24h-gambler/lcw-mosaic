@@ -25,11 +25,24 @@ export interface RoomSink {
   emote(id: string, e: string): void;
   /** R326: blocks someone changed in world `tag` (the receiver draws them only when it has that world open) */
   blocks?(id: string, tag: string, cells: Array<[number, number, number, number]>, furniture: Array<[number, number, number, string, number]>): void;
+  /** R326 play fighting: `from` hit `to` (d = push direction on the ground); everyone draws it, the target takes it */
+  hit?(from: string, to: string, d: readonly [number, number]): void;
+  /** play fighting on / off in this room (hello, and the teacher's switch) */
+  pvp?(on: boolean): void;
+  /** the client hands the world its way back to the room (hits); null when the client stops */
+  bind?(out: RoomOut | null): void;
   full(cap: number): void;
   /** this person opened the world in another tab, which now holds the seat (close 4009): this tab stays alone */
   replaced?(): void;
   /** every peer gone (socket closed): the figures are removed until the next hello */
   reset(): void;
+}
+
+/** What the world sends to the room besides its pose. */
+export interface RoomOut {
+  hit(to: string): void;
+  /** false: the room is not connected, nothing was sent */
+  setPvp(on: boolean): boolean;
 }
 
 interface SocketLike {
@@ -112,7 +125,9 @@ export class RoomClient {
   /** people in the room besides me: alone, nothing is sent but the keep-alive */
   private others = new Set<string>();
 
-  constructor(private readonly o: RoomClientOptions) {}
+  constructor(private readonly o: RoomClientOptions) {
+    o.sink.bind?.(this);
+  }
 
   private get now(): number {
     return (this.o.now ?? (() => performance.now()))();
@@ -131,6 +146,7 @@ export class RoomClient {
 
   stop(): void {
     this.stopped = true;
+    this.o.sink.bind?.(null);
     this.cancel(this.timer);
     this.cancel(this.poseTimer);
     this.timer = this.poseTimer = null;
@@ -280,6 +296,7 @@ export class RoomClient {
           if (typeof x === 'number' && typeof z === 'number') this.otherPos.set(p.id, { x, z, vx: v.vx, vz: v.vz, w: v.w, t: this.now - v.ageMs });
         }
         sink.hello(String(f.you), peers);
+        sink.pvp?.(f.pvp !== false);
         this.lastSent = null;
         this.tickPose();
         break;
@@ -317,6 +334,14 @@ export class RoomClient {
         if (b) sink.blocks?.(String(f.id), b.w, b.c, b.f);
         break;
       }
+      case 'h': {
+        const d = Array.isArray(f.d) && typeof f.d[0] === 'number' && typeof f.d[1] === 'number' ? ([f.d[0], f.d[1]] as const) : ([0, 0] as const);
+        sink.hit?.(String(f.from), String(f.to), d);
+        break;
+      }
+      case 'pvp':
+        sink.pvp?.(f.on !== false);
+        break;
       case 'pong':
         if (typeof f.c === 'number') this.rttMs = Math.round(this.now - f.c);
         break;
@@ -435,6 +460,16 @@ export class RoomClient {
       best = Math.min(best, Math.hypot(ox - x, oz - z));
     }
     return best;
+  }
+
+  hit(to: string): void {
+    if (this.ws?.readyState === 1 && to) this.ws.send(JSON.stringify({ t: 'h', to }));
+  }
+
+  setPvp(on: boolean): boolean {
+    if (this.ws?.readyState !== 1) return false;
+    this.ws.send(JSON.stringify({ t: 'pvp', on }));
+    return true;
   }
 
   emote(e: string): void {

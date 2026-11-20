@@ -25,13 +25,19 @@ interface WsLike {
   serializeAttachment(v: unknown): void;
   deserializeAttachment(): unknown;
 }
+/** storage key of the room's play-fighting switch (true = off) */
+const PVP_OFF_KEY = 'pvpOff';
 interface RoomState {
   acceptWebSocket(ws: WsLike, tags?: string[]): void;
   getWebSockets(tag?: string): WsLike[];
   setWebSocketAutoResponse?(pair: unknown): void;
   getWebSocketAutoResponseTimestamp?(ws: WsLike): Date | null;
+  /** R326: the teacher's play-fighting switch outlives an empty room (the sockets keep it only while someone is in) */
+  storage?: { get(key: string): Promise<unknown>; put(key: string, value: unknown): Promise<void> };
 }
 interface Attachment {
+  /** R326: the room's play fighting was turned off (kept on every socket, so it survives hibernation) */
+  pvpOff?: boolean;
   id: string;
   key: string;
   name: string;
@@ -75,7 +81,10 @@ export class WorldRoomDO {
     const now = Date.now();
     for (const ws of state.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null;
-      if (a?.id) this.core.restore(a, now);
+      if (!a?.id) continue;
+      const { pvpOff, ...member } = a;
+      this.core.restore(member, now);
+      if (pvpOff) this.core.pvp = false;
     }
   }
 
@@ -87,6 +96,11 @@ export class WorldRoomDO {
     const role = request.headers.get(ROOM_HEADERS.role) as RoomRole | null;
     if (!key || !role || !ROLES.includes(role)) return new Response('forbidden', { status: 403 });
     const name = cleanRoomName(decodeURIComponent(request.headers.get(ROOM_HEADERS.name) ?? ''));
+    if (!this.pvpLoaded) {
+      this.pvpLoaded = true;
+      // the first to come in after the room emptied reads the switch before its hello says it
+      if ((await this.state.storage?.get(PVP_OFF_KEY).catch(() => undefined)) === true) this.core.pvp = false;
+    }
 
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -102,7 +116,7 @@ export class WorldRoomDO {
       return new Response(null, { status: 101, webSocket: client } as ResponseInit);
     }
     const m = this.core.members.get(id)!;
-    server.serializeAttachment({ id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt } satisfies Attachment);
+    server.serializeAttachment({ id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt, ...(this.core.pvp ? {} : { pvpOff: true }) } satisfies Attachment);
     if (res.replaces) {
       for (const old of this.state.getWebSockets(res.replaces)) old.close(ROOM_CLOSE.replaced, 'replaced');
       this.broadcast(JSON.stringify({ t: 'leave', id: res.replaces }), id);
@@ -126,6 +140,7 @@ export class WorldRoomDO {
         break;
       case 'broadcast':
         this.broadcast(r.frame, r.exceptSelf ? a.id : null);
+        if ((JSON.parse(r.frame) as { t?: string }).t === 'pvp') this.keepPvp();
         break;
       case 'dirty':
         this.scheduleFlush();
@@ -133,6 +148,21 @@ export class WorldRoomDO {
       case 'close':
         this.drop(ws, a.id, r.code, r.reason);
         break;
+    }
+  }
+
+  /** the teacher's play-fighting switch onto every socket (the room may sleep and wake from them) */
+  /** the stored switch was read (once per object life: after that the core holds it) */
+  private pvpLoaded = false;
+
+  private keepPvp(): void {
+    this.pvpLoaded = true;
+    void this.state.storage?.put(PVP_OFF_KEY, !this.core.pvp).catch(() => undefined);
+    for (const ws of this.state.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null;
+      if (!a?.id) continue;
+      const { pvpOff: _old, ...rest } = a;
+      ws.serializeAttachment(this.core.pvp ? rest : { ...rest, pvpOff: true });
     }
   }
 
@@ -180,7 +210,7 @@ export class WorldRoomDO {
     if (out) {
       // The attachment carries the last pose so a room that hibernates can still greet a newcomer with it.
       for (const m of out.moved) {
-        for (const ws of this.state.getWebSockets(m.id)) ws.serializeAttachment({ id: m.id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt } satisfies Attachment);
+        for (const ws of this.state.getWebSockets(m.id)) ws.serializeAttachment({ id: m.id, key: m.key, name: m.name, role: m.role, pose: m.pose, proto: m.proto, at: m.poseAt, ...(this.core.pvp ? {} : { pvpOff: true }) } satisfies Attachment);
       }
       this.broadcast(out.frame, null);
     }

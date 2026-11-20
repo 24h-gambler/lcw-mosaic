@@ -129,3 +129,47 @@ describe('pose prediction (predictPose, docs/02 §11.3)', () => {
     expect(Math.hypot(hx, hz)).toBeCloseTo(6, 6); // half way round: the diameter
   });
 });
+
+describe('play fighting (R326 PvP)', () => {
+  const kid = (core: RoomCore, i: number, x: number, role: 'player' | 'student' | 'teacher' = 'player') => {
+    core.join({ id: `k${i}`, key: `key${i}`, name: `n${i}`, role }, 0);
+    core.receive(`k${i}`, JSON.stringify({ t: 'p', p: [x, 1, 0, 0, 0] }), 1);
+  };
+  it('a hit within reach goes to everyone with the push direction; out of reach, too soon or at oneself does nothing', () => {
+    const core = new RoomCore();
+    kid(core, 1, 0);
+    kid(core, 2, 2);
+    kid(core, 3, 20);
+    kid(core, 4, 3);
+    const r = core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 1000);
+    expect(r).toEqual({ kind: 'broadcast', frame: JSON.stringify({ t: 'h', from: 'k1', to: 'k2', d: [1, 0] }), exceptSelf: false });
+    // the cooldown
+    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 1000 + TUNING.multi.hitCooldownMs - 1)).toEqual({ kind: 'none' });
+    // one child takes at most one hit per hitTakenGapMs, however many hit (k4 stands as near as k1)
+    expect(core.receive('k4', JSON.stringify({ t: 'h', to: 'k2' }), 1000 + TUNING.multi.hitTakenGapMs - 1)).toEqual({ kind: 'none' });
+    const gap = Math.max(TUNING.multi.hitCooldownMs, TUNING.multi.hitTakenGapMs);
+    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 1000 + gap).kind).toBe('broadcast');
+    expect(core.receive('k4', JSON.stringify({ t: 'h', to: 'k2' }), 1000 + 2 * gap).kind).toBe('broadcast');
+    // too far
+    expect(core.receive('k2', JSON.stringify({ t: 'h', to: 'k3' }), 5000)).toEqual({ kind: 'none' });
+    // nobody / oneself is junk
+    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k1' }), 9000)).toEqual({ kind: 'none' });
+    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'nobody' }), 9000)).toEqual({ kind: 'none' });
+    expect(core.counters.dropped).toBe(2);
+  });
+  it('only the teacher turns it off and on; when off no hit goes through; hello says the state; the teacher is never hit', () => {
+    const core = new RoomCore();
+    kid(core, 1, 0, 'student');
+    kid(core, 2, 1, 'student');
+    kid(core, 9, 2, 'teacher');
+    expect(core.receive('k1', JSON.stringify({ t: 'pvp', on: false }), 10)).toEqual({ kind: 'none' });
+    expect(core.pvp).toBe(true);
+    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k9' }), 20)).toEqual({ kind: 'none' });
+    expect(core.receive('k9', JSON.stringify({ t: 'pvp', on: false }), 30)).toEqual({ kind: 'broadcast', frame: '{"t":"pvp","on":false}', exceptSelf: false });
+    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 40)).toEqual({ kind: 'none' });
+    const late = core.join({ id: 'k5', key: 'key5', name: 'n5', role: 'student' }, 50);
+    expect(late.ok && JSON.parse(late.hello).pvp).toBe(false);
+    core.receive('k9', JSON.stringify({ t: 'pvp', on: true }), 60);
+    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 70).kind).toBe('broadcast');
+  });
+});

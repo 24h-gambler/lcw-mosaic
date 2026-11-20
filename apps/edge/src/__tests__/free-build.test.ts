@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BK, FREE_MAX_CELLS, OverlayWorld, terrainHeight } from '@lcw/sim-core';
+import { BK, FREE_MAX_CELLS, OverlayWorld, blockRef, terrainHeight } from '@lcw/sim-core';
+import { shopItem } from '@lcw/content';
 import { PlatformDO, homeWorldId, type LcwEnv } from '../platform.js';
 import { PlotStore, baseTownWorld, worldTag } from '../plot.js';
 import { createNodeSqliteExecutor } from '../node-sqlite.js';
@@ -134,5 +135,55 @@ describe('PlotStore over the shared town (R326)', () => {
     const out = full.applyOps([{ op: 'place', x: 30, y: terrainHeight(30, 30) + 1, z: 30, slot: 0 }, { op: 'place', x: 126, y: 1, z: 170, slot: 0 }], 9000);
     expect(out.results).toEqual([{ ok: false, reason: 'too_many' }, { ok: true }]);
     console.log(`[R326] world at the cap: ${FREE_MAX_CELLS} cells, heap +${mb.toFixed(2)} MB, snapshot ${JSON.stringify(full.snapshot()).length} bytes`);
+  });
+});
+
+describe('shop block bundles become build stock (R326, docs/19 9장)', () => {
+  const total = (inv: { slots: Array<{ ref: string; n: number } | null>; chest: Record<string, number> }, ref: string) =>
+    inv.slots.reduce((n, s) => n + (s?.ref === ref ? s.n : 0), 0) + (inv.chest[ref] ?? 0);
+
+  it('a bought bundle opens once into the hand and chest at the next plot read, and is gone from the bag', async () => {
+    const p = new PlatformDO({ storage: fakeDurableStorage() }, env);
+    const { dev } = await linkedChild(p);
+    const before = await call(p, 'GET', '/v1/plot', undefined, dev);
+    const pack = shopItem('mat_plank')!;
+    expect(pack.block).toEqual({ key: 'plank', count: 16 });
+    const shop = await call(p, 'GET', '/v1/shop', undefined, dev);
+    expect(shop.body.coins_total).toBeGreaterThanOrEqual(shop.body.prices.mat_plank);
+    const buy = await call(p, 'POST', '/v1/shop/buy', { item_key: 'mat_plank', request_id: 'req-plank-001' }, dev);
+    expect(buy.status).toBe(201);
+    const after = await call(p, 'GET', '/v1/plot', undefined, dev);
+    expect(total(after.body.inv, blockRef(BK.plank)) - total(before.body.inv, blockRef(BK.plank))).toBe(16);
+    expect(after.body.rev).toBe(before.body.rev + 1);
+    // read again (and a resent purchase): nothing opens twice
+    await call(p, 'POST', '/v1/shop/buy', { item_key: 'mat_plank', request_id: 'req-plank-001' }, dev);
+    const again = await call(p, 'GET', '/v1/plot', undefined, dev);
+    expect(total(again.body.inv, blockRef(BK.plank))).toBe(total(after.body.inv, blockRef(BK.plank)));
+    expect((await call(p, 'GET', '/v1/shop', undefined, dev)).body.owned.mat_plank ?? 0).toBe(0);
+    // one bought mid-play opens with the next edit, and the answer says so
+    await call(p, 'POST', '/v1/shop/buy', { item_key: 'mat_plank', request_id: 'req-plank-002' }, dev);
+    const ops = await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: MX, y: H + 1, z: MZ, slot: 0 }] }, dev);
+    expect(ops.body.unpacked).toBe(1);
+    expect(total(ops.body.inv, blockRef(BK.plank))).toBe(total(again.body.inv, blockRef(BK.plank)) + 16);
+  });
+
+  it('opens only unopened bundles of the owner, the count from the catalog, in one transaction', () => {
+    const db = createNodeSqliteExecutor(':memory:');
+    db.exec('create table if not exists items (id text primary key, owner text not null, spec text not null, location text not null, durability integer not null, card_id text)');
+    const s = new PlotStore(db, 'kid', 0);
+    const put = (id: string, owner: string, spec: unknown, loc = 'bag') => db.run('insert into items (id, owner, spec, location, durability) values (?, ?, ?, ?, 100)', [id, owner, JSON.stringify(spec), loc]);
+    put('a', 'kid', { kind: 'shop', item: 'mat_brick', block: 'brick', count: 999 }); // a forged count: the catalog's wins
+    put('b', 'kid', { kind: 'shop', item: 'mat_glass' }, 'chest');
+    put('c', 'kid', { kind: 'shop', item: 'hat_red' }); // not a bundle
+    put('d', 'other', { kind: 'shop', item: 'mat_brick' }); // someone else's
+    put('e', 'kid', { kind: 'shop', item: 'mat_brick' }, 'equipped');
+    put('f', 'kid', 'not json');
+    const brick0 = total(s.plotState.inv as never, blockRef(BK.brick));
+    expect(s.unpackShopBlocks(10)).toBe(2);
+    expect(total(s.plotState.inv as never, blockRef(BK.brick)) - brick0).toBe(shopItem('mat_brick')!.block!.count);
+    expect(db.all<{ id: string }>('select id from items order by id').map((r) => r.id)).toEqual(['c', 'd', 'e', 'f']);
+    expect(s.unpackShopBlocks(20)).toBe(0);
+    // saved: a new store over the same storage has the same stock
+    expect(total(new PlotStore(db, 'kid', 0).plotState.inv as never, blockRef(BK.glass))).toBe(total(s.plotState.inv as never, blockRef(BK.glass)));
   });
 });

@@ -23,6 +23,8 @@ import {
   parsePlotOp,
   parseRef,
   starterInventory,
+  stowInInventory,
+  blockRef,
   type BuildScope,
   type FurnitureKey,
   type ItemRef,
@@ -31,7 +33,20 @@ import {
   type PlotInventory,
   type PlotState
 } from '@lcw/sim-core';
+import { BLOCK_PALETTE, shopItem } from '@lcw/content';
 import { runInTransaction, type SqliteExecutor } from './storage.js';
+
+const BLOCK_ID_BY_KEY = new Map(BLOCK_PALETTE.map((b) => [b.key, b.id] as const));
+/** Where a bought thing can sit before it is opened (an item offered in a trade has left `items`: escrow). */
+const UNOPENED_PLACES = ['bag', 'hotbar', 'chest'];
+function readSpec(raw: string): { kind?: unknown; item?: unknown } | null {
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return v && typeof v === 'object' ? (v as { kind?: unknown; item?: unknown }) : null;
+  } catch {
+    return null;
+  }
+}
 
 export const PLOT_SCHEMA_SQL = `
 create table if not exists plot_cells (x integer not null, y integer not null, z integer not null, id integer not null, primary key (x, y, z));
@@ -301,6 +316,52 @@ export class PlotStore {
       throw err;
     }
     return true;
+  }
+
+  /**
+   * A shop's block bundles (`mat_<block>`, docs/19 9장, `ShopItemDef.block {key, count}`) become build stock (R326): each
+   * unopened bundle the child owns leaves `items` and its blocks go into the carried stacks (the rest to the chest), in
+   * one transaction with a journal line, so a bundle is opened once and never twice (the row is gone with the same
+   * commit that adds the blocks). The count comes from the catalog, never from the stored spec. Returns how many opened.
+   */
+  unpackShopBlocks(nowMs: number): number {
+    const hasItems = this.sql.get<{ n: number }>("select count(*) as n from sqlite_master where type = 'table' and name = 'items'");
+    if (!hasItems || Number(hasItems.n) === 0) return 0;
+    const rows = this.sql.all<{ id: string; spec: string }>(
+      `select id, spec from items where owner = ? and location in (${UNOPENED_PLACES.map(() => '?').join(', ')})`,
+      [this.playerId, ...UNOPENED_PLACES]
+    );
+    const open: Array<{ id: string; ref: ItemRef; n: number; key: string }> = [];
+    for (const r of rows) {
+      const spec = readSpec(r.spec);
+      if (spec?.kind !== 'shop' || typeof spec.item !== 'string') continue;
+      const b = shopItem(spec.item)?.block;
+      const id = b ? BLOCK_ID_BY_KEY.get(b.key) : undefined;
+      if (!b || id === undefined || !parseRef(blockRef(id)) || !Number.isInteger(b.count) || b.count <= 0) continue;
+      open.push({ id: r.id, ref: blockRef(id), n: b.count, key: spec.item });
+    }
+    if (open.length === 0) return 0;
+    try {
+      runInTransaction(this.sql, () => {
+        for (const o of open) {
+          this.sql.run('delete from items where id = ? and owner = ?', [o.id, this.playerId]);
+          stowInInventory(this.state.inv, o.ref, o.n);
+        }
+        const nextRev = this.rev + 1;
+        this.sql.run('insert or replace into plot_inv (player, data, rev) values (?, ?, ?)', [this.playerId, JSON.stringify(this.state.inv), nextRev]);
+        this.sql.run('insert into plot_journal (at, actor, ops, results) values (?, ?, ?, ?)', [
+          nowMs,
+          'system',
+          JSON.stringify(open.map((o) => ({ op: 'unpack', item: o.id, key: o.key, ref: o.ref, n: o.n }))),
+          JSON.stringify(open.map(() => ({ ok: true })))
+        ]);
+        this.rev = nextRev;
+      });
+    } catch (err) {
+      this.state = this.load();
+      throw err;
+    }
+    return open.length;
   }
 
   /** The cells a guest pass placed here and may break again (the snapshot a friend gets carries them). */

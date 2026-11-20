@@ -28,7 +28,7 @@ import { NPC_GREETINGS_EN, SCENE_TITLES_KO, WORLD_STRINGS as W, npcName, welcome
 import { PlotBuilder, type Aim, type BuildReason, type CellChange } from './build.js';
 import { BuildHud, BuildIcons, refNameKo } from './build-hud.js';
 import { BuildView } from './build-view.js';
-import { PlotSync } from './plot-sync.js';
+import { PLOT_REFRESH_EVENT, PlotSync } from './plot-sync.js';
 import { buildMapInfo } from './map-info.js';
 import { DEFAULT_CAM_MODE, EYE_Y, NPC_FACE_Y, cycleCamMode, dialogShot, toggleMirror, toggleThirdPerson, type CamMode } from './dialog-shot.js';
 import { FirstPersonHands } from './viewmodel.js';
@@ -663,6 +663,9 @@ ${line(s.help)}` : line(s.text), 4000);
     relayTimer ??= setTimeout(relayFlush, 150);
   };
   builder.onCells = relayCells;
+  // R326: a block bundle bought in the shop opened into the stock on the server: read the hand and the chest again
+  const onPlotRefresh = (): void => void plotSync?.refresh();
+  window.addEventListener(PLOT_REFRESH_EVENT, onPlotRefresh);
   let tool: 'place' | 'break' = 'place';
   let aim: Aim | null = null;
   let mouseAt: { x: number; y: number } | null = null;
@@ -2183,6 +2186,8 @@ ${line(s.help)}` : line(s.text), 4000);
       canvas.removeEventListener('contextmenu', contextMenu);
       plotSync?.stop();
       builder.dispose();
+      window.removeEventListener(PLOT_REFRESH_EVENT, onPlotRefresh);
+      if (relayTimer) clearTimeout(relayTimer);
       buildHud?.dispose();
       buildView.dispose();
       storefronts.dispose();

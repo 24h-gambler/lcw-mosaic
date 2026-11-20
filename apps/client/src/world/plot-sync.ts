@@ -60,6 +60,12 @@ function batchId(): string {
   return `${Date.now().toString(36)}-${s}`;
 }
 
+/**
+ * R326: something outside the build screen changed this child's build stock on the server (a block bundle bought in
+ * the shop, frame/shop-api.ts): the world reads its plot again once nothing is waiting to go up.
+ */
+export const PLOT_REFRESH_EVENT = 'lcw:plot-refresh';
+
 export class PlotSync {
   private queue: PlotOp[] = [];
   private inFlight: Batch | null = null;
@@ -240,7 +246,7 @@ export class PlotSync {
       return true;
     }
     if (res.status >= 500 || res.status === 429) return false;
-    const body = (await res.json().catch(() => null)) as { results?: Array<{ ok: boolean; reason?: string }>; processed?: number } | null;
+    const body = (await res.json().catch(() => null)) as { results?: Array<{ ok: boolean; reason?: string }>; processed?: number; unpacked?: number } | null;
     this.inFlight = null;
     if (!body || !Array.isArray(body.results)) {
       // 400: the batch itself was malformed; drop it and take the server's plot
@@ -265,8 +271,28 @@ export class PlotSync {
       this.queue = [];
       this.persist();
       await this.resync();
+    } else if (typeof body.unpacked === 'number' && body.unpacked > 0) this.refreshWanted = true;
+    if (this.refreshWanted && !this.inFlight && this.queue.length === 0) {
+      // a bundle opened into the stock on the server (R326): the hand and the chest come from the server again
+      this.refreshWanted = false;
+      await this.resync();
     }
     return true;
+  }
+
+  private refreshWanted = false;
+
+  /**
+   * Read the plot again for a change made elsewhere (R326 shop bundles). With edits still waiting, after they went up:
+   * a snapshot read in between would hide them on this device.
+   */
+  async refresh(): Promise<void> {
+    if (this.stopped) return;
+    if (this.inFlight || this.queue.length > 0) {
+      this.refreshWanted = true;
+      return;
+    }
+    await this.resync();
   }
 
   private async resync(): Promise<void> {

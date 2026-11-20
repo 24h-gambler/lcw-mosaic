@@ -597,6 +597,8 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const store = plotStoreFor(world, world.sql, playerId, deps.nowMs());
     // set only by the platform's guest-pass gate (a child's own request has it cleared there)
     const guest = c.req.query('guest_grant') ?? '';
+    // R326: block bundles the child bought open into the build stock (the owner's own read only, never a guest's)
+    if (!guest) store.unpackShopBlocks(deps.nowMs());
     // R326: where this caller may build (a lesson token: the plot only) and the world's relay tag
     const scope = c.req.query('plot_only') === '1' ? 'plot' : 'world';
     const snap = { ...store.snapshot(), scope, world_tag: worldTag(c.req.query('world_id') ?? '') };
@@ -615,7 +617,11 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     const guestGrant = typeof body.guest_grant === 'string' && body.guest_grant ? body.guest_grant : undefined;
     // set only by the platform from the token (a lesson builds on the plot only, R326), never by a child's body
     const scope = body.plot_only === true ? 'plot' : 'world';
-    return c.json(plotStoreFor(world, world.sql, playerId, deps.nowMs()).applyOps(body.ops, deps.nowMs(), { batch, guestGrant, scope }));
+    const store = plotStoreFor(world, world.sql, playerId, deps.nowMs());
+    // a bundle bought while playing opens with the next edit; `unpacked` tells the device to read its stock again
+    const unpacked = guestGrant ? 0 : store.unpackShopBlocks(deps.nowMs());
+    const out = store.applyOps(body.ops, deps.nowMs(), { batch, guestGrant, scope });
+    return c.json(unpacked > 0 ? { ...out, unpacked } : out);
   });
 
   app.post('/v1/review/attempt', async (c) => {

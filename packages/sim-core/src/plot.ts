@@ -239,7 +239,14 @@ const editor = (id: string) => ({ id, isOwner: true, townRules: true });
 
 const slotOk = (s: unknown): s is number => typeof s === 'number' && Number.isInteger(s) && s >= 0 && s < SLOT_COUNT;
 
-/** Put n of ref into the hand (same stack first, then an empty slot); what does not fit goes to the chest. */
+/**
+ * Put n of ref into the hand (same stack first, then an empty slot); what does not fit goes to the chest. Also the way
+ * a shop's block bundle lands in the build stock (edge plot.ts unpackShopBlocks). True when some went to the chest.
+ */
+export function stowInInventory(inv: PlotInventory, ref: ItemRef, n: number): boolean {
+  return recover(inv, ref, n);
+}
+
 function recover(inv: PlotInventory, ref: ItemRef, n: number): boolean {
   let left = n;
   for (const s of inv.slots) {

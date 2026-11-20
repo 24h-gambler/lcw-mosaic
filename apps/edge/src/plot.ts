@@ -161,14 +161,18 @@ export class PlotStore {
     return { world, furniture, inv, scope: 'world', budget: { townAt: (x, y, z) => base.getBlock(x, y, z), get used() { return world.changedOutsidePlot; } } };
   }
 
-  snapshot(): PlotSnapshot {
+  /**
+   * The saved cells a device draws. A lesson token (scope 'plot') gets the plot only: the class shares one town, so a
+   * tower or a hole the child made at home must not appear there (classmates would walk on air on this screen).
+   */
+  snapshot(scope: BuildScope = 'world'): PlotSnapshot {
     const cells: Array<[number, number, number, number]> = [];
     const world = this.state.world;
     for (const row of this.sql.all<{ x: number; y: number; z: number; id: number }>('select x, y, z, id from plot_cells order by y, z, x')) {
       const x = Number(row.x);
       const y = Number(row.y);
       const z = Number(row.z);
-      if (buildCellRule(world, x, y, z, 'world')) continue;
+      if (buildCellRule(world, x, y, z, scope)) continue;
       cells.push([x, y, z, Number(row.id)]);
     }
     const furniture: PlotSnapshot['furniture'] = [];

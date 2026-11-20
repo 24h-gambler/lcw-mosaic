@@ -26,6 +26,8 @@ import {
   furnitureDef,
   furnitureRef,
   isInPlot,
+  isOpenCell,
+  TUNING,
   parseRef,
   plotRegion,
   recoveredBlock,
@@ -178,6 +180,12 @@ export class PlotBuilder {
   worldTag = '';
   /** how many relayed cells were drawn (stats) */
   remoteCells = 0;
+  /**
+   * Relayed cells drawn since the last server read. The room cannot tell who owns a world tag, so a relay is display
+   * only and bounded: past TUNING.building.relay.remoteCellsMax the rest waits for my next server read, which also
+   * puts every relayed cell back to the saved truth.
+   */
+  private remoteSinceRead = 0;
 
   /** `world` must be the town as the builder made it: the delta takes every unchanged cell as the town's. */
   constructor(
@@ -256,7 +264,8 @@ export class PlotBuilder {
         else if (what?.kind === 'block' && this.overlapsPlayer(place, player)) placeReason = 'self';
         else if (what?.kind === 'furniture') {
           const below = this.world.getBlock(place.x, place.y - 1, place.z);
-          if (below === 0 || this.state.furniture.has(cellKey(place.x, place.y - 1, place.z))) placeReason = 'no_support';
+          // the same support rule as the server (sim-core applyPlotOp): grass tufts, flowers and water hold nothing up
+          if (isOpenCell(below) || this.state.furniture.has(cellKey(place.x, place.y - 1, place.z))) placeReason = 'no_support';
         } else if (what?.kind === 'block' && this.overBudget(place.x, place.y, place.z, prev, what.id)) placeReason = 'too_many';
       }
     }
@@ -403,14 +412,16 @@ export class PlotBuilder {
    */
   applySnapshot(snap: PlotSnapshotLike): Array<[number, number, number, number]> {
     if (snap.scope === 'plot' || snap.scope === 'world') this.scope = snap.scope;
+    this.remoteSinceRead = 0;
     if (typeof snap.world_tag === 'string') this.worldTag = snap.world_tag;
     const want = new Map<number, number>();
     for (const c of snap.cells ?? []) {
       if (!Array.isArray(c) || c.length < 4) continue;
       const [x, y, z, id] = c as unknown[];
       if (typeof x !== 'number' || typeof y !== 'number' || typeof z !== 'number' || typeof id !== 'number') continue;
-      // the server keeps only cells its rules allow; the same rule here keeps a stale or odd entry off the screen
-      if (buildCellRule(this.world, x, y, z, 'world')) continue;
+      // the server keeps only cells its rules allow; the same rule here keeps a stale or odd entry off the screen, and in
+      // a lesson (scope 'plot') the home world's free build stays out of the shared class town
+      if (buildCellRule(this.world, x, y, z, this.scope)) continue;
       want.set(cellIndex(x, y, z), id);
     }
     const changed: Array<[number, number, number, number]> = [];
@@ -456,7 +467,7 @@ export class PlotBuilder {
 
   /**
    * Cells another person in this world just changed (R326 block relay: a friend on a guest pass in my world, or the
-   * host while I visit). The server already saved them; this draws them. A relay for another world (a sibling's own
+   * host while I visit). The sender relays them once its server took them; this only draws them (bounded by remoteCellsMax). A relay for another world (a sibling's own
    * world in the family room) is ignored, and each cell still passes the build rule here. Returns how many were drawn.
    */
   applyRemote(tag: string, cells: ReadonlyArray<readonly [number, number, number, number]>, furniture: ReadonlyArray<readonly [number, number, number, string, number]> = []): number {
@@ -464,7 +475,8 @@ export class PlotBuilder {
     const sys = { id: 'plot_relay', isSystemGen: true };
     let n = 0;
     for (const [x, y, z, id] of cells) {
-      if (buildCellRule(this.world, x, y, z, 'world')) continue;
+      if (this.remoteSinceRead + n >= TUNING.building.relay.remoteCellsMax) break;
+      if (buildCellRule(this.world, x, y, z, this.scope)) continue;
       if (id !== 0 && !BLOCK_IDS.has(id)) continue;
       const before = this.world.getBlock(x, y, z);
       if (before === id) continue;
@@ -480,7 +492,7 @@ export class PlotBuilder {
     }
     let furn = false;
     for (const [x, y, z, key, rot] of furniture) {
-      if (buildCellRule(this.world, x, y, z, 'world')) continue;
+      if (buildCellRule(this.world, x, y, z, this.scope)) continue;
       const k = cellKey(x, y, z);
       if (key === '') furn = this.state.furniture.delete(k) || furn;
       else if (furnitureDef(key)) {
@@ -491,6 +503,7 @@ export class PlotBuilder {
     }
     if (furn) this.hooks.furnitureChanged();
     this.remoteCells += n;
+    this.remoteSinceRead += n;
     return n;
   }
 

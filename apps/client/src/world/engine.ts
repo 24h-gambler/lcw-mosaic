@@ -644,14 +644,21 @@ ${line(s.help)}` : line(s.text), 4000);
   const relayListeners = new Set<(tag: string, c: CellChange) => void>();
   let relayOut: CellChange = { cells: [], furniture: [] };
   let relayTimer: ReturnType<typeof setTimeout> | null = null;
+  const RELAY = TUNING.building.relay;
   const relayFlush = (): void => {
     relayTimer = null;
+    // only what the server has taken goes out: while my edits are still on their way the burst waits (a refused one
+    // comes back through onResync, which swaps the held cells for the server's values)
+    if (plotSync && plotSync.pending > 0) {
+      relayTimer = setTimeout(relayFlush, RELAY.holdMs);
+      return;
+    }
     const out = relayOut;
     relayOut = { cells: [], furniture: [] };
     if (!builder.worldTag || relayListeners.size === 0) return;
-    // a room message stays small (sim-core room.ts: 512 bytes, 16 cells, 4 furniture): 12 cells / 2 furniture a frame
-    for (let i = 0, j = 0; i < out.cells.length || j < out.furniture.length; i += 12, j += 2) {
-      const part = { cells: out.cells.slice(i, i + 12), furniture: out.furniture.slice(j, j + 2) };
+    // a room message stays small (sim-core room.ts: 512 bytes, frameCells / frameFurniture): sendCells a frame
+    for (let i = 0, j = 0; i < out.cells.length || j < out.furniture.length; i += RELAY.sendCells, j += RELAY.sendFurniture) {
+      const part = { cells: out.cells.slice(i, i + RELAY.sendCells), furniture: out.furniture.slice(j, j + RELAY.sendFurniture) };
       for (const cb of relayListeners) cb(builder.worldTag, part);
     }
   };
@@ -660,7 +667,7 @@ ${line(s.help)}` : line(s.text), 4000);
     relayOut.cells.push(...c.cells);
     relayOut.furniture.push(...c.furniture);
     // a held place repeats 4 a second: one frame for a short burst
-    relayTimer ??= setTimeout(relayFlush, 150);
+    relayTimer ??= setTimeout(relayFlush, RELAY.holdMs);
   };
   builder.onCells = relayCells;
   // R326: a block bundle bought in the shop opened into the stock on the server: read the hand and the chest again
@@ -1535,7 +1542,17 @@ ${line(s.help)}` : line(s.text), 4000);
       onResync: (snap) => {
         // the server's answer replaced what this device showed: tell the others in this world the corrected cells
         const fixed = builder.applySnapshot(snap);
-        if (fixed.length > 0 && fixed.length <= 64) relayCells({ cells: fixed, furniture: [] });
+        // the held cells (not sent yet) and the corrected ones go out with the server's value now on screen
+        const seen = new Set<string>();
+        const cells: Array<[number, number, number, number]> = [];
+        for (const [x, y, z] of [...relayOut.cells, ...fixed]) {
+          const k = `${x},${y},${z}`;
+          if (seen.has(k) || cells.length >= RELAY.resyncCellsMax) continue;
+          seen.add(k);
+          cells.push([x, y, z, builder.world.getBlock(x, y, z)]);
+        }
+        relayOut = { cells: [], furniture: relayOut.furniture.filter(([x, y, z, key]) => builder.state.furniture.get(`${x},${y},${z}`)?.key === key) };
+        if (cells.length > 0) relayCells({ cells, furniture: [] });
       },
       onStatus: (st) => {
         if (buildActive && buildAccess === 'saved') buildHud?.setSync(st);

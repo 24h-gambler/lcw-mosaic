@@ -345,8 +345,12 @@ export function applyPlotOp(state: PlotState, actorId: string, op: PlotOp): Plot
       if (!Number.isFinite(breakSeconds(prev))) return { ok: false, reason: 'unbreakable' };
       // furniture standing on this block would float
       if (furniture.has(cellKey(op.x, op.y + 1, op.z))) return { ok: false, reason: 'occupied' };
-      if (overBudget(state, op.x, op.y, op.z, prev, 0)) return { ok: false, reason: 'too_many' };
-      const res = world.setBlock(editor(actorId), op.x, op.y, op.z, 0);
+      // a block set into the town's water or a grass tuft gives that back when broken (the pond is not drained, and
+      // the cell is the town's again so it leaves the cap); a tuft broken on its own is gone
+      const town = state.budget?.townAt(op.x, op.y, op.z) ?? 0;
+      const after = (town === BK.water || town === BK.tallGrass) && prev !== town ? town : 0;
+      if (overBudget(state, op.x, op.y, op.z, prev, after)) return { ok: false, reason: 'too_many' };
+      const res = world.setBlock(editor(actorId), op.x, op.y, op.z, after);
       if (!res.ok) return { ok: false, reason: 'protected' };
       // Every palette block comes back as itself (D13 회수 100%); a dirt path gives dirt, flowers and grass tufts nothing.
       const back = recoveredBlock(prev);

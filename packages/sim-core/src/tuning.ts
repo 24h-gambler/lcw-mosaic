@@ -92,7 +92,14 @@ export const TUNING = {
      * Cells outside the plot that may differ from the town at once in one world (placed or dug). Bounds the server's
      * per-world delta (~1 MB at the cap, apps/edge/src/plot.ts) and the snapshot a device loads (~300 KB of JSON).
      */
-    freeMaxCells: 20000
+    freeMaxCells: 20000,
+    /**
+     * R326 block relay through the room ('b', sim-core room.ts): what one frame may carry (the room refuses more),
+     * what a device puts in one frame (under the 512-byte message cap), how long it gathers a burst, how many cells
+     * a resync passes on, and how many cells others may draw into my view before my next server read (a forged
+     * relay from someone who learned my world tag cannot fill my cap; the next read wipes it anyway).
+     */
+    relay: { frameCells: 16, frameFurniture: 4, sendCells: 12, sendFurniture: 2, holdMs: 150, resyncCellsMax: 512, remoteCellsMax: 2000 }
   },
   economy: {
     errandRewardCoins: 50,

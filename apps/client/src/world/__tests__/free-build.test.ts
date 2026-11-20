@@ -2,7 +2,7 @@
 // the town's places and the NPC walks stay, a snapshot puts back what the server does not hold, a relay from another
 // world is ignored.
 import { describe, expect, it } from 'vitest';
-import { BK, FREE_MAX_CELLS, VoxelWorld, buildTown, cellKey, terrainHeight, townProtected, type PlotOp } from '@lcw/sim-core';
+import { BK, FREE_MAX_CELLS, TUNING, VoxelWorld, buildTown, cellKey, terrainHeight, townProtected, type PlotOp } from '@lcw/sim-core';
 import { PlotBuilder, type CellChange } from '../build.js';
 import { NPCS, SCENES, WANDERERS } from '../town.js';
 import { BUILD_REASONS_KO } from '../strings.js';
@@ -135,10 +135,41 @@ describe('PlotBuilder in the open world (R326)', () => {
     expect(b.delta.used).toBe(2);
     // the same snapshot again changes nothing
     expect(b.applySnapshot({ cells: [[MX + 1, H, MZ, 0], [MX + 5, H + 1, MZ, BK.brick], [126, 1, 170, BK.glass]], furniture: [], inv: null, rev: 3 })).toEqual([]);
-    // a lesson snapshot says the plot only
-    b.applySnapshot({ cells: [], furniture: [], inv: null, rev: 4, scope: 'plot' });
+    // a lesson snapshot says the plot only, and a home-world cell outside the plot stays off the class town
+    b.applySnapshot({ cells: [[MX + 5, H + 1, MZ, BK.brick], [126, 1, 170, BK.glass]], furniture: [], inv: null, rev: 4, scope: 'plot' });
     expect(b.scope).toBe('plot');
-    expect(b.delta.size).toBe(0);
+    expect(b.world.getBlock(MX + 5, H + 1, MZ)).toBe(0);
+    expect(b.world.getBlock(126, 1, 170)).toBe(BK.glass);
+    expect(b.delta.used).toBe(0);
+    // a relay of the home meadow is not drawn in a lesson either
+    b.worldTag = 'wtag1';
+    expect(b.applyRemote('wtag1', [[MX + 6, H + 1, MZ, BK.brick]])).toBe(0);
+  });
+
+  it('a relay draws at most remoteCellsMax cells until the next server read (a forged tag cannot fill my cap)', () => {
+    const { b } = builder();
+    b.applySnapshot({ cells: [], furniture: [], inv: null, rev: 1, world_tag: 'wtag1' });
+    const max = TUNING.building.relay.remoteCellsMax;
+    let drawn = 0;
+    for (let x = 200; x < 262 && drawn < max + 50; x++) {
+      for (let z = 200; z < 262; z += 1) {
+        drawn += b.applyRemote('wtag1', [[x, terrainHeight(x, z) + 1, z, BK.brick]]);
+      }
+    }
+    expect(drawn).toBe(max);
+    expect(b.applyRemote('wtag1', [[MX, H + 3, MZ, BK.brick]])).toBe(0);
+    // the next server read puts the relayed cells back to the saved truth and opens the relay again
+    b.applySnapshot({ cells: [], furniture: [], inv: null, rev: 2, world_tag: 'wtag1' });
+    expect(b.delta.used).toBe(0);
+    expect(b.applyRemote('wtag1', [[MX, H + 3, MZ, BK.brick]])).toBe(1);
+  });
+
+  it('furniture needs a solid block under it, the same rule as the server (a grass tuft holds nothing up)', () => {
+    const { b } = builder();
+    b.state.inv.slots[4] = { ref: 'ffurn_chair_wood' as never, n: 1 };
+    b.world.setBlock({ id: 'sys', isSystemGen: true }, MX, H + 1, MZ, BK.tallGrass);
+    const aim = b.aim({ x: MX, y: H + 1, z: MZ, nx: 0, ny: 1, nz: 0 }, me, 4);
+    expect(aim?.placeReason).toBe('no_support');
   });
 
   it('draws a relay for the world it has open, ignores another world, a protected cell and an unknown block', () => {

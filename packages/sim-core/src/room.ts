@@ -15,8 +15,9 @@
  *                   {"t":"ping","c":<client ms>}            round trip through the room (load bots, latency read-out)
  *                   {"t":"b","w":tag,"c":[[x,y,z,id],...],"f":[[x,y,z,key,rot],...]}  R326: blocks (and furniture,
  *                                                        key '' = removed) the sender just changed in the world `w`
- *                                                        (the plot snapshot's world_tag); display only, the plot
- *                                                        store already saved or refused them (parseBlockRelay)
+ *                                                        (the plot snapshot's world_tag); display only, sent after
+ *                                                        the plot store took them (client PlotSync.pending is 0) and
+ *                                                        bounded on the receiver (parseBlockRelay, docs/03 D13)
  *                   "ping"                                  keep-alive, answered "pong" by the platform without waking the room
  *   room → client   {"t":"hello","you":id,"cap":8,"peers":[[id,name,role,x,y,z,yaw,anim,proto,vx,vz,w,ageMs],...]}
  *                   {"t":"join","id","name","role","v":proto} / {"t":"leave","id"}
@@ -131,8 +132,8 @@ export function parseRoomPose(p: unknown, limit = TUNING.multi.coordLimit): Room
 }
 
 /** R326 block relay limits: one message carries at most this many cells and furniture changes. */
-export const BLOCK_RELAY_MAX_CELLS = 16;
-export const BLOCK_RELAY_MAX_FURNITURE = 4;
+export const BLOCK_RELAY_MAX_CELLS = TUNING.building.relay.frameCells;
+export const BLOCK_RELAY_MAX_FURNITURE = TUNING.building.relay.frameFurniture;
 const RELAY_TAG_RE = /^[a-z0-9]{4,24}$/;
 const FURN_KEY_RE = /^[a-z0-9_]{0,48}$/;
 

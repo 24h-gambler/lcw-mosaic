@@ -1022,11 +1022,14 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
         player_id: p.player_id,
         world_id: p.world_id,
         guest_grant: g.grant_id,
-        plot_only: ''
+        plot_only: '',
+        unpack: ''
       }));
     }
-    // R326: a lesson token builds on the plot only (the class shares the lesson town); the child's device token anywhere
-    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id, guest_grant: '', plot_only: s.device ? '' : '1' }));
+    // R326: a lesson token builds on the plot only (the class shares the lesson town); the child's device token anywhere.
+    // Opening bought block bundles is a write: only where the seat lets the child play (a read-only seat just looks).
+    const unpack = !s.device || playAllowed(platform.sql, s.player_id, Date.now()).allowed;
+    return forwardSolo(c.req.url, s, null, (p) => ({ player_id: p.player_id, world_id: p.world_id, guest_grant: '', plot_only: s.device ? '' : '1', unpack: unpack ? '1' : '' }));
   });
   app.post('/v1/plot/ops', async (c, next) => {
     if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) return next();

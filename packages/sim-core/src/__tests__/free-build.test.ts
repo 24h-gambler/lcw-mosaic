@@ -173,6 +173,28 @@ describe('applyPlotOp in the open world (R326)', () => {
     expect(applyPlotOp(s, ME, { op: 'place', x: MX, y: h + 1, z: MZ, slot: 1 }).ok).toBe(true);
     expect(applyPlotOp(s, ME, { op: 'place', x: MX, y: h + 1, z: MZ, slot: 1 })).toMatchObject({ ok: false, reason: 'occupied' });
   });
+
+  it('breaking a block set into the town water or a grass tuft gives the water or the tuft back, off the cap', () => {
+    const s = worldState();
+    const water = s.world as OverlayWorld;
+    // a town pond cell and a tuft: what the shared town holds there (OverlayWorld base)
+    const h = terrainHeight(MX, MZ);
+    const pond = { x: MX, y: h + 1, z: MZ };
+    const tuft = { x: MX + 2, y: h + 1, z: MZ };
+    const townAt = (x: number, y: number, z: number): number => (x === pond.x && y === pond.y && z === pond.z ? BK.water : x === tuft.x && y === tuft.y && z === tuft.z ? BK.tallGrass : water.getBlock(x, y, z));
+    const st: PlotState = { ...s, budget: { townAt, get used() { return water.changedOutsidePlot; } } };
+    s.world.setBlock({ id: 'sys', isSystemGen: true }, pond.x, pond.y, pond.z, BK.water);
+    s.world.setBlock({ id: 'sys', isSystemGen: true }, tuft.x, tuft.y, tuft.z, BK.tallGrass);
+    expect(applyPlotOp(st, ME, { op: 'place', ...pond, slot: 1 }).ok).toBe(true);
+    expect(applyPlotOp(st, ME, { op: 'break', ...pond }).ok).toBe(true);
+    expect(s.world.getBlock(pond.x, pond.y, pond.z)).toBe(BK.water);
+    expect(applyPlotOp(st, ME, { op: 'place', ...tuft, slot: 1 }).ok).toBe(true);
+    expect(applyPlotOp(st, ME, { op: 'break', ...tuft }).ok).toBe(true);
+    expect(s.world.getBlock(tuft.x, tuft.y, tuft.z)).toBe(BK.tallGrass);
+    // the tuft itself broken: gone
+    expect(applyPlotOp(st, ME, { op: 'break', ...tuft }).ok).toBe(true);
+    expect(s.world.getBlock(tuft.x, tuft.y, tuft.z)).toBe(0);
+  });
 });
 
 describe('a shop bundle lands in the hand (R326, docs/19 9장)', () => {

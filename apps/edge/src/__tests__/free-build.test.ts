@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BK, FREE_MAX_CELLS, OverlayWorld, blockRef, terrainHeight } from '@lcw/sim-core';
+import { BK, FREE_MAX_CELLS, OverlayWorld, blockRef, starterInventory, terrainHeight } from '@lcw/sim-core';
 import { shopItem } from '@lcw/content';
 import { PlatformDO, homeWorldId, type LcwEnv } from '../platform.js';
 import { PlotStore, baseTownWorld, worldTag } from '../plot.js';
@@ -32,7 +32,7 @@ async function linkedChild(p: PlatformDO) {
   await call(p, 'POST', '/v1/family/service-consent', { granted: true }, g);
   const code = await call(p, 'POST', '/v1/family/children/kid-1/device-code', {}, g);
   const link = await call(p, 'POST', '/v1/device/link', { code: code.body.code, label: '태블릿' }, anon);
-  return { dev: bearer(link.body.device_token) };
+  return { dev: bearer(link.body.device_token), g };
 }
 
 const MX = 210;
@@ -89,6 +89,18 @@ describe('free build through the gateway (R326)', () => {
     expect((await call(p, 'GET', '/v1/plot?plot_only=', undefined, stu)).body.scope).toBe('plot');
     const r = await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: MX, y: H + 1, z: MZ, slot: 0 }, { op: 'place', x: 126, y: 1, z: 170, slot: 0 }], plot_only: false }, stu);
     expect(r.body.results).toEqual([{ ok: false, reason: 'not_my_plot' }, { ok: true }]);
+  });
+
+  it('in a lesson the home world free build stays out of the class town (the snapshot holds the plot only)', async () => {
+    const p = new PlatformDO({ storage: fakeDurableStorage() }, env);
+    const { dev } = await linkedChild(p);
+    await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: MX, y: H + 1, z: MZ, slot: 1 }, { op: 'place', x: 126, y: 1, z: 170, slot: 0 }] }, dev);
+    expect((await call(p, 'GET', '/v1/plot', undefined, dev)).body.cells).toHaveLength(2);
+    const st = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1' });
+    const stu = bearer((await call(p, 'POST', '/v1/join', { code: st.body.join_code }, anon)).body.student_token);
+    const inLesson = await call(p, 'GET', '/v1/plot', undefined, stu);
+    expect(inLesson.body.scope).toBe('plot');
+    expect(inLesson.body.cells).toEqual([[126, 1, 170, BK.oakPlank]]);
   });
 });
 
@@ -168,6 +180,38 @@ describe('shop block bundles become build stock (R326, docs/19 9장)', () => {
     expect(total(ops.body.inv, blockRef(BK.plank))).toBe(total(again.body.inv, blockRef(BK.plank)) + 16);
   });
 
+  it('a bundle opens after the batch: the slot numbers the device chose still mean what it showed', async () => {
+    const p = new PlatformDO({ storage: fakeDurableStorage() }, env);
+    const { dev } = await linkedChild(p);
+    expect((await call(p, 'POST', '/v1/shop/buy', { item_key: 'mat_plank', request_id: 'req-plank-101' }, dev)).status).toBe(201);
+    // the hand is full (five starter stacks) and slot 4 shows the torches
+    const r = await call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'place', x: MX, y: H + 1, z: MZ, slot: 4 }] }, dev);
+    expect(r.body.results).toEqual([{ ok: true }]);
+    expect(r.body.unpacked).toBe(1);
+    const after = await call(p, 'GET', '/v1/plot', undefined, dev);
+    expect(after.body.cells).toEqual([[MX, H + 1, MZ, BK.torch]]);
+    expect(after.body.inv.slots[4]).toEqual({ ref: blockRef(BK.plank), n: 16 });
+    // the torch stack (8 in hand, one placed) went to the chest beside the starter torches: none lost
+    expect(total(after.body.inv, blockRef(BK.torch))).toBe(total(starterInventory() as never, blockRef(BK.torch)) - 1);
+    expect(after.body.inv.chest[blockRef(BK.torch)]).toBe(total(starterInventory() as never, blockRef(BK.torch)) - 1);
+  });
+
+  it('a read-only seat looks at its plot without opening a bundle (opening is a write)', async () => {
+    const p = new PlatformDO({ storage: fakeDurableStorage() }, env);
+    const { dev, g } = await linkedChild(p);
+    // bought before the seat (a used seat cannot be refunded), then the seat is refunded: play stops, looking stays
+    expect((await call(p, 'POST', '/v1/shop/buy', { item_key: 'mat_plank', request_id: 'req-plank-201' }, dev)).status).toBe(201);
+    const issued = await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-kim', plan: 'solo', term: 'month', player_ids: ['kid-1'] });
+    const sid = issued.body.seat_ids[0];
+    await call(p, 'POST', `/v1/family/seats/${sid}/refund-request`, {}, g);
+    await call(p, 'POST', `/v1/admin/seats/${sid}/refund`, {});
+    expect((await call(p, 'GET', '/v1/device/me', undefined, dev)).body.play_allowed).toBe(false);
+    const look = await call(p, 'GET', '/v1/plot', undefined, dev);
+    expect(look.status).toBe(200);
+    expect(total(look.body.inv, blockRef(BK.plank))).toBe(16);
+    expect((await call(p, 'GET', '/v1/shop', undefined, dev)).body.owned.mat_plank).toBe(1);
+  });
+
   it('opens only unopened bundles of the owner, the count from the catalog, in one transaction', () => {
     const db = createNodeSqliteExecutor(':memory:');
     db.exec('create table if not exists items (id text primary key, owner text not null, spec text not null, location text not null, durability integer not null, card_id text)');
@@ -184,6 +228,19 @@ describe('shop block bundles become build stock (R326, docs/19 9장)', () => {
     expect(total(s.plotState.inv as never, blockRef(BK.brick)) - brick0).toBe(shopItem('mat_brick')!.block!.count);
     expect(db.all<{ id: string }>('select id from items order by id').map((r) => r.id)).toEqual(['c', 'd', 'e', 'f']);
     expect(s.unpackShopBlocks(20)).toBe(0);
+    // all or nothing: a failure inside the transaction leaves the item rows and the stock as they were
+    put('g', 'kid', { kind: 'shop', item: 'mat_brick' });
+    const rows0 = db.all<{ id: string }>('select id from items').length;
+    const stock0 = JSON.stringify(s.plotState.inv);
+    const realRun = db.run.bind(db);
+    (db as { run: typeof db.run }).run = (q: string, a?: unknown[]) => {
+      if (/plot_inv/.test(q)) throw new Error('disk gone');
+      return realRun(q, a as never);
+    };
+    expect(() => s.unpackShopBlocks(30)).toThrow();
+    (db as { run: typeof db.run }).run = realRun;
+    expect(db.all<{ id: string }>('select id from items').length).toBe(rows0);
+    expect(JSON.stringify(new PlotStore(db, 'kid', 0).plotState.inv)).toBe(stock0);
     // saved: a new store over the same storage has the same stock
     expect(total(new PlotStore(db, 'kid', 0).plotState.inv as never, blockRef(BK.glass))).toBe(total(s.plotState.inv as never, blockRef(BK.glass)));
   });

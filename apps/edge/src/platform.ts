@@ -22,7 +22,7 @@ import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandl
 import { STUDENT_PUBLIC_ROUTES, buildStudentAccountApp } from './student-account.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
-import { BILLING_PUBLIC_ROUTES, buildBillingApp } from './billing.js';
+import { BILLING_PUBLIC_ROUTES, buildBillingApp, sweepBillingContacts } from './billing.js';
 import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp, guestPassFromRequest, sweepEndedGuestCells } from './free-play.js';
 import { SHOWROOM_PUBLIC_ROUTES, buildShowroomApp } from './showroom.js';
 import { MY_WORLD_PUBLIC_ROUTES, buildMyWorldApp, readMyWorld } from './my-world.js';
@@ -513,6 +513,8 @@ export class PlatformDO {
   runSeatNotices(now: number): number | { error: string } {
     try {
       const n = sweepSeatNotices(this.sql, now);
+      // closed online orders let go of the guardian's name and contact after the retention (billing.ts)
+      sweepBillingContacts(this.sql, now);
       this.recordRun('hourly_seat_notices', true, { recorded: n });
       return n;
     } catch (err) {

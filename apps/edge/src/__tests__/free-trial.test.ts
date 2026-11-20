@@ -80,7 +80,7 @@ describe('R326 free trial: 3 minutes of server-counted world time, then the pay 
     expect(used(p, 'kid-t')).toBe(180 * S);
   });
 
-  it('one beat adds at most 75 s, and a break over 90 s starts a new stretch that adds nothing', async () => {
+  it('one beat adds at most 75 s, and a break over 90 s starts a new stretch that adds the stretch floor', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     at(0);
     const p = platform();
@@ -92,13 +92,30 @@ describe('R326 free trial: 3 minutes of server-counted world time, then the pay 
     await beat(0);
     await beat(85 * S); // 85 s late: capped at 75
     expect(used(p, 'kid-g')).toBe(75 * S);
-    await beat(85 * S + 10 * 60 * S); // the phone slept 10 minutes: new stretch, 0 added
-    expect(used(p, 'kid-g')).toBe(75 * S);
+    await beat(85 * S + 10 * 60 * S); // the phone slept 10 minutes: new stretch, only the floor added
+    expect(used(p, 'kid-g')).toBe(75 * S + FREE_PLAY_LIMITS.worldTrialStretchMinMs);
     await beat(85 * S + 10 * 60 * S + 60 * S);
-    expect(used(p, 'kid-g')).toBe(135 * S);
+    expect(used(p, 'kid-g')).toBe(135 * S + FREE_PLAY_LIMITS.worldTrialStretchMinMs);
     // a clock that went backwards adds nothing
     await beat(30 * S);
-    expect(used(p, 'kid-g')).toBe(135 * S);
+    expect(used(p, 'kid-g')).toBe(135 * S + FREE_PLAY_LIMITS.worldTrialStretchMinMs);
+  });
+
+  it('writes spaced past the break with the heartbeat blocked still run the clock down to trial_ended', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    at(0);
+    const p = platform();
+    const dev = await kid(p, 'kid-w', 'fam-w');
+    const writes: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      at(i * 100 * S); // every 100 s, past the 90 s break, and no heartbeat at all
+      writes.push((await call(p, 'POST', '/v1/items/use', { item_key: 'water' }, dev)).status);
+      if (writes.at(-1) === 403) break;
+    }
+    // the first write starts the clock at 0, then each one adds the stretch floor until the trial is spent
+    const n = (FREE_PLAY_LIMITS.worldTrialMinutes * 60_000) / FREE_PLAY_LIMITS.worldTrialStretchMinMs;
+    expect(writes).toEqual([...Array.from({ length: n }, () => 200), 403]);
+    expect((await call(p, 'GET', '/v1/device/me', undefined, dev)).body).toMatchObject({ play_allowed: false, trial: 'ended' });
   });
 
   it('a child with a seat, a tutoring student and a smoke player never run on the clock (heartbeat writes nothing)', async () => {
@@ -124,6 +141,19 @@ describe('R326 free trial: 3 minutes of server-counted world time, then the pay 
       expect(used(p, id), id).toBe(-1);
       expect((await call(p, 'GET', '/v1/device/me', undefined, dev)).body, id).toMatchObject({ play_allowed: true, trial: null });
     }
+  });
+
+  it('a child who has had a lesson with the teacher is never on the clock (tutor_student is set by no product code)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    at(0);
+    const p = platform();
+    const dev = await kid(p, 'kid-l', 'fam-l');
+    sqlOf(p).run("insert into lessons (id, player_id, world_id, started_at, ended_at, plan) values ('les-1', 'kid-l', 'w-1', 0, 1, 'tutor')");
+    for (let i = 0; i < 6; i++) {
+      at(i * 60 * S);
+      expect((await call(p, 'POST', '/v1/device/heartbeat', undefined, dev)).body).toEqual({ play_allowed: true, trial: null });
+    }
+    expect(used(p, 'kid-l')).toBe(-1);
   });
 
   it('a seat issued after the trial ended opens play again at once', async () => {

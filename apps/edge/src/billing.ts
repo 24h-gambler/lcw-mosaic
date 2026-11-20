@@ -21,13 +21,31 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { PLAN_PRICES_KRW, TERM_DAYS } from '@lcw/quota';
-import { issueSeats } from './seats.js';
+import { extendSeatPaid, issueSeats } from './seats.js';
 import type { SqliteExecutor } from './storage.js';
 
 export const BILLING_SCHEMA = `
 create table if not exists billing_orders (id text primary key, plan text not null, term text not null, amount_krw integer not null, player_id text, payer_name text not null, contact text not null, origin text not null, mode text not null, status text not null, payment_key text, created_at integer not null, paid_at integer, seat_order_id text, fail_reason text);
 create index if not exists billing_orders_status on billing_orders (status, created_at)
 `;
+
+/** What a done order did to the seat, so a reload of the done page says the same as the first answer. */
+function seatKind(o: { status: string; fail_reason: string | null }): { seat?: 'seat_extended' | 'seat_issued' } {
+  if (o.status !== 'seat_issued') return {};
+  return { seat: o.fail_reason === 'extended' ? 'seat_extended' : 'seat_issued' };
+}
+
+/** A closed or abandoned order keeps the guardian's name and contact this long, then they are cleared (same as consult requests). */
+export const BILLING_CONTACT_RETENTION_MS = 180 * 86_400_000;
+
+/** Clears the name and contact of orders closed (seat issued / failed) more than the retention ago. Hourly sweep. */
+export function sweepBillingContacts(sql: SqliteExecutor, nowMs: number): void {
+  sql.exec(BILLING_SCHEMA);
+  sql.run(
+    "update billing_orders set payer_name = '', contact = '' where status in ('seat_issued', 'failed', 'pending_payment') and created_at < ? and contact <> ''",
+    [nowMs - BILLING_CONTACT_RETENTION_MS]
+  );
+}
 
 /** Checkouts one network address may start per hour (a typo loop, not a business rule). */
 export const CHECKOUTS_PER_HOUR_PER_CLIENT = 6;
@@ -110,8 +128,9 @@ export function buildBillingApp(d: BillingDeps): Hono {
   const f = d.fetchImpl ?? ((i: string, x?: RequestInit) => globalThis.fetch(i, x));
 
   app.get('/v1/billing/config', (c) => {
-    // Static per deployment: the browser keeps it for an hour, so /pricing costs no request on a return visit.
-    c.header('cache-control', 'public, max-age=3600');
+    // Static per deployment: the browser keeps it a few minutes (a return visit costs no request; a key put in shows
+    // the card step within minutes, not an hour).
+    c.header('cache-control', 'public, max-age=300');
     return c.json({
       mode,
       ...(mode === 'live' ? { client_key: d.toss.clientKey } : {}),
@@ -165,7 +184,7 @@ export function buildBillingApp(d: BillingDeps): Hono {
     // The same payment confirmed twice (a reload of the done page): the first answer again, no second charge.
     if (o.status === 'paid' || o.status === 'seat_issued') {
       if (o.payment_key !== p.data.payment_key) return c.json({ error: 'already_paid' }, 409);
-      return c.json({ ok: true, status: o.status, seat_order_id: o.seat_order_id });
+      return c.json({ ok: true, status: o.status, ...seatKind(o), seat_order_id: o.seat_order_id });
     }
     if (o.status !== 'pending_payment') return c.json({ error: 'not_payable', status: o.status }, 409);
     // The amount Toss shows the payer came from our order; one that differs was changed in the browser.
@@ -185,29 +204,44 @@ export function buildBillingApp(d: BillingDeps): Hono {
       return c.json({ error: 'toss_unreachable' }, 502);
     }
     const body = (await res.json().catch(() => ({}))) as { status?: string; totalAmount?: number; orderId?: string; code?: string };
+    if (res.status >= 500 || body.code === 'PROVIDER_ERROR' || body.code === 'FAILED_INTERNAL_SYSTEM_PROCESSING') {
+      // Toss had a passing failure: the order stays payable and the same confirm can be sent again (idempotency key).
+      return c.json({ error: 'toss_unavailable' }, 502);
+    }
     if (!res.ok || body.status !== 'DONE' || body.totalAmount !== o.amount_krw || body.orderId !== o.id) {
       const reason = String(body.code ?? `status_${res.status}`).slice(0, 60);
       d.sql.run("update billing_orders set status = 'failed', fail_reason = ? where id = ? and status = 'pending_payment'", [reason, o.id]);
       return c.json({ error: 'payment_failed', reason }, 402);
     }
     const now = d.nowMs();
+    // Two confirms of the same payment at once (two tabs): only the one that moves the order on opens the seat; the
+    // other answers what the first did (review of the R326 paid step).
+    const fresh = d.sql.get<OrderRow>('select * from billing_orders where id = ?', [o.id]);
+    if (!fresh || fresh.status !== 'pending_payment') {
+      return c.json({ ok: true, status: fresh?.status ?? 'paid', ...(fresh ? seatKind(fresh) : {}), seat_order_id: fresh?.seat_order_id ?? null });
+    }
     d.sql.run("update billing_orders set status = 'paid', payment_key = ?, paid_at = ? where id = ? and status = 'pending_payment'", [
       p.data.payment_key,
       now,
       o.id
     ]);
-    // Solo for a known child with a guardian: the seat opens now. Otherwise the operator finishes it from the inbox.
+    // Solo for a known child with a guardian: the seat opens now — or, when the child already has a live seat, the same
+    // payment extends it by the term (never money taken and nothing done). Otherwise the operator finishes it.
     if (o.plan === 'solo' && o.player_id) {
+      const seatDeps = { sql: d.sql, nowMs: d.nowMs, randomBytes: d.randomBytes };
       const issued = issueSeats(
-        { sql: d.sql, nowMs: d.nowMs, randomBytes: d.randomBytes },
+        seatDeps,
         { plan: 'solo', term: o.term, player_ids: [o.player_id], payer_player_id: o.player_id, paid_at: now, amount_krw: o.amount_krw, note: `online ${o.id}` },
         'billing'
       );
-      if (issued.status === 201) {
-        d.sql.run("update billing_orders set status = 'seat_issued', seat_order_id = ? where id = ?", [String(issued.body.order_id), o.id]);
-        return c.json({ ok: true, status: 'seat_issued', seat_order_id: issued.body.order_id });
+      const live = issued.status === 409 && issued.body.error === 'seat_exists' ? String(issued.body.seat_id) : null;
+      const done = live ? extendSeatPaid(seatDeps, live, { days: TERM_DAYS[o.term], amount_krw: o.amount_krw, paid_at: now, note: `online ${o.id}` }, 'billing') : issued;
+      if (done.status === 201 || done.status === 200) {
+        const kind = live ? 'seat_extended' : 'seat_issued';
+        d.sql.run("update billing_orders set status = 'seat_issued', seat_order_id = ?, fail_reason = ? where id = ?", [String(done.body.order_id), live ? 'extended' : null, o.id]);
+        return c.json({ ok: true, status: 'seat_issued', seat: kind, seat_order_id: done.body.order_id, ...(live ? { ends_at: done.body.ends_at } : {}) });
       }
-      d.sql.run('update billing_orders set fail_reason = ? where id = ?', [`seat_${String(issued.body.error ?? issued.status)}`.slice(0, 60), o.id]);
+      d.sql.run('update billing_orders set fail_reason = ? where id = ?', [`seat_${String(done.body.error ?? done.status)}`.slice(0, 60), o.id]);
     }
     return c.json({ ok: true, status: 'paid', seat_order_id: null });
   });

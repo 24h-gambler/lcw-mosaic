@@ -29,8 +29,13 @@ export const FREE_PLAY_LIMITS = {
   worldTrialBeatMs: 60_000,
   /** One beat (or solo write) adds the time since the last one, but never more than this. */
   worldTrialBeatMaxAddMs: 75_000,
-  /** A gap longer than this is a break (tab closed, phone asleep): the next beat starts a new stretch and adds 0. */
-  worldTrialBreakMs: 90_000
+  /** A gap longer than this is a break (tab closed, phone asleep): the next beat starts a new stretch. */
+  worldTrialBreakMs: 90_000,
+  /**
+   * What the first beat or write of a new stretch adds: play started before it, and without it writes spaced past the
+   * break (heartbeat blocked) would never run the clock down (review of the R326 paid step: 40 writes = 60 min, 0 used).
+   */
+  worldTrialStretchMinMs: 20_000
 } as const;
 
 /** Wrong-code guard: pass lookups (check and redeem together) one network address may make per hour. */

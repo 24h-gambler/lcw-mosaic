@@ -267,6 +267,12 @@ export const TUNING = {
     hitPickM: 3.5,
     /** R326: a hit lands on one child at most once per this long, however many hit (no pile-on knock-out) */
     hitTakenGapMs: 500,
+    /** R326: a hit only lands between children this close in height (m: a child on a roof cannot hit one below) */
+    hitHeightM: 3,
+    /** R326: a touch held this long and still on a classmate opens the trade (a short tap hits) */
+    tradeHoldMs: 600,
+    /** R326: after the pointer locks, "Esc frees the mouse" shows this long under the crosshair */
+    escHintMs: 4000,
     /** R326: water and the shop counter answer the crosshair this far from the feet (m), along a ray of rayM */
     useReachM: 4.5,
     useRayM: 6,

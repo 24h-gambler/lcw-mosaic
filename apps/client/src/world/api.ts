@@ -181,7 +181,6 @@ export interface WorldHandle {
   setGauges?(g: GaugeView | null): void;
   /** where the child stands this second for the warmth gauge (cold, a fire near, a roof over the head; R325) */
   climate?(): { cold: 0 | 1 | 2; fire: boolean; roof: boolean };
-  /** the child landed after a fall of `meters` (the player's own movement; not a scene change or a walk) */
   /** R326 play fighting: someone in the room hit this child (the knock-back and the red edge are drawn already) */
   onHit?(cb: (from: string) => void): () => void;
   /** R326: a sip of water (a pond, a fountain): the gauges add thirst */
@@ -194,6 +193,7 @@ export interface WorldHandle {
   onRoomPvp?(cb: (on: boolean) => void): () => void;
   /** R326: is play fighting on in this room */
   roomPvp?(): boolean;
+  /** the child landed after a fall of `meters` (the player's own movement; not a scene change or a walk) */
   onFall?(cb: (meters: number) => void): () => void;
   /** walking speed multiplier (0.3..1) and whether running is allowed (G01 low gauges, docs/03 D1) */
   setMove?(mult: number, canRun: boolean): void;

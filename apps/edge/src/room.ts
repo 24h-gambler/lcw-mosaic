@@ -25,11 +25,15 @@ interface WsLike {
   serializeAttachment(v: unknown): void;
   deserializeAttachment(): unknown;
 }
+/** storage key of the room's play-fighting switch (true = off) */
+const PVP_OFF_KEY = 'pvpOff';
 interface RoomState {
   acceptWebSocket(ws: WsLike, tags?: string[]): void;
   getWebSockets(tag?: string): WsLike[];
   setWebSocketAutoResponse?(pair: unknown): void;
   getWebSocketAutoResponseTimestamp?(ws: WsLike): Date | null;
+  /** R326: the teacher's play-fighting switch outlives an empty room (the sockets keep it only while someone is in) */
+  storage?: { get(key: string): Promise<unknown>; put(key: string, value: unknown): Promise<void> };
 }
 interface Attachment {
   /** R326: the room's play fighting was turned off (kept on every socket, so it survives hibernation) */
@@ -92,6 +96,11 @@ export class WorldRoomDO {
     const role = request.headers.get(ROOM_HEADERS.role) as RoomRole | null;
     if (!key || !role || !ROLES.includes(role)) return new Response('forbidden', { status: 403 });
     const name = cleanRoomName(decodeURIComponent(request.headers.get(ROOM_HEADERS.name) ?? ''));
+    if (!this.pvpLoaded) {
+      this.pvpLoaded = true;
+      // the first to come in after the room emptied reads the switch before its hello says it
+      if ((await this.state.storage?.get(PVP_OFF_KEY).catch(() => undefined)) === true) this.core.pvp = false;
+    }
 
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -143,7 +152,12 @@ export class WorldRoomDO {
   }
 
   /** the teacher's play-fighting switch onto every socket (the room may sleep and wake from them) */
+  /** the stored switch was read (once per object life: after that the core holds it) */
+  private pvpLoaded = false;
+
   private keepPvp(): void {
+    this.pvpLoaded = true;
+    void this.state.storage?.put(PVP_OFF_KEY, !this.core.pvp).catch(() => undefined);
     for (const ws of this.state.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null;
       if (!a?.id) continue;

@@ -244,7 +244,7 @@ export class RoomCore {
       const dx = to.pose[0] - m.pose[0];
       const dz = to.pose[2] - m.pose[2];
       const d = Math.hypot(dx, dz);
-      if (d > this.t.hitReachM || Math.abs(to.pose[1] - m.pose[1]) > 3) return { kind: 'none' };
+      if (d > this.t.hitReachM || Math.abs(to.pose[1] - m.pose[1]) > this.t.hitHeightM) return { kind: 'none' };
       if (to.hurtAt !== undefined && now - to.hurtAt < this.t.hitTakenGapMs) return { kind: 'none' };
       m.hitAt = now;
       to.hurtAt = now;

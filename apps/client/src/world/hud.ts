@@ -1376,8 +1376,9 @@ export class WorldHud {
   }
 
   /** R326 pointer lock: the hint shows while the mouse is free during play (desktop only). */
-  setLockHint(on: boolean): void {
-    if (on) this.lockHint.textContent = W.lookHint;
+  /** free: "click to look"; locked: the short "Esc frees the mouse" line (the HUD buttons cannot be pressed while locked) */
+  setLockHint(on: boolean, locked = false): void {
+    if (on) this.lockHint.textContent = locked ? W.escHint : W.lookHint;
     this.lockHint.classList.toggle('on', on);
   }
 

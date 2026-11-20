@@ -757,13 +757,14 @@ ${line(s.help)}` : line(s.text), 4000);
     const typing = keyIsTyping(t);
     if (e.code === 'F5') {
       e.preventDefault();
-      if (!typing && !paused && !attract) {
+      if (!typing && !paused && !attract && !uiHoldsMouse()) {
         camMode = toggleThirdPerson(camMode);
         enterView();
       }
       return;
     }
-    if (e.code === 'Tab' && !typing && !paused && !attract) {
+    // (a window that does not pause the world, like the lesson trade window, keeps Tab for its own buttons)
+    if (e.code === 'Tab' && !typing && !paused && !attract && !uiHoldsMouse()) {
       e.preventDefault();
       if (camMode !== 'mirror') camBeforeMirror = camMode;
       camMode = toggleMirror(camMode, camBeforeMirror);
@@ -881,7 +882,7 @@ ${line(s.help)}` : line(s.text), 4000);
   let relock = false;
   const lockNow = (): void => {
     // the teacher's page keeps a free mouse: the bar (roster, follow, switches) is clicked all lesson long
-    if (!canLock || locked() || paused || attract || disposed || teacherPage()) return;
+    if (!canLock || locked() || paused || attract || disposed || teacherPage() || uiHoldsMouse()) return;
     try {
       const r = canvas.requestPointerLock() as unknown;
       if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => undefined);
@@ -898,10 +899,14 @@ ${line(s.help)}` : line(s.text), 4000);
     const r = canvas.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   };
+  let lockedSince = -Infinity;
   const onLockChange = (): void => {
     const on = locked();
-    if (on) mouseAt = centre();
-    hud.setLockHint(canLock && !on && !uiHoldsMouse() && !teacherPage());
+    if (on) {
+      mouseAt = centre();
+      lockedSince = performance.now();
+    }
+    hud.setLockHint(on || (canLock && !uiHoldsMouse() && !teacherPage()), on);
   };
   document.addEventListener('pointerlockchange', onLockChange);
   const lockWatch = window.setInterval(() => {
@@ -914,7 +919,9 @@ ${line(s.help)}` : line(s.text), 4000);
       relock = false;
       lockNow();
     }
-    hud.setLockHint(!locked() && !ui && !teacherPage());
+    // locked: the Esc line for the first few seconds of each lock
+    const lk = locked();
+    hud.setLockHint((!lk && !ui && !teacherPage()) || (lk && performance.now() - lockedSince < TUNING.multi.escHintMs), lk);
   }, 250);
   /** the press that just went down was made with the pointer locked (its release goes the same way) */
   let lockedAtDown = false;
@@ -934,6 +941,9 @@ ${line(s.help)}` : line(s.text), 4000);
   const hitListeners = new Set<(from: string) => void>();
   let pvpToldAt = -1e9;
   const peerAt = (cx: number, cy: number): string | null => (peers.count === 0 ? null : peers.pick(rayAt(cx, cy), body, TUNING.multi.hitPickM));
+  let lastHitSentAt = -Infinity;
+  /** "play fighting is off" is said again only after this quiet gap of clicks (ms) */
+  const PVP_TOLD_GAP_MS = 4000;
   /** a friend on the crosshair unless an NPC there stands nearer (the click then talks) */
   const nearerFriend = (cx: number, cy: number): string | null => {
     const id = peerAt(cx, cy);
@@ -948,10 +958,15 @@ ${line(s.help)}` : line(s.text), 4000);
     if (teacherPage()) return;
     hands.swing();
     if (!pvpOn) {
-      if (performance.now() - pvpToldAt > 4000) hud.notice(W.pvpOff);
+      if (performance.now() - pvpToldAt > PVP_TOLD_GAP_MS) hud.notice(W.pvpOff);
       pvpToldAt = performance.now();
       return;
     }
+    // the room takes one hit per hitCooldownMs from each child: a quicker click is only the swing (and a child who
+    // clicks very fast never runs the socket into the room's message limit)
+    const now = performance.now();
+    if (now - lastHitSentAt < TUNING.multi.hitCooldownMs) return;
+    lastHitSentAt = now;
     roomOut?.hit(id);
     counts.hitsSent++;
     sfx.play('blk.dig', { pitch: 6 });
@@ -1009,7 +1024,7 @@ ${line(s.help)}` : line(s.text), 4000);
       const id = world.getBlock(x, y, z);
       if (id === 0 || collideHeight(id) <= 0) continue;
       const k = TRADE_COUNTER;
-      if (x !== k.x || z < k.z0 || z > k.z1 || y > k.yMax || Math.hypot(x + 0.5 - body.x, z + 0.5 - body.z) > TUNING.multi.useReachM) return null;
+      if (x !== k.x || z < k.z0 || z > k.z1 || y < k.yMin || y > k.yMax || Math.hypot(x + 0.5 - body.x, z + 0.5 - body.z) > TUNING.multi.useReachM) return null;
       return k.shelf[z] ?? '';
     }
     return null;
@@ -1021,6 +1036,7 @@ ${line(s.help)}` : line(s.text), 4000);
   };
   /** E or a right click on another child: the trade window (a left click / tap on them is play fighting) */
   const openTrade = (id: string): void => {
+    if (teacherPage()) return;
     const p = peers.placed().find((q) => q.id === id);
     window.dispatchEvent(new CustomEvent(OPEN_TRADE_EVENT, { detail: { peerId: id, name: p?.name ?? '' } }));
   };
@@ -1083,6 +1099,8 @@ ${line(s.help)}` : line(s.text), 4000);
   const pointerMove = (e: PointerEvent): void => {
     if (locked()) {
       if (paused || attract) return;
+      // the first press (which took the lock) turned the view: its release is a look, not a click
+      if (!lockedAtDown) dragMoved += Math.abs(e.movementX || 0) + Math.abs(e.movementY || 0);
       camYaw -= (e.movementX || 0) * 0.0028 * lookMouse;
       camPitch = Math.max(-0.35, Math.min(1.25, camPitch + (e.movementY || 0) * 0.0024 * lookMouse * lookY));
       lookAt = performance.now();
@@ -1187,7 +1205,20 @@ ${line(s.help)}` : line(s.text), 4000);
     const own = hold && hold.id === e.pointerId ? hold : null;
     const down = touchDown.get(e.pointerId);
     touchDown.delete(e.pointerId);
-    const still = !!down && !down.far && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 12 && performance.now() - down.t < 600;
+    const held = down ? performance.now() - down.t : 0;
+    const still = !!down && !down.far && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 12 && held < 600;
+    // a long still press on a classmate is a trade (a short tap hits): the phone's way to lcw:open-trade
+    if (down && !down.far && !own?.moved && held >= TUNING.multi.tradeHoldMs && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 12) {
+      const mate = peerAt(e.clientX, e.clientY);
+      if (mate) {
+        if (own) {
+          hold = null;
+          buildView.showBreak(null, 0);
+        }
+        openTrade(mate);
+        return;
+      }
+    }
     const npc = still && !own?.moved ? npcAt(e.clientX, e.clientY) : null;
     const friend = still && !own?.moved && !npc ? peerAt(e.clientX, e.clientY) : null;
     // (an NPC under the finger wins: a talk is never a hit on a classmate standing behind)

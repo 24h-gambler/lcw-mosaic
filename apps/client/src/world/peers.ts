@@ -11,6 +11,12 @@ import { CHAR_HEIGHT, VoxelCharacter } from './character.js';
 import type { NpcLook } from './town.js';
 import { PeerMotion, peerMotionOf } from './peer-motion.js';
 
+/** R326: a person is picked when the ray passes this close to the knee-to-head line (m) */
+const PICK_RADIUS_M = 0.6;
+/** R326: a hit person hops up this high (m) for this long (s) on everyone else's screen */
+const HURT_HOP_M = 0.35;
+const HURT_HOP_S = 0.35;
+
 export interface PeerInfo {
   id: string;
   name: string;
@@ -86,7 +92,7 @@ export class PeerAvatars {
       this.footTmp.set(rt.pos.x, rt.pos.y + 0.2, rt.pos.z);
       this.headTmp.set(rt.pos.x, rt.pos.y + CHAR_HEIGHT, rt.pos.z);
       const along = ray.origin.distanceTo(rt.pos);
-      if (ray.distanceSqToSegment(this.footTmp, this.headTmp) < 0.36 && along < bestD) {
+      if (ray.distanceSqToSegment(this.footTmp, this.headTmp) < PICK_RADIUS_M * PICK_RADIUS_M && along < bestD) {
         best = rt.info.id;
         bestD = along;
       }
@@ -97,7 +103,7 @@ export class PeerAvatars {
   /** R326: a hit lands on this person (a short hop on every screen). */
   hurt(id: string): void {
     const rt = this.peers.get(id);
-    if (rt) rt.hurtT = 0.35;
+    if (rt) rt.hurtT = HURT_HOP_S;
   }
 
   /** Someone placed within `r` m whose room id sorts below `idAbove` (R325 spawn step-aside; no allocation per frame). */
@@ -209,7 +215,7 @@ export class PeerAvatars {
         rt.char.root.position.copy(rt.pos);
         if (rt.hurtT && rt.hurtT > 0) {
           rt.hurtT = Math.max(0, rt.hurtT - dt);
-          rt.char.root.position.y += Math.sin((rt.hurtT / 0.35) * Math.PI) * 0.35;
+          rt.char.root.position.y += Math.sin((rt.hurtT / HURT_HOP_S) * Math.PI) * HURT_HOP_M;
         }
         rt.char.root.rotation.y = rt.yaw;
         rt.char.update(dt, { speed: rt.speed, talking: false, lookYaw: 0 });

@@ -283,3 +283,40 @@ describe('routeRoomConnect (Worker)', () => {
     expect((await routeRoomConnect(req, platformStub, undefined)).status).toBe(503);
   });
 });
+
+describe('WorldRoomDO play-fighting switch (R326)', () => {
+  class KvState extends FakeState {
+    kv = new Map<string, unknown>();
+    storage = {
+      get: async (k: string) => this.kv.get(k),
+      put: async (k: string, v: unknown) => void this.kv.set(k, v),
+    };
+  }
+  const join = async (room: WorldRoomDO, key: string, role: string) => {
+    const headers = new Headers({ upgrade: 'websocket', [ROOM_HEADERS.key]: key, [ROOM_HEADERS.name]: key, [ROOM_HEADERS.role]: role, [ROOM_HEADERS.proto]: '2' });
+    await room.fetch(new Request('https://room/r', { headers })).catch(() => undefined);
+    return lastServer!;
+  };
+  it('the teacher turns it off; a wake from hibernation and a room that emptied both still say off', async () => {
+    const state = new KvState();
+    const room = new WorldRoomDO(state as never, {});
+    const t = await join(room, 'teach', 'teacher');
+    await join(room, 'kid1', 'student');
+    room.webSocketMessage(t as never, JSON.stringify({ t: 'pvp', on: false }));
+    await Promise.resolve();
+    expect(state.kv.get('pvpOff')).toBe(true);
+    // hibernation: a new object over the same sockets
+    const woke = new WorldRoomDO(state as never, {});
+    expect((await join(woke, 'kid2', 'student')).frames()[0]).toMatchObject({ t: 'hello', pvp: false });
+    // everyone left, a new day: a fresh object, no sockets, only the storage
+    const empty = new KvState();
+    empty.kv = state.kv;
+    const fresh = new WorldRoomDO(empty as never, {});
+    expect((await join(fresh, 'kid3', 'student')).frames()[0]).toMatchObject({ t: 'hello', pvp: false });
+    // on again
+    const t2 = await join(fresh, 'teach', 'teacher');
+    fresh.webSocketMessage(t2 as never, JSON.stringify({ t: 'pvp', on: true }));
+    await Promise.resolve();
+    expect(state.kv.get('pvpOff')).toBe(false);
+  });
+});

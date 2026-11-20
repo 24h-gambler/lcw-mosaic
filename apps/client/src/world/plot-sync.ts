@@ -43,6 +43,8 @@ export interface PlotSyncOptions {
   /** The server refused an op the client had already shown: reload the plot from the server. */
   onResync(snapshot: PlotSnapshotLike): void;
   onStatus?(s: SyncStatus): void;
+  /** R326 block relay: these ops (the same objects that were pushed) the server answered ok, in order. */
+  onSaved?(ops: PlotOp[]): void;
   /** Building is paused for this device (seat stopped) or the token no longer works. */
   onDenied?(kind: 'paused' | 'unlinked'): void;
 }
@@ -263,6 +265,8 @@ export class PlotSync {
     }
     const processed = typeof body.processed === 'number' ? body.processed : body.results.length;
     this.sent += processed;
+    const saved = batch.ops.slice(0, processed).filter((_, i) => body.results![i]?.ok === true);
+    if (saved.length > 0) this.o.onSaved?.(saved);
     if (processed < batch.ops.length) {
       // the server's pace ran out: the rest goes again shortly, in the same order
       this.queue.unshift(...batch.ops.slice(processed));

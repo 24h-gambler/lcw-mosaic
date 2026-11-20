@@ -175,7 +175,7 @@ export class PlotBuilder {
   edits = 0;
   onOp: ((op: PlotOp) => void) | null = null;
   /** R326: a local edit took (relayed to the others in this world; snapshots and relays received are not) */
-  onCells: ((c: CellChange) => void) | null = null;
+  onCells: ((c: CellChange, op: PlotOp) => void) | null = null;
   /** R326: the world's relay tag from the server snapshot ('' before one came: nothing is relayed or taken) */
   worldTag = '';
   /** how many relayed cells were drawn (stats) */
@@ -328,8 +328,8 @@ export class PlotBuilder {
       else this.hooks.blockChanged(op.x, op.y, op.z);
       if (this.onCells) {
         const f = this.state.furniture.get(cellKey(op.x, op.y, op.z));
-        if (furn) this.onCells({ cells: [], furniture: [[op.x, op.y, op.z, f?.key ?? '', f?.rot ?? 0]] });
-        else this.onCells({ cells: [[op.x, op.y, op.z, this.world.getBlock(op.x, op.y, op.z)]], furniture: [] });
+        if (furn) this.onCells({ cells: [], furniture: [[op.x, op.y, op.z, f?.key ?? '', f?.rot ?? 0]] }, op);
+        else this.onCells({ cells: [[op.x, op.y, op.z, this.world.getBlock(op.x, op.y, op.z)]], furniture: [] }, op);
       }
       if (record) this.recordUndo(op, r.prev ?? 0, r.prevFurniture);
       const placedId = this.world.getBlock(op.x, op.y, op.z);

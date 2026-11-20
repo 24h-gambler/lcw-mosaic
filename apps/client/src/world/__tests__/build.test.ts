@@ -238,6 +238,25 @@ describe('PlotSync: server answers win, nothing lost (WP-205/207)', () => {
     expect(sync.refused).toBe(1);
   });
 
+  it('tells which pushed ops the server answered ok, the same objects, never a refused one (R326 relay)', async () => {
+    const saved: unknown[][] = [];
+    const srv = fakeServer((c) =>
+      c.url.endsWith('/v1/plot') ? { status: 200, body: snap } : { status: 200, body: { results: [{ ok: true }, { ok: false, reason: 'occupied' }, { ok: true }], processed: 3 } }
+    );
+    const sync = new PlotSync({ token: 't'.repeat(40), store: new MemStore(), fetchFn: srv.fetchFn, onResync: () => undefined, onSaved: (ops) => saved.push(ops) });
+    const a = { op: 'place' as const, x: 110, y: 1, z: 170, slot: 0 };
+    const b = { op: 'place' as const, x: 111, y: 1, z: 170, slot: 0 };
+    const c = { op: 'break' as const, x: 112, y: 1, z: 170 };
+    sync.push(a);
+    sync.push(b);
+    sync.push(c);
+    await sync.flush();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]![0]).toBe(a);
+    expect(saved[0]![1]).toBe(c);
+    expect(saved[0]).toHaveLength(2);
+  });
+
   it('is settled only with nothing on its way and no snapshot being read (R326: the block relay waits for it)', async () => {
     const seen: boolean[] = [];
     let sync: PlotSync | null = null;

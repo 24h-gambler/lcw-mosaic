@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { drawState } from './draw-state.js';
-import { TUNING, VoxelWorld, parseRef } from '@lcw/sim-core';
+import { TUNING, VoxelWorld, parseRef, type PlotOp } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
@@ -643,8 +643,10 @@ ${line(s.help)}` : line(s.text), 4000);
   // ---- R326 block relay: what I change goes to the others in this world through the room (display only there).
   const relayListeners = new Set<(tag: string, c: CellChange) => void>();
   const RELAY = TUNING.building.relay;
-  // held until the server took them, one entry per cell / furniture spot (the latest wins), at most resyncCellsMax:
-  // a long offline stretch does not grow it without end (the others then see the rest at their next server read)
+  // R326: what my edit made of a cell, kept with the op until the server answers it ok (PlotSync onSaved); then it
+  // waits here for the room, one entry per cell / furniture spot (the latest wins), at most resyncCellsMax. An op the
+  // server refused, or one never answered (pass ended, seat stopped, offline), is never relayed.
+  const relayOfOp = new WeakMap<PlotOp, CellChange>();
   const relayHeld = new Map<string, [number, number, number, number]>();
   const relayHeldFurniture = new Map<string, [number, number, number, string, number]>();
   let relayTimer: ReturnType<typeof setTimeout> | null = null;
@@ -654,9 +656,6 @@ ${line(s.help)}` : line(s.text), 4000);
   const relayFlush = (): void => {
     relayTimer = null;
     if (relayHeld.size === 0 && relayHeldFurniture.size === 0) return;
-    // only what the server has taken goes out: while my edits are on their way (or a snapshot is being read after a
-    // refusal) the burst waits; onResync then gives the held cells the server's values
-    if (plotSync && !plotSync.settled) return relaySchedule(RELAY.holdMs * 4);
     if (!builder.worldTag || relayListeners.size === 0) {
       relayHeld.clear();
       relayHeldFurniture.clear();
@@ -684,15 +683,24 @@ ${line(s.help)}` : line(s.text), 4000);
     // a held place repeats 4 a second: one frame for a short burst
     relaySchedule(RELAY.holdMs);
   };
-  // R326: the relay cap on this screen was reached: read the plot again (at most once per remoteRefreshMinMs)
-  let remoteRefreshAt = -Infinity;
-  builder.onRemoteFull = () => {
-    const now = performance.now();
-    if (now - remoteRefreshAt < RELAY.remoteRefreshMinMs) return;
-    remoteRefreshAt = now;
-    void plotSync?.refresh();
+  const relayDrop = (): void => {
+    relayHeld.clear();
+    relayHeldFurniture.clear();
   };
-  builder.onCells = relayCells;
+  // R326: the relay cap on this screen was reached: read the plot again, at most once per remoteRefreshMinMs (one
+  // asked inside that time waits for it instead of being lost)
+  let remoteRefreshAt = -Infinity;
+  let remoteRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  builder.onRemoteFull = () => {
+    if (remoteRefreshTimer) return;
+    const wait = Math.max(0, remoteRefreshAt + RELAY.remoteRefreshMinMs - performance.now());
+    remoteRefreshTimer = setTimeout(() => {
+      remoteRefreshTimer = null;
+      remoteRefreshAt = performance.now();
+      void plotSync?.refresh();
+    }, wait);
+  };
+  builder.onCells = (c, op) => relayOfOp.set(op, c);
   // R326: a block bundle bought in the shop opened into the stock on the server: read the hand and the chest again
   const onPlotRefresh = (): void => void plotSync?.refresh();
   window.addEventListener(PLOT_REFRESH_EVENT, onPlotRefresh);
@@ -1535,6 +1543,8 @@ ${line(s.help)}` : line(s.text), 4000);
     // R326: a lesson builds on the plot only (the class shares the lesson's town); everyone else in the whole world
     builder.scope = a.kind === 'saved' && 'lesson' in a && a.lesson ? 'plot' : 'world';
     builder.worldTag = '';
+    // edits of the world left behind never go out under the next world's tag
+    relayDrop();
     if (currentScene === 'build_plot') hud.setScene(sceneTitle(currentScene));
     // the help line follows who owns the plot (shown again on the next entry)
     if (buildActive) buildHud?.setActive(true, helpText());
@@ -1564,14 +1574,14 @@ ${line(s.help)}` : line(s.text), 4000);
       store: browserStore(),
       onResync: (snap) => {
         builder.applySnapshot(snap);
-        // my held edits (never sent: the relay waits for the server) go out with the server's value now on screen; a
-        // cell another person changed is theirs to relay, never mine (no echo of a friend's build after a refresh)
-        for (const [k, c] of relayHeld) relayHeld.set(k, [c[0], c[1], c[2], builder.world.getBlock(c[0], c[1], c[2])]);
-        for (const [k, f] of relayHeldFurniture) {
-          const now = builder.state.furniture.get(k);
-          relayHeldFurniture.set(k, [f[0], f[1], f[2], now?.key ?? '', now?.rot ?? 0]);
+      },
+      // the server took these: what they made goes to the others in this world (never a refused or unanswered edit)
+      onSaved: (ops) => {
+        if (plotSync !== sync) return;
+        for (const op of ops) {
+          const c = relayOfOp.get(op);
+          if (c) relayCells(c);
         }
-        if (relayHeld.size > 0 || relayHeldFurniture.size > 0) relaySchedule(RELAY.holdMs);
       },
       onStatus: (st) => {
         if (buildActive && buildAccess === 'saved') buildHud?.setSync(st);
@@ -2224,6 +2234,7 @@ ${line(s.help)}` : line(s.text), 4000);
       builder.dispose();
       window.removeEventListener(PLOT_REFRESH_EVENT, onPlotRefresh);
       if (relayTimer) clearTimeout(relayTimer);
+      if (remoteRefreshTimer) clearTimeout(remoteRefreshTimer);
       buildHud?.dispose();
       buildView.dispose();
       storefronts.dispose();

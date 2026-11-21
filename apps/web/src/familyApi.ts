@@ -290,6 +290,8 @@ export function createFamilyApi(opts: { fetch?: FetchLike; base?: string } = {})
       request<{ ok: boolean }>('POST', `/v1/family/reports/${enc(sharePath.replace(/^\/r\//, ''))}/revoke`, g, {}),
     linkDevice: (code: string, label: string) =>
       request<{ device_token: string; nickname: string; level: string }>('POST', '/v1/device/link', null, { code, label }),
+    // English Day sign-in hand-off (edge ed-link.ts): the 2-minute ticket English Day made for its signed-in student.
+    edLink: (ticket: string) => request<{ device_token: string; nickname: string; level: string }>('POST', '/v1/device/ed-link', null, { ticket }),
     dashboard: (g: string, playerId: string) => request<DashboardPayload>('GET', `/v1/family/children/${enc(playerId)}/dashboard`, g),
     lessonWindow: (g: string, playerId: string, after = 0, listener: string | null = null) => {
       const q = [after > 0 ? `after=${after}` : '', listener ? `listener=${enc(listener)}` : ''].filter(Boolean).join('&');
@@ -422,6 +424,12 @@ export async function takeOAuthResult(api: Pick<FamilyApi, 'oauthExchange'>, has
   } catch (e) {
     return { error: e instanceof LessonApiError && e.code === 'handoff_invalid' ? 'handoff_invalid' : 'provider_error' };
   }
+}
+
+/** `?edt=<ticket>` from English Day's LCW step (automation english-day-accounts.md §4), or null. */
+export function edTicketFromSearch(search: string): string | null {
+  const t = new URLSearchParams(search).get('edt');
+  return t && /^[A-Za-z0-9_-]{10,600}\.[0-9a-f]{64}$/.test(t) ? t : null;
 }
 
 /** `#k=<48 hex>` from the invite link, or null. */

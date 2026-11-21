@@ -1825,13 +1825,17 @@
       },
       "tests": [
         "apps/web/src/__tests__/family.test.ts::device link page renders a 6-digit code field",
-        "apps/client/src/world/__tests__/identity.test.ts::enters as the linked child after GET /v1/device/me with the bearer token"
+        "apps/client/src/world/__tests__/identity.test.ts::enters as the linked child after GET /v1/device/me with the bearer token",
+        "apps/web/src/__tests__/family.test.ts::English Day hand-off: /link?edt= shows the opening state, trades the ticket once and goes to the world",
+        "apps/edge/src/__tests__/ed-link.test.ts::opens the paired, consented child once per ticket and the world signs in with the device token",
+        "apps/edge/src/__tests__/ed-link.test.ts::refuses forged, expired, unpaired and mismatched tickets"
       ],
       "evidence": [
         "apps/edge/src/family.ts:548",
-        "apps/web/src/FamilyPage.tsx:436"
+        "apps/web/src/FamilyPage.tsx:436",
+        "apps/edge/src/ed-link.ts:119"
       ],
-      "note": "6자리 코드로 기기 연결 후 월드 입장"
+      "note": "6자리 코드로 기기 연결 후 월드 입장. English Day 로그인 학생은 /link?edt= 표(2분·한 번)로 같은 기기 연결(R2734③)"
     },
     "F10.3.A2": {
       "kind": "flow",

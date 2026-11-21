@@ -1,8 +1,8 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { DeviceLinkPage, FamilyPage } from '../FamilyPage.js';
-import { GUARDIAN_CONSENT_SCOPES, createFamilyApi, inviteFromHash, type FamilyMe } from '../familyApi.js';
+import { DeviceLinkPage, FamilyPage, edLinkErrorText, redeemEdTicket } from '../FamilyPage.js';
+import { GUARDIAN_CONSENT_SCOPES, createFamilyApi, edTicketFromSearch, inviteFromHash, type FamilyMe } from '../familyApi.js';
 import type { FetchLike } from '../lessonApi.js';
 import { PARENT_STRINGS_KO } from '../parentStrings.js';
 
@@ -56,6 +56,48 @@ describe('family page (WP-301, docs/16 §3)', () => {
     const html = renderToStaticMarkup(React.createElement(DeviceLinkPage, {}));
     expect(html).toContain('data-testid="device-link-page"');
     expect(html).toMatch(/inputmode="numeric"/i);
+  });
+
+  it('English Day hand-off: /link?edt= shows the opening state, trades the ticket once and goes to the world', async () => {
+    const T = `${'a'.repeat(20)}.${'0f'.repeat(32)}`;
+    expect(edTicketFromSearch(`?edt=${T}`)).toBe(T);
+    expect(edTicketFromSearch('?edt=abc')).toBeNull();
+    expect(edTicketFromSearch('')).toBeNull();
+    const html = renderToStaticMarkup(React.createElement(DeviceLinkPage, { edTicket: T }));
+    expect(html).toContain('data-testid="device-ed-link"');
+    expect(html).toContain(PARENT_STRINGS_KO.link.edBusy);
+    expect(html).not.toContain(T);
+
+    const sent: unknown[] = [];
+    const saved: string[] = [];
+    const went: string[] = [];
+    const api = createFamilyApi({
+      fetch: async (url, init) => {
+        sent.push({ url, body: JSON.parse(String(init?.body)) });
+        return new Response(JSON.stringify({ device_token: 'd'.repeat(64), nickname: 'Pico', level: 'L2' }));
+      }
+    });
+    const err = await redeemEdTicket(T, { api, save: (t, n) => saved.push(`${t.length}:${n}`), go: (p) => went.push(p) });
+    expect(err).toBeNull();
+    expect(sent).toEqual([{ url: '/v1/device/ed-link', body: { ticket: T } }]);
+    expect(saved).toEqual(['64:Pico']);
+    expect(went).toEqual(['/world/']);
+
+    // a refusal names what to do and stays on the page (the code form is the fallback)
+    const deny = (error: string, status = 403) =>
+      createFamilyApi({ fetch: async () => new Response(JSON.stringify({ error }), { status }) });
+    for (const [code, text] of [
+      ['not_linked', PARENT_STRINGS_KO.link.edNotLinked],
+      ['service_consent_required', PARENT_STRINGS_KO.link.edConsent],
+      ['ticket_used', PARENT_STRINGS_KO.link.edExpired],
+      ['invalid_ticket', PARENT_STRINGS_KO.link.edExpired]
+    ] as const) {
+      const w: string[] = [];
+      expect(await redeemEdTicket(T, { api: deny(code), save: () => undefined, go: (p) => w.push(p) })).toBe(text);
+      expect(w).toEqual([]);
+    }
+    expect(await redeemEdTicket(T, { api: deny('engday_unreachable', 503), save: () => undefined, go: () => undefined })).toBe(PARENT_STRINGS_KO.link.edDown);
+    expect(edLinkErrorText('network')).toBe(PARENT_STRINGS_KO.link.edDown);
   });
 });
 

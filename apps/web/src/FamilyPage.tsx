@@ -8,6 +8,7 @@ import { Button, TOKENS } from '@lcw/ui';
 import {
   GUARDIAN_CONSENT_SCOPES,
   createFamilyApi,
+  edTicketFromSearch,
   inviteFromHash,
   loadDevice,
   oauthCodeFromHash,
@@ -557,14 +558,82 @@ function AddChild({ disabled, onAdd }: { disabled: boolean; onAdd: (nickname: st
 
 /* ---------- /link: the child's device ---------- */
 
-export function DeviceLinkPage({ api }: { api?: FamilyApi }): React.ReactElement {
+/** What the student sees when English Day's sign-in ticket did not open LCW (edge ed-link.ts error codes). */
+export function edLinkErrorText(code: string): string {
+  if (code === 'not_linked') return LK.edNotLinked;
+  if (code === 'service_consent_required') return LK.edConsent;
+  if (code === 'engday_unreachable' || code === 'network') return LK.edDown;
+  if (code === 'too_many_attempts') return LK.tooMany;
+  return LK.edExpired;
+}
+
+export interface EdLinkIo {
+  api: FamilyApi;
+  save: (token: string, nickname: string) => void;
+  go: (path: string) => void;
+}
+
+/**
+ * `/link?edt=<ticket>` (English Day's LCW step, automation docs/handbook/06-pipelines/english-day-accounts.md §4):
+ * trade the ticket for this child's device token and go straight into the world. The English Day sign-in decides who
+ * this laptop belongs to, so it replaces an earlier link. Returns the error text when it did not open, else null.
+ */
+export async function redeemEdTicket(ticket: string, io: EdLinkIo): Promise<string | null> {
+  try {
+    const r = await io.api.edLink(ticket);
+    io.save(r.device_token, r.nickname);
+    io.go('/world/');
+    return null;
+  } catch (err) {
+    return edLinkErrorText(errorCodeOf(err));
+  }
+}
+
+export function DeviceLinkPage({ api, edTicket }: { api?: FamilyApi; edTicket?: string | null }): React.ReactElement {
   const apiRef = useRef<FamilyApi>(api ?? createFamilyApi());
+  const [ticket] = useState<string | null>(() =>
+    edTicket !== undefined ? edTicket : typeof window === 'undefined' ? null : edTicketFromSearch(window.location.search)
+  );
+  const [edState, setEdState] = useState<'idle' | 'busy' | 'failed'>(ticket ? 'busy' : 'idle');
   const [linked, setLinked] = useState<string | null>(() => loadDevice().nickname);
   const [code, setCode] = useState('');
   const [label, setLabel] = useState('');
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [relinking, setRelinking] = useState(false);
+  useEffect(() => {
+    if (!ticket) return;
+    // The ticket is one use and short-lived; keep it out of the address bar, history and any shared link.
+    try {
+      window.history.replaceState(null, '', '/link');
+    } catch {
+      /* not a browser */
+    }
+    let live = true;
+    void redeemEdTicket(ticket, {
+      api: apiRef.current,
+      save: (t, n) => saveDevice(t, n),
+      go: (path) => window.location.replace(path)
+    }).then((err) => {
+      if (!live || err === null) return;
+      setEdState('failed');
+      setMsg({ kind: 'error', text: err });
+      setRelinking(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, [ticket]);
+  if (edState === 'busy') {
+    return (
+      <main className="lcw-lesson" data-testid="device-link-page" style={{ maxWidth: '480px', margin: '0 auto', display: 'grid', gap: sp(3), fontFamily: T.fonts.ui }}>
+        <LessonStyle />
+        <Box title={LK.title} testId="device-ed-link">
+          <Notice kind="ok">{LK.edBusy}</Notice>
+        </Box>
+      </main>
+    );
+  }
   if (linked && !relinking) {
     // One clear state once the device is linked: who it belongs to and the way into the game.
     return (
@@ -641,9 +710,14 @@ export function DeviceLinkPage({ api }: { api?: FamilyApi }): React.ReactElement
           </div>
         </form>
         {msg ? (
-          <div style={{ marginTop: sp(2) }}>
+          <div style={{ marginTop: sp(2) }} data-testid={edState === 'failed' ? 'device-ed-failed' : undefined}>
             <Notice kind={msg.kind}>{msg.text}</Notice>
           </div>
+        ) : null}
+        {edState === 'failed' ? (
+          <p style={{ marginBottom: 0 }}>
+            <a href="https://engday.pages.dev/login">{LK.edBack}</a>
+          </p>
         ) : null}
       </Box>
     </main>

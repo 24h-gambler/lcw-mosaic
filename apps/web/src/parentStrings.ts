@@ -332,7 +332,14 @@ export const PARENT_STRINGS_KO = {
     network: '인터넷 연결을 확인하고 다시 해 주세요.',
     defaultLabel: '아이 기기',
     goGame: '월드 들어가기',
-    relink: '다른 코드로 다시 연결하기'
+    relink: '다른 코드로 다시 연결하기',
+    /** Coming in from the English Day lesson doc with its sign-in ticket (edge ed-link.ts). */
+    edBusy: 'English Day 로그인으로 LCW 를 여는 중이에요…',
+    edNotLinked: '아직 선생님이 English Day 계정을 LCW 에 이어 두지 않았어요. 선생님께 말해 주세요.',
+    edConsent: '보호자의 서비스 동의가 아직 없어요. 보호자 화면에서 동의하면 바로 열려요.',
+    edExpired: '연결 시간이 지났어요. English Day 수업 화면으로 돌아가 LCW 를 다시 눌러 주세요.',
+    edDown: 'English Day 에 닿지 않았어요. 잠시 뒤에 다시 눌러 주세요.',
+    edBack: 'English Day 수업 화면으로'
   },
   /** /family friend pass box (edge free-play.ts). Guardian screen only. */
   guestPasses: {

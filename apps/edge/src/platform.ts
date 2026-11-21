@@ -20,6 +20,7 @@ import { OAUTH_PUBLIC_ROUTES, buildOAuthApp, devProviderSpecs, linkIdentity, oau
 import { buildOperatorLoginApp, ensureOperatorLoginSchema, exchangeOperatorSession, teacherRoleHandler } from './operator-login.js';
 import { GUARDIAN_OAUTH_PUBLIC_ROUTES, buildGuardianOAuthApp, guardianOAuthHandler } from './guardian-oauth.js';
 import { STUDENT_PUBLIC_ROUTES, buildStudentAccountApp } from './student-account.js';
+import { ED_LINK_PUBLIC_ROUTES, buildEdLinkApp } from './ed-link.js';
 import { buildLessonAudioApp, cloudflareRealtime, realtimeConfigFrom } from './lesson-audio.js';
 import { SITE_PUBLIC_ROUTES, buildSiteApp } from './site.js';
 import { FREE_PLAY_PUBLIC_ROUTES, buildFreePlayApp, guestPassFromRequest, sweepEndedGuestCells } from './free-play.js';
@@ -82,6 +83,8 @@ export interface LcwEnv {
   LCW_OPERATOR_TOKEN?: string;
   /** Secret: teacher/operator Google emails, comma separated (operator-login.ts). Never in the repository. */
   LCW_OPERATOR_GOOGLE_EMAILS?: string;
+  /** English Day site (ed-link.ts) that signs the student hand-off tickets; default https://engday.pages.dev. */
+  ENGDAY_ORIGIN?: string;
   BUILD_SHA?: string;
   /** R2 bucket for children's voice clips (voice.ts). Unbound → uploads answer 503 and nothing is stored. */
   VOICE?: R2BucketLike;
@@ -140,6 +143,8 @@ export function isPublicRoute(method: string, path: string): boolean {
   if (GUARDIAN_OAUTH_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Student sign-up (student-account.ts): the adult's guardian session, or the waiting device's claim token.
   if (STUDENT_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
+  // English Day sign-in hand-off (ed-link.ts): the ticket is checked with English Day inside.
+  if (ED_LINK_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Public site (docs/14): cookie-free counters and the tutoring consult form, see site.ts.
   if (SITE_PUBLIC_ROUTES.some(([m, re]) => m === method && re.test(path))) return true;
   // Showroom (WP-703): GET is the public link; publish/delete check the child device token, see showroom.ts.
@@ -1131,6 +1136,7 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
   const operatorLogin = { ...familyDeps, allowedEmails: env.LCW_OPERATOR_GOOGLE_EMAILS };
   app.route('/', buildOperatorLoginApp(operatorLogin));
   app.route('/', buildStudentAccountApp(familyDeps));
+  app.route('/', buildEdLinkApp({ ...familyDeps, engdayOrigin: env.ENGDAY_ORIGIN }));
   app.route('/', buildPushAdminApp(familyDeps));
   app.route('/', buildGuardianViewAdminApp(familyDeps));
   const oauthConfig = oauthConfigFrom(env as unknown as Record<string, unknown>);

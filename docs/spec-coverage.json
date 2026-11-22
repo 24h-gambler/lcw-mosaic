@@ -6196,8 +6196,8 @@
         ]
       },
       "tests": [
-        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A01 island map: four isles with lock reasons, today words from the document, start and the guardian link",
-        "apps/adventure/src/__tests__/adventure-core.test.ts::chapter 1 is open; the next opens on a later Korea-time day; replay stays open",
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A01 island map: four isles, the next one opens once the one before is done (R2734), start and the guardian link",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::chapter 1 is open; the next opens as soon as the one before is finished, the same day; replay stays open",
         "tools/adventure-play.mjs"
       ],
       "evidence": [
@@ -6241,7 +6241,7 @@
         ]
       },
       "tests": [
-        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A02 island walk: hint, keys or touch pad, the talk button; a word stone offers listening and typing",
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A02 island walk: voice and coins, hint, keys or touch pad, the talk button; a word stone offers listening and typing",
         "apps/adventure/src/__tests__/adventure-core.test.ts::every island can be walked from start to guardian and every gate holds its islander",
         "apps/adventure/src/__tests__/adventure-core.test.ts::tap-to-walk goes round a stone and stops next to a tapped islander",
         "tools/adventure-play.mjs"
@@ -6265,7 +6265,7 @@
         ]
       },
       "tests": [
-        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A02 island walk: hint, keys or touch pad, the talk button; a word stone offers listening and typing",
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A02 island walk: voice and coins, hint, keys or touch pad, the talk button; a word stone offers listening and typing",
         "tools/adventure-play.mjs"
       ],
       "evidence": [
@@ -6286,8 +6286,8 @@
         ]
       },
       "tests": [
-        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A03 meeting: four commands with FRIEND glowing when calm is full, pouch, poke and the dodge turn",
-        "apps/adventure/src/__tests__/adventure-core.test.ts::TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 restarts kindly",
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A03 meeting: five commands with FRIEND glowing when calm is full, SKILL, pouch, poke and the dodge turn",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 ends the meeting as \"down\"",
         "apps/adventure/src/__tests__/adventure-core.test.ts::every pattern spawns inside its page and is deterministic for a seed",
         "apps/adventure/src/__tests__/adventure-core.test.ts::letter catch: catching the letters in order spells the word",
         "tools/adventure-play.mjs"
@@ -6301,7 +6301,7 @@
     },
     "A03.state": {
       "kind": "state",
-      "title": "만남: 기운이 다 떨어지면 \"Let's try again\" 으로 같은 만남을 처음부터(벌 없음)",
+      "title": "만남: 기운이 다 떨어지면 \"Out of voice…\" 쓰러짐 화면 → 마지막 랜턴 기둥에서 기운 가득 깨어남(가진 것 그대로, 수호자 재도전은 탄막이 느려짐)",
       "status": "done",
       "owner": "world",
       "route": "/adventure/",
@@ -6312,13 +6312,14 @@
         ]
       },
       "tests": [
-        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A03 state: running out of voice restarts the same meeting kindly (no penalty words)",
-        "apps/adventure/src/__tests__/adventure-core.test.ts::TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 restarts kindly"
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A03 state: out of voice is a kind page that wakes the keeper at the last lantern post (no penalty words)",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 ends the meeting as \"down\""
       ],
       "evidence": [
         "apps/adventure/src/core/battle.ts:213"
       ],
-      "note": "기운 가득·마음 절반·탄막 20% 느리게 같은 만남 다시"
+      "note": "R2734 Dan 11-19 \"제대로 종료 및 사망 까지 부활까지\": 같은 만남을 바로 다시 하던 것을 쓰러짐 화면 → 마지막 랜턴 기둥에서 기운 가득 깨어남으로 바꿈(가진 것 그대로, 수호자에게 다시 가면 탄막 10% 느리게·최저 70%). 다시 하기는 랜턴 기둥에서 걸어가 다시 만나는 길로 그대로 있음",
+      "decision": "R2734"
     },
     "A04": {
       "kind": "screen",
@@ -6380,7 +6381,7 @@
         ]
       },
       "tests": [
-        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A05 chapter end: stars, friends, words, used sentences, the way back to the document and the island map",
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A05 chapter end: stars, friends, words, used sentences, sail on, the way back to the document and the island map",
         "apps/adventure/src/__tests__/adventure-core.test.ts::builds a contract v1 envelope with lines, words, stars and a Korean summary",
         "apps/adventure/src/__tests__/adventure-core.test.ts::chapter stars: 3 needs every islander befriended and three spoken lines; fighting gives 1",
         "tools/adventure-play.mjs"
@@ -6404,7 +6405,7 @@
         ]
       },
       "tests": [
-        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A05 state: a result that could not be sent leaves the same screen"
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A05 state: a result that could not be sent leaves the same screen; after island 4 the way on is the ending"
       ],
       "evidence": [
         "apps/adventure/src/engine.ts:866"

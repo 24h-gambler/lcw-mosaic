@@ -1,5 +1,6 @@
 import { bankEntriesFor, type LangLevel } from './lang-en-ko.js';
 import { npcCast, type NpcVoice } from './npc-cast.js';
+import { KID_MAX_WORDS, kidLongestSentence } from './kid-english.js';
 
 /**
  * The Hushwind Isles — the /adventure/ story (docs/22, R2625 ⑧⑨). Every name, line and place here was written for
@@ -353,7 +354,7 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         voice: 'cafe_owner',
         sprite: 'doughdot',
         patterns: ['rollBounce', 'wordCookies'],
-        intro: L('Doughdot plops onto the road. Squish!', '도우닷이 길 위에 털썩. 말랑!'),
+        intro: L('Doughdot falls onto the road. Squish!', '도우닷이 길 위에 털썩. 말랑!'),
         turns: [L('Doughdot throws bouncy rolls!', '도우닷이 통통 튀는 빵을 던져요!'), L('Word cookies roll by. Catch the right one!', '낱말 쿠키가 굴러가요. 맞는 걸 잡아요!')],
         react: REACT_DEFAULT,
         ready: L('Doughdot rises softly. It is calm.', '도우닷이 몽글몽글 부풀어요. 차분해요.'),
@@ -372,9 +373,9 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         sprite: 'sugarfly',
         patterns: ['sprinkleRain', 'letterCatch'],
         intro: L('A Sugarfly zips around your head!', '슈가플라이가 머리 주위를 쌩쌩 날아요!'),
-        turns: [L('Sugarfly shakes rainbow sprinkles!', '슈가플라이가 무지개 스프링클을 흔들어요!'), L('Sugar letters drift down.', '설탕 글자가 살랑살랑 내려와요.')],
+        turns: [L('Sugarfly shakes rainbow sprinkles!', '슈가플라이가 무지개 스프링클을 흔들어요!'), L('Sugar letters float down.', '설탕 글자가 살랑살랑 내려와요.')],
         react: REACT_DEFAULT,
-        ready: L('Sugarfly hovers in one place. It is calm.', '슈가플라이가 한 자리에 떠 있어요. 차분해요.'),
+        ready: L('Sugarfly floats in one place. It is calm.', '슈가플라이가 한 자리에 떠 있어요. 차분해요.'),
         friend: L('Sugarfly draws a heart in sugar. Friends!', '슈가플라이가 설탕으로 하트를 그려요. 친구가 됐어요!'),
         poked: L('Sugarfly buzzes away a little.', '슈가플라이가 조금 윙 날아가요.'),
         leaves: L('Sugarfly zooms over the roofs.', '슈가플라이가 지붕 너머로 휙 날아가 버렸어요.'),
@@ -395,7 +396,7 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
       voice: 'cafe_owner',
       sprite: 'ovenna',
       patterns: ['rollBounce', 'wordCookies', 'sprinkleRain', 'letterCatch', 'wordCookies'],
-      intro: L('Ovenna stomps forward. Her door creaks. "Nobody orders. So I bake... HOT SPARKS!"', '오베나가 쿵쿵 다가와요. 문이 삐걱. "아무도 주문 안 해. 그래서 난… 뜨거운 불꽃을 굽지!"'),
+      intro: L('Ovenna stomps forward. Her door shakes. "Nobody orders. So I bake... HOT SPARKS!"', '오베나가 쿵쿵 다가와요. 문이 삐걱. "아무도 주문 안 해. 그래서 난… 뜨거운 불꽃을 굽지!"'),
       turns: [
         L('Cold, cold, cold! My fire is going out.', '차가워, 차가워! 불이 꺼져 가.'),
         L('Do you even want to order something?', '너 뭐라도 주문하고 싶긴 해?'),
@@ -403,7 +404,7 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
       ],
       react: [
         L('Hmm? Order again, a little clearer?', '응? 조금 더 또박또박 다시 주문해 줄래?'),
-        L('An order! My fire flickers.', '주문이다! 불이 깜빡여.'),
+        L('An order! My fire dances.', '주문이다! 불이 깜빡여.'),
         L('Oh, so polite! I feel warmer.', '오, 정말 예의 바르구나! 따뜻해졌어.'),
         L('Ding! The oven is hot! Perfect order!', '딩! 화덕이 뜨거워! 완벽한 주문이야!')
       ],
@@ -424,7 +425,7 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     defaultTopic: 'space',
     defaultWords: ['star', 'moon', 'rocket'],
     mood: L('brave', '용감한'),
-    intro: L('At the top of the tower, a grey wind is holding every word from the isles.', '탑 꼭대기에서 잿빛 바람이 섬들의 낱말을 모두 붙잡고 있어요.'),
+    intro: L('On top of the tower, a grey wind holds the words of every island.', '탑 꼭대기에서 잿빛 바람이 섬들의 낱말을 모두 붙잡고 있어요.'),
     villager: {
       nameEn: 'Nim the Lamplighter',
       nameKo: '등불 켜는 님',
@@ -433,7 +434,7 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         L('Use every word you learned. Words from all four islands!', '배운 낱말을 모두 써 봐. 네 섬의 낱말 전부!')
       ]
     },
-    outro: L('The wind is warm now. Every word flies home to the isles.', '이제 바람이 따뜻해요. 모든 낱말이 섬으로 날아가요.'),
+    outro: L('The wind is warm now. Every word flies home to the islands.', '이제 바람이 따뜻해요. 모든 낱말이 섬으로 날아가요.'),
     greet: {
       1: L('Hello! I am here to help.', '안녕! 도와주러 왔어.'),
       2: L('Hello! Can we talk for a minute?', '안녕! 잠깐 얘기할 수 있어?'),
@@ -447,7 +448,7 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
     befriend: {
       1: L('You are not alone. I am your friend.', '넌 혼자가 아니야. 내가 네 친구야.'),
       2: L('You are not alone anymore. I will be your friend.', '이제 넌 혼자가 아니야. 내가 친구가 되어 줄게.'),
-      3: L('You do not have to take words anymore, because I will talk with you every day.', '이제 낱말을 가져가지 않아도 돼. 내가 매일 너랑 얘기할 거니까.')
+      3: L("You don't have to take words anymore, because I'll talk with you every day.", '이제 낱말을 가져가지 않아도 돼. 내가 매일 너랑 얘기할 거니까.')
     },
     critters: [
       {
@@ -459,7 +460,7 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         sprite: 'blotling',
         patterns: ['inkRain', 'letterCatch'],
         intro: L('A Blotling drips down from the ceiling. Plip!', '블로틀링이 천장에서 똑 떨어져요. 퐁!'),
-        turns: [L('Blotling rains ink blots!', '블로틀링이 잉크 방울을 뿌려요!'), L('Inky letters swirl around.', '잉크 글자가 빙글빙글 돌아요.')],
+        turns: [L('Blotling rains ink drops!', '블로틀링이 잉크 방울을 뿌려요!'), L('Inky letters swirl around.', '잉크 글자가 빙글빙글 돌아요.')],
         react: REACT_DEFAULT,
         ready: L('Blotling stops dripping. It is calm.', '블로틀링이 그만 떨어져요. 차분해요.'),
         friend: L('Blotling draws a smile on the wall. Friends!', '블로틀링이 벽에 웃는 얼굴을 그려요. 친구가 됐어요!'),
@@ -481,12 +482,12 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         voice: 'guide',
         sprite: 'paperkite',
         patterns: ['kiteDive', 'spellBubbles'],
-        intro: L('A Paperkite swoops down the stairs!', '페이퍼카이트가 계단 아래로 휙 내려와요!'),
+        intro: L('A Paperkite flies down the stairs!', '페이퍼카이트가 계단 아래로 휙 내려와요!'),
         turns: [L('Paperkite dives at you!', '페이퍼카이트가 휙 달려들어요!'), L('Paper bubbles float with spellings.', '종이 거품에 철자가 떠다녀요.')],
         react: REACT_DEFAULT,
-        ready: L('Paperkite drifts gently. It is calm.', '페이퍼카이트가 살랑살랑 떠 있어요. 차분해요.'),
+        ready: L('Paperkite floats gently. It is calm.', '페이퍼카이트가 살랑살랑 떠 있어요. 차분해요.'),
         friend: L('Paperkite folds into a little star. Friends!', '페이퍼카이트가 작은 별로 접혀요. 친구가 됐어요!'),
-        poked: L('Paperkite crinkles a little.', '페이퍼카이트가 조금 구겨졌어요.'),
+        poked: L('Paperkite shakes a little.', '페이퍼카이트가 조금 구겨졌어요.'),
         leaves: L('Paperkite flies out of a window.', '페이퍼카이트가 창밖으로 날아가 버렸어요.'),
         asks: L('How do you feel?', '기분이 어때?'),
         askKind: 'feel'
@@ -717,7 +718,13 @@ export function adventureBankSentences(chapter: AdventureChapter, level: Adventu
   // the shore only trades (its bank also has furniture shopping, which does not answer "What do you want to trade?")
   const own = chapter.ctx === 'trade_shop' ? entries.filter((x) => x.intent === 'trade_item') : entries;
   for (const e of chapter.ctx === 'errand' ? own.filter((x) => x.intent !== 'errand_deliver').slice(0, 1) : own) {
-    const t = e.offers[pick]?.text;
+    // R2734 (a 12-year-old's English): the highest offer of the level whose sentences fit KID_MAX_WORDS
+    // (the L3 "so that I can …" / "because …" lines run 15-18 words; the L3 "Could you …" line is the one kept)
+    let t: string | undefined;
+    for (let k = pick; k >= 0 && !t; k--) {
+      const x = e.offers[k]?.text;
+      if (x && kidLongestSentence(x) <= KID_MAX_WORDS) t = x;
+    }
     // A bakery orders something warm or sweet, not "large water"
     if (chapter.ctx === 'cafe' && /\bwater\b/i.test(t ?? '')) continue;
     if (t && !out.includes(t)) out.push(t);

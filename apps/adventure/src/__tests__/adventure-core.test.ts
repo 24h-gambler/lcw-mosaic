@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ADVENTURE_CHAPTERS, ADVENTURE_WORDS, adventureFixedLines, adventureLevelOf, adventureWordSentence, castVoices, fixedTtsLines, ttsVoiceId } from '@lcw/content';
+import { ADVENTURE_CHAPTERS, ADVENTURE_STORY, ADVENTURE_WORDS, adventureFixedLines, adventureLevelOf, adventureWordSentence, castVoices, fixedTtsLines, ttsVoiceId } from '@lcw/content';
 import { AdventureEnvelopeSchema, EnglishDayFileSchema } from '@lcw/schemas';
-import { buildChapterPlan, cleanSentence, cleanWord, misspellings, talkChoices } from '../core/plan.js';
+import { buildChapterPlan, cleanSentence, cleanWord, misspellings, skillItem, talkChoices } from '../core/plan.js';
 import { createRng } from '../core/rng.js';
 import { gradeExact, gradePick, gradeSpelling, gradeSpoken } from '../core/grade.js';
 import { earlierWords, emptyProgress, isUnlocked, kstDate, lockReason, mergeSettings, nextChapter, parseProgress, recordFinish, toSettings } from '../core/progress.js';
@@ -12,6 +12,10 @@ import { spellTiles } from '../core/plan.js';
 import { Battle } from '../core/battle.js';
 import { blocks, buildIsland, findPath, moveFeet, reachable, tileAt } from '../core/map.js';
 import { ADV } from '../core/tuning.js';
+import { buy, canBuy, heal, hitCost, hurt, learn, maxHp, newRun, openChest, parseRun, restAt, retrySpeed, revive } from '../core/run.js';
+
+/** Read the phase fresh — TS narrows a field after one check and would call the next check impossible. */
+const ph = (x: Battle): Battle['phase'] => x.phase;
 
 const DAY = EnglishDayFileSchema.parse({
   v: 1,
@@ -151,8 +155,8 @@ describe('adventure grading', () => {
   });
 });
 
-describe('adventure progress (one island per lesson day)', () => {
-  it('chapter 1 is open; the next opens on a later Korea-time day; replay stays open', () => {
+describe('adventure progress (the next island opens when the one before is done — R2734)', () => {
+  it('chapter 1 is open; the next opens as soon as the one before is finished, the same day; replay stays open', () => {
     let p = emptyProgress();
     const day1 = '2026-11-16';
     expect(isUnlocked(p, 1, day1)).toBe(true);
@@ -161,12 +165,13 @@ describe('adventure progress (one island per lesson day)', () => {
     const rec = startRecord(1, 1, ['puppy'], Date.UTC(2026, 10, 16, 8));
     rec.outcome = 'spared';
     p = recordFinish(p, 1, day1, { stars: 2, outcome: 'spared', words: ['puppy'], activity: toActivity(rec, Date.UTC(2026, 10, 16, 8, 10)) });
-    expect(isUnlocked(p, 2, day1)).toBe(false);
-    expect(lockReason(p, 2, day1)).toBe('next-day');
-    expect(nextChapter(p, day1)).toBe(1);
-    expect(isUnlocked(p, 2, '2026-11-19')).toBe(true);
-    expect(nextChapter(p, '2026-11-19')).toBe(2);
-    expect(isUnlocked(p, 3, '2026-11-19', { unlockAll: true })).toBe(true);
+    // R2734: no waiting for a later day — the story goes on in the same lesson
+    expect(isUnlocked(p, 2, day1)).toBe(true);
+    expect(lockReason(p, 2, day1)).toBe('open');
+    expect(nextChapter(p, day1)).toBe(2);
+    expect(isUnlocked(p, 1, day1)).toBe(true);
+    expect(isUnlocked(p, 3, day1)).toBe(false);
+    expect(isUnlocked(p, 3, day1, { unlockAll: true })).toBe(true);
     expect(earlierWords(p, 4)).toEqual(['puppy']);
   });
 
@@ -388,10 +393,10 @@ describe('adventure bullet patterns', () => {
 });
 
 describe('adventure encounter flow', () => {
-  it('TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 restarts kindly', () => {
+  it('TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 ends the meeting as "down"', () => {
     const plan = buildChapterPlan({ chapter: 1, level: 1 });
     const enc = plan.encounters[0];
-    const b = new Battle(enc, createRng(1), { honeyDrop: 1, berryBun: 0 });
+    const b = new Battle(enc, createRng(1), newRun());
     expect(b.phase).toBe('msg');
     b.advance();
     expect(b.phase).toBe('menu');
@@ -400,11 +405,12 @@ describe('adventure encounter flow', () => {
     b.advance();
     b.choose('talk');
     expect(b.choices.length).toBe(3);
+    expect(b.choices.some((t) => t.mode === 'pick')).toBe(true);
     b.pickTalk(b.choices[0]!.id);
     expect(b.talkResult({ stars: 0, score: 0.1, pass: false, missed: [] })).toBe('retry');
     expect(b.talkResult({ stars: 3, score: 1, pass: true, missed: [] })).toBe('next');
     expect(b.calm).toBe(enc.calmMax);
-    while (b.phase === 'msg') b.advance();
+    while (ph(b) === 'msg') b.advance();
     expect(b.phase).toBe('menu');
     b.choose('friend');
     expect(b.phase).toBe('befriend');
@@ -413,35 +419,150 @@ describe('adventure encounter flow', () => {
     expect(b.phase).toBe('end');
     expect(b.outcome).toBe('spared');
 
-    const f = new Battle(enc, createRng(2), { honeyDrop: 0, berryBun: 0 });
+    const f = new Battle(enc, createRng(2), newRun());
     f.advance();
-    for (let k = 0; k < 20 && f.phase !== 'end'; k++) {
-      if (f.phase === 'menu') {
+    for (let k = 0; k < 20 && ph(f) !== 'end'; k++) {
+      if (ph(f) === 'menu') {
         f.choose('poke');
         f.ring = 0.25;
         f.strike();
       }
-      while (f.phase === 'msg') f.advance();
-      while (f.phase === 'dodge') f.step(1 / 60, { x: 0, y: 0 }, true);
+      while (ph(f) === 'msg') f.advance();
+      while (ph(f) === 'dodge') f.step(1 / 60, { x: 0, y: 0 }, true);
     }
     expect(f.outcome).toBe('fought');
 
-    const d = new Battle(plan.encounters[2], createRng(3), { honeyDrop: 0, berryBun: 0 });
-    d.advance();
+    // the voice is the trip's: a hit in this meeting is still missing in the next one
+    const run = newRun();
+    run.hp = 1;
+    const d = new Battle(plan.encounters[2], createRng(3), run);
+    while (ph(d) === 'msg') d.advance();
     d.choose('poke');
     d.ring = 0;
     d.step(1 / 60, { x: 0, y: 0 });
-    while (d.phase === 'msg') d.advance();
+    while (ph(d) === 'msg') d.advance();
     expect(d.phase).toBe('dodge');
-    d.hp = 1;
     // stand still in the middle of a pattern until something lands
-    for (let i = 0; i < 60 * 12 && d.phase === 'dodge'; i++) d.step(1 / 60, { x: 0, y: 0 });
-    if (d.downs) {
-      expect(d.msgs[0]!.line.en).toContain('try again');
-      d.advance();
-      expect(d.hp).toBe(ADV.hp.max);
-      expect(d.slow).toBe(ADV.retrySlow);
+    for (let i = 0; i < 60 * 30 && ph(d) === 'dodge'; i++) d.step(1 / 60, { x: 0, y: 0 });
+    expect(run.hp).toBe(0);
+    while (ph(d) === 'msg') d.advance();
+    expect(d.phase).toBe('end');
+    expect(d.outcome).toBe('down');
+  });
+
+  it('a guardian has stages: harder patterns and bigger hits as it calms, each with its own line', () => {
+    for (const ch of [1, 2, 3, 4] as const) {
+      const st = ADVENTURE_STORY[ch].stages;
+      expect(st.length, `ch${ch}`).toBeGreaterThanOrEqual(3);
+      for (let i = 1; i < st.length; i++) {
+        expect(st[i]!.at).toBeGreaterThan(st[i - 1]!.at);
+        expect(st[i]!.speed).toBeGreaterThanOrEqual(st[i - 1]!.speed);
+        expect(st[i]!.damage).toBeGreaterThanOrEqual(st[i - 1]!.damage);
+        expect(st[i]!.patterns.length).toBeGreaterThanOrEqual(2);
+      }
     }
+    const plan = buildChapterPlan({ chapter: 1, level: 1 });
+    const g = plan.encounters[2];
+    expect(g.stages.length).toBe(ADVENTURE_STORY[1].stages.length);
+    const stages: number[] = [];
+    const b = new Battle(g, createRng(4), newRun(), { stage: (s) => stages.push(s) });
+    while (ph(b) === 'msg') b.advance();
+    // three good talks move the guardian through its stages
+    for (let k = 0; k < 12 && !b.ready; k++) {
+      if (ph(b) === 'menu') {
+        b.choose('talk');
+        b.pickTalk(b.choices[0]!.id);
+        b.talkResult({ stars: 3, score: 1, pass: true, missed: [] });
+      }
+      while (ph(b) === 'msg') b.advance();
+      while (ph(b) === 'dodge') b.step(1 / 60, { x: 0, y: 0 }, true);
+      while (ph(b) === 'msg') b.advance();
+    }
+    expect(stages.length).toBeGreaterThanOrEqual(1);
+    expect(b.stage).toBeGreaterThanOrEqual(1);
+  });
+
+  it('SKILL: magic words are said (picked) and then work once a meeting — heal, shield, slow wind, bright spark', () => {
+    const plan = buildChapterPlan({ chapter: 2, level: 1 });
+    const run = newRun();
+    expect(learn(run, 'warmHeal')).toBe(true);
+    learn(run, 'brightSpark');
+    run.hp = 5;
+    const b = new Battle(plan.encounters[0], createRng(5), run);
+    while (ph(b) === 'msg') b.advance();
+    b.choose('skill');
+    expect(b.phase).toBe('skillPick');
+    expect(b.skillList).toEqual(['warmHeal', 'brightSpark']);
+    b.pickSkill('warmHeal');
+    expect(b.phase).toBe('talk');
+    expect(b.current?.mode).toBe('pick');
+    expect(b.current?.choices).toContain(b.current?.target);
+    b.talkResult({ stars: 2, score: 1, pass: true, missed: [] });
+    expect(run.hp).toBe(5 + ADV.skill.heal);
+    while (ph(b) === 'msg') b.advance();
+    while (ph(b) === 'dodge') b.step(1 / 60, { x: 0, y: 0 }, true);
+    while (ph(b) === 'msg') b.advance();
+    if (ph(b) === 'menu') {
+      const calm = b.calm;
+      b.choose('skill');
+      expect(b.skillList).toEqual(['brightSpark']);
+      b.pickSkill('brightSpark');
+      b.talkResult({ stars: 2, score: 1, pass: true, missed: [] });
+      expect(b.calm).toBeGreaterThan(calm);
+    }
+    expect(skillItem('shieldSong', 3, createRng(1)).choices!.length).toBe(3);
+  });
+});
+
+describe('adventure trip (voice, coins, pouch, gear, chests, lantern posts)', () => {
+  it('chests pay once; the cart sells for coins and says why not; gear changes the numbers', () => {
+    const r = newRun();
+    for (const ch of [1, 2, 3, 4] as const) {
+      expect(ADVENTURE_STORY[ch].chests.length).toBeGreaterThanOrEqual(1);
+      const got = openChest(r, ch, 0);
+      expect(got).not.toBeNull();
+      expect(openChest(r, ch, 0)).toBeNull();
+    }
+    expect(r.coins).toBeGreaterThan(0);
+    const coat = ADVENTURE_STORY[1].stock.find((g) => g.id === 'braveCoat')!;
+    r.coins = coat.cost - 1;
+    expect(canBuy(r, coat)).toBe('coins');
+    expect(buy(r, coat)).toBe('coins');
+    r.coins = coat.cost;
+    expect(buy(r, coat)).toBe('ok');
+    expect(r.coins).toBe(0);
+    expect(canBuy(r, coat)).toBe('owned');
+    expect(hitCost(r, 3)).toBe(3 - ADV.gear.coatBlock);
+    expect(hitCost(r, 1)).toBe(1);
+    const scarf = ADVENTURE_STORY[2].stock.find((g) => g.id === 'bigScarf')!;
+    r.coins = 999;
+    buy(r, scarf);
+    expect(maxHp(r)).toBe(ADV.hp.max + ADV.gear.scarfHp);
+    const honey = ADVENTURE_STORY[1].stock.find((g) => g.id === 'honeyDrop')!;
+    r.items.honeyDrop = ADV.items.maxEach;
+    expect(canBuy(r, honey)).toBe('full');
+  });
+
+  it('out of voice: wake at the last lantern post with full voice, keep everything; a guardian retry is slower', () => {
+    const r = newRun();
+    r.coins = 30;
+    restAt(r, { chapter: 2, id: 'post-1' });
+    hurt(r, 999);
+    expect(r.hp).toBe(0);
+    revive(r, 2);
+    expect(r.hp).toBe(maxHp(r));
+    expect(r.coins).toBe(30);
+    expect(r.post).toEqual({ chapter: 2, id: 'post-1' });
+    expect(r.bossTries[2]).toBe(1);
+    expect(retrySpeed(r, 2)).toBeLessThan(1);
+    expect(retrySpeed(r, 1)).toBe(1);
+    for (let i = 0; i < 20; i++) revive(r, 2);
+    expect(retrySpeed(r, 2)).toBe(ADV.retry.floor);
+    expect(heal(r, 5)).toBe(0);
+    // round trip, and junk falls back to a fresh trip
+    expect(parseRun(JSON.stringify(r))).toEqual(r);
+    expect(parseRun('{nope')).toEqual(newRun());
+    expect(parseRun(JSON.stringify({ ...r, hp: -5, coins: 1e9, post: { chapter: 9, id: 'x' } })).hp).toBe(1);
   });
 });
 
@@ -460,6 +581,8 @@ describe('adventure islands', () => {
         ].some(([dx, dy]) => r.has((e.ty + dy!) * m.w + e.tx + dx!));
         expect(near, `${ch} ${e.id}`).toBe(true);
       }
+      for (const k of ['villager', 'merchant', 'chest', 'post', 'stone', 'critter', 'guardian']) expect(m.entities.some((e) => e.kind === k), `${ch} ${k}`).toBe(true);
+      expect(m.entities.filter((e) => e.kind === 'chest').length).toBeGreaterThanOrEqual(1);
       expect(tileAt(m, m.start.tx, m.start.ty)).not.toBe('wall');
       const crit = m.entities.filter((e) => e.kind === 'critter');
       expect(crit.length).toBe(2);

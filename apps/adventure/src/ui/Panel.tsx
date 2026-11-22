@@ -1,7 +1,7 @@
 import React from 'react';
 import { ADVENTURE_CHAPTERS } from '@lcw/content';
 import type { Engine, Snapshot } from '../engine.js';
-import { ITEM_INFO, type ItemKey } from '../core/battle.js';
+import { ITEM_INFO, MENU } from '../core/battle.js';
 import { Speak } from './Speak.js';
 import { TalkPanel } from './Talk.js';
 import { S, PARENT } from './strings.js';
@@ -51,26 +51,110 @@ function Pad({ engine }: { engine: Engine }) {
   );
 }
 
-function Msg({ who, text, ko, reveal, help, onNext }: { who: string; text: string; ko: string; reveal: number; help: boolean; onNext: () => void }) {
-  const full = reveal >= text.length;
+type Row = { key: string; en: React.ReactNode; ko?: string; disabled?: boolean; extra?: Record<string, string> };
+
+/** A list the keyboard walks with the arrows (the engine's one cursor) and Z picks; a click or tap picks too. */
+function Rows({ engine, snap, rows, onPick, testid }: { engine: Engine; snap: Snapshot; rows: Row[]; onPick: (i: number) => void; testid: string }) {
   return (
-    <div className="msg" onClick={onNext} data-testid="adv-msg">
+    <div className="row" style={{ flexDirection: 'column', alignItems: 'stretch' }} data-testid={`${testid}-list`}>
+      {rows.map((r, i) => (
+        <button
+          key={r.key}
+          type="button"
+          tabIndex={-1}
+          className={`btn ${snap.cursor === i ? 'sel' : ''}`}
+          aria-current={snap.cursor === i}
+          disabled={r.disabled}
+          onPointerEnter={(e) => {
+            if (e.pointerType === 'mouse') engine.setCursor(i);
+          }}
+          onClick={(e) => {
+            (e.currentTarget as HTMLButtonElement).blur();
+            onPick(i);
+          }}
+          data-testid={testid}
+          data-index={i}
+          {...(r.extra ?? {})}
+        >
+          <span>
+            {snap.cursor === i ? '▸ ' : ''}
+            {r.en}
+          </span>
+          {snap.help && r.ko && <span className="ko">{r.ko}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The trip's voice (hit points) and coins — always in sight on an island. */
+function Hud({ snap }: { snap: Snapshot }) {
+  const r = snap.run;
+  const frac = r.hpMax ? r.hp / r.hpMax : 0;
+  return (
+    <div className="row" style={{ alignItems: 'center', gap: 10, font: '12px var(--f-pixel)' }} data-testid="adv-hud" data-hp={r.hp} data-hpmax={r.hpMax} data-coins={r.coins}>
+      <span>{S.voiceLabel.en}</span>
+      <span style={{ flex: 1, height: 10, background: 'var(--c-ink-700)', borderRadius: 4, overflow: 'hidden', minWidth: 60 }}>
+        <span style={{ display: 'block', height: '100%', width: `${Math.round(frac * 100)}%`, background: frac > 0.3 ? 'var(--c-leaf)' : 'var(--c-sun)' }} />
+      </span>
+      <span>
+        {r.hp}/{r.hpMax}
+      </span>
+      <span>
+        ● {r.coins} {S.coinsLabel.en}
+      </span>
+    </div>
+  );
+}
+
+function Msg({
+  engine,
+  snap,
+  who,
+  text,
+  ko,
+  reveal,
+  help,
+  onNext,
+  choices,
+  onChoose
+}: {
+  engine: Engine;
+  snap: Snapshot;
+  who: string;
+  text: string;
+  ko: string;
+  reveal: number;
+  help: boolean;
+  onNext: () => void;
+  choices?: L[];
+  onChoose?: (i: number) => void;
+}) {
+  const full = reveal >= text.length;
+  const asking = Boolean(choices?.length && full && onChoose);
+  return (
+    <div className="msg" onClick={asking ? undefined : onNext} data-testid="adv-msg">
       <div className="who">{who}</div>
       <div className="en">{text.slice(0, Math.max(0, Math.floor(reveal)))}</div>
       {help && full && ko && <div className="ko">{ko}</div>}
-      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 6 }}>
-        <button
-          type="button"
-          className="btn primary"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNext();
-          }}
-          data-testid="adv-next"
-        >
-          {S.next.en} ▶
-        </button>
-      </div>
+      {asking ? (
+        <Rows engine={engine} snap={snap} rows={choices!.map((c, i) => ({ key: `${i}-${c.en}`, en: c.en, ko: c.ko }))} onPick={onChoose!} testid="adv-reply" />
+      ) : (
+        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 6 }}>
+          <button
+            type="button"
+            className="btn primary"
+            data-primary
+            onClick={(e) => {
+              e.stopPropagation();
+              onNext();
+            }}
+            data-testid="adv-next"
+          >
+            {S.next.en} ▶
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -101,8 +185,8 @@ function Title({ engine, snap }: { engine: Engine; snap: Snapshot }) {
       {snap.dayNote === 'document-failed' && <Line l={S.dayFailed} help={help} cls="hintline" />}
       <div className="isles" data-testid="adv-isles">
         {snap.islands.map((i) => {
-          const locked = i.state === 'previous' || i.state === 'next-day';
-          const st = i.state === 'next-day' && !snap.linked ? S.stateTomorrow : S.state[i.state];
+          const locked = i.state === 'previous';
+          const st = S.state[i.state];
           return (
             <button
               key={i.id}
@@ -127,7 +211,7 @@ function Title({ engine, snap }: { engine: Engine; snap: Snapshot }) {
         })}
       </div>
       <Line l={ch.intro} help={help} cls="hintline" />
-      <button type="button" className="btn primary" disabled={!can} onClick={() => engine.startChapter(sel.id)} data-testid="adv-start" style={{ alignItems: 'center' }}>
+      <button type="button" className="btn primary" disabled={!can} data-primary onClick={() => engine.begin(sel.id)} data-testid="adv-start" style={{ alignItems: 'center' }}>
         {!snap.booted ? S.loading.en : sel.state === 'cleared' ? S.replay.en : `${S.start.en} ▶`}
         {help && <span className="ko">{!snap.booted ? S.loading.ko : sel.state === 'cleared' ? S.replay.ko : S.start.ko}</span>}
       </button>
@@ -135,6 +219,11 @@ function Title({ engine, snap }: { engine: Engine; snap: Snapshot }) {
         {S.keysHint.en}
         {help && <div className="ko">{S.keysHint.ko}</div>}
       </div>
+      {(snap.run.coins > 0 || snap.run.skills.length > 0) && <Hud snap={snap} />}
+      <button type="button" className="btn ghost" onClick={() => engine.newTrip()} data-testid="adv-new-trip">
+        {S.newTrip.en}
+        {help && <span className="ko">{S.newTrip.ko}</span>}
+      </button>
       <button type="button" className="btn ghost" onClick={() => engine.openParent()} data-testid="adv-parent-link">
         {S.parentLink}
       </button>
@@ -142,9 +231,46 @@ function Title({ engine, snap }: { engine: Engine; snap: Snapshot }) {
   );
 }
 
+function Shop({ engine, snap }: { engine: Engine; snap: Snapshot }) {
+  const help = snap.help;
+  const sh = snap.shop!;
+  const rows: Row[] = [
+    ...sh.rows.map((r) => ({
+      key: r.id,
+      en: (
+        <>
+          {r.en} · {r.cost} ● <small>({S.shopKind[r.kind].en})</small>
+          {r.check === 'owned' ? ` · ${S.owned.en}` : ''}
+          <span style={{ display: 'block', fontSize: 13, opacity: 0.85 }}>{r.info.en}</span>
+        </>
+      ),
+      ko: `${r.ko} · ${r.info.ko}`,
+      extra: { 'data-check': r.check, 'data-goods': r.id, 'data-cost': String(r.cost) }
+    })),
+    { key: 'leave', en: S.shopLeave.en, ko: S.shopLeave.ko, extra: { 'data-goods': 'leave' } }
+  ];
+  return (
+    <div className="card" data-testid="adv-shop">
+      <Hud snap={snap} />
+      <div style={{ fontWeight: 800 }}>
+        {S.shopTitle.en}
+        {help && <span className="ko"> · {S.shopTitle.ko}</span>}
+      </div>
+      <Line l={S.shopHint} help={help} cls="hintline" />
+      <Rows engine={engine} snap={snap} rows={rows} onPick={(i) => engine.shopPick(i)} testid="adv-goods" />
+      {sh.note && (
+        <div role="status" data-testid="adv-shop-note">
+          <Line l={sh.note} help={help} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Explore({ engine, snap }: { engine: Engine; snap: Snapshot }) {
   const help = snap.help;
   const m = snap.exploreMsg;
+  if (snap.shop) return <Shop engine={engine} snap={snap} />;
   if (m) {
     const line = m.lines[m.i] ?? { en: '', ko: '' };
     if (m.stone) {
@@ -185,10 +311,28 @@ function Explore({ engine, snap }: { engine: Engine; snap: Snapshot }) {
         </div>
       );
     }
-    return <Msg who={help ? `${m.who} · ${m.whoKo}` : m.who} text={line.en} ko={line.ko} reveal={snap.reveal} help={help} onNext={() => engine.confirm()} />;
+    const last = m.i === m.lines.length - 1;
+    return (
+      <>
+        <Hud snap={snap} />
+        <Msg
+          engine={engine}
+          snap={snap}
+          who={help ? `${m.who} · ${m.whoKo}` : m.who}
+          text={line.en}
+          ko={line.ko}
+          reveal={snap.reveal}
+          help={help}
+          onNext={() => engine.confirm()}
+          choices={last ? m.choices : undefined}
+          onChoose={(i) => engine.chooseReply(i)}
+        />
+      </>
+    );
   }
   return (
     <>
+      <Hud snap={snap} />
       {snap.hint && <Line l={snap.hint} help={help} cls="hintline" />}
       <div className="hintline">
         {snap.touch ? S.touchHint.en : S.keysHint.en}
@@ -206,20 +350,42 @@ function Explore({ engine, snap }: { engine: Engine; snap: Snapshot }) {
   );
 }
 
+/** Voice and coins, and a guardian's stage (2/3 …) so a hard meeting shows how far along it is. */
+function BattleTop({ snap }: { snap: Snapshot }) {
+  const b = snap.battle!;
+  return (
+    <>
+      <Hud snap={snap} />
+      {b.stageCount > 1 && (
+        <div className="hintline" data-testid="adv-stage" data-stage={b.stage}>
+          {S.stageLabel.en} {b.stage + 1}/{b.stageCount}
+        </div>
+      )}
+    </>
+  );
+}
+
+const backStyle = { color: 'var(--c-ink-900)', borderColor: 'var(--c-ink-900)' };
+
 function Battle({ engine, snap }: { engine: Engine; snap: Snapshot }) {
   const b = snap.battle!;
   const help = snap.help;
   if (b.phase === 'msg' && b.msg) {
     const who = b.msg.who === 'creature' ? (help ? `${b.creatureEn} · ${b.creatureKo}` : b.creatureEn) : '✦';
-    return <Msg who={who} text={b.msg.line.en} ko={b.msg.line.ko} reveal={snap.reveal} help={help} onNext={() => engine.confirm()} />;
-  }
-  if (b.phase === 'menu') {
-    const cmds = ['poke', 'talk', 'pouch', 'friend'] as const;
-    const cur = cmds[b.menuIndex]!;
     return (
       <>
-        <div className="cmds" data-testid="adv-menu">
-          {cmds.map((c, i) => (
+        <BattleTop snap={snap} />
+        <Msg engine={engine} snap={snap} who={who} text={b.msg.line.en} ko={b.msg.line.ko} reveal={snap.reveal} help={help} onNext={() => engine.confirm()} />
+      </>
+    );
+  }
+  if (b.phase === 'menu') {
+    const cur = MENU[b.menuIndex]!;
+    return (
+      <>
+        <BattleTop snap={snap} />
+        <div className="cmds" style={{ gridTemplateColumns: '1fr 1fr 1fr' }} data-testid="adv-menu">
+          {MENU.map((c, i) => (
             <button
               key={c}
               type="button"
@@ -244,30 +410,61 @@ function Battle({ engine, snap }: { engine: Engine; snap: Snapshot }) {
     return (
       <div className="card">
         <Line l={S.chooseTalk} help={help} />
-        {b.choices.map((t, i) => (
-          <button key={t.id} type="button" className="btn" data-nav autoFocus={i === 0} onClick={() => engine.pickTalk(t.id)} data-testid="adv-talk-choice" data-mode={t.mode}>
-            {t.labelEn}
-            {help && <span className="ko">{t.labelKo}</span>}
-          </button>
-        ))}
-        <button type="button" className="btn ghost" onClick={() => engine.cancel()} style={{ color: 'var(--c-ink-900)', borderColor: 'var(--c-ink-900)' }}>
+        <Rows
+          engine={engine}
+          snap={snap}
+          rows={b.choices.map((t) => ({ key: t.id, en: t.labelEn, ko: t.labelKo, extra: { 'data-mode': t.mode } }))}
+          onPick={(i) => engine.pickTalk(b.choices[i]!.id)}
+          testid="adv-talk-choice"
+        />
+        <Line l={S.listHint} help={help} cls="hintline" />
+        <button type="button" className="btn ghost" onClick={() => engine.cancel()} style={backStyle}>
           {S.back.en}
         </button>
       </div>
     );
   }
-  if (b.phase === 'talk' && b.current) return <TalkPanel key={b.current.id} engine={engine} item={b.current} help={help} />;
+  if (b.phase === 'skillPick') {
+    return (
+      <div className="card" data-testid="adv-skills">
+        <Line l={S.skillTitle} help={help} />
+        <Rows
+          engine={engine}
+          snap={snap}
+          rows={b.skills.map((k) => ({
+            key: k.id,
+            en: (
+              <>
+                ✦ {k.en}
+                <span style={{ display: 'block', fontSize: 13, opacity: 0.85 }}>{k.info.en}</span>
+              </>
+            ),
+            ko: `${k.ko} · ${k.info.ko}`,
+            extra: { 'data-skill': k.id }
+          }))}
+          onPick={(i) => engine.pickSkill(b.skills[i]!.id)}
+          testid="adv-skill"
+        />
+        <button type="button" className="btn ghost" onClick={() => engine.cancel()} style={backStyle}>
+          {S.back.en}
+        </button>
+      </div>
+    );
+  }
+  if (b.phase === 'talk' && b.current) return <TalkPanel key={b.current.id} engine={engine} snap={snap} item={b.current} help={help} />;
   if (b.phase === 'pouch') {
     return (
       <div className="card">
+        <BattleTop snap={snap} />
         <Line l={S.pouchTitle} help={help} />
-        {(Object.keys(ITEM_INFO) as ItemKey[]).map((k, i) => (
-          <button key={k} type="button" className="btn" data-nav autoFocus={i === 0} disabled={b.items[k] <= 0} onClick={() => engine.useItem(k)} data-testid={`adv-item-${k}`}>
-            {k === 'honeyDrop' ? '🍯' : '🫐'} {S.items[k].en} ×{b.items[k]} (+{ITEM_INFO[k].heal})
-            {help && <span className="ko">{S.items[k].ko}</span>}
-          </button>
-        ))}
-        <button type="button" className="btn ghost" onClick={() => engine.cancel()} style={{ color: 'var(--c-ink-900)', borderColor: 'var(--c-ink-900)' }}>
+        <Rows
+          engine={engine}
+          snap={snap}
+          rows={b.pouch.map((k) => ({ key: k, en: `${S.items[k].en} ×${b.items[k]} (+${ITEM_INFO[k].heal})`, ko: S.items[k].ko, extra: { 'data-item': k } }))}
+          onPick={(i) => engine.useItem(b.pouch[i]!)}
+          testid="adv-item"
+        />
+        <button type="button" className="btn ghost" onClick={() => engine.cancel()} style={backStyle}>
           {S.back.en}
         </button>
       </div>
@@ -277,7 +474,7 @@ function Battle({ engine, snap }: { engine: Engine; snap: Snapshot }) {
     return (
       <>
         <Line l={S.pokeHint} help={help} cls="hintline" />
-        <button type="button" className="btn primary" style={{ minHeight: 80, alignItems: 'center', fontFamily: 'var(--f-pixel)' }} onPointerDown={() => engine.confirm()} data-testid="adv-poke">
+        <button type="button" className="btn primary" data-primary style={{ minHeight: 80, alignItems: 'center', fontFamily: 'var(--f-pixel)' }} onPointerDown={() => engine.confirm()} data-testid="adv-poke">
           {S.pokeNow.en}
         </button>
       </>
@@ -305,6 +502,7 @@ function Battle({ engine, snap }: { engine: Engine; snap: Snapshot }) {
   if (b.phase === 'dodge') {
     return (
       <>
+        <BattleTop snap={snap} />
         {b.turnLine && (
           <div className="msg" data-testid="adv-turn">
             <div className="who">{b.creatureEn}</div>
@@ -319,7 +517,7 @@ function Battle({ engine, snap }: { engine: Engine; snap: Snapshot }) {
   }
   if (b.phase === 'end') {
     return (
-      <button type="button" className="btn primary" onClick={() => engine.confirm()} data-testid="adv-next">
+      <button type="button" className="btn primary" data-primary onClick={() => engine.confirm()} data-testid="adv-next">
         {S.next.en} ▶
       </button>
     );
@@ -331,6 +529,7 @@ function End({ engine, snap }: { engine: Engine; snap: Snapshot }) {
   const e = snap.end!;
   const help = snap.help;
   const act = e.activity;
+  const go = e.nextNote === 'done-all' ? S.endingTitle : S.sailOn;
   return (
     <div className="card" data-testid="adv-end">
       <div style={{ fontWeight: 800, fontSize: 18 }}>
@@ -367,15 +566,18 @@ function End({ engine, snap }: { engine: Engine; snap: Snapshot }) {
             ))}
         </ul>
       </div>
-      <Line l={S.endNext[e.nextNote === 'next-day' && !snap.linked ? 'tomorrow' : e.nextNote]} help={help} />
+      <Line l={S.endNext[e.nextNote]} help={help} />
       {e.sent === 'sent' && <div className="ko" data-testid="adv-sent">{S.sent.en}</div>}
+      <button type="button" className="btn go" data-primary onClick={() => engine.sailOn()} data-testid="adv-sail" style={{ alignItems: 'center' }}>
+        {go.en} ▶{help && <span className="ko">{go.ko}</span>}
+      </button>
       {e.back && (
-        <a className="btn go" href={e.back} data-testid="adv-back-doc" style={{ textDecoration: 'none', alignItems: 'center' }}>
+        <a className="btn" href={e.back} data-testid="adv-back-doc" style={{ textDecoration: 'none', alignItems: 'center' }}>
           {S.backToDoc.en}
           {help && <span className="ko">{S.backToDoc.ko}</span>}
         </a>
       )}
-      <button type="button" className="btn primary" onClick={() => engine.toTitle()} data-testid="adv-to-map" style={{ alignItems: 'center' }}>
+      <button type="button" className="btn" onClick={() => engine.toTitle()} data-testid="adv-to-map" style={{ alignItems: 'center' }}>
         {S.toMap.en}
         {help && <span className="ko">{S.toMap.ko}</span>}
       </button>
@@ -383,8 +585,43 @@ function End({ engine, snap }: { engine: Engine; snap: Snapshot }) {
         {S.toWorld.en}
         {help && <span className="ko">{S.toWorld.ko}</span>}
       </a>
-      <button type="button" className="btn ghost" style={{ color: 'var(--c-ink-900)', borderColor: 'var(--c-ink-900)' }} onClick={() => engine.openParent()}>
+      <button type="button" className="btn ghost" style={backStyle} onClick={() => engine.openParent()}>
         {PARENT.title}
+      </button>
+    </div>
+  );
+}
+
+function Story({ engine, snap }: { engine: Engine; snap: Snapshot }) {
+  const st = snap.story!;
+  const line = st.lines[st.i] ?? { en: '', ko: '' };
+  const lastPage = st.kind === 'credits' && st.i === st.lines.length - 1;
+  return (
+    <div className="card" data-testid="adv-story" data-kind={st.kind} data-page={st.i} data-pages={st.lines.length}>
+      <div style={{ fontWeight: 800 }}>
+        {st.who}
+        {snap.help && <span className="ko"> · {st.whoKo}</span>}
+      </div>
+      <Msg engine={engine} snap={snap} who={`${st.i + 1}/${st.lines.length}`} text={line.en} ko={line.ko} reveal={snap.reveal} help={snap.help} onNext={() => engine.confirm()} />
+      {lastPage && <div style={{ textAlign: 'center', font: '18px var(--f-pixel)' }}>{S.theEnd.en}</div>}
+    </div>
+  );
+}
+
+function Down({ engine, snap }: { engine: Engine; snap: Snapshot }) {
+  const d = snap.down!;
+  const help = snap.help;
+  const wake = d.where === 'post' ? S.downWake : S.downWakeStart;
+  return (
+    <div className="card" data-testid="adv-down" data-where={d.where} data-boss={String(d.boss)}>
+      <div style={{ fontWeight: 800, fontSize: 20 }}>
+        {S.downTitle.en}
+        {help && <div className="ko">{S.downTitle.ko}</div>}
+      </div>
+      <Line l={S.downBody} help={help} />
+      <Line l={S.downTip} help={help} cls="hintline" />
+      <button type="button" className="btn go" data-primary onClick={() => engine.wake()} data-testid="adv-wake" style={{ alignItems: 'center' }}>
+        {wake.en} ▶{help && <span className="ko">{wake.ko}</span>}
       </button>
     </div>
   );
@@ -394,6 +631,8 @@ export function Panel({ engine, snap }: { engine: Engine; snap: Snapshot }) {
   return (
     <div className="adv-panel dark" data-testid={`adv-panel-${snap.scene}`}>
       {snap.scene === 'title' && <Title engine={engine} snap={snap} />}
+      {snap.scene === 'story' && snap.story && <Story engine={engine} snap={snap} />}
+      {snap.scene === 'down' && snap.down && <Down engine={engine} snap={snap} />}
       {snap.scene === 'explore' && <Explore engine={engine} snap={snap} />}
       {snap.scene === 'battle' && snap.battle && <Battle engine={engine} snap={snap} />}
       {snap.scene === 'end' && snap.end && <End engine={engine} snap={snap} />}

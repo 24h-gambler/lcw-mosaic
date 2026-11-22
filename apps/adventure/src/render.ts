@@ -1,12 +1,13 @@
 import { ADVENTURE_CHAPTERS, adventureChapter } from '@lcw/content';
 import { TYPOGRAPHY_TOKENS } from '@lcw/ui';
 import { ADV } from './core/tuning.js';
-import { currentWord, type Bullet } from './core/bullets.js';
+import { ARENA_TOP, currentWord, type Bullet } from './core/bullets.js';
 import { PAL, type PalKey } from './art/palette.js';
-import { paintBell, paintCreature, paintKeeper, paintSoul, paintStone, paintVillager } from './art/sprites.js';
+import { paintChest, paintCreature, paintKeeper, paintMerchant, paintPost, paintSoul, paintStone, paintVillager } from './art/sprites.js';
 import { paintIsland } from './art/tiles.js';
 import type { Engine } from './engine.js';
 import { S } from './ui/strings.js';
+import { maxHp } from './core/run.js';
 
 /** Draws one frame of the logical 320×240 screen (scaled by an integer `scale`, smoothing off). */
 
@@ -59,6 +60,8 @@ export class Renderer {
     c.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     c.imageSmoothingEnabled = false;
     if (e.scene === 'title' || e.scene === 'parent') this.title(e);
+    else if (e.scene === 'story') this.story(e);
+    else if (e.scene === 'down') this.down(e);
     else if (e.scene === 'explore') this.explore(e);
     else if (e.scene === 'battle') this.battle(e);
     else if (e.scene === 'end') this.end(e);
@@ -111,7 +114,7 @@ export class Renderer {
     ADVENTURE_CHAPTERS.forEach((ch, i) => {
       const [x, y, a, b] = spots[i]!;
       const st = snap.islands[i]!.state;
-      const locked = st === 'previous' || st === 'next-day';
+      const locked = st === 'previous';
       c.globalAlpha = locked ? 0.45 : 1;
       c.fillStyle = PAL[b];
       c.beginPath();
@@ -187,7 +190,17 @@ export class Renderer {
               c.fillStyle = PAL.glow;
               c.fillRect(x - 1, es.y - 22, 2, 3);
             }
-          } else if (kind === 'bell') this.img(sprite(`bell-${es.talked > 0}`, () => paintBell(es.talked > 0)), x - 8, es.y - 20);
+          } else if (kind === 'chest') {
+            const open = es.state === 'open';
+            this.img(sprite(`chest-${open}`, () => paintChest(open)), x - 8, es.y - 14);
+            if (!open && Math.floor(e.t * 3) % 3 === 0) {
+              c.fillStyle = PAL.glow;
+              c.fillRect(x + 5, es.y - 16, 2, 2);
+            }
+          } else if (kind === 'post') {
+            const lit = e.run.post?.chapter === e.chapter && e.run.post.id === es.e.id;
+            this.img(sprite(`post-${lit}`, () => paintPost(lit)), x - 8, es.y - 24);
+          } else if (kind === 'merchant') this.img(sprite('merchant', paintMerchant), x - 8, es.y - 20);
           else {
             const plan = e.plan;
             if (!plan) return;
@@ -220,6 +233,7 @@ export class Renderer {
       c.strokeRect(Math.round(e.walkTo.x - cam) - 2, Math.round(e.walkTo.y) - 2, 4, 4);
     }
     this.text(adventureChapter(e.chapter).islandEn, 6, 10, PAL.cream, 10);
+    this.hud(e);
   }
 
   // ---------- battle ----------
@@ -265,7 +279,7 @@ export class Renderer {
     }
     // the notebook page
     const ps = b.pattern;
-    const a = ps ? ps.arena : { x: 16, y: 118, w: W - 32, h: 72 };
+    const a = ps ? ps.arena : { x: 16, y: ARENA_TOP, w: W - 32, h: 72 };
     c.fillStyle = PAL.cream;
     c.fillRect(a.x - 2, a.y - 2, a.w + 4, a.h + 4);
     c.fillStyle = PAL.paper;
@@ -302,9 +316,17 @@ export class Renderer {
       }
     }
     // bars
-    const by = a.y + a.h + 9;
-    this.bar(W / 2 - 112, by, 100, b.hp / ADV.hp.max, PAL.sun, S.voiceLabel.en);
-    this.bar(W / 2 + 12, by, 100, b.calm / b.enc.calmMax, b.ready ? PAL.leaf : PAL.pink, b.ready ? `${S.calmLabel.en} ✓` : S.calmLabel.en);
+    const by = Math.min(a.y + a.h + 9, H - 7); // the bars never leave the screen
+    this.bar(W / 2 - 112, by, 100, b.hp / b.hpMax, b.hp / b.hpMax > 0.3 ? PAL.sun : PAL.danger, S.voiceLabel.en);
+    // the number sits left of the bar (above it, it ran into the dodge page's frame)
+    this.text(`${b.hp}/${b.hpMax}`, W / 2 - 116, by, PAL.cream, 8, 'right');
+    this.bar(W / 2 + 12, by, 100, b.progressFrac, b.ready ? PAL.leaf : PAL.pink, b.ready ? `${S.calmLabel.en} ✓` : S.calmLabel.en);
+    // a guardian's stage pips (it grows fiercer as it calms)
+    if (b.stageCount > 1)
+      for (let i = 0; i < b.stageCount; i++) {
+        c.fillStyle = i <= b.stage ? PAL.danger : PAL.night2;
+        c.fillRect(W / 2 - (b.stageCount * 8) / 2 + i * 8, 6, 6, 4);
+      }
     if (b.flash > 0) {
       c.globalAlpha = Math.min(0.25, b.flash);
       c.fillStyle = PAL.danger;
@@ -415,6 +437,82 @@ export class Renderer {
         c.arc(x, y, b.r, 0, Math.PI * 2);
         c.fill();
     }
+  }
+
+  // ---------- story pages: the opening, the boat, the ending ----------
+  private story(e: Engine) {
+    const c = this.ctx;
+    const st = e.story;
+    const kind = st?.kind ?? 'prologue';
+    c.fillStyle = kind === 'ending' || kind === 'credits' ? PAL.night2 : PAL.seaD;
+    c.fillRect(0, 0, W, H);
+    for (let i = 0; i < 30; i++) {
+      const x = (i * 41 + e.t * (4 + (i % 3) * 3)) % W;
+      const y = (i * 17) % 120;
+      c.fillStyle = i % 3 ? PAL.cream : PAL.glow;
+      c.fillRect(x, y, 1, 1);
+    }
+    c.fillStyle = PAL.sea;
+    c.fillRect(0, 150, W, H - 150);
+    for (let x = 0; x < W; x += 16) {
+      c.fillStyle = PAL.foam;
+      c.fillRect(x + Math.sin(e.t * 2 + x) * 3, 152 + ((x / 16) % 3) * 8, 8, 1);
+    }
+    // the little boat (on the sail pages it crosses the sea)
+    const page = st ? (st.i + 1) / st.lines.length : 0;
+    const bx = kind === 'sail' ? 30 + page * (W - 90) : W / 2 - 24;
+    const by = 140 + Math.sin(e.t * 2) * 2;
+    c.fillStyle = PAL.bark;
+    c.fillRect(bx, by, 48, 8);
+    c.fillStyle = PAL.barkD;
+    c.fillRect(bx + 4, by + 8, 40, 3);
+    c.fillStyle = PAL.cream;
+    c.beginPath();
+    c.moveTo(bx + 24, by - 34);
+    c.lineTo(bx + 24, by - 2);
+    c.lineTo(bx + 44, by - 4);
+    c.closePath();
+    c.fill();
+    this.img(sprite('keeper-2-0', () => paintKeeper(2, 0)), bx + 6, by - 16);
+    if (kind === 'ending' || kind === 'credits') {
+      ADVENTURE_CHAPTERS.forEach((ch, i) => {
+        const cr = ch.guardian;
+        const s = sprite(`cr-${cr.sprite}-true`, () => paintCreature(cr.sprite, true));
+        const bob = Math.round(Math.abs(Math.sin(e.t * 3 + i)) * -4);
+        this.img(s, 20 + i * 76, 100 - s.height + bob);
+      });
+    }
+    this.text(kind === 'credits' ? S.theEnd.en : kind === 'ending' ? S.endingTitle.en : S.title.en, W / 2, 18, PAL.cream, 13, 'center');
+  }
+
+  // ---------- out of voice: the world goes dark, one warm light ----------
+  private down(e: Engine) {
+    const c = this.ctx;
+    c.fillStyle = PAL.night;
+    c.fillRect(0, 0, W, H);
+    const r = 20 + Math.sin(e.t * 2) * 4;
+    c.fillStyle = PAL.glow;
+    c.globalAlpha = 0.25;
+    c.beginPath();
+    c.arc(W / 2, 110, r * 2, 0, Math.PI * 2);
+    c.fill();
+    c.globalAlpha = 1;
+    this.img(sprite('post-true', () => paintPost(true)), W / 2 - 16, 70, 2);
+    this.img(sprite('keeper-0-0', () => paintKeeper(0, 0)), W / 2 - 8, 140);
+    this.text(S.downTitle.en, W / 2, 30, PAL.cream, 13, 'center');
+  }
+
+  /** Voice and coins on the island (R2734: the trip's voice carries from meeting to meeting). */
+  private hud(e: Engine) {
+    const c = this.ctx;
+    const max = maxHp(e.run);
+    c.fillStyle = PAL.night;
+    c.globalAlpha = 0.6;
+    c.fillRect(W - 128, 2, 126, 16);
+    c.globalAlpha = 1;
+    this.bar(W - 124, 10, 82, e.run.hp / max, e.run.hp / max > 0.3 ? PAL.leaf : PAL.sun, S.voiceLabel.en);
+    this.text(`${e.run.hp}`, W - 40, 10, PAL.cream, 9);
+    this.text(`● ${e.run.coins}`, W - 26, 10, PAL.sun, 9);
   }
 
   // ---------- end: new friends ----------

@@ -32,7 +32,7 @@ export function ParentSummary({ engine, snap }: { engine: Engine; snap: Snapshot
                 {PARENT.chapter(id)} · {ch.islandKo} ({ch.islandEn})
               </div>
               {!a ? (
-                <div>{isle && (isle.state === 'previous' || isle.state === 'next-day') ? `${PARENT.locked} — ${(isle.state === 'next-day' && !snap.linked ? S.stateTomorrow : S.state[isle.state]).ko}` : PARENT.notYet}</div>
+                <div>{isle && isle.state === 'previous' ? `${PARENT.locked} — ${S.state.previous.ko}` : PARENT.notYet}</div>
               ) : (
                 <>
                   <table>

@@ -340,13 +340,53 @@ export function paintStone(lit: boolean): Px {
   return p;
 }
 
-export function paintBell(rung: boolean): Px {
-  const p = new Px(16, 20);
-  p.rect(7, 4, 2, 15, 'bark');
-  p.rect(3, 3, 10, 2, 'barkD');
-  p.tri(5, 13, 8, 6, 11, 13, rung ? 'sun' : 'sunD');
-  p.rect(5, 12, 7, 2, rung ? 'sun' : 'sunD');
-  p.set(8, 14, 'ink');
+/** A chest by the path: shut (a sun-gold clasp) or open (empty, lid up). */
+export function paintChest(open: boolean): Px {
+  const p = new Px(16, 14);
+  p.rect(2, 6, 12, 7, 'bark');
+  p.rect(2, 9, 12, 1, 'barkD');
+  if (open) {
+    p.rect(2, 1, 12, 3, 'barkD');
+    p.rect(3, 5, 10, 2, 'night2');
+  } else {
+    p.rect(2, 3, 12, 4, 'bark');
+    p.rect(2, 3, 12, 1, 'barkD');
+    p.rect(7, 6, 2, 3, 'sun');
+    p.set(7, 8, 'sunD');
+  }
+  p.outline();
+  return p;
+}
+
+/** A lantern post: where the keeper rests and wakes again. Lit once touched. */
+export function paintPost(lit: boolean): Px {
+  const p = new Px(16, 24);
+  p.rect(7, 8, 2, 15, 'barkD');
+  p.rect(4, 22, 8, 2, 'stoneD');
+  p.rect(5, 2, 6, 7, 'ink2');
+  p.rect(6, 3, 4, 5, lit ? 'glow' : 'stone');
+  if (lit) p.set(7, 4, 'white');
+  p.tri(4, 2, 8, -1, 12, 2, 'barkD');
+  p.outline();
+  return p;
+}
+
+/** Tumble, who walks a little cart between the islands (round hat, striped apron, the cart beside). */
+export function paintMerchant(): Px {
+  const p = new Px(24, 20);
+  p.rect(4, 10, 8, 8, 'brick');
+  p.rect(5, 12, 6, 1, 'cream');
+  p.rect(5, 15, 6, 1, 'cream');
+  p.circle(8, 7, 4, 'cream');
+  p.set(6, 7, 'ink');
+  p.set(10, 7, 'ink');
+  p.set(8, 9, 'brickD');
+  p.ellipse(8, 3, 6, 2, 'grape');
+  p.rect(5, 1, 6, 2, 'grape');
+  p.rect(13, 10, 10, 6, 'bread');
+  p.rect(13, 8, 10, 2, 'pink');
+  p.circle(15, 17, 2, 'barkD');
+  p.circle(21, 17, 2, 'barkD');
   p.outline();
   return p;
 }

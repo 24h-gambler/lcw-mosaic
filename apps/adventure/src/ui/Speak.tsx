@@ -55,9 +55,11 @@ export function Speak({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => () => lis.current?.abort(), []);
+  // review #196 high 1: no microphone → the box is shown but not focused, so Z/Enter still move the game on;
+  // the student clicks the box to type. A box the student asked for (autoType or the type toggle) is focused.
   useEffect(() => {
-    if (typing) inputRef.current?.focus();
-  }, [typing]);
+    if (typing && (autoType || state !== 'unsupported')) inputRef.current?.focus();
+  }, [typing, autoType, state]);
 
   const start = () => {
     if (sending) return;
@@ -115,7 +117,7 @@ export function Speak({
     <div className="row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
       {mic && (
         <div className="row">
-          <button type="button" className={`mic ${on ? 'on' : ''}`} onClick={start} aria-pressed={on} disabled={sending} data-testid="adv-mic">
+          <button type="button" className={`mic ${on ? 'on' : ''}`} onClick={start} aria-pressed={on} disabled={sending} data-primary data-testid="adv-mic">
             {on ? S.stop.en : `🎤 ${S.speak.en}`}
           </button>
           <div style={{ flex: 1, minWidth: 0 }} data-testid="adv-mic-state">

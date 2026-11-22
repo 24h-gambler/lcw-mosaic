@@ -24,7 +24,14 @@ export type SfxName =
   | 'bell'
   | 'stone'
   | 'encounter'
-  | 'clear';
+  | 'clear'
+  | 'chest'
+  | 'coin'
+  | 'buy'
+  | 'skill'
+  | 'stage'
+  | 'revive'
+  | 'post';
 
 const NOTE: Record<string, number> = { C: -9, 'C#': -8, D: -7, 'D#': -6, E: -5, F: -4, 'F#': -3, G: -2, 'G#': -1, A: 0, 'A#': 1, B: 2 };
 
@@ -48,6 +55,24 @@ export class Sound {
   private step = 0;
   enabled = true;
   musicOn = true;
+  /**
+   * What actually reached the audio graph (the headless check reads it through window.__adv, R2734 ⑤): the track
+   * now playing, how many notes each track scheduled and how many effects of each name were made.
+   */
+  readonly stats = { notes: {} as Partial<Record<TrackId, number>>, sfx: {} as Partial<Record<SfxName, number>>, tracks: [] as TrackId[] };
+
+  /** The audio graph's state for checks: context state, the track playing and what it scheduled. */
+  state(): { ctx: AudioContextState | 'none'; track: TrackId | null; playing: boolean; bgmGain: number; notes: Partial<Record<TrackId, number>>; sfx: Partial<Record<SfxName, number>>; tracks: TrackId[] } {
+    return {
+      ctx: this.ctx?.state ?? 'none',
+      track: this.track,
+      playing: this.seqTimer !== null,
+      bgmGain: this.bgmBus?.gain.value ?? 0,
+      notes: { ...this.stats.notes },
+      sfx: { ...this.stats.sfx },
+      tracks: [...this.stats.tracks]
+    };
+  }
 
   /** Must run inside a user gesture (browsers start audio only then). */
   unlock(): void {
@@ -138,6 +163,7 @@ export class Sound {
 
   sfx(name: SfxName): void {
     if (!this.ctx || !this.enabled) return;
+    this.stats.sfx[name] = (this.stats.sfx[name] ?? 0) + 1;
     const t = this.ctx.currentTime + 0.005;
     const seq = (notes: string[], gap: number, type: OscillatorType, vol: number, len = gap * 1.6) =>
       notes.forEach((n, i) => this.tone(type, noteHz(n), noteHz(n), t + i * gap, len, vol));
@@ -196,6 +222,31 @@ export class Sound {
       case 'clear':
         seq(['C5', 'E5', 'G5', 'C6', 'G5', 'C6', 'E6'], 0.12, 'triangle', 0.15, 0.3);
         break;
+      case 'chest':
+        this.hiss(t, 0.12, 0.2, 500);
+        seq(['G5', 'C6', 'E6', 'G6'], 0.07, 'square', 0.08, 0.12);
+        break;
+      case 'coin':
+        seq(['B5', 'E6'], 0.06, 'square', 0.08, 0.14);
+        break;
+      case 'buy':
+        seq(['E6', 'G6', 'C7'], 0.05, 'triangle', 0.13, 0.12);
+        break;
+      case 'skill':
+        this.tone('sine', 300, 1200, t, 0.45, 0.13);
+        seq(['C6', 'G6', 'C7'], 0.09, 'triangle', 0.12, 0.3);
+        break;
+      case 'stage':
+        this.hiss(t, 0.5, 0.25, 300);
+        seq(['A3', 'A#3', 'A3', 'A#3', 'E4'], 0.09, 'square', 0.1, 0.1);
+        break;
+      case 'revive':
+        seq(['C5', 'G5', 'C6', 'E6', 'G6'], 0.1, 'sine', 0.15, 0.5);
+        break;
+      case 'post':
+        this.tone('sine', 1047, 1047, t, 1.2, 0.12);
+        this.tone('sine', 1568, 1568, t + 0.12, 1.0, 0.07);
+        break;
     }
   }
 
@@ -208,6 +259,10 @@ export class Sound {
   music(id: TrackId | null): void {
     if (id === this.track) return;
     this.track = id;
+    if (id) {
+      this.stats.tracks.push(id);
+      if (this.stats.tracks.length > 200) this.stats.tracks.shift();
+    }
     this.stopSeq();
     if (id && this.ctx) this.startSeq();
   }
@@ -238,6 +293,7 @@ export class Sound {
           let len = 1;
           while (tr.lead[(i + len) % tr.lead.length] === '-' && len < 8) len++;
           this.tone(tr.leadWave, noteHz(lead), noteHz(lead), this.nextTime, stepDur * len * 0.92, 0.07, this.bgmBus);
+          this.stats.notes[this.track] = (this.stats.notes[this.track] ?? 0) + 1;
         }
         if (bass !== '.' && bass !== '-') {
           let len = 1;

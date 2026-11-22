@@ -1,25 +1,18 @@
 import React, { useState } from 'react';
-import type { Graded } from '../core/grade.js';
 import type { TalkItem } from '../core/plan.js';
-import type { Engine } from '../engine.js';
+import type { Engine, Snapshot } from '../engine.js';
 import { Speak } from './Speak.js';
 import { S } from './strings.js';
 
 /** A04: one TALK in its mode — say (🎤/⌨), build (word pieces), spell (letter pieces or typing), pick (three replies). */
-export function TalkPanel({ engine, item, help }: { engine: Engine; item: TalkItem; help: boolean }) {
-  const [tries, setTries] = useState(0);
-  const [result, setResult] = useState<Graded | null>(null);
+export function TalkPanel({ engine, snap, item, help }: { engine: Engine; snap: Snapshot; item: TalkItem; help: boolean }) {
+  // tries and the last result live in the engine (R2734: Z reads them too — "Next" after the stars is one key away)
+  const result = snap.battle?.talk.result ?? null;
   const [picked, setPicked] = useState<number[]>([]);
-  const [chosen, setChosen] = useState<string | null>(null);
 
-  const done = result && result.pass && result.stars > 0;
-  const finish = (g: Graded) => {
-    setResult(g);
-  };
+  const done = Boolean(result && result.pass && result.stars > 0);
   const attempt = (a: { mode: 'voice' | 'typed' | 'pick' | 'spell'; transcripts?: string[]; answer?: string }) => {
-    const n = tries + 1;
-    setTries(n);
-    finish(engine.talkAttempt({ ...a, tries: n }));
+    engine.talkAttempt(a);
   };
 
   const head =
@@ -100,6 +93,7 @@ export function TalkPanel({ engine, item, help }: { engine: Engine; item: TalkIt
             <button
               type="button"
               className="btn primary"
+              data-primary
               disabled={!picked.length}
               onClick={() => {
                 // word pieces put in order count as a pick; letters as spelling (english-day contract modes)
@@ -132,18 +126,25 @@ export function TalkPanel({ engine, item, help }: { engine: Engine; item: TalkIt
 
       {!done && item.mode === 'pick' && (
         <div className="row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          {(item.choices ?? []).map((c) => (
+          {(item.choices ?? []).map((c, i) => (
             <button
               key={c}
               type="button"
-              className={`btn ${chosen === c ? 'sel' : ''}`}
-              data-nav
-              onClick={() => {
-                setChosen(c);
+              tabIndex={-1}
+              className={`btn ${snap.cursor === i ? 'sel' : ''}`}
+              aria-current={snap.cursor === i}
+              onPointerEnter={(e) => {
+                if (e.pointerType === 'mouse') engine.setCursor(i);
+              }}
+              onClick={(e) => {
+                (e.currentTarget as HTMLButtonElement).blur();
+                engine.setCursor(i);
                 attempt({ mode: 'pick', answer: c });
               }}
               data-testid="adv-choice"
+              data-index={i}
             >
+              {snap.cursor === i ? '▸ ' : ''}
               {c}
             </button>
           ))}
@@ -167,11 +168,11 @@ export function TalkPanel({ engine, item, help }: { engine: Engine; item: TalkIt
 
       <div className="row">
         {done ? (
-          <button type="button" className="btn go" autoFocus onClick={() => engine.talkDone(result)} data-testid="adv-talk-next">
+          <button type="button" className="btn go" data-primary onClick={() => engine.talkDone(result!)} data-testid="adv-talk-next">
             {S.next.en} ▶{help && <span className="ko">{S.next.ko}</span>}
           </button>
         ) : (
-          <button type="button" className="btn ghost" onClick={() => engine.talkSkip()} data-testid="adv-talk-skip">
+          <button type="button" className="btn ghost" data-primary onClick={() => engine.talkSkip()} data-testid="adv-talk-skip">
             {S.skip.en}
             {help && <span className="ko">{S.skip.ko}</span>}
           </button>

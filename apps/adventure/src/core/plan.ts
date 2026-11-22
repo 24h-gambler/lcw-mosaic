@@ -1,5 +1,9 @@
 import {
   ADVENTURE_SILLY_REPLIES,
+  ADVENTURE_SKILLS,
+  ADVENTURE_STORY,
+  type AdventureBossStage,
+  type AdventureSkillId,
   ADVENTURE_WORDS,
   adventureBankSentences,
   adventureChapter,
@@ -46,6 +50,8 @@ export interface TalkItem {
   word?: string;
   /** pick: the islander's question and the three replies (target among them). */
   prompt?: AdventureLine;
+  /** A SKILL's magic words (picked or said): which skill it casts. */
+  skill?: AdventureSkillId;
   choices?: string[];
   /** build/spell: the pieces in shuffled order (with decoys for spell). */
   tiles?: string[];
@@ -59,6 +65,8 @@ export interface EncounterPlan {
   talks: TalkItem[];
   /** Words the bullet patterns spell (letter catch, spelling bubbles, word cookies). */
   words: WordCard[];
+  /** A guardian's stages (R2734): new turns, faster and harder as it gets closer to a friend (or to leaving). */
+  stages: AdventureBossStage[];
 }
 
 export interface ChapterPlan {
@@ -224,6 +232,44 @@ function pickItem(id: string, creature: AdventureCreature, target: { en: string;
   };
 }
 
+/** ✅ pick on a word: the islander asks for the word, the child picks the sentence in the right order. */
+function wordPickItem(id: string, wc: WordCard, rng: Rng): TalkItem {
+  const silly = pickOne(ADVENTURE_SILLY_REPLIES, rng);
+  const prompt = { en: `Can you use the word "${wc.w}"?`, ko: `"${wc.w}" 낱말을 써서 말해 줄래?` };
+  return {
+    id,
+    mode: 'pick',
+    kind: 'word',
+    labelEn: `${S.talkKind.word.en} · ${S.talkMode.pick.en}`,
+    labelKo: `${S.talkKind.word.ko} · ${S.talkMode.pick.ko}`,
+    target: wc.sentence,
+    ko: wc.ko ? `${wc.w} = ${wc.ko}` : null,
+    word: wc.w,
+    emoji: wc.emoji,
+    prompt,
+    choices: shuffle([wc.sentence, scrambleSentence(wc.sentence, rng), silly], rng)
+  };
+}
+
+/** A SKILL's magic words as a TALK: pick the right words (or say them with 🎤). */
+export function skillItem(skill: AdventureSkillId, level: AdventureLevel, rng: Rng): TalkItem {
+  const sk = ADVENTURE_SKILLS[skill];
+  const chant = sk.chant[level];
+  const silly = pickOne(ADVENTURE_SILLY_REPLIES, rng);
+  return {
+    id: `skill-${skill}`,
+    mode: 'pick',
+    kind: 'word',
+    labelEn: sk.nameEn,
+    labelKo: sk.nameKo,
+    target: chant.en,
+    ko: chant.ko,
+    prompt: S.skillPrompt(sk.nameEn, sk.nameKo),
+    choices: shuffle([chant.en, scrambleSentence(chant.en, rng), silly], rng),
+    skill
+  };
+}
+
 export function classOf(chapter: AdventureChapter, creature: AdventureCreature): CreatureClass {
   if (creature.role === 'critter') return 'critter';
   return chapter.id === 4 ? 'final' : 'guardian';
@@ -265,13 +311,15 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
     // the islander's own question comes in the first three (a critter is often a friend after one TALK)
     pickItem('c1-pick', c1, answerFor(c1), rng),
     item('c1-word', 'word', 'build', w0.sentence, wordKo(w0), rng, { word: w0.w, emoji: w0.emoji }),
-    item('c1-spell', 'word', 'spell', w0.w, wordKo(w0), rng, { word: w0.w, emoji: w0.emoji })
+    item('c1-spell', 'word', 'spell', w0.w, wordKo(w0), rng, { word: w0.w, emoji: w0.emoji }),
+    wordPickItem('c1-wpick', w0, rng)
   ];
   const critter2: TalkItem[] = [
     item('c2-feel', 'feel', 'say', feel.en, feel.ko, rng),
     pickItem('c2-pick', c2, answerFor(c2), rng),
     item('c2-spell', 'word', 'spell', w1.w, wordKo(w1), rng, { word: w1.w, emoji: w1.emoji }),
-    item('c2-word', 'word', 'say', w1.sentence, wordKo(w1), rng, { word: w1.w, emoji: w1.emoji })
+    item('c2-word', 'word', 'say', w1.sentence, wordKo(w1), rng, { word: w1.w, emoji: w1.emoji }),
+    wordPickItem('c2-wpick', w1, rng)
   ];
   const guardianTalks: TalkItem[] = [
     item('g-bank', 'bank', 'say', bankLine, bankKo[chapter.ctx] ?? null, rng),
@@ -279,6 +327,7 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
     ...words.map((wc, i) => item(`g-spell-${i}`, 'word', 'spell', wc.w, wordKo(wc), rng, { word: wc.w, emoji: wc.emoji })),
     item('g-feel', 'feel', 'build', feel.en, feel.ko, rng),
     pickItem('g-pick', g, answerFor(g), rng),
+    ...words.map((wc, i) => wordPickItem(`g-wpick-${i}`, wc, rng)),
     item('g-befriend', 'befriend', 'say', befriend.en, befriend.ko, rng)
   ];
   if (chapter.id === 4) {
@@ -289,7 +338,8 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
   }
   const enc = (creature: AdventureCreature, talks: TalkItem[], ewords: WordCard[]): EncounterPlan => {
     const cls = classOf(chapter, creature);
-    return { creature, cls, calmMax: ADV.calmMax[cls], grumpMax: ADV.grumpMax[cls], talks, words: ewords };
+    const stages = creature.role === 'guardian' ? [...ADVENTURE_STORY[chapter.id].stages] : [];
+    return { creature, cls, calmMax: ADV.calmMax[cls], grumpMax: ADV.grumpMax[cls], talks, words: ewords, stages };
   };
   return {
     chapter,
@@ -307,13 +357,19 @@ export function talkChoices(talks: readonly TalkItem[], done: ReadonlySet<string
   const open = talks.filter((t) => !done.has(t.id));
   const pool = open.length >= 3 ? open : [...open, ...talks.filter((t) => done.has(t.id))];
   const n = pool.length;
-  if (n <= 3 && pool.some((t) => t.mode === 'say')) return [...pool];
+  if (n <= 3 && pool.some((t) => t.mode === 'say') && (pool.some((t) => t.mode === 'pick') || !talks.some((t) => t.mode === 'pick'))) return [...pool];
   const start = (turn * 2) % n;
   const out: TalkItem[] = [];
   for (let k = 0; out.length < 3 && k < n; k++) out.push(pool[(start + k) % n]!);
   if (!out.some((t) => t.mode === 'say')) {
     const say = pool.find((t) => t.mode === 'say' && !out.includes(t)) ?? talks.find((t) => t.mode === 'say' && !out.includes(t));
     if (say) out[2] = say;
+  }
+  // R2734: a reply to pick is always there too (a child with no microphone and no keyboard skill still goes on)
+  if (!out.some((t) => t.mode === 'pick')) {
+    const pick = pool.find((t) => t.mode === 'pick' && !out.includes(t)) ?? talks.find((t) => t.mode === 'pick' && !out.includes(t));
+    const slot = out.findIndex((t) => t.mode !== 'say');
+    if (pick) out[slot >= 0 ? slot : out.length - 1] = pick;
   }
   return out;
 }

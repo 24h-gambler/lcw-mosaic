@@ -7,6 +7,7 @@ import { closeListeners, type RealtimeClient } from './lesson-audio.js';
 import { familyHasGuardian as sharedFamilyHasGuardian, nameIdeas as sharedNameIdeas, nameIndex, nameOwner as sharedNameOwner, isTestPlayerId, nicknameKey } from './nickname.js';
 import { drainVoicePurge, type VoiceBlobStore } from './voice.js';
 import { JOIN_CODE_TTL_MS as LESSON_JOIN_WINDOW_MS, STUDENT_TOKEN_TTL_MS as LESSON_STUDENT_TOKEN_TTL_MS } from './lesson-mode.js';
+import { playAllowed } from './seats.js';
 
 /**
  * Student sign-up in lesson time (docs/02 login, docs/16 §2-1, §3), on top of the guardian account (family.ts):
@@ -530,13 +531,20 @@ export function buildStudentAccountApp(d: StudentAccountDeps): Hono {
     ]);
     d.sql.run('update devices set last_seen_at = ? where id = ?', [now, dev.id]);
     const pl = d.sql.get<{ nickname: string; level: string }>('select nickname, level from players where id = ?', [dev.player_id]);
+    // R326: the solo-play gate rides on this answer (the same fields as GET /v1/device/me). A child whose free trial
+    // ran out is a class student from the moment the teacher started this lesson (seats.ts trialExempt), so the world
+    // lifts the pay card now — no second request, no poll.
+    const gate = playAllowed(d.sql, dev.player_id, now);
     return c.json({
       student_token: token,
       lesson_id: live.lesson_id,
       player_id: dev.player_id,
       nickname: pl?.nickname ?? '',
       level: pl?.level ?? 'L1',
-      voice_store: d.db.hasActiveConsent(dev.player_id, 'voice_store')
+      voice_store: d.db.hasActiveConsent(dev.player_id, 'voice_store'),
+      play_allowed: gate.allowed,
+      seat: gate.seat ? { state: gate.seat.state } : null,
+      trial: gate.trial
     });
   });
 

@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import type { Level } from '@lcw/schemas';
 import { canRunWorld, createWorld, SCENE_IDS, type NpcRef, type SceneId, type WorldHandle, type WorldTier } from './world/api.js';
 import { WORLD_STRINGS as W } from './world/strings.js';
-import { resolveIdentity, browserStore, storedStudentToken, type PlayerIdentity } from './world/identity.js';
+import { resolveIdentity, browserStore, rememberPlayGate, storedStudentToken, withPlayGate, type PlayerIdentity } from './world/identity.js';
 import { onSeatInactive, startTrialBeat } from './world/seat.js';
 import { FREE_PLAY_LIMITS } from '@lcw/schemas';
 import type { BuildAccess } from './world/api.js';
@@ -167,6 +167,25 @@ export function withSeatStopped(id: PlayerIdentity | null, trial = false): Playe
 /** R326: only a child on the free-trial clock beats the server (a seat, a lesson, a guest never do). */
 export function needsTrialBeat(id: PlayerIdentity | null): id is Extract<PlayerIdentity, { kind: 'child' }> {
   return id?.kind === 'child' && !id.offline && id.trial === 'running' && id.playAllowed;
+}
+
+/**
+ * The seat / trial card holds the screen (R326): solo play stopped, the world open, past the title screen (the card
+ * used to land on top of the title's Start button), no lesson running, the card not put away. While it is up the world
+ * is paused and the frame's buttons and tips step aside (FrameLayer cardOpen).
+ */
+export function shellCardUp(o: { soloBlocked: boolean; world: boolean; startOpen: boolean; lessonOn: boolean; seatCard: boolean }): boolean {
+  return o.soloBlocked && o.world && !o.startOpen && !o.lessonOn && o.seatCard;
+}
+
+/**
+ * The device lesson join answered (R326): its play gate replaces what the device knew — a child whose free trial ran
+ * out is a class student once the teacher starts the lesson, so solo play comes back at once, without waiting for the
+ * next /v1/device/me. An answer without a gate (older server) changes nothing. The lesson takes the screen, so the
+ * seat / trial card is put away either way (a still-stopped seat comes back as the chip after the lesson).
+ */
+export function lessonJoinStep(id: PlayerIdentity | null, s: Pick<DeviceLessonSession, 'play'>): { identity: PlayerIdentity | null; remember: boolean; closeCard: true } {
+  return { identity: s.play ? withPlayGate(id, s.play) : id, remember: !!s.play && id?.kind === 'child', closeCard: true };
 }
 
 export function soloPlayerOf(id: PlayerIdentity | null): SoloPlayer | undefined {
@@ -462,6 +481,9 @@ export function App(): React.ReactElement {
    */
   const [lessonLook, setLessonLook] = useState<WorldSetupChoice | null>(null);
   const soloBlocked = soloPlayBlocked(identity);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const shellCard = shellCardUp({ soloBlocked, world: world !== null, startOpen, lessonOn, seatCard });
   const lessonActive = useRef(false);
   const ok = useMemo(() => canRunWorld(), []);
 
@@ -509,6 +531,12 @@ export function App(): React.ReactElement {
   }, [world, startOpen, myLook, passLook, lessonLook]);
 
   const onLessonSession = useCallback((s: DeviceLessonSession) => {
+    // R326: the join answer carries the play gate (no extra request): a spent trial is lifted now, the card goes away.
+    // Only a linked child's device token joins this way (joinDeviceLesson), so the gate is this device's to keep.
+    const step = lessonJoinStep(identityRef.current, s);
+    if (step.remember && s.play) rememberPlayGate(browserStore(), s.play);
+    if (step.identity !== identityRef.current) setIdentity(step.identity);
+    if (step.closeCard) setSeatCard(false);
     // the title closes either way; already in this lesson (a poll answered twice): keep the running layer
     setStartOpen(false);
     if (loadStudentSession()?.lessonId === s.lessonId) return;
@@ -581,8 +609,6 @@ export function App(): React.ReactElement {
 
   // Multi room (docs/03 D11): lesson students meet in their lesson's room, linked children in their family's. The
   // token is read on every (re)connect, so a lesson joined after the world opened is picked up by the next retry.
-  const identityRef = useRef(identity);
-  identityRef.current = identity;
   const passTokenRef = useRef(passToken);
   passTokenRef.current = passToken;
   // a live lesson seats the child in the teacher's room: the pass (host's room) never goes first then (review R325)
@@ -691,11 +717,12 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (soloBlocked && world) setSeatCard(true);
   }, [soloBlocked, world]);
+  // Paused only while the card is really on screen: a lesson starting (or play coming back) lets the world move again.
   useEffect(() => {
-    if (!world || !seatCard) return;
+    if (!world || !shellCard) return;
     world.setPaused(true);
     return () => world.setPaused(false);
-  }, [world, seatCard]);
+  }, [world, shellCard]);
   // Build screen room check → read-aloud discount line (when the world reports one).
   useEffect(() => {
     if (!world?.onRoomCheck) return;
@@ -836,7 +863,7 @@ export function App(): React.ReactElement {
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
         <div style={{ pointerEvents: 'auto' }}>
           {/* the title screen holds the whole screen: the menu button and keys step aside like for a dialog */}
-          <FrameLayer world={world} identity={identity} lessonOn={lessonOn} teacher={!!teach} dialogOpen={dialogNpc !== null || startOpen} />
+          <FrameLayer world={world} identity={identity} lessonOn={lessonOn} teacher={!!teach} dialogOpen={dialogNpc !== null || startOpen} cardOpen={shellCard} />
           {/* The title is the whole screen: no lesson-layer button over it (a ?code= address never opens the title). */}
           {world && teach ? <TeacherBar world={world} session={teach} room={roomClient} onLook={setLessonLook} /> : null}
           {Lesson && !startOpen && !teach ? (
@@ -887,8 +914,8 @@ export function App(): React.ReactElement {
           {Review && identity && identity.kind !== 'guest' && !soloBlocked && !startOpen ? (
             <Review world={world} player={soloPlayerOf(identity)} hidden={lessonOn || soloNpc !== null} />
           ) : null}
-          {soloBlocked && world && !lessonOn && !startOpen ? <SeatPausedChip onOpen={() => setSeatCard(true)} /> : null}
-          {soloBlocked && world && !lessonOn && seatCard ? (
+          {soloBlocked && world && !lessonOn && !startOpen && !shellCard ? <SeatPausedChip onOpen={() => setSeatCard(true)} /> : null}
+          {shellCard ? (
             identity?.kind === 'child' && identity.trial === 'ended' ? (
               <TrialEndedCard onClose={() => setSeatCard(false)} />
             ) : (
@@ -909,7 +936,7 @@ export function App(): React.ReactElement {
             </div>
           ) : null}
           {MicGate && world && identity && !teach ? (
-            <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null || startOpen} />
+            <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null || startOpen || shellCard} />
           ) : null}
           {/* children run the errand, then the town goals; guests (no errand) start on the town goals (dialog/goals.ts) */}
           {/* not on the teacher's page (?teach=): the teacher walks with the child, no errand or town goals of a guest (R325) */}

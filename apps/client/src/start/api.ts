@@ -4,7 +4,7 @@
  * /v1/device/lesson/join). Pure functions over a fetch and a key store, so the flow is tested without a browser.
  */
 import { readLearnLang, readWorldSetup, type LearnLang, type WorldSetup, type WorldSetupChoice } from '@lcw/content';
-import type { PlayerIdentity } from '../world/identity.js';
+import { readPlayGate, type PlayGateAnswer, type PlayerIdentity } from '../world/identity.js';
 
 export const GUEST_WORLD_KEY = 'lcw.myWorld';
 
@@ -110,6 +110,8 @@ export interface DeviceLessonSession {
   nickname: string;
   level: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
   voiceStore: boolean;
+  /** R326: the solo-play gate the join answer carries (absent on an older server). */
+  play?: PlayGateAnswer;
 }
 
 /** '들어가기': the same student session a join code gives, for this device's child (null = no lesson now). */
@@ -121,7 +123,15 @@ export async function joinDeviceLesson(id: PlayerIdentity | null, fetchFn: Fetch
     const b = (await res.json()) as Record<string, unknown>;
     if (typeof b.student_token !== 'string' || typeof b.lesson_id !== 'string') return null;
     const level = typeof b.level === 'string' && /^L[1-6]$/.test(b.level) ? (b.level as DeviceLessonSession['level']) : 'L1';
-    return { token: b.student_token, lessonId: b.lesson_id, nickname: typeof b.nickname === 'string' ? b.nickname : '', level, voiceStore: b.voice_store === true };
+    const play = readPlayGate(b);
+    return {
+      token: b.student_token,
+      lessonId: b.lesson_id,
+      nickname: typeof b.nickname === 'string' ? b.nickname : '',
+      level,
+      voiceStore: b.voice_store === true,
+      ...(play ? { play } : {})
+    };
   } catch {
     return null;
   }

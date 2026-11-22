@@ -34,6 +34,20 @@ export interface FrameLayerProps {
   dialogOpen?: boolean;
   /** the teacher in the world (?teach=): no gauges, no rest walk in the middle of a lesson (review R325) */
   teacher?: boolean;
+  /**
+   * A shell card holds the screen (R326: the free trial is over, or the seat stopped): like a dialog, the menu and shop
+   * buttons and the coin tip step aside so nothing shows dimmed under the card's shade.
+   */
+  cardOpen?: boolean;
+}
+
+/**
+ * The one-time coin tip ("Spend them here…"): only on a free screen — no dialog or shell card, menu closed, not in a
+ * lesson — for a child who can buy. Not while solo play is stopped (a spent trial or a stopped seat cannot buy, so the
+ * tip would promise what the shop refuses); it waits, unseen, until play comes back.
+ */
+export function shopTipShown(o: { blocked: boolean; menuOpen: boolean; guest: boolean; unseen: boolean; lessonOn: boolean; soloStopped: boolean }): boolean {
+  return !o.blocked && !o.menuOpen && !o.guest && o.unseen && !o.lessonOn && !o.soloStopped;
 }
 
 /** Who the frame asks the server as (same tokens the review and build paths use). */
@@ -111,12 +125,12 @@ export function bagKeys(v: ItemsView): Array<string | null> {
   return Array.from({ length: 5 }, (_, i) => bag[i] ?? null);
 }
 
-export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = false, teacher = false }: FrameLayerProps): React.ReactElement | null {
+export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = false, teacher = false, cardOpen = false }: FrameLayerProps): React.ReactElement | null {
   const [online, setOnline] = useState(true);
   const [menu, setMenu] = useState<MenuTab | null>(null);
   const [lastTab, setLastTab] = useState<MenuTab>('bag');
   const hudDialog = useHudDialog();
-  const blocked = dialogOpen || hudDialog;
+  const blocked = dialogOpen || hudDialog || cardOpen;
   // the lesson token appears once the join answered (lessonOn flips then)
   const auth = useMemo(() => frameAuthOf(identity, identity?.kind === 'lesson' ? storedStudentToken() : null), [identity, lessonOn]);
   // G14 settings: the device copy is put into effect at start (audio buses, text size, font, colours, motion, keys).
@@ -348,7 +362,14 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
           ) : null}
         </button>
       ) : null}
-      {!blocked && menu === null && auth.kind !== 'guest' && shopTip && !lessonOn ? (
+      {shopTipShown({
+        blocked,
+        menuOpen: menu !== null,
+        guest: auth.kind === 'guest',
+        unseen: shopTip,
+        lessonOn,
+        soloStopped: identity?.kind === 'child' && !identity.playAllowed
+      }) ? (
         <div className="lcw-shoptip" role="note">
           <span>{say(SHOP_STRINGS.helpSpend).text}</span>
           {say(SHOP_STRINGS.helpSpend).help ? (

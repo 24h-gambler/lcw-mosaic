@@ -143,8 +143,40 @@ export async function resolveIdentity(search: string, store: KeyStore | null, fe
   // Only an explicit false stops solo play (an older server without the field keeps playing).
   const playAllowed = body.play_allowed !== false;
   const trial: TrialState = body.trial === 'running' || body.trial === 'ended' ? body.trial : null;
-  write(store, DEVICE_PLAY_BLOCKED_KEY, playAllowed ? null : trial === 'ended' ? 'trial' : '1');
+  rememberPlayGate(store, { playAllowed, trial });
   return { kind: 'child', token, nickname, level, voiceStore: body.voice_store === true, offline: false, playAllowed, seat: parseSeat(body.seat), ...(trial ? { trial } : {}) };
+}
+
+/** The solo-play gate a device-token answer carries (/v1/device/me, /v1/device/lesson/join): same three fields. */
+export interface PlayGateAnswer {
+  playAllowed: boolean;
+  seat: SeatInfo | null;
+  trial: TrialState;
+}
+
+/** The gate in a server answer; null when the answer has none (an older server: keep what the device knows). */
+export function readPlayGate(body: unknown): PlayGateAnswer | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as { play_allowed?: unknown; seat?: unknown; trial?: unknown };
+  if (typeof b.play_allowed !== 'boolean') return null;
+  return { playAllowed: b.play_allowed, seat: parseSeat(b.seat), trial: b.trial === 'running' || b.trial === 'ended' ? b.trial : null };
+}
+
+/** Keep the last gate on this device so an offline start shows the same state ('trial' / '1' / nothing). */
+export function rememberPlayGate(store: KeyStore | null, gate: Pick<PlayGateAnswer, 'playAllowed' | 'trial'>): void {
+  write(store, DEVICE_PLAY_BLOCKED_KEY, gate.playAllowed ? null : gate.trial === 'ended' ? 'trial' : '1');
+}
+
+/**
+ * A fresh gate from the server for this device's child (R326: the teacher started a lesson, so a spent free trial no
+ * longer stops solo play). Only a linked child carries a gate; a lesson-code student or a guest is left as is.
+ */
+export function withPlayGate(id: PlayerIdentity | null, gate: PlayGateAnswer | null): PlayerIdentity | null {
+  if (id?.kind !== 'child' || !gate) return id;
+  // the same gate keeps the same object: nothing downstream re-runs (no extra request for a child whose state held)
+  if (id.playAllowed === gate.playAllowed && (id.seat?.state ?? null) === (gate.seat?.state ?? null) && (id.trial ?? null) === gate.trial) return id;
+  const { trial: _old, ...rest } = id;
+  return { ...rest, playAllowed: gate.playAllowed, seat: gate.seat, ...(gate.trial ? { trial: gate.trial } : {}) };
 }
 
 /** Where the lesson layer (and apps/web /join) keeps this tab's student token after /v1/join (lesson/api.ts). */

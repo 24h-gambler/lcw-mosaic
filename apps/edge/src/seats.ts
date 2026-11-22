@@ -207,11 +207,15 @@ function trialExempt(sql: SqliteExecutor, playerId: string): boolean {
   // What the product really records (review of the R326 paid step: tutor_student is set by no product code): a child
   // who has had a lesson with the teacher, or ever held a tutoring seat (name-keys.ts reads the class the same way).
   if (sql.get("select 1 as x from seats where player_id = ? and plan = 'tutoring' limit 1", [playerId])) return true;
-  try {
-    return Boolean(sql.get('select 1 as x from lessons where player_id = ? limit 1', [playerId]));
-  } catch {
-    return false; // no lessons table yet (a fresh store)
+  // An English Day student linked to the class (#194 ed-link.ts) is a class student before the first lesson too.
+  for (const q of ['select 1 as x from lessons where player_id = ? limit 1', 'select 1 as x from ed_links where player_id = ? limit 1']) {
+    try {
+      if (sql.get(q, [playerId])) return true;
+    } catch {
+      /* table not created yet (a fresh store) */
+    }
   }
+  return false;
 }
 
 function trialUsed(sql: SqliteExecutor, playerId: string): number {

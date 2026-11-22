@@ -156,6 +156,20 @@ describe('R326 free trial: 3 minutes of server-counted world time, then the pay 
     expect(used(p, 'kid-l')).toBe(-1);
   });
 
+  it('an English Day student linked to the class is never on the clock, before the first lesson too', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    at(0);
+    const p = platform();
+    const dev = await kid(p, 'kid-e', 'fam-e');
+    sqlOf(p).exec('create table if not exists ed_links (player_id text primary key, student text unique not null, at integer not null)');
+    sqlOf(p).run("insert into ed_links (player_id, student, at) values ('kid-e', 'ed-student-1', 0)");
+    for (let i = 0; i < 6; i++) {
+      at(i * 60 * S);
+      expect((await call(p, 'POST', '/v1/device/heartbeat', undefined, dev)).body).toEqual({ play_allowed: true, trial: null });
+    }
+    expect(used(p, 'kid-e')).toBe(-1);
+  });
+
   it('a seat issued after the trial ended opens play again at once', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     at(0);

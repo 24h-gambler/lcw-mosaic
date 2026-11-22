@@ -676,7 +676,8 @@ export function App(): React.ReactElement {
   }, [soloNpc]);
   // R326 free trial: the server counts world time from this device's beats (once a minute, only while visible) and
   // from the solo writes that come anyway; when it says the trial is over the shell shows the pay card.
-  const beatToken = needsTrialBeat(identity) && world && !startOpen ? identity.token : null;
+  // No trial beat while a lesson is live: lessons never run on the free-trial clock (review of the R326 paid step).
+  const beatToken = needsTrialBeat(identity) && world && !startOpen && !lessonOn ? identity.token : null;
   useEffect(() => {
     if (!beatToken) return;
     return startTrialBeat({

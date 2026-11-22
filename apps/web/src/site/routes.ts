@@ -28,7 +28,7 @@ export interface SiteLocation {
 }
 
 const EXACT: Readonly<Record<string, SitePage>> = {
-  '/': 'home',
+  '/about': 'home',
   '/parents': 'parents',
   '/play': 'play',
   '/tutoring': 'tutoring',
@@ -44,7 +44,10 @@ const EXACT: Readonly<Record<string, SitePage>> = {
 
 /** Older links that must keep working. */
 const ALIASES: Readonly<Record<string, string>> = {
-  '/teachers': '/tutoring'
+  '/teachers': '/tutoring',
+  // R326 (Dan 11-19): the service address opens the world (the Worker sends `/` to /world/, apps/edge/src/world-path.ts);
+  // the introduction lives at /about. A `/` that still reaches the page (local dev, an in-app "처음으로") shows it.
+  '/': '/about'
 };
 
 const PARAM_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -75,7 +78,7 @@ export function metaFor(loc: SiteLocation): { title: string; description: string
     return META['/learn']!;
   }
   if (loc.page === 'showroom') return { title: '쇼룸 — LCW', description: '친구가 지은 월드를 돌려 보세요.' };
-  const m = META[loc.path] ?? META['/']!;
+  const m = META[loc.path] ?? META['/about']!;
   // Link previews and search show what is true today (copyNow.ts), the full line once its features are live.
   if (loc.path === '/play') return { ...m, description: liveOr(PLAY_NOW.metaDescription, m.description) };
   return m;

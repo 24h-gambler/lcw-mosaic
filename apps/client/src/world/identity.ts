@@ -7,8 +7,14 @@ import type { Level } from '@lcw/schemas';
 
 export const DEVICE_TOKEN_KEY = 'lcw.deviceToken';
 export const DEVICE_NICKNAME_KEY = 'lcw.deviceNickname';
-/** Last seat answer seen online ('1' = solo play stopped), so an offline start keeps the guardian's seat state. */
+/**
+ * Last seat answer seen online ('1' = solo play stopped by the seat, 'trial' = the free 3 minutes are over), so an
+ * offline start keeps the state.
+ */
 export const DEVICE_PLAY_BLOCKED_KEY = 'lcw.devicePlayBlocked';
+
+/** R326 free trial on the server clock: 'running' = beat while the world is open; 'ended' = pay screen; null = none. */
+export type TrialState = 'running' | 'ended' | null;
 
 export type SeatState = 'active' | 'expiring' | 'read_only' | 'archived' | 'refunded';
 export interface SeatInfo {
@@ -29,6 +35,8 @@ export type PlayerIdentity =
       playAllowed: boolean;
       /** null = never had a seat (before sales): plays as before */
       seat: SeatInfo | null;
+      /** R326: the free-trial clock of a child without a seat (null for a seat or a tutoring student, older servers) */
+      trial?: TrialState;
     }
   | { kind: 'guest' };
 
@@ -67,6 +75,10 @@ function read(store: KeyStore | null, key: string): string | null {
   }
 }
 
+function blockedValue(v: string | null): boolean {
+  return v === '1' || v === 'trial';
+}
+
 /** A join code from the address (`?code=123456`), digits only. */
 export function joinCodeFrom(search: string): string | null {
   const raw = new URLSearchParams(search).get('code');
@@ -87,8 +99,9 @@ export async function resolveIdentity(search: string, store: KeyStore | null, fe
     level: 'L1',
     voiceStore: false,
     offline: true,
-    playAllowed: read(store, DEVICE_PLAY_BLOCKED_KEY) !== '1',
-    seat: null
+    playAllowed: !blockedValue(read(store, DEVICE_PLAY_BLOCKED_KEY)),
+    seat: null,
+    ...(read(store, DEVICE_PLAY_BLOCKED_KEY) === 'trial' ? { trial: 'ended' as const } : {})
   });
   let res: Response;
   try {
@@ -110,7 +123,14 @@ export async function resolveIdentity(search: string, store: KeyStore | null, fe
     return { kind: 'guest' };
   }
   if (!res.ok) return offlineChild();
-  const body = (await res.json().catch(() => ({}))) as { nickname?: unknown; level?: unknown; voice_store?: unknown; play_allowed?: unknown; seat?: unknown };
+  const body = (await res.json().catch(() => ({}))) as {
+    nickname?: unknown;
+    level?: unknown;
+    voice_store?: unknown;
+    play_allowed?: unknown;
+    seat?: unknown;
+    trial?: unknown;
+  };
   const nickname = typeof body.nickname === 'string' ? body.nickname : cachedName;
   const level = (typeof body.level === 'string' && LEVELS.includes(body.level) ? body.level : 'L1') as Level;
   if (nickname && nickname !== cachedName) {
@@ -122,8 +142,9 @@ export async function resolveIdentity(search: string, store: KeyStore | null, fe
   }
   // Only an explicit false stops solo play (an older server without the field keeps playing).
   const playAllowed = body.play_allowed !== false;
-  write(store, DEVICE_PLAY_BLOCKED_KEY, playAllowed ? null : '1');
-  return { kind: 'child', token, nickname, level, voiceStore: body.voice_store === true, offline: false, playAllowed, seat: parseSeat(body.seat) };
+  const trial: TrialState = body.trial === 'running' || body.trial === 'ended' ? body.trial : null;
+  write(store, DEVICE_PLAY_BLOCKED_KEY, playAllowed ? null : trial === 'ended' ? 'trial' : '1');
+  return { kind: 'child', token, nickname, level, voiceStore: body.voice_store === true, offline: false, playAllowed, seat: parseSeat(body.seat), ...(trial ? { trial } : {}) };
 }
 
 /** Where the lesson layer (and apps/web /join) keeps this tab's student token after /v1/join (lesson/api.ts). */

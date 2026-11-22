@@ -8,11 +8,12 @@ import type { Level } from '@lcw/schemas';
 import { canRunWorld, createWorld, SCENE_IDS, type NpcRef, type SceneId, type WorldHandle, type WorldTier } from './world/api.js';
 import { WORLD_STRINGS as W } from './world/strings.js';
 import { resolveIdentity, browserStore, storedStudentToken, type PlayerIdentity } from './world/identity.js';
-import { onSeatInactive } from './world/seat.js';
+import { onSeatInactive, startTrialBeat } from './world/seat.js';
+import { FREE_PLAY_LIMITS } from '@lcw/schemas';
 import type { BuildAccess } from './world/api.js';
 import { FrameFloorWatch, TIER_SETTINGS, gpuClassOf, readGpuRenderer, type GpuClass } from './world/tiers.js';
 import { RoomClient } from './world/room-client.js';
-import { SeatPausedCard, SeatPausedChip } from './world/SeatNotice.js';
+import { SeatPausedCard, SeatPausedChip, TrialEndedCard } from './world/SeatNotice.js';
 import { FrameLayer } from './frame/FrameLayer.js';
 import { SHOP_SAY_EVENT } from './frame/shop-api.js';
 import { SHOPKEEPER, shopSayOffers } from './frame/shop-say.js';
@@ -159,8 +160,13 @@ export function buildAccessOf(id: PlayerIdentity | null, studentToken: string | 
 }
 
 /** A solo write came back 403 seat_inactive: the same identity as play_allowed=false (lessons are never gated). */
-export function withSeatStopped(id: PlayerIdentity | null): PlayerIdentity | null {
-  return id?.kind === 'child' ? { ...id, playAllowed: false } : id;
+export function withSeatStopped(id: PlayerIdentity | null, trial = false): PlayerIdentity | null {
+  return id?.kind === 'child' ? { ...id, playAllowed: false, ...(trial ? { trial: 'ended' as const } : {}) } : id;
+}
+
+/** R326: only a child on the free-trial clock beats the server (a seat, a lesson, a guest never do). */
+export function needsTrialBeat(id: PlayerIdentity | null): id is Extract<PlayerIdentity, { kind: 'child' }> {
+  return id?.kind === 'child' && !id.offline && id.trial === 'running' && id.playAllowed;
 }
 
 export function soloPlayerOf(id: PlayerIdentity | null): SoloPlayer | undefined {
@@ -526,8 +532,8 @@ export function App(): React.ReactElement {
   // A solo write answered 403 seat_inactive (seat stopped mid-play): same card as play_allowed=false, not an error.
   useEffect(
     () =>
-      onSeatInactive(() => {
-        setIdentity((id) => withSeatStopped(id));
+      onSeatInactive((trial) => {
+        setIdentity((id) => withSeatStopped(id, trial));
         setSoloNpc(null);
         setSeatCard(true);
       }),
@@ -668,6 +674,18 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (soloNpc === null) setSayItem(null);
   }, [soloNpc]);
+  // R326 free trial: the server counts world time from this device's beats (once a minute, only while visible) and
+  // from the solo writes that come anyway; when it says the trial is over the shell shows the pay card.
+  // No trial beat while a lesson is live: lessons never run on the free-trial clock (review of the R326 paid step).
+  const beatToken = needsTrialBeat(identity) && world && !startOpen && !lessonOn ? identity.token : null;
+  useEffect(() => {
+    if (!beatToken) return;
+    return startTrialBeat({
+      token: beatToken,
+      everyMs: FREE_PLAY_LIMITS.worldTrialBeatMs,
+      onEnded: () => undefined
+    });
+  }, [beatToken]);
 
   // Seat stopped: say so once when the world opens (and again on every NPC tap), while the world stays walkable.
   useEffect(() => {
@@ -870,7 +888,13 @@ export function App(): React.ReactElement {
             <Review world={world} player={soloPlayerOf(identity)} hidden={lessonOn || soloNpc !== null} />
           ) : null}
           {soloBlocked && world && !lessonOn && !startOpen ? <SeatPausedChip onOpen={() => setSeatCard(true)} /> : null}
-          {soloBlocked && world && !lessonOn && seatCard ? <SeatPausedCard onClose={() => setSeatCard(false)} /> : null}
+          {soloBlocked && world && !lessonOn && seatCard ? (
+            identity?.kind === 'child' && identity.trial === 'ended' ? (
+              <TrialEndedCard onClose={() => setSeatCard(false)} />
+            ) : (
+              <SeatPausedCard onClose={() => setSeatCard(false)} />
+            )
+          ) : null}
           {ReadAloud && room && !lessonOn && !soloBlocked && soloNpc === null && !startOpen ? (
             <div style={{ position: 'absolute', left: '50%', bottom: 96, transform: 'translateX(-50%)' }}>
               <ReadAloud

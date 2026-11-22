@@ -19,7 +19,23 @@ export const FREE_PLAY_LIMITS = {
   /** Guest pass: passes one seat may issue per KST calendar month. A pass revoked before anyone entered gives its slot back. */
   guestPassesPerSeatPerMonth: 2,
   /** Guest pass: an issued code that nobody used stops working this many days after it was issued. */
-  guestPassRedeemDays: 7
+  guestPassRedeemDays: 7,
+  /**
+   * R326 (Dan 11-19 "무료 3분 뒤엔 유료 결제로"): a signed-up child without a seat plays this many minutes of world time,
+   * counted by the server, then the world asks for a seat (the guardian picks a plan on /pricing).
+   */
+  worldTrialMinutes: 3,
+  /** The free-trial child's device beats this often while the world is open and visible (nobody else beats). */
+  worldTrialBeatMs: 60_000,
+  /** One beat (or solo write) adds the time since the last one, but never more than this. */
+  worldTrialBeatMaxAddMs: 75_000,
+  /** A gap longer than this is a break (tab closed, phone asleep): the next beat starts a new stretch. */
+  worldTrialBreakMs: 90_000,
+  /**
+   * What the first beat or write of a new stretch adds: play started before it, and without it writes spaced past the
+   * break (heartbeat blocked) would never run the clock down (review of the R326 paid step: 40 writes = 60 min, 0 used).
+   */
+  worldTrialStretchMinMs: 20_000
 } as const;
 
 /** Wrong-code guard: pass lookups (check and redeem together) one network address may make per hour. */

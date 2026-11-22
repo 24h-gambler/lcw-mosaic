@@ -77,6 +77,8 @@ export const TRY = {
   endSavedYes: '저장하려면 부모님이 계정을 만들어 주셔야 해요. 부모님께 소개를 보내 볼까요?',
   endSavedNo: '재밌었다면 부모님께 소개를 보내 봐요.',
   sendParent: '부모님께 소개 보내기',
+  /** R326: the try's end goes on to the plans step (an adult page); no price on this child page. */
+  choosePlan: '보호자와 이용권 고르기',
   myVoice: '내 목소리 다시 듣기',
   forParents: '학부모님이세요?',
   forAdults: '어른 학습자세요?',

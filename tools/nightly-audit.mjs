@@ -35,7 +35,7 @@ export const INTERNAL_ROUTES = ['/director', '/seats', '/dashboard', '/family', 
 /** Internal numbers that must never reach a user's screen. */
 export const INTERNAL_ID_RE = /\b(?:WP-\d{3}|[GTPW](?:0[1-9]|1[0-9])|R\d{4})\b/g;
 /** Pages every audit opens even if no coverage entry names them (docs/14 2장). */
-export const SITE_ROUTES = ['/', '/parents', '/play', '/tutoring', '/pricing', '/try', '/learn', '/safety', '/terms', '/privacy'];
+export const SITE_ROUTES = ['/about', '/parents', '/play', '/tutoring', '/pricing', '/try', '/learn', '/safety', '/terms', '/privacy'];
 /** apps/web/src/lessonApi.ts OPERATOR_TOKEN_KEY: where the console keeps the operator key. */
 export const OPERATOR_KEY_STORAGE = 'lcw.operatorToken';
 const MARK_WAIT_MS = 20000;

@@ -39,6 +39,8 @@ let failed = false;
 
 for (const vp of VIEWPORTS) {
   const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
+  // ADV_MIC_OFF=1: the student once said no to the microphone (review #196) — every speak step shows the answer box
+  if (process.env.ADV_MIC_OFF === '1') await page.addInitScript(() => localStorage.setItem('lcw.adventure.micOff', '1'));
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message ?? e).slice(0, 300)));
   const url = new URL(base);

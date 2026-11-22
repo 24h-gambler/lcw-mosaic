@@ -78,9 +78,24 @@ export function App({ engine }: { engine: Engine }) {
   // keyboard
   useEffect(() => {
     const typing = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
+    // R2734: Z never stalls — the engine acts, or the panel's own button for this step is pressed
+    const advance = () => {
+      if (engine.confirm()) return;
+      const focused = document.activeElement;
+      if (focused instanceof HTMLButtonElement && !focused.disabled && focused.closest('.adv-panel')) focused.click();
+      else {
+        const primary = [...document.querySelectorAll<HTMLButtonElement>('.adv-panel [data-primary]')].find((b) => !b.disabled);
+        primary?.click();
+      }
+    };
     const down = (e: KeyboardEvent) => {
       if (typing(e.target)) {
         if (e.key === 'Escape') (e.target as HTMLElement).blur();
+        // review #196 high 1: an empty answer box must not swallow Enter (mic denied → the box is the only input)
+        else if (e.key === 'Enter' && !(e.target as HTMLInputElement).value.trim()) {
+          e.preventDefault();
+          if (!e.repeat) advance();
+        }
         return;
       }
       const dir = KEY_DIR[e.key];
@@ -96,15 +111,7 @@ export function App({ engine }: { engine: Engine }) {
       if (e.key === 'z' || e.key === 'Z' || ((e.key === 'Enter' || e.key === ' ') && !onButton)) {
         e.preventDefault();
         if (e.repeat) return;
-        // R2734: Z never stalls — the engine acts, or the panel's own button for this step is pressed
-        if (!engine.confirm()) {
-          const focused = document.activeElement;
-          if (focused instanceof HTMLButtonElement && !focused.disabled && focused.closest('.adv-panel')) focused.click();
-          else {
-            const primary = [...document.querySelectorAll<HTMLButtonElement>('.adv-panel [data-primary]')].find((b) => !b.disabled);
-            primary?.click();
-          }
-        }
+        advance();
       } else if (e.key === 'x' || e.key === 'X' || e.key === 'Escape' || e.key === 'Backspace') {
         engine.cancel();
       } else if (/^[1-5]$/.test(e.key) && engine.getSnapshot().battle?.phase === 'menu') {

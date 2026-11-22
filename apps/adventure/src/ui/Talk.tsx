@@ -172,7 +172,7 @@ export function TalkPanel({ engine, snap, item, help }: { engine: Engine; snap: 
             {S.next.en} ▶{help && <span className="ko">{S.next.ko}</span>}
           </button>
         ) : (
-          <button type="button" className="btn ghost" onClick={() => engine.talkSkip()} data-testid="adv-talk-skip">
+          <button type="button" className="btn ghost" data-primary onClick={() => engine.talkSkip()} data-testid="adv-talk-skip">
             {S.skip.en}
             {help && <span className="ko">{S.skip.ko}</span>}
           </button>

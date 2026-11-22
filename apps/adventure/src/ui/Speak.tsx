@@ -55,9 +55,11 @@ export function Speak({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => () => lis.current?.abort(), []);
+  // review #196 high 1: no microphone → the box is shown but not focused, so Z/Enter still move the game on;
+  // the student clicks the box to type. A box the student asked for (autoType or the type toggle) is focused.
   useEffect(() => {
-    if (typing) inputRef.current?.focus();
-  }, [typing]);
+    if (typing && (autoType || state !== 'unsupported')) inputRef.current?.focus();
+  }, [typing, autoType, state]);
 
   const start = () => {
     if (sending) return;

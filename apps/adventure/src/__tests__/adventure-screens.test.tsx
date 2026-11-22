@@ -218,6 +218,9 @@ describe('adventure screens (A01–A06)', () => {
     expect(say).toContain('data-mode="say"');
     expect(say).toContain(by('say').target);
     expect(say).toContain('data-testid="adv-type"');
+    // review #196: with no microphone (this test page has none) Z still has a button to press — Skip is the primary
+    expect(say).not.toContain('data-testid="adv-mic"');
+    expect(say).toMatch(/data-primary="true"[^>]*data-testid="adv-talk-skip"/);
     const build = html(<TalkPanel engine={engine} snap={snap} item={by('build')} help />);
     expect((build.match(/data-testid="adv-tile"/g) ?? []).length).toBe(by('build').tiles!.length);
     const spell = by('spell');

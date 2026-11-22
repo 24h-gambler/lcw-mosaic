@@ -152,6 +152,21 @@ describe('R326 billing live: Toss confirm', () => {
     expect((await call(p, 'POST', '/v1/billing/confirm', confirm, anon)).body).toMatchObject({ seat: 'seat_extended' });
   });
 
+  it('a Solo payment for a child on a live tutoring or Duo seat extends nothing: it waits in the inbox as paid', async () => {
+    const p = platform(true);
+    const dev = await kid(p, 'kid-y', 'fam-y');
+    await call(p, 'POST', '/v1/admin/seats', { payer_guardian_id: 'g-fam-y', plan: 'tutoring', term: 'month', player_ids: ['kid-y'] });
+    const before = sqlOf(p).get('select plan, ends_at from seats where player_id = ?', ['kid-y']);
+    expect(before).toMatchObject({ plan: 'tutoring' });
+    const o = (await call(p, 'POST', '/v1/billing/checkout', checkout, dev)).body;
+    vi.stubGlobal('fetch', async () => tossOk(14_900, o.order_id));
+    const r = await call(p, 'POST', '/v1/billing/confirm', { order_id: o.order_id, payment_key: 'pk_live_yyyyyy', amount: 14_900 }, anon);
+    expect(r.body).toEqual({ ok: true, status: 'paid', seat_order_id: null });
+    expect(sqlOf(p).get('select plan, ends_at from seats where player_id = ?', ['kid-y'])).toEqual(before);
+    expect(sqlOf(p).get('select status, fail_reason from billing_orders where id = ?', [o.order_id])).toEqual({ status: 'paid', fail_reason: 'seat_live_tutoring' });
+    expect((await call(p, 'GET', '/v1/admin/billing/orders')).body.orders[0]).toMatchObject({ id: o.order_id, status: 'paid' });
+  });
+
   it('two confirms of one payment at once open one seat; a Toss 5xx keeps the order payable', async () => {
     const p = platform(true);
     const dev = await kid(p, 'kid-c', 'fam-c');

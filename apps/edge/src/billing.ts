@@ -235,6 +235,13 @@ export function buildBillingApp(d: BillingDeps): Hono {
         'billing'
       );
       const live = issued.status === 409 && issued.body.error === 'seat_exists' ? String(issued.body.seat_id) : null;
+      // Only a live Solo seat is extended by a Solo payment: a tutoring (0 won) or Duo seat has its own first-use, refund
+      // and sibling end-date rules, so that payment waits in the operator inbox as paid (review of the R326 paid step).
+      const livePlan = live ? d.sql.get<{ plan: string }>('select plan from seats where id = ?', [live])?.plan : null;
+      if (live && livePlan !== 'solo') {
+        d.sql.run('update billing_orders set fail_reason = ? where id = ?', [`seat_live_${String(livePlan)}`.slice(0, 60), o.id]);
+        return c.json({ ok: true, status: 'paid', seat_order_id: null });
+      }
       const done = live ? extendSeatPaid(seatDeps, live, { days: TERM_DAYS[o.term], amount_krw: o.amount_krw, paid_at: now, note: `online ${o.id}` }, 'billing') : issued;
       if (done.status === 201 || done.status === 200) {
         const kind = live ? 'seat_extended' : 'seat_issued';

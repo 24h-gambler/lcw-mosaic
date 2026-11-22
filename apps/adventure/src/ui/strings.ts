@@ -15,11 +15,8 @@ export const S = {
   state: {
     open: { en: 'Open', ko: '열림' },
     cleared: { en: 'Friends made', ko: '친구가 됐어요' },
-    previous: { en: 'Finish the island before', ko: '앞 섬을 먼저 끝내요' },
-    'next-day': { en: 'Opens on your next lesson day', ko: '다음 수업 날 열려요' }
+    previous: { en: 'Finish the island before', ko: '앞 섬을 먼저 끝내요' }
   },
-  /** Opened without the student document: the next island waits for tomorrow (Korea time). */
-  stateTomorrow: { en: 'Opens tomorrow', ko: '내일 열려요' },
   loading: { en: 'Getting your islands ready…', ko: '섬을 준비하고 있어요…' },
   dayWords: { en: "Today's words", ko: '오늘의 낱말' },
   dayFailed: { en: 'Island words today (your page did not open).', ko: '문서 자료를 못 읽어서 섬의 낱말로 해요.' },
@@ -35,12 +32,14 @@ export const S = {
   cmd: {
     poke: { en: 'POKE', ko: '콕 찌르기' },
     talk: { en: 'TALK', ko: '말하기' },
+    skill: { en: 'SKILL', ko: '기술' },
     pouch: { en: 'POUCH', ko: '주머니' },
     friend: { en: 'FRIEND', ko: '친구 하기' }
   },
   cmdHint: {
     poke: { en: 'Pokes end it fast, but nobody becomes a friend.', ko: '빨리 끝나지만 친구는 안 돼요.' },
     talk: { en: 'Say something kind in English to calm them.', ko: '영어로 다정하게 말해서 마음을 풀어 줘요.' },
+    skill: { en: 'Say magic words you learned. Each one works once a meeting.', ko: '배운 마법의 말을 해요. 만날 때마다 하나씩 한 번 써요.' },
     pouch: { en: 'Eat a snack to get your voice back.', ko: '간식을 먹고 목소리 힘을 채워요.' },
     friend: { en: 'When CALM is full, make friends!', ko: 'CALM 이 꽉 차면 친구가 돼요!' }
   },
@@ -48,6 +47,42 @@ export const S = {
   pokeHint: { en: 'Press Z or tap when the ring meets the red circle!', ko: '고리가 빨간 원에 닿을 때 Z 를 누르거나 톡!' },
   pokeNow: { en: 'POKE!', ko: '콕!' },
   pouchTitle: { en: 'Your pouch', ko: '주머니' },
+  skillTitle: { en: 'Your magic words', ko: '배운 마법의 말' },
+  skillPrompt: (en: string, ko: string) => ({ en: `Pick the magic words for ${en}!`, ko: `${ko}의 마법의 말을 골라요!` }),
+  coinsLabel: { en: 'COINS', ko: '동전' },
+  chest: { en: 'Chest', ko: '보물 상자' },
+  chestOpen: (coins: number, item: { en: string; ko: string } | null) => ({
+    en: item ? `You open the chest. You find ${coins} coins and a ${item.en}!` : `You open the chest. You find ${coins} coins!`,
+    ko: item ? `상자를 열었어요. 동전 ${coins}개와 ${item.ko}을(를) 찾았어요!` : `상자를 열었어요. 동전 ${coins}개를 찾았어요!`
+  }),
+  chestEmpty: { en: 'The chest is empty now.', ko: '상자가 이제 비었어요.' },
+  post: { en: 'Lantern Post', ko: '랜턴 기둥' },
+  postRest: { en: 'Your voice is full again. If you run out of voice, you will wake up here.', ko: '목소리 힘이 다시 가득해요. 힘이 다 떨어지면 여기서 깨어나요.' },
+  coinsGot: (n: number) => ({ en: `You got ${n} coins!`, ko: `동전 ${n}개를 받았어요!` }),
+  skillLearned: (en: string, ko: string) => ({ en: `You learned new magic words: ${en}! Use them with SKILL.`, ko: `새 마법의 말 ${ko}을(를) 배웠어요! SKILL 로 써요.` }),
+  itemGot: (en: string, ko: string) => ({ en: `You got a ${en}!`, ko: `${ko}을(를) 받았어요!` }),
+  shopTitle: { en: "Tumble's Cart", ko: '텀블의 수레' },
+  shopHint: { en: 'Pick something to buy. Press X to leave.', ko: '살 것을 골라요. X 를 누르면 나가요.' },
+  shopBuy: { en: 'Buy', ko: '사기' },
+  shopLeave: { en: 'Bye!', ko: '나가기' },
+  shopBought: (en: string, ko: string) => ({ en: `Thank you! The ${en} is yours.`, ko: `고마워요! ${ko}은(는) 이제 당신 거예요.` }),
+  shopNoCoins: { en: 'You need more coins for that.', ko: '그걸 사려면 동전이 더 있어야 해요.' },
+  shopOwned: { en: 'You have that already.', ko: '이미 갖고 있어요.' },
+  shopFull: { en: 'Your pouch is full of those.', ko: '주머니에 그건 꽉 찼어요.' },
+  shopKind: { item: { en: 'snack', ko: '간식' }, gear: { en: 'wear', ko: '입는 것' }, skill: { en: 'magic words', ko: '마법의 말' } },
+  owned: { en: 'Yours', ko: '갖고 있음' },
+  downTitle: { en: 'Out of voice…', ko: '목소리 힘이 다 떨어졌어요…' },
+  downBody: { en: 'Everything goes quiet. Then a warm light calls you back.', ko: '모든 게 조용해져요. 그때 따뜻한 빛이 당신을 불러요.' },
+  downWake: { en: 'Wake up at the lantern post', ko: '랜턴 기둥에서 일어나기' },
+  downWakeStart: { en: 'Wake up on the beach', ko: '바닷가에서 일어나기' },
+  downTip: { en: 'Tip: buy snacks at the cart, and try SKILL. You will be a bit faster next time.', ko: '팁: 수레에서 간식을 사고 SKILL 을 써 봐요. 다음엔 탄이 조금 느려져요.' },
+  sailOn: { en: 'Sail on', ko: '다음 섬으로 출발' },
+  storyNext: { en: 'Next', ko: '다음' },
+  newTrip: { en: 'Start a new trip', ko: '처음부터 새 여행' },
+  listHint: { en: 'Arrow keys to choose · Z to pick · X to go back', ko: '방향키로 고르기 · Z 로 정하기 · X 로 뒤로' },
+  stageLabel: { en: 'STAGE', ko: '단계' },
+  theEnd: { en: 'The End', ko: '끝' },
+  endingTitle: { en: 'The words are home', ko: '낱말이 돌아왔어요' },
   listen: { en: 'Listen', ko: '듣기' },
   speak: { en: 'Speak', ko: '말하기' },
   listening: { en: 'Listening… say it now!', ko: '듣고 있어요… 지금 말해요!' },
@@ -95,8 +130,7 @@ export const S = {
   endWords: { en: 'Words you brought back', ko: '되찾은 낱말' },
   endLines: { en: 'Sentences you used', ko: '쓴 문장' },
   endNext: {
-    'next-day': { en: 'The next island opens on your next lesson day.', ko: '다음 섬은 다음 수업 날 열려요.' },
-    tomorrow: { en: 'The next island opens tomorrow.', ko: '다음 섬은 내일 열려요.' },
+    sail: { en: 'Your boat is ready. The next island is waiting!', ko: '배가 준비됐어요. 다음 섬이 기다려요!' },
     'done-all': { en: 'You made friends on all four islands. The words are home!', ko: '네 섬 모두에서 친구가 됐어요. 낱말이 모두 돌아왔어요!' },
     replay: { en: 'You can play any island you finished again.', ko: '끝낸 섬은 언제든 다시 할 수 있어요.' }
   },
@@ -105,7 +139,7 @@ export const S = {
   toMap: { en: 'Island map', ko: '섬 지도' },
   toWorld: { en: 'Use these words in the LCW town', ko: 'LCW 마을에서 이 문장 써 보기' },
   sent: { en: 'Saved to your English Day page ✓', ko: '내 영어 문서에 저장했어요 ✓' },
-  items: { honeyDrop: { en: 'Honey Drop', ko: '꿀 사탕' }, berryBun: { en: 'Berry Bun', ko: '베리 빵' } },
+  items: { honeyDrop: { en: 'Honey Drop', ko: '꿀 사탕' }, berryBun: { en: 'Berry Bun', ko: '베리 빵' }, starTea: { en: 'Star Tea', ko: '별빛 차' } },
   /** TALK buttons (A04): what kind of line, how it is answered. */
   talkKind: {
     greet: { en: 'Say hello', ko: '인사하기' },
@@ -135,15 +169,18 @@ export const S = {
     notReady: (en: string, ko: string) => ({ en: `${en} is not ready yet. Try TALK first!`, ko: `${ko}는 아직 준비가 안 됐어요. 먼저 TALK 로 말을 걸어 봐요!` }),
     ate: (en: string, ko: string, heal: number) => ({ en: `You ate a ${en}. Your voice feels stronger! (+${heal})`, ko: `${ko}을(를) 먹었어요. 목소리에 힘이 나요! (+${heal})` }),
     missed: { en: 'Missed!', ko: '빗나갔어요!' },
-    voiceRest: { en: "Your voice bubble needs a rest. Let's try again!", ko: '말풍선이 조금 쉬어야 해요. 다시 해 봐요!' }
+    voiceOut: { en: 'Your voice is all gone…', ko: '목소리 힘이 다 떨어졌어요…' },
+    noSkills: { en: 'You have no magic words yet. Talk to people on the island!', ko: '아직 마법의 말이 없어요. 섬 사람들과 이야기해 봐요!' },
+    skillsUsed: { en: 'You used all your magic words in this meeting.', ko: '이번 만남에서 마법의 말을 다 썼어요.' },
+    skillHeal: (n: number) => ({ en: `A warm light fills you. (+${n} voice)`, ko: `따뜻한 빛이 차올라요. (목소리 힘 +${n})` }),
+    skillShield: { en: 'A soft shield sings around you. Hits will hurt less this turn.', ko: '부드러운 방패가 노래해요. 이번 차례엔 덜 아파요.' },
+    skillSlow: { en: 'A calm wind blows. Everything will move slower this turn.', ko: '잔잔한 바람이 불어요. 이번 차례엔 모두 느려져요.' },
+    skillSpark: { en: 'Bright sparks dance in the air. They smile a little!', ko: '밝은 불꽃이 춤춰요. 조금 웃어요!' }
   },
   /** On the island (A02). */
-  walkStones: { en: 'Walk right. Touch the glowing word stones and meet the islanders!', ko: '오른쪽으로 걸어가요. 빛나는 낱말 돌을 만지고 섬 주민을 만나요!' },
-  walkOn: { en: 'Walk right to meet the islanders.', ko: '오른쪽으로 걸어가 섬 주민을 만나요.' },
+  walkStones: { en: 'Walk right. Touch the glowing word stones and meet the island friends!', ko: '오른쪽으로 걸어가요. 빛나는 낱말 돌을 만지고 섬 주민을 만나요!' },
+  walkOn: { en: 'Walk right to meet the island friends.', ko: '오른쪽으로 걸어가 섬 주민을 만나요.' },
   wordStone: { en: 'Word Stone', ko: '낱말 돌' },
-  bell: { en: 'Moss Bell', ko: '종 기둥' },
-  bellFirst: { en: 'Ding! The bell rings. You found a Honey Drop for your pouch.', ko: '딩! 종이 울려요. 주머니에 꿀 사탕이 하나 생겼어요.' },
-  bellAgain: { en: 'Ding! The bell rings softly.', ko: '딩! 종이 살짝 울려요.' },
   catchSpelling: { en: 'Catch the right spelling', ko: '맞는 철자를 잡아요' },
   catchPrompt: { en: 'Catch:', ko: '잡을 것:' },
   voiceLabel: { en: 'VOICE', ko: '목소리 힘' },

@@ -115,7 +115,7 @@ export function Speak({
     <div className="row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
       {mic && (
         <div className="row">
-          <button type="button" className={`mic ${on ? 'on' : ''}`} onClick={start} aria-pressed={on} disabled={sending} data-testid="adv-mic">
+          <button type="button" className={`mic ${on ? 'on' : ''}`} onClick={start} aria-pressed={on} disabled={sending} data-primary data-testid="adv-mic">
             {on ? S.stop.en : `🎤 ${S.speak.en}`}
           </button>
           <div style={{ flex: 1, minWidth: 0 }} data-testid="adv-mic-state">

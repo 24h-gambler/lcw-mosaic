@@ -11,8 +11,12 @@ export const ADV = {
   player: { speed: 72, hitW: 10, hitH: 8 },
   soul: { speed: 96, size: 8, hitRadius: 3, invulnMs: 1000 },
   hp: { max: 20 },
-  /** Calm needed to befriend. */
-  calmMax: { critter: 50, guardian: 150, final: 200 },
+  /**
+   * Calm needed to befriend. R2734 (Dan 11-19: "the boss is too easy"): a guardian takes four perfect talks (three of
+   * its turns between them, each stage fiercer), the Hushwind six — a child who never dodges runs out of voice
+   * (adventure-difficulty.test.ts measures it).
+   */
+  calmMax: { critter: 50, guardian: 240, final: 320 },
   /** Calm one TALK gives by stars (0 = not yet). */
   calmByStars: [5, 35, 45, 60] as const,
   /** ✅ pick replies cap at 2 stars (choosing is easier than saying). */
@@ -22,7 +26,7 @@ export const ADV = {
   pokeDamage: 22,
   pokeRingMs: 1400,
   /** Enemy turn length (seconds). */
-  turnSec: { critter: [5, 6] as const, guardian: [7, 9] as const },
+  turnSec: { critter: [5, 6] as const, guardian: [7, 9] as const, final: [8, 10] as const },
   damage: { hurt: 3, wrongCatch: 2 },
   catchCalm: { letter: 4, word: 15, bubble: 10, cookie: 10 },
   /** After the soul runs out of voice: same encounter again, bullets slower (docs/22 4장). */
@@ -33,8 +37,19 @@ export const ADV = {
   chapterThreeStarSpoken: 3,
   items: {
     honeyDrop: { heal: 10, startCount: 2 },
-    berryBun: { heal: 20, startCount: 1 }
+    berryBun: { heal: 20, startCount: 1 },
+    starTea: { heal: 99, startCount: 0 },
+    /** Most of one thing the pouch holds. */
+    maxEach: 9
   },
+  /** R2734 coins: found in chests and quizzes, given by new friends; spent at Tumble's cart (never money). */
+  coins: { max: 999, critterFriend: 6, guardianFriend: 12, stoneLit: 2 },
+  /** What Tumble's gear does. */
+  gear: { coatBlock: 1, scarfHp: 6, lanternCalm: 1.25 },
+  /** SKILL (R2734): magic words said or picked, once per meeting each. */
+  skill: { heal: 12, sparkCalm: 0.3, shieldFactor: 0.5, slowFactor: 0.6 },
+  /** A guardian met again after running out of voice: bullets slower by `step` per try, never below `floor`. */
+  retry: { step: 0.1, floor: 0.7 },
   /** Neural line must arrive by then, else the device voice reads it. */
   voiceWaitMs: 1500,
   /** Text box typing speed (characters per second). */

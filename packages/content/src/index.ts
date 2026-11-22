@@ -12,6 +12,8 @@ export * from './collection.js';
 export * from './ui-strings-en.js';
 export * from './teacher-name.js';
 export * from './adventure.js';
+export * from './adventure-story.js';
 export * from './echo-chunks.js';
 export * from './common-words-en.js';
 export * from './shop-catalog.js';
+export * from './kid-english.js';

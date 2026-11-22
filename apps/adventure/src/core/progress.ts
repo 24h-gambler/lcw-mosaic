@@ -3,10 +3,10 @@ import type { AdventureActivity, AdventureOutcome } from '@lcw/schemas';
 import { betterPlay } from './record.js';
 
 /**
- * Progress across lesson days (docs/22 1.2): chapter 1 is always open; chapter k opens on a lesson day after the one
- * k-1 was cleared on, so the isles go one lesson day at a time. The lesson day is the student document's day when the
- * page was opened from it (a new document day = a new lesson), else the Korea-time calendar day. Cleared chapters can
- * be replayed any time. Kept in the device's localStorage and, for a linked child, in one server settings key.
+ * Progress across the isles (docs/22 1.2): chapter 1 is always open; chapter k opens as soon as k-1 is cleared (R2734:
+ * the trip goes on — the boat sails straight to the next island; the old next-lesson-day lock stopped the story).
+ * Cleared chapters can be replayed any time. Kept in the device's localStorage and, for a linked child, in one server
+ * settings key. `today` is kept in the signatures: the day a chapter was cleared is still recorded.
  */
 
 export const CHAPTER_IDS: readonly AdventureChapterId[] = [1, 2, 3, 4];
@@ -39,16 +39,14 @@ export function isCleared(p: Progress, ch: AdventureChapterId): boolean {
   return Boolean(p.chapters[ch]?.clearedOn);
 }
 
-export function isUnlocked(p: Progress, ch: AdventureChapterId, today: string, opts: { unlockAll?: boolean } = {}): boolean {
+export function isUnlocked(p: Progress, ch: AdventureChapterId, _today: string, opts: { unlockAll?: boolean } = {}): boolean {
   if (opts.unlockAll || ch === 1 || isCleared(p, ch)) return true;
-  const prev = p.chapters[(ch - 1) as AdventureChapterId];
-  return Boolean(prev?.clearedOn && prev.clearedOn < today);
+  return isCleared(p, (ch - 1) as AdventureChapterId);
 }
 
-/** Why a chapter is closed: 'previous' (finish the one before) or 'tomorrow' (cleared the one before today). */
-export function lockReason(p: Progress, ch: AdventureChapterId, today: string): 'open' | 'previous' | 'next-day' {
-  if (isUnlocked(p, ch, today)) return 'open';
-  return isCleared(p, (ch - 1) as AdventureChapterId) ? 'next-day' : 'previous';
+/** Why a chapter is closed: 'previous' (finish the one before). */
+export function lockReason(p: Progress, ch: AdventureChapterId, today: string): 'open' | 'previous' {
+  return isUnlocked(p, ch, today) ? 'open' : 'previous';
 }
 
 /** The chapter the island map points at: the first open one not cleared yet, else the last open one. */

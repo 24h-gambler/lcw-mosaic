@@ -89,7 +89,8 @@ export function arenaFor(id: AdventurePatternId): { w: number; h: number } {
   }
 }
 
-export const ARENA_TOP = 118;
+// 112 (was 118): under the tallest page (112) the voice and calm bars still fit inside the 240 screen (R2734 390 shot: they were cut)
+export const ARENA_TOP = 112;
 
 export function arenaRect(id: AdventurePatternId): Rect {
   const s = arenaFor(id);
@@ -223,12 +224,23 @@ function spawners(ps: PatternState, k: number, soul: { x: number; y: number }): 
     case 'rollBounce': {
       if (k > 0) return 99;
       const fromLeft = r() < 0.5;
-      spawn(ps, { sprite: 'roll', x: fromLeft ? a.x + 4 : a.x + a.w - 4, y: a.y + 6, vx: (fromLeft ? 44 : -44) * s, vy: 0, ay: 150 * s, r: 5 });
+      // R2734 (a harder guardian): every other roll is thrown to land where the bubble is now — standing still is hit
+      const x0 = fromLeft ? a.x + 4 : a.x + a.w - 4;
+      const fall = Math.sqrt((2 * Math.max(8, soul.y - (a.y + 6))) / (150 * s));
+      ps.angle += 1;
+      const aimed = ps.angle % 2 === 0;
+      const vx = aimed ? Math.max(-90 * s, Math.min(90 * s, (soul.x - x0) / fall)) : (fromLeft ? 44 : -44) * s;
+      spawn(ps, { sprite: 'roll', x: x0, y: a.y + 6, vx, vy: 0, ay: 150 * s, r: 5 });
       return 0.95;
     }
     case 'sprinkleRain':
       if (k > 0) return 99;
-      spawn(ps, { sprite: 'sprinkle', x: a.x - 20 + r() * (a.w + 10), y: a.y - 4, vx: 26 * s, vy: 82 * s, r: 1.6 });
+      ps.angle += 1;
+      // one sprinkle in five falls straight onto where the bubble is now (R2734: a harder guardian)
+      if (ps.angle % 5 === 0) {
+        const t = Math.max(0.1, (soul.y - a.y) / (82 * s));
+        spawn(ps, { sprite: 'sprinkle', x: soul.x - 26 * s * t, y: a.y - 4, vx: 26 * s, vy: 82 * s, r: 1.6 });
+      } else spawn(ps, { sprite: 'sprinkle', x: a.x - 20 + r() * (a.w + 10), y: a.y - 4, vx: 26 * s, vy: 82 * s, r: 1.6 });
       return 0.13;
     case 'wordCookies': {
       if (k === 0) {

@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ADV } from '../core/tuning.js';
+import { MENU } from '../core/battle.js';
 import { Renderer } from '../render.js';
 import type { Engine } from '../engine.js';
 import { Panel } from './Panel.js';
@@ -84,26 +85,30 @@ export function App({ engine }: { engine: Engine }) {
       }
       const dir = KEY_DIR[e.key];
       if (dir) {
-        const s = engine.getSnapshot();
-        const menuish = s.scene === 'title' || s.battle?.phase === 'menu';
-        if (menuish) {
+        // a list on screen (the map, the battle menu, replies, the cart, talks, skills, the pouch) takes the arrows
+        if (engine.wantsArrows()) {
           if (!e.repeat) engine.menuMove(dir === 'left' || dir === 'up' ? -1 : 1);
-        } else if (s.battle?.phase === 'talkPick' || s.battle?.phase === 'pouch') {
-          const btns = [...document.querySelectorAll<HTMLButtonElement>('[data-nav]')];
-          const i = btns.indexOf(document.activeElement as HTMLButtonElement);
-          btns[(i + (dir === 'up' || dir === 'left' ? -1 : 1) + btns.length) % btns.length]?.focus();
         } else engine.keys.add(dir);
         e.preventDefault();
         return;
       }
-      const onButton = e.target instanceof HTMLButtonElement;
+      const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       if (e.key === 'z' || e.key === 'Z' || ((e.key === 'Enter' || e.key === ' ') && !onButton)) {
-        if (!e.repeat) engine.confirm();
         e.preventDefault();
+        if (e.repeat) return;
+        // R2734: Z never stalls — the engine acts, or the panel's own button for this step is pressed
+        if (!engine.confirm()) {
+          const focused = document.activeElement;
+          if (focused instanceof HTMLButtonElement && !focused.disabled && focused.closest('.adv-panel')) focused.click();
+          else {
+            const primary = [...document.querySelectorAll<HTMLButtonElement>('.adv-panel [data-primary]')].find((b) => !b.disabled);
+            primary?.click();
+          }
+        }
       } else if (e.key === 'x' || e.key === 'X' || e.key === 'Escape' || e.key === 'Backspace') {
         engine.cancel();
-      } else if (/^[1-4]$/.test(e.key) && engine.getSnapshot().battle?.phase === 'menu') {
-        engine.command((['poke', 'talk', 'pouch', 'friend'] as const)[Number(e.key) - 1]!);
+      } else if (/^[1-5]$/.test(e.key) && engine.getSnapshot().battle?.phase === 'menu') {
+        engine.command(MENU[Number(e.key) - 1]!);
       }
     };
     const up = (e: KeyboardEvent) => {

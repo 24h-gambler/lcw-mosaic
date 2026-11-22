@@ -9,7 +9,7 @@ import { createRng, hashSeed } from './rng.js';
  */
 
 export type Tile = 'wall' | 'ground' | 'path' | 'water' | 'flower' | 'house' | 'floor';
-export type EntityKind = 'villager' | 'stone' | 'bell' | 'critter' | 'guardian';
+export type EntityKind = 'villager' | 'merchant' | 'stone' | 'post' | 'chest' | 'critter' | 'guardian';
 
 export interface MapEntity {
   id: string;
@@ -17,7 +17,7 @@ export interface MapEntity {
   /** Tile position. */
   tx: number;
   ty: number;
-  /** Stone: index of the word; critter: 0 or 1. */
+  /** Stone: index of the word; critter, chest: 0 or 1; post: 0..2. */
   index: number;
 }
 
@@ -92,13 +92,20 @@ export function buildIsland(ch: AdventureChapterId): IslandMap {
     entities.push(e);
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) keepClear.add(`${e.tx + dx},${e.ty + dy}`);
   };
-  add({ id: 'villager', kind: 'villager', tx: 6, ty: 4, index: 0 });
+  // R2734: a lantern post in every part of the island (a Keeper out of voice wakes at the last one touched), a chest
+  // before each gate's second half, Tumble's cart after the first gate, the islander who talks (with choices) at the start
+  add({ id: 'post-0', kind: 'post', tx: 4, ty: 5, index: 0 });
+  add({ id: 'villager', kind: 'villager', tx: 7, ty: 4, index: 0 });
   add({ id: 'stone-0', kind: 'stone', tx: 11, ty: 5, index: 0 });
+  add({ id: 'chest-0', kind: 'chest', tx: 14, ty: 9, index: 0 });
   add({ id: 'critter-0', kind: 'critter', tx: GATES[0]!, ty: 7, index: 0 });
+  add({ id: 'merchant', kind: 'merchant', tx: 22, ty: 5, index: 0 });
   add({ id: 'stone-1', kind: 'stone', tx: 26, ty: 9, index: 1 });
-  add({ id: 'bell', kind: 'bell', tx: 31, ty: 5, index: 0 });
+  add({ id: 'post-1', kind: 'post', tx: 31, ty: 5, index: 1 });
   add({ id: 'critter-1', kind: 'critter', tx: GATES[1]!, ty: 7, index: 1 });
+  add({ id: 'chest-1', kind: 'chest', tx: 40, ty: 9, index: 1 });
   add({ id: 'stone-2', kind: 'stone', tx: 42, ty: 5, index: 2 });
+  add({ id: 'post-2', kind: 'post', tx: 50, ty: 5, index: 2 });
   add({ id: 'guardian', kind: 'guardian', tx: 53, ty: 7, index: 0 });
   const start = { tx: 3, ty: 7 };
   keepClear.add(`${start.tx},${start.ty}`);
@@ -113,6 +120,17 @@ export function buildIsland(ch: AdventureChapterId): IslandMap {
     }
   // the guardian's clearing stays open
   for (let x = GATES[2]! + 1; x < w - 1; x++) for (let y = 4; y <= 10; y++) if (get(x, y) === 'wall') set(x, y, floor);
+  // every thing off the path has open ground under it and a way to the path (houses, water and rocks never box it in)
+  for (const e of entities) {
+    if (e.kind === 'critter' || e.kind === 'guardian') continue;
+    const step = e.ty < PATH_ROWS[0]! ? 1 : -1;
+    for (let y = e.ty; !PATH_ROWS.includes(y); y += step) {
+      if (blocks(get(e.tx, y))) set(e.tx, y, floor);
+      // and a side tile to stand on next to it (the thing itself is solid)
+      if (y !== e.ty && blocks(get(e.tx + 1, y))) set(e.tx + 1, y, floor);
+    }
+    for (const dx of [-1, 1]) if (blocks(get(e.tx + dx, e.ty))) set(e.tx + dx, e.ty, floor);
+  }
   return { w, h, tiles, start, entities, theme };
 }
 

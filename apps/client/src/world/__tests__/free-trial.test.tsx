@@ -6,10 +6,13 @@ import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { FREE_PLAY_LIMITS } from '@lcw/schemas';
-import { DEVICE_PLAY_BLOCKED_KEY, DEVICE_TOKEN_KEY, resolveIdentity, type KeyStore } from '../identity.js';
+import { DEVICE_PLAY_BLOCKED_KEY, DEVICE_TOKEN_KEY, readPlayGate, rememberPlayGate, resolveIdentity, withPlayGate, type KeyStore, type PlayerIdentity } from '../identity.js';
 import { isSeatInactiveBody, isTrialEndedBody, startTrialBeat } from '../seat.js';
 import { TRIAL_PLANS_PATH, TrialEndedCard } from '../SeatNotice.js';
-import { needsTrialBeat, soloPlayBlocked, withSeatStopped } from '../../App.js';
+import { lessonJoinStep, needsTrialBeat, shellCardUp, soloPlayBlocked, withSeatStopped } from '../../App.js';
+import { joinDeviceLesson } from '../../start/api.js';
+import { FrameLayer, shopTipShown } from '../../frame/FrameLayer.js';
+import type { WorldHandle } from '../api.js';
 
 function memStore(init: Record<string, string> = {}): KeyStore & { data: Record<string, string> } {
   const data = { ...init };
@@ -94,5 +97,72 @@ describe('R326 free trial on the device', () => {
     expect(html).toContain(`href="${TRIAL_PLANS_PATH.replace('&', '&amp;')}"`);
     expect(TRIAL_PLANS_PATH).toBe('/pricing?from=world#plans');
     expect(html).not.toMatch(/원|₩|\d{1,3},\d{3}|결제|price|pay\b|기한|까지/);
+  });
+
+  it('R326 review: the device lesson join answer lifts a spent trial at once (no poll), an older server changes nothing', async () => {
+    const store = memStore({ [DEVICE_TOKEN_KEY]: TOKEN });
+    const ended = await resolveIdentity('', store, me({ nickname: 'Sora', play_allowed: false, seat: null, trial: 'ended' }));
+    expect(soloPlayBlocked(ended)).toBe(true);
+    const calls: string[] = [];
+    const join = (extra: Record<string, unknown>) => async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      return new Response(JSON.stringify({ student_token: 's'.repeat(48), lesson_id: 'les-1', nickname: 'Sora', level: 'L2', voice_store: false, ...extra }), { status: 200 });
+    };
+    const s = await joinDeviceLesson(ended, join({ play_allowed: true, seat: null, trial: null }));
+    // one request — the join the world makes anyway when the teacher starts the lesson
+    expect(calls).toEqual(['POST /v1/device/lesson/join']);
+    expect(s?.play).toEqual({ playAllowed: true, seat: null, trial: null });
+    const step = lessonJoinStep(ended, s!);
+    expect(step).toMatchObject({ remember: true, closeCard: true });
+    const after = step.identity;
+    expect(after).toMatchObject({ kind: 'child', playAllowed: true });
+    expect((after as Extract<PlayerIdentity, { kind: 'child' }>).trial).toBeUndefined();
+    expect(soloPlayBlocked(after)).toBe(false);
+    expect(needsTrialBeat(after)).toBe(false); // a class student never beats the trial clock
+    rememberPlayGate(store, s!.play!);
+    expect(store.data[DEVICE_PLAY_BLOCKED_KEY]).toBeUndefined(); // an offline restart does not bring the card back
+    // an older server without the gate: the device keeps what it knew
+    const old = await joinDeviceLesson(ended, join({}));
+    expect(old?.play).toBeUndefined();
+    expect(lessonJoinStep(ended, old!)).toEqual({ identity: ended, remember: false, closeCard: true });
+    // the same gate again keeps the same identity object (no effect re-runs, no extra request)
+    expect(withPlayGate(after, s!.play!)).toBe(after);
+    // the gate never touches a lesson-code student or a guest
+    expect(withPlayGate({ kind: 'guest' }, readPlayGate({ play_allowed: true }))).toEqual({ kind: 'guest' });
+    expect(readPlayGate({ play_allowed: false, trial: 'ended' })).toEqual({ playAllowed: false, seat: null, trial: 'ended' });
+  });
+
+  it('R326 review: the trial card holds the screen alone — no coin tip or frame button under its shade, none in a lesson', () => {
+    const up = { soloBlocked: true, world: true, startOpen: false, lessonOn: false, seatCard: true };
+    expect(shellCardUp(up)).toBe(true);
+    // a live lesson puts the card (and the world pause) away; so does play coming back
+    expect(shellCardUp({ ...up, lessonOn: true })).toBe(false);
+    expect(shellCardUp({ ...up, soloBlocked: false })).toBe(false);
+    // not on top of the title screen's Start button: the card comes once the child is in the world
+    expect(shellCardUp({ ...up, startOpen: true })).toBe(false);
+    const free = { blocked: false, menuOpen: false, guest: false, unseen: true, lessonOn: false, soloStopped: false };
+    expect(shopTipShown(free)).toBe(true);
+    expect(shopTipShown({ ...free, blocked: true })).toBe(false);
+    // a spent trial cannot buy: the coin tip waits (unseen) until play comes back
+    expect(shopTipShown({ ...free, soloStopped: true })).toBe(false);
+
+    const g = globalThis as unknown as { localStorage?: Pick<Storage, 'getItem' | 'setItem'> };
+    const had = g.localStorage;
+    g.localStorage = { getItem: () => null, setItem: () => undefined };
+    try {
+      const world = {} as WorldHandle;
+      const child = (playAllowed: boolean): Extract<PlayerIdentity, { kind: 'child' }> => ({ kind: 'child', token: TOKEN, nickname: 'Sora', level: 'L1', voiceStore: false, offline: false, playAllowed, seat: null });
+      const open = renderToStaticMarkup(<FrameLayer world={world} identity={child(true)} />);
+      expect(open).toContain('lcw-shoptip');
+      expect(open).toContain('lcw-hudbtn--shop');
+      const carded = renderToStaticMarkup(<FrameLayer world={world} identity={child(true)} cardOpen />);
+      expect(carded).not.toContain('lcw-shoptip');
+      expect(carded).not.toContain('lcw-hudbtn');
+      const stopped = renderToStaticMarkup(<FrameLayer world={world} identity={{ ...child(false), trial: 'ended' }} />);
+      expect(stopped).not.toContain('lcw-shoptip');
+    } finally {
+      if (had) g.localStorage = had;
+      else delete g.localStorage;
+    }
   });
 });

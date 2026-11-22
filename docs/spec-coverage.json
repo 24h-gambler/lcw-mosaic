@@ -4025,7 +4025,10 @@
         "apps/edge/src/__tests__/free-trial.test.ts::beats add the time between them; after the trial length play stops and writes answer 403 trial_ended",
         "apps/edge/src/__tests__/free-trial.test.ts::one beat adds at most 75 s, and a break over 90 s starts a new stretch that adds nothing",
         "apps/edge/src/__tests__/free-trial.test.ts::a child with a seat, a tutoring student and a smoke player never run on the clock (heartbeat writes nothing)",
-        "apps/edge/src/__tests__/free-trial.test.ts::a seat issued after the trial ended opens play again at once"
+        "apps/edge/src/__tests__/free-trial.test.ts::a seat issued after the trial ended opens play again at once",
+        "apps/edge/src/__tests__/free-trial.test.ts::a child stopped by the spent trial gets play back in the device lesson join answer itself (no extra request)",
+        "apps/client/src/world/__tests__/free-trial.test.tsx::R326 review: the device lesson join answer lifts a spent trial at once (no poll), an older server changes nothing",
+        "apps/client/src/world/__tests__/free-trial.test.tsx::R326 review: the trial card holds the screen alone — no coin tip or frame button under its shade, none in a lesson"
       ],
       "evidence": [
         "apps/edge/src/seats.ts:239",

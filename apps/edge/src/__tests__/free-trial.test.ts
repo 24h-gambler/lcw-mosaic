@@ -185,6 +185,29 @@ describe('R326 free trial: 3 minutes of server-counted world time, then the pay 
     expect((await call(p, 'POST', '/v1/items/use', { item_key: 'water' }, dev)).status).toBe(200);
   });
 
+  it('a child stopped by the spent trial gets play back in the device lesson join answer itself (no extra request)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    at(0);
+    const p = platform();
+    const dev = await kid(p, 'kid-j', 'fam-j');
+    for (let i = 0; i <= 3; i++) {
+      at(i * 60 * S);
+      await call(p, 'POST', '/v1/device/heartbeat', undefined, dev);
+    }
+    expect((await call(p, 'GET', '/v1/device/me', undefined, dev)).body).toMatchObject({ play_allowed: false, trial: 'ended' });
+    // the teacher presses 수업 시작: the world's own join answer already says play is back (same fields as /v1/device/me)
+    at(4 * 60 * S);
+    const started = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-j' });
+    expect(started.status).toBe(201);
+    const joined = await call(p, 'POST', '/v1/device/lesson/join', {}, dev);
+    expect(joined.body).toMatchObject({ lesson_id: started.body.lesson_id, play_allowed: true, seat: null, trial: null });
+    expect(JSON.stringify(joined.body)).not.toMatch(/ends_at|minutes|left|krw|price/i);
+    // and it agrees with /v1/device/me and with a solo write from then on (after the lesson too)
+    expect((await call(p, 'GET', '/v1/device/me', undefined, dev)).body).toMatchObject({ play_allowed: true, trial: null });
+    expect((await call(p, 'POST', `/v1/admin/lessons/${started.body.lesson_id}/end`, {})).status).toBe(200);
+    expect((await call(p, 'POST', '/v1/items/use', { item_key: 'water' }, dev)).status).toBe(200);
+  });
+
   it('heartbeat needs a live device token', async () => {
     const p = platform();
     expect((await call(p, 'POST', '/v1/device/heartbeat', undefined, anon)).status).toBe(401);

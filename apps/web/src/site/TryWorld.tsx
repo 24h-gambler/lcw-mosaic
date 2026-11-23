@@ -67,6 +67,19 @@ export function probeWorld(): WorldProbe {
   };
 }
 
+/**
+ * R329: the engine's loading card ("Building your town…") must not linger over the try stage once the town is
+ * ready. The engine fades the card itself; removing it here makes that true even through the FPS-checking step
+ * behind the 2D stage. Never throws: a stuck card must not break the stage.
+ */
+export function hideHudLoading(root: HTMLElement | null | undefined): void {
+  try {
+    root?.querySelector('.lw-load')?.remove();
+  } catch {
+    /* the card stays a faded overlay: never break the stage over it */
+  }
+}
+
 /** What the world shows for each phase of the order. */
 export interface WorldCue {
   goalKo: string;
@@ -123,6 +136,7 @@ export function TryWorldStage({ tier, label, onStatus, onWorld }: TryWorldStageP
         }
         handle = w;
         clearTimeout(timer);
+        hideHudLoading(hudRef.current);
         cbs.current.onWorld(w);
         cbs.current.onStatus('ready');
       } catch {

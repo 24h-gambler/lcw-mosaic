@@ -614,7 +614,11 @@ function GatePanel({ gate, onShare, onRetry }: { gate: 'used_today' | 'ended' | 
         </button>
       ) : (
         <>
-          <a href={TRY_PLANS_PATH} className="s-btn s-btn-brand s-btn-mic" data-cta="plans">
+          {/* R329: the try's end names signup first (keep playing by signing up), then the adult plan step. */}
+          <SLink to="/signup" className="s-btn s-btn-brand s-btn-mic" data-cta="signup">
+            {TRY.continueSignup}
+          </SLink>
+          <a href={TRY_PLANS_PATH} className="s-btn s-btn-mic" data-cta="plans">
             {TRY.choosePlan}
           </a>
           <button type="button" className="s-btn s-btn-mic" onClick={onShare}>
@@ -782,7 +786,11 @@ function Panel(p: PanelProps): React.ReactElement {
         ) : null}
       </div>
       <p className="s-muted">{s.saved ? TRY.endSavedYes : TRY.endSavedNo}</p>
-      <a href={TRY_PLANS_PATH} className="s-btn s-btn-brand s-btn-mic" data-cta="plans">
+      {/* R329: signup first, so "join and keep playing" is one tap; the plan step stays for the grown-up. */}
+      <SLink to="/signup" className="s-btn s-btn-brand s-btn-mic" data-cta="signup">
+        {TRY.continueSignup}
+      </SLink>
+      <a href={TRY_PLANS_PATH} className="s-btn s-btn-mic" data-cta="plans">
         {TRY.choosePlan}
       </a>
       <button type="button" className="s-btn s-btn-mic" onClick={p.onShare}>

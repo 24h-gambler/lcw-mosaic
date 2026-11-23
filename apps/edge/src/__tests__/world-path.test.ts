@@ -72,18 +72,48 @@ describe('/game/ redirects to /world/ with the query intact', () => {
   });
 });
 
-describe('R326: the service address opens the world', () => {
-  it('`/` answers 302 to /world/ with its query, /about and other pages are left alone', async () => {
+describe('R329: the entrance order — first visit to the introduction, revisit to the world', () => {
+  it('a first visit to `/` answers 302 to /about (with its query) and sets the revisit marker; other pages are left alone', async () => {
     const { e, hits } = env();
     const res = await worker.fetch(new Request('https://lcw.worldwidesomething.com/?from=wws'), e);
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('/world/?from=wws');
+    expect(res.headers.get('location')).toBe('/about?from=wws');
+    expect(res.headers.get('set-cookie') ?? '').toContain('lcw_seen=1');
     const bare = await worker.fetch(new Request('https://lcw.worldwidesomething.com/'), e);
-    expect(bare.headers.get('location')).toBe('/world/');
+    expect(bare.headers.get('location')).toBe('/about');
+    expect(bare.headers.get('set-cookie') ?? '').toContain('lcw_seen=1');
     expect(hits).toEqual([]);
     for (const p of ['/about', '/pricing', '/try', '/world/']) {
       const r = await worker.fetch(new Request(`https://lcw.worldwidesomething.com${p}`), e);
       expect(r.status, p).toBe(200);
     }
+  });
+
+  it('a revisit (the marker cookie present) answers 302 to /world/ with its query', async () => {
+    const { e, hits } = env();
+    const res = await worker.fetch(new Request('https://lcw.worldwidesomething.com/?from=wws', { headers: { cookie: 'lcw_seen=1; other=2' } }), e);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/world/?from=wws');
+    expect(res.headers.get('set-cookie')).toBeNull();
+    const bare = await worker.fetch(new Request('https://lcw.worldwidesomething.com/', { headers: { cookie: 'lcw_seen=1' } }), e);
+    expect(bare.headers.get('location')).toBe('/world/');
+    expect(hits).toEqual([]);
+  });
+
+  it('a lesson code always opens the world, even without the marker (a class never waits on /about)', async () => {
+    const { e, hits } = env();
+    const res = await worker.fetch(new Request('https://lcw.worldwidesomething.com/?code=482913'), e);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/world/?code=482913');
+    expect(hits).toEqual([]);
+  });
+
+  it('a page view sets the marker once, so the next `/` opens the world', async () => {
+    const { e } = env();
+    const page = await worker.fetch(new Request('https://lcw.worldwidesomething.com/about'), e);
+    expect(page.status).toBe(200);
+    expect(page.headers.get('set-cookie') ?? '').toContain('lcw_seen=1');
+    const again = await worker.fetch(new Request('https://lcw.worldwidesomething.com/about', { headers: { cookie: 'lcw_seen=1' } }), e);
+    expect(again.headers.get('set-cookie')).toBeNull();
   });
 });

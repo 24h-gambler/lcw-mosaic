@@ -5,7 +5,7 @@
  *
  * - `learnLang()`: what the screen speaks. Only English is open, so an unchosen device speaks English too.
  * - `learnLangChosen()`: whether the child picked it yet (the start flow asks once after sign-up).
- * - `helpKoOn()`: whether a Korean line is shown under the English (off unless turned on).
+ * - `helpKoOn()`: whether a Korean line is shown under the English (off unless turned on, or a Korean browser on the first visit — R329).
  * - Changes are announced on window 'lcw:learn-lang' (both values), read with `onLearnLang`.
  *
  * Device: localStorage 'lcw.learnLang' and 'lcw.helpKo'. Server: POST /v1/my-world/lang keeps the language with the
@@ -72,11 +72,29 @@ export function setLearnLang(lang: LearnLang): void {
   announce();
 }
 
+/** The browser's preferred language tag ('' when there is no browser, e.g. tests or server rendering). */
+export function browserLanguage(): string {
+  try {
+    return typeof navigator === 'undefined' ? '' : (navigator.language ?? '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The Korean help default for a device that never set it (R329): a Korean browser opens with the Korean line on,
+ * anything else keeps it off. Pure so the rule is testable without a browser.
+ */
+export function defaultHelpKoFor(language: string): boolean {
+  return /^ko\b/i.test((language ?? '').trim());
+}
+
 export function helpKoOn(): boolean {
   const v = read(HELP_KO_KEY);
   if (v === '1') return true;
   if (v === '0') return false;
-  return memoryHelpKo ?? false;
+  if (memoryHelpKo !== null) return memoryHelpKo;
+  return defaultHelpKoFor(browserLanguage());
 }
 export function setHelpKo(on: boolean): void {
   memoryHelpKo = on;

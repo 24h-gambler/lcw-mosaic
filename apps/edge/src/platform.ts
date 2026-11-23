@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { LESSON_SWEEP_CRON, buildLessonModeApp, studentFromRequest, type IdleSweepResult } from './lesson-mode.js';
 import { buildExportApp } from './export-csv.js';
 import { playAllowed, soloWriteGate, sweepSeatNotices } from './seats.js';
-import { legacyWorldRedirect } from './world-path.js';
+import { legacyWorldRedirect, withSeenCookie } from './world-path.js';
 import {
   VOICE_PUBLIC_ROUTES,
   buildVoiceApp,
@@ -1282,7 +1282,8 @@ async function routeWorkerRequest(request: Request, env: LcwEnv): Promise<Respon
   const url = new URL(request.url);
   if (url.pathname === ROOM_CONNECT_PATH) return routeRoomConnect(request, platformStub(env), env.WORLD_ROOM);
   // The world moved from /game/ to /world/ (world-path.ts): old lesson and pass links keep their query.
-  const moved = legacyWorldRedirect(url);
+  // R329: which way `/` goes depends on the revisit marker: first visit /about, revisit (or a lesson code) /world/.
+  const moved = legacyWorldRedirect(url, request.headers.get('cookie'));
   if (moved) return moved;
   if (url.pathname === '/health' || url.pathname.startsWith('/v1/')) {
     return platformStub(env).fetch(request);
@@ -1300,7 +1301,8 @@ async function routeWorkerRequest(request: Request, env: LcwEnv): Promise<Respon
       return res.ok ? ((await res.json()) as { title: string }) : null;
     });
   }
-  if (env.ASSETS) return env.ASSETS.fetch(request);
+  // A plain page view marks the browser as a revisit, so the next `/` opens the world (world-path.ts).
+  if (env.ASSETS) return withSeenCookie(request, await env.ASSETS.fetch(request));
   return new Response('not found', { status: 404 });
 }
 

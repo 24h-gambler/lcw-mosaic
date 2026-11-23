@@ -16,7 +16,7 @@ import { SitePageView } from '../site/SiteRoot.js';
 import { SAMPLE_SNAPSHOTS, parseShowroomSnapshot } from '../site/showroom.js';
 import { siteCss } from '../site/siteCss.js';
 import { TryScene } from '../site/TryScene.js';
-import { chooseTryStage, worldCueFor } from '../site/TryWorld.js';
+import { chooseTryStage, hideHudLoading, worldCueFor } from '../site/TryWorld.js';
 import { allPages, fillShell, prerenderPage, robotsTxt } from '../site/prerender.js';
 import { TRY } from '../site/tryCopy.js';
 import { TRY_LOUDNESS_TRIES, TRY_RECOGNITION_ANSWER_MS, TRY_RECOGNITION_AUDIO_MS, cardOrderStars } from '../site/TrySpeak.js';
@@ -269,6 +269,16 @@ describe('W06 /try in the 3D town (docs/19 createWorld)', () => {
     for (const ph of ['greet', 'choose', 'receive', 'drink', 'save', 'end'] as const) {
       expect(worldCueFor(ph, TRY.goals, t)).toMatchObject({ paused: true, scene: 'honey_cafe' });
     }
+  });
+
+  it('R329: once the town is ready, its loading card is removed so it cannot linger over play', () => {
+    let removed = false;
+    const fakeRoot = { querySelector: (sel: string) => (sel === '.lw-load' ? { remove: () => (removed = true) } : null) };
+    hideHudLoading(fakeRoot as never);
+    expect(removed).toBe(true);
+    // a missing root, or a root whose lookup throws, must not break the stage
+    hideHudLoading(null);
+    hideHudLoading({ querySelector: () => { throw new Error('blocked'); } } as never);
   });
 
   it('renders the 2D stage on the server, so the page works before and without the town', () => {

@@ -3,6 +3,7 @@ import { LEARN_LANGS, readLearnLang } from '@lcw/content';
 import {
   HELP_KO_KEY,
   LEARN_LANG_KEY,
+  defaultHelpKoFor,
   helpKoOn,
   learnLang,
   learnLangChosen,
@@ -16,6 +17,8 @@ import { BLOCK_NAMES_KO, SHOWROOM_DEFAULT_TITLE, WORLD_STRINGS, itemGotText, npc
 
 // node has no window: a memory localStorage and an event target stand in for it
 beforeAll(() => {
+  // R329: the Korean default reads the browser language, so these English-first expectations pin it to English.
+  Object.defineProperty(globalThis, 'navigator', { value: { language: 'en-US' }, configurable: true });
   const m = new Map<string, string>();
   const g = globalThis as Record<string, unknown>;
   g.localStorage = {
@@ -85,5 +88,35 @@ describe('learn language (Dan 11-16: the screen speaks the language the child le
     expect(BLOCK_NAMES_KO.nope).toBeUndefined();
     // data is never a screen line: the showroom title stays plain English
     expect(SHOWROOM_DEFAULT_TITLE).toBe('My bee house');
+  });
+});
+
+describe('Korean help default (R329: a Korean browser starts with the Korean line, until the device chooses otherwise)', () => {
+  const g = globalThis as Record<string, unknown>;
+  const savedNavigator = g.navigator;
+  const setNavigator = (language: string): void => {
+    Object.defineProperty(g, 'navigator', { value: { language }, configurable: true });
+  };
+  afterEach(() => {
+    Object.defineProperty(g, 'navigator', { value: savedNavigator, configurable: true });
+  });
+
+  it('the rule is pure: Korean starts on, anything else keeps it off', () => {
+    expect(defaultHelpKoFor('ko-KR')).toBe(true);
+    expect(defaultHelpKoFor('ko')).toBe(true);
+    expect(defaultHelpKoFor('en-US')).toBe(false);
+    expect(defaultHelpKoFor('')).toBe(false);
+    expect(defaultHelpKoFor('ja')).toBe(false);
+  });
+
+  it('helpKoOn follows the browser language only before the device sets its own choice', () => {
+    setNavigator('ko-KR');
+    expect(helpKoOn()).toBe(true);
+    setHelpKo(false);
+    expect(helpKoOn()).toBe(false);
+    setNavigator('en-US');
+    expect(helpKoOn()).toBe(false);
+    setHelpKo(true);
+    expect(helpKoOn()).toBe(true);
   });
 });

@@ -66,8 +66,25 @@ describe('/try session judged by the server (docs/01 §3, docs/19 8장)', () => 
     expect(formatClock(125_000)).toBe('2:05');
     expect(formatClock(400)).toBe('0:01');
     expect(TRY.limitNote).toContain(`${FREE_PLAY_LIMITS.tryMinutes}분`);
+    // R329: the limit states its reason (no account, browser recognition only), not just the number
+    expect(TRY.limitNote).toContain('가입 없이');
+    expect(TRY.continueSignup).toBe('가입하면 이어서 놀 수 있어요');
     const all = [TRY.limitNote, TRY.serverMissed, TRY.netError, TRY.retry, TRY.timeLeft('1:00'), ...Object.values(TRY.gate).flatMap((g) => [g.title, g.body])].join(' ');
     expect(all).not.toMatch(/[0-9,]+\s*원|결제|할인|구독|만료|기한|남은 수량|품절|게임/);
+  });
+});
+
+describe('try end names signup first (R329: join and keep playing)', () => {
+  it('both the gate and the success end link to /signup before the plan step', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../site/TryScene.tsx', import.meta.url), 'utf8');
+    const signupIdx = src.indexOf('data-cta="signup"');
+    expect(signupIdx, 'signup CTA missing').toBeGreaterThan(-1);
+    expect(src).toContain('to="/signup"');
+    expect(src).toContain('TRY.continueSignup');
+    // the signup link precedes the plan link in both end panels
+    expect(src.split('data-cta="signup"')).toHaveLength(3);
+    expect(src.indexOf('data-cta="signup"') < src.indexOf('data-cta="plans"')).toBe(true);
   });
 });
 

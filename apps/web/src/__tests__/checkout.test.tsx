@@ -1,7 +1,8 @@
 /**
- * R326 entrance and plans step: the service address opens the world (the intro is /about with a 'play now' button to
- * /world/), /pricing has the plans step (#plans) at the server prices with a plain test-mode band, the try's end and
- * the world's trial card lead there, and the operator inbox lists the online orders.
+ * R329 entrance and plans step: the service address opens the intro (/about) for a first visit and the world
+ * (/world/) for a revisit, the intro has a 'play now' button to /world/, /pricing has the plans step (#plans) at
+ * the server prices with a plain test-mode band, the try's end and the world's trial card lead there, and the
+ * operator inbox lists the online orders.
  */
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';

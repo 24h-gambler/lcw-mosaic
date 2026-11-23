@@ -372,6 +372,10 @@ export function StartFlow(props: StartFlowProps): React.ReactElement | null {
           </button>
         ) : null}
         <FriendWorld help={helpKo} />
+        {/* R329: one line back to the introduction, so the world's first screen is never a dead end. */}
+        <a className="lcw-start__link" href="/about" data-testid="start-intro">
+          <Say line={X.intro} help={helpKo} />
+        </a>
         <HelpKoToggle on={helpKo} />
       </div>
     </div>

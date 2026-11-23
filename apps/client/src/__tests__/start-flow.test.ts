@@ -74,6 +74,16 @@ describe('start flow data (docs/08 §8.4 G07, Dan 11-16 R2555)', () => {
     expect([SIGN_UP_PATH, SIGN_IN_PATH, TRY_PATH]).toEqual(['/signup', '/signup?mode=signin', '/try']);
   });
 
+  it('R329: the first screen links back to the introduction (/about), with the Korean line', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../start/StartFlow.tsx', import.meta.url), 'utf8');
+    expect(src).toContain('data-testid="start-intro"');
+    expect(src).toContain('href="/about"');
+    expect(src).toContain('X.intro');
+    expect(START_STRINGS.intro.en).toBe('See what LCW is');
+    expect(START_STRINGS.intro.ko).toBe('LCW 소개 보기');
+  });
+
   it('the language to learn: kept with the child on the server, the server wins on a new device', async () => {
     const f = fakeFetch({
       'GET /v1/my-world': () => [200, { made: false, learn_lang: 'en' }],

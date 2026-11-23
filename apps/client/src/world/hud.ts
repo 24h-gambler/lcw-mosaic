@@ -135,8 +135,8 @@ function css(): string {
 .lw-fade{position:absolute;inset:0;background:${C['paper-50']};opacity:0;transition:opacity ${M.slowMs}ms ease-in-out;display:flex;align-items:center;justify-content:center}
 .lw-fade.on{opacity:1}
 .lw-fade .ttl{font-family:${T.fonts.pixel};font-size:48px;line-height:56px;padding:16px 32px;transform:translateY(8px)}
-.lw-load{position:absolute;inset:0;background:${C['paper-50']};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity 500ms ease-out;pointer-events:auto}
-.lw-load.done{opacity:0;pointer-events:none}
+.lw-load{position:absolute;inset:0;background:${C['paper-50']};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity 500ms ease-out,visibility 0s linear 500ms;pointer-events:auto}
+.lw-load.done{opacity:0;pointer-events:none;visibility:hidden}
 .lw-load .b{width:min(320px,70vw);height:20px;border:2px solid ${C['ink-900']};background:${C['paper-0']};box-shadow:${S.shadowDefault}}
 .lw-load .b i{display:block;height:100%;width:0;background:var(--c-leaf,${C.leaf});transition:width 200ms}
 .lw-load .h{font-size:calc(${T.scale.h2.sizePx}px * var(--lcw-hs,1));font-weight:800}

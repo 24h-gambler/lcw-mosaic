@@ -36,6 +36,8 @@ export const START_STRINGS = {
   signIn: bi('I have an account · Sign in', '이미 가입했어요 · 로그인'),
   tryIt: bi('Try it for 3 minutes', '3분 체험해 보기'),
   friendWorld: bi("Go to a friend's world: enter code", '친구 월드 가기: 코드 입력'),
+  /** R329: the world's first screen links back to the introduction (/about). */
+  intro: bi('See what LCW is', 'LCW 소개 보기'),
   codeLabel: bi('6-digit code from your friend', '친구가 알려 준 코드 6자리'),
   codeGo: bi('Go', '가기'),
   codeHint: bi("Enter the code to go to your friend's world", '코드를 넣으면 친구 월드로 가요'),

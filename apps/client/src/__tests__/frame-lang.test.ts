@@ -2,7 +2,7 @@
 // map and HUD lines are English, and the Korean is a help the player turns on, joined after a dot ("Close · 닫기") or
 // on a small line of its own (KoHelp, the band, low-gauge notices). Each side gets its own names: never a Korean
 // particle on an English name ("Town Square으로 가기").
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { ACHIEVEMENT_REGISTRY, CAFE_MENU, COLLECTION_BOOKS, FURNITURE_SHOP_GOODS, GUIDE_PLACES, LANG_PACK_MANIFEST, TRADE_SHOP_GOODS } from '@lcw/content';
 import { FRAME_STRINGS as F, FRAME_STRINGS_EN, FRAME_STRINGS_KO, frameBi } from '../frame/strings.js';
@@ -67,7 +67,15 @@ const cells: SectorCell[] = Array.from({ length: 9 }, (_, i) => ({
 })) as unknown as SectorCell[];
 const places = (['plaza', 'honey_cafe'] as const).map((id) => ({ id, nameKo: SCENE_TITLES_KO[id], x: 0, z: 0 })) as unknown as MapScene[];
 
-afterEach(() => resetLangForTest());
+// R329: the Korean default reads the browser language, so these English-screen expectations pin it to English.
+const savedNavigator = globalThis.navigator;
+beforeEach(() => {
+  Object.defineProperty(globalThis, 'navigator', { value: { language: 'en-US' }, configurable: true });
+});
+afterEach(() => {
+  Object.defineProperty(globalThis, 'navigator', { value: savedNavigator, configurable: true });
+  resetLangForTest();
+});
 
 describe('the screens speak the learn language', () => {
   it('defaults to English, the content pack target language; the Korean help is off', () => {

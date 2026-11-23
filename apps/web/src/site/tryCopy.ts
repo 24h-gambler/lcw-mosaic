@@ -23,7 +23,8 @@ export const TRY = {
   startBtn: '시작하기 (소리 켜기)',
   startQuiet: '소리 없이 시작',
   localOnly: '체험에서는 브라우저의 음성 인식을 써요. 목소리는 저장되지 않아요.',
-  limitNote: `체험은 ${MIN}분 동안 음료 한 잔을 주문하는 거예요. 하루에 한 번 할 수 있어요.`,
+  /** R329: the limit says why (free-play.ts: no account and no AI cost, so one device a day; docs/01 §3). */
+  limitNote: `체험은 ${MIN}분 동안 음료 한 잔을 주문하는 거예요. 가입 없이 브라우저 음성인식만 쓰기 때문에 남용을 막으려고 하루 한 번만 할 수 있어요.`,
   timeLeft: (clock: string) => `남은 체험 ${clock}`,
   timeLeftLabel: (clock: string) => `체험 시간 ${clock} 남았어요`,
   serverMissed: '이번 문장은 주문이 안 됐어요. 문장을 골라 한 번 더 말해 봐요.',
@@ -77,6 +78,8 @@ export const TRY = {
   endSavedYes: '저장하려면 부모님이 계정을 만들어 주셔야 해요. 부모님께 소개를 보내 볼까요?',
   endSavedNo: '재밌었다면 부모님께 소개를 보내 봐요.',
   sendParent: '부모님께 소개 보내기',
+  /** R329: where the try's end sends the visitor (the guardian sign-up; plan choice stays on /pricing). */
+  continueSignup: '가입하면 이어서 놀 수 있어요',
   /** R326: the try's end goes on to the plans step (an adult page); no price on this child page. */
   choosePlan: '보호자와 이용권 고르기',
   myVoice: '내 목소리 다시 듣기',

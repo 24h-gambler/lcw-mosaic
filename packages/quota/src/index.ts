@@ -337,4 +337,27 @@ export class QuotaMeter {
   }
 }
 
+/**
+ * Cloudflare cost caps for one lesson hour (R2735, 11-20: the operator's free Cloudflare account ran out of D1 reads in
+ * one day). A lesson is one teacher and one student (docs/18: a student token is for one lesson and one student).
+ * `apps/edge/src/__tests__/lesson-hour-budget.test.ts` adds up every periodic loop the two screens run during a
+ * lesson, from their own period constants, and fails over these caps; a new `setInterval` file fails until it is
+ * counted or marked as making no request. Every `/v1` request is one Worker request and one PlatformDO request
+ * (platform.ts). Cloudflare bills WebSocket messages into a hibernating object at 20 to one request. The operator's
+ * Cloudflare monitor (automation `shared/cf_plans.json` `class_budget.lcw`) uses the same numbers.
+ */
+export const LESSON_HOUR_BUDGET = {
+  /** The student's /world/ in a lesson: lesson state every 1.2 s, the live-lesson check every 5 s, review every minute (3,780), plus `eventAllowance`. */
+  studentRequests: 4_600,
+  /** The teacher: director console (feed, world presence, beat, sign-up queue, lesson audio), TeacherBar in the world and the 1PC panel (5,910). */
+  teacherRequests: 6_500,
+  /** Requests one student's answers, voice lines, stage moves and plot edits add in an hour (not periodic). */
+  eventAllowance: 400,
+  /** WebSocket messages one room member sends in an hour (poses at most `TUNING.multi.poseBudgetHz`; ping is auto-answered). */
+  wsMessagesPerMember: 4_800,
+  wsMessagesPerDoRequest: 20,
+  /** Workers AI for one student: server speech recognition at the daily fair-use cap (40 min × 46 neurons = 1,840). */
+  studentNeurons: 2_000
+} as const;
+
 export * from './duo.js';

@@ -12,7 +12,8 @@ import {
   type AdventureChapterId,
   type AdventureCreature,
   type AdventureLevel,
-  type AdventureLine
+  type AdventureLine,
+  type AdventurePatternId
 } from '@lcw/content';
 import type { EnglishDayFile } from '@lcw/schemas';
 import { ADV, type CreatureClass } from './tuning.js';
@@ -75,7 +76,8 @@ export interface ChapterPlan {
   words: WordCard[];
   /** Earlier words brought back (chapter 4 and the day file's review words). */
   review: WordCard[];
-  encounters: [EncounterPlan, EncounterPlan, EncounterPlan];
+  /** Three gatekeeper mini bosses and the island guardian (R2861). */
+  encounters: EncounterPlan[];
   /** Where the words came from (the end screen and the parent summary say it). */
   source: 'document' | 'saved' | 'built-in';
   seed: number;
@@ -300,26 +302,21 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
     c.answer ? { en: c.answer[level].en, ko: c.answer[level].ko } : c.askKind === 'greet' ? { en: greet.en, ko: greet.ko } : c.askKind === 'feel' ? { en: feel.en, ko: feel.ko } : { en: bankLine, ko: bankKo[chapter.ctx] ?? null };
   const wordKo = (wc: WordCard) => (wc.ko ? `${wc.w} = ${wc.ko}` : null);
 
-  const [c1, c2] = chapter.critters;
+  const critters = chapter.critters;
   const g = chapter.guardian;
   const w0 = words[0]!;
   const w1 = words[1] ?? w0;
+  const w2 = words[2] ?? w0;
   const allWords = [...words, ...review];
 
-  const critter1: TalkItem[] = [
-    item('c1-greet', 'greet', 'say', greet.en, greet.ko, rng),
-    // the islander's own question comes in the first three (a critter is often a friend after one TALK)
-    pickItem('c1-pick', c1, answerFor(c1), rng),
-    item('c1-word', 'word', 'build', w0.sentence, wordKo(w0), rng, { word: w0.w, emoji: w0.emoji }),
-    item('c1-spell', 'word', 'spell', w0.w, wordKo(w0), rng, { word: w0.w, emoji: w0.emoji }),
-    wordPickItem('c1-wpick', w0, rng)
-  ];
-  const critter2: TalkItem[] = [
-    item('c2-feel', 'feel', 'say', feel.en, feel.ko, rng),
-    pickItem('c2-pick', c2, answerFor(c2), rng),
-    item('c2-spell', 'word', 'spell', w1.w, wordKo(w1), rng, { word: w1.w, emoji: w1.emoji }),
-    item('c2-word', 'word', 'say', w1.sentence, wordKo(w1), rng, { word: w1.w, emoji: w1.emoji }),
-    wordPickItem('c2-wpick', w1, rng)
+  // R2861: every gate holds a real mini boss. Each one offers the same five kinds of English work (a spoken line,
+  // a reply to pick, a sentence to build, a spelling, and the day's word used in a sentence).
+  const critterTalks = (c: AdventureCreature, wc: WordCard, idx: number): TalkItem[] => [
+    item(`c${idx}-greet`, 'greet', 'say', greet.en, greet.ko, rng),
+    pickItem(`c${idx}-pick`, c, answerFor(c), rng),
+    item(`c${idx}-word`, 'word', idx % 2 ? 'build' : 'say', wc.sentence, wordKo(wc), rng, { word: wc.w, emoji: wc.emoji }),
+    item(`c${idx}-spell`, 'word', 'spell', wc.w, wordKo(wc), rng, { word: wc.w, emoji: wc.emoji }),
+    wordPickItem(`c${idx}-wpick`, wc, rng)
   ];
   const guardianTalks: TalkItem[] = [
     item('g-bank', 'bank', 'say', bankLine, bankKo[chapter.ctx] ?? null, rng),
@@ -338,15 +335,20 @@ export function buildChapterPlan(input: PlanInput): ChapterPlan {
   }
   const enc = (creature: AdventureCreature, talks: TalkItem[], ewords: WordCard[]): EncounterPlan => {
     const cls = classOf(chapter, creature);
-    const stages = creature.role === 'guardian' ? [...ADVENTURE_STORY[chapter.id].stages] : [];
+    // R2861: a gate mini boss is a real fight too: half way it gets serious (faster, harder hits, one more pattern)
+    const stages = creature.role === 'guardian' ? [...ADVENTURE_STORY[chapter.id].stages] : miniBossStages(creature);
     return { creature, cls, calmMax: ADV.calmMax[cls], grumpMax: ADV.grumpMax[cls], talks, words: ewords, stages };
   };
+  const wordFor = (i: number) => [w0, w1, w2][i % 3]!;
   return {
     chapter,
     level,
     words,
     review,
-    encounters: [enc(c1, critter1, [w0]), enc(c2, critter2, [w1]), enc(g, guardianTalks, allWords)],
+    encounters: [
+      ...critters.map((c, i) => enc(c, critterTalks(c, wordFor(i), i), [wordFor(i)])),
+      enc(g, guardianTalks, allWords)
+    ],
     source,
     seed
   };
@@ -372,4 +374,20 @@ export function talkChoices(talks: readonly TalkItem[], done: ReadonlySet<string
     if (pick) out[slot >= 0 ? slot : out.length - 1] = pick;
   }
   return out;
+}
+
+/** Two stages for a gate mini boss (R2861 "mini bosses hard too"): its own patterns, then faster with a twist. */
+export function miniBossStages(c: AdventureCreature): AdventureBossStage[] {
+  const pats = c.patterns.length ? c.patterns : (['acornDrop'] as AdventurePatternId[]);
+  const twist = [...pats].reverse();
+  return [
+    { at: 0, patterns: [...pats], speed: ADV.miniBoss.speed[0], damage: ADV.miniBoss.damage[0], line: c.turns[0] ?? c.intro },
+    {
+      at: ADV.miniBoss.at,
+      patterns: [...twist, pats[0]!],
+      speed: ADV.miniBoss.speed[1],
+      damage: ADV.miniBoss.damage[1],
+      line: { en: `${c.nameEn} is not giving up! It gets faster!`, ko: `${c.nameKo}이(가) 포기하지 않아요! 더 빨라져요!` }
+    }
+  ];
 }

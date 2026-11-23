@@ -8,7 +8,7 @@
 // `failBoss`: islands where the guardian is meant to win the first meeting (the bot pokes and misses, and pins the
 // voice bubble to the floor), to measure "out of voice → the last lantern post → meet it again".
 
-const MENU = ['poke', 'talk', 'skill', 'pouch', 'friend'];
+const MENU = ['poke', 'talk', 'pouch', 'friend'];
 const DIRS = [
   ['left', -1, 0],
   ['right', 1, 0],
@@ -16,11 +16,20 @@ const DIRS = [
   ['down', 0, 1]
 ];
 
-/** @param {{ failBoss?: number[]; lowHp?: number; buysPerVisit?: number }} [opts] */
+/**
+ * @param {{ failBoss?: number[]; lowHp?: number; buysPerVisit?: number; neverTalk?: boolean; skipTalk?: boolean; pickOnly?: boolean; loseBossAlways?: boolean }} [opts]
+ * neverTalk: never chooses TALK (pokes only). skipTalk (R2861): chooses TALK, then always backs out of the English
+ * without answering (the old "Not now" path). loseBossAlways: every guardian meeting is meant to be lost.
+ */
 export function createAutoplay(opts = {}) {
   const failBoss = new Set(opts.failBoss ?? [1]);
   const lowHp = opts.lowHp ?? 0.45;
   const buysPerVisit = opts.buysPerVisit ?? 2;
+  const neverTalk = Boolean(opts.neverTalk);
+  const skipTalk = Boolean(opts.skipTalk);
+  // R2861 pickOnly: chooses TALK and answers only the 3-way reply picks (never says or types a line)
+  const pickOnly = Boolean(opts.pickOnly);
+  const loseBossAlways = Boolean(opts.loseBossAlways);
   const mem = {
     /** talk replies already picked: `${who}|${line}|${reply}` */
     picked: new Set(),
@@ -37,8 +46,9 @@ export function createAutoplay(opts = {}) {
     skillsUsed: new Set(),
     battleKey: '',
     endingSeen: false,
+    lastRoute: null,
     /** what happened, for the report */
-    seen: { chests: [], buys: [], skills: [], replies: [], downs: [], wakes: 0, posts: [], stages: new Set(), battles: [], tracks: new Set() }
+    seen: { chests: [], buys: [], skills: [], replies: [], downs: [], wakes: 0, posts: [], stages: new Set(), battles: [], tracks: new Set(), chapterSeconds: [], bossTry: {}, bossRun: [] }
   };
 
   const listMove = (cur, want, n) => {
@@ -47,7 +57,24 @@ export function createAutoplay(opts = {}) {
     return fwd <= n - fwd ? { key: 'down', why: 'list' } : { key: 'up', why: 'list' };
   };
 
+  let lastChapter = 0;
+  let chapterStartT = 0;
+
   function next(s) {
+    // R2861 metrics: how long each island took (engine seconds) and each guardian attempt's outcome
+    if (s.chapter !== lastChapter) {
+      lastChapter = s.chapter;
+      chapterStartT = s.t ?? 0;
+    }
+    if (s.scene === 'end' && !mem.seen.chapterSeconds.some((c) => c.chapter === s.chapter)) {
+      mem.seen.chapterSeconds.push({ chapter: s.chapter, seconds: Math.round((s.t ?? 0) - chapterStartT) });
+    }
+    if (s.scene === 'battle' && s.battle?.boss && s.battle.outcome) {
+      const attempt = mem.seen.bossTry[s.chapter] ?? 1;
+      if (!mem.seen.bossRun.some((x) => x.key === mem.battleKey && x.attempt === attempt)) {
+        mem.seen.bossRun.push({ key: mem.battleKey, chapter: s.chapter, attempt, outcome: s.battle.outcome });
+      }
+    }
     // a touch is answered by a talk, a chest note, the cart or a meeting: the thing is done
     if (mem.pending && (s.msg != null || s.shop || s.scene !== 'explore')) {
       mem.visited.add(mem.pending);
@@ -84,12 +111,12 @@ export function createAutoplay(opts = {}) {
       mem.battleKey = key;
       mem.skillsUsed = new Set();
       mem.seen.battles.push({ chapter: s.chapter, creature: b.creature, boss: b.boss });
+      if (b.boss) mem.seen.bossTry[s.chapter] = (mem.seen.bossTry[s.chapter] ?? 0) + 1;
     }
     if (b.stage > 0) mem.seen.stages.add(`${s.chapter}:${b.stage}`);
     const hp = s.run.hp;
     const low = hp <= s.run.hpMax * lowHp;
-    const fail = b.boss && failBoss.has(s.chapter) && !mem.failed.has(s.chapter);
-    const skills = s.skillList ?? [];
+    const fail = b.boss && (loseBossAlways || (failBoss.has(s.chapter) && !mem.failed.has(s.chapter)));
     const pouch = s.pouch ?? [];
     switch (s.phase) {
       case 'msg':
@@ -98,37 +125,38 @@ export function createAutoplay(opts = {}) {
         return { key: 'z', why: s.phase };
       case 'menu': {
         let want = 'talk';
-        if (fail) want = 'poke';
+        if (neverTalk) want = 'poke';
+        else if (fail) want = 'poke';
         else if (b.ready) want = 'friend';
-        else if (skills.includes('warmHeal') && hp <= s.run.hpMax * 0.85) want = 'skill';
         else if (low && pouch.length) want = 'pouch';
-        else if (skills.some((k) => k !== 'warmHeal')) want = 'skill';
         const i = MENU.indexOf(want);
         return listMove(s.menuIndex, i, MENU.length) ?? { key: 'z', why: `menu ${want}` };
       }
       case 'talkPick': {
-        let i = (s.talkChoices ?? []).findIndex((c) => c.mode === 'pick');
-        if (i < 0) i = 0;
-        return listMove(s.cursor, i, s.listLen) ?? { key: 'z', why: 'talk pick' };
-      }
-      case 'skillPick': {
-        const list = s.skillList ?? [];
-        let i = hp <= s.run.hpMax * 0.85 ? list.indexOf('warmHeal') : list.findIndex((k) => k !== 'warmHeal');
+        const list = s.talkChoices ?? [];
+        // magic words (inside TALK) first; then a reply to pick (always offered)
+        // R2861: only a SAID line (voice / typed) passes a talk — the bot says one; pickOnly never does (the loophole bot)
+        let i = pickOnly ? list.findIndex((c) => c.mode === 'pick' && !c.skill) : list.findIndex((c) => c.skill);
+        if (i < 0) i = list.findIndex((c) => (pickOnly ? c.mode === 'pick' : c.mode === 'say'));
+        if (i < 0) i = list.findIndex((c) => c.mode === 'pick');
         if (i < 0) i = 0;
         const mv = listMove(s.cursor, i, s.listLen);
         if (mv) return mv;
-        mem.seen.skills.push({ chapter: s.chapter, skill: list[i], hp });
-        return { key: 'z', why: `skill ${list[i]}` };
+        if (list[i]?.skill) mem.seen.skills.push({ chapter: s.chapter, skill: list[i].skill, hp });
+        return { key: 'z', why: 'talk pick' };
       }
       case 'pouch':
         return { key: 'z', why: `pouch ${pouch[s.cursor]}` };
       case 'talk': {
         const t = s.talk;
+        if (skipTalk) return { key: 'x', why: 'back out of the English (skip bot)' };
         if (t?.result && t.result.pass && t.result.stars > 0) return { key: 'z', why: 'talk next' };
         if (t?.mode === 'pick' && t.choices) {
           const i = t.choices.indexOf(t.target);
           return listMove(s.cursor, i < 0 ? 0 : i, t.choices.length) ?? { key: 'z', why: 'answer' };
         }
+        // a spoken line: the bot types it (microphone off) / the engine test hands it over as the transcript
+        if (t?.mode === 'say') return { say: t.target, why: 'say the line' };
         return { key: 'x', why: `talk ${t?.mode} needs the panel` };
       }
       case 'poke':
@@ -208,7 +236,7 @@ export function createAutoplay(opts = {}) {
 
   /** Shortest path (tiles) from the player to a free tile next to `e`, with the direction to push from there. */
   function route(s, e) {
-    const g = blockedGrid(s, e.id);
+    const g = blockedGrid(s);
     const tt = targetTiles(s, e);
     const isT = new Set(tt.map(([x, y]) => `${x},${y}`));
     const goals = new Map();
@@ -268,6 +296,7 @@ export function createAutoplay(opts = {}) {
     const pick = want(s);
     if (!pick) return { done: true, why: 'nothing left to walk to' };
     const { e, r } = pick;
+    mem.lastRoute = { id: e.id, push: r.push, path: r.path.length, dir: s.player.dir };
     const tag = `${s.chapter}:${e.id}`;
     const n = (mem.tries.get(tag) ?? 0) + 1;
     mem.tries.set(tag, n);
@@ -277,8 +306,22 @@ export function createAutoplay(opts = {}) {
     }
     const T = s.tile;
     const p = s.player;
+    // close to the thing: walk into it. Every island thing is solid until it answers (a chest opens, a post rests,
+    // a villager talks, a gate mini boss meets), so pushing into it is the same as facing it and pressing Z.
+    const ddx = e.x - p.x;
+    const ddy = e.y - p.y;
+    const reach = e.kind === 'critter' || e.kind === 'gate' || e.kind === 'guardian' ? T * 2.6 : T * 1.8;
+    if (Math.abs(ddx) < reach && Math.abs(ddy) < T * 2.2) {
+      const dir = Math.abs(ddx) > Math.abs(ddy) ? (ddx < 0 ? 'left' : 'right') : ddy < 0 ? 'up' : 'down';
+      mem.pending = tag;
+      if (e.kind === 'chest') mem.seen.chests.push({ chapter: s.chapter, id: e.id });
+      if (e.kind === 'post') mem.seen.posts.push({ chapter: s.chapter, id: e.id });
+      return { hold: dir, ms: 120, why: `touch ${e.id}` };
+    }
     // the next tile centre on the path (the first one not stood on yet)
-    const [tx, ty] = r.path.length > 1 ? r.path[1] : r.path[0];
+    const stepTile = r.path.length > 1 ? r.path[1] : r.path[0];
+    if (!stepTile) return { wait: 30, why: `approach ${e.id}` };
+    const [tx, ty] = stepTile;
     const cx = tx * T + T / 2;
     const cy = ty * T + T - 2;
     const dx = cx - p.x;
@@ -291,14 +334,7 @@ export function createAutoplay(opts = {}) {
     if (ax && ay) return go(Math.abs(dx) < Math.abs(dy) ? 'x' : 'y');
     if (ax) return go('x');
     if (ay) return go('y');
-    // standing next to it: islanders in the way and the guardian are walked into; the rest are faced and Z'd
-    if (e.kind === 'critter' || e.kind === 'guardian') return { hold: r.push, ms: 120, why: `meet ${e.id}` };
-    const facing = p.dir === 0 ? 'down' : p.dir === 1 ? 'up' : p.flip ? 'left' : 'right';
-    if (facing !== r.push) return { hold: r.push, ms: 17, why: `face ${e.id}` };
-    mem.pending = tag;
-    if (e.kind === 'chest') mem.seen.chests.push({ chapter: s.chapter, id: e.id });
-    if (e.kind === 'post') mem.seen.posts.push({ chapter: s.chapter, id: e.id });
-    return { key: 'z', why: `touch ${e.id}` };
+    return { wait: 30, why: `approach ${e.id}` };
   }
 
   return { next, mem };

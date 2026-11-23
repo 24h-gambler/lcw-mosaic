@@ -1,5 +1,6 @@
 export type AutoplayAction =
   | { key: 'z' | 'x' | 'up' | 'down'; why?: string }
+  | { say: string; why?: string }
   | { hold: 'left' | 'right' | 'up' | 'down'; ms: number; why?: string }
   | { wait: number; why?: string }
   | { done: true; why?: string };
@@ -21,10 +22,13 @@ export interface AutoplayMemory {
     stages: Set<string>;
     battles: Array<{ chapter: number; creature: string; boss: boolean }>;
     tracks: Set<string>;
+    chapterSeconds: Array<{ chapter: number; seconds: number }>;
+    bossTry: Record<number, number>;
+    bossRun: Array<{ key: string; chapter: number; attempt: number; outcome: string }>;
   };
 }
 
-export function createAutoplay(opts?: { failBoss?: number[]; lowHp?: number; buysPerVisit?: number }): {
+export function createAutoplay(opts?: { failBoss?: number[]; lowHp?: number; buysPerVisit?: number; neverTalk?: boolean; skipTalk?: boolean; pickOnly?: boolean; loseBossAlways?: boolean }): {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   next(s: any): AutoplayAction;
   mem: AutoplayMemory;

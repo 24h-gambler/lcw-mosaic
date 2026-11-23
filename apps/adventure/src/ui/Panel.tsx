@@ -384,7 +384,7 @@ function Battle({ engine, snap }: { engine: Engine; snap: Snapshot }) {
     return (
       <>
         <BattleTop snap={snap} />
-        <div className="cmds" style={{ gridTemplateColumns: '1fr 1fr 1fr' }} data-testid="adv-menu">
+        <div className="cmds" style={{ gridTemplateColumns: '1fr 1fr' }} data-testid="adv-menu">
           {MENU.map((c, i) => (
             <button
               key={c}

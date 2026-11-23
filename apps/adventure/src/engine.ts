@@ -28,7 +28,7 @@ import { buildChapterPlan, type ChapterPlan, type TalkItem } from './core/plan.j
 import { Battle, ITEM_KEYS, MENU, type Command, type ItemKey } from './core/battle.js';
 import { gradeExact, gradePick, gradeSpelling, gradeSpoken, type Graded } from './core/grade.js';
 import { blocks, buildIsland, feetBox, findPath, moveFeet, tileAt, type IslandMap, type MapEntity } from './core/map.js';
-import { addCoins, buy, canBuy, hasFlag, learn, maxHp, newRun, openChest, parseRun, restAt, retrySpeed, revive, RUN_KEY, setFlag, type BuyCheck, type Run } from './core/run.js';
+import { addCoins, buy, canBuy, hasFlag, learn, maxHp, newRun, openChest, parseRun, restAt, revive, RUN_KEY, setFlag, type BuyCheck, type Run } from './core/run.js';
 import { createRng, hashSeed } from './core/rng.js';
 import {
   CHAPTER_IDS,
@@ -312,7 +312,7 @@ export class Engine {
               menuIndex: this.menuIndex,
               choices: [...b.choices],
               current: b.current,
-              ready: b.ready,
+              ready: b.spareReady,
               items: { ...b.items },
               pouch: this.pouchRows(),
               skills: b.skillList.map((id) => ({ id, en: ADVENTURE_SKILLS[id].nameEn, ko: ADVENTURE_SKILLS[id].nameKo, info: ADVENTURE_SKILLS[id].info })),
@@ -526,7 +526,16 @@ export class Engine {
       e,
       x: e.tx * T + T / 2,
       y: e.ty * T + T - 2,
-      state: e.kind === 'chest' && hasFlag(this.run, `chest-${id}-${e.index}`) ? 'open' : 'idle',
+      state:
+        e.kind === 'chest' && hasFlag(this.run, `chest-${id}-${e.index}`)
+          ? 'open'
+          : e.kind === 'critter' && hasFlag(this.run, `mini-${id}-${e.index}`)
+            ? hasFlag(this.run, `mini-fought-${id}-${e.index}`)
+              ? 'gone'
+              : 'friend'
+            : e.kind === 'gate' && this.gateOpen(id, e.index)
+              ? 'gone'
+              : 'idle',
       talked: 0
     }));
     this.placeAt(this.island.start.tx, this.island.start.ty);
@@ -547,6 +556,44 @@ export class Engine {
     this.music(ch.music);
     this.voice.prefetch(this.plan.words.map((w) => ({ voice: npcCast().modelVoice, text: w.w })));
     this.notify();
+  }
+
+  /**
+   * R2861 gate rules. Gate 0 and 1 need the chest key in front of them and their mini boss calmed or beaten; gate 2
+   * needs the last mini boss and at least one English talk passed on this island. No gate can be walked around.
+   */
+  private gateOpen(ch: AdventureChapterId, i: number): boolean {
+    const f = (k: string) => hasFlag(this.run, k);
+    if (i === 0) return f(`chest-${ch}-0`) && f(`mini-${ch}-0`);
+    if (i === 1) return f(`chest-${ch}-1`) && f(`mini-${ch}-1`);
+    return f(`mini-${ch}-2`) && f(`talk-${ch}`);
+  }
+
+  private gateMissing(ch: AdventureChapterId, i: number): AdventureLine {
+    if (i === 2) return S.gateWantsTalk;
+    return S.gateWantsKey(i + 1);
+  }
+
+  /** Opens every gate whose key and mini boss are done (after a chest, a meeting or a talk). */
+  private refreshGates() {
+    for (const es of this.entities) {
+      if (es.e.kind !== 'gate' || es.state !== 'idle') continue;
+      if (this.gateOpen(this.chapter, es.e.index)) {
+        es.state = 'gone';
+        setFlag(this.run, `gate-${this.chapter}-${es.e.index}`);
+        this.sfx('chest');
+      }
+    }
+  }
+
+  /** What still stands between this island and the boat (kept as a hard guard on the end page and the boat). */
+  private chapterMissing(): string[] {
+    const ch = this.chapter;
+    const miss: string[] = [];
+    for (let i = 0; i < 3; i++) if (!hasFlag(this.run, `mini-${ch}-${i}`)) miss.push(`mini-${i}`);
+    if (!hasFlag(this.run, `talk-${ch}`)) miss.push('talk');
+    if (!hasFlag(this.run, `boss-${ch}`)) miss.push('boss');
+    return miss;
   }
 
   private placeAt(tx: number, ty: number) {
@@ -628,6 +675,12 @@ export class Engine {
   /** The end page's way on: the boat to the next island, or the ending after the last one. */
   sailOn() {
     if (this.scene !== 'end') return;
+    if (this.chapterMissing().length) {
+      // R2861: the boat never leaves without the three gatekeepers, one real English talk and the guardian
+      this.sfx('wrong');
+      this.notify();
+      return;
+    }
     const ch = this.chapter;
     if (ch === 4) {
       setFlag(this.run, 'ending');
@@ -856,15 +909,22 @@ export class Engine {
 
   /** After the panel showed the stars: hand the result to the encounter. */
   talkDone(g: Graded) {
+    const said = this.battle?.current?.mode === 'say' && !this.battle.current.skill;
     this.battle?.talkResult(g);
+    // R2861: only a said line (voice, or typed) is the talk flag that opens the second gate; picks and puzzles never are
+    if (said && g.pass && g.stars > 0) {
+      setFlag(this.run, `talk-${this.chapter}`);
+      this.refreshGates();
+    }
     this.talk = { tries: 0, result: null };
     this.cursor = 0;
     this.saveRun();
     this.afterBattleChange();
   }
 
-  talkSkip() {
-    this.battle?.talkSkip();
+  /** R2861: leaving the talk panel is only a step back to the battle menu; it never takes the islander's turn. */
+  talkBack() {
+    this.battle?.back();
     this.talk = { tries: 0, result: null };
     this.afterBattleChange();
   }
@@ -1076,7 +1136,7 @@ export class Engine {
     const after = m.after;
     this.exploreMsg = null;
     this.reveal = 0;
-    if (after?.kind === 'guardian') return this.startBattle(2);
+    if (after?.kind === 'guardian') return this.startBattle(this.plan!.encounters.length - 1);
     if (after?.kind === 'finish') return this.finishChapter();
     if (after?.kind === 'node' && m.npc && !skip) return this.openNode(m.npc.tree, after.to);
     this.closeMsg();
@@ -1098,14 +1158,34 @@ export class Engine {
     return w;
   }
 
-  private touchEntity(es: EntityState, force = false) {
+  private touchEntity(es: EntityState, force = false): void {
     const e = es.e;
     if (!this.plan) return;
     const ch = this.plan.chapter;
+    if (e.kind === 'gate') {
+      const ok = this.gateOpen(this.chapter, e.index);
+      if (ok) {
+        es.state = 'gone';
+        setFlag(this.run, `gate-${this.chapter}-${e.index}`);
+        this.sfx('chest');
+        this.saveRun();
+        this.exploreMsg = { who: S.gate.en, whoKo: S.gate.ko, lines: [S.gateOpens], i: 0, voice: null };
+      } else {
+        this.sfx('wrong');
+        this.exploreMsg = { who: S.gate.en, whoKo: S.gate.ko, lines: [S.gateLocked(this.gateMissing(this.chapter, e.index))], i: 0, voice: null };
+      }
+      this.reveal = 0;
+      this.notify();
+      return;
+    }
     if (e.kind === 'critter' || e.kind === 'guardian') {
       if (es.state !== 'idle') {
+        // R2861: a calmed gatekeeper stands in its locked gate — the gate says what is still missing (the chest key),
+        // otherwise the child hears the friend line forever and never learns why the way is shut
+        const gate = this.entities.find((g) => g.e.kind === 'gate' && g.state === 'idle' && g.e.tx === e.tx && g.e.ty === e.ty);
+        if (gate && e.kind === 'critter') return this.touchEntity(gate, force);
         if (force && es.state === 'friend') {
-          const c = e.kind === 'guardian' ? ch.guardian : ch.critters[e.index as 0 | 1];
+          const c = e.kind === 'guardian' ? ch.guardian : ch.critters[e.index]!;
           this.exploreMsg = { who: c.nameEn, whoKo: c.nameKo, lines: [c.friend], i: 0, voice: islanderVoice(c.id, c.voice) };
           this.reveal = 0;
           this.notify();
@@ -1159,6 +1239,7 @@ export class Engine {
         const item = got.item ? { en: ADVENTURE_ITEMS[got.item].nameEn, ko: ADVENTURE_ITEMS[got.item].nameKo } : null;
         this.exploreMsg = { who: S.chest.en, whoKo: S.chest.ko, lines: [S.chestOpen(got.coins, item)], i: 0, voice: null };
         this.saveRun();
+        this.refreshGates();
       } else this.exploreMsg = { who: S.chest.en, whoKo: S.chest.ko, lines: [S.chestEmpty], i: 0, voice: null };
     } else if (e.kind === 'post') {
       restAt(this.run, { chapter: this.chapter, id: e.id });
@@ -1324,7 +1405,7 @@ export class Engine {
           if (s >= 2) this.music(BOSS_LAST_TRACK[this.chapter]);
         }
       },
-      { level: this.plan.level, speedMul: boss ? retrySpeed(this.run, this.chapter) : 1 }
+      { level: this.plan.level, speedMul: 1 }
     );
     this.menuIndex = 1;
     this.cursor = 0;
@@ -1362,7 +1443,7 @@ export class Engine {
     const b = this.battle;
     if (!b || !this.plan || !this.record) return;
     const enc = b.enc;
-    const isBoss = this.battleEnc === 2;
+    const isBoss = enc.creature.role === 'guardian';
     this.battle = null;
     if (b.outcome === 'down') {
       // out of voice: the "down" page, then the last lantern post (the islander stays where it was)
@@ -1382,6 +1463,7 @@ export class Engine {
         es.state = 'friend';
         es.y -= ADV.tile; // steps off the path
       }
+      if (!isBoss) setFlag(this.run, `mini-${this.chapter}-${this.battleEnc}`);
       const coins = isBoss ? ADV.coins.guardianFriend : ADV.coins.critterFriend;
       addCoins(this.run, coins);
       lines.push(S.coinsGot(coins));
@@ -1389,8 +1471,13 @@ export class Engine {
     } else {
       this.record.fought.push(enc.creature.id);
       if (es) es.state = 'gone';
+      if (!isBoss) {
+        setFlag(this.run, `mini-${this.chapter}-${this.battleEnc}`);
+        setFlag(this.run, `mini-fought-${this.chapter}-${this.battleEnc}`);
+      }
     }
     this.saveRun();
+    this.refreshGates();
     this.scene = 'explore';
     this.fade = 1;
     this.reveal = 0;
@@ -1398,6 +1485,7 @@ export class Engine {
     if (isBoss) {
       this.record.outcome = b.outcome === 'spared' ? 'spared' : 'fought';
       setFlag(this.run, `boss-${this.chapter}`);
+      this.saveRun();
       const g = this.plan.chapter.guardian;
       this.exploreMsg = { who: g.nameEn, whoKo: g.nameKo, lines: [...ADVENTURE_STORY[this.chapter].bossAfter, ...lines], i: 0, voice: null, after: { kind: 'finish' } };
     } else if (lines.length) this.exploreMsg = { who: S.coinsLabel.en, whoKo: S.coinsLabel.ko, lines, i: 0, voice: null };
@@ -1406,6 +1494,15 @@ export class Engine {
 
   private finishChapter() {
     if (!this.record || !this.plan) return;
+    if (this.chapterMissing().length) {
+      // never a silent pass: the island's own gate rules are the end's condition too
+      this.sfx('wrong');
+      this.exploreMsg = { who: S.gate.en, whoKo: S.gate.ko, lines: [S.chapterMissing], i: 0, voice: null };
+      this.scene = 'explore';
+      this.reveal = 0;
+      this.notify();
+      return;
+    }
     const r = this.record;
     r.endedMs = Date.now();
     const act = toActivity(r, r.endedMs);
@@ -1511,10 +1608,10 @@ export class Engine {
       listLen: this.listLen(),
       menuIndex: this.menuIndex,
       talk: b?.current ? { id: b.current.id, mode: b.current.mode, target: b.current.target, choices: b.current.choices ?? null, skill: b.current.skill ?? null, result: this.talk.result } : null,
-      talkChoices: b?.phase === 'talkPick' ? b.choices.map((c) => ({ id: c.id, mode: c.mode })) : null,
+      talkChoices: b?.phase === 'talkPick' ? b.choices.map((c) => ({ id: c.id, mode: c.mode, skill: c.skill ?? null })) : null,
       skillList: b ? (b.phase === 'skillPick' ? [...b.skillList] : this.run.skills.filter((k) => !b.usedSkills.has(k))) : null,
       pouch: b ? this.pouchRows() : null,
-      battle: b ? { creature: b.enc.creature.id, boss: b.enc.creature.role === 'guardian', cls: b.enc.cls, calm: b.calm, calmMax: b.enc.calmMax, grump: b.grump, ready: b.ready, stage: b.stage, stageCount: b.stageCount, slow: b.slow, outcome: b.outcome, soul: { ...b.soul } } : null,
+      battle: b ? { creature: b.enc.creature.id, boss: b.enc.creature.role === 'guardian', cls: b.enc.cls, calm: b.calm, calmMax: b.enc.calmMax, grump: b.grump, ready: b.spareReady, stage: b.stage, stageCount: b.stageCount, slow: b.slow, outcome: b.outcome, soul: { ...b.soul }, talkPasses: b.talkPasses } : null,
       player: { x: this.player.x, y: this.player.y, tx: Math.floor(this.player.x / T), ty: Math.floor((this.player.y - 1) / T), dir: this.player.dir, flip: this.player.flip },
       entities: this.entities.map((e) => ({ id: e.e.id, kind: e.e.kind, index: e.e.index, tx: e.e.tx, ty: e.e.ty, x: e.x, y: e.y, state: e.state, box: entityBox(e) })),
       tile: T,
@@ -1527,6 +1624,8 @@ export class Engine {
       progress: this.progress,
       audio: this.sound.state(),
       reveal: this.reveal,
+      keys: [...this.keys],
+      t: this.t,
       frames: this.frames
     };
   }
@@ -1573,7 +1672,7 @@ export class Engine {
 function entityBox(e: EntityState) {
   // critters fill their gate (three tiles high); others are a block at their feet
   const B = ADV.entityBox;
-  if (e.e.kind === 'critter') return { x: e.x - B.critter.w / 2, y: e.y - B.critter.h + B.critter.below, w: B.critter.w, h: B.critter.h };
+  if (e.e.kind === 'critter' || e.e.kind === 'gate') return { x: e.x - B.critter.w / 2, y: e.y - B.critter.h + B.critter.below, w: B.critter.w, h: B.critter.h };
   const { w, h } = e.e.kind === 'guardian' ? B.guardian : B.small;
   return { x: e.x - w / 2, y: e.y - h, w, h };
 }

@@ -172,10 +172,17 @@ export function TalkPanel({ engine, snap, item, help }: { engine: Engine; snap: 
             {S.next.en} ▶{help && <span className="ko">{S.next.ko}</span>}
           </button>
         ) : (
-          <button type="button" className="btn ghost" onClick={() => engine.talkSkip()} data-testid="adv-talk-skip">
-            {S.skip.en}
-            {help && <span className="ko">{S.skip.ko}</span>}
-          </button>
+          <>
+            <div className="hintline" data-testid="adv-talk-gate">
+              {S.talkGate.en}
+              {help && <div className="ko">{S.talkGate.ko}</div>}
+            </div>
+            {/* R2861: a plain step back to the four choices (touch screens have no X). Never data-primary, never a pass. */}
+            <button type="button" className="btn ghost" tabIndex={-1} onClick={() => engine.talkBack()} data-testid="adv-talk-back">
+              {S.talkBackBtn.en}
+              {help && <span className="ko">{S.talkBackBtn.ko}</span>}
+            </button>
+          </>
         )}
       </div>
     </div>

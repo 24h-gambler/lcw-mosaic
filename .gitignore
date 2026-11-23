@@ -10,3 +10,10 @@ coverage/
 Thumbs.db
 apps/edge/public/
 shots/nightly/
+# tsc output next to sources (typecheck config is noEmit; a stray emit once left 2,063 files)
+apps/*/src/**/*.js
+apps/*/src/**/*.js.map
+apps/*/src/**/*.d.ts.map
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts.map

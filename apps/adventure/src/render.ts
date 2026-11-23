@@ -3,7 +3,7 @@ import { TYPOGRAPHY_TOKENS } from '@lcw/ui';
 import { ADV } from './core/tuning.js';
 import { ARENA_TOP, currentWord, type Bullet } from './core/bullets.js';
 import { PAL, type PalKey } from './art/palette.js';
-import { paintChest, paintCreature, paintKeeper, paintMerchant, paintPost, paintSoul, paintStone, paintVillager } from './art/sprites.js';
+import { paintChest, paintCreature, paintGate, paintKeeper, paintMerchant, paintPost, paintSoul, paintStone, paintVillager } from './art/sprites.js';
 import { paintIsland } from './art/tiles.js';
 import type { Engine } from './engine.js';
 import { S } from './ui/strings.js';
@@ -201,10 +201,11 @@ export class Renderer {
             const lit = e.run.post?.chapter === e.chapter && e.run.post.id === es.e.id;
             this.img(sprite(`post-${lit}`, () => paintPost(lit)), x - 8, es.y - 24);
           } else if (kind === 'merchant') this.img(sprite('merchant', paintMerchant), x - 8, es.y - 20);
+          else if (kind === 'gate') this.img(sprite('gate', paintGate), x - 24, es.y - 46);
           else {
             const plan = e.plan;
             if (!plan) return;
-            const cr = kind === 'guardian' ? plan.chapter.guardian : plan.chapter.critters[es.e.index as 0 | 1];
+            const cr = kind === 'guardian' ? plan.chapter.guardian : plan.chapter.critters[es.e.index]!;
             const happy = es.state === 'friend';
             const s = sprite(`cr-${cr.sprite}-${happy}`, () => paintCreature(cr.sprite, happy));
             const bob = Math.round(Math.sin(e.t * 3 + es.e.tx) * 1.5);
@@ -320,7 +321,7 @@ export class Renderer {
     this.bar(W / 2 - 112, by, 100, b.hp / b.hpMax, b.hp / b.hpMax > 0.3 ? PAL.sun : PAL.danger, S.voiceLabel.en);
     // the number sits left of the bar (above it, it ran into the dodge page's frame)
     this.text(`${b.hp}/${b.hpMax}`, W / 2 - 116, by, PAL.cream, 8, 'right');
-    this.bar(W / 2 + 12, by, 100, b.progressFrac, b.ready ? PAL.leaf : PAL.pink, b.ready ? `${S.calmLabel.en} ✓` : S.calmLabel.en);
+    this.bar(W / 2 + 12, by, 100, b.progressFrac, b.spareReady ? PAL.leaf : PAL.pink, b.spareReady ? `${S.calmLabel.en} ✓` : S.calmLabel.en);
     // a guardian's stage pips (it grows fiercer as it calms)
     if (b.stageCount > 1)
       for (let i = 0; i < b.stageCount; i++) {

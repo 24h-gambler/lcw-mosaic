@@ -9,7 +9,7 @@ import { createRng, hashSeed } from './rng.js';
  */
 
 export type Tile = 'wall' | 'ground' | 'path' | 'water' | 'flower' | 'house' | 'floor';
-export type EntityKind = 'villager' | 'merchant' | 'stone' | 'post' | 'chest' | 'critter' | 'guardian';
+export type EntityKind = 'villager' | 'merchant' | 'stone' | 'post' | 'chest' | 'critter' | 'guardian' | 'gate';
 
 export interface MapEntity {
   id: string;
@@ -30,9 +30,9 @@ export interface IslandMap {
   theme: 'woods' | 'shore' | 'bakery' | 'tower';
 }
 
-export const MAP_W = 58;
+export const MAP_W = 78;
 export const MAP_H = 15;
-const GATES = [18, 36, 47];
+export const GATES = [22, 46, 62];
 const PATH_ROWS = [6, 7, 8];
 
 export function tileAt(m: IslandMap, tx: number, ty: number): Tile {
@@ -92,21 +92,26 @@ export function buildIsland(ch: AdventureChapterId): IslandMap {
     entities.push(e);
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) keepClear.add(`${e.tx + dx},${e.ty + dy}`);
   };
-  // R2734: a lantern post in every part of the island (a Keeper out of voice wakes at the last one touched), a chest
-  // before each gate's second half, Tumble's cart after the first gate, the islander who talks (with choices) at the start
+  // R2734/R2861: a lantern post in every part of the island (a Keeper out of voice wakes at the last one touched), a
+  // chest key before each gate, Tumble's cart after the first gate, three gate mini bosses, and a locked gate behind
+  // each one (the gate opens only when its key and mini boss are done).
   add({ id: 'post-0', kind: 'post', tx: 4, ty: 5, index: 0 });
   add({ id: 'villager', kind: 'villager', tx: 7, ty: 4, index: 0 });
   add({ id: 'stone-0', kind: 'stone', tx: 11, ty: 5, index: 0 });
-  add({ id: 'chest-0', kind: 'chest', tx: 14, ty: 9, index: 0 });
+  add({ id: 'chest-0', kind: 'chest', tx: 17, ty: 7, index: 0 });
   add({ id: 'critter-0', kind: 'critter', tx: GATES[0]!, ty: 7, index: 0 });
-  add({ id: 'merchant', kind: 'merchant', tx: 22, ty: 5, index: 0 });
-  add({ id: 'stone-1', kind: 'stone', tx: 26, ty: 9, index: 1 });
-  add({ id: 'post-1', kind: 'post', tx: 31, ty: 5, index: 1 });
+  add({ id: 'gate-0', kind: 'gate', tx: GATES[0]!, ty: 7, index: 0 });
+  add({ id: 'merchant', kind: 'merchant', tx: 27, ty: 5, index: 0 });
+  add({ id: 'stone-1', kind: 'stone', tx: 31, ty: 9, index: 1 });
+  add({ id: 'post-1', kind: 'post', tx: 37, ty: 5, index: 1 });
+  add({ id: 'chest-1', kind: 'chest', tx: 41, ty: 7, index: 1 });
   add({ id: 'critter-1', kind: 'critter', tx: GATES[1]!, ty: 7, index: 1 });
-  add({ id: 'chest-1', kind: 'chest', tx: 40, ty: 9, index: 1 });
-  add({ id: 'stone-2', kind: 'stone', tx: 42, ty: 5, index: 2 });
-  add({ id: 'post-2', kind: 'post', tx: 50, ty: 5, index: 2 });
-  add({ id: 'guardian', kind: 'guardian', tx: 53, ty: 7, index: 0 });
+  add({ id: 'gate-1', kind: 'gate', tx: GATES[1]!, ty: 7, index: 1 });
+  add({ id: 'stone-2', kind: 'stone', tx: 50, ty: 5, index: 2 });
+  add({ id: 'post-2', kind: 'post', tx: 55, ty: 5, index: 2 });
+  add({ id: 'critter-2', kind: 'critter', tx: GATES[2]!, ty: 7, index: 2 });
+  add({ id: 'gate-2', kind: 'gate', tx: GATES[2]!, ty: 7, index: 2 });
+  add({ id: 'guardian', kind: 'guardian', tx: 70, ty: 7, index: 0 });
   const start = { tx: 3, ty: 7 };
   keepClear.add(`${start.tx},${start.ty}`);
   const density = theme === 'woods' ? 0.13 : theme === 'tower' ? 0.06 : 0.08;

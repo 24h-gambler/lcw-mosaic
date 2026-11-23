@@ -35,7 +35,7 @@ export interface Run {
   post: LanternPost | null;
   /** Saw the opening story. */
   prologue: boolean;
-  /** Meetings with each island's guardian that ended with no voice left (each makes the next try a little slower). */
+  /** Meetings with each island's guardian that ended with no voice left (kept for the report only). */
   bossTries: Partial<Record<AdventureChapterId, number>>;
   downs: number;
   coinsEarned: number;
@@ -152,9 +152,9 @@ export function revive(r: Run, guardianOf?: AdventureChapterId): void {
   r.hp = maxHp(r);
 }
 
-/** A guardian met again after running out of voice: each try is a little slower (never below the floor). */
-export function retrySpeed(r: Run, ch: AdventureChapterId): number {
-  return Math.max(ADV.retry.floor, 1 - ADV.retry.step * (r.bossTries[ch] ?? 0));
+/** R2861: a guardian met again after running out of voice is exactly as hard as the first time (no easing). */
+export function retrySpeed(_r: Run, _ch: AdventureChapterId): number {
+  return 1;
 }
 
 const ITEM_IDS = Object.keys(ADVENTURE_ITEMS) as AdventureItemId[];

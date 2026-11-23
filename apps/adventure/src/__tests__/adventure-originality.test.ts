@@ -81,9 +81,9 @@ describe('adventure originality (docs/22 1장)', () => {
     expect(hits).toEqual([]);
   });
 
-  it('our own command words, not the famous four; the marker is a speech bubble, not a heart', () => {
+  it('our own four command words, not the famous four; the marker is a speech bubble, not a heart', () => {
     const labels = Object.values(S.cmd).map((c) => c.en);
-    expect(labels).toEqual(['POKE', 'TALK', 'SKILL', 'POUCH', 'FRIEND']);
+    expect(labels).toEqual(['POKE', 'TALK', 'POUCH', 'LET GO']);
     for (const l of ['FIGHT', 'ACT', 'ITEM', 'MERCY', 'SPARE']) expect(labels).not.toContain(l);
     const sprites = fs.readFileSync(path.join(ROOT, 'apps/adventure/src/art/sprites.ts'), 'utf8');
     expect(sprites).toMatch(/speech bubble/i);

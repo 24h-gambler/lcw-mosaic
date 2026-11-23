@@ -503,7 +503,7 @@ async function run(vp) {
           if (!(await exists('adv-talk-next'))) {
             await page.screenshot({ path: `${dir}/ch${ch}-talk-retry-${talks}.png` });
             fails.push(`${vp.name} ch${ch}: talk ${c.mode} "${c.target}" not passed`);
-            await press('adv-talk-skip');
+            // R2861: there is no skip. Stay in the panel and try the same English again (X is only Back to the menu).
           }
           continue;
         }

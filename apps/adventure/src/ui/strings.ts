@@ -32,16 +32,14 @@ export const S = {
   cmd: {
     poke: { en: 'POKE', ko: '콕 찌르기' },
     talk: { en: 'TALK', ko: '말하기' },
-    skill: { en: 'SKILL', ko: '기술' },
     pouch: { en: 'POUCH', ko: '주머니' },
-    friend: { en: 'FRIEND', ko: '친구 하기' }
+    friend: { en: 'LET GO', ko: '살려 보내기' }
   },
   cmdHint: {
-    poke: { en: 'Pokes end it fast, but nobody becomes a friend.', ko: '빨리 끝나지만 친구는 안 돼요.' },
+    poke: { en: 'Poking alone never ends a meeting: say English at least once.', ko: '콕 찌르기만으로는 끝나지 않아요. 영어를 한 번은 말해야 해요.' },
     talk: { en: 'Say something kind in English to calm them.', ko: '영어로 다정하게 말해서 마음을 풀어 줘요.' },
-    skill: { en: 'Say magic words you learned. Each one works once a meeting.', ko: '배운 마법의 말을 해요. 만날 때마다 하나씩 한 번 써요.' },
     pouch: { en: 'Eat a snack to get your voice back.', ko: '간식을 먹고 목소리 힘을 채워요.' },
-    friend: { en: 'When CALM is full, make friends!', ko: 'CALM 이 꽉 차면 친구가 돼요!' }
+    friend: { en: 'When CALM is full and you have talked, let them go as a friend.', ko: 'CALM 이 꽉 차고 말을 했으면 친구로 살려 보내요.' }
   },
   chooseTalk: { en: 'What will you say?', ko: '뭐라고 말할까요?' },
   pokeHint: { en: 'Press Z or tap when the ring meets the red circle!', ko: '고리가 빨간 원에 닿을 때 Z 를 누르거나 톡!' },
@@ -75,7 +73,7 @@ export const S = {
   downBody: { en: 'Everything goes quiet. Then a warm light calls you back.', ko: '모든 게 조용해져요. 그때 따뜻한 빛이 당신을 불러요.' },
   downWake: { en: 'Wake up at the lantern post', ko: '랜턴 기둥에서 일어나기' },
   downWakeStart: { en: 'Wake up on the beach', ko: '바닷가에서 일어나기' },
-  downTip: { en: 'Tip: buy snacks at the cart, and try SKILL. You will be a bit faster next time.', ko: '팁: 수레에서 간식을 사고 SKILL 을 써 봐요. 다음엔 탄이 조금 느려져요.' },
+  downTip: { en: 'Tip: buy snacks at the cart, and use TALK early. The guardian will not get easier.', ko: '팁: 수레에서 간식을 사고 TALK 를 일찍 써 봐요. 수호자는 쉬워지지 않아요.' },
   sailOn: { en: 'Sail on', ko: '다음 섬으로 출발' },
   storyNext: { en: 'Next', ko: '다음' },
   newTrip: { en: 'Start a new trip', ko: '처음부터 새 여행' },
@@ -92,7 +90,14 @@ export const S = {
   typeWord: { en: 'Type the word', ko: '낱말을 써요' },
   check: { en: 'Check', ko: '확인' },
   clear: { en: 'Clear', ko: '지우기' },
-  skip: { en: 'Not now', ko: '나중에 말하기' },
+  talkBackBtn: { en: 'Back', ko: '네 가지 선택으로' },
+  talkGate: { en: 'You must say it in English to go on. X goes back to the four choices.', ko: '계속하려면 영어로 말해야 해요. X 를 누르면 네 가지 선택으로 돌아가요.' },
+  gate: { en: 'Gate', ko: '관문' },
+  gateOpens: { en: 'The gate opens with a warm click!', ko: '관문이 따뜻한 소리와 함께 열려요!' },
+  gateWantsKey: (n: number) => ({ en: `This gate needs key ${n} from the chest and a calm gatekeeper.`, ko: `이 관문에는 상자 열쇠 ${n}와 차분해진 문지기가 필요해요.` }),
+  gateWantsTalk: { en: 'This gate listens for a kind word. Talk in English first!', ko: '이 관문은 다정한 말을 들어요. 먼저 영어로 말해 봐요!' },
+  gateLocked: (l: { en: string; ko: string }) => l,
+  chapterMissing: { en: 'Three gates, one English talk, and the guardian are still waiting.', ko: '세 관문, 진짜 영어 말하기, 수호자가 아직 기다려요.' },
   saySentence: { en: 'Say this sentence', ko: '이 문장을 말해요' },
   buildSentence: { en: 'Put the words in order', ko: '낱말을 순서대로 놓아요' },
   spellWord: { en: 'Spell the word you hear', ko: '들리는 낱말의 철자를 맞혀요' },
@@ -121,7 +126,7 @@ export const S = {
   },
   missedWords: { en: 'Listen for', ko: '이 낱말을 잘 들어 봐요' },
   befriendTitle: { en: 'Make friends', ko: '친구 하기' },
-  befriendSay: { en: 'Say it to make friends (you can also just press the button).', ko: '말하면서 친구가 돼요(그냥 단추만 눌러도 돼요).' },
+  befriendSay: { en: 'Say it to make friends. Your kind words have already calmed them.', ko: '말하면서 친구가 돼요. 다정한 말이 이미 마음을 풀어 주었어요.' },
   befriendBtn: { en: 'Make friends!', ko: '친구 하기!' },
   stoneSay: { en: 'Say the word or its sentence', ko: '낱말이나 문장을 말해 봐요' },
   stoneLit: { en: 'The stone glows! You said it.', ko: '돌이 빛나요! 잘 말했어요.' },
@@ -167,6 +172,7 @@ export const S = {
   narr: {
     pouchEmpty: { en: 'Your pouch is empty.', ko: '주머니가 비었어요.' },
     notReady: (en: string, ko: string) => ({ en: `${en} is not ready yet. Try TALK first!`, ko: `${ko}는 아직 준비가 안 됐어요. 먼저 TALK 로 말을 걸어 봐요!` }),
+    talkFirst: { en: 'It covers its ears. Say something in English first!', ko: '귀를 막고 있어요. 먼저 영어로 말해 봐요!' },
     ate: (en: string, ko: string, heal: number) => ({ en: `You ate a ${en}. Your voice feels stronger! (+${heal})`, ko: `${ko}을(를) 먹었어요. 목소리에 힘이 나요! (+${heal})` }),
     missed: { en: 'Missed!', ko: '빗나갔어요!' },
     voiceOut: { en: 'Your voice is all gone…', ko: '목소리 힘이 다 떨어졌어요…' },

@@ -234,8 +234,19 @@ const hushwind: Painter = (p, happy) => {
   p.outline('ink2');
 };
 
-export const CREATURE_PAINTERS: Readonly<Record<string, { size: number; paint: Painter }>> = {
-  rootle: { size: 22, paint: rootle },
+/** A locked gate across the path (R2861): three wooden bars, a brass band and a keyhole. */
+export function paintGate(): Px {
+  const p = new Px(48, 46);
+  p.rect(0, 0, 48, 6, 'breadD');
+  p.rect(0, 40, 48, 6, 'breadD');
+  for (const x of [4, 22, 40] as const) p.rect(x, 0, 5, 46, 'bread');
+  p.rect(0, 20, 48, 4, 'breadD');
+  p.circle(24, 23, 2, 'ink');
+  p.outline('ink2');
+  return p;
+}
+
+export const CREATURE_PAINTERS: Readonly<Record<string, { size: number; paint: Painter }>> = {  rootle: { size: 22, paint: rootle },
   conekin: { size: 22, paint: conekin },
   bramblebun: { size: 34, paint: bramblebun },
   bubblit: { size: 22, paint: bubblit },

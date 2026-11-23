@@ -19,8 +19,9 @@ import { S } from '../ui/strings.js';
  * its turns change (new patterns, faster, harder hits).
  */
 
-export type Command = 'poke' | 'talk' | 'skill' | 'pouch' | 'friend';
-export const MENU: readonly Command[] = ['poke', 'talk', 'skill', 'pouch', 'friend'];
+export type Command = 'poke' | 'talk' | 'pouch' | 'friend';
+/** R2861: exactly four choices — attack, talk, item, let them go. Magic words live inside TALK. */
+export const MENU: readonly Command[] = ['poke', 'talk', 'pouch', 'friend'];
 export type Phase = 'msg' | 'menu' | 'talkPick' | 'skillPick' | 'talk' | 'pouch' | 'poke' | 'befriend' | 'dodge' | 'end';
 export type ItemKey = AdventureItemId;
 export const ITEM_KEYS: readonly ItemKey[] = ['honeyDrop', 'berryBun', 'starTea'];
@@ -92,6 +93,8 @@ export class Battle {
   stage = 0;
   /** Skills said in this meeting (each once). */
   usedSkills = new Set<AdventureSkillId>();
+  /** SAID English lines passed in this meeting (voice or typed). A fight cannot end until at least one (R2861: English gates progress). */
+  talkPasses = 0;
   /** Next turn only: hits hurt less (Shield Song) / bullets slower (Slow Wind). */
   shield = false;
   windSlow = false;
@@ -123,6 +126,10 @@ export class Battle {
   get ready(): boolean {
     return this.calm >= this.enc.calmMax;
   }
+  /** CALM is full and the child has actually spoken English in this meeting: only then can it be let go. */
+  get spareReady(): boolean {
+    return this.ready && this.talkPasses > 0;
+  }
   get stageCount(): number {
     return this.enc.stages.length;
   }
@@ -150,19 +157,11 @@ export class Battle {
     if (this.phase !== 'menu') return;
     this.hooks.sfx?.('select');
     if (cmd === 'talk') {
-      this.choices = talkChoices(this.enc.talks, this.done, this.turn);
+      const base = talkChoices(this.enc.talks, this.done, this.turn);
+      // R2861: magic words are said as English inside TALK (the four-choice menu has no fifth SKILL button)
+      const magic = this.run.skills.filter((s) => !this.usedSkills.has(s)).map((s) => skillItem(s, this.opts.level, this.rng));
+      this.choices = [...base, ...magic].slice(0, 4);
       this.phase = 'talkPick';
-    } else if (cmd === 'skill') {
-      if (!this.run.skills.length) {
-        this.say([{ who: 'narrator', line: S.narr.noSkills }], 'menu');
-        return;
-      }
-      this.skillList = this.run.skills.filter((s) => !this.usedSkills.has(s));
-      if (!this.skillList.length) {
-        this.say([{ who: 'narrator', line: S.narr.skillsUsed }], 'menu');
-        return;
-      }
-      this.phase = 'skillPick';
     } else if (cmd === 'pouch') {
       if (ITEM_KEYS.every((k) => this.run.items[k] <= 0)) {
         this.say([{ who: 'narrator', line: S.narr.pouchEmpty }], 'menu');
@@ -173,14 +172,15 @@ export class Battle {
       this.ring = 1;
       this.phase = 'poke';
     } else if (cmd === 'friend') {
-      if (!this.ready) {
-        this.say([{ who: 'narrator', line: S.narr.notReady(this.enc.creature.nameEn, this.enc.creature.nameKo) }], 'menu');
+      if (!this.spareReady) {
+        this.say([{ who: 'narrator', line: this.ready ? S.narr.talkFirst : S.narr.notReady(this.enc.creature.nameEn, this.enc.creature.nameKo) }], 'menu');
         return;
       }
       this.phase = 'befriend';
     }
   }
 
+  /** X: back to the four choices. Leaving a TALK never takes the islander's turn and never moves the story (R2861). */
   back(): void {
     if (this.phase === 'talkPick' || this.phase === 'pouch' || this.phase === 'talk' || this.phase === 'skillPick') {
       this.phase = 'menu';
@@ -208,6 +208,9 @@ export class Battle {
     if (this.phase !== 'talk' || !this.current) return 'next';
     const t = this.current;
     if (!g.pass || g.stars === 0) return 'retry';
+    // R2861: only a SAID line (voice, or typed when the microphone is off) is English work that opens the story.
+    // Picking a reply, building a sentence or spelling still calms the islander but never counts as a pass.
+    if (t.mode === 'say' && !t.skill) this.talkPasses += 1;
     this.current = null;
     if (t.skill) {
       this.cast(t.skill);
@@ -220,9 +223,12 @@ export class Battle {
     if (g.stars >= 2) this.done.add(t.id);
     const react: Msg = { who: 'creature', line: this.enc.creature.react[g.stars as Stars] };
     const staged = this.checkStage();
-    if (this.ready) {
+    if (this.spareReady) {
       this.hooks.sfx?.('ready');
       this.say([react, ...staged, { who: 'narrator', line: this.enc.creature.ready }], 'menu');
+    } else if (this.ready) {
+      // calm is full but no English has been SAID yet (only picks / puzzles): it still covers its ears
+      this.say([react, ...staged, { who: 'narrator', line: S.narr.talkFirst }], 'menu');
     } else this.say([react, ...staged], 'turn');
     return 'next';
   }
@@ -259,13 +265,6 @@ export class Battle {
     this.say([{ who: 'keeper', line: { en: sk.nameEn + '!', ko: sk.nameKo + '!' } }, { who: 'narrator', line }, ...extra], 'turn');
   }
 
-  /** Gave up on this TALK (back to the menu, the islander takes its turn: nothing is lost). */
-  talkSkip(): void {
-    if (this.phase !== 'talk') return;
-    this.current = null;
-    this.say([{ who: 'creature', line: this.enc.creature.react[0] }], 'turn');
-  }
-
   useItem(k: ItemKey): void {
     if (this.phase !== 'pouch' || this.run.items[k] <= 0) return;
     this.run.items[k] -= 1;
@@ -294,8 +293,16 @@ export class Battle {
     this.grump = Math.max(0, this.grump - dmg);
     this.hooks.sfx?.('poke');
     this.shake = ADV.shakeMs / 1000;
-    if (this.grump <= 0) this.say([{ who: 'creature', line: c.poked }, { who: 'narrator', line: c.leaves }], 'endFought');
-    else this.say([{ who: 'creature', line: c.poked }, ...this.checkStage()], 'turn');
+    if (this.grump <= 0) {
+      // R2861: attack alone never ends a meeting. The islander covers its ears until the child has said English.
+      if (this.talkPasses === 0) {
+        this.grump = 1;
+        this.hooks.sfx?.('wrong');
+        this.say([{ who: 'narrator', line: S.narr.talkFirst }], 'turn');
+        return;
+      }
+      this.say([{ who: 'creature', line: c.poked }, { who: 'narrator', line: c.leaves }], 'endFought');
+    } else this.say([{ who: 'creature', line: c.poked }, ...this.checkStage()], 'turn');
   }
 
   /** FRIEND after calm is full. */

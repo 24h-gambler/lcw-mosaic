@@ -170,16 +170,16 @@ describe('adventure screens (A01–A06)', () => {
     noBanned(s);
   });
 
-  it('A03 meeting: five commands with FRIEND glowing when calm is full, SKILL, pouch, poke and the dodge turn', () => {
+  it('A03 meeting: four commands (attack, talk, item, let go) with LET GO glowing when it is ready, and the dodge turn', () => {
     const menu = html(<Panel engine={engine} snap={battle('menu', { ready: true })} />);
-    for (const c of ['poke', 'talk', 'skill', 'pouch', 'friend']) expect(menu).toContain(`data-testid="adv-cmd-${c}"`);
+    for (const c of ['poke', 'talk', 'pouch', 'friend']) expect(menu).toContain(`data-testid="adv-cmd-${c}"`);
+    // R2861: exactly four choices — no fifth SKILL button
+    expect(menu).not.toContain('adv-cmd-skill');
     expect(menu).toMatch(/class="btn[^"]*glow[^"]*"[^>]*data-testid="adv-cmd-friend"/);
     expect(menu).toContain('data-testid="adv-hud"');
     const pouch = html(<Panel engine={engine} snap={battle('pouch')} />);
     expect(pouch).toContain('data-item="honeyDrop"');
     expect(pouch).not.toContain('data-item="starTea"');
-    const skills = html(<Panel engine={engine} snap={battle('skillPick')} />);
-    expect(skills).toContain('data-skill="warmHeal"');
     expect(html(<Panel engine={engine} snap={battle('poke')} />)).toContain('data-testid="adv-poke"');
     const dodge = html(<Panel engine={engine} snap={battle('dodge', { stage: 1, stageCount: 3 })} />);
     expect(dodge).toContain('data-testid="adv-turn"');
@@ -189,7 +189,7 @@ describe('adventure screens (A01–A06)', () => {
     const fr = html(<Panel engine={engine} snap={battle('befriend')} />);
     expect(fr).toContain('data-testid="adv-befriend-go"');
     expect(fr).toContain(PLAN.chapter.befriend[1].en.replace(/'/g, '&#x27;'));
-    noBanned(menu + dodge + fr + skills + pouch);
+    noBanned(menu + dodge + fr + pouch);
   });
 
   it('A03 state: out of voice is a kind page that wakes the keeper at the last lantern post (no penalty words)', () => {
@@ -218,11 +218,15 @@ describe('adventure screens (A01–A06)', () => {
     expect(say).toContain('data-mode="say"');
     expect(say).toContain(by('say').target);
     expect(say).toContain('data-testid="adv-type"');
-    // R2861 (Dan 11-23 'English talk could be skipped'): Z/Enter must never skip the talk — with no microphone Z focuses
-    // the typing box (Speak.tsx), and Skip is a plain button that is never the primary
+    // R2861 (Dan 11-23 'English talk could be skipped'): no skip button at all; the only way on is a passing answer
     expect(say).not.toContain('data-testid="adv-mic"');
-    expect(say).toContain('data-testid="adv-talk-skip"');
-    expect(say).not.toMatch(/data-primary="true"[^>]*data-testid="adv-talk-skip"/);
+    expect(say).not.toContain('data-testid="adv-talk-skip"');
+    expect(say).toContain('data-testid="adv-talk-gate"');
+    expect(say).not.toMatch(/data-primary="true"[^>]*adv-talk-skip/);
+    // the touch-screen way back to the four choices: a plain ghost button, never the Z/Enter default, never a pass
+    expect(say).toContain('data-testid="adv-talk-back"');
+    expect(say).not.toMatch(/<button[^>]*data-primary[^>]*data-testid="adv-talk-back"/);
+    expect(say).toMatch(/<button[^>]*tabindex="-1"[^>]*data-testid="adv-talk-back"/i);
     const build = html(<TalkPanel engine={engine} snap={snap} item={by('build')} help />);
     expect((build.match(/data-testid="adv-tile"/g) ?? []).length).toBe(by('build').tiles!.length);
     const spell = by('spell');

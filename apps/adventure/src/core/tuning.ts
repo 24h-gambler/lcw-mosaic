@@ -12,25 +12,24 @@ export const ADV = {
   soul: { speed: 96, size: 8, hitRadius: 3, invulnMs: 1000 },
   hp: { max: 20 },
   /**
-   * Calm needed to befriend. R2734 (Dan 11-19: "the boss is too easy"): a guardian takes four perfect talks (three of
-   * its turns between them, each stage fiercer), the Hushwind six — a child who never dodges runs out of voice
-   * (adventure-difficulty.test.ts measures it).
+   * Calm needed to befriend. R2861 (Dan 11-23: much harder and longer): a gate mini boss needs three perfect talks (a kid four),
+   * a guardian five, the Hushwind six — and every fight needs at least one spoken English line before it can end.
    */
-  calmMax: { critter: 50, guardian: 240, final: 320 },
+  calmMax: { critter: 160, guardian: 300, final: 400 },
   /** Calm one TALK gives by stars (0 = not yet). */
   calmByStars: [5, 35, 45, 60] as const,
   /** ✅ pick replies cap at 2 stars (choosing is easier than saying). */
   pickStarCap: 2 as const,
-  grumpMax: { critter: 30, guardian: 80, final: 100 },
+  grumpMax: { critter: 60, guardian: 90, final: 110 },
+  /** Gate mini boss stages (R2861): from `at` of the way it fights faster and hits harder. */
+  miniBoss: { at: 0.45, speed: [1.05, 1.25] as const, damage: [4, 5] as const },
   /** POKE damage at a perfect hit; scaled by accuracy (min 30%). */
   pokeDamage: 22,
   pokeRingMs: 1400,
   /** Enemy turn length (seconds). */
-  turnSec: { critter: [5, 6] as const, guardian: [7, 9] as const, final: [8, 10] as const },
+  turnSec: { critter: [5, 6] as const, guardian: [8, 10] as const, final: [9, 11] as const },
   damage: { hurt: 3, wrongCatch: 2 },
   catchCalm: { letter: 4, word: 15, bubble: 10, cookie: 10 },
-  /** After the soul runs out of voice: same encounter again, bullets slower (docs/22 4장). */
-  retrySlow: 0.8,
   /** Score → stars (scoreUtterance score; pass is the level threshold). */
   stars: { three: 0.9, two: 0.75 },
   /** Chapter stars: spoken lines with 2+ stars needed for 3 stars. */
@@ -48,8 +47,6 @@ export const ADV = {
   gear: { coatBlock: 1, scarfHp: 6, lanternCalm: 1.25 },
   /** SKILL (R2734): magic words said or picked, once per meeting each. */
   skill: { heal: 12, sparkCalm: 0.3, shieldFactor: 0.5, slowFactor: 0.6 },
-  /** A guardian met again after running out of voice: bullets slower by `step` per try, never below `floor`. */
-  retry: { step: 0.1, floor: 0.7 },
   /** Neural line must arrive by then, else the device voice reads it. */
   voiceWaitMs: 1500,
   /** Text box typing speed (characters per second). */
@@ -68,8 +65,8 @@ export const ADV = {
   envelopeDays: { before: 10, after: 2 },
   /** What one play may hold (english-day contract v1 limits). */
   recordMax: { lines: 60, words: 60, text: 300, activities: 50 },
-  /** Solid boxes on the island (pixels): critters fill their three-tile gate, the guardian is big, the rest small. */
-  entityBox: { small: { w: 14, h: 12 }, critter: { w: 14, h: 44, below: 14 }, guardian: { w: 28, h: 40 } },
+  /** Solid boxes on the island (pixels): a gate mini boss fills its three-tile opening, the guardian is big, the rest small. */
+  entityBox: { small: { w: 14, h: 12 }, critter: { w: 48, h: 46, below: 14 }, guardian: { w: 28, h: 40 } },
   /** The server settings row's key limit (docs/19 3장). */
   settingsMaxKeys: 40,
   /**

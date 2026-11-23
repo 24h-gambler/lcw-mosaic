@@ -87,21 +87,25 @@ const EN: NpcCastPack = {
     // island 1 (forest)
     rootle: { engine: 'kokoro', speaker: 'am_puck' },
     conekin: { engine: 'kokoro', speaker: 'af_nova' },
+    fernip: { engine: 'kokoro', speaker: 'af_jessica' },
     bramblebun: { engine: 'kokoro', speaker: 'af_bella' },
     'Old Fern': { engine: 'kokoro', speaker: 'bf_isabella' },
     // island 2 (beach)
     bubblit: { engine: 'kokoro', speaker: 'af_sky' },
     shellbop: { engine: 'kokoro', speaker: 'am_echo' },
+    driftcap: { engine: 'kokoro', speaker: 'am_liam' },
     clatterclaw: { engine: 'kokoro', speaker: 'bm_george' },
     Dune: { engine: 'kokoro', speaker: 'am_fenrir' },
     // island 3 (bakery)
     doughdot: { engine: 'kokoro', speaker: 'af_alloy' },
     sugarfly: { engine: 'kokoro', speaker: 'bf_emma' },
+    crumbun: { engine: 'kokoro', speaker: 'bf_lily' },
     ovenna: { engine: 'kokoro', speaker: 'af_heart' },
     'Pip Toast': { engine: 'kokoro', speaker: 'af_nicole' },
     // island 4 (library tower)
     blotling: { engine: 'kokoro', speaker: 'am_michael' },
     paperkite: { engine: 'kokoro', speaker: 'af_kore' },
+    glimmerbat: { engine: 'kokoro', speaker: 'bm_daniel' },
     hushwind: { engine: 'kokoro', speaker: 'bm_fable' },
     'Nim the Lamplighter': { engine: 'kokoro', speaker: 'bm_lewis' }
   }

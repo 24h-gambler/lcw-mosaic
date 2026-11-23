@@ -6286,8 +6286,8 @@
         ]
       },
       "tests": [
-        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A03 meeting: five commands with FRIEND glowing when calm is full, SKILL, pouch, poke and the dodge turn",
-        "apps/adventure/src/__tests__/adventure-core.test.ts::TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 ends the meeting as \"down\"",
+        "apps/adventure/src/__tests__/adventure-screens.test.tsx::A03 meeting: four commands (attack, talk, item, let go) with LET GO glowing when it is ready, and the dodge turn",
+        "apps/adventure/src/__tests__/adventure-core.test.ts::TALK fills calm, LET GO ends spared; attack alone never ends; voice 0 ends as \"down\"",
         "apps/adventure/src/__tests__/adventure-core.test.ts::every pattern spawns inside its page and is deterministic for a seed",
         "apps/adventure/src/__tests__/adventure-core.test.ts::letter catch: catching the letters in order spells the word",
         "tools/adventure-play.mjs"
@@ -6297,11 +6297,11 @@
         "apps/adventure/src/core/battle.ts:94",
         "apps/adventure/src/core/bullets.ts:1"
       ],
-      "note": "POKE·TALK·POUCH·FRIEND, 공책 칸 안 말풍선 피하기, 낱말이 탄막 안에(글자 잡기·철자 방울·낱말 쿠키), 마음 막대가 차면 FRIEND"
+      "note": "POKE·TALK·POUCH·LET GO, 공책 칸 안 말풍선 피하기, 낱말이 탄막 안에(글자 잡기·철자 방울·낱말 쿠키), 마음 막대가 차고 영어를 한 번 이상 통과해야 LET GO"
     },
     "A03.state": {
       "kind": "state",
-      "title": "만남: 기운이 다 떨어지면 \"Out of voice…\" 쓰러짐 화면 → 마지막 랜턴 기둥에서 기운 가득 깨어남(가진 것 그대로, 수호자 재도전은 탄막이 느려짐)",
+      "title": "만남: 기운이 다 떨어지면 \"Out of voice…\" 쓰러짐 화면 → 마지막 랜턴 기둥에서 기운 가득 깨어남(가진 것 그대로, 수호자는 더 쉬워지지 않음)",
       "status": "done",
       "owner": "world",
       "route": "/adventure/",
@@ -6313,12 +6313,12 @@
       },
       "tests": [
         "apps/adventure/src/__tests__/adventure-screens.test.tsx::A03 state: out of voice is a kind page that wakes the keeper at the last lantern post (no penalty words)",
-        "apps/adventure/src/__tests__/adventure-core.test.ts::TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 ends the meeting as \"down\""
+        "apps/adventure/src/__tests__/adventure-core.test.ts::out of voice: wake at the last lantern post with full voice, keep everything; a guardian retry is never easier"
       ],
       "evidence": [
         "apps/adventure/src/core/battle.ts:213"
       ],
-      "note": "R2734 Dan 11-19 \"제대로 종료 및 사망 까지 부활까지\": 같은 만남을 바로 다시 하던 것을 쓰러짐 화면 → 마지막 랜턴 기둥에서 기운 가득 깨어남으로 바꿈(가진 것 그대로, 수호자에게 다시 가면 탄막 10% 느리게·최저 70%). 다시 하기는 랜턴 기둥에서 걸어가 다시 만나는 길로 그대로 있음",
+      "note": "R2734 Dan 11-19 \"제대로 종료 및 사망 까지 부활까지\": 같은 만남을 바로 다시 하던 것을 쓰러짐 화면 → 마지막 랜턴 기둥에서 기운 가득 깨어남으로 바꿈(가진 것 그대로). R2861: 보스 재도전 탄막 완화를 없앰 — 매번 같은 난이도",
       "decision": "R2734"
     },
     "A04": {

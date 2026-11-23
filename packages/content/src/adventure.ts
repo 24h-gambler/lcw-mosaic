@@ -87,7 +87,8 @@ export interface AdventureChapter {
   greet: Record<AdventureLevel, AdventureLine>;
   feel: Record<AdventureLevel, AdventureLine>;
   befriend: Record<AdventureLevel, AdventureLine>;
-  critters: [AdventureCreature, AdventureCreature];
+  /** Three gatekeepers on the path (R2861: every gate has a mini boss, not two optional ones). */
+  critters: [AdventureCreature, AdventureCreature, AdventureCreature];
   guardian: AdventureCreature;
   music: 'woods' | 'shore' | 'bakery' | 'tower';
 }
@@ -176,6 +177,24 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         leaves: L('Conekin rolls far away.', '콘킨이 멀리 굴러가 버렸어요.'),
         asks: L('How do you feel?', '기분이 어때?'),
         askKind: 'feel'
+      },
+      {
+        id: 'fernip',
+        nameEn: 'Fernip',
+        nameKo: '페르닙',
+        role: 'critter',
+        voice: 'errand_neighbor',
+        sprite: 'conekin',
+        patterns: ['letterCatch', 'leafRing'],
+        intro: L('Fernip peeks out from a fern. It holds the third gate key!', '페르닙이 고사리 사이로 얼굴을 내밀어요. 세 번째 관문 열쇠를 갖고 있어요!'),
+        turns: [L('Fernip throws letters!', '페르닙이 글자를 던져요!'), L('Fernip hides behind a leaf ring.', '페르닙이 잎 고리 뒤로 숨어요.')],
+        react: REACT_DEFAULT,
+        ready: L('Fernip puts down its leaf. It is calm.', '페르닙이 잎을 내려놓아요. 차분해요.'),
+        friend: L('Fernip gives you a tiny key. Friends!', '페르닙이 작은 열쇠를 줬어요. 친구가 됐어요!'),
+        poked: L('Fernip curls up tight.', '페르닙이 꼬르르 몸을 말아요.'),
+        leaves: L('Fernip hides deep in the ferns.', '페르닙이 고사리 깊숙이 숨어 버렸어요.'),
+        asks: L('Can you ask me nicely?', '나한테 예쁘게 물어볼래?'),
+        askKind: 'greet'
       }
     ],
     guardian: {
@@ -281,6 +300,24 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
           2: L("I'm a friend. I came here by boat.", '나는 친구야. 배를 타고 왔어.'),
           3: L("I'm a friend who sailed all the way here to say hello.", '나는 인사하려고 여기까지 배를 타고 온 친구야.')
         }
+      },
+      {
+        id: 'driftcap',
+        nameEn: 'Driftcap',
+        nameKo: '드리프트캡',
+        role: 'critter',
+        voice: 'shop_owner',
+        sprite: 'bubblit',
+        patterns: ['bubbleRise', 'wordCookies'],
+        intro: L('A Driftcap floats in on a wave. It guards the gate key!', '드리프트캡이 파도를 타고 와요. 관문 열쇠를 지키고 있어요!'),
+        turns: [L('Driftcap sends bubbles up high!', '드리프트캡이 거품을 높이 보내요!'), L('Word cookies bob on the water.', '낱말 쿠키가 물 위에 둥둥 떠요.')],
+        react: REACT_DEFAULT,
+        ready: L('Driftcap bobs gently. It is calm.', '드리프트캡이 살랑살랑 떠요. 차분해요.'),
+        friend: L('Driftcap gives you a wet little key. Friends!', '드리프트캡이 젖은 작은 열쇠를 줬어요. 친구가 됐어요!'),
+        poked: L('Driftcap spins away a little.', '드리프트캡이 빙글 돌아 조금 멀어져요.'),
+        leaves: L('Driftcap drifts far out to sea.', '드리프트캡이 먼 바다로 떠내려가 버렸어요.'),
+        asks: L('What do you want to trade?', '무엇을 바꾸고 싶어?'),
+        askKind: 'bank'
       }
     ],
     guardian: {
@@ -386,6 +423,24 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
           2: L("I'm a friend, and I love sweet snacks.", '나는 친구고, 달콤한 간식을 정말 좋아해.'),
           3: L("I'm a friend who came to Crumbtown because I love sweet snacks.", '나는 달콤한 간식을 좋아해서 부스러기 마을에 온 친구야.')
         }
+      },
+      {
+        id: 'crumbun',
+        nameEn: 'Crumbun',
+        nameKo: '크럼번',
+        role: 'critter',
+        voice: 'cafe_owner',
+        sprite: 'doughdot',
+        patterns: ['sprinkleRain', 'wordCookies'],
+        intro: L('Crumbun hops out of a bread basket. It has the gate key in its pocket!', '크럼번이 빵 바구니에서 폴짝 나와요. 주머니에 관문 열쇠가 있어요!'),
+        turns: [L('Crumbun throws warm crumbs!', '크럼번이 따뜻한 빵부스러기를 던져요!'), L('Cookie words roll across the floor.', '쿠키 낱말이 바닥을 데굴데굴 굴러요.')],
+        react: REACT_DEFAULT,
+        ready: L('Crumbun sits in the basket. It is calm.', '크럼번이 바구니에 앉아요. 차분해요.'),
+        friend: L('Crumbun gives you a bread key. Friends!', '크럼번이 빵 열쇠를 줬어요. 친구가 됐어요!'),
+        poked: L('Crumbun rolls into a ball.', '크럼번이 동글게 말아요.'),
+        leaves: L('Crumbun hops away down the street.', '크럼번이 길 아래로 폴짝폴짝 가 버렸어요.'),
+        asks: L('What is your favourite snack?', '가장 좋아하는 간식이 뭐야?'),
+        askKind: 'bank'
       }
     ],
     guardian: {
@@ -490,6 +545,24 @@ export const ADVENTURE_CHAPTERS: readonly AdventureChapter[] = [
         poked: L('Paperkite shakes a little.', '페이퍼카이트가 조금 구겨졌어요.'),
         leaves: L('Paperkite flies out of a window.', '페이퍼카이트가 창밖으로 날아가 버렸어요.'),
         asks: L('How do you feel?', '기분이 어때?'),
+        askKind: 'feel'
+      },
+      {
+        id: 'glimmerbat',
+        nameEn: 'Glimmerbat',
+        nameKo: '글리머뱃',
+        role: 'critter',
+        voice: 'guide',
+        sprite: 'paperkite',
+        patterns: ['kiteDive', 'inkRain'],
+        intro: L('Glimmerbat swoops down from the dark stairs. It holds the last gate key!', '글리머뱃이 어두운 계단에서 내려와요. 마지막 관문 열쇠를 갖고 있어요!'),
+        turns: [L('Glimmerbat dives with shiny wings!', '글리머뱃이 반짝이는 날개로 내려와요!'), L('Dark ink drops from the ceiling.', '천장에서 검은 잉크가 뚝뚝 떨어져요.')],
+        react: REACT_DEFAULT,
+        ready: L('Glimmerbat lands on the rail. It is calm.', '글리머뱃이 난간에 앉아요. 차분해요.'),
+        friend: L('Glimmerbat gives you a star key. Friends!', '글리머뱃이 별 열쇠를 줬어요. 친구가 됐어요!'),
+        poked: L('Glimmerbat flaps away a little.', '글리머뱃이 조금 퍼덕이며 멀어져요.'),
+        leaves: L('Glimmerbat flies out into the night.', '글리머뱃이 밤하늘로 날아가 버렸어요.'),
+        asks: L('Why did you climb so high?', '왜 이렇게 높이 올라왔어?'),
         askKind: 'feel'
       }
     ],

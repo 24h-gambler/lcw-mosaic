@@ -6,6 +6,7 @@ import type { Engine } from '../engine.js';
 import { Panel } from './Panel.js';
 import { ParentSummary } from './Parent.js';
 import { S } from './strings.js';
+import { pressZ } from './zkey.js';
 
 /** Layout (docs/22 4장): a 4:3 stage beside the panel on wide screens, above it on tall ones. */
 function layoutFor(w: number, h: number): { side: boolean; stageW: number; stageH: number } {
@@ -79,15 +80,8 @@ export function App({ engine }: { engine: Engine }) {
   useEffect(() => {
     const typing = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
     // R2734: Z never stalls — the engine acts, or the panel's own button for this step is pressed
-    const advance = () => {
-      if (engine.confirm()) return;
-      const focused = document.activeElement;
-      if (focused instanceof HTMLButtonElement && !focused.disabled && focused.closest('.adv-panel')) focused.click();
-      else {
-        const primary = [...document.querySelectorAll<HTMLButtonElement>('.adv-panel [data-primary]')].find((b) => !b.disabled);
-        primary?.click();
-      }
-    };
+    // R2861: never a skip; with no default button (a talk with the microphone off) Z puts the cursor in the answer box
+    const advance = () => void pressZ(engine, document);
     const down = (e: KeyboardEvent) => {
       if (typing(e.target)) {
         if (e.key === 'Escape') (e.target as HTMLElement).blur();
@@ -114,7 +108,7 @@ export function App({ engine }: { engine: Engine }) {
         advance();
       } else if (e.key === 'x' || e.key === 'X' || e.key === 'Escape' || e.key === 'Backspace') {
         engine.cancel();
-      } else if (/^[1-5]$/.test(e.key) && engine.getSnapshot().battle?.phase === 'menu') {
+      } else if (/^[1-4]$/.test(e.key) && engine.getSnapshot().battle?.phase === 'menu') {
         engine.command(MENU[Number(e.key) - 1]!);
       }
     };

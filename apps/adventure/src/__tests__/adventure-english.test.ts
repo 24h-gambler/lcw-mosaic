@@ -106,7 +106,7 @@ function allLines(): Found[] {
 
 /** The story's names (said with their capital), and the screen's command labels. */
 function names(): Set<string> {
-  const n: string[] = [ADVENTURE_FERRY.nameEn, ADVENTURE_MERCHANT.nameEn, 'Hushwind Isles', 'LCW', 'POKE', 'TALK', 'SKILL', 'POUCH', 'FRIEND', 'STAGE', 'VOICE', 'CALM', 'Z', 'X'];
+  const n: string[] = [ADVENTURE_FERRY.nameEn, ADVENTURE_MERCHANT.nameEn, 'Hushwind Isles', 'LCW', 'POKE', 'TALK', 'POUCH', 'LET GO', 'STAGE', 'VOICE', 'CALM', 'Z', 'X'];
   for (const c of ADVENTURE_CHAPTERS) {
     n.push(c.islandEn, c.villager.nameEn, c.guardian.nameEn, ...c.critters.map((x) => x.nameEn));
     n.push(ADVENTURE_STORY[c.id].villager.nameEn);

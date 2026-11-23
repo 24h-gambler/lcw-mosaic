@@ -9,7 +9,7 @@ import { addLine, betterPlay, buildEnvelope, datedPlays, envelopeDate, chapterSt
 import { dayFileUrls, parseEdLink, readEdLink, resultUrl, safeBack } from '../core/edlink.js';
 import { arenaRect, autopilotDir, cookiesReadable, startPattern, stepPattern } from '../core/bullets.js';
 import { spellTiles } from '../core/plan.js';
-import { Battle } from '../core/battle.js';
+import { Battle, MENU } from '../core/battle.js';
 import { blocks, buildIsland, findPath, moveFeet, reachable, tileAt } from '../core/map.js';
 import { ADV } from '../core/tuning.js';
 import { buy, canBuy, heal, hitCost, hurt, learn, maxHp, newRun, openChest, parseRun, restAt, retrySpeed, revive } from '../core/run.js';
@@ -69,7 +69,7 @@ describe('adventure plan', () => {
             }
           }
         }
-        const g = p.encounters[2];
+        const g = p.encounters.at(-1)!;
         expect(g.talks.find((t) => t.kind === 'bank')!.target.length).toBeGreaterThan(3);
         expect(g.calmMax).toBe(ch.id === 4 ? ADV.calmMax.final : ADV.calmMax.guardian);
         if (ch.id === 4) expect(g.talks.filter((t) => t.id.startsWith('g-review')).length).toBeGreaterThan(0);
@@ -79,7 +79,7 @@ describe('adventure plan', () => {
 
   it('three choices per turn always include one spoken sentence and rotate past finished ones', () => {
     const p = buildChapterPlan({ chapter: 3, level: 2 });
-    const talks = p.encounters[2].talks;
+    const talks = p.encounters.at(-1)!.talks;
     const done = new Set<string>();
     for (let turn = 0; turn < 12; turn++) {
       const c = talkChoices(talks, done, turn);
@@ -393,25 +393,34 @@ describe('adventure bullet patterns', () => {
 });
 
 describe('adventure encounter flow', () => {
-  it('TALK fills calm, FRIEND ends spared; POKE ends fought; voice 0 ends the meeting as "down"', () => {
+  it('TALK fills calm, LET GO ends spared; attack alone never ends; voice 0 ends as "down"', () => {
     const plan = buildChapterPlan({ chapter: 1, level: 1 });
-    const enc = plan.encounters[0];
+    const enc = plan.encounters[0]!;
     const b = new Battle(enc, createRng(1), newRun());
     expect(b.phase).toBe('msg');
-    b.advance();
+    while (ph(b) === 'msg') b.advance(); // intro + the mini boss's first stage line
     expect(b.phase).toBe('menu');
+    // R2861: the four choices are exactly attack, talk, item, let go
+    expect(MENU).toEqual(['poke', 'talk', 'pouch', 'friend']);
+    // no calm yet: letting go is refused (and it takes the islander's turn only after a real talk)
     b.choose('friend');
     expect(b.phase).toBe('msg');
     b.advance();
-    b.choose('talk');
-    expect(b.choices.length).toBe(3);
-    expect(b.choices.some((t) => t.mode === 'pick')).toBe(true);
-    b.pickTalk(b.choices[0]!.id);
-    expect(b.talkResult({ stars: 0, score: 0.1, pass: false, missed: [] })).toBe('retry');
-    expect(b.talkResult({ stars: 3, score: 1, pass: true, missed: [] })).toBe('next');
+    // three perfect talks fill a gate mini boss's calm
+    for (let k = 0; k < 6 && !b.ready; k++) {
+      b.choose('talk');
+      expect(b.choices.length).toBeLessThanOrEqual(4);
+      expect(b.choices.some((t) => t.mode === 'pick')).toBe(true);
+      // R2861: a SAID line is what counts as English (a pick would fill calm but never open the let-go)
+      b.pickTalk(b.choices.find((t) => t.mode === 'say' && !t.skill)!.id);
+      expect(b.talkResult({ stars: 0, score: 0.1, pass: false, missed: [] })).toBe('retry');
+      expect(b.talkResult({ stars: 3, score: 1, pass: true, missed: [] })).toBe('next');
+      while (ph(b) === 'msg') b.advance();
+      while (ph(b) === 'dodge') b.step(1 / 60, { x: 0, y: 0 }, true);
+      while (ph(b) === 'msg') b.advance();
+    }
     expect(b.calm).toBe(enc.calmMax);
-    while (ph(b) === 'msg') b.advance();
-    expect(b.phase).toBe('menu');
+    expect(b.spareReady).toBe(true);
     b.choose('friend');
     expect(b.phase).toBe('befriend');
     b.befriend();
@@ -419,9 +428,10 @@ describe('adventure encounter flow', () => {
     expect(b.phase).toBe('end');
     expect(b.outcome).toBe('spared');
 
+    // attack alone never ends a meeting: at 0 grump it covers its ears until one English talk passed
     const f = new Battle(enc, createRng(2), newRun());
-    f.advance();
-    for (let k = 0; k < 20 && ph(f) !== 'end'; k++) {
+    while (ph(f) === 'msg') f.advance();
+    for (let k = 0; k < 12 && ph(f) !== 'end'; k++) {
       if (ph(f) === 'menu') {
         f.choose('poke');
         f.ring = 0.25;
@@ -430,12 +440,36 @@ describe('adventure encounter flow', () => {
       while (ph(f) === 'msg') f.advance();
       while (ph(f) === 'dodge') f.step(1 / 60, { x: 0, y: 0 }, true);
     }
+    expect(f.outcome).toBeNull();
+    expect(f.grump).toBe(1);
+    // one passed talk unlocks the attack finish
+    while (ph(f) === 'dodge') f.step(1 / 60, { x: 0, y: 0 }, true);
+    while (ph(f) === 'msg') f.advance();
+    // a picked reply passes the panel but is not English said: the ears stay covered
+    f.choose('talk');
+    f.pickTalk(f.choices.find((t) => t.mode === 'pick' && !t.skill)!.id);
+    f.talkResult({ stars: 2, score: 1, pass: true, missed: [] });
+    expect(f.talkPasses, 'a pick is not a said line').toBe(0);
+    while (ph(f) === 'msg') f.advance();
+    while (ph(f) === 'dodge') f.step(1 / 60, { x: 0, y: 0 }, true);
+    while (ph(f) === 'msg') f.advance();
+    f.choose('talk');
+    f.pickTalk(f.choices.find((t) => t.mode === 'say' && !t.skill)!.id);
+    f.talkResult({ stars: 3, score: 1, pass: true, missed: [] });
+    expect(f.talkPasses, 'a said line is').toBe(1);
+    while (ph(f) === 'msg') f.advance();
+    while (ph(f) === 'dodge') f.step(1 / 60, { x: 0, y: 0 }, true);
+    while (ph(f) === 'msg') f.advance();
+    f.choose('poke');
+    f.ring = 0.25;
+    f.strike();
+    while (ph(f) === 'msg') f.advance();
     expect(f.outcome).toBe('fought');
 
     // the voice is the trip's: a hit in this meeting is still missing in the next one
     const run = newRun();
     run.hp = 1;
-    const d = new Battle(plan.encounters[2], createRng(3), run);
+    const d = new Battle(plan.encounters.at(-1)!, createRng(3), run);
     while (ph(d) === 'msg') d.advance();
     d.choose('poke');
     d.ring = 0;
@@ -462,7 +496,7 @@ describe('adventure encounter flow', () => {
       }
     }
     const plan = buildChapterPlan({ chapter: 1, level: 1 });
-    const g = plan.encounters[2];
+    const g = plan.encounters.at(-1)!;
     expect(g.stages.length).toBe(ADVENTURE_STORY[1].stages.length);
     const stages: number[] = [];
     const b = new Battle(g, createRng(4), newRun(), { stage: (s) => stages.push(s) });
@@ -488,25 +522,28 @@ describe('adventure encounter flow', () => {
     expect(learn(run, 'warmHeal')).toBe(true);
     learn(run, 'brightSpark');
     run.hp = 5;
-    const b = new Battle(plan.encounters[0], createRng(5), run);
+    const b = new Battle(plan.encounters[0]!, createRng(5), run);
     while (ph(b) === 'msg') b.advance();
-    b.choose('skill');
-    expect(b.phase).toBe('skillPick');
-    expect(b.skillList).toEqual(['warmHeal', 'brightSpark']);
-    b.pickSkill('warmHeal');
+    // R2861: magic words are offered inside TALK (no fifth SKILL command)
+    b.choose('talk');
+    const heal = b.choices.find((t) => t.skill === 'warmHeal')!;
+    expect(heal).toBeTruthy();
+    b.pickTalk(heal.id);
     expect(b.phase).toBe('talk');
     expect(b.current?.mode).toBe('pick');
     expect(b.current?.choices).toContain(b.current?.target);
     b.talkResult({ stars: 2, score: 1, pass: true, missed: [] });
     expect(run.hp).toBe(5 + ADV.skill.heal);
+    expect(b.usedSkills.has('warmHeal')).toBe(true);
     while (ph(b) === 'msg') b.advance();
     while (ph(b) === 'dodge') b.step(1 / 60, { x: 0, y: 0 }, true);
     while (ph(b) === 'msg') b.advance();
     if (ph(b) === 'menu') {
       const calm = b.calm;
-      b.choose('skill');
-      expect(b.skillList).toEqual(['brightSpark']);
-      b.pickSkill('brightSpark');
+      b.choose('talk');
+      const spark = b.choices.find((t) => t.skill === 'brightSpark')!;
+      expect(spark).toBeTruthy();
+      b.pickTalk(spark.id);
       b.talkResult({ stars: 2, score: 1, pass: true, missed: [] });
       expect(b.calm).toBeGreaterThan(calm);
     }
@@ -543,7 +580,7 @@ describe('adventure trip (voice, coins, pouch, gear, chests, lantern posts)', ()
     expect(canBuy(r, honey)).toBe('full');
   });
 
-  it('out of voice: wake at the last lantern post with full voice, keep everything; a guardian retry is slower', () => {
+  it('out of voice: wake at the last lantern post with full voice, keep everything; a guardian retry is never easier', () => {
     const r = newRun();
     r.coins = 30;
     restAt(r, { chapter: 2, id: 'post-1' });
@@ -554,10 +591,11 @@ describe('adventure trip (voice, coins, pouch, gear, chests, lantern posts)', ()
     expect(r.coins).toBe(30);
     expect(r.post).toEqual({ chapter: 2, id: 'post-1' });
     expect(r.bossTries[2]).toBe(1);
-    expect(retrySpeed(r, 2)).toBeLessThan(1);
+    // R2861: retrySpeed is always 1 — no "it gets slower after you lose" easing
+    expect(retrySpeed(r, 2)).toBe(1);
     expect(retrySpeed(r, 1)).toBe(1);
     for (let i = 0; i < 20; i++) revive(r, 2);
-    expect(retrySpeed(r, 2)).toBe(ADV.retry.floor);
+    expect(retrySpeed(r, 2)).toBe(1);
     expect(heal(r, 5)).toBe(0);
     // round trip, and junk falls back to a fresh trip
     expect(parseRun(JSON.stringify(r))).toEqual(r);
@@ -581,11 +619,13 @@ describe('adventure islands', () => {
         ].some(([dx, dy]) => r.has((e.ty + dy!) * m.w + e.tx + dx!));
         expect(near, `${ch} ${e.id}`).toBe(true);
       }
-      for (const k of ['villager', 'merchant', 'chest', 'post', 'stone', 'critter', 'guardian']) expect(m.entities.some((e) => e.kind === k), `${ch} ${k}`).toBe(true);
+      for (const k of ['villager', 'merchant', 'chest', 'post', 'stone', 'critter', 'guardian', 'gate']) expect(m.entities.some((e) => e.kind === k), `${ch} ${k}`).toBe(true);
       expect(m.entities.filter((e) => e.kind === 'chest').length).toBeGreaterThanOrEqual(1);
       expect(tileAt(m, m.start.tx, m.start.ty)).not.toBe('wall');
       const crit = m.entities.filter((e) => e.kind === 'critter');
-      expect(crit.length).toBe(2);
+      // R2861: three gate mini bosses, and a locked gate behind each
+      expect(crit.length).toBe(3);
+      expect(m.entities.filter((e) => e.kind === 'gate').length).toBe(3);
       // the gate column is wall everywhere except the path rows
       for (const c of crit) for (const y of [3, 4, 10]) expect(blocks(tileAt(m, c.tx, y))).toBe(true);
       const p = moveFeet(m, 40, 120, -100, 0);

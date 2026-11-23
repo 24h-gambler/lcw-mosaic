@@ -71,6 +71,9 @@ describe('adventure play-through with keys only (R2734 ①)', () => {
           e.menuMove(a.key === 'up' ? -1 : 1);
           frames(1);
         }
+      } else if ('say' in a) {
+        e.talkAttempt({ mode: 'typed', transcripts: [a.say] });
+        frames(1);
       } else if ('hold' in a) {
         e.keys.add(a.hold);
         frames(Math.max(1, Math.round(a.ms / FRAME)));
@@ -79,7 +82,7 @@ describe('adventure play-through with keys only (R2734 ①)', () => {
     }
     const st = e.debugState();
     const seen = ap.mem.seen;
-    console.log(JSON.stringify({ actions, zs, simSeconds: Math.round(simFrames / 60), stalls: stalls.length, downs: seen.downs, buys: seen.buys, skills: seen.skills, chests: seen.chests.length, replies: seen.replies.map((r) => `${r.chapter}:${r.who}:${r.reply}`), runSkills: st.run.skills, minHp: Math.min(...hpSeen), battles: seen.battles.length, stages: [...seen.stages], skipped: [...ap.mem.skipped], coins: st.run.coins, tracks: [...new Set(st.audio.tracks)] }));
+    console.log(JSON.stringify({ actions, zs, simSeconds: Math.round(simFrames / 60), stalls: stalls.length, downs: seen.downs, buys: seen.buys, skills: seen.skills, chests: seen.chests.length, replies: seen.replies.map((r) => `${r.chapter}:${r.who}:${r.reply}`), runSkills: st.run.skills, minHp: Math.min(...hpSeen), battles: seen.battles.length, stages: [...seen.stages], chapterSeconds: seen.chapterSeconds, bossTry: seen.bossTry, bossRun: seen.bossRun, skipped: [...ap.mem.skipped], coins: st.run.coins, tracks: [...new Set(st.audio.tracks)] }));
     // the ending was reached and the trip is back on the map
     expect(last && 'done' in last ? last.why ?? 'done' : 'ran out of actions').toBe('done');
     expect(ap.mem.endingSeen).toBe(true);
@@ -96,17 +99,25 @@ describe('adventure play-through with keys only (R2734 ①)', () => {
     expect(Math.min(...hpSeen)).toBe(0);
     expect(st.run.bossTries[1]).toBeGreaterThanOrEqual(1);
     expect(seen.battles.filter((b) => b.chapter === 1 && b.boss).length).toBeGreaterThanOrEqual(2);
-    // every island: a chest opened, a talk with choices, both critters and the guardian met
+    // every island: a chest opened, a talk with choices, three gate mini bosses and the guardian met
     for (const ch of [1, 2, 3, 4]) {
       expect(st.run.flags.some((f: string) => f.startsWith(`chest-${ch}-`)), `chest on island ${ch}`).toBe(true);
       expect(seen.replies.some((r) => r.chapter === ch), `a reply on island ${ch}`).toBe(true);
-      expect(seen.battles.filter((b) => b.chapter === ch).length, `meetings on island ${ch}`).toBeGreaterThanOrEqual(3);
+      expect(seen.battles.filter((b) => b.chapter === ch).length, `meetings on island ${ch}`).toBeGreaterThanOrEqual(4);
+      for (let i = 0; i < 3; i++) expect(st.run.flags, `mini ${i} on island ${ch}`).toContain(`mini-${ch}-${i}`);
       expect([...seen.stages].some((k) => k.startsWith(`${ch}:`)), `guardian stages on island ${ch}`).toBe(true);
     }
     // the cart sold something, a magic word was used, the quiz paid
     expect(seen.buys.length).toBeGreaterThanOrEqual(1);
     expect(seen.skills.length).toBeGreaterThanOrEqual(1);
     expect(st.run.flags).toContain('quiz-1');
+    // R2861 bot metrics: each island took real engine seconds, and the first guardian try was recorded per island
+    expect(seen.chapterSeconds.length, 'chapter seconds measured').toBe(4);
+    for (const c of seen.chapterSeconds) expect(c.seconds, `island ${c.chapter} seconds`).toBeGreaterThan(0);
+    const firstTries = seen.bossRun.filter((r) => r.attempt === 1);
+    expect(firstTries.length, 'four first guardian tries').toBe(4);
+    // the bot deliberately loses island 1's first try (failBoss), then wins; the other three are first-try clears
+    expect(firstTries.filter((r) => r.outcome !== 'down').length).toBeGreaterThanOrEqual(3);
     // music: each island, each guardian, the cart, the post, the down page, the boat and the ending all reached the player
     const tracks = new Set(st.audio.tracks);
     for (const t of ['story', 'shop', 'post', 'down', 'sail', 'ending', 'battle', 'friend']) expect(tracks.has(t as never), `track ${t}`).toBe(true);

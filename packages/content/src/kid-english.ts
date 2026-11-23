@@ -20,6 +20,8 @@ export const KID_MAX_WORDS = 14;
 const KID_STORY_WORDS = `
 acorn ago air anymore anyway arrow bakery become below berry bit blew blow boot bottom bouncy box bright bump bun bush
 button buzz cannot captain careful cart ceiling chest circle claw clear code coin compass course crack crash crumb dark
+basket bob bobs choices click covers curls drifts favourite flaps gate gatekeeper gates guardian guards lands least let
+pocket rail swoops third wings
 dive dodge done drag drip drop early earth empty end energy enter ever everywhere exercise explore fair fern fill fire
 flat float fold forth forward friendship gently glass glow grab ground grow grumpy heal hear heard helmet hill himself
 hum hurt ink inky iron job join lantern large late laugh less letter light live lot luck mean microphone mint minute

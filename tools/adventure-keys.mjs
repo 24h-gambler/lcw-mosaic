@@ -117,6 +117,13 @@ for (const vp of VIEWPORTS) {
         await page.keyboard.press(KEY[a.key]);
         await page.waitForTimeout(20);
       }
+    } else if ('say' in a) {
+      // R2861: a said line is typed into the answer box (the microphone is off in this run) and sent with Enter
+      const box = page.locator('.adv-panel input:not([data-testid="adv-join-code"])').first();
+      if (!(await box.count())) await page.locator('[data-testid="adv-type-open"]').first().click().catch(() => {});
+      await box.fill(a.say);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(40);
     } else if ('hold' in a) {
       await page.keyboard.down(KEY[a.hold]);
       await page.waitForTimeout(Math.max(17, a.ms));

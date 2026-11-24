@@ -10,12 +10,15 @@ export const ADV = {
   maxFrameMs: 100,
   player: { speed: 72, hitW: 10, hitH: 8 },
   soul: { speed: 96, size: 8, hitRadius: 3, invulnMs: 1000 },
-  hp: { max: 20 },
+  hp: { max: 22 },
   /**
    * Calm needed to befriend. R2861 (Dan 11-23: much harder and longer): a gate mini boss needs three perfect talks (a kid four),
    * a guardian five, the Hushwind six — and every fight needs at least one spoken English line before it can end.
+   * R2861 tuning (first live try: the bot kid cleared a guardian first try 25/0/8/0 % — a wall for a 12-year-old): the Hushwind
+   * is 320 (six perfect talks, as written above; 400 needed seven) and the trip's health bar holds 22 (hp.max). Measured
+   * over 48 seeds each by adventure-kid-difficulty.test.ts: kid 40/15/15/17 %, the good dodger 100/100/100/85 %.
    */
-  calmMax: { critter: 160, guardian: 300, final: 400 },
+  calmMax: { critter: 160, guardian: 300, final: 320 },
   /** Calm one TALK gives by stars (0 = not yet). */
   calmByStars: [5, 35, 45, 60] as const,
   /** ✅ pick replies cap at 2 stars (choosing is easier than saying). */

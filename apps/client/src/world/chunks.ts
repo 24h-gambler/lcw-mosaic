@@ -6,7 +6,7 @@
  * View distance follows the device tier (docs/08 6.6: horizontal 4 / 6 / 8 chunks).
  */
 import * as THREE from 'three';
-import { CHUNK_SIZE, VoxelWorld } from '@lcw/sim-core';
+import { CHUNK_SIZE, CubicChunk, VoxelWorld, fillNaturalChunk, naturalSurfaceChunkRange } from '@lcw/sim-core';
 import { PAD, meshChunk, type ChunkMesh, type GeoBuffers } from './mesher.js';
 
 interface ChunkEntry {
@@ -39,6 +39,36 @@ interface Region {
   chunks: Set<ChunkEntry>;
 }
 
+/**
+ * R2861① the open land: a chunk the world never made is the natural ground (sim-core natural.ts). The mesher reads it
+ * from a filled stand-in kept in a small cache (neighbours are shared by up to 26 meshes), so untouched land costs the
+ * world no chunk and the renderer no repeated fill.
+ */
+const NATURAL_CACHE_MAX = 256;
+const naturalCache = new WeakMap<VoxelWorld, Map<string, CubicChunk>>();
+
+export function chunkOrNatural(world: VoxelWorld, cx: number, cy: number, cz: number): CubicChunk | undefined {
+  const key = `${cx},${cy},${cz}`;
+  const real = world.chunks.get(key);
+  if (real || !world.natural) return real;
+  let m = naturalCache.get(world);
+  if (!m) {
+    m = new Map();
+    naturalCache.set(world, m);
+  }
+  let n = m.get(key);
+  if (n) {
+    m.delete(key);
+    m.set(key, n);
+    return n;
+  }
+  n = new CubicChunk(cx, cy, cz);
+  fillNaturalChunk(n);
+  m.set(key, n);
+  if (m.size > NATURAL_CACHE_MAX) m.delete(m.keys().next().value as string);
+  return n;
+}
+
 export function extractPadded(world: VoxelWorld, cx: number, cy: number, cz: number): Uint16Array {
   const out = new Uint16Array(PAD * PAD * PAD);
   const S = CHUNK_SIZE;
@@ -48,7 +78,7 @@ export function extractPadded(world: VoxelWorld, cx: number, cy: number, cz: num
   const src: Src[] = new Array<Src>(27);
   for (let dy = 0; dy < 3; dy++) {
     for (let dz = 0; dz < 3; dz++) {
-      for (let dx = 0; dx < 3; dx++) src[dy * 9 + dz * 3 + dx] = world.chunks.get(`${cx + dx - 1},${cy + dy - 1},${cz + dz - 1}`);
+      for (let dx = 0; dx < 3; dx++) src[dy * 9 + dz * 3 + dx] = chunkOrNatural(world, cx + dx - 1, cy + dy - 1, cz + dz - 1);
     }
   }
   // padded index p (0..PAD-1) maps to local coordinate p - 1 in this chunk: slot 0 for p = 0, slot 2 for p = S + 1
@@ -201,7 +231,8 @@ export class ChunkRenderer {
           if (dy === 1 && ly !== S - 1) continue;
           if (dz === -1 && lz !== 0) continue;
           if (dz === 1 && lz !== S - 1) continue;
-          if (this.world.chunks.has(`${cx + dx},${cy + dy},${cz + dz}`)) touch(cx + dx, cy + dy, cz + dz);
+          // the natural ground is there even where no chunk was made (a hole dug at a border shows the next chunk's side)
+          if (this.world.natural || this.world.chunks.has(`${cx + dx},${cy + dy},${cz + dz}`)) touch(cx + dx, cy + dy, cz + dz);
         }
       }
     }
@@ -277,6 +308,7 @@ export class ChunkRenderer {
   update(px: number, pz: number, radius: number, budget = 4): void {
     const pcx = Math.floor(px / CHUNK_SIZE);
     const pcz = Math.floor(pz / CHUNK_SIZE);
+    this.streamNatural(pcx, pcz, radius);
     const want: Array<{ e: ChunkEntry; d: number }> = [];
     for (const e of this.entries.values()) {
       const d = Math.max(Math.abs(e.cx - pcx), Math.abs(e.cz - pcz));
@@ -322,6 +354,82 @@ export class ChunkRenderer {
     this.triangles = tris;
   }
 
+  /** Chunk columns whose natural surface chunks are tracked (R2861① the open land, `streamNatural`). */
+  private naturalCols = new Set<string>();
+  private streamAt = '';
+  /** the widest range asked for: a short ring (FIRST_RING at a teleport) never gives back the view's meshes */
+  private keepRadius = 0;
+  /** natural columns tracked (stats/tests) */
+  get naturalColumns(): number {
+    return this.naturalCols.size;
+  }
+
+  /**
+   * R2861① the open land streams in around the player: every chunk column in range gets the chunks its natural
+   * surface (ground faces and trees) lies in, nearest first; the deep needs none (all stone shows no face until dug,
+   * and a dig tracks its chunk by markDirtyAt). Regions left far behind give their meshes back; a natural chunk is
+   * dropped (it is the ground again when it comes back in range), a written one is kept to be meshed again.
+   */
+  private streamNatural(pcx: number, pcz: number, radius: number): void {
+    if (!this.world.natural) return;
+    this.keepRadius = Math.max(this.keepRadius, radius);
+    const at = `${pcx},${pcz},${radius}`;
+    if (at === this.streamAt) return;
+    let added = 0;
+    let done = true;
+    for (let d = 0; d <= radius && done; d++) {
+      for (let dz = -d; dz <= d; dz++) {
+        for (let dx = -d; dx <= d; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue;
+          const cx = pcx + dx;
+          const cz = pcz + dz;
+          const col = `${cx},${cz}`;
+          if (this.naturalCols.has(col)) continue;
+          if (added >= 24) {
+            done = false;
+            continue;
+          }
+          const [lo, hi] = naturalSurfaceChunkRange(cx, cz);
+          for (let cy = lo; cy <= hi; cy++) this.track(cx, cy, cz);
+          this.naturalCols.add(col);
+          added++;
+        }
+      }
+    }
+    if (!done) return;
+    this.streamAt = at;
+    this.evictFar(pcx, pcz, this.keepRadius + 2);
+  }
+
+  private evictFar(pcx: number, pcz: number, keep: number): void {
+    for (const r of [...this.regions.values()]) {
+      if (this.regionDist(r, pcx, pcz) <= keep) continue;
+      let busy = false;
+      for (const e of r.chunks) if (e.inFlight) busy = true;
+      if (busy) continue;
+      for (const m of [r.opaque, r.translucent]) {
+        if (m) {
+          this.group.remove(m);
+          m.geometry.dispose();
+        }
+      }
+      r.opaque = null;
+      r.translucent = null;
+      r.dirty = false;
+      for (const e of [...r.chunks]) {
+        if (this.world.chunks.has(e.key)) {
+          e.mesh = null;
+          e.meshedVersion = 0;
+          continue;
+        }
+        r.chunks.delete(e);
+        this.entries.delete(e.key);
+        this.naturalCols.delete(`${e.cx},${e.cz}`);
+      }
+      if (r.chunks.size === 0) this.regions.delete(r.key);
+    }
+  }
+
   /** Chebyshev distance in chunks from the player chunk to the nearest chunk column of the region. */
   private regionDist(r: Region, pcx: number, pcz: number): number {
     const x0 = r.rx * REGION;
@@ -358,6 +466,12 @@ export class ChunkRenderer {
       if (d <= radius && e.meshedVersion < e.version) n++;
     }
     for (const r of this.regions.values()) if (r.dirty && this.regionDist(r, pcx, pcz) <= radius) n++;
+    // natural columns in range not streamed in yet (R2861①): the ground there is not even scheduled
+    if (this.world.natural) {
+      for (let cz = pcz - radius; cz <= pcz + radius; cz++) {
+        for (let cx = pcx - radius; cx <= pcx + radius; cx++) if (!this.naturalCols.has(`${cx},${cz}`)) n++;
+      }
+    }
     return n;
   }
 

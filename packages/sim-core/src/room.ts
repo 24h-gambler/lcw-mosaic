@@ -292,7 +292,8 @@ export class RoomCore {
     if (msg.t === 'h') {
       const to = typeof (msg as { to?: unknown }).to === 'string' ? this.members.get((msg as { to: string }).to) : undefined;
       if (!to || to.id === id) return this.bad(m);
-      if (!this.pvp || m.role === 'bot' || to.role === 'bot' || to.role === 'teacher' || m.role === 'teacher') return { kind: 'none' };
+      // R2861①: the teacher plays too (teacher <-> student hits land); only bots stay out
+      if (!this.pvp || m.role === 'bot' || to.role === 'bot') return { kind: 'none' };
       if (m.hitAt !== undefined && now - m.hitAt < this.t.hitCooldownMs) return { kind: 'none' };
       const dx = to.pose[0] - m.pose[0];
       const dz = to.pose[2] - m.pose[2];

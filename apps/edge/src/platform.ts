@@ -1070,6 +1070,24 @@ export function buildGatedApp(inner: Hono, env: LcwEnv, platform: PlatformDO): H
     if (!body) return c.json({ error: 'invalid_plot_ops' }, 400);
     return forwardSolo(c.req.url, s, { ops: body.ops, batch: body.batch }, (p) => ({ player_id: p.player_id, world_id: p.world_id, plot_only: !s.device }));
   });
+  // R2861① (Dan "마을도 부술 수 있게"): put the town back from the server's record. The child on their own device puts
+  // their home world's town back (a lesson token may not: the class's town is the lesson's); the teacher (operator)
+  // names the child (`player_id`) and the home world is found here. Optional x/z/r keep it to a circle.
+  app.post('/v1/plot/restore', async (c, next) => {
+    const body = await readBody(c);
+    const area = { x: body?.x, z: body?.z, r: body?.r };
+    if (isOperator(c.req.raw, env.LCW_OPERATOR_TOKEN)) {
+      const pid = typeof body?.player_id === 'string' ? body.player_id : '';
+      if (!pid || !platform.sql.get('select 1 as x from players where id = ?', [pid])) return c.json({ error: 'player_not_found' }, 404);
+      return forwardSolo(c.req.url, { player_id: pid, session_id: 'teacher' }, area, (p) => ({ player_id: p.player_id, world_id: p.world_id, actor: 'teacher' }));
+    }
+    const s = await soloPlayer(c.req.raw);
+    if (!s) return next();
+    if (!s.device) return c.json({ error: 'lesson_town_shared' }, 403);
+    const blocked = seatBlocked(s);
+    if (blocked) return blocked;
+    return forwardSolo(c.req.url, s, area, (p) => ({ player_id: p.player_id, world_id: p.world_id, actor: p.player_id }));
+  });
   app.use('/v1/*', async (c, next) => {
     if (isPublicRoute(c.req.method, c.req.path)) return next();
     if (!env.LCW_OPERATOR_TOKEN) return c.json({ error: 'operator_token_not_configured' }, 503);

@@ -181,6 +181,8 @@ export interface BuildHudHandlers {
   onShowroom(title: string): Promise<ShowroomResult>;
   /** R326: switch the hotbar between the carried blocks and the bag */
   onBar?(): void;
+  /** R2861①: put the town back around the player from the server's record (a second tap within 4 s confirms) */
+  onRestoreTown?(): void;
 }
 
 export class BuildHud {
@@ -196,6 +198,7 @@ export class BuildHud {
   private help: HTMLDivElement;
   private helpTimer = 0;
   private chest: HTMLDivElement;
+  private restoreBtn!: HTMLButtonElement;
   private grid: HTMLDivElement;
   private hand: HTMLDivElement;
   private room: HTMLDivElement;
@@ -260,6 +263,22 @@ export class BuildHud {
     el('div', '', panel).textContent = W.chestHand;
     this.hand = el('div', 'lb-hand', panel);
     this.grid = el('div', 'lb-grid', panel);
+    // R2861①: the town breaks, and comes back from the server's record (two taps: it cannot be undone itself)
+    let restoreArmed = 0;
+    this.restoreBtn = this.button(panel, 'lb-btn lb-restore', W.restoreTown, () => {
+      const now = performance.now();
+      if (now - restoreArmed > 4000) {
+        restoreArmed = now;
+        this.restoreBtn.textContent = W.restoreTownSure;
+        return;
+      }
+      restoreArmed = 0;
+      this.restoreBtn.textContent = W.restoreTown;
+      h.onRestoreTown?.();
+    });
+    this.restoreBtn.style.position = 'static';
+    this.restoreBtn.dataset.restoreTown = '1';
+    if (!h.onRestoreTown) this.restoreBtn.style.display = 'none';
     const close = this.button(panel, 'lb-btn lb-close', W.close, () => h.onCloseChest());
     close.style.position = 'static';
 
@@ -434,6 +453,12 @@ export class BuildHud {
     this.chestOpen = true;
     this.chest.classList.add('on');
     this.renderChest(inv, selected);
+  }
+
+  /** Show the town restore only where it is saved on the server (a linked child's own world, not a lesson or a pass). */
+  setRestoreVisible(on: boolean): void {
+    this.restoreBtn.style.display = on ? '' : 'none';
+    this.restoreBtn.textContent = W.restoreTown;
   }
 
   closeChest(): void {

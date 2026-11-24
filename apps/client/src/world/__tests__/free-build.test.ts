@@ -63,7 +63,7 @@ describe('the town keeps the places NPCs and lessons use (R326)', () => {
 });
 
 describe('PlotBuilder in the open world (R326)', () => {
-  it('builds and digs on the meadow, shows the controls there, refuses the plaza with its own reason', () => {
+  it('builds and digs on the meadow, shows the controls there, and in the town too (R2861①)', () => {
     const { b } = builder();
     expect(b.scope).toBe('world');
     expect(b.canBuildNear(MX, MZ)).toBe(true);
@@ -75,8 +75,8 @@ describe('PlotBuilder in the open world (R326)', () => {
     expect(b.breakAt({ x: MX + 1, y: H, z: MZ }, 1000).ok).toBe(true);
     expect(b.delta.used).toBe(2);
     const plaza = b.aim({ x: 140, y: 0, z: 140, nx: 0, ny: 1, nz: 0 }, { x: 140, y: 1, z: 137 }, 0);
-    expect(plaza.placeReason).toBe('protected');
-    expect(plaza.breakReason).toBe('protected');
+    expect(plaza.placeReason).toBeNull();
+    expect(plaza.breakReason).toBeNull();
     expect(BUILD_REASONS_KO.protected).toBeTruthy();
     expect(BUILD_REASONS_KO.too_many).toBeTruthy();
     expect(BUILD_REASONS_KO.edge).toBeTruthy();
@@ -94,9 +94,9 @@ describe('PlotBuilder in the open world (R326)', () => {
     expect(b.canBuildNear(126, 170)).toBe(true);
   });
 
-  it('standing in the plaza the controls show where free ground is within reach, not in the middle of it', () => {
+  it('standing in the plaza the controls show (R2861①: the town is free ground too), and at the plaza edge', () => {
     const { b } = builder();
-    expect(b.canBuildNear(144, 144)).toBe(false);
+    expect(b.canBuildNear(144, 144)).toBe(true);
     expect(b.canBuildNear(162, 150)).toBe(true); // the plaza's east edge: the meadow is a step away
   });
 
@@ -128,13 +128,13 @@ describe('PlotBuilder in the open world (R326)', () => {
     expect(b.world.getBlock(MX + 1, H, MZ)).toBe(0);
     expect(b.world.getBlock(MX + 5, H + 1, MZ)).toBe(BK.brick);
     expect(b.world.getBlock(126, 1, 170)).toBe(BK.glass);
-    // the plaza cell is refused by the town rules on this side too
-    expect(b.world.getBlock(140, 1, 140)).not.toBe(BK.brick);
-    expect(fixed.map((c) => c.join(','))).toEqual([`${MX},${H + 1},${MZ},0`, `${MX + 5},${H + 1},${MZ},${BK.brick}`, `126,1,170,${BK.glass}`]);
+    // R2861① the plaza cell is laid on too (the town is free ground; the server holds it the same)
+    expect(b.world.getBlock(140, 1, 140)).toBe(BK.brick);
+    expect(fixed.map((c) => c.join(','))).toEqual([`${MX},${H + 1},${MZ},0`, `${MX + 5},${H + 1},${MZ},${BK.brick}`, `140,1,140,${BK.brick}`, `126,1,170,${BK.glass}`]);
     expect(b.worldTag).toBe('wtag1');
-    expect(b.delta.used).toBe(2);
+    expect(b.delta.used).toBe(3);
     // the same snapshot again changes nothing
-    expect(b.applySnapshot({ cells: [[MX + 1, H, MZ, 0], [MX + 5, H + 1, MZ, BK.brick], [126, 1, 170, BK.glass]], furniture: [], inv: null, rev: 3 })).toEqual([]);
+    expect(b.applySnapshot({ cells: [[MX + 1, H, MZ, 0], [MX + 5, H + 1, MZ, BK.brick], [140, 1, 140, BK.brick], [126, 1, 170, BK.glass]], furniture: [], inv: null, rev: 3 })).toEqual([]);
     // a lesson snapshot says the plot only, and a home-world cell outside the plot stays off the class town
     b.applySnapshot({ cells: [[MX + 5, H + 1, MZ, BK.brick], [126, 1, 170, BK.glass]], furniture: [], inv: null, rev: 4, scope: 'plot' });
     expect(b.scope).toBe('plot');
@@ -176,15 +176,15 @@ describe('PlotBuilder in the open world (R326)', () => {
     expect(aim?.placeReason).toBe('no_support');
   });
 
-  it('draws a relay for the world it has open, ignores another world, a protected cell and an unknown block', () => {
+  it('draws a relay for the world it has open (the town cells too, R2861①), ignores another world and an unknown block', () => {
     const { b } = builder();
     expect(b.applyRemote('wtag1', [[MX, H + 1, MZ, BK.brick]])).toBe(0); // no snapshot yet: no world named
     b.applySnapshot({ cells: [], furniture: [], inv: null, rev: 1, world_tag: 'wtag1' });
     expect(b.applyRemote('wsibling', [[MX, H + 1, MZ, BK.brick]])).toBe(0);
-    expect(b.applyRemote('wtag1', [[MX, H + 1, MZ, BK.brick], [140, 1, 140, BK.brick], [MX, H + 2, MZ, 250]])).toBe(1);
+    expect(b.applyRemote('wtag1', [[MX, H + 1, MZ, BK.brick], [140, 1, 140, BK.brick], [MX, H + 2, MZ, 250]])).toBe(2);
     expect(b.world.getBlock(MX, H + 1, MZ)).toBe(BK.brick);
-    expect(b.world.getBlock(140, 1, 140)).not.toBe(BK.brick);
-    expect(b.delta.used).toBe(1);
+    expect(b.world.getBlock(140, 1, 140)).toBe(BK.brick);
+    expect(b.delta.used).toBe(2);
     // furniture relayed into the plot, then taken away
     b.applyRemote('wtag1', [], [[126, 1, 170, 'furn_chair_wood', 1]]);
     expect(b.state.furniture.get(cellKey(126, 1, 170))).toEqual({ key: 'furn_chair_wood', rot: 1 });

@@ -7,6 +7,7 @@ import {
   FREE_MIN_Y,
   OverlayWorld,
   RoomCore,
+  TUNING,
   VoxelWorld,
   applyPlotOp,
   blockRef,
@@ -21,6 +22,7 @@ import {
   terrainHeight,
   townGuardAt,
   townProtected,
+  naturalHeight,
   type PlotState
 } from '../index.js';
 
@@ -78,16 +80,25 @@ describe('town guard: the town keeps its places (R326)', () => {
     expect(townProtected(-1, 10)).toBe(true);
   });
 
-  it('judges a cell: meadow free, town protected, plot by the plot rules, edge, depth and height, lesson scope', () => {
+  it('judges a cell (R2861① endless): meadow, town, under it and past it free; plot by the plot rules; the far end, the bedrock floor and the sky top; lesson scope', () => {
     const w = theTown();
     const h = terrainHeight(MX, MZ);
     expect(buildCellRule(w, MX, h + 1, MZ, 'world')).toBeNull();
     expect(buildCellRule(w, MX, h, MZ, 'world')).toBeNull();
-    expect(buildCellRule(w, 140, 1, 140, 'world')).toBe('protected');
-    expect(buildCellRule(w, 170, 20, 134, 'world')).toBe('protected'); // over the cafe roof too
+    // the town breaks too (Dan R2861 "마을도 부술 수 있게"): the plaza, over the cafe roof, the road
+    expect(buildCellRule(w, 140, 1, 140, 'world')).toBeNull();
+    expect(buildCellRule(w, 170, 20, 134, 'world')).toBeNull();
+    expect(buildCellRule(w, 144, 0, 143, 'world')).toBeNull();
+    // past the old meadow box and deep under it
+    expect(buildCellRule(w, FREE_BUILD_AREA.x1 + 500, 3, MZ, 'world')).toBeNull();
+    expect(buildCellRule(w, -4000, -900, 7000, 'world')).toBeNull();
+    expect(buildCellRule(w, MX, -401, MZ, 'world')).toBeNull();
     expect(buildCellRule(w, 126, 1, 170, 'world')).toBeNull(); // inside the plot
+    expect(buildCellRule(w, 126, -300, 170, 'world')).toBeNull(); // and down under it
     expect(buildCellRule(w, 100, 1, 170, 'world')).toBe('fence');
-    expect(buildCellRule(w, FREE_BUILD_AREA.x1, 1, MZ, 'world')).toBe('edge');
+    expect(buildCellRule(w, TUNING.world.openMax, 1, MZ, 'world')).toBe('edge');
+    expect(buildCellRule(w, MX, 1, TUNING.world.openMin - 1, 'world')).toBe('edge');
+    expect(FREE_MIN_Y).toBe(TUNING.world.yMin + 1);
     expect(buildCellRule(w, MX, FREE_MIN_Y - 1, MZ, 'world')).toBe('too_low');
     expect(buildCellRule(w, MX, FREE_MAX_Y + 1, MZ, 'world')).toBe('too_high');
     expect(buildCellRule(w, MX, h + 1, MZ, 'plot')).toBe('not_my_plot');
@@ -111,7 +122,11 @@ describe('OverlayWorld: a child world as a delta over the shared town (R326)', (
     w.setBlock({ id: 'k', isOwner: true, townRules: true }, MX, h + 1, MZ, 0); // back to the town's: the cell drops out
     expect(w.changedOutsidePlot).toBe(0);
     expect(w.changedCount).toBe(1);
-    expect(w.getBlock(-5, 0, 0)).toBe(6);
+    // past the open world's end: bedrock; the natural ground everywhere inside it (natural.ts)
+    expect(w.getBlock(TUNING.world.openMin - 1, 0, 0)).toBe(6);
+    expect(w.getBlock(MX, TUNING.world.yMin, MZ)).toBe(6);
+    expect(w.getBlock(-5, -500, 0)).not.toBe(0);
+    expect(w.getBlock(-5, 60, 0)).toBe(0);
   });
 
   it('keeps the zone checks of setBlock (a road strip only refuses an edit not judged by the town rules)', () => {
@@ -122,14 +137,15 @@ describe('OverlayWorld: a child world as a delta over the shared town (R326)', (
   });
 
   it('packs and unpacks a cell index', () => {
-    for (const c of [[0, -400, 0], [287, 1000, 287], [210, -1, 14], [5, 40, 263]] as const) {
+    const { openMin: a, openMax: b, yMin, yMax } = TUNING.world;
+    for (const c of [[0, -400, 0], [287, 1000, 287], [210, -1, 14], [5, 40, 263], [a, yMin, a], [b - 1, yMax, b - 1], [-5000, -1500, 9000], [29000, 3, -29000]] as const) {
       expect(cellOfIndex(cellIndex(c[0], c[1], c[2]))).toEqual([...c]);
     }
   });
 });
 
 describe('applyPlotOp in the open world (R326)', () => {
-  it('builds and digs on the meadow, gives the dug block back, refuses the town', () => {
+  it('builds and digs on the meadow, gives the dug block back, breaks the town and digs deep (R2861①)', () => {
     const s = worldState();
     const h = terrainHeight(MX, MZ);
     expect(applyPlotOp(s, ME, { op: 'place', x: MX, y: h + 1, z: MZ, slot: 0 })).toMatchObject({ ok: true, prev: 0 });
@@ -138,10 +154,17 @@ describe('applyPlotOp in the open world (R326)', () => {
     const before = grass();
     expect(applyPlotOp(s, ME, { op: 'break', x: MX + 1, y: h, z: MZ })).toMatchObject({ ok: true, prev: BK.grass });
     expect(grass()).toBe(before + 1);
-    expect(applyPlotOp(s, ME, { op: 'place', x: 140, y: 1, z: 140, slot: 0 })).toMatchObject({ ok: false, reason: 'protected' });
-    expect(applyPlotOp(s, ME, { op: 'break', x: 170, y: 1, z: 128 })).toMatchObject({ ok: false, reason: 'protected' });
-    expect(applyPlotOp(s, ME, { op: 'break', x: MX, y: -2, z: MZ })).toMatchObject({ ok: false, reason: 'too_low' });
-    expect(s.world.changedOutsidePlot).toBe(2);
+    // the cafe wall and the road break (R2861①: the town is breakable; undo and the teacher's restore bring it back)
+    const wall = s.world.getBlock(170, 1, 128);
+    expect(wall).not.toBe(0);
+    expect(applyPlotOp(s, ME, { op: 'break', x: 170, y: 1, z: 128 })).toMatchObject({ ok: true, prev: wall });
+    expect(applyPlotOp(s, ME, { op: 'break', x: 170, y: 0, z: 143 })).toMatchObject({ ok: true, prev: BK.road });
+    // deep under the meadow (the old floor was y -1) and far past the old edge
+    expect(applyPlotOp(s, ME, { op: 'break', x: MX, y: -450, z: MZ })).toMatchObject({ ok: true });
+    expect(applyPlotOp(s, ME, { op: 'break', x: 4000, y: naturalHeight(4000, -3000), z: -3000 })).toMatchObject({ ok: true });
+    // the bedrock floor stays
+    expect(applyPlotOp(s, ME, { op: 'break', x: MX, y: TUNING.world.yMin, z: MZ })).toMatchObject({ ok: false, reason: 'too_low' });
+    expect(s.world.changedOutsidePlot).toBe(6);
   });
 
   it('a lesson (scope plot) builds only on the plot; no scope means the plot as before', () => {

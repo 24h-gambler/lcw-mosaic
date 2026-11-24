@@ -1209,7 +1209,9 @@ export const UI_STRINGS_KO = {
       echoDone: '끝까지 따라 말했어요! 정말 잘했어요.',
       shortOfCoins: '말은 완벽해요! 코인을 조금 더 모으면 받을 수 있어요.',
       shortOfCoinsGood: '말은 잘했어요! 코인을 조금 더 모으면 받을 수 있어요.',
-      pickOffer: '여기 있는 문장 중 하나를 골라 말해 볼까요?'
+      pickOffer: '여기 있는 문장 중 하나를 골라 말해 볼까요?',
+      intentOk: '내 말로 잘 말했어요! 문장 모양까지 말하면 별이 더 많아요.',
+      freeTalkOk: '좋은 대화예요! 여기 있는 물건 이름을 넣어 말하면 살 수도 있어요.'
     },
     chooseTitle: '말하고 싶은 문장을 골라요',
     starsAria: '별 {n}개',

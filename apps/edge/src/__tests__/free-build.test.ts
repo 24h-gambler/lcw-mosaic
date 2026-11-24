@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BK, FREE_MAX_CELLS, OverlayWorld, blockRef, starterInventory, terrainHeight } from '@lcw/sim-core';
+import { BK, FREE_MAX_CELLS, OverlayWorld, blockRef, naturalBlock, recoveredBlock, naturalHeight, starterInventory, terrainHeight } from '@lcw/sim-core';
 import { shopItem } from '@lcw/content';
 import { PlatformDO, homeWorldId, type LcwEnv } from '../platform.js';
 import { PlotStore, baseTownWorld, worldTag } from '../plot.js';
@@ -40,7 +40,7 @@ const MZ = 214;
 const H = terrainHeight(MX, MZ);
 
 describe('free build through the gateway (R326)', () => {
-  it('builds a tower on the meadow, digs a hole, refuses the shop; all of it is there after a restart', async () => {
+  it('builds a tower on the meadow, digs a hole, breaks the shop wall, digs deep and far (R2861①); all of it is there after a restart', async () => {
     const storage = fakeDurableStorage();
     const p = new PlatformDO({ storage }, env);
     const { dev } = await linkedChild(p);
@@ -57,8 +57,10 @@ describe('free build through the gateway (R326)', () => {
           { op: 'place', x: MX, y: H + 2, z: MZ, slot: 1 },
           { op: 'place', x: MX, y: H + 3, z: MZ, slot: 1 },
           { op: 'break', x: MX + 2, y: H, z: MZ },
-          { op: 'break', x: 116, y: 1, z: 128 }, // the trade shop's wall
-          { op: 'place', x: 144, y: 3, z: 143, slot: 0 } // over the east-west road
+          { op: 'break', x: 116, y: 1, z: 128 }, // the trade shop's wall (R2861①: the town breaks too)
+          { op: 'place', x: 144, y: 3, z: 143, slot: 0 }, // over the east-west road
+          { op: 'break', x: MX + 4, y: -450, z: MZ }, // deep under the meadow (the old floor was y -1)
+          { op: 'break', x: 9000, y: naturalHeight(9000, -7000), z: -7000 } // 9 km out, past the old edge
         ],
         // a forged scope in the body changes nothing: the platform sets it from the token
         plot_only: false
@@ -66,18 +68,27 @@ describe('free build through the gateway (R326)', () => {
       dev
     );
     expect(r.status).toBe(200);
-    expect(r.body.results.map((x: any) => x.reason ?? 'ok')).toEqual(['ok', 'ok', 'ok', 'ok', 'protected', 'protected']);
+    expect(r.body.results.map((x: any) => x.reason ?? 'ok')).toEqual(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
     const p2 = new PlatformDO({ storage }, env);
     const again = await call(p2, 'GET', '/v1/plot', undefined, dev);
-    expect(again.body.cells).toEqual([
+    const cells = new Set(again.body.cells.map((c: number[]) => c.join(',')));
+    for (const c of [
       [MX + 2, H, MZ, 0],
       [MX, H + 1, MZ, BK.brick],
       [MX, H + 2, MZ, BK.brick],
-      [MX, H + 3, MZ, BK.brick]
-    ]);
+      [MX, H + 3, MZ, BK.brick],
+      [116, 1, 128, 0],
+      [MX + 4, -450, MZ, 0],
+      [9000, naturalHeight(9000, -7000), -7000, 0]
+    ]) {
+      expect(cells.has(c.join(','))).toBe(true);
+    }
+    expect(again.body.cells.length).toBe(8);
+    // the deep cell dug was the natural stone of the deep, given back to the bag
+    expect(naturalBlock(MX + 4, -450, MZ)).not.toBe(0);
     // the dug grass went to the carried stacks or the chest
     const grass = (again.body.inv.chest['b3'] ?? 0) + again.body.inv.slots.reduce((n: number, s: any) => n + (s?.ref === 'b3' ? s.n : 0), 0);
-    expect(grass).toBe(17);
+    expect(grass).toBe(18); // the meadow dig and the far surface dig (9 km out) each gave a grass
   });
 
   it('a lesson token builds on the plot only, also when the body says otherwise', async () => {
@@ -101,6 +112,89 @@ describe('free build through the gateway (R326)', () => {
     const inLesson = await call(p, 'GET', '/v1/plot', undefined, stu);
     expect(inLesson.body.scope).toBe('plot');
     expect(inLesson.body.cells).toEqual([[126, 1, 170, BK.oakPlank]]);
+  });
+});
+
+describe('the town comes back from the server record (R2861① "마을도 부술 수 있게")', () => {
+  async function brokeTown() {
+    const storage = fakeDurableStorage();
+    const p = new PlatformDO({ storage }, env);
+    const { dev } = await linkedChild(p);
+    await call(p, 'GET', '/v1/plot', undefined, dev);
+    const r = await call(
+      p,
+      'POST',
+      '/v1/plot/ops',
+      {
+        ops: [
+          { op: 'break', x: 116, y: 1, z: 128 }, // the trade shop's wall
+          { op: 'break', x: 116, y: 2, z: 128 },
+          { op: 'place', x: 144, y: 3, z: 143, slot: 1 }, // a brick over the road
+          { op: 'break', x: MX + 4, y: -450, z: MZ }, // deep
+          { op: 'place', x: 126, y: 1, z: 170, slot: 0 } // on the child's own plot: never restored
+        ]
+      },
+      dev
+    );
+    expect(r.body.results.every((x: any) => x.ok)).toBe(true);
+    return { p, storage, dev };
+  }
+  const town = baseTownWorld();
+
+  it("the child puts their own town back: the town cells are the town builder's again, the plot is kept, nothing minted", async () => {
+    const { p, storage, dev } = await brokeTown();
+    const before = await call(p, 'GET', '/v1/plot', undefined, dev);
+    expect(before.body.cells).toHaveLength(5);
+    const res = await call(p, 'POST', '/v1/plot/restore', {}, dev);
+    expect(res.status).toBe(200);
+    expect(res.body.restored).toBe(4);
+    const after = await call(new PlatformDO({ storage }, env), 'GET', '/v1/plot', undefined, dev);
+    expect(after.body.cells).toEqual([[126, 1, 170, BK.oakPlank]]);
+    // the brick placed over the road came back to the chest; the wall blocks dug were taken back from the hand
+    const count = (inv: any, ref: string) => (inv.chest[ref] ?? 0) + inv.slots.reduce((n: number, s: any) => n + (s?.ref === ref ? s.n : 0), 0);
+    // each town block dug (the two wall cells, the deep stone) is taken back once
+    const owed = new Map<string, number>();
+    for (const [x, y, z] of [[116, 1, 128], [116, 2, 128], [MX + 4, -450, MZ]] as const) {
+      const id = town.getBlock(x, y, z);
+      expect(id).not.toBe(0);
+      const ref = blockRef(recoveredBlock(id)!);
+      owed.set(ref, (owed.get(ref) ?? 0) + 1);
+    }
+    if (!owed.has(blockRef(BK.brick))) owed.set(blockRef(BK.brick), 0);
+    for (const [ref, n] of owed) expect(count(after.body.inv, ref)).toBe(count(before.body.inv, ref) - n + (ref === blockRef(BK.brick) ? 1 : 0));
+  });
+
+  it("the teacher puts a child's town back by name, inside a circle only", async () => {
+    const { p, dev } = await brokeTown();
+    const res = await call(p, 'POST', '/v1/plot/restore', { player_id: 'kid-1', x: 116, z: 128, r: 6 });
+    expect(res.status).toBe(200);
+    expect(res.body.restored).toBe(2);
+    const after = await call(p, 'GET', '/v1/plot', undefined, dev);
+    const left = after.body.cells.map((c: number[]) => c.slice(0, 3).join(',')).sort();
+    expect(left).toEqual([`${MX + 4},-450,${MZ}`, '126,1,170', '144,3,143'].sort());
+    // bad circles and unknown children are refused; a child's token without a device (a lesson) may not
+    expect((await call(p, 'POST', '/v1/plot/restore', { player_id: 'kid-1', x: 1, z: 1, r: 0 })).status).toBe(400);
+    expect((await call(p, 'POST', '/v1/plot/restore', { player_id: 'nobody' })).status).toBe(404);
+    expect((await call(p, 'POST', '/v1/plot/restore', {}, anon)).status).toBe(401);
+    const st = await call(p, 'POST', '/v1/admin/lessons/start', { player_id: 'kid-1' });
+    const stu = bearer((await call(p, 'POST', '/v1/join', { code: st.body.join_code }, anon)).body.student_token);
+    expect((await call(p, 'POST', '/v1/plot/restore', {}, stu)).status).toBe(403);
+  });
+
+  it('a restore is one journal line with its actor; a world with nothing out there writes nothing', () => {
+    const db = createNodeSqliteExecutor(':memory:');
+    const s = new PlotStore(db, 'kid', 0);
+    expect(s.restoreTown(500, 'teacher')).toEqual({ restored: 0, furniture: 0, rev: 0 });
+    s.applyOps([{ op: 'break', x: 116, y: 1, z: 128 }], 1000);
+    expect(s.plotState.world.getBlock(116, 1, 128)).toBe(0);
+    const out = s.restoreTown(4000, 'teacher', { x: 116, z: 128, r: 3 });
+    expect(out.restored).toBe(1);
+    expect(s.plotState.world.getBlock(116, 1, 128)).toBe(baseTownWorld().getBlock(116, 1, 128));
+    const j = db.all<{ actor: string; ops: string }>('select actor, ops from plot_journal order by seq');
+    expect(j.at(-1)).toEqual({ actor: 'teacher', ops: JSON.stringify([{ op: 'restore', n: 1, furniture: 0, area: { x: 116, z: 128, r: 3 } }]) });
+    expect(db.all('select * from plot_cells')).toEqual([]);
+    // and it can be broken again after (the restore is not a lock)
+    expect(s.applyOps([{ op: 'break', x: 116, y: 1, z: 128 }], 9000).results[0]).toEqual({ ok: true });
   });
 });
 
@@ -129,7 +223,7 @@ describe('PlotStore over the shared town (R326)', () => {
     let n = 0;
     for (let z = 30; z < 260 && n < FREE_MAX_CELLS; z++) {
       for (let x = 200; x < 262 && n < FREE_MAX_CELLS; x++) {
-        for (let dy = 1; dy <= 2 && n < FREE_MAX_CELLS; dy++) {
+        for (let dy = 1; dy <= 4 && n < FREE_MAX_CELLS; dy++) {
           rows.push(`(${x}, ${terrainHeight(x, z) + dy}, ${z}, ${BK.glass})`);
           n++;
         }

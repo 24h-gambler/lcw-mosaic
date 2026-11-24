@@ -231,6 +231,17 @@ function gableRoofZ(set: Setter, x0: number, x1: number, z0: number, z1: number,
 }
 
 function* terrain(world: VoxelWorld, set: Setter): Generator<void> {
+  if (world.natural) {
+    // R2861①: a new chunk comes filled with the natural ground (natural.ts), the same grass / dirt / stone this loop
+    // wrote inside the box (and stone on down to the bedrock under it). Making the chunks is the whole step.
+    const c0 = Math.floor(TERRAIN_MIN / 16);
+    const c1 = Math.floor((TERRAIN_MAX - 1) / 16);
+    for (let cz = c0; cz <= c1; cz++) {
+      for (let cx = c0; cx <= c1; cx++) for (let cy = -1; cy <= 0; cy++) world.getOrCreateChunk(cx, cy, cz);
+      yield;
+    }
+    return;
+  }
   for (let z = TERRAIN_MIN; z < TERRAIN_MAX; z++) {
     for (let x = TERRAIN_MIN; x < TERRAIN_MAX; x++) {
       const h = terrainHeight(x, z);

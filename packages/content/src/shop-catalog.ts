@@ -162,6 +162,8 @@ export const SHOP_CATALOG: readonly ShopItemDef[] = [
   // tools
   T('fishing_rod', 'fishing rod', 'long', '긴 낚싯대', '🎣', 120),
   T('shovel', 'shovel', 'small', '작은 삽', '🪏', 80),
+  // R2861① (Dan 11-23: "axe 를 구하러 trade market 에 갔는데 안 줌"): the axe for the open land's trees and the town's wood
+  T('axe', 'axe', 'sharp', '날카로운 도끼', '🪓', 100, 'an'),
   T('watering_can', 'watering can', 'green', '초록 물뿌리개', '🚿', 60),
   T('magnifier', 'magnifying glass', 'big', '큰 돋보기', '🔍', 70),
   T('flashlight', 'flashlight', 'bright', '밝은 손전등', '🔦', 90),

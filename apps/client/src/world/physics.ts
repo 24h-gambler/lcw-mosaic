@@ -194,8 +194,8 @@ function stepOnce(body: Body, intent: MoveIntent, dt: number, blockAt: BlockAt, 
 
   body.stepOffset *= Math.exp(-12 * dt);
   if (Math.abs(body.stepOffset) < 1e-3) body.stepOffset = 0;
-  // Fell out of the world: put back on top.
-  if (body.y < -20) {
+  // Fell out of the world (under the bedrock floor: R2861① the ground goes on down to yMin): put back on top.
+  if (body.y < TUNING.world.yMin - 20) {
     body.y = 30;
     body.vy = 0;
   }

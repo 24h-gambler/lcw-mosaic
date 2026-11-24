@@ -156,6 +156,30 @@ describe('town shop and coins (R326)', { timeout: 60_000 }, () => {
     expect(show.body.error).toBe('not_done');
   });
 
+  it("R2861①: the axe at Toby's trade shop — the shop line buys it, and so do the child's own words naming it", async () => {
+    const p = platform();
+    const dev = await child(p, 'kid-axe', 'fam-axe');
+    const entry = bankEntriesFor('trade_shop', 'L2').find((e) => e.id === 'trade_shop_L2_axe')!;
+    expect(entry).toBeTruthy();
+    expect((await shop(p, dev)).prices.axe).toBeGreaterThan(0);
+    const r = await say(p, dev, 'shop-axe', 1, 'trade_shop', entry.offers[0].text);
+    expect(r.status).toBe(200);
+    expect(r.body.granted?.item_id).toBe('axe');
+    // own words, no sentence picked (the solo dialog sends target_text '' with hint none)
+    const free = (dialog: string, transcript: string) =>
+      call(p, 'POST', '/v1/converse/score', { dialog_id: dialog, chosen_stars: 1, hint_level: 'none', transcript, npc_ctx: 'trade_shop', target_text: '', mode: 'free', stt_source: 'device', confidence: 0.9, dur_ms: 2500, latency_ms: 800 }, dev);
+    const own = await free('shop-axe-2', 'I need an axe to cut the trees');
+    expect(own.body).toMatchObject({ pass: true, stars: 1 });
+    expect(own.body.granted?.item_id).toBe('axe');
+    expect((await shop(p, dev)).owned.axe).toBe(2);
+    // talk that names nothing here still passes as talk (1 star), nothing sold
+    const talk = await free('shop-axe-3', 'what a nice shop you have');
+    expect(talk.body).toMatchObject({ pass: true, stars: 1 });
+    expect(talk.body.granted ?? null).toBeNull();
+    // a bare word or noise is not talk
+    expect((await free('shop-axe-4', 'um')).body.pass).toBe(false);
+  });
+
   it('talk quest: five passed sentences today, then one claim', async () => {
     const p = platform();
     const dev = await child(p, 'kid-talk', 'fam-talk');

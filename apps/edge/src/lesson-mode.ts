@@ -149,7 +149,15 @@ export const LESSON_RECLAMP_BEFORE_MS = Date.parse('2026-11-18T14:30:00Z');
  * late does not skip the warm-up, and a child back from 20 minutes away does not skip a stage.
  */
 export const LESSON_CHILD_GAP_MS = 30_000;
-export type StageAdvanceWhy = 'passes' | 'followups' | 'time';
+/**
+ * 'free' (R2861①, Dan 11-23 "학생 회화가 다음 단계로 안 감 · 정해진 순서 대신 자유 회화"): own-words talk that matched no
+ * sentence on screen (scoreFreeTalk passes, target_text '') counts toward the stage like a sentence does.
+ * 'tries': a child who keeps talking moves on even when the words were short or the speech recognizer caught little
+ * (LESSON_AUTO_ADVANCE_TRIES tries in the stage) — nobody is left stuck repeating one line.
+ */
+export type StageAdvanceWhy = 'passes' | 'followups' | 'free' | 'tries' | 'time';
+/** R2861①: this many tries (scored or not) since the sentences came on screen move the stage on. */
+export const LESSON_AUTO_ADVANCE_TRIES = 5;
 /** The dialog's follow-ups "done" moves the stage only after this many passed answers in it (opening + one follow-up). */
 export const LESSON_FOLLOWUPS_MIN_ANSWERS = 2;
 /** R326 skip 남용: untried skips in one stage / in the whole lesson that turn the console's skip line red. */
@@ -657,8 +665,10 @@ export function buildLessonModeApp(
   const autoAdvance = (id: string, now: number, done?: { stageId: string }): { from: string; to: string; why: StageAdvanceWhy } | null => {
     const r = stageReady(id, now, done);
     if (!r) return null;
-    // the teacher walks with the child in the world: the teacher moves on (stage_hold.ready tells the teacher it is time)
-    if (TEACHER_WORLD_HOLD && teacherInWorld(id, now)) return null;
+    // the teacher walks with the child in the world: the planned minutes wait for the teacher (stage_hold.ready tells
+    // the teacher it is time). What the child SAYS still moves the stage (R2861①, Dan 11-23: with Dan in the world the
+    // child's talk never went on to the next stage — the hold swallowed every speech advance).
+    if (TEACHER_WORLD_HOLD && r.why === 'time' && teacherInWorld(id, now)) return null;
     const targets = r.next.targets.map((t) => t.text);
     d.sql.run('update lesson_state set stage_id = ?, targets = ?, updated_at = ?, child_ms = 0 where lesson_id = ?', [
       r.next.id,
@@ -729,7 +739,18 @@ export function buildLessonModeApp(
           [id, stage.id, Math.max(entered, shownAt)]
         )?.n ?? 0
       );
+      // R2861①: own-words talk (no sentence matched, target_text '') counts too; a free stage (nothing offered) needs
+      // LESSON_AUTO_ADVANCE_PASSES of it.
+      const freePassed = Number(
+        d.sql.get<{ n: number }>(
+          'select count(*) as n from utterances where session_id = ? and ctx = ? and stars > 0 and length(target_text) = 0 and created_at >= ?',
+          [id, stage.id, Math.max(entered, shownAt)]
+        )?.n ?? 0
+      );
+      const needAny = offered > 0 ? need : LESSON_AUTO_ADVANCE_PASSES;
       if (offered > 0 && passed >= need) why = 'passes';
+      else if (freePassed > 0 && passed + freePassed >= needAny) why = 'free';
+      else if (spokeIn(id, stage.id, Math.max(entered, shownAt)) >= LESSON_AUTO_ADVANCE_TRIES) why = 'tries';
       // R326 (Dan 11-19 "skip 만 눌러 넘어감"): the planned minutes move a stage on only when the child said something in
       // it (any try, scored or not). A child who only skips waits for the teacher's 다음 단계 (the console says so).
       else if (stage.minutes > 0 && childMsOf(id) >= stage.minutes * 60_000 && spokeIn(id, stage.id, entered) > 0) why = 'time';
@@ -1592,7 +1613,8 @@ export function buildLessonModeApp(
       },
       // What the child's world says about the teacher right now (the console's own heartbeat, read back).
       teacher: teacherOf(id, now),
-      // R325: the teacher walks with the child (3D page beat) and holds the stages; `ready` = the auto rules say the
+      // R325: the teacher walks with the child (3D page beat) and holds the planned minutes (R2861①: the child's talk
+      // still moves the stage); `ready` = the auto rules say the
       // running stage is done (passes, follow-ups, minutes): the teacher's cue for "다음 단계로".
       stage_hold: (() => {
         const held = TEACHER_WORLD_HOLD && !l.ended_at && teacherInWorld(id, now);
@@ -2328,7 +2350,8 @@ export function buildLessonModeApp(
       session_id: s.lesson_id,
       session_kind: 'lesson',
       ctx: stage?.id ?? 'lesson',
-      mode,
+      // R2861①: own words with no sentence on screen are free talk in the growth metrics, whatever the stage's mode
+      mode: targetText ? mode : 'free',
       // Fixed at arrival: with the teacher present (console heartbeat) 'teacher', the child alone 'self'.
       interlocutor: teacherOf(s.lesson_id, now).present ? 'teacher' : 'self',
       first_text: u.transcript,

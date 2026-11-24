@@ -36,7 +36,7 @@ describe('town in steps (start-up without long tasks)', () => {
   });
 
   it('setBlock keeps the light registry exact and the zones for players', () => {
-    const w = new VoxelWorld();
+    const w = new VoxelWorld(undefined, { natural: false });
     const sys = { id: 'gen', isSystemGen: true };
     const lights = (): number => w.getLightSourcesInChunk(9, 0, 9).length;
     expect(w.setBlock(sys, 150, 3, 150, BK.torch).ok).toBe(true);

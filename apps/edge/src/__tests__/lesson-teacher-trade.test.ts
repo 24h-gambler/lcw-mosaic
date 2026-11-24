@@ -144,11 +144,12 @@ describe('the teacher in the world (R325)', () => {
     expect(s.body.possessed_npc_id).toBeNull();
   });
 
-  it('holds the stage while the teacher walks in the world: passes make it ready, the teacher moves on', async () => {
+  it("R2861①: with the teacher in the world the child's talk still moves the stage; only the planned minutes wait for the teacher", async () => {
     now = T0;
     const p = platform();
     const { lessonId, st } = await lesson(p);
-    await call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { source: 'world' });
+    const beat = () => call(p, 'POST', `/v1/admin/lessons/${lessonId}/presence`, { source: 'world' });
+    await beat();
     const s0 = await call(p, 'GET', '/v1/lesson/state', undefined, st);
     expect(s0.body.teacher.in_world).toBe(true);
     now += 30_000;
@@ -157,14 +158,26 @@ describe('the teacher in the world (R325)', () => {
     now += 10_000;
     const b = await say(STAGES[0]!.targets[2]!.text);
     expect(b.body.pass).toBe(true);
-    expect(b.body.auto_advanced).toBeUndefined();
+    expect(b.body.auto_advanced).toMatchObject({ from: STAGES[0]!.id, to: STAGES[1]!.id, why: 'passes' });
+    // own words with the teacher there move it too (Dan 11-23: "학생 회화가 다음 단계로 안 감")
+    await beat();
+    now += 10_000;
+    await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'i want to buy something to eat', chosen_stars: 1 }, st);
+    now += 10_000;
+    const c = await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'do you have any cookies today', chosen_stars: 1 }, st);
+    expect(c.body.auto_advanced).toMatchObject({ from: STAGES[1]!.id, to: STAGES[2]!.id });
+    // the minutes alone wait for the teacher while the teacher walks in the world
+    const mins = STAGES[2]!.minutes * 60_000;
+    await beat();
+    await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'ok', chosen_stars: 1 }, st);
+    let s: any = null;
+    for (let t = 0; t < mins + 6000; t += 3000) {
+      now += 3000;
+      if (t % 9000 === 0) await beat();
+      s = await call(p, 'GET', '/v1/lesson/state', undefined, st);
+    }
+    expect(s.body.stage_id).toBe(STAGES[2]!.id);
     const f = await call(p, 'GET', `/v1/admin/lessons/${lessonId}/feed`);
-    expect(f.body.lesson.stage_id).toBe(STAGES[0]!.id);
-    expect(f.body.stage_hold).toEqual({ held: true, ready: 'passes', next_stage_id: STAGES[1]!.id, quiet: false });
-    // the teacher's page closes: after the present window the auto-advance is back
-    now += 60_000;
-    const s = await call(p, 'GET', '/v1/lesson/state', undefined, st);
-    expect(s.body.teacher.in_world).toBe(false);
-    expect(s.body.stage_id).toBe(STAGES[1]!.id);
-  });
+    expect(f.body.stage_hold).toEqual({ held: true, ready: 'time', next_stage_id: STAGES[3]!.id, quiet: false });
+  }, 30_000); // many stored talks through the real routes: slow on a loaded machine (full run, 11-24)
 });

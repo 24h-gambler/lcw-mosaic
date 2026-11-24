@@ -129,7 +129,8 @@ describe('town build (all through setBlock)', () => {
   const calls = buildTown(world);
 
   it('places blocks only through the setter and is deterministic', () => {
-    expect(calls).toBeGreaterThan(50_000);
+    // R2861①: the ground comes with each new chunk (sim-core natural.ts), the setter writes the town on it
+    expect(calls).toBeGreaterThan(15_000);
     const again = new VoxelWorld();
     expect(buildTown(again)).toBe(calls);
     for (const [x, y, z] of [[144, 1, 144], [170, 3, 134], [116, 2, 133], [118, 1, 158], [144, 9, 102]] as const) {

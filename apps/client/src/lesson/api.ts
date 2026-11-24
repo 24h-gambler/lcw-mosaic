@@ -59,7 +59,7 @@ export interface LessonEventRow {
 export interface LessonAutoAdvance {
   from: string;
   to: string;
-  why: 'passes' | 'followups' | 'time';
+  why: 'passes' | 'followups' | 'free' | 'tries' | 'time';
 }
 
 export interface StudentLessonState {

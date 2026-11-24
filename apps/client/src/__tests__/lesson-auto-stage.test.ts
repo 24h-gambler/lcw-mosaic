@@ -104,16 +104,15 @@ describe('the child screen follows auto-advance (docs/18 §9)', () => {
     expect(ctl.state.stageId).toBe(STAGES[1]!.id);
   });
 
-  it("the dialog's follow-ups done moves the stage on (one follow-up answered) and the next stage shows at once", async () => {
+  it("R2861①: the child's own words (opening + one follow-up, no sentence on screen) move the stage on and the next stage shows", async () => {
     const { ctl, timers, lessonId, admin } = await setup();
-    // the child answered the opening line and one follow-up (free talk: no sentence on screen)
+    // the child answered the opening line and one follow-up (free talk: no sentence on screen) — that is the stage done
     await ctl.submit({ target_text: '', transcript: 'my name is oreo and i like dogs', chosen_stars: 1, dur_ms: 1500 });
     await ctl.submit({ target_text: '', transcript: 'after school i play soccer with my dad', chosen_stars: 1, dur_ms: 1500 });
-    await ctl.stageDone();
-    await timers.run(1);
+    await timers.run(LESSON_ADVANCE_POLL_MS);
     expect(ctl.state.stageId).toBe(STAGES[1]!.id);
     const feed = await admin('GET', `/v1/admin/lessons/${lessonId}/feed`);
-    expect(feed.stage_log.at(-1)).toMatchObject({ stage_id: STAGES[1]!.id, source: 'auto:followups' });
+    expect(feed.stage_log.at(-1)).toMatchObject({ stage_id: STAGES[1]!.id, source: 'auto:free' });
     // a late "done" for the stage that is over changes nothing
     await ctl.stageDone(STAGES[0]!.id);
     await timers.run(1);

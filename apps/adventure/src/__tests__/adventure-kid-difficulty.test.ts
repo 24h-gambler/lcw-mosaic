@@ -60,10 +60,12 @@ function play(enc: EncounterPlan, pilot: Pilot, seed: number): Res {
 }
 
 const SEEDS = Array.from({ length: 12 }, (_, i) => i + 1);
+/** Guardians are rarer to measure and noisier (a few wins in 12 is 0-25%), so they get 48 seeds: the floor below must not flap. */
+const GSEEDS = Array.from({ length: 48 }, (_, i) => i + 1);
 const win = (r: Res) => r.outcome === 'spared' || r.outcome === 'fought';
 const rate = (rs: Res[]) => Math.round((rs.filter(win).length / rs.length) * 100);
 
-describe('R2861 difficulty: first-try clear rates (12 seeds each)', () => {
+describe('R2861 difficulty: first-try clear rates (12 seeds per mini boss, 48 per guardian)', () => {
   it('guardians and gate mini bosses are hard for a kid, beatable by a good dodger', () => {
     const report: Record<string, unknown> = {};
     const kidBoss: number[] = [];
@@ -82,9 +84,9 @@ describe('R2861 difficulty: first-try clear rates (12 seeds each)', () => {
         kidMini.push(rate(kid));
         row[m.creature.id] = { kid: `${rate(kid)}%`, kidSec: Math.round(kid.reduce((a, r) => a + r.seconds, 0) / kid.length) };
       }
-      const still = SEEDS.map((s) => play(boss, 'still', s));
-      const kid = SEEDS.map((s) => play(boss, 'kid', s));
-      const pilot = SEEDS.map((s) => play(boss, 'pilot', s));
+      const still = GSEEDS.map((s) => play(boss, 'still', s));
+      const kid = GSEEDS.map((s) => play(boss, 'kid', s));
+      const pilot = GSEEDS.map((s) => play(boss, 'pilot', s));
       stillBoss.push(rate(still));
       kidBoss.push(rate(kid));
       pilotBoss.push(rate(pilot));
@@ -102,9 +104,12 @@ describe('R2861 difficulty: first-try clear rates (12 seeds each)', () => {
       expect(stillBoss[i]!, `island ${i + 1}: standing still loses the guardian`).toBeLessThanOrEqual(25);
       expect(kidBoss[i]!, `island ${i + 1}: a kid loses most first meetings`).toBeLessThanOrEqual(50);
       expect(pilotBoss[i]!, `island ${i + 1}: a good dodger wins`).toBeGreaterThanOrEqual(66);
+      // R2861 tuning (the first live try showed 0-25%): a guardian is never a wall for the kid, not even the Hushwind
+      expect(kidBoss[i]!, `island ${i + 1}: a kid can win it first try now and then (not a wall)`).toBeGreaterThanOrEqual(8);
     }
     // a kid can win a guardian on the first try sometimes (it is learnable, not a wall), across the trip
     expect(kidBoss.some((r) => r > 0), 'the kid wins a guardian now and then').toBe(true);
+    expect(kidBoss.reduce((a, b) => a + b, 0) / kidBoss.length, 'a kid wins about one guardian meeting in five (dies a few times, learns)').toBeGreaterThanOrEqual(15);
     // mini bosses: not free, not a wall
     expect(Math.min(...kidMini), 'a mini boss is never a wall').toBeGreaterThanOrEqual(25);
     expect(kidMini.reduce((a, b) => a + b, 0) / kidMini.length, 'mini bosses cost a kid a life now and then').toBeLessThanOrEqual(90);

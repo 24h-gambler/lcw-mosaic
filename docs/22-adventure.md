@@ -84,7 +84,7 @@
 | 항목 | 값 | 이유 |
 |---|---|---|
 | 내 기운(HP) | 20, 맞으면 2~4, 맞은 뒤 1초 무적 | 아이가 서너 번 실수해도 끝까지 |
-| 마음(Calm) 최대 | 길 문지기 160 · 수호자 300 · 휘파람 바람 400 | 문지기는 완벽한 말 세 번, 수호자는 다섯 번, 마지막은 여섯 번 — R2861 "훨씬 어렵고 길게 · 미니 보스도 어렵게" |
+| 마음(Calm) 최대 | 길 문지기 160 · 수호자 300 · 휘파람 바람 320 | 문지기는 완벽한 말 세 번, 수호자는 다섯 번, 마지막은 여섯 번 — R2861 "훨씬 어렵고 길게 · 미니 보스도 어렵게". 휘파람 바람은 400 일 때 완벽한 말이 일곱 번 필요해 아이 봇 첫 시도 0% 였다(R2861② 첫 운영 시험) → 320 |
 | 말 한 번의 마음 | 별 3 = 60 · 별 2 = 45 · 별 1 = 35 · 다시 = 5 | 길게·정확히 말할수록 빨리 친구 |
 | 탄막 한 차례 | 길 문지기 5~6초 · 수호자 8~10초 · 마지막 9~11초 | 집중이 끊기지 않는 길이 |
 | 장 별 | 수호자와 친구 + 모든 만남 친구 + 말한 문장 3개 이상(별 2 이상) = 별 3 · 수호자와 친구 = 별 2 · 끝냄 = 별 1 | 말로 화해를 가장 높게 |
@@ -108,7 +108,7 @@
 | 요구 | 만든 것 | 코드 | 확인 |
 |---|---|---|---|
 | Z/Enter 가 멈추지 않음 | 모든 장면이 `engine.confirm()` 으로 다음으로 가고, 엔진이 할 일이 없으면 그 단계의 패널 단추(포커스 또는 `data-primary`)를 누름. 목록(지도·전투 메뉴·대답·수레·말 걸기·스킬·주머니)은 방향키 커서 | `engine.ts confirm/menuMove/wantsArrows`, `ui/App.tsx` | 키 전용 진행에서 Z 를 누를 때마다 화면 서명(`zSignature`)이 바뀜 = 정지 0 |
-| 진짜 체력 | 여행 기운(`run.hp`, 최대 20 + 목도리 6)이 만남 사이에 이어짐. 맞으면 줄고, 간식·따뜻한 빛 스킬·랜턴 기둥으로 회복 | `core/run.ts`, `core/battle.ts` | `adventure-core` trip 시험 |
+| 진짜 체력 | 여행 기운(`run.hp`, 최대 22 + 목도리 6)이 만남 사이에 이어짐. 맞으면 줄고, 간식·따뜻한 빛 스킬·랜턴 기둥으로 회복 | `core/run.ts`, `core/battle.ts` | `adventure-core` trip 시험 |
 | 죽음과 부활 | 기운 0 → 쓰러짐 화면 → 마지막으로 들른 랜턴 기둥에서 깨어남, 재도전도 같은 난이도(R2861) | `engine.ts down`, `run.ts revive/retrySpeed` | 키 전용 진행이 섬1 수호자에게 일부러 지고(최저 기운 0) 기둥에서 깨어나 다시 이김 |
 | 이야기 전체 | 프롤로그 → 섬 넷(도착·수호자 등장·수호자 뒤) → 배 → 마지막 보스(휘파람 바람) → 엔딩 → 크레딧 "The End" → 지도 | `packages/content/src/adventure-story.ts` | 진행 끝에 `ending` 표지 |
 | 대화와 갈래 | 섬마다 주민(대화 나무, 선택지 2~3, 퀴즈 → 동전) · 상인 텀블 | 같은 파일 `tree` | 섬마다 대답 1개 이상 |
@@ -132,7 +132,7 @@
 | 영어 없이는 진행 0 | TALK 의 'Not now'/건너뛰기 제거. X(터치 화면은 회색 'Back · 네 가지 선택으로' 단추 `adv-talk-back`, Z/Enter 기본 단추 아님)는 전투 메뉴로만 돌아가고 상대 차례·진행이 아님. POKE 만으로는 HP 0 이어도 귀를 막아 끝나지 않고, CALM 이 꽉 차도 영어를 한 번 통과하지 않으면 LET GO 불가. **'통과'는 말한 한 줄(🗣 마이크, 마이크 끔이면 타이핑)만 센다** — 고르기·문장 조립·철자는 CALM 을 채우지만 `talkPasses` 도 `talk-<장>` 표지(관문 2)도 올리지 않는다(Z·↓ 만 반복하는 길 차단) | `battle.talkPasses`, `battle.resolvePoke`, `battle.spareReady`, `ui/Talk.tsx` | `adventure-core` 만남 흐름, `adventure-gates` 공격만/조용한 LET GO |
 | 보스는 쓰러뜨리거나 살려 보내야 다음 장 | 보스 outcome 은 spared/fought 뿐. 쓰러짐(down)은 랜턴 기둥 부활. `boss-<장>` 표지 전에는 `finishChapter`·`sailOn` 둘 다 거절 | `engine.leaveBattle/finishChapter/sailOn/chapterMissing` | `adventure-gates` 봇(회화 0 → 0장), 진행 봇 |
 | 보스 직행 차단 | 섬마다 관문 3개. 관문 0·1은 앞 상자 열쇠 + 그 문지기(미니 보스)를 차분히/쓰러뜨려야, 관문 2는 마지막 문지기 + 이 섬에서 통과한 영어 한 번이 있어야 열린다. 관문·문지기 몸이 3칸 길을 다 막아 돌아갈 길이 없음. 문지기를 달랬는데 열쇠가 없으면 관문이 '상자 열쇠 N 이 필요해요'라고 말함(문지기 인사만 되풀이하지 않음) | `core/map.ts GATES`, `engine.gateOpen/refreshGates/touchEntity` | `adventure-gates` 길찾기(닫힌 관문 너머 0)·열쇠 안내, `adventure-bypass` 키 봇 |
-| 더 어렵고 길게 | 장마다 미니 보스 2→3(섬 전체 12명), 지도 58→78칸, 문지기 CALM 160·수호자 300·마지막 400, 문지기도 2단계(CALM 45% 넘으면 패턴 뒤집기·탄 1.25배·피해 5), 탄막 차례 8~11초, 수호자 단계 3~4 유지 | `tuning.ts ADV.miniBoss`, `plan.ts miniBossStages`, `adventure.ts critters` | `adventure-kid-difficulty`, `adventure-difficulty`, `adventure-playthrough` |
+| 더 어렵고 길게 | 장마다 미니 보스 2→3(섬 전체 12명), 지도 58→78칸, 문지기 CALM 160·수호자 300·마지막 320(R2861② 튜닝, 처음 400), 문지기도 2단계(CALM 45% 넘으면 패턴 뒤집기·탄 1.25배·피해 5), 탄막 차례 8~11초, 수호자 단계 3~4 유지 | `tuning.ts ADV.miniBoss`, `plan.ts miniBossStages`, `adventure.ts critters` | `adventure-kid-difficulty`, `adventure-difficulty`, `adventure-playthrough` |
 | Z 는 막히지도 건너뛰지도 않음 | Z 순서: 엔진 단계 → 포커스된 패널 단추 → 기본 단추(data-primary, 회화를 통과시키는 단추는 없음) → 기본 단추가 없으면(마이크 끈 말하기 회화) 답 입력칸으로 커서. 빈 칸 Enter 는 아무것도 넘기지 않음 | `ui/zkey.ts pressZ`, `ui/App.tsx` | `adventure-zkey`, 키 봇 `ADV_MIC_OFF=1` |
 | 다시 하면 쉬워짐 제거 | `retrySpeed` 항상 1. 보스에게 진 뒤에도 같은 탄막 속도·같은 패턴 | `core/run.ts retrySpeed`, `engine.startBattle` | `adventure-core` 재도전 시험 |
 
@@ -150,3 +150,6 @@
 
 자동 플레이 봇(완벽 회피, 섬1 수호자는 일부러 한 번 짐, 말하기 줄은 목표 문장을 바로 입력·11-24 말하기만 통과 규칙 뒤): 네 장 613초(1장 166 · 2장 141 · 3장 136 · 4장 169), 0 멈춤. 봇의 말하기·타이핑은 0초라 실제 아이는 더 걸립니다(마이크 끈 키 봇 브라우저 실측은 899초대).
 
+### R2861② 첫 운영 시험 뒤 튜닝 (아이 봇 첫 시도 클리어율)
+
+새 모험이 운영에 나간 뒤 아이 봇(0.25초마다 보고 4분의 1은 멈칫, 말하기 2별 위주, 간식·장비·마법 없음)이 섬별 수호자를 첫 시도에 이긴 비율이 25/0/8/0% 로 12세에게 벽이었다. `tuning.ts` 의 `hp.max` 20→**체력 22** 와 `calmMax.final` 400→320 으로 **40/15/15/17%**(좋은 조종사 100/100/100/85%, 가만히 서 있기 0~10%)를 맞췄다. `adventure-kid-difficulty.test.ts` 가 수호자를 48시드로 재고 섬마다 8% 바닥·평균 15% 바닥·아이 50% 위쪽 한계를 함께 지킨다(Dan 11-23 "몇 번 죽고 배운다" 와 "12세에게 벽 아님" 사이). 운영 판 감시: automation 불변식 `lcw-adventure-kid-not-wall`.

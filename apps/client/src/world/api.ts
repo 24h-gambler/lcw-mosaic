@@ -220,6 +220,11 @@ export interface WorldHandle {
   setViewInset?(bottomPx: number, rightPx?: number): void;
   /** Start flow title screen: the camera circles the town, the HUD hides, the world takes no input (false = play). */
   setAttract?(on: boolean): void;
+  /**
+   * R331: take the mouse for the view now. Call it inside the press that enters the world (the browser wants a user
+   * gesture: a click or a key); without one the browser refuses and the first walk key or click takes it instead.
+   */
+  lockPointer?(): void;
   /** The child's world details (G07, packages/content world-setup.ts): season weather, sky time, animal friend; null = none. */
   setWorldLook?(look: import('@lcw/content').WorldSetupChoice | null): void;
   /**

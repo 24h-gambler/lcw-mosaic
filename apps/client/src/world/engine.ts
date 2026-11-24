@@ -93,6 +93,13 @@ export function keyIsPressable(t: HTMLElement | null): boolean {
 const PRESS_INPUT_TYPES: ReadonlySet<string> = new Set(['button', 'submit', 'reset', 'checkbox', 'radio', 'image', 'color', 'file']);
 /** Keys a focused button keeps (press it, or move to the next one); every other key plays. */
 export const PAGE_KEYS_ON_BUTTONS: ReadonlySet<string> = new Set(['Space', 'Enter', 'NumpadEnter', 'Tab']);
+/**
+ * R331 (Dan 11-23 '마우스 안 눌러도 화면이 움직이고'): a walk or talk key takes the pointer, no click needed. The browser
+ * wants one user gesture for a pointer lock; a key press is one (HTML user activation: any keydown but Esc). Measured
+ * 11-24 in a headed Chromium: a lock asked with no gesture and one asked on Esc are refused (NotAllowedError), one
+ * asked on W or E is granted. Esc stays the key that frees the mouse.
+ */
+export const LOCK_KEYS: ReadonlySet<string> = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
 
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -861,6 +868,8 @@ ${line(s.help)}` : line(s.text), 4000);
     if (typing) return;
     if (keyIsPressable(t) && PAGE_KEYS_ON_BUTTONS.has(e.code)) return;
     if (attract) return;
+    // R331: the first walk or talk key takes the pointer (the key press is the gesture the browser asks for)
+    if (LOCK_KEYS.has(e.code) && !locked()) lockNow();
     input.keys.add(e.code);
     if (buildActive && !paused && !buildHud?.chestOpen) {
       if (e.code === 'KeyZ' && !e.repeat) {
@@ -961,14 +970,14 @@ ${line(s.help)}` : line(s.text), 4000);
   // menu or any modal window frees it while it is open and the world takes it back when it closes. Touch keeps its
   // sticks and taps (a tap on a friend hits, on water drinks).
   const canLock = !touch && typeof canvas.requestPointerLock === 'function';
-  /** the teacher's page (TeacherBar mounted): a free mouse for the bar all lesson long, and no hitting */
+  /** the teacher's page (TeacherBar mounted): no hitting. R331: the teacher plays as an avatar too, so the mouse turns
+   *  the teacher's view like the child's; Esc frees it for the panel and a click on the world or a walk key takes it back. */
   const teacherPage = (): boolean => typeof document !== 'undefined' && !!document.querySelector('.lcw-teachbar');
   const locked = (): boolean => typeof document !== 'undefined' && document.pointerLockElement === canvas;
   /** the world freed the mouse for a window: take it back when the window closes */
   let relock = false;
   const lockNow = (): void => {
-    // the teacher's page keeps a free mouse: the bar (roster, follow, switches) is clicked all lesson long
-    if (!canLock || locked() || paused || attract || disposed || teacherPage() || uiHoldsMouse()) return;
+    if (!canLock || locked() || paused || attract || disposed || uiHoldsMouse()) return;
     try {
       const r = canvas.requestPointerLock() as unknown;
       if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => undefined);
@@ -986,13 +995,19 @@ ${line(s.help)}` : line(s.text), 4000);
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   };
   let lockedSince = -Infinity;
+  /** the pointer was taken once on this page: a free mouse now means Esc (or a window) freed it — say how to go on */
+  let lockedOnce = false;
   const onLockChange = (): void => {
     const on = locked();
+    // R331: freed with nothing on screen holding the mouse = the child's own Esc (or the browser's) — stay free until
+    // the next walk key or click; a stale relock from an earlier window must not grab it back (measured: re-locked 170 ms later)
+    if (!on && !uiHoldsMouse()) relock = false;
     if (on) {
       mouseAt = centre();
       lockedSince = performance.now();
+      lockedOnce = true;
     }
-    hud.setLockHint(on || (canLock && !uiHoldsMouse() && !teacherPage()), on);
+    hud.setLockHint(on || (canLock && !uiHoldsMouse()), on, lockedOnce);
   };
   document.addEventListener('pointerlockchange', onLockChange);
   const lockWatch = window.setInterval(() => {
@@ -1007,7 +1022,7 @@ ${line(s.help)}` : line(s.text), 4000);
     }
     // locked: the Esc line for the first few seconds of each lock
     const lk = locked();
-    hud.setLockHint((!lk && !ui && !teacherPage()) || (lk && performance.now() - lockedSince < TUNING.multi.escHintMs), lk);
+    hud.setLockHint((!lk && !ui) || (lk && performance.now() - lockedSince < TUNING.multi.escHintMs), lk, lockedOnce);
   }, 250);
   /** the press that just went down was made with the pointer locked (its release goes the same way) */
   let lockedAtDown = false;
@@ -2446,6 +2461,9 @@ ${line(s.help)}` : line(s.text), 4000);
     },
     setGoal(goalKo, targetEn) {
       hud.setGoal(goalKo, targetEn);
+    },
+    lockPointer() {
+      lockNow();
     },
     setAttract(on) {
       if (attract === on) return;

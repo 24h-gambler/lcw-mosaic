@@ -122,6 +122,14 @@ export function StudentJoin(props: StudentJoinProps): React.ReactElement {
     resumedAtStart.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // R331: the digits live on the Welcome screen now (/world/ '수업 참가'); a 3D-capable /join hands off there at once
+  // (the code rides along when one is in the address). Word cards stay only for lite=1 low-tier devices.
+  useEffect(() => {
+    if (!go3d || props.initialState || state.phase !== 'code') return;
+    const code = joinCodeFromSearch(typeof location !== 'undefined' ? location.search : '');
+    open3d(code ? `/world/?code=${code}` : '/world/');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Join request.
   useEffect(() => {

@@ -15,7 +15,7 @@
  *  - "같이 걷기" walks after the child, "학생 옆으로" stands next to them, "콘솔로" goes back to /director.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { TEACHER_STOCK, getLessonPlan, readWorldSetup, type WorldSetupChoice } from '@lcw/content';
+import { TEACHER_STOCK, tradeAskLine, tradeOffers, getLessonPlan, readWorldSetup, type WorldSetupChoice } from '@lcw/content';
 import { COLOR_TOKENS as C, SHAPE_TOKENS as SHAPE, SPACING_TOKENS as SP, TYPOGRAPHY_TOKENS as T } from '@lcw/ui';
 import type { WorldHandle } from './api.js';
 
@@ -38,10 +38,13 @@ interface Store {
   getItem(k: string): string | null;
 }
 
-/** `?teach=<lesson id>` plus a console sign-in on this browser, else null (a child's page never becomes a teacher's). */
+/**
+ * `?teach=<lesson id>` (or `?teach=new` to start one) plus a console sign-in on this browser, else null (a child's
+ * page never becomes a teacher's). R331: the in-world panel starts lessons too, so the console is only a handoff.
+ */
 export function teachFrom(search: string, store: Store | null): TeachSession | null {
   const id = new URLSearchParams(search).get('teach') ?? '';
-  if (!/^les-[A-Za-z0-9-]{1,64}$/.test(id)) return null;
+  if (id !== 'new' && !/^les-[A-Za-z0-9-]{1,64}$/.test(id)) return null;
   let token: string | null = null;
   let name: string | null = null;
   try {
@@ -55,8 +58,22 @@ export function teachFrom(search: string, store: Store | null): TeachSession | n
   return { lessonId: id, token, name: clean || null };
 }
 
-/** What the teacher's room ticket asks for: the lesson's room, under the teacher's name. */
-export function teachTicketBody(s: TeachSession): { room: string; name: string } {
+/**
+ * R331: a teacher address (`?teach=new` / `?teach=les-…`) on a browser with no console sign-in goes to the sign-in door
+ * (`/director`, which hands back to the world once signed in) instead of quietly opening the world as a plain player.
+ */
+export function teachSignInRedirect(search: string, store: Store | null): string | null {
+  const id = new URLSearchParams(search).get('teach') ?? '';
+  if (id !== 'new' && !/^les-[A-Za-z0-9-]{1,64}$/.test(id)) return null;
+  return teachFrom(search, store) ? null : '/director';
+}
+
+/**
+ * What the teacher's room ticket asks for: the lesson's room, under the teacher's name. Start mode ('new') names no
+ * room: the teacher sits alone until the lesson starts and the page moves to its room.
+ */
+export function teachTicketBody(s: TeachSession): { room: string; name: string } | null {
+  if (s.lessonId === 'new') return null;
   return { room: `lesson-${s.lessonId}`, name: s.name ?? '선생님' };
 }
 
@@ -84,11 +101,43 @@ export const TS = {
   last: '마지막 단계예요',
   give: '물건 주기',
   given: (label: string) => `${label} 줬어요`,
+  askTitle: '🤝 교환 제안 (영어 문장으로 받기)',
+  askItem: '줄 물건',
+  askSentence: '이 문장으로 말하면 줌 (별은 학생이 실제로 말한 만큼)',
+  askStars: (n: number) => '⭐'.repeat(n),
+  askSend: '제안하기',
+  askDone: '교환을 제안했어요. 학생이 다가와 E 를 누르고 문장으로 말하면 성립돼요',
+  askNeedSentence: '문장을 먼저 골라 주세요',
   trades: '주고받기',
   noTrades: '아직 주고받은 것이 없어요',
   childSaid: '학생의 마지막 말',
   failed: '보내지 못했어요. 다시 눌러 주세요',
-  ended: '수업이 끝났어요. 콘솔로 돌아가세요',
+  ended: '수업이 끝났어요',
+  endLesson: '수업 끝',
+  endConfirm: '정말 끝내기 (리포트 만들기)',
+  endComment: '오늘 한마디 (리포트에 들어감)',
+  endNext: '다음 수업 날짜',
+  reportReady: '리포트 준비됨',
+  openReport: '리포트 열기',
+  targetTitle: '🎯 목표 문장 띄우기',
+  targetPlaceholder: '학생 화면에 띄울 영어 문장',
+  targetSend: '띄우기',
+  targetDone: '목표 문장을 띄웠어요',
+  targetMoved: '그 사이 단계가 넘어갔어요. 문장은 그대로 둡니다',
+  pinTitle: '📌 핀',
+  pinCoaching: 'F1 코칭',
+  pinExpression: 'F2 새 표현',
+  pinPlaceholder: '메모 (영어 권장)',
+  pinDone: '핀을 남겼어요',
+  feedTitle: '학생 발화',
+  feedEmpty: '아직 한 말이 없어요',
+  startTitle: '🧑‍🏫 수업 시작하기',
+  joinCode: (code: string) => `학생 참가 숫자 ${code} · 학생은 첫 화면 '수업 참가'에 적어요 (영어의 날 표에서 들어오면 숫자 없이 바로)`,
+  startPick: '학생 고르기',
+  start: '수업 시작',
+  startStarting: '여는 중…',
+  startDone: '수업이 열렸어요. 들어갑니다…',
+  startEmpty: '등록된 학생이 없어요. 콘솔에서 먼저 등록해 주세요',
   signIn: '콘솔 로그인이 끝났어요. 콘솔에서 다시 들어와 주세요',
   replaced: '다른 탭에서 이 수업 월드를 열었어요. 학생은 그 탭의 선생님을 봐요',
   takeOver: '여기서 다시 들어가기'
@@ -104,11 +153,20 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 /** What the panel reads from GET /v1/admin/lessons/:id/feed (the console's own feed). */
 export interface TeachFeed {
-  lesson: { stage_id: string | null; plan_id?: string; ended_at: number | null };
+  lesson: { stage_id: string | null; plan_id?: string; ended_at: number | null; targets?: string[]; join_code?: string | null };
   stage_hold?: { held: boolean; ready: string | null; next_stage_id: string | null };
   student_view?: { last_utterance: { transcript: string; target_text: string; pass: boolean } | null };
-  trades?: Array<{ client_id: string; kind: string; get_key: string | null; give_key: string | null; transcript: string; ok: boolean }>;
+  utterances?: Array<{ id: string; transcript: string; stars: number; pass: boolean; at: number }>;
+  pins?: Array<{ id: string; kind: string; note: string }>;
+  trades?: Array<{ client_id: string; kind: string; get_key: string | null; give_key: string | null; transcript: string; ok: boolean; stars?: number; reason?: string | null }>;
   world_look?: unknown;
+}
+
+/** One row of GET /v1/admin/students for the in-world start mode. */
+export interface TeachStudent {
+  player_id: string;
+  nickname: string;
+  level?: string;
 }
 
 export interface TeacherBarProps {
@@ -176,13 +234,19 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
     }
   };
 
+  const startMode = session.lessonId === 'new';
+  // Start mode names no lesson: no heartbeat and no feed until the lesson opens (then the page moves to its room).
   // Presence beat while the teacher is in the world (the console's tab is this one now): source 'world' = the teacher
   // walks with the child, so the stages wait for the teacher (docs/18 §11).
   // Only a tab the teacher looks at, and not one replaced by another tab, holds the stages (review R326: a forgotten
   // background tab held them for good); otherwise the beat is a plain console beat and the auto rules run.
   const replacedRef = useRef(replaced);
   replacedRef.current = replaced;
+  // Once the lesson is over (the panel's own end, or the feed saw it) the beat stops: a beat on an ended lesson only
+  // earns a 409 the browser prints as a console error (R331 live run, after 'end').
+  const lessonOver = state === 'ended';
   useEffect(() => {
+    if (startMode || lessonOver) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const beat = async (): Promise<void> => {
@@ -214,10 +278,11 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
       stop = true;
       if (timer !== null) clearTimeout(timer);
     };
-  }, [session.lessonId, session.token, session.name]);
+  }, [session.lessonId, session.token, session.name, startMode, lessonOver]);
 
   // The lesson feed: stage and its hold, the child's newest sentence, trades, the child's world look.
   useEffect(() => {
+    if (startMode) return;
     let stop = false;
     const read = async () => {
       try {
@@ -243,7 +308,7 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
       stop = true;
       clearInterval(t);
     };
-  }, [session.lessonId, session.token]);
+  }, [session.lessonId, session.token, startMode]);
 
   // How many people share the room; on the first child seen, stand next to them once.
   useEffect(() => {
@@ -286,6 +351,99 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
     r.start();
   };
 
+  // R331: the in-world panel runs the lesson (the console is only a handoff): own target sentence, F1/F2 pins, end.
+  const [target, setTarget] = useState('');
+  const [pinNote, setPinNote] = useState('');
+  const [endArmed, setEndArmed] = useState(false);
+  const [comment, setComment] = useState('');
+  const [nextAt, setNextAt] = useState('');
+  const [reportPath, setReportPath] = useState<string | null>(null);
+  // R331 교환 제안: 큰 주머니의 물건 + 그 물건의 교환 문장(서버가 채점하는 tradeOffers 와 같은 문장 — 물건 이름만 ⭐1,
+  // 더 갖추면 ⭐2·⭐3). 자유 문장은 서버 채점과 어긋나 받지 않는다.
+  const [askKey, setAskKey] = useState(TEACHER_STOCK[0]?.key ?? '');
+  const askOffers = tradeOffers({ getKey: askKey });
+  const [askStar, setAskStar] = useState(2);
+  const askSentence = askOffers.find((o) => o.stars === askStar)?.text ?? askOffers[0]?.text ?? '';
+  const postRaw = async (path: string, body: unknown): Promise<Response | null> => {
+    try {
+      return await fRef.current(`${base}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+    } catch {
+      setMsg(TS.failed);
+      return null;
+    }
+  };
+  const pushTarget = async (text: string) => {
+    const t = text.trim().slice(0, 200);
+    if (!t) return;
+    if (!stage) {
+      setMsg(TS.failed);
+      return;
+    }
+    const r = await postRaw('/stage', { stage_id: stage.id, targets: [t], only_if_stage: true });
+    if (!r) return;
+    if (r.status === 409) {
+      setMsg(TS.targetMoved);
+      return;
+    }
+    if (r.ok) {
+      setTarget('');
+      setMsg(TS.targetDone);
+    } else setMsg(TS.failed);
+  };
+  const addPin = async (kind: 'coaching' | 'expression') => {
+    const r = await postRaw('/pins', { kind, at_ms: Date.now(), note: pinNote.trim().slice(0, 300) });
+    if (!r) return;
+    if (r.ok) {
+      setPinNote('');
+      setMsg(TS.pinDone);
+    } else setMsg(TS.failed);
+  };
+  // F1 = coaching pin, F2 = expression pin (the console's shortcuts, now in the world).
+  useEffect(() => {
+    if (startMode || state !== 'live') return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F1' && e.key !== 'F2') return;
+      e.preventDefault();
+      void addPin(e.key === 'F1' ? 'coaching' : 'expression');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+  /**
+   * R331 교환 제안: 선생님 말풍선으로 "이렇게 말하면 <물건>" 알림. 수업 목표 문장(/stage)은 건드리지 않는다 — 교환은
+   * 학생이 선생님 곁에서 E 로 여는 교환 창에서 같은 tradeOffers 문장으로 채점되고, 물건은 학생이 말해야 넘어간다.
+   */
+  const proposeTrade = async () => {
+    const item = TEACHER_STOCK.find((it) => it.key === askKey);
+    if (!item || !askSentence) {
+      setMsg(TS.askNeedSentence);
+      return;
+    }
+    const said = tradeAskLine(askSentence, item.label);
+    if (await post('/npc-say', { npc_id: 'teacher', text: said.slice(0, 280) })) {
+      world.playerSay?.(said);
+      setMsg(TS.askDone);
+    }
+  };
+
+  const endLesson = async () => {
+    if (!endArmed) {
+      setEndArmed(true);
+      return;
+    }
+    const r = await postRaw('/end', {
+      teacher_comment: comment.trim().slice(0, 400),
+      next_lesson_at: nextAt.trim().slice(0, 60)
+    });
+    if (!r) return;
+    if (r.ok) {
+      const j = (await r.json().catch(() => null)) as { report_path?: string } | null;
+      setReportPath(j?.report_path ?? null);
+      setMsg(null);
+      setState('ended');
+    } else setMsg(TS.failed);
+  };
+
   const back = goConsole ?? (() => location.assign('/director'));
   const btn: React.CSSProperties = {
     pointerEvents: 'auto',
@@ -322,6 +480,19 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
     fontFamily: T.fonts.ui,
     fontSize: T.scale.small.sizePx
   };
+  // R331 start mode (?teach=new): pick a student, open the lesson, walk into its room. No heartbeat yet.
+  if (startMode) {
+    return (
+      <div className="lcw-teachbar" role="status" data-hud-part="" style={{ ...box, width: 'min(320px, 44vw)', padding: SP[2], display: 'grid', gap: SP[1] }}>
+        <strong>{TS.startTitle}</strong>
+        <TeachStart token={session.token} fetchImpl={f} prefer={typeof location === 'undefined' ? null : teachPrepFrom(location.search)} />
+        <button type="button" style={btn} onClick={back}>
+          {TS.console}
+        </button>
+        {msg ? <div role="alert" style={{ fontSize: T.scale.micro.sizePx }}>{msg}</div> : null}
+      </div>
+    );
+  }
   if (folded) {
     return (
       <div className="lcw-teachbar" role="status" data-hud-part="" data-folded="1" style={{ ...box, display: 'flex', gap: SP[1], alignItems: 'center', padding: SP[1] }}>
@@ -352,6 +523,12 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
           {TS.fold}
         </button>
       </div>
+      {state === 'ended' && reportPath ? (
+        // R331: the report stays one tap away in the world after the end (the end form folds away with the live state)
+        <div data-testid="teach-report" style={{ background: C['paper-50'], color: C['ink-900'], borderRadius: SHAPE.radiusCardPx, padding: SP[1] }}>
+          {TS.reportReady} · <a href={reportPath} style={{ fontWeight: 700 }}>{TS.openReport}</a>
+        </div>
+      ) : null}
       {state === 'live' && replaced ? (
         <button
           type="button"
@@ -404,6 +581,11 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
           {TS.console}
         </button>
       )}
+      {state === 'live' && feed?.lesson.join_code ? (
+        <div data-testid="teach-join-code" style={{ background: C.sun, color: C['ink-900'], borderRadius: SHAPE.radiusCardPx, padding: SP[1], fontSize: T.scale.small.sizePx, fontWeight: 700 }}>
+          {TS.joinCode(feed.lesson.join_code)}
+        </div>
+      ) : null}
       {state === 'live' && stage ? (
         <section data-testid="teach-stage" style={{ background: C['paper-0'], color: C['ink-900'], borderRadius: SHAPE.radiusCardPx, padding: SP[1], display: 'grid', gap: SP[1] }}>
           <strong>{TS.stage(idx + 1, plan.stages.length, stage.titleKo)}</strong>
@@ -470,11 +652,145 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
           {last.pass ? '✅' : '🔁'} “{last.transcript}”
         </div>
       ) : null}
+      {state === 'live' && (feed?.utterances?.length || last) ? (
+        <section data-testid="teach-feed" style={{ display: 'grid', gap: SP[0], fontSize: T.scale.small.sizePx }}>
+          <strong>{TS.feedTitle} ({feed?.utterances?.length ?? (last ? 1 : 0)})</strong>
+          <ul style={{ margin: 0, paddingLeft: SP[3], display: 'grid', gap: SP[0] }}>
+            {(feed?.utterances ?? []).slice(-5).map((u) => (
+              <li key={u.id}>
+                {u.pass ? '✅' : '🔁'} “{u.transcript}”{u.stars > 0 ? ` ⭐${u.stars}` : ''}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {state === 'live' ? (
+        <section data-testid="teach-target" style={{ display: 'grid', gap: SP[1] }}>
+          <form
+            style={{ display: 'flex', gap: SP[1] }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void pushTarget(target);
+            }}
+          >
+            <input
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder={TS.targetPlaceholder}
+              aria-label={TS.targetPlaceholder}
+              maxLength={200}
+              style={{ ...btn, flex: '1 1 auto', minWidth: 0, fontWeight: 400, cursor: 'text' }}
+            />
+            <button type="submit" data-testid="teach-target-send" style={btn} disabled={!target.trim()}>
+              {TS.targetSend}
+            </button>
+          </form>
+          {(feed?.lesson.targets?.length ?? 0) > 0 ? (
+            <div style={{ fontSize: T.scale.micro.sizePx, opacity: 0.85 }}>{TS.targetTitle}: {(feed?.lesson.targets ?? []).join(' · ')}</div>
+          ) : null}
+        </section>
+      ) : null}
+      {state === 'live' ? (
+        <section data-testid="teach-pins" style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap', alignItems: 'center' }}>
+          <strong style={{ fontSize: T.scale.micro.sizePx }}>{TS.pinTitle}{feed?.pins?.length ? ` (${feed.pins.length})` : ''}</strong>
+          <input
+            value={pinNote}
+            onChange={(e) => setPinNote(e.target.value)}
+            placeholder={TS.pinPlaceholder}
+            aria-label={TS.pinPlaceholder}
+            maxLength={300}
+            style={{ ...btn, flex: '1 1 120px', minWidth: 0, fontWeight: 400, cursor: 'text', minHeight: SP[5] }}
+          />
+          <button type="button" data-testid="teach-pin-coaching" style={{ ...btn, minHeight: SP[5] }} onClick={() => void addPin('coaching')}>
+            {TS.pinCoaching}
+          </button>
+          <button type="button" data-testid="teach-pin-expression" style={{ ...btn, minHeight: SP[5] }} onClick={() => void addPin('expression')}>
+            {TS.pinExpression}
+          </button>
+        </section>
+      ) : null}
+      {state === 'live' ? (
+        <details data-testid="teach-end">
+          <summary style={{ cursor: 'pointer', fontWeight: 700 }}>{TS.endLesson}</summary>
+          <div style={{ display: 'grid', gap: SP[1], marginTop: SP[1] }}>
+            <input
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder={TS.endComment}
+              aria-label={TS.endComment}
+              maxLength={400}
+              style={{ ...btn, fontWeight: 400, cursor: 'text', minHeight: SP[5] }}
+            />
+            <input
+              value={nextAt}
+              onChange={(e) => setNextAt(e.target.value)}
+              placeholder={TS.endNext}
+              aria-label={TS.endNext}
+              maxLength={60}
+              style={{ ...btn, fontWeight: 400, cursor: 'text', minHeight: SP[5] }}
+            />
+            <div style={{ display: 'flex', gap: SP[1] }}>
+              <button type="button" data-testid="teach-end-go" style={{ ...btn, background: endArmed ? C['brand-d'] : C['paper-50'], color: endArmed ? C['paper-0'] : C['ink-900'] }} onClick={() => void endLesson()}>
+                {endArmed ? TS.endConfirm : TS.endLesson}
+              </button>
+              {endArmed ? (
+                <button type="button" style={{ ...btn, minHeight: SP[5] }} onClick={() => setEndArmed(false)}>
+                  ✕
+                </button>
+              ) : null}
+            </div>
+            {reportPath ? (
+              <div style={{ fontSize: T.scale.small.sizePx }}>
+                {TS.reportReady} · <a href={reportPath} style={{ fontWeight: 700 }}>{TS.openReport}</a>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
       {state === 'live' ? (
         <details>
           <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
             {TS.give} · {TS.trades} {feed?.trades?.length ? `(${feed.trades.length})` : ''}
           </summary>
+          <form
+            data-testid="teach-ask"
+            style={{ display: 'grid', gap: SP[1], marginTop: SP[1], background: C['paper-0'], color: C['ink-900'], borderRadius: SHAPE.radiusCardPx, padding: SP[1] }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void proposeTrade();
+            }}
+          >
+            <strong style={{ fontSize: T.scale.micro.sizePx }}>{TS.askTitle}</strong>
+            <label style={{ display: 'grid', gap: SP[0], fontSize: T.scale.micro.sizePx }}>
+              {TS.askItem}
+              <select value={askKey} onChange={(e) => setAskKey(e.target.value)} style={{ ...btn, minHeight: SP[5], cursor: 'pointer', fontWeight: 400 }}>
+                {TEACHER_STOCK.map((it) => (
+                  <option key={it.key} value={it.key}>
+                    {it.emoji} {it.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div style={{ display: 'flex', gap: SP[1] }}>
+              <select
+                data-testid="teach-ask-sentence"
+                value={askStar}
+                onChange={(e) => setAskStar(Number(e.target.value))}
+                aria-label={TS.askSentence}
+                lang="en"
+                style={{ ...btn, flex: '1 1 auto', minWidth: 0, fontWeight: 400, cursor: 'pointer', minHeight: SP[5] }}
+              >
+                {askOffers.map((o) => (
+                  <option key={o.stars} value={o.stars}>
+                    {TS.askStars(o.stars)} {o.text}
+                  </option>
+                ))}
+              </select>
+              <button type="submit" data-testid="teach-ask-send" style={btn} disabled={!askSentence}>
+                {TS.askSend}
+              </button>
+            </div>
+          </form>
           <div data-testid="teach-give" style={{ display: 'flex', flexWrap: 'wrap', gap: SP[0], marginTop: SP[1] }}>
             {TEACHER_STOCK.map((it) => (
               <button
@@ -497,7 +813,8 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
             {(feed?.trades ?? []).slice(0, 6).map((t) => (
               <li key={t.client_id}>
                 {t.kind === 'gift' ? '🎁' : t.ok ? '🤝' : '🔁'} {t.give_key ? `${t.give_key} → ` : ''}
-                {t.get_key ?? ''} {t.transcript ? `“${t.transcript}”` : ''}
+                {t.get_key ?? ''} {typeof t.stars === 'number' && t.stars > 0 ? `⭐${t.stars} ` : ''}
+                {t.transcript ? `“${t.transcript}”` : ''}{!t.ok && t.kind !== 'gift' && t.reason ? ` (${t.reason})` : ''}
               </li>
             ))}
           </ul>
@@ -505,5 +822,114 @@ export function TeacherBar({ world, session, room, fetchImpl, goConsole, onLook 
       ) : null}
       {msg ? <div role="alert" style={{ fontSize: T.scale.micro.sizePx }}>{msg}</div> : null}
     </div>
+  );
+}
+
+/**
+ * R331 start mode (?teach=new): the teacher picks a student and opens the lesson from inside the world. On success the
+ * page walks into the lesson room (`?teach=<id>`), where the panel above takes over.
+ */
+/** `?prep=<student id>` (the hub's '다음 수업 준비' card through /director): that student is picked first. */
+export function teachPrepFrom(search: string): string | null {
+  const id = new URLSearchParams(search).get('prep') ?? '';
+  return /^[\w-]{1,80}$/.test(id) ? id : null;
+}
+
+/** The start list's first pick: the prepared student when listed, else the first. */
+export function teachStartPick(students: TeachStudent[], prefer: string | null): string {
+  if (prefer && students.some((s) => s.player_id === prefer)) return prefer;
+  return students[0]?.player_id ?? '';
+}
+
+export function TeachStart({ token, fetchImpl, prefer = null }: { token: string; fetchImpl: FetchLike; prefer?: string | null }): React.ReactElement {
+  const [students, setStudents] = useState<TeachStudent[] | null>(null);
+  const [picked, setPicked] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    let stop = false;
+    void fetchImpl('/v1/admin/students', { headers: { authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!stop && Array.isArray(j)) {
+          setStudents(j as TeachStudent[]);
+          setPicked((p) => p || teachStartPick(j as TeachStudent[], prefer));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      stop = true;
+    };
+  }, [token, fetchImpl, prefer]);
+  const start = async () => {
+    if (!picked || busy) return;
+    setBusy(true);
+    setFailed(false);
+    try {
+      const r = await fetchImpl('/v1/admin/lessons/start', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ player_id: picked, presence: true })
+      });
+      if (!r.ok) {
+        setFailed(true);
+        return;
+      }
+      const j = (await r.json()) as { lesson_id?: string };
+      if (!j.lesson_id) {
+        setFailed(true);
+        return;
+      }
+      setDone(true);
+      location.assign(`/world/?teach=${encodeURIComponent(j.lesson_id)}`);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const btn: React.CSSProperties = {
+    pointerEvents: 'auto',
+    border: `2px solid ${C['ink-900']}`,
+    borderRadius: SHAPE.radiusCardPx,
+    background: C['paper-50'],
+    color: C['ink-900'],
+    font: 'inherit',
+    fontWeight: 700,
+    padding: `${SP[0]}px ${SP[2]}px`,
+    minHeight: SP[5] + SP[1],
+    cursor: 'pointer'
+  };
+  if (students === null) return <span style={{ fontSize: T.scale.small.sizePx }}>…</span>;
+  if (students.length === 0) return <span style={{ fontSize: T.scale.small.sizePx }}>{TS.startEmpty}</span>;
+  return (
+    <form
+      data-testid="teach-start"
+      style={{ display: 'grid', gap: SP[1] }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void start();
+      }}
+    >
+      <label style={{ display: 'grid', gap: SP[0], fontSize: T.scale.small.sizePx }}>
+        {TS.startPick}
+        <select
+          value={picked}
+          onChange={(e) => setPicked(e.target.value)}
+          style={{ ...btn, cursor: 'pointer', fontWeight: 400 }}
+        >
+          {students.map((s) => (
+            <option key={s.player_id} value={s.player_id}>
+              {s.nickname}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="submit" data-testid="teach-start-go" style={{ ...btn, background: C['leaf-d'], color: C['paper-0'] }} disabled={busy || !picked}>
+        {done ? TS.startDone : busy ? TS.startStarting : TS.start}
+      </button>
+      {failed ? <div role="alert" style={{ fontSize: T.scale.micro.sizePx }}>{TS.failed}</div> : null}
+    </form>
   );
 }

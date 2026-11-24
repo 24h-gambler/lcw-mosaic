@@ -242,11 +242,13 @@ export function TradeWindow(props: {
   renderDialog?: (npc: LessonNpcRef, cfg: LessonDialogConfig) => React.ReactNode;
   /** R326 ⑫: the child talks with the teacher in their own words (a lesson free-talk answer the console shows). */
   talk?: (u: unknown) => Promise<DialogResult>;
+  /** R331: the thing the teacher just offered from the in-world panel, picked already. */
+  initialGetKey?: string | null;
   onClose: () => void;
 }): React.ReactElement {
   const [info, setInfo] = useState<LessonTradeInfo | null>(null);
   const [err, setErr] = useState(false);
-  const [getKey, setGetKey] = useState<string | null>(null);
+  const [getKey, setGetKey] = useState<string | null>(props.initialGetKey ?? null);
   const [giveId, setGiveId] = useState<string | null>(null);
   const [step, setStep] = useState<TradeStep>({ kind: 'pick' });
   const [done, setDone] = useState<string | null>(null);

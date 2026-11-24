@@ -87,6 +87,14 @@ function speechCounts(sql: SqliteExecutor, where: string, params: unknown[]): Sp
     last_at: r?.last_at == null ? null : Number(r.last_at)
   };
 }
+/** Trades the student won from the teacher by saying the sentence (R331); 0 in ops-card unit setups without lesson tables. */
+function tradesWon(sql: SqliteExecutor, where: string, params: unknown[]): number {
+  try {
+    return Number(sql.get<{ n: number }>(`select count(*) as n from lesson_trades where kind = 'trade' and ok = 1 and ${where}`, params)?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
 /** Closed by the idle sweep (lesson-mode.ts LESSON_IDLE_CLOSE_MS): its report waits for the teacher, or went out with a later part. */
 function autoCloseOf(sql: SqliteExecutor, lessonId: string): { sent_at: number | null; folded_into: string | null } | null {
   try {
@@ -129,6 +137,7 @@ export function lessonSummaryCard(sql: SqliteExecutor, lessonId: string, nowMs: 
   const s = speechCounts(sql, 'session_kind = ? and session_id = ?', ['lesson', lessonId]);
   const stages = sql.get<{ n: number }>('select count(distinct stage_id) as n from lesson_stage_log where lesson_id = ?', [lessonId])?.n ?? 0;
   const pins = sql.get<{ n: number }>('select count(*) as n from pins where lesson_id = ?', [lessonId])?.n ?? 0;
+  const trades = tradesWon(sql, 'lesson_id = ?', [lessonId]);
   const report = sql.get<{ n: number }>("select count(*) as n from reports where ref_id = ? and kind = 'lesson'", [lessonId])?.n ?? 0;
   const nick = nicknameOf(sql, l.player_id);
   const auto = autoCloseOf(sql, lessonId);
@@ -144,6 +153,7 @@ export function lessonSummaryCard(sql: SqliteExecutor, lessonId: string, nowMs: 
       `수업 ${lessonId} · 학생 ${nick} (${l.player_id})`,
       `시간 ${kstClock(l.started_at)}–${kstClock(end)} (${minutes}분)`,
       `말한 횟수 ${s.utterances} · 통과 ${s.passes} · 별 ${s.stars} · 단어 ${s.words} · 말한 시간 ${secs(s.speaking_ms)}초`,
+      ...(trades > 0 ? [`선생님과 영어로 물건 바꾸기 ${trades}번 성립`] : []),
       `단계 ${stages}개 · 핀 ${pins}개 · 보호자 보고서 ${
         report ? '만듦' : auto?.folded_into ? `이어 한 수업 ${auto.folded_into} 의 보고서에 합쳐 보냄` : pending ? '초안만 있음(아직 안 보냄)' : '없음'
       }`,
@@ -168,13 +178,14 @@ export function studentDailyCard(sql: SqliteExecutor, playerId: string, day: str
   const from = kstDayStartMs(day);
   const s = speechCounts(sql, 'player_id = ? and created_at >= ? and created_at < ?', [playerId, from, from + 86_400_000]);
   const nick = nicknameOf(sql, playerId);
+  const trades = tradesWon(sql, 'player_id = ? and at >= ? and at < ?', [playerId, from, from + 86_400_000]);
   return {
     source: OPS_CARD_SOURCE,
     ref: `${OPS_CARD_SOURCE}:lcw:student:${playerId}:${day}`,
     title: `🧒 LCW 학생 하루 기록 · ${nick} · ${day}`,
     body: [
       `학생 ${nick} (${playerId}) · ${day} (한국 시간)`,
-      `수업 ${s.lessons}번 · 말한 횟수 ${s.utterances} · 통과 ${s.passes} · 별 ${s.stars}`,
+      `수업 ${s.lessons}번 · 말한 횟수 ${s.utterances} · 통과 ${s.passes} · 별 ${s.stars}${trades > 0 ? ` · 선생님과 교환 ${trades}번` : ''}`,
       `단어 ${s.words} · 말한 시간 ${secs(s.speaking_ms)}초${s.last_at ? ` · 마지막 ${kstClock(s.last_at)}` : ''}`,
       ...(s.lessons > 0 ? ["수업한 날: '다음 수업 준비'로 콘솔에서 이 학생의 다음 수업안을 고르고 시작합니다."] : []),
       '발화별 기록은 디렉터 콘솔의 CSV 로 받습니다(카드에는 숫자만).'

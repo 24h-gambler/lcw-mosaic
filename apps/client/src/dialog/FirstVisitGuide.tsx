@@ -399,7 +399,14 @@ export function readMicStatus(): MicCheckStatus | null {
  * per lesson when they join (before the teacher's first sentence; the status goes to the teacher console through the
  * lesson state poll), a guest once on this device. Children with a device see it inside the first-visit intro.
  */
-export function MicCheckGate(props: { identityKind: string; lessonCode?: string; hidden?: boolean; speech?: SpeechEngine }): React.ReactElement | null {
+export function MicCheckGate(props: {
+  identityKind: string;
+  lessonCode?: string;
+  hidden?: boolean;
+  speech?: SpeechEngine;
+  /** R331: the card closed by a press (a user gesture) — the world takes the view right away, no extra click. */
+  onClosed?: () => void;
+}): React.ReactElement | null {
   // The student session can appear while the page is open ("🎓 수업 코드 넣기" on a bare /world/): look again now and then
   // (also keeps the chip's status fresh: every mic turn updates it, dialog/mic-status.ts).
   const [, setTick] = useState(0);
@@ -438,6 +445,7 @@ export function MicCheckGate(props: { identityKind: string; lessonCode?: string;
         else markSeen();
         setClosed(true);
         setReopen(false);
+        props.onClosed?.();
       }}
     />
   );
@@ -624,7 +632,8 @@ function IntroCard(props: { speech?: SpeechEngine; title?: string; tips?: boolea
           <button type="button" style={btn(false)} onClick={() => props.onDone(status.current)}>
             {F.skip}
           </button>
-          <button type="button" className="lcw-firstvisit-go" style={btn(true)} onClick={() => props.onDone(status.current)}>
+          {/* R331: focused so Enter/Space closes the card — the press is a gesture, the world takes the view, no extra click */}
+          <button type="button" className="lcw-firstvisit-go" style={btn(true)} autoFocus onClick={() => props.onDone(status.current)}>
             {F.next}
           </button>
         </div>

@@ -8,9 +8,10 @@ import { fakeDurableStorage } from '../../../edge/src/__tests__/fake-do.js';
 import { LessonHttpError, codeFromSearch, createStudentLessonApi, getStudentToken, type KeyValue } from '../lesson/api.js';
 import { LESSON_BANNER_MS, LESSON_POLL_MS, LESSON_RETRY_MAX_MS, LESSON_RETRY_START_MS, LessonController, goalTargetEn, initialLessonView, type LessonTimers, type LessonWorld } from '../lesson/controller.js';
 import { maskTarget, micUnreliable, pickHeard } from '../lesson/hint.js';
-import { FOLD_HINT_MIN_LEFT_PX, FOLD_HINT_ROOM_PX, FoldHint, LessonLayer, StatusPill, foldHintPlace, lessonGoneInWorld, lessonTalkAction, openingLine, pinOpeningLine } from '../lesson/LessonLayer.js';
+import { FOLD_HINT_MIN_LEFT_PX, FOLD_HINT_ROOM_PX, FoldHint, LessonLayer, StatusPill, foldHintPlace, lessonGoneInWorld, lessonTalkAction, openingLine, pinOpeningLine, teacherAsksNow } from '../lesson/LessonLayer.js';
 import type { LessonLayerProps as AppLessonSlotProps } from '../App.js';
 import { SubmitError } from '../dialog/submit.js';
+import { TEACHER_STOCK, isTradeAskLine, tradeAskItemKey, tradeAskLine, tradeOffers } from '@lcw/content';
 
 // App mounts the layer through import.meta.glob (no compile-time check there): pin the docs/19 §5 contract here.
 const _slot: React.ComponentType<AppLessonSlotProps> = LessonLayer;
@@ -357,6 +358,30 @@ describe('client lesson module (docs/19 §4)', () => {
     expect(lessonTalkAction('teacher', 'cafe_owner', false)).toBe('trade');
     expect(lessonTalkAction('teacher', 'teacher', true)).toBe('trade');
     expect(lessonTalkAction('cafe_owner', 'cafe_owner', false)).toBe('reopen');
+  });
+
+  it("R331: E at the teacher answers the teacher's open sentence first, then (or after a newer trade proposal) trades", () => {
+    expect(lessonTalkAction('teacher', 'guide', false, true)).toBe('reopen');
+    expect(lessonTalkAction('teacher', 'guide', false, false)).toBe('trade');
+    // sentences waiting, not passed, no proposal after them → the sentence
+    expect(teacherAsksNow({ offers: 2, panelKey: '3:a|b', answeredKey: null, tradeAsked: false })).toBe(true);
+    // passed (the pass came on these sentences) → trade
+    expect(teacherAsksNow({ offers: 2, panelKey: '3:a|b', answeredKey: '3:a|b', tradeAsked: false })).toBe(false);
+    // a pass on older sentences does not answer new ones
+    expect(teacherAsksNow({ offers: 1, panelKey: '4:c', answeredKey: '3:a|b', tradeAsked: false })).toBe(true);
+    // a trade proposal newer than the sentences → trade; no sentences → trade
+    expect(teacherAsksNow({ offers: 2, panelKey: '3:a|b', answeredKey: null, tradeAsked: true })).toBe(false);
+    expect(teacherAsksNow({ offers: 0, panelKey: '3:', answeredKey: null, tradeAsked: false })).toBe(false);
+  });
+
+  it("R331: the panel's trade proposal line names the thing so the child's trade window opens with it picked", () => {
+    for (const it of TEACHER_STOCK) {
+      const line = tradeAskLine(tradeOffers({ getKey: it.key })[1]!.text, it.label);
+      expect(isTradeAskLine(line)).toBe(true);
+      expect(tradeAskItemKey(line)).toBe(it.key);
+    }
+    expect(isTradeAskLine('I like playing soccer.')).toBe(false);
+    expect(tradeAskItemKey('Say "hi" and the dragon is yours!')).toBeNull();
   });
 
   it("the dialog's first line: the teacher's newest line as this stage's NPC, else the stage script", () => {

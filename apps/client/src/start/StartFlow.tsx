@@ -26,6 +26,7 @@ import {
   TRY_PATH,
   cleanLessonCode,
   joinDeviceLesson,
+  joinLessonWithCode,
   lessonLive,
   liveLessonId,
   loadMyWorld,
@@ -234,9 +235,24 @@ export function StartFlow(props: StartFlowProps): React.ReactElement | null {
       if (done.current) return;
       done.current = true;
       world?.setAttract?.(false);
+      // R331: the press that enters the world is the one gesture the browser wants for the mouse view
+      world?.lockPointer?.();
       onPlay(w);
     },
     [world, onPlay]
+  );
+
+  // R331 '수업 참가' on this screen: the code's session goes to the app like a linked child's (same tab, no reload, so
+  // the press that joined can still take the mouse view; the browser keeps that gesture a few seconds).
+  const joinedByCode = useCallback(
+    (s: DeviceLessonSession) => {
+      if (done.current) return;
+      done.current = true;
+      world?.setAttract?.(false);
+      world?.lockPointer?.();
+      onLessonSession(s);
+    },
+    [world, onLessonSession]
   );
 
   const enterLesson = useCallback(async (): Promise<boolean> => {
@@ -371,10 +387,82 @@ export function StartFlow(props: StartFlowProps): React.ReactElement | null {
             <Say line={X.makeWorld} help={helpKo} />
           </button>
         ) : null}
+        <LessonJoin help={helpKo} fetchFn={fetchFn} onSession={joinedByCode} />
         <FriendWorld help={helpKo} />
         <HelpKoToggle on={helpKo} />
       </div>
     </div>
+  );
+}
+
+/**
+ * R331 '수업 참가': the teacher's 6 digits, typed on the Welcome screen (the /join page only hands off now). The
+ * join answer's nickname is the child's nameplate: it shows while entering, then the world takes it from the session.
+ */
+function LessonJoin(p: { help: boolean; fetchFn: FetchLike; onSession: (s: DeviceLessonSession) => void }): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [joined, setJoined] = useState<string | null>(null);
+  const ok = cleanLessonCode(code);
+  const submit = () => {
+    if (!ok || busy || joined !== null) return;
+    setBusy(true);
+    setFailed(false);
+    void joinLessonWithCode(ok, p.fetchFn).then((s) => {
+      if (!s) {
+        setBusy(false);
+        setFailed(true);
+        return;
+      }
+      setBusy(false);
+      setJoined(s.nickname);
+      // The child sees their nameplate on the button line while the world takes the session (the app saves it).
+      p.onSession(s);
+    });
+  };
+  if (!open) {
+    return (
+      <button type="button" className="lcw-start__link" data-testid="start-lesson-join" onClick={() => setOpen(true)}>
+        <Say line={X.lessonJoin} help={p.help} />
+      </button>
+    );
+  }
+  return (
+    <form
+      className="lcw-start__fold"
+      data-testid="start-lesson-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <label className="lcw-make__label" htmlFor="lcw-start-lesson-code">
+        <Say line={X.lessonCodeLabel} help={p.help} />
+      </label>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          id="lcw-start-lesson-code"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          value={code}
+          disabled={busy || joined !== null}
+          onChange={(e) => {
+            setCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+            setFailed(false);
+          }}
+          style={{ flex: 1 }}
+        />
+        <button type="submit" className="lcw-btn lcw-btn--main" disabled={!ok || busy || joined !== null} data-testid="start-lesson-go">
+          <Say line={X.lessonCodeGo} help={false} />
+        </button>
+      </div>
+      <div className="lcw-start__hint" role={failed || busy || joined !== null ? 'status' : undefined}>
+        <Say line={joined !== null ? X.lessonJoined(joined) : busy ? X.lessonCodeJoining : failed ? X.lessonJoinFailed : X.lessonCodeHint} help={p.help} />
+      </div>
+    </form>
   );
 }
 

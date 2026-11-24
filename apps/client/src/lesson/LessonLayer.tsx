@@ -9,6 +9,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ADVENTURE_STAGE_ID,
   TEACHER_SPEAKER_ID,
+  isTradeAskLine,
+  tradeAskItemKey,
   getLessonNpc,
   type LessonDirectorEventKind,
   type LessonHintLevel,
@@ -91,11 +93,21 @@ type LayerWorld = LessonWorld & { playerSay?(text: string): void; npcDistance?(n
  * the lesson's own NPC (or no id) opens the lesson window; a passer-by gets a free talk of its own when the app can open one (`free`), the lesson window
  * folding for it (Dan 11-19 "자유도도 없앴다"); otherwise nothing happens and the lesson window stays as it is.
  */
-export function lessonTalkAction(npcId: string | undefined, lessonNpcId: string, free: boolean | undefined): 'reopen' | 'trade' | 'free' | 'none' {
-  // the teacher (the one teacher figure in the world, R325): the trade window, any time
-  if (npcId === TEACHER_SPEAKER_ID) return 'trade';
+export function lessonTalkAction(npcId: string | undefined, lessonNpcId: string, free: boolean | undefined, teacherAsks = false): 'reopen' | 'trade' | 'free' | 'none' {
+  // the teacher (the one teacher figure in the world, R325): the trade window — unless the teacher's own sentence is
+  // still waiting for the child's answer (R331 `teacherAsks`), then E at the teacher answers it first
+  if (npcId === TEACHER_SPEAKER_ID) return teacherAsks ? 'reopen' : 'trade';
   if (!npcId || npcId === lessonNpcId) return 'reopen';
   return free === true ? 'free' : 'none';
+}
+
+/**
+ * R331: E at the teacher answers the teacher's open sentence first: the stage has sentences, the child has not passed
+ * them yet (`answeredKey` is the sentences' key when a pass came), and no trade proposal came after them. Otherwise the
+ * teacher is the trade window (R325).
+ */
+export function teacherAsksNow(p: { offers: number; panelKey: string; answeredKey: string | null; tradeAsked: boolean }): boolean {
+  return p.offers > 0 && p.answeredKey !== p.panelKey && !p.tradeAsked;
 }
 
 export function isLessonPage(search: string): boolean {
@@ -157,15 +169,24 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   // 없앴다"): the lesson window folds and the app opens the passer-by's window; the lesson NPC brings it back.
   const lessonNpc = useRef(view.npcId);
   lessonNpc.current = view.npcId;
+  // R331: which of the teacher's two asks E at the teacher answers — the sentence (until passed) or a newer trade proposal.
+  const [tradeKey, setTradeKey] = useState<string | null>(null);
+  const tradeAsk = useRef<{ key: string | null } | null>(null);
+  const answeredKey = useRef<string | null>(null);
+  // the newest sentences' key and count, read when E comes (set each render below)
+  const passKey = useRef('');
+  const offersN = useRef(0);
   useEffect(() => {
     const open = (e: Event): void => {
       const d = (e as CustomEvent<{ npcId?: string; free?: boolean }>).detail;
-      const act = lessonTalkAction(d?.npcId, lessonNpc.current, d?.free);
+      const act = lessonTalkAction(d?.npcId, lessonNpc.current, d?.free, teacherAsksNow({ offers: offersN.current, panelKey: passKey.current, answeredKey: answeredKey.current, tradeAsked: tradeAsk.current !== null }));
       if (act === 'reopen') {
         setTradeOpen(false);
         setOpenFor(lessonNpc.current);
       } else if (act === 'trade') {
         setOpenFor(null);
+        setTradeKey(tradeAsk.current?.key ?? null);
+        tradeAsk.current = null;
         setTradeOpen(true);
       } else if (act === 'free') {
         // the app said it can open this NPC's window: fold ours first, then ask for theirs
@@ -179,6 +200,25 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
   }, []);
   // New stage or new sentences from the teacher: an open window starts fresh (selection, heard text, microphone).
   const panelKey = `${view.stageSeq}:${view.offers.map((o) => o.text).join('|')}`;
+  // R331: new sentences outrank an older trade proposal; a newer proposal outranks the sentences; a pass answers them.
+  const seenLines = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    tradeAsk.current = null;
+  }, [panelKey]);
+  useEffect(() => {
+    const first = seenLines.current === null;
+    const seen = (seenLines.current ??= new Set());
+    for (const b of view.bubbles) {
+      if (seen.has(b.id)) continue;
+      seen.add(b.id);
+      if (!first && b.npcId === TEACHER_SPEAKER_ID && isTradeAskLine(b.text)) tradeAsk.current = { key: tradeAskItemKey(b.text) };
+    }
+  }, [view.bubbles]);
+  passKey.current = panelKey;
+  offersN.current = view.offers.length;
+  useEffect(() => {
+    if (view.lastResult?.pass) answeredKey.current = passKey.current;
+  }, [view.lastResult]);
   const folded = openFor !== view.npcId;
   // The dialog window's first NPC line is fixed while that window is open (review of #26): a teacher line arriving
   // mid-answer must not swap the question and be read aloud over the open microphone. A new window (new stage or
@@ -385,7 +425,7 @@ export function LessonLayer(props: LessonLayerProps): React.ReactElement | null 
     />
   );
   const tradeWin = tradeOpen ? (
-    <TradeWindow view={view} teacherName={view.teacher.name} load={ctl.tradeInfo} trade={ctl.trade} talk={ctl.submit} {...(props.renderDialog ? { renderDialog: props.renderDialog } : {})} onClose={() => setTradeOpen(false)} />
+    <TradeWindow key={tradeKey ?? '-'} view={view} initialGetKey={tradeKey} teacherName={view.teacher.name} load={ctl.tradeInfo} trade={ctl.trade} talk={ctl.submit} {...(props.renderDialog ? { renderDialog: props.renderDialog } : {})} onClose={() => setTradeOpen(false)} />
   ) : null;
   // No sentences yet (before the first poll, a stage without targets): the dialog window would fill in its own solo
   // bank and send those lines as lesson answers, so our panel (free talk, the teacher's goal) stands in until they come.

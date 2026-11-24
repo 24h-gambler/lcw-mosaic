@@ -505,6 +505,7 @@ const LESSON_FACT_ORDER = [
   'free_words',
   'hintless_passes',
   'stars_total',
+  'teacher_trades',
   'longest_words'
 ] as const;
 
@@ -526,6 +527,7 @@ export function formatLessonFact(key: string, v: unknown): string {
     case 'utterances':
     case 'passes':
     case 'hintless_passes':
+    case 'teacher_trades':
       return `${fmtNum(v)}번`;
     case 'free_words':
     case 'longest_words':

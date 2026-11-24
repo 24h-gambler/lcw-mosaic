@@ -25,7 +25,7 @@ import { LessonAutoJoin, StartFlow } from './start/StartFlow.js';
 import { GuestPassLayer } from './start/PassLayer.js';
 import { passFromSearch } from './start/guestPass.js';
 import type { DeviceLessonSession } from './start/api.js';
-import { TeacherBar, teachFrom, teachTicketBody } from './world/TeacherBar.js';
+import { TeacherBar, teachFrom, teachSignInRedirect, teachTicketBody } from './world/TeacherBar.js';
 import { LESSON_FREE_TALK_EVENT, LESSON_STAGE_EVENT, LESSON_TALK_EVENT, errandGoalNpc } from './world/events.js';
 
 /** What a dialog needs besides the NPC (docs/19 3장 DialogPanelProps without npc/onClose). */
@@ -91,7 +91,7 @@ interface FirstVisitModule {
   }>;
   errandDialogFor?: (npc: NpcRef, errand: ErrandLike | null, level: Level) => ErrandDialogLike | null;
   /** The "Hello!" mic check for lesson students (once per lesson) and guests (once per device), audit G15. */
-  MicCheckGate?: React.ComponentType<{ identityKind: string; lessonCode?: string; hidden?: boolean }>;
+  MicCheckGate?: React.ComponentType<{ identityKind: string; lessonCode?: string; hidden?: boolean; onClosed?: () => void }>;
 }
 
 /** Props the shell passes to the lesson layer (docs/19 5장). */
@@ -470,6 +470,11 @@ export function App(): React.ReactElement {
   const passCode = useMemo(() => passFromSearch(location.search), []);
   // The teacher in the world (?teach=<lesson id> from the console, TeacherBar.tsx): lesson room as role 'teacher'.
   const teach = useMemo(() => teachFrom(location.search, browserStore()), []);
+  // R331: a teacher address without a sign-in on this browser → the sign-in door, not the world as a plain player.
+  useEffect(() => {
+    const to = teachSignInRedirect(location.search, browserStore());
+    if (to) location.replace(to);
+  }, []);
   /** The running pass session's token: the plot shown and built on is the host's while it is set. */
   const [passToken, setPassToken] = useState<string | null>(null);
   /** The host's world look while the pass runs; my own look comes back when it ends. */
@@ -627,7 +632,8 @@ export function App(): React.ReactElement {
         const id = identityRef.current;
         return [st && st.length >= 32 ? st : null, id?.kind === 'child' ? id.token : null];
       },
-      ...(teach ? { ticketBody: () => teachTicketBody(teach) } : {}),
+      // R331 start mode (?teach=new) names no room yet: the page moves to the lesson room when it opens.
+      ...(teach && teach.lessonId !== 'new' ? { ticketBody: () => teachTicketBody(teach) ?? {} } : {}),
       // a friend on a guest pass sits in the host's room (R325)
       passToken: () => (teach || lessonOnRef.current ? null : passTokenRef.current),
       source: { pose: () => world.multiPose?.() ?? null },
@@ -936,7 +942,13 @@ export function App(): React.ReactElement {
             </div>
           ) : null}
           {MicGate && world && identity && !teach ? (
-            <MicGate identityKind={identity.kind} lessonCode={identity.kind === 'lesson' ? identity.code : undefined} hidden={soloNpc !== null || startOpen || shellCard} />
+            <MicGate
+              identityKind={identity.kind}
+              lessonCode={identity.kind === 'lesson' ? identity.code : undefined}
+              hidden={soloNpc !== null || startOpen || shellCard}
+              // R331: the press that closed the card is the gesture; once the card is gone from the page, take the view
+              onClosed={() => setTimeout(() => world.lockPointer?.(), 0)}
+            />
           ) : null}
           {/* children run the errand, then the town goals; guests (no errand) start on the town goals (dialog/goals.ts) */}
           {/* not on the teacher's page (?teach=): the teacher walks with the child, no errand or town goals of a guest (R325) */}

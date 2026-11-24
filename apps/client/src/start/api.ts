@@ -114,6 +114,35 @@ export interface DeviceLessonSession {
   play?: PlayGateAnswer;
 }
 
+/**
+ * R331: '수업 참가' on the Welcome screen — the same student session a join code gives, typed on the title instead of
+ * the /join page. Null when the code is not six digits or the server refuses it. The caller keeps the session in this
+ * tab (lesson/api saveStudentSession) and enters /world/, where the lesson layer resumes it.
+ */
+export async function joinLessonWithCode(code: string, fetchFn: FetchLike, base = ''): Promise<DeviceLessonSession | null> {
+  if (!cleanLessonCode(code)) return null;
+  try {
+    const res = await fetchFn(`${base}/v1/join`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: cleanLessonCode(code) })
+    });
+    if (!res.ok) return null;
+    const b = (await res.json()) as Record<string, unknown>;
+    if (typeof b.student_token !== 'string' || typeof b.lesson_id !== 'string') return null;
+    const level = typeof b.level === 'string' && /^L[1-6]$/.test(b.level) ? (b.level as DeviceLessonSession['level']) : 'L1';
+    return {
+      token: b.student_token,
+      lessonId: b.lesson_id,
+      nickname: typeof b.nickname === 'string' ? b.nickname : '',
+      level,
+      voiceStore: b.voice_store === true
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** '들어가기': the same student session a join code gives, for this device's child (null = no lesson now). */
 export async function joinDeviceLesson(id: PlayerIdentity | null, fetchFn: FetchLike, base = ''): Promise<DeviceLessonSession | null> {
   if (id?.kind !== 'child') return null;

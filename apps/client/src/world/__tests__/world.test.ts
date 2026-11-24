@@ -8,7 +8,7 @@ import { TILE_PX, buildAtlasPixels } from '../atlas.js';
 import { AO_CURVE, PAD, meshChunk, padIndex } from '../mesher.js';
 import { STEP_UP_SMALL, makeBody, pickVoxel, raycastDistance, stepBody, type BlockAt } from '../physics.js';
 import { NPCS, SCENES, castNpcs, WANDERERS, buildTown, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type Spot } from '../town.js';
-import { PAGE_KEYS_ON_BUTTONS, TALK_RANGE, keyIsPressable, keyIsTyping } from '../engine.js';
+import { LOCK_KEYS, PAGE_KEYS_ON_BUTTONS, TALK_RANGE, keyIsPressable, keyIsTyping } from '../engine.js';
 import { extractPadded } from '../chunks.js';
 import { skyAt } from '../sky.js';
 import { pickTier } from '../../App.js';
@@ -64,6 +64,13 @@ describe('keys and focus (review M1)', () => {
     // walking, talking, slots and the build keys are never page keys, so they play with a button focused
     for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'KeyE', 'Digit1', 'KeyZ', 'KeyR', 'KeyC', 'Escape', 'F5']) expect(PAGE_KEYS_ON_BUTTONS.has(code)).toBe(false);
     for (const code of ['Space', 'Enter', 'Tab']) expect(PAGE_KEYS_ON_BUTTONS.has(code)).toBe(true);
+  });
+
+  it('R331: a walk or talk key is the gesture that locks the view (no click needed), Esc and typing keys never', () => {
+    // Headed Chromium 11-24 (probe/lockprobe2): requestPointerLock from a KeyW / KeyE keydown resolves; from a timer or Esc it
+    // rejects NotAllowedError. So the first W·A·S·D / E press after entering takes the mouse; Esc stays the way out.
+    for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'ArrowUp', 'Space']) expect(LOCK_KEYS.has(code)).toBe(true);
+    for (const code of ['Escape', 'Enter', 'Tab', 'F1', 'F2', 'KeyT', 'Digit1']) expect(LOCK_KEYS.has(code)).toBe(false);
   });
 });
 

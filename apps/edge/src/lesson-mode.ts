@@ -1563,10 +1563,16 @@ export function buildLessonModeApp(
     const plan = getLessonPlan(st?.plan_id);
     const stage = st ? planStage(plan, st.stage_id) : undefined;
     const mins = minutesOf(id);
+    // R331: the in-world teacher panel has no start response to keep, so the live join number comes with the feed
+    // (operator only, like /lessons/live); null once the lesson ended or the number expired.
+    const join = l.ended_at
+      ? undefined
+      : d.sql.get<{ code: string }>('select code from lesson_joins where lesson_id = ? and expires_at > ? order by expires_at desc limit 1', [id, now]);
     return c.json({
       lesson: {
         id,
         player_id: l.player_id,
+        join_code: join?.code ?? null,
         nickname: nick?.nickname ?? l.player_id,
         started_at: l.started_at,
         ended_at: l.ended_at,

@@ -383,6 +383,7 @@ export const LESSON_STRINGS_KO = {
       free_words: '대본 없이 말한 단어',
       hintless_passes: '힌트 없이 통과',
       stars_total: '받은 별',
+      teacher_trades: '영어로 말해 선생님과 바꾼 물건',
       longest_words: '가장 긴 문장'
     } as Record<string, string>
   }

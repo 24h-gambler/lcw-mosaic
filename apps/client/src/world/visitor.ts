@@ -25,6 +25,21 @@ export function pickableNpc(def: Pick<NpcDef, 'id' | 'soloOnly'>, lesson: boolea
   return !(lesson && def.soloOnly);
 }
 
+/**
+ * The score E and the talk prompt rank NPCs in reach by (lower wins). Distance, plus a turn cost: one in front of the
+ * view beats one just behind the child's back (R2625 ④). A passer-by scores +1.5, so the lesson's NPC wins unless the
+ * passer is clearly the one in front (Dan 11-19). R331: the real teacher who walked up and stands in front of the view
+ * scores -2.5, so E reaches the teacher even with the lesson's guide at the child's feet (live 11-24: guide 0.8 m below
+ * the gaze, teacher 2 m straight ahead, E went to the guide and the trade never opened). E at the teacher still answers
+ * an open sentence first (`lessonTalkAction` 'reopen'), so the lesson's sentence is never skipped by this.
+ */
+export function npcTalkScore(p: { dist: number; off: number; passer: boolean; realTeacher: boolean }): number {
+  let score = p.dist + (p.off > 1.2 ? 2.5 : p.off * 0.6);
+  if (p.passer) score += 1.5;
+  if (p.realTeacher && p.off < 0.7) score -= 2.5;
+  return score;
+}
+
 export function teacherDef(name: string): NpcDef {
   const clean = cleanTeacherName(name);
   const bare = clean.replace(/\s*선생님$/, '').trim();

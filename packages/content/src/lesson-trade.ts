@@ -146,3 +146,23 @@ export function tradeOpeningEn(p: { getKey?: string | null; giveKey?: string | n
 function articleOf(word: string): 'a' | 'an' {
   return /^[aeiou]/i.test(word) ? 'an' : 'a';
 }
+
+/**
+ * R331 (함께 진행): the teacher's trade proposal from the in-world panel, one shape both sides know — the panel says it as
+ * the teacher, the child's side spots it so E at the teacher opens the trade window with that thing already picked.
+ */
+export function tradeAskLine(sentence: string, itemLabel: string): string {
+  return `Say "${sentence}" and the ${itemLabel} is yours!`;
+}
+const TRADE_ASK_RE = /^Say "(.+)" and the (.+) is yours!$/;
+/** A teacher line that is a trade proposal (tradeAskLine's shape). */
+export function isTradeAskLine(text: string): boolean {
+  return TRADE_ASK_RE.test(text.trim());
+}
+/** The proposed thing's key (null: not a proposal line, or a thing the teacher does not carry). */
+export function tradeAskItemKey(text: string): string | null {
+  const m = TRADE_ASK_RE.exec(text.trim());
+  if (!m) return null;
+  const label = m[2]!.toLowerCase();
+  return TEACHER_STOCK.find((it) => it.label.toLowerCase() === label)?.key ?? null;
+}

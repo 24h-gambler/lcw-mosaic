@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_WORLD_CHOICE, WORLD_BUDDIES, WORLD_SEASONS, WORLD_TIMES, cleanWorldName, randomWorldChoice, readWorldChoice, readWorldSetup } from '@lcw/content';
 import { startFlowFor } from '../App.js';
-import { SIGN_IN_PATH, SIGN_UP_PATH, TRY_PATH, cleanLessonCode, joinDeviceLesson, lessonLive, liveLessonId, loadMyWorld, makeMyWorld, saveLearnLang, titleActions, type FetchLike, type KeyStore } from '../start/api.js';
+import { SIGN_IN_PATH, SIGN_UP_PATH, TRY_PATH, cleanLessonCode, joinDeviceLesson, joinLessonWithCode, lessonLive, liveLessonId, loadMyWorld, makeMyWorld, saveLearnLang, titleActions, type FetchLike, type KeyStore } from '../start/api.js';
 import { revealCards, syncLearnLang } from '../start/StartFlow.js';
 import { BIOME_NAMES, START_STRINGS, ro } from '../start/strings.js';
 import { buddyTarget } from '../world/buddy.js';
@@ -136,6 +136,17 @@ describe('start flow data (docs/08 §8.4 G07, Dan 11-16 R2555)', () => {
     expect(await joinDeviceLesson(child, fakeFetch({ 'POST /v1/device/lesson/join': () => [404, { error: 'no_live_lesson' }] }))).toBeNull();
     expect(cleanLessonCode('12 34-56')).toBe('123456');
     expect(cleanLessonCode('12345')).toBeNull();
+  });
+
+  it('R331: 수업 참가는 Welcome 숫자로 같은 student session을 준다 (/join 우회 없음)', async () => {
+    const f = fakeFetch({
+      'POST /v1/join': () => [200, { student_token: 's'.repeat(40), lesson_id: 'les-1', nickname: '지우', level: 'L2', voice_store: true }]
+    });
+    expect(await joinLessonWithCode('123456', f)).toEqual({ token: 's'.repeat(40), lessonId: 'les-1', nickname: '지우', level: 'L2', voiceStore: true });
+    expect(f.calls.filter((c) => (c.init?.method ?? 'GET') === 'POST')).toHaveLength(1);
+    expect(await joinLessonWithCode('12345', f)).toBeNull();
+    expect(await joinLessonWithCode('123456', fakeFetch({ 'POST /v1/join': () => [404, { error: 'bad_code' }] }))).toBeNull();
+    expect(await joinLessonWithCode('123456', fakeFetch({ 'POST /v1/join': () => [200, { lesson_id: 'les-1' }] }))).toBeNull();
   });
 
   it('reveals nine places: the town in the middle named after the world, eight named places around it', () => {

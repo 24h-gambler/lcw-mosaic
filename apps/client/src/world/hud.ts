@@ -164,6 +164,7 @@ function css(): string {
 .lw-hurt.on{opacity:.55;transition:none}
 .lw-lockhint{position:absolute;left:50%;top:calc(50% + 22px);transform:translateX(-50%);display:none;pointer-events:none;padding:4px 10px;border-radius:${S.radiusCardPx}px;background:${C['ink-900']}B3;color:${C['paper-0']};font-size:calc(${T.scale.micro.sizePx}px * var(--lcw-hs,1));font-weight:600;white-space:nowrap}
 .lw-lockhint.on{display:block}
+.lw-lockhint.again{top:50%;transform:translate(-50%,-50%);padding:10px 18px;font-size:calc(${T.scale.small.sizePx}px * var(--lcw-hs,1));font-weight:700}
 .lw-dir.on{opacity:1}
 .lw-dir.blackout{background:${C['night-900']}A6}
 .lw-dir.snow{background:radial-gradient(circle at 20% 30%,${C['paper-0']}CC 0 2px,transparent 3px) 0 0/48px 48px,radial-gradient(circle at 70% 60%,${C['paper-0']}AA 0 2px,transparent 3px) 0 0/64px 64px;animation:lwsnow 3s linear infinite}
@@ -1377,9 +1378,15 @@ export class WorldHud {
 
   /** R326 pointer lock: the hint shows while the mouse is free during play (desktop only). */
   /** free: "click to look"; locked: the short "Esc frees the mouse" line (the HUD buttons cannot be pressed while locked) */
-  setLockHint(on: boolean, locked = false): void {
-    if (on) this.lockHint.textContent = locked ? W.escHint : W.lookHint;
+  /**
+   * The pointer line in the middle of the screen: before the first lock how to start looking, while locked the Esc line,
+   * and after Esc (R331, `again`) a bigger "press once to go on" card right at the centre (a click or a walk key).
+   */
+  setLockHint(on: boolean, locked = false, again = false): void {
+    const resume = on && !locked && again;
+    if (on) this.lockHint.textContent = locked ? W.escHint : resume ? W.resumeHint : W.lookHint;
     this.lockHint.classList.toggle('on', on);
+    this.lockHint.classList.toggle('again', resume);
   }
 
   setFps(text: string | null): void {

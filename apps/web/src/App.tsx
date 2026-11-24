@@ -27,7 +27,7 @@ import {
 } from './WebUx.js';
 import { handleDirectorKeydown } from './director.js';
 import { WEB_UX_STRINGS_KO as UX } from './strings.js';
-import { LessonDirectorConsole } from './LessonDirector.js';
+import { DirectorHandoff } from './DirectorHandoff.js';
 import { StudentJoin } from './StudentJoin.js';
 import { ParentReportPage } from './ParentReportPage.js';
 import { DeviceLinkPage, FamilyPage } from './FamilyPage.js';
@@ -1000,8 +1000,8 @@ export function App({
     // /r/<token>; the bare old address shows the same "link not found" page as /r without a token.
     route === '/report' && React.createElement(ParentReportPage, { token: '', initial: { status: 'not_found' } }),
     route === '/dashboard' && React.createElement(DashboardPage, null),
-    // The old prototype console (T01–T04 cards with made-up NPCs and dev buttons) is not shown any more (audit
-    // 11-16): the live console is the only director screen. TeacherDirectorView stays for the T02–T04 work.
-    route === '/director' && React.createElement(LessonDirectorConsole, {})
+    // R331: the lesson runs from the in-world teacher panel (/world/?teach=new); /director is the teacher's sign-in
+    // door and the handoff to it, with the ops console (seats, sign-up approval) folded below (DirectorHandoff.tsx).
+    route === '/director' && React.createElement(DirectorHandoff, {})
   );
 }

@@ -134,6 +134,8 @@ export interface LessonDirectorConsoleProps {
   now?: () => number;
   /** The sign-up approval queue: false hides it; an object passes its test doubles. */
   signupQueue?: false | Omit<SignupQueueProps, 'token'>;
+  /** Told the sign-in on every change (R331 /director handoff: the world button turns on once a teacher signs in). */
+  onToken?: (token: string | null) => void;
 }
 
 export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.ReactElement {
@@ -179,6 +181,11 @@ export function LessonDirectorConsole(props: LessonDirectorConsoleProps): React.
       })
       .catch((e: unknown) => setKeyError(S.signInError(errorCodeOf(e))));
   }, [api]);
+
+  const onToken = props.onToken;
+  useEffect(() => {
+    onToken?.(token);
+  }, [token, onToken]);
 
   const tokenRef = useRef(token);
   tokenRef.current = token;

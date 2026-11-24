@@ -38,7 +38,7 @@ import { PeerAvatars, peerLook } from './peers.js';
 import { Buddy } from './buddy.js';
 import { SeasonWeather } from './season.js';
 import { clampPitch, firstPersonDir, followCamera, makeCamFollow, viewErrorDeg } from './cam-follow.js';
-import { TEACHER_NPC_ID, disposePlate, makePlate, pickableNpc, plateText, teacherDef, teacherTarget } from './visitor.js';
+import { TEACHER_NPC_ID, disposePlate, makePlate, npcTalkScore, pickableNpc, plateText, teacherDef, teacherTarget } from './visitor.js';
 import { BLOCK_PALETTE, WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
@@ -96,6 +96,13 @@ export function keyIsPressable(t: HTMLElement | null): boolean {
 const PRESS_INPUT_TYPES: ReadonlySet<string> = new Set(['button', 'submit', 'reset', 'checkbox', 'radio', 'image', 'color', 'file']);
 /** Keys a focused button keeps (press it, or move to the next one); every other key plays. */
 export const PAGE_KEYS_ON_BUTTONS: ReadonlySet<string> = new Set(['Space', 'Enter', 'NumpadEnter', 'Tab']);
+/**
+ * R331 (Dan 11-23 '마우스 안 눌러도 화면이 움직이고'): a walk or talk key takes the pointer, no click needed. The browser
+ * wants one user gesture for a pointer lock; a key press is one (HTML user activation: any keydown but Esc). Measured
+ * 11-24 in a headed Chromium: a lock asked with no gesture and one asked on Esc are refused (NotAllowedError), one
+ * asked on W or E is granted. Esc stays the key that frees the mouse.
+ */
+export const LOCK_KEYS: ReadonlySet<string> = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
 
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -884,6 +891,8 @@ ${line(s.help)}` : line(s.text), 4000);
     if (typing) return;
     if (keyIsPressable(t) && PAGE_KEYS_ON_BUTTONS.has(e.code)) return;
     if (attract) return;
+    // R331: the first walk or talk key takes the pointer (the key press is the gesture the browser asks for)
+    if (LOCK_KEYS.has(e.code) && !locked()) lockNow();
     input.keys.add(e.code);
     if (buildActive && !paused && !buildHud?.chestOpen) {
       if (e.code === 'KeyZ' && !e.repeat) {
@@ -1008,13 +1017,19 @@ ${line(s.help)}` : line(s.text), 4000);
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   };
   let lockedSince = -Infinity;
+  /** the pointer was taken once on this page: a free mouse now means Esc (or a window) freed it — say how to go on */
+  let lockedOnce = false;
   const onLockChange = (): void => {
     const on = locked();
+    // R331: freed with nothing on screen holding the mouse = the child's own Esc (or the browser's) — stay free until
+    // the next walk key or click; a stale relock from an earlier window must not grab it back (measured: re-locked 170 ms later)
+    if (!on && !uiHoldsMouse()) relock = false;
     if (on) {
       mouseAt = centre();
       lockedSince = performance.now();
+      lockedOnce = true;
     }
-    hud.setLockHint(on || (canLock && !uiHoldsMouse()), on);
+    hud.setLockHint(on || (canLock && !uiHoldsMouse()), on, lockedOnce);
   };
   document.addEventListener('pointerlockchange', onLockChange);
   const lockWatch = window.setInterval(() => {
@@ -1029,7 +1044,7 @@ ${line(s.help)}` : line(s.text), 4000);
     }
     // locked: the Esc line for the first few seconds of each lock
     const lk = locked();
-    hud.setLockHint((!lk && !ui) || (lk && performance.now() - lockedSince < TUNING.multi.escHintMs), lk);
+    hud.setLockHint((!lk && !ui) || (lk && performance.now() - lockedSince < TUNING.multi.escHintMs), lk, lockedOnce);
   }, 250);
   /** the press that just went down was made with the pointer locked (its release goes the same way) */
   let lockedAtDown = false;
@@ -2206,10 +2221,10 @@ ${line(s.help)}` : line(s.text), 4000);
       // the visiting teacher is not an E/tap target: E and the dialog frame stay on the lesson's own NPCs
       // R2625 ④: among NPCs in reach, the one in front of the view wins over one just behind the child's back
       const off = Math.abs(wrapAngle(Math.atan2(n.pos.x - body.x, n.pos.z - body.z) - viewYaw()));
-      let score = pd + (off > 1.2 ? 2.5 : off * 0.6);
       // in a lesson a passer-by is "near" too: E and the talk prompt open a free talk with them (Dan 11-19); when both
-      // are in reach the lesson's NPC wins unless the passer-by is clearly the one in front (its score 1.5 better)
-      if (isPasser(n)) score += 1.5;
+      // are in reach the lesson's NPC wins unless the passer-by is clearly the one in front (its score 1.5 better).
+      // R331: the real teacher in front of the view wins over the guide at the child's feet (npcTalkScore).
+      const score = npcTalkScore({ dist: pd, off, passer: isPasser(n), realTeacher: n === tch && !!realTeacher });
       if (pd < TALK_RANGE && score < nearD && Math.abs(body.y - n.pos.y) < 2.5 && pickableNpc(n.def, lessonMode)) {
         nearD = score;
         nearNpc = n;
@@ -2496,6 +2511,9 @@ ${line(s.help)}` : line(s.text), 4000);
     },
     setGoal(goalKo, targetEn) {
       hud.setGoal(goalKo, targetEn);
+    },
+    lockPointer() {
+      lockNow();
     },
     setAttract(on) {
       if (attract === on) return;

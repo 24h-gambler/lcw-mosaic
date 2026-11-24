@@ -64,6 +64,11 @@ export interface LessonParentFacts {
   quotes: LessonParentQuote[];
   expressions: string[];
   coaching_moments: number;
+  /**
+   * Trades the child won with the teacher by saying the sentence (lesson_trades kind 'trade' ok 1, R331). Optional: a
+   * report stored before the field existed has none and the page leaves the row out.
+   */
+  teacher_trades?: number;
   stages: LessonParentStage[];
   summary_ko: string;
   /**
@@ -350,6 +355,15 @@ function pickHomePractice(candidates: readonly string[]): string[] {
   return out;
 }
 
+/** Trades the child won with the teacher in this lesson (0 where the lesson tables predate lesson_trades). */
+export function teacherTradesOf(sql: SqliteExecutor, lessonId: string): number {
+  try {
+    return Number(sql.get<{ n: number }>("select count(*) as n from lesson_trades where lesson_id = ? and kind = 'trade' and ok = 1", [lessonId])?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
 export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, nowMs: number): LessonParentFacts | null {
   const lesson = sql.get<{ player_id: string; started_at: number; ended_at: number | null; plan: string }>(
     'select player_id, started_at, ended_at, plan from lessons where id = ?',
@@ -465,6 +479,7 @@ export function buildLessonParentFacts(sql: SqliteExecutor, lessonId: string, no
     quotes,
     expressions,
     coaching_moments: pins.filter((p) => p.kind === 'coaching').length,
+    teacher_trades: teacherTradesOf(sql, lessonId),
     stages
   };
   return { ...base, summary_ko: lessonSummaryKo(base), previous: prevLesson ? compare(rowsOf(prevLesson.id)) : null, home_practice };
@@ -521,6 +536,7 @@ export function mergeLessonParentFacts(parts: readonly LessonParentFacts[]): Les
       .map((x) => x.q),
     expressions,
     coaching_moments: sum((p) => p.coaching_moments),
+    teacher_trades: sum((p) => p.teacher_trades ?? 0),
     stages: [...stages.values()]
   };
   return {
@@ -576,7 +592,8 @@ const LESSON_NUMBER_KEYS = [
   'free_words',
   'speaking_sec',
   'longest_words',
-  'coaching_moments'
+  'coaching_moments',
+  'teacher_trades'
 ] as const;
 
 /**

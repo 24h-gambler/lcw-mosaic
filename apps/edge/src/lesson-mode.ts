@@ -1751,7 +1751,13 @@ export function buildLessonModeApp(
     voice_clips_kept: string[];
     coins: number;
     folded_into: string | null;
-    report_before?: { facts: string; body: string; created_at: number; opened_at: number | null } | null;
+    report_before?: {
+      facts: string;
+      body: string;
+      created_at: number;
+      opened_at: number | null;
+      delivery?: { status: unknown; sent_at: unknown; opened_at: unknown; reminder_sent_at: unknown } | null;
+    } | null;
     report_done?: boolean;
     card_done?: boolean;
   };
@@ -1779,11 +1785,13 @@ export function buildLessonModeApp(
           nextLessonAt: del.next_lesson_at ?? ''
         });
         if (res.ok) {
+          // the delivery as it was before the first rebuild (the record), else as read just before this one
+          const was = before.delivery ?? del;
           d.sql.run('update report_deliveries set status = ?, sent_at = ?, opened_at = ?, reminder_sent_at = ? where report_id = ?', [
-            del.status,
-            del.sent_at,
-            del.opened_at,
-            del.reminder_sent_at,
+            was.status,
+            was.sent_at,
+            was.opened_at,
+            was.reminder_sent_at,
             repId
           ]);
           d.sql.run('update reports set opened_at = ?, created_at = ? where id = ?', [before.opened_at, before.created_at, repId]);
@@ -1846,12 +1854,19 @@ export function buildLessonModeApp(
       }
     };
     const foldedInto = autoOf(id)?.folded_into ?? null;
-    const before = foldedInto
+    const reportRow = foldedInto
       ? (d.sql.get<{ facts: string; body: string; created_at: number; opened_at: number | null }>(
           'select facts, body, created_at, opened_at from reports where id = ?',
           [`rep-${foldedInto}`]
         ) ?? null)
       : null;
+    const deliveryRow = foldedInto
+      ? (d.sql.get<{ status: unknown; sent_at: unknown; opened_at: unknown; reminder_sent_at: unknown }>(
+          'select status, sent_at, opened_at, reminder_sent_at from report_deliveries where report_id = ?',
+          [`rep-${foldedInto}`]
+        ) ?? null)
+      : null;
+    const before = reportRow ? { ...reportRow, delivery: deliveryRow } : null;
     const rec: MarkRecord = {
       utterances: uttIds,
       expressions: idsOf('select id from expressions where lesson_id = ? and player_id = ?', [id, l.player_id]),

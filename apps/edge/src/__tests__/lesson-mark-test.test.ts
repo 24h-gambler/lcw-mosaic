@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformDO, type LcwEnv } from '../platform.js';
 import { COINS_PER_STAR, LESSON_IDLE_CLOSE_MS, LESSON_SWEEP_CRON, TEACHER_PRESENT_MS } from '../lesson-mode.js';
 import { fakeDurableStorage } from './fake-do.js';
+import { reportClips } from '../voice.js';
 
 /**
  * 11-19: someone ran a session on Oreo's real id at 15:55 (no teacher, 9 of 11 lines typed, the plan he had finished).
@@ -139,6 +140,10 @@ describe('a test session on a real child is marked and leaves everything of his'
     expect(sqlOf(p).get<{ player_id: string }>('select player_id from lessons where id = ?', [a.lessonId])!.player_id).toBe(`smoke-test-${a.lessonId}`);
     expect(count(p, "select count(*) as n from memory_cards where player_id = 'kid-1' and utterance_id in (select id from utterances where session_id = ?)", [a.lessonId])).toBe(0);
     expect(sqlOf(p).get<{ player_id: string }>("select player_id from voice_clips where id = 'vc-1'")!.player_id).toBe('kid-1');
+    // ...and never in his weekly report's clips (the line it hangs off is the test id's now)
+    const weekly = { player_id: 'kid-1', kind: 'weekly', ref_id: 'w', created_at: now };
+    const deps = { sql: sqlOf(p) as never, randomBytes: (n: number) => new Uint8Array(n) };
+    expect((await reportClips(deps, weekly, now)).map((x) => x.id)).toEqual([]);
     // the coins the session earned come off his balance (reversal rows, nothing deleted)
     expect(balance(p)).toBe(coinsBefore - coinsA);
     // the same link and delivery, the same dates; no second notice
@@ -163,7 +168,11 @@ describe('a test session on a real child is marked and leaves everything of his'
     // the record of what moved and of the report as it was; a second call changes nothing
     const mark = sqlOf(p).get<{ player_id: string; moved: string }>('select player_id, moved from lesson_test_marks where lesson_id = ?', [a.lessonId])!;
     expect(mark.player_id).toBe('kid-1');
-    expect(JSON.parse(mark.moved)).toMatchObject({ report_done: true, card_done: true, report_before: { created_at: repBefore.created_at } });
+    expect(JSON.parse(mark.moved)).toMatchObject({
+      report_done: true,
+      card_done: true,
+      report_before: { created_at: repBefore.created_at, delivery: { sent_at: (delBefore as any).sent_at, opened_at: (delBefore as any).opened_at } }
+    });
     expect(JSON.parse(JSON.parse(mark.moved).report_before.facts).lesson.utterances).toBe(3);
     const after = dump(p);
     const again = await call(p, 'POST', `/v1/admin/lessons/${a.lessonId}/mark-test`, { note: 'again' });
@@ -184,11 +193,16 @@ describe('a test session on a real child is marked and leaves everything of his'
     const rec = JSON.parse(sqlOf(p).get<{ moved: string }>('select moved from lesson_test_marks where lesson_id = ?', [a.lessonId])!.moved);
     sqlOf(p).run('update lesson_test_marks set moved = ? where lesson_id = ?', [JSON.stringify({ ...rec, report_done: false }), a.lessonId]);
     sqlOf(p).run('update reports set facts = ? where id = ?', [rec.report_before.facts, `rep-${b.lessonId}`]);
+    // and as if it broke between the rewrite and the restore: the delivery row shows the rewrite's time
+    sqlOf(p).run('update report_deliveries set sent_at = ? where report_id = ?', [now + 999, `rep-${b.lessonId}`]);
     const coins = balance(p);
     const again = await call(p, 'POST', `/v1/admin/lessons/${a.lessonId}/mark-test`, { note: 'x' });
     expect(again.body).toMatchObject({ already: true, report: { rebuilt: b.lessonId, report_path: end.body.report_path } });
     expect(JSON.parse(sqlOf(p).get<{ facts: string }>('select facts from reports where id = ?', [`rep-${b.lessonId}`])!.facts).lesson.utterances).toBe(1);
     expect(balance(p)).toBe(coins); // the coin reversal is not taken twice
+    expect(sqlOf(p).get<{ sent_at: number }>('select sent_at from report_deliveries where report_id = ?', [`rep-${b.lessonId}`])!.sent_at).toBe(
+      rec.report_before.delivery.sent_at
+    );
   });
 
   it('marked before his lesson: no continuation, no box row, the card says test, the hourly resend leaves it', async () => {

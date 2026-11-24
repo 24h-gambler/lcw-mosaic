@@ -87,7 +87,9 @@ export class PeerAvatars {
     let best: string | null = null;
     let bestD = Infinity;
     for (const rt of this.peers.values()) {
-      if (!rt.seen || !rt.char.root.visible || rt.info.role === 'bot') continue;
+      // the hidden role (the teacher, drawn as the world's teacher figure at the same spot) is still a person to hit
+      // (R2861①: teacher <-> student play fighting); anyone else out of view is not
+      if (!rt.seen || rt.info.role === 'bot' || (!rt.char.root.visible && rt.info.role !== this.hiddenRole)) continue;
       if (Math.hypot(rt.pos.x - me.x, rt.pos.z - me.z) > reach) continue;
       this.footTmp.set(rt.pos.x, rt.pos.y + 0.2, rt.pos.z);
       this.headTmp.set(rt.pos.x, rt.pos.y + CHAR_HEIGHT, rt.pos.z);
@@ -119,6 +121,17 @@ export class PeerAvatars {
    * world owns, an NPC you can talk and trade with, placed where the real teacher walks): no second figure or plate.
    */
   hiddenRole: string | null = null;
+
+  /** The room id of the first placed person of a role, or null (the teacher figure's real person, R2861①). */
+  idOfRole(role: string): string | null {
+    for (const rt of this.peers.values()) if (rt.seen && rt.info.role === role) return rt.info.id;
+    return null;
+  }
+
+  /** The role of a person in the room, or null. */
+  roleOf(id: string): string | null {
+    return this.peers.get(id)?.info.role ?? null;
+  }
 
   /** Where the first placed person of a role stands now (predicted between poses), or null. */
   roleAt(role: string): { x: number; y: number; z: number; yaw: number; name: string } | null {

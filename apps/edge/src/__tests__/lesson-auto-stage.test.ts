@@ -125,17 +125,58 @@ describe('stages move on by themselves (R2625, R2627)', () => {
     expect((await call(p, 'POST', `/v1/admin/lessons/${lessonId}/stage`, { stage_id: STAGES[2]!.id, targets: STAGES[2]!.targets.map((t) => t.text) })).status).toBe(200);
   });
 
-  it('free talk with no sentence on screen does not count as a pass (a free stage moves on by follow-ups or time)', async () => {
+  it('R2861①: free talk with no sentence on screen counts — two own-words answers move the stage on (why free)', async () => {
+    now = T0;
+    const p = platform();
+    const { lessonId, st } = await lesson(p);
+    expect(STAGES[0]!.mode).toBe('free');
+    now += 30_000;
+    const a = await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'i like playing soccer with my dad', chosen_stars: 1, dur_ms: 3000 }, st);
+    expect(a.body.pass).toBe(true);
+    expect(a.body.auto_advanced).toBeUndefined();
+    now += 30_000;
+    const b = await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'my favourite food is pizza and noodles', chosen_stars: 1, dur_ms: 3000 }, st);
+    expect(b.body.auto_advanced).toMatchObject({ from: STAGES[0]!.id, to: STAGES[1]!.id, why: 'free' });
+    expect((await state(p, st)).body.stage_id).toBe(STAGES[1]!.id);
+    expect((await log(p, lessonId)).at(-1)).toMatchObject({ stage_id: STAGES[1]!.id, source: 'auto:free' });
+  });
+
+  it('R2861①: five different own-words answers (no fixed sentence) walk the lesson on, guided stages too', async () => {
     now = T0;
     const p = platform();
     const { st } = await lesson(p);
-    expect(STAGES[0]!.mode).toBe('free');
-    for (const t of ['i like playing soccer with my dad', 'my favourite food is pizza and noodles', 'i have a little sister at home']) {
-      now += 30_000;
+    const said = [
+      'hi my name is oreo',
+      'i really like cats and dogs',
+      'can i get something sweet to eat',
+      'i want a cold drink please',
+      'where is the park near here'
+    ];
+    const seen: string[] = [STAGES[0]!.id];
+    for (const t of said) {
+      now += 20_000;
       const r = await call(p, 'POST', '/v1/lesson/utterance', { transcript: t, chosen_stars: 1, dur_ms: 3000 }, st);
-      expect(r.body.auto_advanced).toBeUndefined();
+      expect(r.body.pass).toBe(true);
+      const id = (await state(p, st)).body.stage_id as string;
+      if (id !== seen.at(-1)) seen.push(id);
     }
-    expect((await state(p, st)).body.stage_id).toBe(STAGES[0]!.id);
+    // 5 answers, 2 per stage: at least two stage moves, never stuck on the first one
+    expect(seen.length).toBeGreaterThanOrEqual(3);
+    expect(seen.slice(0, 3)).toEqual(STAGES.slice(0, 3).map((x) => x.id));
+  });
+
+  it('R2861①: a child who keeps trying with short words is not left on one stage (why tries)', async () => {
+    now = T0;
+    const p = platform();
+    const { st } = await lesson(p);
+    for (const t of ['yes', 'cat', 'um', 'hello', 'pizza']) {
+      now += 10_000;
+      const r = await call(p, 'POST', '/v1/lesson/utterance', { transcript: t, chosen_stars: 1, dur_ms: 1000 }, st);
+      expect(r.body.pass).toBe(false);
+    }
+    // a failed try does not move it in the answer; the next poll does
+    const s = await state(p, st);
+    expect(s.body).toMatchObject({ stage_id: STAGES[1]!.id, auto_advanced: { why: 'tries' } });
   });
 
   it("the stage's planned minutes of the child's own time over: the child's poll moves it on", async () => {
@@ -217,17 +258,21 @@ describe('stages move on by themselves (R2625, R2627)', () => {
     now = T0;
     const p = platform();
     const { st } = await lesson(p);
-    const free = (t: string) => call(p, 'POST', '/v1/lesson/utterance', { transcript: t, chosen_stars: 1, dur_ms: 3000 }, st);
     expect((await call(p, 'POST', '/v1/lesson/stage-done', { stage_id: STAGES[2]!.id }, st)).body).toMatchObject({ auto_advanced: null, stage_id: STAGES[0]!.id });
     // the opening line answered, every follow-up skipped: the dialog ends with "done", the stage stays
     now += 30_000;
-    expect((await free('my name is oreo and i like dogs')).body.pass).toBe(true);
+    expect((await say(p, st, STAGES[0]!.targets[0]!.text, 'my name is oreo and i like dogs')).body.pass).toBe(true);
     expect((await call(p, 'POST', '/v1/lesson/stage-done', { stage_id: STAGES[0]!.id }, st)).body).toMatchObject({ auto_advanced: null, stage_id: STAGES[0]!.id });
-    // one follow-up answered too: "done" moves it on
+    // a second answer the same as the first (a repeat earns nothing): "done" then moves it on by the follow-ups rule
     now += 30_000;
-    expect((await free('after school i play soccer with my dad')).body.pass).toBe(true);
+    const again = await say(p, st, STAGES[0]!.targets[0]!.text, 'my name is oreo and i like dogs');
+    expect(again.body.auto_advanced).toBeUndefined();
+    // R2861①: one follow-up answered in the child's own words moves it on right in the answer (free talk counts)
+    now += 30_000;
+    const r0 = await call(p, 'POST', '/v1/lesson/utterance', { transcript: 'after school i play soccer with my dad', chosen_stars: 1, dur_ms: 3000 }, st);
+    expect(r0.body.auto_advanced).toMatchObject({ from: STAGES[0]!.id, to: STAGES[1]!.id, why: 'free' });
     const r = await call(p, 'POST', '/v1/lesson/stage-done', { stage_id: STAGES[0]!.id }, st);
-    expect(r.body).toMatchObject({ ok: true, auto_advanced: { from: STAGES[0]!.id, to: STAGES[1]!.id, why: 'followups' }, stage_id: STAGES[1]!.id });
+    expect(r.body).toMatchObject({ ok: true, auto_advanced: null, stage_id: STAGES[1]!.id });
     // a resend of the same 'done' for the stage that is over does not skip the next one
     expect((await call(p, 'POST', '/v1/lesson/stage-done', { stage_id: STAGES[0]!.id }, st)).body.stage_id).toBe(STAGES[1]!.id);
     expect((await call(p, 'POST', '/v1/lesson/stage-done', { stage_id: STAGES[0]!.id })).status).toBe(401);

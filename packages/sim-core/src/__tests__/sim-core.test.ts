@@ -75,7 +75,8 @@ describe('@lcw/sim-core acceptance tests', () => {
   });
 
   it('WP-102: populates Central Plaza and London Cafe connected by protected road', () => {
-    const world = new VoxelWorld();
+    // the legacy sector demo on a bare grid (R2861① the game world is natural ground, natural.ts)
+    const world = new VoxelWorld(undefined, { natural: false });
     populateInitialWorld(world, 'london_demo', 1);
     // Spawn (144, 0, 144) down to cafe entrance (144, 0, 48) is road (block 5)
     for (let z = 48; z <= 144; z++) {

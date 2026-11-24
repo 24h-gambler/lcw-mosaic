@@ -78,8 +78,10 @@ export const TS = {
   sayMic: '🎤',
   sayQuick: '바로 쓰는 말',
   stage: (n: number, total: number, title: string) => `단계 ${n}/${total} · ${title}`,
-  held: '선생님이 단계를 쥐고 있어요 (자동 넘김 멈춤)',
-  ready: (why: string) => `이 단계 끝 — ${why === 'passes' ? '문장 다 함' : why === 'followups' ? '질문 다 함' : '시간 다 됨'}`,
+  // R2861①: the teacher in the world holds only the planned minutes; the child's own talk still moves the stage
+  held: '선생님과 함께 — 시간으로는 안 넘어가요, 학생이 말하면 넘어가요',
+  ready: (why: string) =>
+    `이 단계 끝 — ${why === 'passes' ? '문장 다 함' : why === 'followups' ? '질문 다 함' : why === 'free' ? '자기 말로 함' : why === 'tries' ? '여러 번 말함' : '시간 다 됨'}`,
   next: '다음 단계로 ▶',
   last: '마지막 단계예요',
   give: '물건 주기',

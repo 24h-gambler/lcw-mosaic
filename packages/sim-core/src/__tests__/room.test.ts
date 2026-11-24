@@ -157,16 +157,24 @@ describe('play fighting (R326 PvP)', () => {
     expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'nobody' }), 9000)).toEqual({ kind: 'none' });
     expect(core.counters.dropped).toBe(2);
   });
-  it('only the teacher turns it off and on; when off no hit goes through; hello says the state; the teacher is never hit', () => {
+  it('R2861①: the teacher plays too: a student hits the teacher and the teacher hits a student', () => {
+    const core = new RoomCore();
+    kid(core, 1, 0, 'student');
+    kid(core, 9, 2, 'teacher');
+    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k9' }), 1000)).toEqual({ kind: 'broadcast', frame: JSON.stringify({ t: 'h', from: 'k1', to: 'k9', d: [1, 0] }), exceptSelf: false });
+    const gap = Math.max(TUNING.multi.hitCooldownMs, TUNING.multi.hitTakenGapMs);
+    expect(core.receive('k9', JSON.stringify({ t: 'h', to: 'k1' }), 1000 + gap)).toEqual({ kind: 'broadcast', frame: JSON.stringify({ t: 'h', from: 'k9', to: 'k1', d: [-1, 0] }), exceptSelf: false });
+  });
+  it("only the teacher turns it off and on; when off no hit goes through (nor the teacher's); hello says the state", () => {
     const core = new RoomCore();
     kid(core, 1, 0, 'student');
     kid(core, 2, 1, 'student');
     kid(core, 9, 2, 'teacher');
     expect(core.receive('k1', JSON.stringify({ t: 'pvp', on: false }), 10)).toEqual({ kind: 'none' });
     expect(core.pvp).toBe(true);
-    expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k9' }), 20)).toEqual({ kind: 'none' });
     expect(core.receive('k9', JSON.stringify({ t: 'pvp', on: false }), 30)).toEqual({ kind: 'broadcast', frame: '{"t":"pvp","on":false}', exceptSelf: false });
     expect(core.receive('k1', JSON.stringify({ t: 'h', to: 'k2' }), 40)).toEqual({ kind: 'none' });
+    expect(core.receive('k9', JSON.stringify({ t: 'h', to: 'k2' }), 45)).toEqual({ kind: 'none' });
     const late = core.join({ id: 'k5', key: 'key5', name: 'n5', role: 'student' }, 50);
     expect(late.ok && JSON.parse(late.hello).pvp).toBe(false);
     core.receive('k9', JSON.stringify({ t: 'pvp', on: true }), 60);

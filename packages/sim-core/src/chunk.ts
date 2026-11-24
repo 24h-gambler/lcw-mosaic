@@ -75,6 +75,28 @@ export class CubicChunk {
     this.dirty = true;
   }
 
+  private genLastId = -1;
+  private genLastSlot = 0;
+
+  /**
+   * Initial terrain generation of a fresh chunk (natural.ts fillNaturalChunk, R2861①): the same palette write as
+   * setVoxelInternal, with a one-id cache because a generator writes long runs of one block. Not an edit path: every edit
+   * still goes through VoxelWorld.setBlock (dirty flag, journal); the caller marks the chunk dirty once when it is done.
+   */
+  generateVoxel(lx: number, ly: number, lz: number, blockId: number): void {
+    if (blockId !== this.genLastId) {
+      let pIdx = this.paletteIndex.get(blockId);
+      if (pIdx === undefined) {
+        pIdx = this.palette.length;
+        this.palette.push(blockId);
+        this.paletteIndex.set(blockId, pIdx);
+      }
+      this.genLastId = blockId;
+      this.genLastSlot = pIdx;
+    }
+    this.voxels[CubicChunk.index(lx, ly, lz)] = this.genLastSlot;
+  }
+
   getLight(lx: number, ly: number, lz: number): number {
     if (
       lx < 0 ||

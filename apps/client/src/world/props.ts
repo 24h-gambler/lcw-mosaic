@@ -91,6 +91,14 @@ export function makeItemModel(key: string): THREE.Group {
   } else if (food) {
     const col = /apple/.test(key) ? 0xe5484d : /banana/.test(key) ? 0xffc53d : /cake/.test(key) ? 0xff9cc2 : 0xc98a4a;
     pieces.push(vox(4, 3, 4, col, 0, 0, 2), vox(1, 1.5, 1, 0x3dbe6b, 0, 2.2, 2));
+  } else if (/pickaxe|(^|_)axe($|_)|shovel/.test(key)) {
+    // R2861①: hand tools (own voxel shapes): a wooden handle with a head — the axe a wedge to one side, the pickaxe a
+    // bar across, the shovel a flat blade at the end
+    const iron = /iron|steel/.test(key) ? 0xd5dde6 : 0xa9b4bf;
+    pieces.push(vox(1, 9, 1, 0x9a6a3a, 0, 1.5, 2));
+    if (/pickaxe/.test(key)) pieces.push(vox(7, 1.2, 1.2, iron, 0, 6, 2), vox(1.2, 1.6, 1.2, iron, -3.4, 5.4, 2), vox(1.2, 1.6, 1.2, iron, 3.4, 5.4, 2));
+    else if (/shovel/.test(key)) pieces.push(vox(3.2, 3.6, 0.6, iron, 0, -4.2, 2), vox(2.4, 0.8, 0.8, 0x9a6a3a, 0, 6.2, 2));
+    else pieces.push(vox(3, 3, 0.9, iron, 1.8, 5, 2), vox(0.9, 3.6, 1, 0xe8edf2, 3.4, 5, 2));
   } else {
     pieces.push(vox(5, 5, 5, 0xff6b4a, 0, 0, 2.5), vox(5.2, 1, 1.2, 0xffc53d, 0, 0, 2.5), vox(1.2, 5.2, 5.2, 0xffc53d, 0, 0, 2.5), vox(3, 1.5, 1.5, 0xffc53d, 0, 3.2, 2.5));
   }

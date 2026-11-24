@@ -305,6 +305,29 @@ export class PlotSync {
     await this.resync();
   }
 
+  /**
+   * R2861① (Dan "마을도 부술 수 있게"): ask the server to put the town back around a spot (or everywhere outside the plot),
+   * from its own record of what this world changed; then read the plot again so the screen and the hand match it. What
+   * is still on its way goes up first (a restore never races an edit the child just made). Not on a guest pass.
+   */
+  async restoreTown(area?: { x: number; z: number; r: number }): Promise<{ ok: true; restored: number } | { ok: false; reason: 'offline' | 'denied' }> {
+    if (this.stopped || this.o.pass) return { ok: false, reason: 'denied' };
+    await this.flush();
+    if (this.inFlight || this.queue.length > 0) return { ok: false, reason: 'offline' };
+    let restored = 0;
+    try {
+      const res = await this.fetchFn(`${this.o.base ?? ''}/v1/plot/restore`, { method: 'POST', headers: this.headers(), body: JSON.stringify(area ?? {}) });
+      if (res.status === 401 || res.status === 403) return { ok: false, reason: 'denied' };
+      if (!res.ok) return { ok: false, reason: 'offline' };
+      const out = (await res.json()) as { restored?: unknown };
+      restored = typeof out.restored === 'number' ? out.restored : 0;
+    } catch {
+      return { ok: false, reason: 'offline' };
+    }
+    await this.resync();
+    return { ok: true, restored };
+  }
+
   private async resync(): Promise<void> {
     this.reading = true;
     try {

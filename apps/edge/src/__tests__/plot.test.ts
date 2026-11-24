@@ -57,7 +57,7 @@ describe('my plot on the server (WP-201/205/207)', () => {
         ops: [
           { op: 'place', x: X, y: 1, z: Z, slot: 0 },
           { op: 'place', x: X, y: 2, z: Z, slot: 1 },
-          { op: 'place', x: 140, y: 1, z: 140, slot: 0 }, // the plaza: one of the town's protected places (R326)
+          { op: 'place', x: X, y: 1001, z: Z, slot: 0 }, // over the top of the world (R2861①: the town itself is free ground)
           { op: 'break', x: PLOT_CHEST_POS.x, y: PLOT_CHEST_POS.y, z: PLOT_CHEST_POS.z },
           { op: 'take', ref: furnitureRef('furn_chair_wood'), n: 1, slot: 4 },
           { op: 'place', x: X + 1, y: 1, z: Z, slot: 4 },
@@ -71,7 +71,7 @@ describe('my plot on the server (WP-201/205/207)', () => {
       dev
     );
     expect(r.status).toBe(200);
-    expect(r.body.results.map((x: any) => x.reason ?? 'ok')).toEqual(['ok', 'ok', 'protected', 'chest', 'ok', 'ok', 'bad_op', 'ok']);
+    expect(r.body.results.map((x: any) => x.reason ?? 'ok')).toEqual(['ok', 'ok', 'too_high', 'chest', 'ok', 'ok', 'bad_op', 'ok']);
     expect(r.body.inv.slots[0]).toEqual({ ref: blockRef(BK.oakPlank), n: 30 });
     expect(r.body.rev).toBe(1);
 

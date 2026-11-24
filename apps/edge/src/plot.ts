@@ -20,7 +20,10 @@ import {
   buildTown,
   cellKey,
   cleanInventory,
+  furnitureRef,
+  isInPlot,
   parsePlotOp,
+  recoveredBlock,
   parseRef,
   starterInventory,
   stowInInventory,
@@ -366,6 +369,93 @@ export class PlotStore {
       throw err;
     }
     return open.length;
+  }
+
+  /**
+   * Put the town back (R2861① Dan "마을도 부술 수 있게" — the town is breakable because it comes back from the server's
+   * record): every saved cell outside the plot (inside `area` when given: a circle of radius r around x,z) becomes the
+   * town builder's block again, and furniture standing out there goes home to the chest. The plot — the child's own
+   * build — is never touched. Nothing is minted or lost: a block the child placed out there returns to the chest, a
+   * town block the child dug (and got) is taken back from the chest or the hand if it is still there. One transaction
+   * with a journal line (`op: 'restore'`), so a teacher can see who put the town back and how much.
+   */
+  restoreTown(nowMs: number, actor: string, area?: { x: number; z: number; r: number }): { restored: number; furniture: number; rev: number } {
+    const world = this.state.world;
+    const base = baseTownWorld();
+    const inArea = (x: number, z: number) =>
+      !isInPlot(world, x, z) && (!area || (x - area.x) * (x - area.x) + (z - area.z) * (z - area.z) <= area.r * area.r);
+    const cells = this.sql
+      .all<{ x: number; y: number; z: number; id: number }>('select x, y, z, id from plot_cells')
+      .map((r) => [Number(r.x), Number(r.y), Number(r.z), Number(r.id)] as const)
+      .filter(([x, , z]) => inArea(x, z));
+    const furn = [...this.state.furniture].filter(([k]) => {
+      const [x, , z] = k.split(',').map(Number) as [number, number, number];
+      return inArea(x, z);
+    });
+    if (cells.length === 0 && furn.length === 0) return { restored: 0, furniture: 0, rev: this.rev };
+    // the inventory change: + what the cell holds now (as if broken), - the town's block (as if placed back)
+    const change = new Map<ItemRef, number>();
+    const add = (ref: ItemRef, n: number) => change.set(ref, (change.get(ref) ?? 0) + n);
+    const sys = { id: `restore:${actor}`, isSystemGen: true };
+    for (const [x, y, z] of cells) {
+      const now = world.getBlock(x, y, z);
+      const town = base.getBlock(x, y, z);
+      const got = recoveredBlock(now);
+      const gave = recoveredBlock(town);
+      if (got !== null && now !== 0) add(blockRef(got), 1);
+      if (gave !== null && town !== 0) add(blockRef(gave), -1);
+      world.setBlock(sys, x, y, z, town);
+    }
+    for (const [k, f] of furn) {
+      this.state.furniture.delete(k);
+      add(furnitureRef(f.key), 1);
+    }
+    const inv = this.state.inv;
+    for (const [ref, n] of change) {
+      if (n > 0) inv.chest[ref] = (inv.chest[ref] ?? 0) + n;
+      let owe = -n;
+      if (owe <= 0) continue;
+      const inChest = Math.min(owe, inv.chest[ref] ?? 0);
+      if (inChest > 0) {
+        inv.chest[ref] = (inv.chest[ref] ?? 0) - inChest;
+        if (inv.chest[ref] === 0) delete inv.chest[ref];
+        owe -= inChest;
+      }
+      for (let i = inv.slots.length - 1; i >= 0 && owe > 0; i--) {
+        const s = inv.slots[i];
+        if (!s || s.ref !== ref) continue;
+        const k = Math.min(owe, s.n);
+        s.n -= k;
+        owe -= k;
+        if (s.n <= 0) inv.slots[i] = null;
+      }
+      // what the child already spent elsewhere is not chased: the town is back, the child keeps their build
+    }
+    try {
+      runInTransaction(this.sql, () => {
+        for (const [x, y, z] of cells) {
+          this.sql.run('delete from plot_cells where x = ? and y = ? and z = ?', [x, y, z]);
+          this.sql.run('delete from plot_guest_cells where x = ? and y = ? and z = ?', [x, y, z]);
+        }
+        for (const [k] of furn) {
+          const [x, y, z] = k.split(',').map(Number) as [number, number, number];
+          this.sql.run('delete from plot_furniture where x = ? and y = ? and z = ?', [x, y, z]);
+        }
+        const nextRev = this.rev + 1;
+        this.sql.run('insert or replace into plot_inv (player, data, rev) values (?, ?, ?)', [this.playerId, JSON.stringify(inv), nextRev]);
+        this.sql.run('insert into plot_journal (at, actor, ops, results) values (?, ?, ?, ?)', [
+          nowMs,
+          actor,
+          JSON.stringify([{ op: 'restore', n: cells.length, furniture: furn.length, ...(area ? { area } : {}) }]),
+          '[{"ok":true}]'
+        ]);
+        this.rev = nextRev;
+      });
+    } catch (err) {
+      this.state = this.load();
+      throw err;
+    }
+    return { restored: cells.length, furniture: furn.length, rev: this.rev };
   }
 
   /** The cells a guest pass placed here and may break again (the snapshot a friend gets carries them). */

@@ -626,6 +626,20 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     return c.json(unpacked > 0 ? { ...out, unpacked } : out);
   });
 
+  // R2861① (Dan "마을도 부술 수 있게"): the town comes back from the server's record. The platform fills player_id/world_id
+  // and the actor (the child on their own device, or `teacher` from the operator); x/z/r limits it to a circle.
+  app.post('/v1/plot/restore', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { player_id?: unknown; world_id?: unknown; actor?: unknown; x?: unknown; z?: unknown; r?: unknown } | null;
+    const playerId = typeof body?.player_id === 'string' ? body.player_id : '';
+    const world = deps.worlds.get(typeof body?.world_id === 'string' ? body.world_id : '');
+    if (!playerId || !world) return c.json({ error: 'plot_not_found' }, 404);
+    const area = restoreArea(body);
+    if (area === 'bad') return c.json({ error: 'invalid_restore_area' }, 400);
+    const actor = typeof body?.actor === 'string' && body.actor ? body.actor.slice(0, 80) : playerId;
+    const store = plotStoreFor(world, world.sql, playerId, deps.nowMs());
+    return c.json(store.restoreTown(deps.nowMs(), actor, area ?? undefined));
+  });
+
   app.post('/v1/review/attempt', async (c) => {
     const parsed = ReviewAttemptBodySchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: 'invalid_review_request', issues: parsed.error.issues }, 400);
@@ -1050,4 +1064,12 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
   });
 
   return app;
+}
+
+/** The circle a restore keeps to (x, z, r all given, r 1..4096), none (the whole town), or 'bad'. */
+export function restoreArea(b: { x?: unknown; z?: unknown; r?: unknown } | null): { x: number; z: number; r: number } | null | 'bad' {
+  if (!b || (b.x === undefined && b.z === undefined && b.r === undefined)) return null;
+  const ok = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 40000;
+  if (!ok(b.x) || !ok(b.z) || !ok(b.r) || b.r < 1 || b.r > 4096) return 'bad';
+  return { x: Math.round(b.x), z: Math.round(b.z), r: Math.round(b.r) };
 }

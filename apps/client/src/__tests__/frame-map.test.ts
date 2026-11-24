@@ -170,7 +170,8 @@ describe('vertical band elevator (docs/03 3.2)', () => {
     expect(stops.map((s) => s.state)).toEqual(['locked', 'locked', 'locked', 'here', 'locked', 'locked']);
     // the band names are the world domain's (they follow the learn language, world/lang.ts)
     expect(stops.map((s) => s.nameKo)).toEqual(TUNING.verticalBands.map((b) => BAND_NAMES_KO[b.id as keyof typeof BAND_NAMES_KO]));
-    expect(stops.map((s) => s.range)).toEqual(['+600 ~ +1,000m', '+300 ~ +600m', '+80 ~ +300m', '−8 ~ +80m', '−150 ~ −9m', '−400 ~ −151m']);
+    // R2861①: the deep core goes down to the bedrock floor (TUNING.world.yMin)
+    expect(stops.map((s) => s.range)).toEqual(['+600 ~ +1,000m', '+300 ~ +600m', '+80 ~ +300m', '−8 ~ +80m', '−150 ~ −9m', '−2,048 ~ −151m']);
   });
   it('opens a stop for each reached band; the band under the player is "here"', () => {
     const stops = bandStops(-50, ['surface', 'mine', 'sky_island']);

@@ -117,7 +117,7 @@ const WORLD_STRINGS_KO = {
   /** R326: the hotbar shows the carried blocks / the bag (food, things from errands) */
   barBlocks: '🧱 블록',
   barBag: '🎒 가방',
-  buildHelpWorldTouch: '내 월드예요! 블록을 톡 눌러 놓기 · 빈손으로 길게 누르면 부수기 · 가게와 길은 그대로예요',
+  buildHelpWorldTouch: '내 월드예요! 블록을 톡 눌러 놓기 · 빈손으로 길게 누르면 부수기 · 마을은 상자에서 되돌려요',
   chest: '상자',
   undo: '되돌리기',
   rotate: '돌리기',
@@ -126,6 +126,12 @@ const WORLD_STRINGS_KO = {
   chestHand: '손에 든 것',
   chestStore: '넣기',
   chestEmpty: '상자가 비었어요',
+  restoreTown: '🏘️ 이 근처 마을 되돌리기',
+  restoreTownSure: '한 번 더 누르면 되돌려요',
+  restoreTownDone: '마을을 되돌렸어요',
+  restoreTownNone: '이 근처는 처음 그대로예요',
+  restoreTownOffline: '인터넷이 돌아오면 다시 눌러 주세요',
+  restoreTownDenied: '내 월드에서만 되돌릴 수 있어요',
   close: '닫기',
   syncSaved: '저장됨',
   syncSaving: '저장 중…',
@@ -228,7 +234,7 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   toolBreak: 'Break',
   barBlocks: '🧱 Blocks',
   barBag: '🎒 Bag',
-  buildHelpWorldTouch: 'Your world! Tap a block to place · Hold with an empty hand to break · Shops and roads stay',
+  buildHelpWorldTouch: 'Your world! Tap a block to place · Hold with an empty hand to break · The chest puts the town back',
   chest: 'Chest',
   undo: 'Undo',
   rotate: 'Rotate',
@@ -237,6 +243,12 @@ const WORLD_STRINGS_EN: typeof WORLD_STRINGS_KO = {
   chestHand: 'In your hands',
   chestStore: 'Put in',
   chestEmpty: 'The chest is empty',
+  restoreTown: '🏘️ Put the town back here',
+  restoreTownSure: 'Tap again to put it back',
+  restoreTownDone: 'The town is back',
+  restoreTownNone: 'Nothing changed around here',
+  restoreTownOffline: 'Try again when the internet is back',
+  restoreTownDenied: 'Only in your own world',
   close: 'Close',
   syncSaved: 'Saved',
   syncSaving: 'Saving…',
@@ -287,8 +299,8 @@ export const SHOWROOM_REASONS_KO = biTable(SHOWROOM_REASONS_KO_EN, SHOWROOM_REAS
 const BUILD_REASONS_KO_SRC: Readonly<Record<string, string>> = {
   not_my_plot: '내 부지 안에서만 지을 수 있어요',
   fence: '울타리와 문은 그대로 둬요',
-  too_low: '더 깊이는 못 파요',
-  too_high: '더 높이는 못 쌓아요',
+  too_low: '여기가 땅의 바닥이에요 · 더는 못 파요',
+  too_high: '하늘 끝이에요 · 더 높이는 못 쌓아요',
   chest: '보관 상자 자리예요',
   empty_slot: '손에 든 게 없어요 · 상자에서 꺼내요',
   occupied: '이미 뭔가 있어요',
@@ -312,8 +324,8 @@ const BUILD_REASONS_KO_SRC: Readonly<Record<string, string>> = {
 const BUILD_REASONS_KO_EN: Readonly<Record<string, string>> = {
   not_my_plot: 'You can build only on your plot',
   fence: 'Leave the fence and gate as they are',
-  too_low: "You can't dig deeper",
-  too_high: "You can't stack higher",
+  too_low: "This is the bottom of the world · You can't dig deeper",
+  too_high: "This is the top of the sky · You can't stack higher",
   chest: "That's the chest's spot",
   empty_slot: 'Your hands are empty · Take something from the chest',
   occupied: 'Something is already there',
@@ -604,8 +616,8 @@ export function buildHelpDesktopFor(k: Readonly<KeyHintLabels>): string {
 /** R326: building on the open ground of my world (or a friend's on a pass) with the player's own keys. */
 export function buildHelpWorldDesktopFor(k: Readonly<KeyHintLabels>): string {
   return joinHelp(
-    `Your world! Right-click place · Hold left-click break (bare hands too) · 1-5 pick · ${k.undo} undo · Shops and roads stay`,
-    `내 월드예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기(맨손도) · 1~5 고르기 · ${k.undo} 되돌리기 · 가게와 길은 그대로예요`
+    `Your world! Right-click place · Hold left-click break (bare hands too) · 1-5 pick · ${k.undo} undo · The chest puts the town back`,
+    `내 월드예요! 오른쪽 클릭 놓기 · 왼쪽 길게 누르기 부수기(맨손도) · 1~5 고르기 · ${k.undo} 되돌리기 · 마을은 상자에서 되돌려요`
   );
 }
 

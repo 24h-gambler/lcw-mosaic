@@ -63,7 +63,11 @@ export interface ConverseRewardDecision {
   bank: { entry: PhraseBankEntry; itemKey: string } | null;
   /** Coins to charge for the granted stars (0 when nothing is bought). */
   priceCoins: number;
-  capped: 'none' | 'core_pattern' | 'non_voice' | 'unknown_target' | 'echo';
+  /**
+   * 'intent' / 'free_talk' (R2861①): free talk that passed no bank sentence but still counts — it named a thing this
+   * NPC has (the child gets it at the 1-star price), or it was real English talk (3+ English words, 1 star, nothing sold).
+   */
+  capped: 'none' | 'core_pattern' | 'non_voice' | 'unknown_target' | 'echo' | 'intent' | 'free_talk';
   coreMissed: boolean;
   /** The pattern phrase the feedback should name when the core pattern was missed (e.g. "because"). */
   corePhrase: string | null;
@@ -87,7 +91,7 @@ export function corePhraseOf(entry: PhraseBankEntry | undefined, text: string): 
  * Free talk with no chosen sentence: the closest bank sentence for this NPC at the child's level. A passing
  * sentence with the most stars wins; with no pass, the best score (so the miss feedback is about something real).
  */
-function closestBankSentence(input: ConverseRewardInput): { entry: PhraseBankEntry; offer: PhraseOffer } | null {
+function closestBankSentence(input: ConverseRewardInput): { entry: PhraseBankEntry; offer: PhraseOffer; pass: boolean } | null {
   let best: { entry: PhraseBankEntry; offer: PhraseOffer; pass: boolean; score: number } | null = null;
   for (const entry of bankEntriesFor(input.ctx, input.level)) {
     for (const offer of entry.offers) {
@@ -108,14 +112,76 @@ function closestBankSentence(input: ConverseRewardInput): { entry: PhraseBankEnt
       if (better) best = { entry, offer, pass: r.pass, score: r.score };
     }
   }
+  return best ? { entry: best.entry, offer: best.offer, pass: best.pass } : null;
+}
+
+/** English words in what the child said (Korean or noise words do not count). */
+export function englishWords(transcript: string): number {
+  return (transcript.match(/[a-z]+(?:'[a-z]+)?/gi) ?? []).length;
+}
+/** Free talk this long passes as talk even when it names nothing this NPC has (R2861①, lesson-mode scoreFreeTalk too). */
+export const FREE_TALK_MIN_WORDS = 3;
+/** Naming a thing needs at least this many English words around it ("axe please", not a bare word). */
+export const INTENT_MIN_WORDS = 2;
+
+/**
+ * R2861① (Dan 11-23 "정해진 대로만 진행 · 자유 회화 느낌이 전혀 없음"): the thing this NPC has that the child named in their
+ * own words ("I need an axe to cut trees" -> the axe), the longest name first ("fish tank" before "fish"). The name is
+ * the entry's first hint tag (the item label); the 1-star line of that entry stands for what was asked.
+ */
+export function intentBankSentence(ctx: string, level: LangLevel, transcript: string): { entry: PhraseBankEntry; offer: PhraseOffer } | null {
+  if (englishWords(transcript) < INTENT_MIN_WORDS) return null;
+  const said = ` ${bankTextKey(transcript)} `;
+  let best: { entry: PhraseBankEntry; offer: PhraseOffer; len: number } | null = null;
+  for (const entry of bankEntriesFor(ctx, level)) {
+    const label = entry.hintTags[0]?.toLowerCase().trim();
+    if (!label) continue;
+    const key = bankTextKey(label);
+    if (!key) continue;
+    // the word or its plural ("axes", "boxes")
+    const hit = said.includes(` ${key} `) || said.includes(` ${key}s `) || said.includes(` ${key}es `);
+    if (!hit) continue;
+    const offer = entry.offers.find((o) => o.stars === 1) ?? entry.offers[0];
+    if (!offer) continue;
+    if (!best || key.length > best.len) best = { entry, offer, len: key.length };
+  }
   return best ? { entry: best.entry, offer: best.offer } : null;
 }
 
 export function decideConverseReward(input: ConverseRewardInput): ConverseRewardDecision {
   const emptyTarget = input.targetText.trim() === '';
+  const closest = input.strictBank && emptyTarget ? closestBankSentence(input) : null;
+  // R2861①: own words that pass no sentence of this NPC still count when they name a thing it has (asked for it) or
+  // are real English talk; only then the plain miss ("almost") — never stuck on one fixed sentence.
+  const intent = closest && !closest.pass && !input.echo ? intentBankSentence(input.ctx, input.level, input.transcript) : null;
+  const freeTalk = !!closest && !closest.pass && !intent && !input.echo && englishWords(input.transcript) >= FREE_TALK_MIN_WORDS;
+  if (intent || freeTalk) {
+    const scoring = scoreUtterance({
+      targetText: intent ? intent.offer.text : input.transcript,
+      spokenTranscript: input.transcript,
+      level: input.level,
+      hintLevel: input.hintLevel,
+      stars: 1,
+      hintTags: intent?.entry.hintTags
+    });
+    return {
+      pass: true,
+      score: Math.max(scoring.score, 0.5),
+      missed: [],
+      stars: 1,
+      targetStars: 1,
+      bank: intent ? { entry: intent.entry, itemKey: bankItemKey(intent.entry) } : null,
+      priceCoins: intent ? intent.offer.price : 0,
+      capped: intent ? 'intent' : 'free_talk',
+      coreMissed: false,
+      corePhrase: null,
+      targetText: intent ? intent.offer.text : '',
+      scoring
+    };
+  }
   const hit =
     input.strictBank && emptyTarget
-      ? closestBankSentence(input)
+      ? closest
       : findBankOffer({ ctx: input.ctx, level: input.level, text: input.targetText });
   const targetText = hit && emptyTarget ? hit.offer.text : input.targetText;
   const targetStars: 1 | 2 | 3 = hit ? hit.offer.stars : (Math.min(input.chosenStars, UNKNOWN_TARGET_STAR_CAP) as 1);
@@ -192,6 +258,8 @@ export function converseFeedbackKo(
   // Not getting the item matters most to a child, so that reason comes first.
   if (d.shortOfCoins) return d.stars >= 3 && d.capped === 'none' ? s.shortOfCoins : s.shortOfCoinsGood;
   if (d.capped === 'echo') return s.echoDone;
+  if (d.capped === 'intent') return s.intentOk;
+  if (d.capped === 'free_talk') return s.freeTalkOk;
   if (d.capped === 'core_pattern') return phrase ? s.cappedCorePhrase.replace('{p}', phrase) : s.cappedCore;
   if (d.capped === 'non_voice') return d.inputSource === 'keyboard' ? s.cappedKeyboard : s.cappedNonVoice;
   if (d.stars >= 3) return s.perfect;

@@ -4,6 +4,7 @@ import {
   BUILD_PALETTE,
   EditBucket,
   PLOT_CHEST_POS,
+  TUNING,
   VoxelWorld,
   applyPlotOp,
   blockRef,
@@ -78,8 +79,9 @@ describe('place and break (WP-201)', () => {
     expect(applyPlotOp(st, ME, { op: 'break', x: st.world.plot.x0, y: 1, z: 170 }).reason).toBe('fence');
     expect(applyPlotOp(st, ME, { op: 'break', x: PLOT_CHEST_POS.x, y: PLOT_CHEST_POS.y, z: PLOT_CHEST_POS.z }).reason).toBe('chest');
     expect(applyPlotOp(st, ME, { op: 'place', x: X, y: 0, z: Z, slot: 0 }).reason).toBe('occupied');
-    expect(applyPlotOp(st, ME, { op: 'place', x: X, y: 40, z: Z, slot: 0 }).reason).toBe('too_high');
-    expect(applyPlotOp(st, ME, { op: 'break', x: X, y: -3, z: Z }).reason).toBe('too_low');
+    // R2861①: the plot digs to the bedrock floor and builds to the top of the world
+    expect(applyPlotOp(st, ME, { op: 'place', x: X, y: TUNING.world.yMax + 1, z: Z, slot: 0 }).reason).toBe('too_high');
+    expect(applyPlotOp(st, ME, { op: 'break', x: X, y: TUNING.world.yMin, z: Z }).reason).toBe('too_low');
     st.inv.slots[2] = null;
     expect(applyPlotOp(st, ME, { op: 'place', x: X, y: 1, z: Z, slot: 2 }).reason).toBe('empty_slot');
     expect(applyPlotOp(st, ME, { op: 'place', x: X, y: 1, z: Z, slot: 9 }).reason).toBe('bad_op');
@@ -245,5 +247,23 @@ describe('room check from a nameplate (D13 방 판정)', () => {
     st.world.setBlock(sys, np.x, 1, np.z, BK.nameplate);
     const r = roomOf(st, { x: np.x, y: 1, z: np.z });
     expect(r.structure).toContain('ceiling');
+  });
+});
+
+describe('hand tools (R2861①: the axe from the trade shop cuts wood)', () => {
+  it('the right tool breaks its own blocks in 35% of the bare-hand time; other blocks and other items change nothing', async () => {
+    const { BK, breakSeconds, toolBreakSeconds, toolOf, TOOL_BREAK_FACTOR } = await import('../index.js');
+    expect(toolOf('axe')).toBe('axe');
+    expect(toolOf('iron_axe')).toBe('axe');
+    expect(toolOf('pickaxe_iron')).toBe('pickaxe');
+    expect(toolOf('shovel')).toBe('shovel');
+    expect(toolOf('cap_blue')).toBeNull();
+    expect(toolOf(null)).toBeNull();
+    expect(toolBreakSeconds(BK.log, 'axe')).toBeCloseTo(Math.max(0.1, breakSeconds(BK.log) * TOOL_BREAK_FACTOR));
+    expect(toolBreakSeconds(BK.log, 'axe')).toBeLessThan(breakSeconds(BK.log));
+    expect(toolBreakSeconds(BK.log, null)).toBe(breakSeconds(BK.log));
+    expect(toolBreakSeconds(BK.stone, 'axe')).toBe(breakSeconds(BK.stone));
+    expect(toolBreakSeconds(BK.stone, 'pickaxe_iron')).toBeLessThan(breakSeconds(BK.stone));
+    expect(toolBreakSeconds(BK.dirt, 'shovel')).toBeLessThanOrEqual(breakSeconds(BK.dirt));
   });
 });

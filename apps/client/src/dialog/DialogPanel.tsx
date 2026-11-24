@@ -499,7 +499,9 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
         onDone(r);
         return;
       }
-      if (turn < followUps.length && (bestPass.current || r.pass)) {
+      // R2861① (Dan 11-23 "학생 회화가 다음 단계로 안 감"): a tried opening that did not pass still goes on to the NPC's
+      // next question (the talk goes on, as in a real conversation) — never stuck on one line with only "한 번 더".
+      if (turn < followUps.length && (bestPass.current || r.pass || triedTurn.current === turn)) {
         setTurn(turn + 1);
         setResult(null);
         setNotice(null);
@@ -722,6 +724,8 @@ export function DialogPanel(props: DialogPanelProps): React.ReactElement {
                       <button type="button" className="lcw-cta lcw-cta--go lcw-dlg__next" onClick={skipFollowUp}>{S.followUpSkip}</button>
                     ) : bestPass.current ? (
                       <button type="button" className="lcw-cta lcw-cta--go" onClick={() => finish(bestPass.current!)}>{S.keepBest}</button>
+                    ) : followUps && turn < followUps.length ? (
+                      <button type="button" className="lcw-cta lcw-cta--go lcw-dlg__next" data-next-after-try="true" onClick={() => finish(result)}>{S.followUpSkip}</button>
                     ) : null}
                   </>
                 )}

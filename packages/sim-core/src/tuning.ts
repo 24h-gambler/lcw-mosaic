@@ -7,7 +7,14 @@ export const TUNING = {
     chunksZ: 18,
     sectorSize: 96,
     sectorChunks: 6,
-    yMin: -400,
+    /**
+     * R2861① (Dan "끝없이 파고 짓기"): the open world. sizeX/Z stay the town map (288 m, the sectors, the minimap);
+     * the land goes on past it to openMin..openMax (x and z, the end exclusive: 60 km across, natural.ts) and down to
+     * the bedrock floor at yMin.
+     */
+    openMin: 144 - 30000,
+    openMax: 144 + 30000,
+    yMin: -2048,
     yMax: 1000,
     dayDurationSec: 24 * 60, // 24 real-time minutes = 1 game day
     maxMultiPlayers: 8,
@@ -21,7 +28,7 @@ export const TUNING = {
     { id: 'sky_island', minY: 80, maxY: 299, gravity: 1.0, hasOxygen: true, hasHeat: false, windForce: 1.5 },
     { id: 'surface', minY: -8, maxY: 79, gravity: 1.0, hasOxygen: true, hasHeat: false, windForce: 0 },
     { id: 'mine', minY: -150, maxY: -9, gravity: 1.0, hasOxygen: true, hasHeat: false, windForce: 0 },
-    { id: 'deep_core', minY: -400, maxY: -151, gravity: 1.0, hasOxygen: true, hasHeat: true, windForce: 0 }
+    { id: 'deep_core', minY: -2048, maxY: -151, gravity: 1.0, hasOxygen: true, hasHeat: true, windForce: 0 }
   ] as const,
   character: {
     headVoxels: [10, 10, 10] as const,
@@ -93,16 +100,17 @@ export const TUNING = {
     roomMinVolume: 18,
     roomMinCeiling: 2,
     /**
-     * R326 free build (docs/03 D13 자유 건축): outside the plot a child digs down to this layer (the town ground is
-     * y = -2 .. surface; the bottom layer stays as the floor, there is no hole into the void) and stacks up to freeMaxY.
+     * R326 free build (docs/03 D13 자유 건축), R2861① endless: a child digs down to the layer over the bedrock floor
+     * (the ground goes on under the town, natural.ts) and builds up to the top of the world.
      */
-    freeMinY: -1,
-    freeMaxY: 40,
+    freeMinY: -2048 + 1,
+    freeMaxY: 1000,
     /**
      * Cells outside the plot that may differ from the town at once in one world (placed or dug). Bounds the server's
-     * per-world delta (~1 MB at the cap, apps/edge/src/plot.ts) and the snapshot a device loads (~300 KB of JSON).
+     * per-world delta (~2.5 MB at the cap, apps/edge/src/plot.ts) and the snapshot a device loads (~750 KB of JSON).
+     * R2861①: 50 000 (was 20 000) — a shaft to -2047 is ~4 000 cells, a lesson of free digging stays far under it.
      */
-    freeMaxCells: 20000,
+    freeMaxCells: 50000,
     /**
      * R326 block relay through the room ('b', sim-core room.ts): what one frame may carry (the room refuses more),
      * what a device puts in one frame (under the 512-byte message cap), how long it gathers a burst, how many cells
@@ -280,8 +288,8 @@ export const TUNING = {
     /** a socket that sent nothing for this long is dropped (the keep-alive is every 5 s) */
     silentDropMs: 20000,
     ticketTtlMs: 60000,
-    /** |x|, |y|, |z| bound for a relayed pose (worlds are 288 m; slack for plots and docking gates) */
-    coordLimit: 2048,
+    /** |x|, |y|, |z| bound for a relayed pose (R2861①: the open world is 60 km across and 2 km deep, natural.ts) */
+    coordLimit: 32768,
     emotes: ['wave', 'clap', 'cheer', 'jump'] as readonly string[],
     /** R326: how far the crosshair picks a friend to hit or trade with (m, from the feet; the room allows hitReachM) */
     hitPickM: 3.5,

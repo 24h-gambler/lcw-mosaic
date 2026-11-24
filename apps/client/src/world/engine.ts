@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { drawState } from './draw-state.js';
-import { TRADE_COUNTER, TUNING, VoxelWorld, parseRef, type PlotOp } from '@lcw/sim-core';
+import { TRADE_COUNTER, TUNING, VoxelWorld, parseRef, toolBreakSeconds, type PlotOp } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
@@ -37,6 +37,7 @@ import { FirstPersonHands } from './viewmodel.js';
 import { PeerAvatars, peerLook } from './peers.js';
 import { Buddy } from './buddy.js';
 import { SeasonWeather } from './season.js';
+import { clampPitch, firstPersonDir, followCamera, makeCamFollow, viewErrorDeg } from './cam-follow.js';
 import { TEACHER_NPC_ID, disposePlate, makePlate, pickableNpc, plateText, teacherDef, teacherTarget } from './visitor.js';
 import { BLOCK_PALETTE, WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
 import { browserStore } from './identity.js';
@@ -64,6 +65,8 @@ interface NpcRt {
   path: Array<[number, number]>;
   speed: number;
   greeted: boolean;
+  /** a play-fighting hit just landed on the person this figure stands for (the hop's time left, s) */
+  hurtT?: number;
 }
 
 interface WalkerRt {
@@ -176,6 +179,8 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   const input = { fwd: 0, side: 0, run: false, jump: false, stickX: 0, stickZ: 0, stick: false, keys: new Set<string>() };
   // docs/08 7.1 (Dan 11-16 09:20): first person by default, F5 third person, Tab the mirror
   let camMode: CamMode = DEFAULT_CAM_MODE;
+  let viewErr = 0;
+  let viewErrMax = 0;
   let camBeforeMirror: Exclude<CamMode, 'mirror'> = DEFAULT_CAM_MODE;
   let camYaw = 0;
   let camPitch = 0.32;
@@ -196,7 +201,7 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     onLook: (dx, dy) => {
       camYaw -= dx * 0.008 * lookTouch;
       lookAt = performance.now();
-      camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.006 * lookTouch * lookY));
+      camPitch = clampPitch(camPitch + dy * 0.006 * lookTouch * lookY, camMode === 'first');
     },
     onSlot: (i) => {
       hud.selectSlot(i);
@@ -306,6 +311,9 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
     performance.now()
   );
   let plotSync: PlotSync | null = null;
+  /** R2861①: this device may put its own world's town back (a linked child at home, not a lesson or a guest pass) */
+  let restoreAllowed = false;
+  const RESTORE_RADIUS = 48;
   let buildToken: { token: string; base?: string } | null = null;
   let tokenOf: ((id: number) => import('@lcw/ui').ColorTokenName) | null = null;
   let buildAccess: BuildAccess['kind'] | 'loading' = 'local';
@@ -809,6 +817,19 @@ ${line(s.help)}` : line(s.text), 4000);
         sfx.play('ui.click');
         refreshBuildSlots();
       },
+      // R2861① (Dan "마을도 부술 수 있게"): the town around here comes back from the server's record of this world
+      onRestoreTown: () => {
+        const s = plotSync;
+        if (!s || !restoreAllowed) {
+          buildHud?.say(W.restoreTownDenied, false);
+          return;
+        }
+        void s.restoreTown({ x: Math.floor(body.x), z: Math.floor(body.z), r: RESTORE_RADIUS }).then((r) => {
+          if (plotSync !== s) return;
+          if (r.ok) sfx.play('blk.place', { pitch: -4 });
+          buildHud?.say(r.ok ? (r.restored > 0 ? `${W.restoreTownDone} · ${r.restored}` : W.restoreTownNone) : r.reason === 'offline' ? W.restoreTownOffline : W.restoreTownDenied, false);
+        });
+      },
       onShowroom: async (title) => {
         if (!buildToken) return { ok: false, reason: 'unlinked' };
         tokenOf ??= blockTokenMap(atlasPixels);
@@ -843,6 +864,7 @@ ${line(s.help)}` : line(s.text), 4000);
       e.preventDefault();
       if (!typing && !paused && !attract && !uiHoldsMouse()) {
         camMode = toggleThirdPerson(camMode);
+        camPitch = clampPitch(camPitch, camMode === 'first');
         enterView();
       }
       return;
@@ -852,6 +874,7 @@ ${line(s.help)}` : line(s.text), 4000);
       e.preventDefault();
       if (camMode !== 'mirror') camBeforeMirror = camMode;
       camMode = toggleMirror(camMode, camBeforeMirror);
+      camPitch = clampPitch(camPitch, camMode === 'first');
       enterView();
       if (t && t !== canvas && keyIsPressable(t)) focusWorld();
       return;
@@ -898,6 +921,7 @@ ${line(s.help)}` : line(s.text), 4000);
   }
   const cycleView = (): void => {
     camMode = cycleCamMode(camMode);
+    camPitch = clampPitch(camPitch, camMode === 'first');
     if (camMode !== 'mirror') camBeforeMirror = camMode;
     enterView();
     sfx.play('ui.click');
@@ -961,14 +985,12 @@ ${line(s.help)}` : line(s.text), 4000);
   // menu or any modal window frees it while it is open and the world takes it back when it closes. Touch keeps its
   // sticks and taps (a tap on a friend hits, on water drinks).
   const canLock = !touch && typeof canvas.requestPointerLock === 'function';
-  /** the teacher's page (TeacherBar mounted): a free mouse for the bar all lesson long, and no hitting */
-  const teacherPage = (): boolean => typeof document !== 'undefined' && !!document.querySelector('.lcw-teachbar');
   const locked = (): boolean => typeof document !== 'undefined' && document.pointerLockElement === canvas;
   /** the world freed the mouse for a window: take it back when the window closes */
   let relock = false;
   const lockNow = (): void => {
-    // the teacher's page keeps a free mouse: the bar (roster, follow, switches) is clicked all lesson long
-    if (!canLock || locked() || paused || attract || disposed || teacherPage() || uiHoldsMouse()) return;
+    // R2861①: the teacher's page locks like a child's (look, break, place, hit); Esc frees the mouse for the bar
+    if (!canLock || locked() || paused || attract || disposed || uiHoldsMouse()) return;
     try {
       const r = canvas.requestPointerLock() as unknown;
       if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => undefined);
@@ -992,7 +1014,7 @@ ${line(s.help)}` : line(s.text), 4000);
       mouseAt = centre();
       lockedSince = performance.now();
     }
-    hud.setLockHint(on || (canLock && !uiHoldsMouse() && !teacherPage()), on);
+    hud.setLockHint(on || (canLock && !uiHoldsMouse()), on);
   };
   document.addEventListener('pointerlockchange', onLockChange);
   const lockWatch = window.setInterval(() => {
@@ -1007,7 +1029,7 @@ ${line(s.help)}` : line(s.text), 4000);
     }
     // locked: the Esc line for the first few seconds of each lock
     const lk = locked();
-    hud.setLockHint((!lk && !ui && !teacherPage()) || (lk && performance.now() - lockedSince < TUNING.multi.escHintMs), lk);
+    hud.setLockHint((!lk && !ui) || (lk && performance.now() - lockedSince < TUNING.multi.escHintMs), lk);
   }, 250);
   /** the press that just went down was made with the pointer locked (its release goes the same way) */
   let lockedAtDown = false;
@@ -1038,12 +1060,12 @@ ${line(s.help)}` : line(s.text), 4000);
     if (!id) return null;
     const n = npcAt(cx, cy);
     if (!n) return id;
+    // R2861①: the teacher figure is the real teacher (same spot): a left click hits them, a right click talks
+    if (n.def.id === TEACHER_NPC_ID && peers.roleOf(id) === 'teacher') return id;
     const f = peers.placed().find((q) => q.id === id);
     return f && Math.hypot(f.x - body.x, f.z - body.z) < Math.hypot(n.pos.x - body.x, n.pos.z - body.z) ? id : null;
   };
   const tryHit = (id: string): void => {
-    // the teacher's page never hits (the room drops it): no swing that looks like one
-    if (teacherPage()) return;
     hands.swing();
     if (!pvpOn) {
       if (performance.now() - pvpToldAt > PVP_TOLD_GAP_MS) hud.notice(W.pvpOff);
@@ -1124,14 +1146,26 @@ ${line(s.help)}` : line(s.text), 4000);
   };
   /** E or a right click on another child: the trade window (a left click / tap on them is play fighting) */
   const openTrade = (id: string): void => {
-    if (teacherPage()) return;
     const p = peers.placed().find((q) => q.id === id);
     window.dispatchEvent(new CustomEvent(OPEN_TRADE_EVENT, { detail: { peerId: id, name: p?.name ?? '' } }));
   };
-  /** right click: water first, a friend (trade), the shop counter, then a block to place (where building is on), then the thing in hand */
+  /**
+   * right click: water first, a person or townsperson (the nearer: a friend trades, a townsperson or the teacher figure
+   * talks, R2861①), the shop counter, then a block to place (where building is on), then the thing in hand
+   */
   const rightAction = (e: PointerEvent): void => {
     if (waterAt(e.clientX, e.clientY)) return sip();
     const friend = peerAt(e.clientX, e.clientY);
+    const n = npcAt(e.clientX, e.clientY);
+    const nearerNpc =
+      !!n &&
+      (!friend ||
+        (n.def.id === TEACHER_NPC_ID && peers.roleOf(friend) === 'teacher') ||
+        Math.hypot(n.pos.x - body.x, n.pos.z - body.z) <= Math.hypot((peers.placed().find((q) => q.id === friend)?.x ?? Infinity) - body.x, (peers.placed().find((q) => q.id === friend)?.z ?? Infinity) - body.z));
+    if (nearerNpc) {
+      tapPick(e.clientX, e.clientY);
+      return;
+    }
     if (friend) return openTrade(friend);
     const shelf = counterAt(e.clientX, e.clientY);
     if (shelf !== null) return openShop(shelf);
@@ -1190,7 +1224,7 @@ ${line(s.help)}` : line(s.text), 4000);
       // the first press (which took the lock) turned the view: its release is a look, not a click
       if (!lockedAtDown) dragMoved += Math.abs(e.movementX || 0) + Math.abs(e.movementY || 0);
       camYaw -= (e.movementX || 0) * 0.0028 * lookMouse;
-      camPitch = Math.max(-0.35, Math.min(1.25, camPitch + (e.movementY || 0) * 0.0024 * lookMouse * lookY));
+      camPitch = clampPitch(camPitch + (e.movementY || 0) * 0.0024 * lookMouse * lookY, camMode === 'first');
       lookAt = performance.now();
       return;
     }
@@ -1204,7 +1238,7 @@ ${line(s.help)}` : line(s.text), 4000);
     dragMoved += Math.abs(dx) + Math.abs(dy);
     camYaw -= dx * 0.006 * lookMouse;
     lookAt = performance.now();
-    camPitch = Math.max(-0.35, Math.min(1.25, camPitch + dy * 0.005 * lookMouse * lookY));
+    camPitch = clampPitch(camPitch + dy * 0.005 * lookMouse * lookY, camMode === 'first');
   };
   const pointerUp = (e: PointerEvent): void => {
     if (lockedAtDown && locked() && e.pointerType === 'mouse') {
@@ -1642,7 +1676,8 @@ ${line(s.help)}` : line(s.text), 4000);
   const camTarget = new THREE.Vector3();
   const camPos = new THREE.Vector3();
   const camLook = new THREE.Vector3();
-  let camInit = false;
+  /** R2861①: the follow (cam-follow.ts): in first person the gaze rides with the eye (the jump / strafe shake) */
+  const camFollow = makeCamFollow();
   /** Where the dialog NPC's face lands on screen (CSS px), for the headless framing check. */
   const dialogShotStats = (): { npc: string; face: [number, number] } | null => {
     if (!paused || !focusNpc) return null;
@@ -1674,9 +1709,9 @@ ${line(s.help)}` : line(s.text), 4000);
       wantLook = new THREE.Vector3(shot.look.x, shot.look.y, shot.look.z);
       wantPos = new THREE.Vector3(shot.pos.x, shot.pos.y, shot.pos.z);
     } else if (camMode === 'first') {
-      const f = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw));
       wantPos = new THREE.Vector3(body.x, viewY + EYE_Y, body.z);
-      wantLook = wantPos.clone().add(new THREE.Vector3(f.x * Math.cos(camPitch), -Math.sin(camPitch - 0.3), f.z * Math.cos(camPitch)));
+      const dir = firstPersonDir(camYaw, camPitch);
+      wantLook = wantPos.clone().add(new THREE.Vector3(dir.x, dir.y, dir.z));
     } else {
       const sign = camMode === 'mirror' ? -1 : 1;
       const yaw = camYaw;
@@ -1691,12 +1726,15 @@ ${line(s.help)}` : line(s.text), 4000);
       // Squeezed against a wall: let the camera see through the player instead of a wall of hair.
       player.setFade(d < 2.2 ? 0.25 + (d - 0.8) * 0.4 : 1);
     }
-    const k = camInit ? 1 - Math.exp(-(paused ? 4.5 : 14) * dt) : 1;
-    // first person (and a dialog, which looks from the eyes): the eye moves with the body, only the gaze eases
+    // first person: the eye moves with the body and the gaze is the mouse's (no lag); a dialog, which looks from the
+    // eyes, eases the gaze onto the face (cam-follow.ts)
     const eyes = !attract && (camMode === 'first' || (paused && !!focusNpc));
-    camPos.lerp(wantPos, eyes ? 1 : attract ? 1 - Math.exp(-1.5 * dt) : k);
-    camLook.lerp(wantLook, k);
-    camInit = true;
+    followCamera(camFollow, wantPos, wantLook, dt, { first: !attract && !paused && camMode === 'first', dialogEyes: paused && !!focusNpc, paused, attract });
+    // R2861①: how far the drawn gaze is off the asked-for gaze (headless shake check, getStats().view)
+    viewErr = viewErrorDeg(camFollow, wantPos, wantLook);
+    if (!paused && !attract && viewErr > viewErrMax) viewErrMax = viewErr;
+    camPos.set(camFollow.pos.x, camFollow.pos.y, camFollow.pos.z);
+    camLook.set(camFollow.look.x, camFollow.look.y, camFollow.look.z);
     camera.position.copy(camPos);
     camera.lookAt(camLook);
     player.setHeadVisible(!(camMode === 'first' && !paused));
@@ -1705,6 +1743,7 @@ ${line(s.help)}` : line(s.text), 4000);
     player.root.visible = !eyes;
   };
   camPos.set(body.x - Math.sin(camYaw) * camDist, body.y + 3, body.z - Math.cos(camYaw) * camDist);
+  camFollow.pos = { x: camPos.x, y: camPos.y, z: camPos.z };
 
   // ---- Resize.
   // CSS size of the canvas, cached here: reading clientWidth every frame after the HUD wrote to the DOM forced a
@@ -1824,7 +1863,9 @@ ${line(s.help)}` : line(s.text), 4000);
         buildView.showBreak(null, 0);
         return;
       }
-      hold.progress += dt / Math.max(0.001, aim.breakS);
+      // R2861①: the axe cuts wood, the shovel digs earth, the pickaxe mines stone (sim-core toolBreakSeconds)
+      const handS = toolBreakSeconds(blockAt(aim.hit.x, aim.hit.y, aim.hit.z), heldKey);
+      hold.progress += dt / Math.max(0.001, Math.min(aim.breakS, handS));
       if (hold.progress >= 1) {
         doBreak(aim.hit);
         hold.progress = 0;
@@ -1861,6 +1902,8 @@ ${line(s.help)}` : line(s.text), 4000);
     buildToken = own ? { token: a.token, base: a.base } : null;
     // the showroom is the plot owner's (a lesson student's and a guest's never)
     buildHud?.setShowroomVisible(own);
+    restoreAllowed = false;
+    buildHud?.setRestoreVisible(false);
     if (a.kind === 'paused') {
       buildAccess = 'paused';
       builder.access = 'paused';
@@ -1916,6 +1959,9 @@ ${line(s.help)}` : line(s.text), 4000);
       }
     });
     plotSync = sync;
+    // the town restore is the child's own world's (a lesson's town is the class's, a pass is a friend's)
+    restoreAllowed = !('pass' in a && a.pass === true) && !('lesson' in a && a.lesson);
+    buildHud?.setRestoreVisible(restoreAllowed);
     void sync.start().then((snap) => {
       if (plotSync !== sync || disposed) return;
       if (!snap) {
@@ -2150,6 +2196,10 @@ ${line(s.help)}` : line(s.text), 4000);
       }
       if (pd > 12) n.greeted = false;
       n.char.root.position.copy(n.pos);
+      if (n.hurtT && n.hurtT > 0) {
+        n.hurtT = Math.max(0, n.hurtT - dt);
+        n.char.root.position.y += Math.sin((n.hurtT / 0.35) * Math.PI) * 0.35;
+      }
       n.char.root.rotation.y = n.yaw;
       n.char.possessed = possessedId === n.def.id;
       n.char.update(dt, { speed: sp, talking: hud.bubbleTyping(n.def.id), lookYaw: look });
@@ -2765,6 +2815,11 @@ ${line(s.help)}` : line(s.text), 4000);
       hit(from, to, d) {
         if (to !== myRoomId) {
           peers.hurt(to);
+          // the teacher is drawn as the world's teacher figure: it hops too (R2861①)
+          if (peers.roleOf(to) === 'teacher') {
+            const tch = npcs.get(TEACHER_NPC_ID);
+            if (tch) tch.hurtT = 0.35;
+          }
           return;
         }
         if (paused || attract || disposed || performance.now() < myHitShieldUntil) return;
@@ -2871,11 +2926,14 @@ ${line(s.help)}` : line(s.text), 4000);
       body.vx = body.vy = body.vz = 0;
       playerYaw = camYaw = p.yaw;
       camPitch = p.pitch ?? 0.3;
-      camInit = false;
+      camFollow.init = false;
       if (p.hour !== undefined) {
         sky.hour = p.hour;
         sky.apply();
       }
+    },
+    resetViewErr() {
+      viewErrMax = 0;
     },
     getStats(): WorldStats {
       return {
@@ -2895,6 +2953,14 @@ ${line(s.help)}` : line(s.text), 4000);
         scene: currentScene,
         // yaw: where the view looks (the real-play check tells a look input that did not turn the view from a bot miss)
         player: { x: body.x, y: body.y, z: body.z, yaw: Math.round(camYaw * 1000) / 1000 },
+        view: (() => {
+          const dx = camLook.x - camPos.x;
+          const dy = camLook.y - camPos.y;
+          const dz = camLook.z - camPos.z;
+          const l = Math.hypot(dx, dy, dz) || 1;
+          const r = (n: number) => Math.round(n * 10000) / 10000;
+          return { mode: camMode, pos: { x: r(camPos.x), y: r(camPos.y), z: r(camPos.z) }, dir: { x: r(dx / l), y: r(dy / l), z: r(dz / l) }, errDeg: r(viewErr), errMaxDeg: r(viewErrMax) };
+        })(),
         dialogShot: dialogShotStats(),
         interact: {
           near: nearNpc?.def.id ?? null,

@@ -9,7 +9,6 @@
  */
 import { BLOCK_PALETTE, FURNITURE_REGISTRY, RESIDENT_REGISTRY, type FurnitureDef, type ResidentDef } from '@lcw/content';
 import { BK } from './town.js';
-import { FREE_BUILD_AREA, townProtected } from './town-guard.js';
 import { TUNING } from './tuning.js';
 import { VoxelWorld } from './world.js';
 
@@ -31,7 +30,10 @@ export const STACK_MAX = 64;
 export const OPS_PER_REQUEST_MAX = 64;
 /** The storage chest of the plot (town builder puts it by the gate); it cannot be broken or covered. */
 export const PLOT_CHEST_POS = { x: 118, y: 1, z: 158 } as const;
-/** Lowest layer a child may dig to (the town ground is y = 0; one layer below stays diggable). */
+/**
+ * The plot's room-check region (`plotRegion`): the layers a home is judged in. Digging and building go on past it
+ * (R2861①: FREE_MIN_Y .. FREE_MAX_Y, `plotCellRule`).
+ */
 export const PLOT_MIN_Y = -1;
 export const PLOT_MAX_Y = 30;
 
@@ -104,9 +106,36 @@ const lightById = new Map(BLOCK_PALETTE.map((b) => [b.id, b.lightLevel] as const
 /** Seconds of holding to break a block by hand (D13: 0.2–3 s by strength; scaffold breaks at once). */
 export function breakSeconds(id: number): number {
   if (id === BK.scaffold) return 0;
+  // R2861①: the town's road breaks like its cobble kerb (the content palette keeps it blast-proof for the old kernel)
+  if (id === BK.road) return breakSeconds(BK.cobble);
   const br = blastById.get(id) ?? 1;
   if (!Number.isFinite(br)) return Infinity;
   return Math.max(0.2, Math.min(3, 0.2 + br * 0.3));
+}
+
+/** R2861① (Dan 11-23 "axe 를 구하러 trade market 에 감"): what each hand tool is for. */
+const TOOL_BLOCKS: Record<'axe' | 'shovel' | 'pickaxe', ReadonlySet<number>> = {
+  axe: new Set([BK.plank, BK.oakPlank, BK.birchPlank, BK.pinePlank, BK.log, BK.fence, BK.door, BK.crate, BK.barrel, BK.leaves]),
+  shovel: new Set([BK.dirt, BK.grass, BK.sand, BK.gravel, BK.hay]),
+  pickaxe: new Set([BK.stone, BK.cobble, BK.granite, BK.marble, BK.brick, BK.stoneStair, BK.stoneSlab, BK.copper, BK.ironPlate])
+};
+/** A tool held in hand breaks its own kind of block in this share of the bare-hand time. */
+export const TOOL_BREAK_FACTOR = 0.35;
+/** The hand tool an item key is (an iron pickaxe is a pickaxe, never an axe), or null. */
+export function toolOf(itemKey: string | null | undefined): 'axe' | 'shovel' | 'pickaxe' | null {
+  const k = (itemKey ?? '').toLowerCase();
+  if (!k) return null;
+  if (k.includes('pickaxe')) return 'pickaxe';
+  if (/(^|_)axe($|_)/.test(k)) return 'axe';
+  if (k.includes('shovel')) return 'shovel';
+  return null;
+}
+/** Seconds to break `id` with `itemKey` in hand: the right tool cuts the bare-hand time (breakSeconds) to 35%. */
+export function toolBreakSeconds(id: number, itemKey: string | null | undefined): number {
+  const base = breakSeconds(id);
+  const tool = toolOf(itemKey);
+  if (!tool || !Number.isFinite(base) || !TOOL_BLOCKS[tool].has(id)) return base;
+  return Math.max(0.1, base * TOOL_BREAK_FACTOR);
 }
 
 export type PlotEditReason =
@@ -165,8 +194,9 @@ export function plotCellRule(world: VoxelWorld, x: number, y: number, z: number)
   if (!isInPlot(world, x, z)) return 'not_my_plot';
   const p = world.plot;
   if (x === p.x0 || x === p.x1 - 1 || z === p.z0 || z === p.z1 - 1) return 'fence';
-  if (y < PLOT_MIN_Y) return 'too_low';
-  if (y > PLOT_MAX_Y) return 'too_high';
+  // R2861①: the plot digs and builds as deep and as high as the open world (PLOT_MIN_Y / PLOT_MAX_Y bound the room check)
+  if (y < FREE_MIN_Y) return 'too_low';
+  if (y > FREE_MAX_Y) return 'too_high';
   if (x === PLOT_CHEST_POS.x && z === PLOT_CHEST_POS.z && y >= PLOT_CHEST_POS.y && y <= PLOT_CHEST_POS.y + 1) return 'chest';
   return null;
 }
@@ -180,8 +210,9 @@ export function buildCellRule(world: VoxelWorld, x: number, y: number, z: number
   if (isInPlot(world, x, z)) return plotCellRule(world, x, y, z);
   // a lesson builds on the plot only (docs/03 D13 수업 중 건축): the same answer as outside anyone's plot before R326
   if (scope === 'plot') return 'not_my_plot';
-  if (x < FREE_BUILD_AREA.x0 || x >= FREE_BUILD_AREA.x1 || z < FREE_BUILD_AREA.z0 || z >= FREE_BUILD_AREA.z1) return 'edge';
-  if (townProtected(x, z)) return 'protected';
+  // R2861① (Dan R2657 -> R2861 "마을도 부술 수 있게, 끝없이"): the whole open world, the town's buildings and roads too
+  // (the town comes back by undo and the teacher's restore, apps/edge/src/plot.ts); only its far end and the bedrock stop
+  if (x < TUNING.world.openMin || x >= TUNING.world.openMax || z < TUNING.world.openMin || z >= TUNING.world.openMax) return 'edge';
   if (y < FREE_MIN_Y) return 'too_low';
   if (y > FREE_MAX_Y) return 'too_high';
   return null;

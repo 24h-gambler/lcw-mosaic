@@ -1,6 +1,7 @@
 import { BLOCK_PALETTE } from '@lcw/content';
 import { TUNING } from './tuning.js';
 import { CHUNK_SIZE, CubicChunk } from './chunk.js';
+import { fillNaturalChunk, naturalBlock } from './natural.js';
 
 export type ZoneKind = 'oob' | 'core' | 'city' | 'plot' | 'wild';
 
@@ -35,8 +36,15 @@ export class VoxelWorld {
   /** last chunk setBlock wrote to: town building writes long runs into the same chunk */
   private lastChunk: CubicChunk | null = null;
 
-  constructor(plot: PlotBounds = { x0: 100, x1: 132, z0: 156, z1: 188 }) {
+  /**
+   * R2861①: the world is the natural ground (natural.ts) wherever nothing was written: a new chunk starts filled with
+   * it and a chunk never made reads as it. Off (`{ natural: false }`) only for tests of a bare grid.
+   */
+  readonly natural: boolean;
+
+  constructor(plot: PlotBounds = { x0: 100, x1: 132, z0: 156, z1: 188 }, opts: { natural?: boolean } = {}) {
     this.plot = plot;
+    this.natural = opts.natural ?? true;
   }
 
   static chunkKey(cx: number, cy: number, cz: number): string {
@@ -48,6 +56,7 @@ export class VoxelWorld {
     let chunk = this.chunks.get(key);
     if (!chunk) {
       chunk = new CubicChunk(cx, cy, cz);
+      if (this.natural) fillNaturalChunk(chunk);
       this.chunks.set(key, chunk);
     }
     return chunk;
@@ -58,10 +67,10 @@ export class VoxelWorld {
       Number.isInteger(x) &&
       Number.isInteger(y) &&
       Number.isInteger(z) &&
-      x >= 0 &&
-      x < TUNING.world.sizeX &&
-      z >= 0 &&
-      z < TUNING.world.sizeZ &&
+      x >= TUNING.world.openMin &&
+      x < TUNING.world.openMax &&
+      z >= TUNING.world.openMin &&
+      z < TUNING.world.openMax &&
       y >= TUNING.world.yMin &&
       y <= TUNING.world.yMax
     );
@@ -97,7 +106,7 @@ export class VoxelWorld {
     const cy = Math.floor(y / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
     const chunk = this.chunks.get(VoxelWorld.chunkKey(cx, cy, cz));
-    if (!chunk) return 0;
+    if (!chunk) return this.natural ? naturalBlock(x, y, z) : 0;
     const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
     const ly = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
     const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
@@ -173,17 +182,23 @@ export class VoxelWorld {
   }
 }
 
-/** One number per cell of the world box (x, z in 0..sizeX/Z, y in yMin..yMax): fits a small integer. */
+const OPEN_W = TUNING.world.openMax - TUNING.world.openMin;
+
+/**
+ * One number per cell of the open world (x, z in openMin..openMax, y in yMin..yMax): 60 000 x 60 000 x 3 049 cells
+ * is ~1.1e13, a safe integer (< 2^53). In memory only (the client's TownDelta, the server's OverlayWorld): the
+ * stores keep x, y, z.
+ */
 export function cellIndex(x: number, y: number, z: number): number {
-  return ((y - TUNING.world.yMin) * TUNING.world.sizeZ + z) * TUNING.world.sizeX + x;
+  return ((y - TUNING.world.yMin) * OPEN_W + (z - TUNING.world.openMin)) * OPEN_W + (x - TUNING.world.openMin);
 }
 
 /** The cell back from `cellIndex`. */
 export function cellOfIndex(i: number): [number, number, number] {
-  const x = i % TUNING.world.sizeX;
-  const r = (i - x) / TUNING.world.sizeX;
-  const z = r % TUNING.world.sizeZ;
-  return [x, (r - z) / TUNING.world.sizeZ + TUNING.world.yMin, z];
+  const x = i % OPEN_W;
+  const r = (i - x) / OPEN_W;
+  const z = r % OPEN_W;
+  return [x + TUNING.world.openMin, (r - z) / OPEN_W + TUNING.world.yMin, z + TUNING.world.openMin];
 }
 
 /**
@@ -198,7 +213,7 @@ export class OverlayWorld extends VoxelWorld {
   private outside = 0;
 
   constructor(readonly base: VoxelWorld) {
-    super(base.plot);
+    super(base.plot, { natural: base.natural });
   }
 
   /** Changed cells outside the plot (the free-build budget counts these). */

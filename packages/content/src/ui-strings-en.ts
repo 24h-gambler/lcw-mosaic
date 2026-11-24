@@ -40,7 +40,9 @@ export const UI_STRINGS_EN: UiStrings = {
       echoDone: 'You said it all the way! Amazing.',
       shortOfCoins: 'Perfect sentence! Get a few more coins to buy it.',
       shortOfCoinsGood: 'Well said! Get a few more coins to buy it.',
-      pickOffer: 'Pick one of these sentences and say it.'
+      pickOffer: 'Pick one of these sentences and say it.',
+      intentOk: 'Said in your own words! Say it like the sentence for more stars.',
+      freeTalkOk: 'Nice talk! Name a thing here to buy it too.'
     },
     chooseTitle: 'Pick a sentence to say',
     starsAria: '{n} stars',

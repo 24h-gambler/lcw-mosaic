@@ -34,6 +34,12 @@ export interface WorldStats {
   chunksVisible: number;
   scene: SceneId;
   player: { x: number; y: number; z: number; yaw?: number };
+  /**
+   * R2861① (headless shake check): the camera's eye and gaze this frame, and how far (degrees) the drawn gaze was off
+   * the gaze the mouse asked for — `errDeg` this frame, `errMaxDeg` the largest since the last `resetViewErr()`.
+   * Jumping or strafing in first person must keep it ~0 (the old eased look point lagged > 2°).
+   */
+  view?: { mode: string; pos: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number }; errDeg: number; errMaxDeg: number };
   /** While a dialog pauses the world: the NPC and where its face lands on screen (CSS px). */
   dialogShot?: { npc: string; face: [number, number] } | null;
   /** current dynamic-resolution scale (1 = tier scale x devicePixelRatio) */
@@ -247,6 +253,8 @@ export interface WorldHandle {
   onBlockRelay?(cb: (tag: string, c: import('./build.js').CellChange) => void): () => void;
   /** Performance and position read-out (headless checks, tier auto-detect). */
   getStats?(): WorldStats;
+  /** R2861① headless shake check: start a fresh window for getStats().view.errMaxDeg. */
+  resetViewErr?(): void;
   /**
    * G14 화면 설정 (frame/settings.ts owns the screen and the saved record; the world applies it at once, no restart).
    * null fields follow the tier. quality 'auto' measures frame time for the first seconds and settles on a tier,

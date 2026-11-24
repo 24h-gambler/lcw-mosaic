@@ -9,7 +9,7 @@ import {
 } from '@lcw/content';
 import * as CONTENT from '@lcw/content';
 import { filterSpeechBubble } from '@lcw/converse';
-import { reportNameKeys } from './name-keys.js';
+import { reportNameKeys, wordKeyIsName } from './name-keys.js';
 import { meaningfulExpression } from '@lcw/metrics';
 import type { SqliteExecutor } from './storage.js';
 
@@ -252,7 +252,9 @@ function hasNameKey(n: string, names: readonly string[]): boolean {
     for (let len = 1; len <= 4 && i + len <= words.length; len++) {
       const span = words.slice(i, i + len);
       // 'seo yeon' / 'seo-yeon' for a child registered as Seoyeon: the words of one name, spaced or joined.
-      if (set.has(span.join(' ')) || (len > 1 && set.has(span.join('')))) return true;
+      if (len === 1 && set.has(span[0]!)) {
+        if (wordKeyIsName(words, i)) return true;
+      } else if (set.has(span.join(' ')) || (len > 1 && set.has(span.join('')))) return true;
     }
   return false;
 }

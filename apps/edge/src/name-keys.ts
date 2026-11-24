@@ -1,4 +1,4 @@
-import { COMMON_WORDS_EN, FUNCTION_WORDS } from '@lcw/content';
+import { COMMON_WORDS_EN, FUNCTION_WORDS, NAME_LIKE_WORDS } from '@lcw/content';
 import type { SqliteExecutor } from './storage.js';
 
 /**
@@ -66,6 +66,11 @@ const KO_NAME_WORDS = new Set(
     '소망 기쁨 믿음 온유 한별 초롱 마루 누리 아라 단비 우리 다름 마음 가온 해솔 은하 이름 하루 여름 겨울 보배 새롬'
   ).split(' ')
 );
+/**
+ * Everyday words that are also how an English name is written in Hangul ('미아가 될 뻔한' for a classmate Mia, '두 마리'
+ * for Marie): matched to an English name only with a person particle ('미아랑', '마리야').
+ */
+const KO_EVERYDAY = new Set('미아 마리 나비 오리 하마 모아 리본 포도 키위 레몬 피자 소스 버스 키스 박스 메모 노트'.split(' '));
 /** Words in a device or sign-up label that are not a person ('거실 태블릿', '하린이 폰'). */
 const KO_LABEL_WORDS = new Set(
   '거실 안방 방 집 학교 학원 태블릿 아이패드 패드 폰 핸드폰 휴대폰 노트북 컴퓨터 엄마 아빠 공부 공부용 놀이 기기 새 가족 아이'.split(' ')
@@ -127,7 +132,8 @@ export function reportNameMasker(sql: SqliteExecutor, playerId: string, lessonId
     // A registered English name written in Hangul ('민지' for Minji, '조이' for Joy).
     if (stem.length >= 2 && stem.length <= 4 && ok(stem)) {
       const cands = [stem, ...(stem.length >= 3 && KO_SURNAMES.has(stem[0]!) ? [stem.slice(1)] : [])];
-      for (const cand of cands) if (romanise(cand, '', true).some((r) => latinOne.has(r))) return true;
+      for (const cand of cands)
+        if ((personal || !KO_EVERYDAY.has(cand)) && romanise(cand, '', true).some((r) => latinOne.has(r))) return true;
     }
     return false;
   };
@@ -158,6 +164,15 @@ export function reportNameMasker(sql: SqliteExecutor, playerId: string, lessonId
   };
   const maskLatin = (text: string): string => {
     const toks = [...text.matchAll(/[A-Za-z0-9]+/g)];
+    // English runs: Korean text or a sentence end between two words starts a new run ('the sun 을 … Sun and Mia').
+    const runs: Array<{ words: string[]; at: number }> = [];
+    let run: string[] = [];
+    toks.forEach((t, j) => {
+      const gap = j === 0 ? '' : text.slice(toks[j - 1]!.index! + toks[j - 1]![0].length, t.index!);
+      if (j === 0 || /[가-힣.!?]/.test(gap)) run = [];
+      runs.push({ words: run, at: run.length });
+      run.push(t[0].toLowerCase());
+    });
     let out = '';
     let at = 0;
     for (let i = 0; i < toks.length; ) {
@@ -168,7 +183,10 @@ export function reportNameMasker(sql: SqliteExecutor, playerId: string, lessonId
         const joined = span.every((t, j) => j === 0 || /^[\s'.-]*$/.test(text.slice(span[j - 1]!.index! + span[j - 1]![0].length, t.index!)));
         const ws = span.map((t) => t[0].toLowerCase());
         // 'Seo Yeon' / 'seo-yeon' for a child registered as Seoyeon: spaced or joined.
-        if (joined && (latin.has(ws.join(' ')) || (len > 1 && latin.has(ws.join(''))))) hit = len;
+        if (joined && (latin.has(ws.join(' ')) || (len > 1 && latin.has(ws.join(''))))) {
+          if (len === 1 && !wordKeyIsName(runs[i]!.words, runs[i]!.at)) continue;
+          hit = len;
+        }
       }
       if (hit) {
         const first = toks[i]!;
@@ -236,6 +254,28 @@ function collectNames(sql: SqliteExecutor, playerId: string, lessonId?: string):
 const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 const ORDINARY = new Set([...COMMON_WORDS_EN, ...FUNCTION_WORDS].map((w) => w.toLowerCase().replace(/'/g, '')));
+const WORD_NAMES = new Set([...ORDINARY, ...NAME_LIKE_WORDS]);
+const GRAMMAR = new Set([...FUNCTION_WORDS].map((w) => w.toLowerCase().replace(/'/g, '')));
+const DETERMINERS = new Set('the a an my your his her our their its this that these those some any every each no'.split(' '));
+/** Words before a name: "play with sun", "hi will", "sun and I" is caught by the words after it. */
+const NAME_BEFORE = new Set('with and to for from hi hello hey bye goodbye thanks thank meet call called named love miss like help'.split(' '));
+const NAME_AFTER = new Set('is was and s has had likes said says gave came went plays played'.split(' '));
+
+/**
+ * Whether the one-word key at words[i] stands as a name. A key that is not an everyday word always does. A child named
+ * Sun or Joy makes 'sun'/'joy' keys: after a determiner ("I like the sun", "a joy") it is the word, after "with", "hi" …
+ * it is the child. A name that is a grammar word (Will, May) is a name only where a name stands ("with will", "will is",
+ * at the end), not in "I will go".
+ */
+export function wordKeyIsName(words: readonly string[], i: number): boolean {
+  const w = words[i]!;
+  if (!WORD_NAMES.has(w)) return true;
+  const prev = words[i - 1];
+  if (prev !== undefined && NAME_BEFORE.has(prev)) return true;
+  if ((prev !== undefined && DETERMINERS.has(prev)) || (i >= 2 && DETERMINERS.has(words[i - 2]!))) return false;
+  if (GRAMMAR.has(w)) return i === words.length - 1 || NAME_AFTER.has(words[i + 1] ?? '');
+  return true;
+}
 
 /**
  * Keys of one name: the whole name, each word of it, and the romanised spellings of Korean words. `loose` sources
@@ -299,12 +339,13 @@ export function romanise(hangul: string, sep = '', loanword = false): string[] {
         if (mi === 20 && idx === chars.length - 1) meds = [...meds, 'y'];
         if (mi === 20 && Math.floor(c / 588) === 11 && prevOpenE) meds = [...meds, ''];
         if (mi === 18) meds = [...meds, '', 'e'];
-        if (mi === 1 || mi === 5) meds = [...meds, 'a', 'e'];
       }
+      if (mi === 1 || mi === 5) meds = [...meds, 'a', 'e'];
       const i0 = Math.floor(c / 588);
       if (i0 === 9) inis = [...ini, 'c'];
       if (i0 === 15) inis = [...ini, 'c'];
       if (c % 28 === 8) fins = [...fin, 'll'];
+      if (c % 28 === 1) fins = [...fin, 'ck'];
     }
     const meds2 = [...new Set(meds)];
     for (const i of inis) for (const m of meds2) for (const f of fins) syl.push(i + m + f);
@@ -313,5 +354,7 @@ export function romanise(hangul: string, sep = '', loanword = false): string[] {
     for (const a of acc) for (const s of syl) if (next.length < cap) next.push(a ? a + sep + s : s);
     acc = next;
   });
-  return acc.filter(Boolean);
+  const out = acc.filter(Boolean);
+  // 맥스 → maks → max, 렉스 → rex.
+  return loanword ? [...new Set([...out, ...out.filter((r) => r.includes('ks')).map((r) => r.replace(/ks/g, 'x'))])] : out;
 }

@@ -6,8 +6,10 @@ import { castVoices, fixedTtsLines, isLocalTtsEngine, localTtsLines, normalizeTt
  * the line as audio (mp3) in that voice.
  *
  * - One sentence in one voice is made once: R2 `tts/v1/<voice>/<sha256(text)>.mp3` (VOICE bucket; the children's
- *   clip retention only ever deletes the keys it queued, never this prefix). A cached line is served to anyone with a
- *   year-long immutable cache header, so the second child hears it from the browser or the edge cache.
+ *   clip retention only ever deletes the keys it queued, never this prefix). A cached line is served to anyone with an
+ *   hour of browser cache, a week of stale-while-revalidate and an ETag (`TTS_CACHE`): a line re-made and uploaded
+ *   again under the same key (a better take, 11-19) reaches a device that already played it within the hour, while
+ *   the line still plays at once from the cache and the check costs a 304.
  * - A missing line is made only through the quota meter (AGENTS 4.8) by Workers AI (AGENTS 4.4): the fixed lines
  *   (NPC lines and bank sentences, `fixedTtsLines`) for anyone, since the set is finite; any other text (a teacher's
  *   possession line) only for a child's own lesson or device token. Voices outside the cast pack are refused.
@@ -25,7 +27,8 @@ export interface TtsAi {
   run(model: string, input: unknown): Promise<unknown>;
 }
 export interface TtsStore {
-  get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
+  /** R2 gives `httpEtag` (quoted) on every object; a store without it just sends no ETag. */
+  get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; httpEtag?: string } | null>;
   put(key: string, value: Uint8Array, opts?: { httpMetadata?: { contentType?: string } }): Promise<unknown>;
 }
 
@@ -123,17 +126,34 @@ export async function synthesize(ai: TtsAi, voice: NpcVoice, text: string): Prom
  * `spoke`: the voice that made the audio. When a stand-in read a local line, the answer is cached for minutes only:
  * the same URL plays the local engine's line once it is uploaded.
  */
-function audio(bytes: Uint8Array, hit: 'hit' | 'miss', ms: number, spoke: string, standIn: boolean): Response {
-  return new Response(bytes as unknown as BodyInit, {
-    status: 200,
-    headers: {
-      'content-type': AUDIO_TYPE,
-      'cache-control': standIn ? 'public, max-age=600' : 'public, max-age=31536000, immutable',
-      'x-lcw-tts': hit,
-      'x-lcw-tts-voice': spoke,
-      'x-lcw-tts-ms': String(ms)
-    }
-  });
+/**
+ * Browser cache of a served line. Not immutable: the operator uploads a better take under the same key (the nightly
+ * generator hears every line back and re-makes a misheard one), and a year-long immutable copy kept the old take on
+ * every device that had played it. An hour fresh, then the browser plays its copy at once and asks again in the
+ * background (stale-while-revalidate; a browser without it revalidates first); the ETag makes that a 304.
+ */
+export const TTS_CACHE = {
+  line: 'public, max-age=3600, stale-while-revalidate=604800',
+  standIn: 'public, max-age=600'
+} as const;
+
+function audio(bytes: Uint8Array, hit: 'hit' | 'miss', ms: number, spoke: string, standIn: boolean, etag?: string): Response {
+  const headers: Record<string, string> = {
+    'content-type': AUDIO_TYPE,
+    'cache-control': standIn ? TTS_CACHE.standIn : TTS_CACHE.line,
+    'x-lcw-tts': hit,
+    'x-lcw-tts-voice': spoke,
+    'x-lcw-tts-ms': String(ms)
+  };
+  if (etag) headers.etag = etag;
+  return new Response(bytes as unknown as BodyInit, { status: 200, headers });
+}
+
+/** Does an If-None-Match header name this ETag (a list, `*`, or a weak form of it)? */
+export function etagMatches(ifNoneMatch: string | null | undefined, etag: string | undefined): boolean {
+  if (!ifNoneMatch || !etag) return false;
+  const bare = (e: string) => e.trim().replace(/^W\//, '');
+  return ifNoneMatch.split(',').some((e) => e.trim() === '*' || bare(e) === bare(etag));
 }
 
 export function ttsStatus(deps: Pick<TtsDeps, 'enabled' | 'ai'>): Response {
@@ -150,12 +170,12 @@ export async function makeLine(
   who: TtsCaller,
   deps: TtsDeps,
   known?: { key?: string; cachedChecked?: boolean; fixed?: boolean }
-): Promise<{ bytes: Uint8Array; hit: 'hit' | 'miss'; ms: number; spoke: string; standIn: boolean } | { error: string; status: number }> {
+): Promise<{ bytes: Uint8Array; hit: 'hit' | 'miss'; ms: number; spoke: string; standIn: boolean; etag?: string } | { error: string; status: number }> {
   const t0 = deps.nowMs();
   const key = known?.key ?? (await ttsCacheKey(voice, text, deps.sha256Hex));
   const cached = deps.store && !known?.cachedChecked ? await deps.store.get(key).catch(() => null) : null;
   const spoke = ttsVoiceId(voice);
-  if (cached) return { bytes: new Uint8Array(await cached.arrayBuffer()), hit: 'hit', ms: deps.nowMs() - t0, spoke, standIn: false };
+  if (cached) return { bytes: new Uint8Array(await cached.arrayBuffer()), hit: 'hit', ms: deps.nowMs() - t0, spoke, standIn: false, etag: cached.httpEtag };
   const fixed = known?.fixed ?? isFixedLine(voice, text);
   if (isLocalTtsEngine(voice.engine)) {
     // not uploaded yet: the stand-in reads it under its own key (same rules: a fixed line for anyone), else the device
@@ -182,7 +202,7 @@ export async function makeLine(
   return { bytes, hit: 'miss', ms: deps.nowMs() - t0, spoke, standIn: false };
 }
 
-export async function handleTts(url: URL, who: TtsCaller, deps: TtsDeps): Promise<Response> {
+export async function handleTts(url: URL, who: TtsCaller, deps: TtsDeps, ifNoneMatch?: string | null): Promise<Response> {
   if (!deps.enabled && !who.operator) return json({ error: 'tts_off', fallback: 'device' }, 404);
   const voice = parseVoice(url.searchParams.get('v'));
   if (!voice) return json({ error: 'unknown_voice', fallback: 'device' }, 400);
@@ -192,7 +212,11 @@ export async function handleTts(url: URL, who: TtsCaller, deps: TtsDeps): Promis
   const cachedOnly = who.cachedOnly || url.searchParams.get('c') === '1';
   const r = await makeLine(voice, text, cachedOnly ? { ...who, cachedOnly } : who, deps);
   if ('error' in r) return json({ error: r.error, fallback: 'device' }, r.status);
-  return audio(r.bytes, r.hit, r.ms, r.spoke, r.standIn);
+  if (!r.standIn && etagMatches(ifNoneMatch, r.etag)) {
+    // the browser's copy is still this take: no body, the same cache rules again
+    return new Response(null, { status: 304, headers: { etag: r.etag!, 'cache-control': TTS_CACHE.line, 'x-lcw-tts-voice': r.spoke } });
+  }
+  return audio(r.bytes, r.hit, r.ms, r.spoke, r.standIn, r.standIn ? undefined : r.etag);
 }
 
 /** An mp3 file: an ID3 tag or an MPEG audio frame sync at the start. */

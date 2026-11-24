@@ -340,7 +340,7 @@ export const PRICING = {
       id: 'extra',
       name: '좌석 추가',
       seats: '3번째 좌석부터',
-      month: '7,000원',
+      month: '7,900원',
       year: '59,000원',
       perSeatYear: '좌석당 월 4,917원',
       notes: ['가족·친구 묶음', '좌석마다 따로 월드 5개']

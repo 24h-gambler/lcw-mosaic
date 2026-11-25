@@ -11,6 +11,13 @@ export const PLAN_PRICES_KRW = {
   duo: { month: 19_900, year: 159_000 }
 } as const;
 
+/**
+ * Seat add-on (3rd seat on), docs/01 4. Not a checkout plan: the operator issues it by hand, and this is the amount
+ * the issue form and the site show. Month 7,900 sits above the worst-case seat cost (~7,600 KRW/month, docs/23 4);
+ * Dan chose option B on 2026-11-24 (decision d_49eb832fb69b).
+ */
+export const SEAT_ADD_PRICES_KRW = { month: 7_900, year: 59_000 } as const;
+
 export const REFUND_WINDOW_MS = 7 * DAY_MS;
 const KST_OFFSET_MS = 9 * 3_600_000;
 

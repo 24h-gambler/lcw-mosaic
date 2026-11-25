@@ -6,6 +6,7 @@ import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
 import { App } from '../App.js';
 import { routeFromPath } from '../main.js';
 import { bestOfferMatch, wordHits } from '../tryFlow.js';
+import { PLAN_PRICES_KRW, SEAT_ADD_PRICES_KRW } from '@lcw/quota';
 import { FAQ, LEARN_PAGES, LOOP, PARENTS, PRICING, REFUND_RULE, TOUR } from '../site/copy.js';
 import { clipCaptionAt } from '../site/GameMedia.js';
 import { SITE_CLIPS, SITE_STILLS } from '../site/media.js';
@@ -140,6 +141,24 @@ describe('W02 parents and W05 pricing', () => {
     expect(html).toContain('예시 화면');
     expect(html).toContain('기계 음성 시연');
     expect(html).toContain('표로 보기');
+  });
+
+  it('site plan prices equal the server list prices, seat add-on included (docs/01 4, d_49eb832fb69b)', () => {
+    const won = (n: number) => `${String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}원`;
+    const list: Record<string, { month: number; year: number }> = {
+      solo: PLAN_PRICES_KRW.solo,
+      duo: PLAN_PRICES_KRW.duo,
+      extra: SEAT_ADD_PRICES_KRW
+    };
+    expect(PRICING.plans.map((p) => p.id).sort()).toEqual(Object.keys(list).sort());
+    for (const p of PRICING.plans) {
+      const want = list[p.id];
+      if (!want) throw new Error(`no list price for ${p.id}`);
+      expect(p.month, p.id).toBe(won(want.month));
+      expect(p.year, p.id).toBe(won(want.year));
+    }
+    // Dan 2026-11-24 option B: the add-on month price is above the worst-case seat cost (~7,600 KRW, docs/23 4).
+    expect(SEAT_ADD_PRICES_KRW.month).toBe(7_900);
   });
 
   it('shows plans, refund and cancellation on one screen, plus the ten FAQ answers', () => {

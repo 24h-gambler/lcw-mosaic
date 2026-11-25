@@ -4127,7 +4127,7 @@
     },
     "C01.4.좌석_추가": {
       "kind": "promise",
-      "title": "좌석 추가 (3번째부터) · 7,000원 · 59,000원 · 4,917원 · 가족·친구 묶음",
+      "title": "좌석 추가 (3번째부터) · 7,900원 · 59,000원 · 4,917원 · 가족·친구 묶음",
       "status": "partial",
       "owner": "parent",
       "route": "/pricing",
@@ -4138,13 +4138,15 @@
         ]
       },
       "tests": [
-        "apps/web/src/__tests__/site.test.tsx::shows plans, refund and cancellation on one screen, plus the ten FAQ answers"
+        "apps/web/src/__tests__/site.test.tsx::shows plans, refund and cancellation on one screen, plus the ten FAQ answers",
+        "apps/web/src/__tests__/site.test.tsx::site plan prices equal the server list prices, seat add-on included (docs/01 4, d_49eb832fb69b)"
       ],
       "evidence": [
-        "apps/web/src/site/copy.ts:319",
+        "apps/web/src/site/copy.ts:343",
+        "packages/quota/src/duo.ts:19",
         "apps/edge/src/seats.ts:123"
       ],
-      "note": "사이트 요금표에만 있음, 서버 좌석 plan 에 extra 가 없어 3번째 좌석을 발급할 수 없음"
+      "note": "정가는 SEAT_ADD_PRICES_KRW(월 7,900원·연 59,000원, Dan 11-24 B안)로 사이트와 같음. 서버 좌석 plan 에 extra 가 없어 3번째 좌석을 발급할 수 없음"
     },
     "C01.4.과외_패키지": {
       "kind": "promise",

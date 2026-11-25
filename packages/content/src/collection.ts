@@ -37,7 +37,14 @@ export const MINERAL_REGISTRY: readonly CollectionEntryDef[] = [
 ];
 
 /** Item keys that count as a mineral (a trade's ore, the exchange's gold). */
-export const MINERAL_ALIASES: Readonly<Record<string, string>> = { iron_ore: 'iron', gold_ore: 'gold' };
+export const MINERAL_ALIASES: Readonly<Record<string, string>> = {
+  iron_ore: 'iron',
+  gold_ore: 'gold',
+  // R2904①: the ore blocks a child mines in the deep (BLOCK_PALETTE 71–75, sim-core natural.ts)
+  coal_ore: 'coal',
+  ruby_ore: 'ruby',
+  diamond_ore: 'diamond'
+};
 
 /** docs/03 D9 enemy table (8 kinds). */
 export const ENEMY_REGISTRY: readonly CollectionEntryDef[] = [

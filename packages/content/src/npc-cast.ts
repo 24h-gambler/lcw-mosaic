@@ -77,10 +77,12 @@ const EN: NpcCastPack = {
     guide: { nameEn: 'Luna', nameKo: '안내인 루나 선생님', nameKoShort: '루나', age: 'adult', voice: { engine: 'aura2', speaker: 'athena' } },
     cafe_owner: { nameEn: 'Hannah', nameKo: '카페 주인 해나', nameKoShort: '해나', age: 'adult', voice: { engine: 'aura2', speaker: 'hera' } },
     shop_owner: { nameEn: 'Toby', nameKo: '상점 주인 토비', nameKoShort: '토비', age: 'adult', voice: { engine: 'aura2', speaker: 'apollo' } },
-    errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura2', speaker: 'delia' } }
+    errand_neighbor: { nameEn: 'Mia', nameKo: '이웃 미아', nameKoShort: '미아', age: 'child', voice: { engine: 'aura2', speaker: 'delia' } },
+    // R2904①: the trail ranger waits outside the town (east road) - the first person met out in the open land
+    trail_ranger: { nameEn: 'Rowan', nameKo: '탐험가 로완', nameKoShort: '로완', age: 'adult', voice: { engine: 'aura2', speaker: 'orion' } }
   },
   modelVoice: { engine: 'kokoro', speaker: 'af_sarah', standIn: { engine: 'aura2', speaker: 'luna' } },
-  ctxNpc: { cafe: 'cafe_owner', trade_shop: 'shop_owner', guide: 'guide', errand: 'errand_neighbor' },
+  ctxNpc: { cafe: 'cafe_owner', trade_shop: 'shop_owner', guide: 'guide', errand: 'errand_neighbor', ranger: 'trail_ranger' },
   // R2625 (11-19, coordinator): every islander a voice of its own, none shared with another islander or the model
   // voice (af_sarah). Kokoro-82M American (a*) and British (b*) speakers.
   islanders: {

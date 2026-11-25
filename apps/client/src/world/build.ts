@@ -18,6 +18,8 @@ import {
   cellIndex,
   cellOfIndex,
   isReplaceableCell,
+  oreReason,
+  oreTier,
   blockRef,
   breakSeconds,
   cellKey,
@@ -279,6 +281,8 @@ export class PlotBuilder {
     if (!breakReason && !isFurn) {
       if (id === 0 || id === BK.water) breakReason = 'no_block';
       else if (!Number.isFinite(breakSeconds(id))) breakReason = 'unbreakable';
+      // R2904①: an ore asks for a pickaxe of its tier among the child's tools, held or owned (the server checks the same, mineTierOf)
+      else if (oreTier(id) > 0 && oreReason(id, this.state.mineTier?.() ?? 0)) breakReason = oreReason(id, this.state.mineTier?.() ?? 0)!;
       else if (this.state.furniture.has(cellKey(hit.x, hit.y + 1, hit.z))) breakReason = 'occupied';
       else if (this.overBudget(hit.x, hit.y, hit.z, id, 0)) breakReason = 'too_many';
     }

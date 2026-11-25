@@ -67,7 +67,13 @@ export const BK = {
   terracottaHoney: 67,
   flowerBlue: 68,
   chalkboard: 69,
-  stoneBrick: 70
+  stoneBrick: 70,
+  // R2904① ores of the deep (natural.ts naturalOre, mined with a pickaxe of their tier: plot.ts oreTier)
+  coalOre: 71,
+  ironOre: 72,
+  goldOre: 73,
+  rubyOre: 74,
+  diamondOre: 75
 } as const;
 
 // ---- Deterministic hash + value noise (no Math.random, docs/03 3.3 결정론).

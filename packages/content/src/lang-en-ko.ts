@@ -744,6 +744,62 @@ for (const level of ['L1', 'L2', 'L3'] as const) {
   }
 }
 
+/**
+ * R2904①: the trail ranger (world NPC trail_ranger, ctx ranger) out in the open land. Nothing is sold (price 0): the
+ * child says what was found or seen on the way - a cave, ore, the night - in more or fewer words, the free talk the
+ * guardian's growth view counts. One entry per level (L4-L6 fall back to the closest level of the ctx).
+ */
+const RANGER_BANK: PhraseBankEntry[] = [
+  {
+    id: 'ranger_L1_found',
+    lang: 'en',
+    ctx: 'ranger',
+    intent: 'chat_found',
+    slotsKey: 'item=found|kind=chat',
+    level: 'L1',
+    offers: [
+      { stars: 1, text: 'I found a stone.', price: 0, bonus: null },
+      { stars: 2, text: 'I found some coal in the cave.', price: 0, bonus: null },
+      { stars: 3, text: 'I found some coal in the cave. It was very dark.', price: 0, bonus: null }
+    ],
+    hintTags: ['found', 'cave'],
+    baseMesh: 'item_signpost_01',
+    socket: 'RightHand_Socket'
+  },
+  {
+    id: 'ranger_L2_found',
+    lang: 'en',
+    ctx: 'ranger',
+    intent: 'chat_found',
+    slotsKey: 'item=found|kind=chat',
+    level: 'L2',
+    offers: [
+      { stars: 1, text: 'I found coal in a cave.', price: 0, bonus: null },
+      { stars: 2, text: 'I walked far and found a deep cave.', price: 0, bonus: null },
+      { stars: 3, text: 'I walked far and found a deep cave because I wanted to find shiny ore.', price: 0, bonus: null }
+    ],
+    hintTags: ['found', 'because'],
+    baseMesh: 'item_signpost_01',
+    socket: 'RightHand_Socket'
+  },
+  {
+    id: 'ranger_L3_found',
+    lang: 'en',
+    ctx: 'ranger',
+    intent: 'chat_found',
+    slotsKey: 'item=found|kind=chat',
+    level: 'L3',
+    offers: [
+      { stars: 1, text: 'I found some coal today.', price: 0, bonus: null },
+      { stars: 2, text: 'I went into a deep cave and found some iron.', price: 0, bonus: null },
+      { stars: 3, text: 'I went into a deep cave and found some iron so that I can make a stronger pickaxe.', price: 0, bonus: null }
+    ],
+    hintTags: ['went into', 'so that'],
+    baseMesh: 'item_signpost_01',
+    socket: 'RightHand_Socket'
+  }
+];
+
 const DOMAIN_BANK_ENTRIES: PhraseBankEntry[] = [
   {
     id: 'makers_lab_L3_jetpack_red',
@@ -931,6 +987,7 @@ export const PHRASE_BANK: readonly PhraseBankEntry[] = [
   ...GENERATED_GUIDE_BANK,
   ...GENERATED_FURNITURE_BANK,
   ...GENERATED_ERRAND_BANK,
+  ...RANGER_BANK,
   ...DOMAIN_BANK_ENTRIES,
   ...GENERATED_TOWN_SHOP_BANK
 ];
@@ -1120,7 +1177,9 @@ export const NPC_OPENING_LINES: Record<string, string> = {
   errand: FIRST_ERRAND.lines.ask,
   makers_lab: 'What kind of gear do you want me to build?',
   boutique: 'Hello! What would you like to wear today?',
-  exchange: 'What would you like to sell today?'
+  exchange: 'What would you like to sell today?',
+  // R2904①: the trail ranger out in the open land asks what the child found - no order, an own-words talk
+  ranger: 'Hello, explorer! What did you find out here today?'
 };
 
 /**
@@ -1136,7 +1195,9 @@ export const NPC_REVISIT_LINES: Record<string, readonly string[]> = {
   boutique: ['Hi again! What do you want to wear this time?'],
   exchange: ['Welcome back! What do you want to sell this time?'],
   /** The errand giver once no errand runs (done, or a guest): she points the way like the guide (dialog/errand.ts). */
-  errand: ['Hi again! Where do you want to go next?', 'Hello, friend! Do you want to visit the trade shop or the cafe?', 'Hi! Do you need help finding a place?']
+  errand: ['Hi again! Where do you want to go next?', 'Hello, friend! Do you want to visit the trade shop or the cafe?', 'Hi! Do you need help finding a place?'],
+  /** The trail ranger asks again what the explorer found (the offers under it are all things found or seen). */
+  ranger: ['Welcome back, explorer! What did you find this time?', 'Hi again! Did you dig deep today? What did you find?', 'Oh, you are back! Tell me, what did you see out here?']
 };
 
 export const OPEN_ENDED_PROMPTS = [

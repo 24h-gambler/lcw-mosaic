@@ -3,6 +3,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { FORBIDDEN_PLAYER_UI_PATTERNS } from '@lcw/ui';
+import { mineTierOf } from '@lcw/sim-core';
 import { fetchItems, moveThing, parseCollection, parseItems, pickRepair, type ItemsView } from '../frame/api.js';
 import { bagSlots, chestThings, socketThings, BagPanel } from '../frame/menu/BagPanel.js';
 import { BOOK_IDS, bookPct, sixBooks, BookPanel } from '../frame/menu/BookPanel.js';
@@ -10,7 +11,7 @@ import { repairOrder, RepairPanel } from '../frame/menu/RepairPanel.js';
 import { turnYaw } from '../frame/menu/MirrorPanel.js';
 import { tabForKey, PlayerMenu } from '../frame/menu/PlayerMenu.js';
 import { MENU_TABS, otherModalOpen, type MenuPanelProps } from '../frame/menu/types.js';
-import { bagKeys, frameAuthOf } from '../frame/FrameLayer.js';
+import { bagKeys, frameAuthOf, ownedKeys } from '../frame/FrameLayer.js';
 import { FRAME_STRINGS as F } from '../frame/strings.js';
 import { SERVER_UNREACHABLE_EVENT } from '../frame/connection.js';
 
@@ -46,6 +47,18 @@ describe('server data in the menu', () => {
   });
   it('puts the server bag on the HUD hotbar in order, five slots', () => {
     expect(bagKeys(parseItems(raw))).toEqual(['honey_tea', null, null, null, null]);
+  });
+  it('R2904①: the screen sees every owned tool (bag, equipped, chest) so a shop pickaxe breaks ore without being in hand', () => {
+    const v = parseItems({
+      items: [
+        { item_id: 'a', item_key: 'honey_tea', item_name_ko: '꿀차', emoji: '🍯', location: 'bag', socket: null, durability: 100, card: null },
+        { item_id: 'b', item_key: 'iron_pickaxe', item_name_ko: '철 곡괭이', emoji: '⛏', location: 'bag', socket: null, durability: 100, card: null },
+        { item_id: 'c', item_key: 'drill', item_name_ko: '드릴', emoji: '🔩', location: 'chest', socket: null, durability: 100, card: null }
+      ]
+    });
+    expect(ownedKeys(v)).toEqual(expect.arrayContaining(['iron_pickaxe', 'drill']));
+    expect(mineTierOf(ownedKeys(v))).toBe(3);
+    expect(mineTierOf(ownedKeys(parseItems({ items: [] })))).toBe(0);
   });
   it('always shows six books in the spec order, with a safe progress', () => {
     const v = parseCollection({ books: [{ id: 'food', total: 4, found: 1, entries: [] }, { id: 'unknown_book', total: 1, found: 1 }] });

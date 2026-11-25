@@ -91,6 +91,12 @@ export function makeItemModel(key: string): THREE.Group {
   } else if (food) {
     const col = /apple/.test(key) ? 0xe5484d : /banana/.test(key) ? 0xffc53d : /cake/.test(key) ? 0xff9cc2 : 0xc98a4a;
     pieces.push(vox(4, 3, 4, col, 0, 0, 2), vox(1, 1.5, 1, 0x3dbe6b, 0, 2.2, 2));
+  } else if (/sword/.test(key)) {
+    // R2904①: a blade with a cross guard on a short grip
+    pieces.push(vox(1, 3, 1, 0x9a6a3a, 0, -2, 2), vox(4, 0.9, 1, 0xffc53d, 0, 0, 2), vox(1.2, 8, 0.6, 0xe8edf2, 0, 4.6, 2));
+  } else if (/drill/.test(key)) {
+    // R2904①: a body with a grip below and a pointed bit in front
+    pieces.push(vox(3, 3, 5, 0xffb347, 0, 2, 2), vox(1.4, 4, 1.4, 0x3a3f47, 0, -1.4, 2), vox(1, 1, 3.4, 0xd5dde6, 0, 2, 5.6));
   } else if (/pickaxe|(^|_)axe($|_)|shovel/.test(key)) {
     // R2861①: hand tools (own voxel shapes): a wooden handle with a head — the axe a wedge to one side, the pickaxe a
     // bar across, the shovel a flat blade at the end

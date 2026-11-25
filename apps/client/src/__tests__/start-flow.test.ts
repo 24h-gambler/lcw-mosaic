@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_WORLD_CHOICE, WORLD_BUDDIES, WORLD_SEASONS, WORLD_TIMES, cleanWorldName, randomWorldChoice, readWorldChoice, readWorldSetup } from '@lcw/content';
+import { DEFAULT_WORLD_CHOICE, WORLD_BUDDIES, WORLD_SEASONS, WORLD_TIMES, WORLD_TIME_FLOWS, WORLD_TIME_HOUR, cleanWorldName, randomWorldChoice, readWorldChoice, readWorldSetup } from '@lcw/content';
 import { startFlowFor } from '../App.js';
 import { SIGN_IN_PATH, SIGN_UP_PATH, TRY_PATH, cleanLessonCode, joinDeviceLesson, joinLessonWithCode, lessonLive, liveLessonId, loadMyWorld, makeMyWorld, saveLearnLang, titleActions, type FetchLike, type KeyStore } from '../start/api.js';
 import { revealCards, syncLearnLang } from '../start/StartFlow.js';
@@ -50,6 +50,9 @@ describe('world setup (packages/content, G07)', () => {
       expect(WORLD_BUDDIES.map((o) => o.id)).toContain(c.buddy);
     }
     for (const o of [...WORLD_SEASONS, ...WORLD_TIMES, ...WORLD_BUDDIES]) expect(o.labelKo.length).toBeGreaterThan(0);
+    // R2904①: one time of day turns to night (it starts in the morning); the fixed ones never do
+    expect(WORLD_TIMES.filter((o) => WORLD_TIME_FLOWS[o.id]).map((o) => o.id)).toEqual(['daynight']);
+    expect(WORLD_TIME_HOUR.daynight).toBeLessThan(12);
   });
 });
 
@@ -184,7 +187,7 @@ describe('start flow data (docs/08 §8.4 G07, Dan 11-16 R2555)', () => {
       expect(l.en).not.toMatch(/[가-힣]/);
       expect(l.ko.length).toBeGreaterThan(0);
     }
-    for (const o of [...WORLD_SEASONS, ...WORLD_TIMES, ...WORLD_BUDDIES]) expect(o.labelEn).toMatch(/^[A-Z][a-z]+$/);
+    for (const o of [...WORLD_SEASONS, ...WORLD_TIMES, ...WORLD_BUDDIES]) expect(o.labelEn).toMatch(/^[A-Z][a-z]+( [a-z]+){0,2}$/);
     expect(ro('바다')).toBe('로');
     expect(ro('Town')).toBeNull();
     const all = JSON.stringify(lines);

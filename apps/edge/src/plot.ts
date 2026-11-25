@@ -194,7 +194,11 @@ export class PlotStore {
    * the host's carried blocks and may break only what they placed under this pass: the host's own build, the chest
    * and the slots are never theirs to change ('not_yours'). Their cells are remembered per pass.
    */
-  applyOps(rawOps: unknown[], nowMs: number, opts: { simulateCrashMidTx?: boolean; batch?: string; guestGrant?: string; scope?: BuildScope } = {}): PlotOpsResult {
+  applyOps(
+    rawOps: unknown[],
+    nowMs: number,
+    opts: { simulateCrashMidTx?: boolean; batch?: string; guestGrant?: string; scope?: BuildScope; mineTier?: () => number } = {}
+  ): PlotOpsResult {
     const batch = typeof opts.batch === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(opts.batch) ? opts.batch : null;
     if (batch) {
       // The same batch sent again (the reply was lost, or the app closed mid-request): answer what it did then.
@@ -208,6 +212,8 @@ export class PlotStore {
     const ops = rawOps.slice(0, OPS_PER_REQUEST_MAX);
     // R326: a lesson builds on the plot only (the platform sets the scope from the token, never the body)
     this.state.scope = opts.scope ?? 'world';
+    // R2904①: the best pickaxe the child owns (asked only when an ore is broken); a guest brings none of theirs here
+    this.state.mineTier = opts.guestGrant ? undefined : opts.mineTier;
     const results: PlotOpsResult['results'] = [];
     const touched = new Set<string>();
     const touchedFurniture = new Set<string>();

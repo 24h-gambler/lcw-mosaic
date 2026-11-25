@@ -69,7 +69,9 @@ export const TOWN_GUARD_BOXES: readonly GuardBox[] = [
 
 export const TOWN_GUARD_DISCS: readonly GuardDisc[] = [
   // the flat hill top with the picnic blanket, the benches and where the guide stands (town.ts HILL)
-  { id: 'hill_top', x: 144, z: 102, r: 6.5 }
+  { id: 'hill_top', x: 144, z: 102, r: 6.5 },
+  // R2904①: the trail ranger's post out in the open land east of the road (town.ts `trail_ranger`): the ground he stands on stays
+  { id: 'ranger_post', x: 200.5, z: 146.5, r: 2.6 }
 ];
 
 export const TOWN_GUARD_WALKS: readonly GuardWalk[] = [

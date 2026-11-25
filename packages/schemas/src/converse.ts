@@ -30,7 +30,8 @@ export const NpcContextSchema = z.enum([
   'resident',
   'trade_shop',
   'guide',
-  'errand'
+  'errand',
+  'ranger'
 ]);
 export type NpcContext = z.infer<typeof NpcContextSchema>;
 

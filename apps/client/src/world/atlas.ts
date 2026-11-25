@@ -187,6 +187,22 @@ function bigBricks(p: Painter, c: RGB, mortar: RGB, courses = 2): void {
   }
 }
 
+/**
+ * R2904①: an ore — the deep stone with a few rounded nuggets of its color, each with a light glint, so a child sees
+ * from a few steps away which pickaxe it asks for (dark coal, warm iron, gold, red ruby, pale blue diamond).
+ */
+function ore(p: Painter, seed: number, gem: RGB, n = 5): void {
+  pebbles(p, seed, shade(C.stoneDeep, 1.18), [shade(C.stoneDeep, 1.3), shade(C.stoneDeep, 1.22)], 5, 5, 7);
+  for (let i = 0; i < n; i++) {
+    const x = 5 + hash2(seed + 7, i, 1) * 22;
+    const y = 5 + hash2(seed + 7, i, 2) * 22;
+    const r = 2.2 + hash2(seed + 7, i, 3) * 1.6;
+    p.circle(x, y + 0.6, r, shade(gem, 0.7), 0.9);
+    p.circle(x, y, r - 0.3, gem);
+    p.circle(x - r * 0.35, y - r * 0.35, Math.max(0.6, r * 0.3), shade(gem, 1.5), 0.8);
+  }
+}
+
 /** Rounded pebbles packed on a base. */
 function pebbles(p: Painter, seed: number, bg: RGB, cs: readonly RGB[], n = 9, rMin = 3, rMax = 6): void {
   base(p, bg, 0.04);
@@ -533,7 +549,12 @@ const PAINT: Record<TileName, (p: Painter, seed: number) => void> = {
     p.circle(11, 20, 1, C.white, 0.85);
     p.circle(9, 22.5, 0.8, C.white, 0.85);
   },
-  stone_brick: (p) => bigBricks(p, soft(0xd8cbb6, 0.1), soft(0xb7a68c, 0.15), 2)
+  stone_brick: (p) => bigBricks(p, soft(0xd8cbb6, 0.1), soft(0xb7a68c, 0.15), 2),
+  coal_ore: (p, s) => ore(p, s, hex(0x2b2d33), 6),
+  iron_ore: (p, s) => ore(p, s, soft(0xd9a27a, 0.1), 5),
+  gold_ore: (p, s) => ore(p, s, soft(0xffc53d, 0.05), 5),
+  ruby_ore: (p, s) => ore(p, s, soft(0xe5484d, 0.05), 4),
+  diamond_ore: (p, s) => ore(p, s, soft(0x7fe3f0, 0.05), 4)
 };
 
 /** Shader bevel strength per tile (materials.ts): 1 = full toy bevel, lower on ground so roads stay calm. */

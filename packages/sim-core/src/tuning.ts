@@ -157,7 +157,11 @@ export const TUNING = {
       diamond: { price: 90, requiredToolTier: 3, minY: -150, maxY: -100 },
       nether_crystal: { price: 220, requiredToolTier: 4, minY: -400, maxY: -151 },
       void_shard: { price: 600, requiredToolTier: 4, minY: 1000, maxY: 600 }
-    } as Record<string, { price: number; requiredToolTier: number; minY: number; maxY: number }>
+    } as Record<string, { price: number; requiredToolTier: number; minY: number; maxY: number }>,
+    /** R2904① vein lots in natural.ts: the share of 4 x 3 x 4 m lots in an ore's band that hold a vein (half filled). */
+    veinLot: { coal: 0.028, iron: 0.02, gold: 0.01, ruby: 0.008, diamond: 0.006 } as Record<string, number>,
+    /** R2904① caves of the mine band (docs/03 3.2): tunnels (noise half-width) and rooms, never above `top`. */
+    caves: { top: -12, bottom: -150, tunnelWidth: 0.05, roomShare: 0.03 }
   },
   career: {
     ranks: {

@@ -5694,12 +5694,20 @@
       "status": "partial",
       "owner": "world",
       "tests": [
-        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court"
+        "packages/sim-core/src/__tests__/sim-core.test.ts::WP-404, WP-405, WP-406, WP-407, WP-408: verifies mining, ledger, 35-day review, career, and court",
+        "packages/sim-core/src/__tests__/open-land-r2904.test.ts::each ore lies only in its TUNING band, and every one is found",
+        "packages/sim-core/src/__tests__/open-land-r2904.test.ts::tiers (docs/03 D2): wooden pickaxe 1, iron pickaxe 2, drill 3; coal·iron need 1, gold·ruby 2, diamond 3",
+        "packages/sim-core/src/__tests__/open-land-r2904.test.ts::the server rule (applyPlotOp): a bare hand cannot take ore, the right pickaxe can, and the ore comes back to the hand",
+        "packages/sim-core/src/__tests__/open-land-r2904.test.ts::a few percent of the mine band is air, joined into tunnels; nothing above the cave top or under the bottom",
+        "apps/edge/src/__tests__/shop.test.ts::R2904①: pickaxe tiers at the trade shop — a bare hand cannot take ore, the pickaxe can, and the collection shows it"
       ],
       "evidence": [
-        "packages/sim-core/src/domains.ts:68"
+        "packages/sim-core/src/domains.ts:68",
+        "packages/sim-core/src/natural.ts:1",
+        "packages/sim-core/src/plot.ts:1",
+        "apps/edge/src/app.ts:1"
       ],
-      "note": "채굴·광물표·도구 등급은 sim-core 함수(D2 표 시험)뿐, 월드에 채굴·시세 화면 없음"
+      "note": "R2904①: 땅속 광맥 5종(D2 깊이)·동굴·도구 등급(나무 곡괭이→철 곡괭이→드릴)이 월드에 연결됨 — 상점에서 사고, 맨손이면 서버·화면 모두 거절, 캔 광물은 블록으로 손에 들어오고 광물 도감에 남음. 광물 시세(팔아서 코인)·사막·설원 2배·네더 크리스탈 이하 층은 없음"
     },
     "WP-405": {
       "kind": "wp",

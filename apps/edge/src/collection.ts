@@ -86,7 +86,25 @@ export function listCollection(
       const byId = new Map(BLOCK_PALETTE.map((b) => [b.id, b.key]));
       for (const r of world.sql.all<{ id: number }>('select distinct id from plot_cells where id > 0')) {
         const key = byId.get(Number(r.id));
-        if (key) blockKeys.add(key);
+        if (key) {
+          blockKeys.add(key);
+          // R2904①: an ore set down somewhere was mined first (an ore is never in a new chest)
+          if (key in MINERAL_ALIASES) thingKeys.add(key);
+        }
+      }
+      // R2904①: the ores the child mined and still holds (hand or chest: `b71`… in plot_inv)
+      const inv = world.sql.get<{ data: string }>('select data from plot_inv where player = ?', [playerId]);
+      if (inv) {
+        try {
+          const d = JSON.parse(inv.data) as { slots?: Array<{ ref?: string } | null>; chest?: Record<string, number> };
+          const refs = [...(d.slots ?? []).map((x) => x?.ref ?? ''), ...Object.entries(d.chest ?? {}).filter(([, n]) => n > 0).map(([r]) => r)];
+          for (const ref of refs) {
+            const key = /^b\d+$/.test(ref) ? byId.get(Number(ref.slice(1))) : undefined;
+            if (key && key in MINERAL_ALIASES) thingKeys.add(key);
+          }
+        } catch {
+          // a broken row is ignored here (plot.ts rebuilds it on the next read)
+        }
       }
     }
   }

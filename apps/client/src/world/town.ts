@@ -111,6 +111,18 @@ const NPC_DEFS: readonly NpcDef[] = [
     spot: { x: 161.0, y: 1, z: 139.0, yaw: 0 },
     soloOnly: true,
     look: { skin: 0xf2c7a5, hair: 0x2a2320, shirt: 0x3dbe6b, pants: 0x3fa9f5, shoes: 0xf3efe7, hairStyle: 'bun', hat: 0xffc53d }
+  },
+  {
+    // R2904①: the first person out in the open land, east of the town box (the road past the cafe): an explorer who
+    // asks what the child found (ctx ranger, own-words talk that lands in the growth view). Solo play only.
+    id: 'trail_ranger',
+    ctx: 'ranger',
+    nameKo: '탐험가',
+    nameEn: 'Ranger',
+    home: 'plaza',
+    spot: { x: 200.5, y: 1, z: 146.5, yaw: Math.PI / 2 },
+    soloOnly: true,
+    look: { skin: 0xc68e62, hair: 0x6b4226, shirt: 0x2f6f4e, pants: 0x7a5235, shoes: 0x3a3022, hairStyle: 'cap', hat: 0xb0894a }
   }
 ];
 

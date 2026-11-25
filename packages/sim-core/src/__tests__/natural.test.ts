@@ -101,7 +101,8 @@ describe('natural ground (R2861①)', () => {
       }
     }
     for (const id of [BK.stone, BK.gravel, BK.granite, BK.marble, BK.dirt]) expect(seen.get(id) ?? 0).toBeGreaterThan(0);
-    expect(seen.get(0) ?? 0).toBe(0); // no caves of air: what is dug is what a child dug
+    // R2904①: caves only in the mine band (TUNING.mining.caves); above it nothing is open that a child did not dig
+    for (let y = -10; y > TUNING.mining.caves.top; y--) for (let i = 0; i < 60; i++) expect(naturalBlock(i * 13, y, i * 29 - 700)).not.toBe(0);
     for (let i = 0; i < 50; i++) expect(naturalBlock(i * 101, TUNING.world.yMin, -i * 77)).toBe(BK.road + 1); // bedrock (6)
   });
 

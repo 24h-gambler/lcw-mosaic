@@ -137,7 +137,7 @@ function sellPrices(world: WorldDO, playerId: string): Record<string, number> {
 }
 
 /** Owned shop things by key (bag, chest, worn), from the child's items. */
-function ownedCounts(world: WorldDO, playerId: string): Record<string, number> {
+export function ownedCounts(world: WorldDO, playerId: string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of world.sql.all<{ id: string }>(
     "select id from items where owner = ? and location in ('bag', 'hotbar', 'socket', 'equipped', 'chest')",

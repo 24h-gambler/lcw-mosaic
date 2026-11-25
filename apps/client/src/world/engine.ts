@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { drawState } from './draw-state.js';
-import { TRADE_COUNTER, TUNING, VoxelWorld, parseRef, toolBreakSeconds, type PlotOp } from '@lcw/sim-core';
+import { TRADE_COUNTER, TUNING, VoxelWorld, mineTierOf, parseRef, pickTier, toolBreakSeconds, type PlotOp } from '@lcw/sim-core';
 import type { BuildAccess, CreateWorldOptions, DirectorEventKind, GraphicsSettings, NpcRef, RoomCheckInfo, SceneId, WorldHandle, WorldStats, WorldTier } from './api.js';
 import { SCENE_IDS } from './api.js';
 import { atlasSteps, TILE_PX } from './atlas.js';
@@ -39,7 +39,7 @@ import { Buddy } from './buddy.js';
 import { SeasonWeather } from './season.js';
 import { clampPitch, firstPersonDir, followCamera, makeCamFollow, viewErrorDeg } from './cam-follow.js';
 import { TEACHER_NPC_ID, disposePlate, makePlate, npcTalkScore, pickableNpc, plateText, teacherDef, teacherTarget } from './visitor.js';
-import { BLOCK_PALETTE, WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
+import { BLOCK_PALETTE, WORLD_TIME_FLOWS, WORLD_TIME_HOUR, type WorldSetupChoice } from '@lcw/content';
 import { browserStore } from './identity.js';
 import { blockTokenMap, plotSnapshot, publishShowroom } from './showroom.js';
 import { NPCS, SCENES, WANDERERS, buildTownSteps, npcTalkable, sceneRoute, standHeight, talkSpotFor, terrainHeight, type NpcDef, type NpcLook, type Spot } from './town.js';
@@ -370,6 +370,11 @@ export async function createWorldEngine(opts: CreateWorldOptions): Promise<World
   await yieldToMain();
   let heldItem: THREE.Group | null = null;
   let heldKey: string | null = null;
+  // R2904①: the pickaxe tier in hand decides which ores break (sim-core pickTier; the server checks owned tools)
+  // R2904①: the screen mirrors the server (mineTierOf owned tools): a pickaxe bought in the shop or kept in the bag lets the
+  // child mine its ores without first having it in hand; the best of what is owned and what is held
+  let ownedTier = 0;
+  builder.state.mineTier = () => Math.max(pickTier(heldKey), ownedTier);
 
   const npcs = new Map<string, NpcRt>();
   for (const def of NPCS) {
@@ -604,6 +609,15 @@ ${line(s.help)}` : line(s.text), 4000);
   let fallLastY = 0;
   let fallLastZ = 0;
   let lastPicked = -1;
+  /** the thing in the child's hand (model, hands overlay, heldKey): one place for a pick, a gift and a bag refresh */
+  const setHeld = (itemKey: string | null): void => {
+    if (itemKey === heldKey) return;
+    if (heldItem) player.hand.remove(heldItem);
+    heldItem = itemKey ? makeItemModel(itemKey) : null;
+    heldKey = itemKey;
+    if (heldItem) player.hand.add(heldItem);
+    hands.setItem(itemKey);
+  };
   const slotPicked = (i: number): void => {
     // R326: while the hotbar shows the carried blocks, picking a slot picks a block, never eats what the bag holds there
     if (blockBarShown()) return;
@@ -611,6 +625,7 @@ ${line(s.help)}` : line(s.text), 4000);
     const again = i === lastPicked;
     lastPicked = i;
     if (!k) return;
+    setHeld(k);
     for (const cb of holdListeners) cb(k);
     if (again) for (const cb of useListeners) cb(k);
   };
@@ -2456,11 +2471,7 @@ ${line(s.help)}` : line(s.text), 4000);
       if (slot < 0) slot = hud.selectedSlot;
       hotbar[slot] = itemKey;
       hud.putItem(slot, itemKey);
-      if (heldItem) player.hand.remove(heldItem);
-      heldItem = makeItemModel(itemKey);
-      heldKey = itemKey;
-      player.hand.add(heldItem);
-      hands.setItem(itemKey);
+      setHeld(itemKey);
       const hp = new THREE.Vector3();
       player.hand.getWorldPosition(hp);
       effects.sparkle(hp.x, hp.y, hp.z);
@@ -2473,12 +2484,10 @@ ${line(s.help)}` : line(s.text), 4000);
         hotbar[i] = k;
         hud.setItem(i, k);
       }
-      if (heldItem && heldKey && !hotbar.includes(heldKey)) {
-        player.hand.remove(heldItem);
-        heldItem = null;
-        heldKey = null;
-        hands.setItem(null);
-      }
+      if (heldItem && heldKey && !hotbar.includes(heldKey)) setHeld(null);
+    },
+    setOwnedTools(keys) {
+      ownedTier = mineTierOf(keys);
     },
     takeItem(itemKey) {
       const slot = hotbar.lastIndexOf(itemKey);
@@ -2555,6 +2564,8 @@ ${line(s.help)}` : line(s.text), 4000);
       }
       // null (a lesson, no world made): the town's own daytime, no weather, no animal friend
       sky.hour = look ? WORLD_TIME_HOUR[look.time] : skyDefaultHour;
+      // R2904①: only a world made with "Day and night" turns to night; a lesson (null) keeps its fixed hour
+      sky.timeFlows = look ? WORLD_TIME_FLOWS[look.time] === true : false;
       // the sky repaints itself only while time flows: paint the chosen hour now (colours, sun, light)
       sky.apply();
       if (!look) return;
@@ -2940,7 +2951,8 @@ ${line(s.help)}` : line(s.text), 4000);
       autopilot = [];
       body.x = p.x;
       body.z = p.z;
-      body.y = standHeight(world, p.x, p.z, Math.ceil(p.y ?? 40));
+      // `exact`: the feet at p.y as given (a cave floor under the town ground, where standHeight looks no lower than y -8)
+      body.y = p.exact && p.y !== undefined ? p.y : standHeight(world, p.x, p.z, Math.ceil(p.y ?? 40));
       body.vx = body.vy = body.vz = 0;
       playerYaw = camYaw = p.yaw;
       camPitch = p.pitch ?? 0.3;

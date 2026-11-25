@@ -106,7 +106,13 @@ export const TILE_NAMES = [
   'terracotta_honey',
   'flower_blue',
   'chalkboard',
-  'stone_brick'
+  'stone_brick',
+  // R2904①: the ores of the deep (sim-core natural.ts)
+  'coal_ore',
+  'iron_ore',
+  'gold_ore',
+  'ruby_ore',
+  'diamond_ore'
 ] as const;
 
 export type TileName = (typeof TILE_NAMES)[number];
@@ -240,6 +246,11 @@ export const BLOCK_LOOKS: ReadonlyArray<BlockLook | undefined> = (() => {
   put({ ...cube(68, 'flower_blue', 'plant'), shape: 'plant', collideH: 0 });
   put(cube(69, 'chalkboard', 'wood', { top: 'dark_plank', bottom: 'dark_plank' }));
   put(cube(70, 'stone_brick', 'stone'));
+  put(cube(71, 'coal_ore', 'stone'));
+  put(cube(72, 'iron_ore', 'stone'));
+  put(cube(73, 'gold_ore', 'stone'));
+  put(cube(74, 'ruby_ore', 'stone'));
+  put(cube(75, 'diamond_ore', 'stone'));
   return t;
 })();
 

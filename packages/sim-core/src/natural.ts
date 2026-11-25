@@ -9,7 +9,10 @@
  *    centre, grass on top, two layers of dirt, stone below;
  *  - the deep: stone with pockets of gravel, granite, marble and dirt, and single veins of copper (under -30 m) and gold
  *    trim (under -150 m), down to a rough bedrock floor at `TUNING.world.yMin`;
- *  - trees on the open meadow past the town's edge (never inside the town box, the builder plants those).
+ *  - trees on the open meadow past the town's edge (never inside the town box, the builder plants those);
+ *  - R2904① (Dan R2904 "12살이 기대하는 자유도"): ore veins of coal, iron, gold, ruby and diamond in the depth bands of
+ *    `TUNING.mining.ores` (a pickaxe of the ore's tier mines them), and caves — winding tunnels and a few wider rooms
+ *    of air between `CAVE_TOP` and `CAVE_BOTTOM`, never reaching the surface (a cave is found by digging into it).
  *
  * A chunk is created filled with this ground (`fillNaturalChunk`), and a cell of a chunk that was never created reads
  * as this ground (`naturalBlock`): untouched ground costs no memory, only an edit makes a chunk. Inside the town box the
@@ -32,6 +35,12 @@ const LOG = 21;
 const COPPER = 30;
 const GOLD_TRIM = 31;
 const LEAVES = 45;
+/** R2904① ores (town.ts BK.coalOre … BK.diamondOre): mined with a pickaxe of their tier (plot.ts oreTier). */
+const COAL_ORE = 71;
+const IRON_ORE = 72;
+const GOLD_ORE = 73;
+const RUBY_ORE = 74;
+const DIAMOND_ORE = 75;
 
 /** The town's centre and its generated meadow box (town.ts TOWN_CENTER, TERRAIN_MIN, TERRAIN_MAX). */
 const CENTER = 144;
@@ -66,6 +75,33 @@ function noise2(seed: number, x: number, z: number, cell: number): number {
   return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
 }
 
+function noise3(seed: number, x: number, y: number, z: number, cell: number): number {
+  // written out (no closures): it runs a few times for every cell of a deep chunk (fillNaturalChunk budget)
+  const gx = Math.floor(x / cell);
+  const gy = Math.floor(y / cell);
+  const gz = Math.floor(z / cell);
+  const fx = smooth(x / cell - gx);
+  const fy = smooth(y / cell - gy);
+  const fz = smooth(z / cell - gz);
+  const s0 = (seed ^ Math.imul(gy, 0x9e3779b1)) | 0;
+  const s1 = (seed ^ Math.imul(gy + 1, 0x9e3779b1)) | 0;
+  const a0 = hash2(s0, gx, gz);
+  const b0 = hash2(s0, gx + 1, gz);
+  const c0 = hash2(s0, gx, gz + 1);
+  const d0 = hash2(s0, gx + 1, gz + 1);
+  const a1 = hash2(s1, gx, gz);
+  const b1 = hash2(s1, gx + 1, gz);
+  const c1 = hash2(s1, gx, gz + 1);
+  const d1 = hash2(s1, gx + 1, gz + 1);
+  const ab0 = a0 + (b0 - a0) * fx;
+  const cd0 = c0 + (d0 - c0) * fx;
+  const p0 = ab0 + (cd0 - ab0) * fz;
+  const ab1 = a1 + (b1 - a1) * fx;
+  const cd1 = c1 + (d1 - c1) * fx;
+  const p1 = ab1 + (cd1 - ab1) * fz;
+  return p0 + (p1 - p0) * fy;
+}
+
 /** The town's ground height (town.ts `terrainHeight`, the same numbers): flat town, the hill, the meadow. */
 function townHeight(x: number, z: number): number {
   const dHill = Math.hypot(x + 0.5 - HILL.x, z + 0.5 - HILL.z);
@@ -91,6 +127,48 @@ export const NATURAL_MAX_SURFACE = 34;
 export const NATURAL_MIN_SURFACE = 0;
 /** A tree reaches this far above its ground (trunk up to 6, leaves one more). */
 const TREE_REACH = 8;
+/** The highest cave cell (m): a cave never opens into the town's foundation or the surface. */
+export const CAVE_TOP = TUNING.mining.caves.top;
+/** The lowest cave cell (m): the mine band of docs/03 3.2. */
+export const CAVE_BOTTOM = TUNING.mining.caves.bottom;
+
+/** Half-width of a tunnel in noise units (measured R2904: ~4% of the mine band is air, one joined tunnel system of ~18k cells per 96 x 48 x 96 m) and the room peak share. */
+const TUNNEL_WIDTH = TUNING.mining.caves.tunnelWidth;
+const ROOM_SHARE = TUNING.mining.caves.roomShare;
+
+/**
+ * A cave cell: tunnels where two smooth 3D noises both sit near their middle (a winding tube), and a few rooms where a
+ * coarser noise peaks. Thinner near the top of the band so the roof is solid.
+ */
+export function isCaveCell(x: number, y: number, z: number): boolean {
+  if (y > CAVE_TOP || y < CAVE_BOTTOM) return false;
+  const edge = Math.min(1, (CAVE_TOP - y) / 6, (y - CAVE_BOTTOM) / 6);
+  const w = TUNNEL_WIDTH * edge;
+  if (Math.abs(noise3(71, x, y * 1.5, z, 18) - 0.5) < w && Math.abs(noise3(72, x, y * 1.5, z, 18) - 0.5) < w) return true;
+  return noise3(73, x, y * 1.4, z, 26) > 1 - ROOM_SHARE * edge;
+}
+
+/** The ore at a cell, or 0: rarest first, each in its TUNING band, in small veins (a 4 x 3 x 4 cell lot, half filled). */
+const ORES: ReadonlyArray<{ id: number; key: string; lot: number }> = [
+  { id: DIAMOND_ORE, key: 'diamond' },
+  { id: RUBY_ORE, key: 'ruby' },
+  { id: GOLD_ORE, key: 'gold' },
+  { id: IRON_ORE, key: 'iron' },
+  { id: COAL_ORE, key: 'coal' }
+].map((o) => ({ ...o, lot: TUNING.mining.veinLot[o.key] ?? 0 }));
+export function naturalOre(x: number, y: number, z: number): number {
+  const lx = Math.floor(x / 4);
+  const ly = Math.floor(y / 3);
+  const lz = Math.floor(z / 4);
+  for (const [i, o] of ORES.entries()) {
+    const band = TUNING.mining.ores[o.key];
+    if (!band || y < band.minY || y > band.maxY) continue;
+    if (hash3(81 + i, lx, ly, lz) >= o.lot) continue;
+    if (hash3(91 + i, x, y, z) < 0.5) return o.id;
+  }
+  return 0;
+}
+
 /** Under this the ground is plain stone (the town's foundation look) before the pockets begin. */
 const POCKETS_BELOW = -6;
 
@@ -113,6 +191,7 @@ function groundBlock(x: number, y: number, z: number, h: number): number {
   if (y === h) return GRASS;
   if (y >= h - 2) return DIRT;
   if (y >= POCKETS_BELOW) return STONE;
+  if (isCaveCell(x, y, z)) return AIR;
   // pockets: blobs of 4 x 3 x 4 cells, their grid shifted per layer so they do not line up in columns
   const by = Math.floor(y / 3);
   const off = Math.floor(hash2(62, by, 0) * 4);
@@ -121,6 +200,8 @@ function groundBlock(x: number, y: number, z: number, h: number): number {
   if (b < 0.1) return GRANITE;
   if (b < 0.13 && y < -40) return MARBLE;
   if (b < 0.16 && y > -80) return DIRT;
+  const ore = naturalOre(x, y, z);
+  if (ore) return ore;
   const v = hash3(64, x, y, z);
   if (y < -150 && v < 0.004) return GOLD_TRIM;
   if (y < -30 && v < 0.007) return COPPER;

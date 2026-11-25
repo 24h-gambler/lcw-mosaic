@@ -35,7 +35,7 @@ describe('world api contract (docs/19 §2)', () => {
 
   it('gives every NPC a ctx the dialog schema accepts', () => {
     const ids = NPCS.map((n) => n.id).sort();
-    expect(ids).toEqual(['cafe_owner', 'errand_neighbor', 'guide', 'shop_owner']);
+    expect(ids).toEqual(['cafe_owner', 'errand_neighbor', 'guide', 'shop_owner', 'trail_ranger']);
     for (const n of NPCS) {
       expect(NpcContextSchema.safeParse(n.ctx).success).toBe(true);
       expect(n.nameKo.length).toBeGreaterThan(0);
@@ -186,7 +186,7 @@ describe('town build (all through setBlock)', () => {
       const d = NPCS.find((n) => n.id === npcId)!;
       return d.spot ?? (SCENES[d.home].npc?.id === npcId ? SCENES[d.home].npc!.spot : undefined);
     };
-    expect(NPCS.filter((n) => n.soloOnly).map((n) => n.id)).toEqual(['errand_neighbor']);
+    expect(NPCS.filter((n) => n.soloOnly).map((n) => n.id)).toEqual(['errand_neighbor', 'trail_ranger']);
     expect(npcTalkable(NPCS.find((n) => n.id === 'errand_neighbor')!, false)).toBe(true);
     for (const id of SCENE_IDS) {
       const s = SCENES[id];

@@ -164,6 +164,13 @@ export const SHOP_CATALOG: readonly ShopItemDef[] = [
   T('shovel', 'shovel', 'small', '작은 삽', '🪏', 80),
   // R2861① (Dan 11-23: "axe 를 구하러 trade market 에 갔는데 안 줌"): the axe for the open land's trees and the town's wood
   T('axe', 'axe', 'sharp', '날카로운 도끼', '🪓', 100, 'an'),
+  // R2904① (Dan R2904 "곡괭이·도끼·삽·칼이 부수는 속도와 종류를 바꾸게"): the pickaxe tiers the deep ores ask for
+  // (docs/03 D2 표, sim-core plot.ts pickTier: wooden pickaxe 1 → coal·iron, iron pickaxe 2 → gold·ruby, drill 3 →
+  // diamond; 철 곡괭이 300·드릴 350 as the table) and the sword for the soft things (leaves, hay, wool)
+  T('pickaxe', 'pickaxe', 'wooden', '나무 곡괭이', '⛏️', 120),
+  T('iron_pickaxe', 'iron pickaxe', 'strong', '튼튼한 철 곡괭이', '⚒️', 300),
+  T('drill', 'drill', 'powerful', '힘센 드릴', '🔩', 350),
+  T('sword', 'sword', 'shiny', '반짝이는 칼', '🗡️', 150),
   T('watering_can', 'watering can', 'green', '초록 물뿌리개', '🚿', 60),
   T('magnifier', 'magnifying glass', 'big', '큰 돋보기', '🔍', 70),
   T('flashlight', 'flashlight', 'bright', '밝은 손전등', '🔦', 90),

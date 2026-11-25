@@ -302,7 +302,13 @@ export const BLOCK_PALETTE: readonly BlockDef[] = [
   { id: 67, key: 'terracotta_honey', category: 'stone', blastResistance: 4, lightLevel: 0, priceCoins: 5 },
   { id: 68, key: 'flower_blue', category: 'sector', blastResistance: 0, lightLevel: 0, priceCoins: 2 },
   { id: 69, key: 'chalkboard', category: 'sector', blastResistance: 2, lightLevel: 0, priceCoins: 6 },
-  { id: 70, key: 'stone_brick', category: 'stone', blastResistance: 6, lightLevel: 0, priceCoins: 4 }
+  { id: 70, key: 'stone_brick', category: 'stone', blastResistance: 6, lightLevel: 0, priceCoins: 4 },
+  // R2904① ores of the deep (sim-core natural.ts): coins = TUNING.mining.ores price, mined with a pickaxe of their tier
+  { id: 71, key: 'coal_ore', category: 'stone', blastResistance: 6, lightLevel: 0, priceCoins: 4 },
+  { id: 72, key: 'iron_ore', category: 'stone', blastResistance: 7, lightLevel: 0, priceCoins: 10 },
+  { id: 73, key: 'gold_ore', category: 'stone', blastResistance: 7, lightLevel: 0, priceCoins: 35 },
+  { id: 74, key: 'ruby_ore', category: 'stone', blastResistance: 8, lightLevel: 0, priceCoins: 50 },
+  { id: 75, key: 'diamond_ore', category: 'stone', blastResistance: 9, lightLevel: 0, priceCoins: 90 }
 ];
 
 export interface PartDef {

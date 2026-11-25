@@ -123,6 +123,8 @@ export interface WorldHandle {
    * sparkle). A thing in hand that left the bag leaves the hand too.
    */
   setBag?(keys: ReadonlyArray<string | null>): void;
+  /** R2904①: every thing the child owns (bag, hotbar, equipped, chest): the best pickaxe among them sets which ores break. */
+  setOwnedTools?(keys: ReadonlyArray<string>): void;
   /** The player's look (skin, hair, clothes) for the mirror screen (G04), which draws its own small copy. */
   getPlayerLook?(): NpcLook;
   /** The child picked a hotbar slot that holds a thing (key, 1~5, tap). Returns an unsubscribe. */
@@ -211,7 +213,7 @@ export interface WorldHandle {
    */
   getMap?(): WorldMapInfo;
   /** Headless screenshot tools only: stand at (x, z), look along yaw (first person pitch 0.3 = level), at an hour. */
-  debugPose?(p: { x: number; z: number; y?: number; yaw: number; pitch?: number; hour?: number }): void;
+  debugPose?(p: { x: number; z: number; y?: number; exact?: boolean; yaw: number; pitch?: number; hour?: number }): void;
   /**
    * Star chip from an outside count (a lesson's stars, server-summed): the chip shows this number and celebrate()
    * no longer adds to it, so a star is never counted twice. null hands the chip back to celebrate().

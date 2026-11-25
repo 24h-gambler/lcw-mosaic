@@ -6,6 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COIN_RULES, DAILY_QUESTS, SHOP_CATALOG, bankEntriesFor, shopItem, starPrice, tradeLines } from '@lcw/content';
+import { BK, naturalBlock } from '@lcw/sim-core';
 import { PlatformDO, type LcwEnv } from '../platform.js';
 import { fakeDurableStorage } from './fake-do.js';
 
@@ -178,6 +179,38 @@ describe('town shop and coins (R326)', { timeout: 60_000 }, () => {
     expect(talk.body.granted ?? null).toBeNull();
     // a bare word or noise is not talk
     expect((await free('shop-axe-4', 'um')).body.pass).toBe(false);
+  });
+
+  it('R2904①: pickaxe tiers at the trade shop — a bare hand cannot take ore, the pickaxe can, and the collection shows it', async () => {
+    const p = platform();
+    const dev = await child(p, 'kid-mine', 'fam-mine');
+    for (const k of ['pickaxe', 'iron_pickaxe', 'drill', 'sword']) expect((await shop(p, dev)).prices[k]).toBeGreaterThan(0);
+    // an iron ore cell in the deep (the same natural ground the server's world reads)
+    let at: { x: number; y: number; z: number } | null = null;
+    for (let y = -21; y >= -89 && !at; y--) for (let x = 3000; x < 3200 && !at; x++) for (let z = 0; z < 8 && !at; z++) if (naturalBlock(x, y, z) === BK.ironOre) at = { x, y, z };
+    expect(at).not.toBeNull();
+    const dig = (x: number, y: number, z: number) => call(p, 'POST', '/v1/plot/ops', { ops: [{ op: 'break', x, y, z }] }, dev);
+    const bare = await dig(at!.x, at!.y, at!.z);
+    expect(bare.status).toBe(200);
+    expect(bare.body.results[0]).toMatchObject({ ok: false, reason: 'needs_pickaxe' });
+    // the child's own words name the pickaxe (not the axe inside the word)
+    const own = await call(p, 'POST', '/v1/converse/score', { dialog_id: 'mine-1', chosen_stars: 1, hint_level: 'none', transcript: 'I need a pickaxe to dig the stone', npc_ctx: 'trade_shop', target_text: '', mode: 'free', stt_source: 'device', confidence: 0.9, dur_ms: 2500, latency_ms: 800 }, dev);
+    expect(own.body).toMatchObject({ pass: true });
+    expect(own.body.granted?.item_id).toBe('pickaxe');
+    expect((await shop(p, dev)).owned.axe ?? 0).toBe(0);
+    const mined = await dig(at!.x, at!.y, at!.z);
+    expect(mined.body.results[0]).toMatchObject({ ok: true });
+    const inv = mined.body.inv as { slots: Array<{ ref: string } | null>; chest: Record<string, number> };
+    expect(inv.slots.some((x) => x?.ref === `b${BK.ironOre}`) || (inv.chest[`b${BK.ironOre}`] ?? 0) > 0).toBe(true);
+    const books = (await call(p, 'GET', '/v1/collection', undefined, dev)).body.books as Array<{ id: string; entries: Array<{ key: string; found: boolean }> }>;
+    const minerals = books.find((b) => b.id === 'minerals')!;
+    expect(minerals.entries.find((e) => e.key === 'iron')?.found).toBe(true);
+    expect(minerals.entries.find((e) => e.key === 'diamond')?.found).toBe(false);
+    // a stone pickaxe is not enough for gold
+    let gold: { x: number; y: number; z: number } | null = null;
+    for (let y = -61; y >= -129 && !gold; y--) for (let x = 3000; x < 3300 && !gold; x++) for (let z = 0; z < 8 && !gold; z++) if (naturalBlock(x, y, z) === BK.goldOre) gold = { x, y, z };
+    expect(gold).not.toBeNull();
+    expect((await dig(gold!.x, gold!.y, gold!.z)).body.results[0]).toMatchObject({ ok: false, reason: 'needs_iron_pickaxe' });
   });
 
   it('talk quest: five passed sentences today, then one claim', async () => {

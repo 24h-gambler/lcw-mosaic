@@ -125,6 +125,11 @@ export function bagKeys(v: ItemsView): Array<string | null> {
   return Array.from({ length: 5 }, (_, i) => bag[i] ?? null);
 }
 
+/** Every thing the child owns (the server's mineTierOf counts bag, hotbar, socket, equipped and chest): the screen's ore rule. */
+export function ownedKeys(v: ItemsView): string[] {
+  return v.items.filter((t) => ['bag', 'hotbar', 'socket', 'equipped', 'chest'].includes(t.location)).map((t) => t.item_key);
+}
+
 export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = false, teacher = false, cardOpen = false }: FrameLayerProps): React.ReactElement | null {
   const [online, setOnline] = useState(true);
   const [menu, setMenu] = useState<MenuTab | null>(null);
@@ -200,6 +205,7 @@ export function FrameLayer({ world, identity, lessonOn = false, dialogOpen = fal
       // a linked child in a lesson sees the lesson's coins (the lesson layer sets them), not the home ledger
       if (typeof v.coins_total === 'number' && !(lessonOn && auth.kind === 'child')) world?.setCoins?.(v.coins_total);
       world?.setBag?.(bagKeys(v));
+      world?.setOwnedTools?.(ownedKeys(v));
     },
     [world, lessonOn, auth.kind]
   );

@@ -8,7 +8,7 @@
  */
 
 export type WorldSeason = 'spring' | 'summer' | 'autumn' | 'winter';
-export type WorldTime = 'morning' | 'noon' | 'sunset';
+export type WorldTime = 'morning' | 'noon' | 'sunset' | 'daynight';
 export type WorldBuddy = 'puppy' | 'kitten' | 'bunny' | 'chick';
 
 export interface WorldSetupChoice {
@@ -44,7 +44,9 @@ export const WORLD_SEASONS: readonly WorldSetupOption<WorldSeason>[] = [
 export const WORLD_TIMES: readonly WorldSetupOption<WorldTime>[] = [
   { id: 'morning', emoji: '🌅', labelKo: '아침', hintKo: '해가 막 떴어요', labelEn: 'Morning', hintEn: 'The sun is up' },
   { id: 'noon', emoji: '🌞', labelKo: '한낮', hintKo: '하늘이 파래요', labelEn: 'Noon', hintEn: 'The sky is blue' },
-  { id: 'sunset', emoji: '🌇', labelKo: '노을', hintKo: '하늘이 주황빛이에요', labelEn: 'Sunset', hintEn: 'The sky is orange' }
+  { id: 'sunset', emoji: '🌇', labelKo: '노을', hintKo: '하늘이 주황빛이에요', labelEn: 'Sunset', hintEn: 'The sky is orange' },
+  // R2904① (Dan R2904 "낮·밤"): the sky turns — morning to a starry night and back (24 minutes a day, client sky.ts)
+  { id: 'daynight', emoji: '🌗', labelKo: '낮과 밤', hintKo: '해가 지면 별이 떠요', labelEn: 'Day and night', hintEn: 'Stars come out at night' }
 ];
 
 export const WORLD_BUDDIES: readonly WorldSetupOption<WorldBuddy>[] = [
@@ -54,8 +56,13 @@ export const WORLD_BUDDIES: readonly WorldSetupOption<WorldBuddy>[] = [
   { id: 'chick', emoji: '🐥', labelKo: '병아리', hintKo: '삐약삐약 따라와요', labelEn: 'Chick', hintEn: 'Peeps after you' }
 ];
 
-/** Hour of the sky for each time of day (the sky never goes to night: a child's town is always lit). */
-export const WORLD_TIME_HOUR: Readonly<Record<WorldTime, number>> = { morning: 8, noon: 12.5, sunset: 18 };
+/**
+ * Hour of the sky for each time of day. The three fixed ones never go to night; `daynight` starts in the morning and
+ * then flows (WORLD_TIME_FLOWS), so night comes only to a child who chose it. A lesson keeps the town's fixed day.
+ */
+export const WORLD_TIME_HOUR: Readonly<Record<WorldTime, number>> = { morning: 8, noon: 12.5, sunset: 18, daynight: 8 };
+/** R2904①: the times of day whose sky keeps turning. */
+export const WORLD_TIME_FLOWS: Readonly<Record<WorldTime, boolean>> = { morning: false, noon: false, sunset: false, daynight: true };
 
 export const WORLD_NAME_MAX = 12;
 

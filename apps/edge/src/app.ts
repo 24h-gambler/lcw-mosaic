@@ -44,8 +44,8 @@ import { listCollection } from './collection.js';
 import { readSettings, validateSettings, writeSettings } from './settings.js';
 import { applyErrandStep, getErrand } from './errand.js';
 import { plotStoreFor, worldTag } from './plot.js';
-import { creditSoloEarn, mountShopRoutes } from './shop.js';
-import { OPS_PER_REQUEST_MAX } from '@lcw/sim-core';
+import { creditSoloEarn, mountShopRoutes, ownedCounts } from './shop.js';
+import { OPS_PER_REQUEST_MAX, mineTierOf } from '@lcw/sim-core';
 
 export interface EdgeRuntimeDeps {
   db: EdgePlatformDb;
@@ -619,7 +619,9 @@ export function createEdgeApp(deps: EdgeRuntimeDeps): Hono {
     // set only by the platform from the token (a lesson builds on the plot only, R326), never by a child's body
     const scope = body.plot_only === true ? 'plot' : 'world';
     const store = plotStoreFor(world, world.sql, playerId, deps.nowMs());
-    const out = store.applyOps(body.ops, deps.nowMs(), { batch, guestGrant, scope });
+    // R2904①: an ore needs a pickaxe of its tier; the server reads the child's own tools (bought, handed over) itself
+    const mineTier = () => mineTierOf(Object.keys(ownedCounts(world, playerId)));
+    const out = store.applyOps(body.ops, deps.nowMs(), { batch, guestGrant, scope, mineTier });
     // a bundle bought while playing opens after this batch (never before it: a full hand moves a stack to the chest,
     // and the batch's slot numbers were chosen against the hand the device showed); `unpacked` asks for a fresh read
     const unpacked = guestGrant ? 0 : store.unpackShopBlocks(deps.nowMs());

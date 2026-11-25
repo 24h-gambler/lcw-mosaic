@@ -67,7 +67,48 @@ export function blockRef(id: number): ItemRef {
 export function furnitureRef(key: FurnitureKey): ItemRef {
   return `f${key}`;
 }
-const BUILDABLE = new Set(BUILD_PALETTE);
+/**
+ * R2904① (Dan R2904 "12살이 기대하는 도구·광물"): the ores of the deep (natural.ts naturalOre) and the mineral each is.
+ * A mined ore comes back as itself (placeable, shown off on the plot) but never starts in the chest.
+ */
+const ORE_KEY: ReadonlyMap<number, string> = new Map([
+  [BK.coalOre, 'coal'],
+  [BK.ironOre, 'iron'],
+  [BK.goldOre, 'gold'],
+  [BK.rubyOre, 'ruby'],
+  [BK.diamondOre, 'diamond']
+]);
+export const ORE_BLOCKS: readonly number[] = [...ORE_KEY.keys()];
+/** The mineral (TUNING.mining.ores key) an ore block is, or null. */
+export function oreKeyOf(id: number): string | null {
+  return ORE_KEY.get(id) ?? null;
+}
+/** The pickaxe tier an ore needs (TUNING.mining.ores requiredToolTier: coal·iron 1, gold·ruby 2, diamond 3); 0 = any. */
+export function oreTier(id: number): number {
+  const k = ORE_KEY.get(id);
+  return k ? (TUNING.mining.ores[k]?.requiredToolTier ?? 0) : 0;
+}
+/** The mining tier of an item: a pickaxe 1, an iron pickaxe 2, a drill 3, anything else (a bare hand) 0. */
+export function pickTier(itemKey: string | null | undefined): number {
+  const k = (itemKey ?? '').toLowerCase();
+  if (k.includes('drill')) return 3;
+  if (k.includes('pickaxe')) return k.includes('iron') ? 2 : 1;
+  return 0;
+}
+/** The best mining tier among items a child owns. */
+export function mineTierOf(itemKeys: Iterable<string>): number {
+  let t = 0;
+  for (const k of itemKeys) t = Math.max(t, pickTier(k));
+  return t;
+}
+/** Why `id` cannot be mined at `tier` (which pickaxe it needs), or null when it can. */
+export function oreReason(id: number, tier: number): 'needs_pickaxe' | 'needs_iron_pickaxe' | 'needs_drill' | null {
+  const need = oreTier(id);
+  if (!need || tier >= need) return null;
+  return need >= 3 ? 'needs_drill' : need === 2 ? 'needs_iron_pickaxe' : 'needs_pickaxe';
+}
+
+const BUILDABLE = new Set([...BUILD_PALETTE, ...ORE_BLOCKS]);
 export function parseRef(ref: string): { kind: 'block'; id: number } | { kind: 'furniture'; key: FurnitureKey } | null {
   if (ref.startsWith('b')) {
     const id = Number(ref.slice(1));
@@ -114,18 +155,22 @@ export function breakSeconds(id: number): number {
 }
 
 /** R2861① (Dan 11-23 "axe 를 구하러 trade market 에 감"): what each hand tool is for. */
-const TOOL_BLOCKS: Record<'axe' | 'shovel' | 'pickaxe', ReadonlySet<number>> = {
-  axe: new Set([BK.plank, BK.oakPlank, BK.birchPlank, BK.pinePlank, BK.log, BK.fence, BK.door, BK.crate, BK.barrel, BK.leaves]),
-  shovel: new Set([BK.dirt, BK.grass, BK.sand, BK.gravel, BK.hay]),
-  pickaxe: new Set([BK.stone, BK.cobble, BK.granite, BK.marble, BK.brick, BK.stoneStair, BK.stoneSlab, BK.copper, BK.ironPlate])
+export type HandTool = 'axe' | 'shovel' | 'pickaxe' | 'sword';
+const TOOL_BLOCKS: Record<HandTool, ReadonlySet<number>> = {
+  axe: new Set([BK.plank, BK.oakPlank, BK.birchPlank, BK.pinePlank, BK.darkPlank, BK.log, BK.fence, BK.door, BK.crate, BK.barrel, BK.leaves]),
+  shovel: new Set([BK.dirt, BK.grass, BK.sand, BK.gravel, BK.hay, BK.path]),
+  pickaxe: new Set([BK.stone, BK.cobble, BK.stoneBrick, BK.granite, BK.marble, BK.brick, BK.stoneStair, BK.stoneSlab, BK.copper, BK.ironPlate, BK.goldTrim, ...ORE_BLOCKS]),
+  // R2904①: the sword cuts the soft things — leaves, hay, wool, grass tufts
+  sword: new Set([BK.leaves, BK.hay, BK.tallGrass, BK.woolWhite, BK.woolRed, BK.woolYellow, BK.woolBlue, BK.woolGreen, BK.woolOrange, BK.woolPink, BK.woolPurple, BK.carpet])
 };
 /** A tool held in hand breaks its own kind of block in this share of the bare-hand time. */
 export const TOOL_BREAK_FACTOR = 0.35;
 /** The hand tool an item key is (an iron pickaxe is a pickaxe, never an axe), or null. */
-export function toolOf(itemKey: string | null | undefined): 'axe' | 'shovel' | 'pickaxe' | null {
+export function toolOf(itemKey: string | null | undefined): HandTool | null {
   const k = (itemKey ?? '').toLowerCase();
   if (!k) return null;
-  if (k.includes('pickaxe')) return 'pickaxe';
+  if (k.includes('pickaxe') || k.includes('drill')) return 'pickaxe';
+  if (k.includes('sword')) return 'sword';
   if (/(^|_)axe($|_)/.test(k)) return 'axe';
   if (k.includes('shovel')) return 'shovel';
   return null;
@@ -160,7 +205,11 @@ export type PlotEditReason =
   /** R326: past the generated ground (no building over the void) */
   | 'edge'
   /** R326: this world already holds TUNING.building.freeMaxCells changed cells outside the plot */
-  | 'too_many';
+  | 'too_many'
+  /** R2904①: an ore needs a pickaxe of its tier (oreReason) */
+  | 'needs_pickaxe'
+  | 'needs_iron_pickaxe'
+  | 'needs_drill';
 
 /**
  * Where an edit may land (R326, docs/03 D13 자유 건축): 'world' = anywhere in the child's own world the town rules
@@ -233,6 +282,11 @@ export interface PlotState {
   inv: PlotInventory;
   scope?: BuildScope;
   budget?: FreeBuildBudget;
+  /**
+   * R2904①: the pickaxe tier the breaker has (pickTier/mineTierOf) — the client passes the tool in hand, the server the
+   * best one the child owns; asked only when an ore is broken. Missing = a bare hand (no ore).
+   */
+  mineTier?: () => number;
 }
 
 export const cellKey = (x: number, y: number, z: number): string => `${x},${y},${z}`;
@@ -374,6 +428,10 @@ export function applyPlotOp(state: PlotState, actorId: string, op: PlotOp): Plot
       const prev = world.getBlock(op.x, op.y, op.z);
       if (prev === 0 || prev === BK.water) return { ok: false, reason: 'no_block' };
       if (!Number.isFinite(breakSeconds(prev))) return { ok: false, reason: 'unbreakable' };
+      if (oreTier(prev) > 0) {
+        const need = oreReason(prev, state.mineTier?.() ?? 0);
+        if (need) return { ok: false, reason: need };
+      }
       // furniture standing on this block would float
       if (furniture.has(cellKey(op.x, op.y + 1, op.z))) return { ok: false, reason: 'occupied' };
       // a block set into the town's water or a grass tuft gives that back when broken (the pond is not drained, and
